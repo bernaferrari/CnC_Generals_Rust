@@ -1,14 +1,7 @@
-/*
-**  Command & Conquer Generals Zero Hour(tm)
-**  Minimal helper singletons for the Rust game client port.
-**
-**  The original C++ client relied heavily on global singletons such as
-**  `TheInGameUI`.  To keep the Rust conversion close to the original flow
-**  while remaining testable and platform‑agnostic, we provide lightweight
-**  facades that simply log the requested operations.  Higher level systems
-**  can hook into these calls later to forward them to the real gameplay
-**  pipeline.
-*/
+//! Borrowed client UI operations and native-service adapters.
+//!
+//! InGameUI state belongs to its receiving GameClient. The inherent operations
+//! below use that owned subsystem directly; no active UI backend is published.
 
 use crate::display::view::{IPoint2, Point3, with_tactical_view, with_tactical_view_ref};
 
@@ -31,163 +24,13 @@ use crate::gui::{
 use crate::input::Mouse;
 use crate::message_stream::game_message::{Coord3D, ICoord2D};
 use game_engine::common::recorder::with_recorder;
-use gamelogic::helpers::{
-    GamePauseHooks, TheGameLogic, TheScriptEngine, register_game_pause_hooks,
-};
+use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
 
 use log::info;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-
-/// Trait implemented by the real in-game UI layer so the legacy
-/// `TheInGameUI::*` entry points can forward requests to the modern
-/// Rust subsystem.
-pub trait InGameUiHooks: Send + Sync {
-    fn radar_presentation(
-        &self,
-    ) -> Option<Arc<game_engine::common::system::radar::RadarPresentation>> {
-        None
-    }
-    fn set_radar_presentation(
-        &self,
-        _radar: Arc<game_engine::common::system::radar::RadarPresentation>,
-    ) {
-    }
-    fn admit_radar_draw(
-        &self,
-        _radar: &game_engine::common::system::radar::RadarPresentation,
-    ) -> usize {
-        0
-    }
-    fn take_radar_acknowledgments(&self) -> Vec<(Arc<()>, Vec<(usize, Arc<()>)>)> {
-        Vec::new()
-    }
-
-    fn select_area(&self, upper_left: ICoord2D, lower_right: ICoord2D);
-    fn issue_move_command(&self, position: Coord3D, queue: bool);
-    fn issue_force_attack_ground(&self, position: Coord3D);
-    fn issue_attack_command(&self, target: u32, queue: bool);
-    fn issue_stop_command(&self);
-    fn set_hint_text(&self, hint: &str);
-    fn get_pending_place_template(&self) -> Option<String>;
-    fn get_pending_place_source_object_id(&self) -> u32;
-    fn set_pending_place(&self, template_name: Option<String>, source_object_id: Option<u32>);
-    fn get_pending_special_power(&self) -> Option<PendingSpecialPower>;
-    fn set_pending_special_power(&self, pending: Option<PendingSpecialPower>);
-    fn clear_pending_special_power(&self);
-    fn get_pending_command(&self) -> Option<PendingCommand>;
-    fn set_pending_command(&self, pending: Option<PendingCommand>);
-    fn clear_pending_command(&self);
-    fn is_placement_anchored(&self) -> bool;
-    fn set_placement_start(&self, start: Option<ICoord2D>);
-    fn set_placement_end(&self, end: Option<ICoord2D>);
-    fn get_placement_points(&self) -> Option<(ICoord2D, ICoord2D)>;
-    fn get_placement_angle(&self) -> f32;
-    fn set_placement_angle(&self, angle: f32);
-    fn set_radius_cursor_active(&self, _radius_cursor_type: Option<String>) {}
-    fn set_radius_cursor_none(&self);
-    fn display_cant_build_message(&self, message: &str);
-    fn message(&self, text: &str);
-    fn free_message_resources(&self) {}
-    fn military_subtitle(
-        &self,
-        label: &str,
-        duration_ms: i32,
-        manager: &mut crate::gui::window_manager::WindowManager,
-    ) {
-        crate::gui::ingame_ui::start_military_subtitle(label, duration_ms, manager);
-    }
-    fn disable_tooltips_until(&self, _frame_num: u32) {}
-    fn clear_tooltips_disabled(&self) {}
-    fn are_tooltips_disabled(&self) -> bool {
-        false
-    }
-    fn clear_attack_move_to_mode(&self);
-    fn is_in_attack_move_to_mode(&self) -> bool;
-    fn set_attack_move_to_mode(&self, enabled: bool);
-    fn is_in_force_attack_mode(&self) -> bool;
-    fn is_in_force_move_to_mode(&self) -> bool;
-    fn is_in_prefer_selection_mode(&self) -> bool;
-    fn set_force_attack_mode(&self, enabled: bool);
-    fn set_force_move_to_mode(&self, enabled: bool);
-    fn set_prefer_selection_mode(&self, enabled: bool);
-    fn is_in_waypoint_mode(&self) -> bool;
-    fn set_waypoint_mode(&self, enabled: bool);
-    fn is_camera_rotating_left(&self) -> bool;
-    fn set_camera_rotate_left(&self, set: bool);
-    fn is_camera_rotating_right(&self) -> bool;
-    fn set_camera_rotate_right(&self, set: bool);
-    fn is_camera_zooming_in(&self) -> bool;
-    fn set_camera_zoom_in(&self, set: bool);
-    fn is_camera_zooming_out(&self) -> bool;
-    fn set_camera_zoom_out(&self, set: bool);
-    fn is_camera_tracking_drawable(&self) -> bool;
-    fn set_camera_tracking_drawable(&self, set: bool);
-    fn get_frame_selection_changed(&self) -> u32;
-    fn set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
-        &self,
-        _enabled: bool,
-    ) {
-    }
-    fn get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(&self) -> bool {
-        false
-    }
-    fn set_draw_rmb_scroll_anchor(&self, _enabled: bool) {}
-    fn set_move_rmb_scroll_anchor(&self, _enabled: bool) {}
-    fn get_draw_rmb_scroll_anchor(&self) -> bool {
-        false
-    }
-    fn get_move_rmb_scroll_anchor(&self) -> bool {
-        false
-    }
-    fn set_max_select_count(&self, _max_select_count: i32) {}
-    fn get_max_select_count(&self) -> i32 {
-        -1
-    }
-
-    fn trigger_double_click_attack_move_guard_hint(&self) {}
-}
-
-// THREAD: main thread only. The in-game UI backend is registered during
-// client init and read from WND/logic dispatch on the same thread (GameClient
-// is main-thread-only; see core/mod.rs and the WindowManager thread_local in
-// gui/window_manager/reentry.rs).
-thread_local! {
-    static IN_GAME_UI_BACKEND: RefCell<Option<Arc<dyn InGameUiHooks>>> =
-        const { RefCell::new(None) };
-}
-
-pub fn register_in_game_ui_backend(hooks: Arc<dyn InGameUiHooks>) {
-    IN_GAME_UI_BACKEND.with(|slot| *slot.borrow_mut() = Some(hooks));
-}
-
-/// Snapshot the registered backend (cheap `Arc` clone) so the callback never
-/// runs while the slot itself is borrowed — backends may re-enter helpers.
-fn in_game_ui_backend() -> Option<Arc<dyn InGameUiHooks>> {
-    IN_GAME_UI_BACKEND.with(|slot| slot.borrow().clone())
-}
-
-fn with_backend<F>(f: F) -> bool
-where
-    F: FnOnce(&dyn InGameUiHooks),
-{
-    match in_game_ui_backend() {
-        Some(handler) => {
-            f(handler.as_ref());
-            true
-        }
-        None => false,
-    }
-}
-
-fn with_backend_result<R, F>(f: F) -> Option<R>
-where
-    F: FnOnce(&dyn InGameUiHooks) -> R,
-{
-    in_game_ui_backend().map(|handler| f(handler.as_ref()))
-}
 
 // THREAD: main thread only. The inner `Arc<Mutex<Mouse>>` is the shared
 // `the_mouse()` handle owned by `input::mouse`; this slot only remembers
@@ -479,17 +322,6 @@ where
     F: FnOnce(&dyn ControlBarHooks) -> R,
 {
     control_bar_backend().map(|handler| f(handler.as_ref()))
-}
-
-/// Pause restore callbacks are separate from lexical new-game UI preparation.
-pub fn register_game_pause_restore_hooks() {
-    let _ = register_game_pause_hooks(Arc::new(GameClientPauseHooks {
-        // THREAD: gamelogic hook objects must be `Send + Sync`; only the
-        // main-thread logic tick drives pause transitions, so plain atomics
-        // carry the restore memories (C++ `InGameUI` member state).
-        input_enabled_memory: AtomicBool::new(true),
-        mouse_visible_memory: AtomicBool::new(true),
-    }));
 }
 
 struct GameClientObserverAudioLocalityHooks;
@@ -807,89 +639,6 @@ pub fn register_observer_audio_view_hooks() {
     ));
 }
 
-struct GameClientPauseHooks {
-    // THREAD: gamelogic's `GamePauseHooks` requires `Send + Sync`; only the
-    // main-thread logic tick invokes pause transitions, so plain atomics
-    // carry the restore memories (no cross-thread handoff exists).
-    input_enabled_memory: AtomicBool,
-    mouse_visible_memory: AtomicBool,
-}
-
-impl GamePauseHooks for GameClientPauseHooks {
-    fn on_game_pause_state_changed(&self, paused: bool) {
-        if paused {
-            self.input_enabled_memory
-                .store(TheInGameUI::get_input_enabled(), Ordering::Relaxed);
-            self.mouse_visible_memory
-                .store(is_mouse_cursor_visible(), Ordering::Relaxed);
-        }
-        let input_enabled_memory = self.input_enabled_memory.load(Ordering::Relaxed);
-        let mouse_visible_memory = self.mouse_visible_memory.load(Ordering::Relaxed);
-
-        if paused {
-            set_mouse_cursor_visibility(true);
-            TheInGameUI::set_cursor_arrow();
-            if input_enabled_memory {
-                TheInGameUI::set_input_enabled(false);
-            }
-        } else {
-            set_mouse_cursor_visibility(mouse_visible_memory);
-            if input_enabled_memory {
-                TheInGameUI::set_input_enabled(true);
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct InGameUIPlacementState {
-    pending_template: Option<String>,
-    pending_source_object_id: u32,
-    placement_start: Option<ICoord2D>,
-    placement_end: Option<ICoord2D>,
-    placement_angle: f32,
-    radius_cursor_active: bool,
-    radius_cursor_type: String,
-    attack_move_to_mode: bool,
-    force_attack_mode: bool,
-    force_move_to_mode: bool,
-    prefer_selection_mode: bool,
-    waypoint_mode: bool,
-    camera_rotating_left: bool,
-    camera_rotating_right: bool,
-    camera_zooming_in: bool,
-    camera_zooming_out: bool,
-    camera_tracking_drawable: bool,
-    pending_special_power: Option<PendingSpecialPower>,
-    pending_command: Option<PendingCommand>,
-}
-
-impl Default for InGameUIPlacementState {
-    fn default() -> Self {
-        Self {
-            pending_template: None,
-            pending_source_object_id: 0,
-            placement_start: None,
-            placement_end: None,
-            placement_angle: 0.0,
-            radius_cursor_active: false,
-            radius_cursor_type: String::new(),
-            attack_move_to_mode: false,
-            force_attack_mode: false,
-            force_move_to_mode: false,
-            prefer_selection_mode: false,
-            waypoint_mode: false,
-            camera_rotating_left: false,
-            camera_rotating_right: false,
-            camera_zooming_in: false,
-            camera_zooming_out: false,
-            camera_tracking_drawable: false,
-            pending_special_power: None,
-            pending_command: None,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct PendingSpecialPower {
     pub power_id: u32,
@@ -922,16 +671,6 @@ pub struct PopupMessageData {
     pub layout: Option<Rc<RefCell<WindowLayout>>>,
 }
 
-thread_local! {
-    // THREAD: main thread only — hints are queued by input/logic ticks and
-    // consumed by the renderer on the same thread.
-    static HINT_DATA: RefCell<Vec<HintData>> = RefCell::new(Vec::new());
-}
-
-fn with_hints<R>(f: impl FnOnce(&mut Vec<HintData>) -> R) -> R {
-    HINT_DATA.with(|state| f(&mut state.borrow_mut()))
-}
-
 #[derive(Debug, Clone, Copy)]
 enum CursorType {
     Arrow,
@@ -960,7 +699,7 @@ enum CursorType {
 }
 
 #[derive(Debug)]
-struct InGameUIStatusState {
+pub(crate) struct InGameUIStatusState {
     quit_menu_visible: bool,
     input_enabled: bool,
     client_quiet: bool,
@@ -974,10 +713,6 @@ struct InGameUIStatusState {
     mouse_mode: MouseMode,
     mouse_mode_cursor: MouseCursor,
     moused_over_drawable_id: u32,
-    prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: bool,
-    draw_rmb_scroll_anchor: bool,
-    move_rmb_scroll_anchor: bool,
-    max_select_count: i32,
     double_click_attack_move_guard_timer: u32,
     guard_hint_stashed_position: (f32, f32, f32),
 }
@@ -998,37 +733,10 @@ impl Default for InGameUIStatusState {
             mouse_mode: MouseMode::Default,
             mouse_mode_cursor: MouseCursor::Arrow,
             moused_over_drawable_id: 0,
-            prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: false,
-            draw_rmb_scroll_anchor: false,
-            move_rmb_scroll_anchor: false,
-            max_select_count: -1,
             double_click_attack_move_guard_timer: 0,
             guard_hint_stashed_position: (0.0, 0.0, 0.0),
         }
     }
-}
-
-// THREAD: main thread only. `TheInGameUI` mirrors the C++ main-thread
-// singleton `TheInGameUI`; every accessor is reached from WND dispatch, the
-// message stream, the logic tick, or the renderer — all the main thread.
-thread_local! {
-    static IN_GAME_UI_STATUS: RefCell<InGameUIStatusState> =
-        RefCell::new(InGameUIStatusState::default());
-}
-
-fn with_status<R>(f: impl FnOnce(&mut InGameUIStatusState) -> R) -> R {
-    IN_GAME_UI_STATUS.with(|state| f(&mut state.borrow_mut()))
-}
-
-// THREAD: main thread only — fallback state for when no in-game UI backend is
-// registered (headless/tools paths), same single thread as the backend slot.
-thread_local! {
-    static IN_GAME_UI_PLACEMENT: RefCell<InGameUIPlacementState> =
-        RefCell::new(InGameUIPlacementState::default());
-}
-
-fn with_placement<R>(f: impl FnOnce(&mut InGameUIPlacementState) -> R) -> R {
-    IN_GAME_UI_PLACEMENT.with(|state| f(&mut state.borrow_mut()))
 }
 
 /// C++ `InGameUI::displayCantBuildMessage` label map (`GUI:CantBuild*`).
@@ -1063,38 +771,69 @@ pub fn map_cant_build_message(message: &str) -> String {
     }
 }
 
-/// Minimal stand‑in for the classic `TheInGameUI` singleton.
-///
-/// The real client would translate these calls into message stream operations
-/// and UI updates.  For now we simply emit trace information so that the
-/// message translators remain close to their C++ counterparts.
-pub struct TheInGameUI;
-
-impl TheInGameUI {
-    pub fn admit_radar_draw(radar: &game_engine::common::system::radar::RadarPresentation) {
-        let count = with_backend_result(|backend| backend.admit_radar_draw(radar)).unwrap_or(0);
-        for _ in 0..count {
-            game_engine::common::system::radar::play_radar_event_chirp();
+/// Operations on the receiving client's canonical UI state.
+impl crate::core::subsystems::InGameUISubsystem {
+    pub fn admit_radar_draw(
+        &mut self,
+        radar: &game_engine::common::system::radar::RadarPresentation,
+    ) -> usize {
+        if !self
+            .radar_presentation
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current.identity(), radar.identity()))
+        {
+            return 0;
         }
+        self.radar_presented_keys.retain(|old| {
+            radar
+                .event_keys()
+                .iter()
+                .any(|(_, identity, _, _)| Arc::ptr_eq(old, identity))
+        });
+        let mut events = Vec::new();
+        let mut chirps = 0;
+        for (index, identity, played, beacon) in radar.event_keys() {
+            if !played
+                && !self
+                    .radar_presented_keys
+                    .iter()
+                    .any(|old| Arc::ptr_eq(old, identity))
+            {
+                self.radar_presented_keys.push(identity.clone());
+                events.push((*index, identity.clone()));
+                chirps += usize::from(!*beacon);
+            }
+        }
+        if !events.is_empty() {
+            self.radar_acknowledgments
+                .push((radar.identity().clone(), events));
+        }
+        chirps
     }
-    pub fn take_radar_acknowledgments() -> Vec<(Arc<()>, Vec<(usize, Arc<()>)>)> {
-        with_backend_result(|backend| backend.take_radar_acknowledgments()).unwrap_or_default()
+    pub fn take_radar_acknowledgments(&mut self) -> Vec<(Arc<()>, Vec<(usize, Arc<()>)>)> {
+        std::mem::take(&mut self.radar_acknowledgments)
     }
-
-    pub fn radar_presentation() -> Option<Arc<game_engine::common::system::radar::RadarPresentation>>
-    {
-        with_backend_result(|backend| backend.radar_presentation()).flatten()
+    pub fn radar_presentation(
+        &self,
+    ) -> Option<Arc<game_engine::common::system::radar::RadarPresentation>> {
+        self.radar_presentation.clone()
     }
     pub fn set_radar_presentation(
+        &mut self,
         radar: Arc<game_engine::common::system::radar::RadarPresentation>,
     ) {
-        with_backend(|backend| backend.set_radar_presentation(radar));
+        if !self
+            .radar_presentation
+            .as_ref()
+            .is_some_and(|old| Arc::ptr_eq(old.identity(), radar.identity()))
+        {
+            self.radar_presented_keys.clear();
+        }
+        self.radar_presentation = Some(radar);
     }
-
-    fn set_cursor(cursor: CursorType) {
-        with_status(|guard| guard.cursor = cursor);
+    fn set_cursor(&mut self, cursor: CursorType) {
+        self.status.cursor = cursor;
     }
-
     fn cursor_from_name(name: &str) -> CursorType {
         match name {
             "ARROW" => CursorType::Arrow,
@@ -1123,7 +862,6 @@ impl TheInGameUI {
             _ => CursorType::Arrow,
         }
     }
-
     fn cursor_name(cursor: CursorType) -> &'static str {
         match cursor {
             CursorType::Arrow => "ARROW",
@@ -1151,328 +889,155 @@ impl TheInGameUI {
             CursorType::ParticleUplinkCannon => "PARTICLE_UPLINK_CANNON",
         }
     }
-
-    pub fn select_area(upper_left: ICoord2D, lower_right: ICoord2D) {
-        if !with_backend(|backend| backend.select_area(upper_left.clone(), lower_right.clone())) {
-            info!(
-                "Selecting area from ({}, {}) to ({}, {})",
-                upper_left.x, upper_left.y, lower_right.x, lower_right.y
-            );
-        }
+    pub fn select_area(&mut self, upper_left: ICoord2D, lower_right: ICoord2D) {
+        self.record_selection(upper_left, lower_right);
     }
-
-    pub fn issue_move_command(position: Coord3D, queue: bool) {
-        if !with_backend(|backend| backend.issue_move_command(position.clone(), queue)) {
-            info!(
-                "Issuing move command to ({:.1}, {:.1}, {:.1}) queued={}",
-                position.x, position.y, position.z, queue
-            );
-        }
-    }
-
-    pub fn issue_force_attack_ground(position: Coord3D) {
-        if !with_backend(|backend| backend.issue_force_attack_ground(position.clone())) {
-            info!(
-                "Issuing force attack ground at ({:.1}, {:.1}, {:.1})",
-                position.x, position.y, position.z
-            );
-        }
-    }
-
-    pub fn issue_attack_command(target: u32, queue: bool) {
-        if !with_backend(|backend| backend.issue_attack_command(target, queue)) {
-            info!(
-                "Issuing attack command on target {} queued={}",
-                target, queue
-            );
-        }
-    }
-
-    pub fn issue_stop_command() {
-        if !with_backend(|backend| backend.issue_stop_command()) {
-            info!("Issuing stop command");
-        }
-    }
-
-    pub fn set_hint_text(hint: &str) {
-        if !with_backend(|backend| backend.set_hint_text(hint)) {
-            info!("Hint: {}", hint);
-        }
-    }
-
-    pub fn set_quit_menu_visible(visible: bool) {
-        with_status(|guard| guard.quit_menu_visible = visible);
-    }
-
-    pub fn is_quit_menu_visible() -> bool {
-        with_status(|guard| guard.quit_menu_visible)
-    }
-
-    pub fn get_input_enabled() -> bool {
-        with_status(|guard| guard.input_enabled)
-            && gamelogic::helpers::TheGameLogic::is_input_enabled()
-    }
-
-    pub fn set_input_enabled(enabled: bool) {
-        let was_enabled = with_status(|guard| {
-            if !enabled {
-                guard.selecting = false;
-                guard.scrolling = false;
-                guard.scroll_amount_x = 0.0;
-                guard.scroll_amount_y = 0.0;
-            }
-            let was_enabled = guard.input_enabled;
-            guard.input_enabled = enabled;
-            was_enabled
+    pub fn issue_move_command(&mut self, position: Coord3D, queue: bool) {
+        self.record_command(crate::core::subsystems::CommandLogEntry::Move {
+            position,
+            queued: queue,
         });
+    }
+    pub fn issue_force_attack_ground(&mut self, position: Coord3D) {
+        self.record_command(
+            crate::core::subsystems::CommandLogEntry::ForceAttackGround { position },
+        );
+    }
+    pub fn issue_attack_command(&mut self, target: u32, queue: bool) {
+        self.record_command(crate::core::subsystems::CommandLogEntry::Attack {
+            target_id: target,
+            queued: queue,
+        });
+    }
+    pub fn issue_stop_command(&mut self) {
+        self.record_command(crate::core::subsystems::CommandLogEntry::Stop);
+    }
+    pub fn set_hint_text(&mut self, hint: &str, frame: u32) {
+        self.push_hud_message_at(hint.to_owned(), frame);
+    }
+    pub fn set_quit_menu_visible(&mut self, visible: bool) {
+        self.status.quit_menu_visible = visible;
+    }
+    pub fn is_quit_menu_visible(&self) -> bool {
+        self.status.quit_menu_visible
+    }
+    pub fn get_input_enabled(&self) -> bool {
+        self.status.input_enabled
+    }
+    pub fn set_input_enabled(&mut self, enabled: bool) {
+        let was_enabled = {
+            if !enabled {
+                self.status.selecting = false;
+                self.status.scrolling = false;
+                self.status.scroll_amount_x = 0.0;
+                self.status.scroll_amount_y = 0.0;
+            }
+            let was_enabled = self.status.input_enabled;
+            self.status.input_enabled = enabled;
+            was_enabled
+        };
         if was_enabled && !enabled {
             // C++ InGameUI::setInputEnabled falling edge (InGameUI.cpp:3391-3408)
-            Self::set_force_attack_mode(false);
-            Self::set_force_move_to_mode(false);
-            Self::set_waypoint_mode(false);
-            Self::set_prefer_selection_mode(false);
-            Self::set_camera_rotate_left(false);
-            Self::set_camera_rotate_right(false);
-            Self::set_camera_zoom_in(false);
-            Self::set_camera_zoom_out(false);
+            self.set_force_attack_mode(false);
+            self.set_force_move_to_mode(false);
+            self.set_waypoint_mode(false);
+            self.set_prefer_selection_mode(false);
+            self.set_camera_rotate_left(false);
+            self.set_camera_rotate_right(false);
+            self.set_camera_zoom_in(false);
+            self.set_camera_zoom_out(false);
         }
-        gamelogic::helpers::TheGameLogic::set_input_enabled(enabled);
     }
-
-    pub fn is_selecting() -> bool {
-        with_status(|guard| guard.selecting)
+    pub fn is_selecting(&self) -> bool {
+        self.status.selecting
     }
-
-    pub fn set_selecting(selecting: bool) {
-        with_status(|guard| guard.selecting = selecting);
+    pub fn set_selecting(&mut self, selecting: bool) {
+        self.status.selecting = selecting;
     }
-
-    pub fn set_scrolling(scrolling: bool) {
-        let changed = with_status(|guard| {
-            let changed = guard.scrolling != scrolling;
-            guard.scrolling = scrolling;
+    pub fn set_scrolling(&mut self, scrolling: bool) -> bool {
+        let changed = {
+            let changed = self.status.scrolling != scrolling;
+            self.status.scrolling = scrolling;
             if !scrolling {
-                guard.scroll_amount_x = 0.0;
-                guard.scroll_amount_y = 0.0;
+                self.status.scroll_amount_x = 0.0;
+                self.status.scroll_amount_y = 0.0;
             }
             if changed {
                 // C++ InGameUI.cpp:2797 / 2805 setMouseCursor(SCROLL/ARROW).
-                guard.mouse_cursor = if scrolling {
+                self.status.mouse_cursor = if scrolling {
                     MouseCursor::Scroll
                 } else {
                     MouseCursor::Arrow
                 };
             }
             changed
-        });
-        if changed && scrolling {
-            // C++ InGameUI.cpp:2799-2801 break any camera locks.
-            with_tactical_view(|view| {
-                view.set_camera_lock(None);
-                view.set_camera_lock_drawable(None);
-            });
-        }
+        };
+        // C++ InGameUI.cpp:2799-2801: the receiving view clears its locks
+        // immediately when this operation reports the rising edge.
+        changed && scrolling
     }
 
-    pub fn is_scrolling() -> bool {
-        with_status(|guard| guard.scrolling)
+    pub fn is_scrolling(&self) -> bool {
+        self.status.scrolling
     }
-
-    pub fn set_scroll_amount(x: f32, y: f32) {
-        with_status(|guard| {
-            guard.scroll_amount_x = x;
-            guard.scroll_amount_y = y;
-        });
-    }
-
-    pub fn get_scroll_amount() -> (f32, f32) {
-        with_status(|guard| (guard.scroll_amount_x, guard.scroll_amount_y))
-    }
-
-    pub fn set_client_quiet(quiet: bool) {
-        with_status(|guard| guard.client_quiet = quiet);
-    }
-
-    pub fn is_client_quiet() -> bool {
-        with_status(|guard| guard.client_quiet)
-    }
-
-    pub fn toggle_messages() -> bool {
-        with_status(|guard| {
-            guard.messages_on = !guard.messages_on;
-            guard.messages_on
-        })
-    }
-
-    pub fn is_messages_on() -> bool {
-        with_status(|guard| guard.messages_on)
-    }
-
-    pub fn set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(enabled: bool) {
-        if with_backend(|backend| {
-            backend
-                .set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(enabled)
-        }) {
-            return;
-        }
-        with_status(|guard| {
-            guard.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click = enabled
-        });
-    }
-
-    pub fn get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click() -> bool {
-        if let Some(value) = with_backend_result(|backend| {
-            backend.get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click()
-        }) {
-            return value;
-        }
-        with_status(|guard| {
-            guard.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click
-        })
-    }
-
-    pub fn set_draw_rmb_scroll_anchor(enabled: bool) {
-        if with_backend(|backend| backend.set_draw_rmb_scroll_anchor(enabled)) {
-            return;
-        }
-        with_status(|guard| guard.draw_rmb_scroll_anchor = enabled);
-    }
-
-    pub fn get_draw_rmb_scroll_anchor() -> bool {
-        if let Some(value) = with_backend_result(|backend| backend.get_draw_rmb_scroll_anchor()) {
-            return value;
-        }
-        with_status(|guard| guard.draw_rmb_scroll_anchor)
-    }
-
-    pub fn set_move_rmb_scroll_anchor(enabled: bool) {
-        if with_backend(|backend| backend.set_move_rmb_scroll_anchor(enabled)) {
-            return;
-        }
-        with_status(|guard| guard.move_rmb_scroll_anchor = enabled);
-    }
-
-    pub fn get_move_rmb_scroll_anchor() -> bool {
-        if let Some(value) = with_backend_result(|backend| backend.get_move_rmb_scroll_anchor()) {
-            return value;
-        }
-        with_status(|guard| guard.move_rmb_scroll_anchor)
-    }
-
-    pub fn set_max_select_count(max_select_count: i32) {
-        if with_backend(|backend| backend.set_max_select_count(max_select_count)) {
-            return;
-        }
-        with_status(|guard| guard.max_select_count = max_select_count);
-    }
-
-    pub fn get_max_select_count() -> i32 {
-        if let Some(value) = with_backend_result(|backend| backend.get_max_select_count()) {
-            return value;
-        }
-        with_status(|guard| guard.max_select_count)
-    }
-
-    pub fn set_cursor_arrow() {
-        Self::set_cursor(CursorType::Arrow);
-    }
-
-    pub fn set_cursor_by_name(cursor: &str) {
-        Self::set_cursor(Self::cursor_from_name(cursor));
-    }
-
-    pub fn get_cursor_name() -> &'static str {
-        with_status(|guard| Self::cursor_name(guard.cursor))
-    }
-
-    pub fn set_radius_cursor_active() {
-        if with_backend(|backend| backend.set_radius_cursor_active(None)) {
-            return;
-        }
-        with_placement(|guard| {
-            guard.radius_cursor_active = true;
-            guard.radius_cursor_type.clear();
-        });
-    }
-
-    pub fn set_radius_cursor_active_with_type(radius_cursor_type: &str) {
-        if with_backend(|backend| {
-            backend.set_radius_cursor_active(Some(radius_cursor_type.to_string()))
-        }) {
-            return;
-        }
-        with_placement(|guard| {
-            let radius_type = radius_cursor_type.trim();
-            guard.radius_cursor_active =
-                !radius_type.is_empty() && !radius_type.eq_ignore_ascii_case("NONE");
-            guard.radius_cursor_type = radius_type.to_string();
-        });
-    }
-
-    pub fn get_pending_place_template() -> Option<String> {
-        if let Some(value) = with_backend_result(|backend| backend.get_pending_place_template()) {
-            return value;
-        }
-        with_placement(|guard| guard.pending_template.clone())
-    }
-
-    pub fn get_pending_place_source_object_id() -> u32 {
-        if let Some(value) =
-            with_backend_result(|backend| backend.get_pending_place_source_object_id())
+    pub fn set_scroll_amount(&mut self, x: f32, y: f32) {
         {
-            return value;
-        }
-        with_placement(|guard| guard.pending_source_object_id)
+            self.status.scroll_amount_x = x;
+            self.status.scroll_amount_y = y;
+        };
     }
-
-    pub fn place_build_available(template_name: Option<String>, source_object_id: Option<u32>) {
-        if with_backend(|backend| {
-            backend.set_pending_place(template_name.clone(), source_object_id)
-        }) {
-            return;
-        }
-        with_placement(|guard| {
-            guard.pending_template = template_name;
-            guard.pending_source_object_id = source_object_id.unwrap_or(0);
-            guard.placement_start = None;
-            guard.placement_end = None;
-            guard.placement_angle = 0.0;
-        });
+    pub fn get_scroll_amount(&self) -> (f32, f32) {
+        (self.status.scroll_amount_x, self.status.scroll_amount_y)
     }
-
-    pub fn get_pending_special_power() -> Option<PendingSpecialPower> {
-        if let Some(value) = with_backend_result(|backend| backend.get_pending_special_power()) {
-            return value;
-        }
-        with_placement(|guard| guard.pending_special_power.clone())
+    pub fn set_client_quiet(&mut self, quiet: bool) {
+        self.status.client_quiet = quiet;
     }
-
-    pub fn set_pending_special_power(power_id: u32, options: u32, source_object_id: u32) {
-        let pending = PendingSpecialPower {
+    pub fn is_client_quiet(&self) -> bool {
+        self.status.client_quiet
+    }
+    pub fn toggle_messages(&mut self) -> bool {
+        {
+            self.status.messages_on = !self.status.messages_on;
+            self.status.messages_on
+        }
+    }
+    pub fn is_messages_on(&self) -> bool {
+        self.status.messages_on
+    }
+    pub fn set_cursor_arrow(&mut self) {
+        self.set_cursor(CursorType::Arrow);
+    }
+    pub fn set_cursor_by_name(&mut self, cursor: &str) {
+        self.set_cursor(Self::cursor_from_name(cursor));
+    }
+    pub fn get_cursor_name(&self) -> &'static str {
+        Self::cursor_name(self.status.cursor)
+    }
+    pub fn set_radius_cursor_active(&mut self) {
+        self.set_radius_cursor_active_state(None);
+    }
+    pub fn set_radius_cursor_active_with_type(&mut self, radius_cursor_type: &str) {
+        self.set_radius_cursor_active_state(Some(radius_cursor_type.to_owned()));
+    }
+    pub fn place_build_available(
+        &mut self,
+        template_name: Option<String>,
+        source_object_id: Option<u32>,
+    ) {
+        self.set_pending_place(template_name, source_object_id);
+    }
+    pub fn set_pending_special_power(
+        &mut self,
+        power_id: u32,
+        options: u32,
+        source_object_id: u32,
+    ) {
+        self.set_pending_special_power_state(Some(PendingSpecialPower {
             power_id,
             options,
             source_object_id,
-        };
-        if with_backend(|backend| backend.set_pending_special_power(Some(pending.clone()))) {
-            return;
-        }
-        with_placement(|guard| guard.pending_special_power = Some(pending));
+        }));
     }
-
-    pub fn clear_pending_special_power() {
-        if with_backend(|backend| backend.clear_pending_special_power()) {
-            return;
-        }
-        with_placement(|guard| guard.pending_special_power = None);
-    }
-
-    pub fn get_pending_command() -> Option<PendingCommand> {
-        if let Some(value) = with_backend_result(|backend| backend.get_pending_command()) {
-            return value;
-        }
-        with_placement(|guard| guard.pending_command.clone())
-    }
-
     pub fn command_option_need_target(options: u32) -> bool {
         let mut mask = CommandOption::NeedTargetEnemyObject as u32
             | CommandOption::NeedTargetNeutralObject as u32
@@ -1485,38 +1050,37 @@ impl TheInGameUI {
         }
         options & mask != 0
     }
-
-    fn recorder_playback_active() -> bool {
-        with_recorder(|recorder| recorder.is_playback()).unwrap_or(false)
+    fn recorder_playback_active(&self) -> bool {
+        self.recorder_playback_active
     }
-
-    fn arm_gui_command_mouse_mode(pending: &PendingCommand) {
-        Self::set_mouse_mode(MouseMode::GuiCommand);
-        Self::set_mouse_cursor(MouseCursor::Arrow);
+    fn arm_gui_command_mouse_mode(&mut self, pending: &PendingCommand) {
+        self.set_mouse_mode(MouseMode::GuiCommand);
+        self.set_mouse_cursor(MouseCursor::Arrow);
         let is_context = pending.options & (CommandOption::ContextmodeCommand as u32) != 0;
         if !is_context
             && !pending.radius_cursor_type.is_empty()
             && !pending.radius_cursor_type.eq_ignore_ascii_case("NONE")
         {
-            Self::set_radius_cursor_active_with_type(&pending.radius_cursor_type);
+            self.set_radius_cursor_active_with_type(&pending.radius_cursor_type);
         } else {
-            Self::set_radius_cursor_none();
+            self.set_radius_cursor_none();
         }
-        with_status(|guard| guard.mouse_mode_cursor = MouseCursor::Arrow);
+        (|guard: &mut InGameUIStatusState| guard.mouse_mode_cursor = MouseCursor::Arrow)(
+            &mut self.status,
+        );
     }
-
-    fn restore_default_mouse_mode_after_gui_command() {
-        Self::set_mouse_mode(MouseMode::Default);
-        Self::set_mouse_cursor(MouseCursor::Arrow);
-        Self::set_radius_cursor_none();
+    fn restore_default_mouse_mode_after_gui_command(&mut self) {
+        self.set_mouse_mode(MouseMode::Default);
+        self.set_mouse_cursor(MouseCursor::Arrow);
+        self.set_radius_cursor_none();
     }
-
     pub fn set_pending_command(
+        &mut self,
         command_type: gamelogic::commands::command::CommandType,
         options: u32,
         source_object_id: u32,
     ) {
-        if Self::recorder_playback_active() {
+        if self.recorder_playback_active() {
             return;
         }
         let pending = PendingCommand {
@@ -1528,16 +1092,14 @@ impl TheInGameUI {
             radius_cursor_type: String::new(),
         };
         if !Self::command_option_need_target(pending.options) {
-            Self::restore_default_mouse_mode_after_gui_command();
+            self.restore_default_mouse_mode_after_gui_command();
             return;
         }
-        if !with_backend(|backend| backend.set_pending_command(Some(pending.clone()))) {
-            with_placement(|guard| guard.pending_command = Some(pending.clone()));
-        }
-        Self::arm_gui_command_mouse_mode(&pending);
+        self.set_pending_command_state(Some(pending.clone()));
+        self.arm_gui_command_mouse_mode(&pending);
     }
-
     pub fn set_pending_command_with_visual(
+        &mut self,
         command_type: gamelogic::commands::command::CommandType,
         options: u32,
         source_object_id: u32,
@@ -1545,7 +1107,7 @@ impl TheInGameUI {
         invalid_cursor_name: String,
         radius_cursor_type: String,
     ) {
-        if Self::recorder_playback_active() {
+        if self.recorder_playback_active() {
             return;
         }
         let pending = PendingCommand {
@@ -1557,317 +1119,67 @@ impl TheInGameUI {
             radius_cursor_type,
         };
         if !Self::command_option_need_target(pending.options) {
-            Self::restore_default_mouse_mode_after_gui_command();
+            self.restore_default_mouse_mode_after_gui_command();
             return;
         }
-        if !with_backend(|backend| backend.set_pending_command(Some(pending.clone()))) {
-            with_placement(|guard| guard.pending_command = Some(pending.clone()));
-        }
-        Self::arm_gui_command_mouse_mode(&pending);
+        self.set_pending_command_state(Some(pending.clone()));
+        self.arm_gui_command_mouse_mode(&pending);
     }
-
-    pub fn clear_pending_command() {
-        if !with_backend(|backend| backend.clear_pending_command()) {
-            with_placement(|guard| guard.pending_command = None);
-        }
-        Self::restore_default_mouse_mode_after_gui_command();
+    pub fn clear_pending_command(&mut self) {
+        self.clear_pending_command_state();
+        self.restore_default_mouse_mode_after_gui_command();
     }
-
-    pub fn is_placement_anchored() -> bool {
-        if let Some(value) = with_backend_result(|backend| backend.is_placement_anchored()) {
-            return value;
-        }
-        with_placement(|guard| guard.placement_start.is_some())
-    }
-
-    pub fn set_placement_start(start: Option<ICoord2D>) {
-        if with_backend(|backend| backend.set_placement_start(start.clone())) {
-            return;
-        }
-        with_placement(|guard| {
-            guard.placement_start = start.clone();
-            if start.is_none() {
-                guard.placement_end = None;
-            } else if guard.placement_end.is_none() {
-                guard.placement_end = start;
-            }
-        });
-    }
-
-    pub fn set_placement_end(end: Option<ICoord2D>) {
-        if with_backend(|backend| backend.set_placement_end(end.clone())) {
-            return;
-        }
-        with_placement(|guard| guard.placement_end = end);
-    }
-
-    pub fn get_placement_points() -> Option<(ICoord2D, ICoord2D)> {
-        if let Some(value) = with_backend_result(|backend| backend.get_placement_points()) {
-            return value;
-        }
-        with_placement(|guard| {
-            let start = guard.placement_start.clone()?;
-            let end = guard.placement_end.clone().unwrap_or_else(|| start.clone());
-            Some((start, end))
-        })
-    }
-
-    pub fn get_placement_angle() -> f32 {
-        if let Some(value) = with_backend_result(|backend| backend.get_placement_angle()) {
-            return value;
-        }
-        with_placement(|guard| guard.placement_angle)
-    }
-
-    pub fn set_placement_angle(angle: f32) {
-        if with_backend(|backend| backend.set_placement_angle(angle)) {
-            return;
-        }
-        with_placement(|guard| guard.placement_angle = angle);
-    }
-
-    pub fn set_radius_cursor_none() {
-        if with_backend(|backend| backend.set_radius_cursor_none()) {
-            return;
-        }
-        with_placement(|guard| {
-            guard.radius_cursor_active = false;
-            guard.radius_cursor_type.clear();
-        });
-    }
-
-    pub fn display_cant_build_message(message: &str) {
-        if !with_backend(|backend| backend.display_cant_build_message(message)) {
-            let key = map_cant_build_message(message);
-            info!("Can't build: {}", GameText::fetch(&key));
-        }
-    }
-
-    pub fn deselect_all() {
+    pub fn deselect_all(&mut self) {
         // C++ parity: InGameUI::deselectAll() — clears all selections
         // Full implementation would clear the selection list in InGameUI
         info!("InGameUI::deselect_all() called");
     }
-
-    pub fn message(text: &str) {
-        if !with_backend(|backend| backend.message(text)) {
-            info!("UI message: {}", GameText::fetch(text));
-        }
-    }
-
-    /// C++ InGameUI::freeMessageResources.
-    pub fn free_message_resources() {
-        let _ = with_backend(|backend| backend.free_message_resources());
-    }
-
     pub fn military_subtitle(
+        &mut self,
         label: &str,
         duration_ms: i32,
+        frame: u32,
         manager: &mut crate::gui::window_manager::WindowManager,
     ) {
-        if !with_backend(|backend| backend.military_subtitle(label, duration_ms, manager)) {
-            info!(
-                "Military subtitle ({}ms): {}",
-                duration_ms.max(0),
-                GameText::fetch(label)
-            );
-        }
+        self.push_military_subtitle(label, duration_ms, frame, manager);
     }
-
-    pub fn disable_tooltips_until(frame_num: u32) {
-        let _ = with_backend(|backend| backend.disable_tooltips_until(frame_num));
-    }
-
-    pub fn clear_tooltips_disabled() {
-        let _ = with_backend(|backend| backend.clear_tooltips_disabled());
-    }
-
-    pub fn are_tooltips_disabled() -> bool {
-        with_backend_result(|backend| backend.are_tooltips_disabled()).unwrap_or(false)
-    }
-
-    pub fn clear_attack_move_to_mode() {
-        if with_backend(|backend| backend.clear_attack_move_to_mode()) {
-            return;
-        }
-        with_placement(|guard| guard.attack_move_to_mode = false);
-    }
-
-    pub fn is_in_attack_move_to_mode() -> bool {
-        if let Some(value) = with_backend_result(|backend| backend.is_in_attack_move_to_mode()) {
-            return value;
-        }
-        with_placement(|guard| guard.attack_move_to_mode)
-    }
-
-    pub fn set_attack_move_to_mode(enabled: bool) {
-        if with_backend(|backend| backend.set_attack_move_to_mode(enabled)) {
-            return;
-        }
-        with_placement(|guard| guard.attack_move_to_mode = enabled);
-    }
-
-    pub fn toggle_attack_move_to_mode() -> bool {
-        let enabled = !Self::is_in_attack_move_to_mode();
-        Self::set_attack_move_to_mode(enabled);
+    pub fn toggle_attack_move_to_mode(&mut self) -> bool {
+        let enabled = !self.is_in_attack_move_to_mode();
+        self.set_attack_move_to_mode(enabled);
         enabled
     }
-
-    pub fn is_in_force_attack_mode() -> bool {
-        if let Some(value) = with_backend_result(|backend| backend.is_in_force_attack_mode()) {
-            return value;
-        }
-        with_placement(|guard| guard.force_attack_mode)
+    pub fn set_mouse_cursor(&mut self, cursor: MouseCursor) {
+        self.status.mouse_cursor = cursor;
     }
-
-    pub fn is_in_force_move_to_mode() -> bool {
-        if let Some(value) = with_backend_result(|backend| backend.is_in_force_move_to_mode()) {
-            return value;
-        }
-        with_placement(|guard| guard.force_move_to_mode)
+    pub fn get_mouse_cursor(&self) -> MouseCursor {
+        self.status.mouse_cursor
     }
-
-    pub fn is_in_prefer_selection_mode() -> bool {
-        if let Some(value) = with_backend_result(|backend| backend.is_in_prefer_selection_mode()) {
-            return value;
-        }
-        with_placement(|guard| guard.prefer_selection_mode)
-    }
-
-    pub fn set_force_attack_mode(enabled: bool) {
-        if with_backend(|backend| backend.set_force_attack_mode(enabled)) {
-            return;
-        }
-        with_placement(|guard| guard.force_attack_mode = enabled);
-    }
-
-    pub fn set_force_move_to_mode(enabled: bool) {
-        if with_backend(|backend| backend.set_force_move_to_mode(enabled)) {
-            return;
-        }
-        with_placement(|guard| guard.force_move_to_mode = enabled);
-    }
-
-    pub fn set_prefer_selection_mode(enabled: bool) {
-        if with_backend(|backend| backend.set_prefer_selection_mode(enabled)) {
-            return;
-        }
-        with_placement(|guard| guard.prefer_selection_mode = enabled);
-    }
-
-    pub fn popup_message(
-        identifier: &str,
-        x: i32,
-        y: i32,
-        width: i32,
-        pause: bool,
-        pause_music: bool,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) {
-        crate::gui::callbacks::in_game_popup_message::show_receiving_popup_message(
-            identifier,
-            x,
-            y,
-            width,
-            0xffffffff,
-            pause,
-            pause_music,
-            None,
-            effects,
-        );
-    }
-    pub(crate) fn popup_message_with_host_generation(
-        identifier: &str,
-        x: i32,
-        y: i32,
-        width: i32,
-        pause: bool,
-        pause_music: bool,
-        generation: Option<usize>,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) {
-        crate::gui::callbacks::in_game_popup_message::show_receiving_popup_message(
-            identifier,
-            x,
-            y,
-            width,
-            0xffffffff,
-            pause,
-            pause_music,
-            generation,
-            effects,
-        );
-    }
-    pub fn popup_message_with_color(
-        identifier: &str,
-        x: i32,
-        y: i32,
-        width: i32,
-        color: u32,
-        pause: bool,
-        pause_music: bool,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) {
-        crate::gui::callbacks::in_game_popup_message::show_receiving_popup_message(
-            identifier,
-            x,
-            y,
-            width,
-            color,
-            pause,
-            pause_music,
-            None,
-            effects,
-        );
-    }
-    pub fn get_popup_message_data(
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> Option<PopupMessageData> {
-        crate::gui::callbacks::in_game_popup_message::receiving_popup_message(effects)
-    }
-    pub fn clear_popup_message_data(
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> Option<PopupMessageData> {
-        crate::gui::callbacks::in_game_popup_message::clear_receiving_popup_message(effects)
-    }
-
-    pub fn set_mouse_cursor(cursor: MouseCursor) {
-        with_status(|guard| guard.mouse_cursor = cursor);
-    }
-
-    pub fn get_mouse_cursor() -> MouseCursor {
-        with_status(|guard| guard.mouse_cursor)
-    }
-
-    pub fn set_mouse_mode(mode: MouseMode) {
-        with_status(|guard| {
-            guard.mouse_mode = mode;
+    pub fn set_mouse_mode(&mut self, mode: MouseMode) {
+        {
+            self.status.mouse_mode = mode;
             if mode != MouseMode::GuiCommand {
-                guard.mouse_mode_cursor = MouseCursor::Arrow;
+                self.status.mouse_mode_cursor = MouseCursor::Arrow;
             }
-        });
+        };
     }
-
-    pub fn get_mouse_mode() -> MouseMode {
-        with_status(|guard| guard.mouse_mode)
+    pub fn get_mouse_mode(&self) -> MouseMode {
+        self.status.mouse_mode
     }
-
-    pub fn get_mouse_mode_cursor() -> MouseCursor {
-        with_status(|guard| guard.mouse_mode_cursor)
+    pub fn get_mouse_mode_cursor(&self) -> MouseCursor {
+        self.status.mouse_mode_cursor
     }
-
-    pub fn set_moused_over_drawable_id(id: u32) {
-        with_status(|guard| guard.moused_over_drawable_id = id);
+    pub fn set_moused_over_drawable_id(&mut self, id: u32) {
+        self.status.moused_over_drawable_id = id;
     }
-
-    pub fn get_moused_over_drawable_id() -> u32 {
-        with_status(|guard| guard.moused_over_drawable_id)
+    pub fn get_moused_over_drawable_id(&self) -> u32 {
+        self.status.moused_over_drawable_id
     }
-
     pub fn create_move_hint(
+        &mut self,
         start: crate::message_stream::game_message::Coord3D,
         end: crate::message_stream::game_message::Coord3D,
         source_id: u32,
+        client_frame: u32,
     ) {
         // C++ InGameUI.cpp:2163 — frame = TheGameClient->getFrame();
         // C++ W3DInGameUI::drawMoveHints shows while elapsed <= 40.
@@ -1875,25 +1187,31 @@ impl TheInGameUI {
             hint_type: HintType::Move,
             start: gamelogic::common::Coord3D::new(start.x, start.y, start.z),
             end: gamelogic::common::Coord3D::new(end.x, end.y, end.z),
-            creation_frame: TheGameLogic::get_frame(),
+            creation_frame: client_frame,
             source_id,
             lifetime_frames: 41,
         };
-        with_hints(|guard| {
-            guard.retain(|h| !(h.hint_type == HintType::Move && h.source_id == source_id));
-            if guard.len() >= 256 {
-                if let Some(pos) = guard.iter().position(|h| h.hint_type == HintType::Move) {
-                    guard.remove(pos);
+        {
+            self.hints
+                .retain(|h| !(h.hint_type == HintType::Move && h.source_id == source_id));
+            if self.hints.len() >= 256 {
+                if let Some(pos) = self
+                    .hints
+                    .iter()
+                    .position(|h| h.hint_type == HintType::Move)
+                {
+                    self.hints.remove(pos);
                 }
             }
-            guard.push(hint);
-        });
+            self.hints.push(hint);
+        };
     }
-
     pub fn create_attack_hint(
+        &mut self,
         start: crate::message_stream::game_message::Coord3D,
         end: crate::message_stream::game_message::Coord3D,
         source_id: u32,
+        client_frame: u32,
     ) {
         let hint = HintData {
             hint_type: HintType::Attack,
@@ -1901,21 +1219,24 @@ impl TheInGameUI {
             end: gamelogic::common::Coord3D::new(end.x, end.y, end.z),
             // C++ InGameUI.cpp:2163 — hints stamp TheGameClient->getFrame();
             // frame 0 would expire before mid-match attacks ever render.
-            creation_frame: TheGameLogic::get_frame(),
+            creation_frame: client_frame,
             source_id,
             lifetime_frames: 41,
         };
-        with_hints(|guard| {
-            if guard.len() >= 256 {
-                if let Some(pos) = guard.iter().position(|h| h.hint_type == HintType::Attack) {
-                    guard.remove(pos);
+        {
+            if self.hints.len() >= 256 {
+                if let Some(pos) = self
+                    .hints
+                    .iter()
+                    .position(|h| h.hint_type == HintType::Attack)
+                {
+                    self.hints.remove(pos);
                 }
             }
-            guard.push(hint);
-        });
+            self.hints.push(hint);
+        };
     }
-
-    pub fn begin_area_select_hint() {
+    pub fn begin_area_select_hint(&mut self) {
         let hint = HintData {
             hint_type: HintType::AreaSelect,
             start: gamelogic::common::Coord3D::new(0.0, 0.0, 0.0),
@@ -1924,162 +1245,134 @@ impl TheInGameUI {
             source_id: 0,
             lifetime_frames: 300,
         };
-        with_hints(|guard| guard.push(hint));
+        self.hints.push(hint);
     }
-
-    pub fn end_area_select_hint() {
-        with_hints(|guard| {
-            if let Some(pos) = guard
+    pub fn end_area_select_hint(&mut self) {
+        {
+            if let Some(pos) = self
+                .hints
                 .iter()
                 .rposition(|h| h.hint_type == HintType::AreaSelect)
             {
-                guard.remove(pos);
+                self.hints.remove(pos);
             }
-        });
+        };
+    }
+    pub fn expire_hints(&mut self, current_frame: u32) {
+        {
+            self.hints
+                .retain(|h| current_frame < h.creation_frame + h.lifetime_frames)
+        };
+    }
+    pub fn clear_hints(&mut self) {
+        self.hints.clear();
+    }
+    pub fn get_hints(&self) -> &[HintData] {
+        &self.hints
+    }
+    pub fn arm_double_click_attack_move_guard_hint(&mut self, x: f32, y: f32, z: f32) {
+        {
+            self.status.double_click_attack_move_guard_timer = 11;
+            self.status.guard_hint_stashed_position = (x, y, z);
+        };
+    }
+    pub fn trigger_double_click_attack_move_guard_hint(&mut self, position: (f32, f32, f32)) {
+        // C++ InGameUI.cpp:1314-1318; the receiving input/view resolves terrain.
+        self.arm_double_click_attack_move_guard_hint(position.0, position.1, position.2);
+        self.set_mouse_cursor(MouseCursor::ForceAttackGround);
+        self.set_radius_cursor_active_with_type("GUARD_AREA");
     }
 
-    pub fn expire_hints(current_frame: u32) {
-        with_hints(|guard| guard.retain(|h| current_frame < h.creation_frame + h.lifetime_frames));
-    }
-
-    pub fn clear_hints() {
-        with_hints(|guard| guard.clear());
-    }
-
-    pub fn get_hints() -> Vec<HintData> {
-        with_hints(|guard| guard.clone())
-    }
-
-    pub fn is_in_waypoint_mode() -> bool {
-        if let Some(value) = with_backend_result(|backend| backend.is_in_waypoint_mode()) {
-            return value;
-        }
-        with_placement(|guard| guard.waypoint_mode)
-    }
-
-    pub fn set_waypoint_mode(enabled: bool) {
-        if with_backend(|backend| backend.set_waypoint_mode(enabled)) {
-            return;
-        }
-        with_placement(|guard| guard.waypoint_mode = enabled);
-    }
-
-    pub fn is_camera_rotating_left() -> bool {
-        if let Some(value) = with_backend_result(|backend| backend.is_camera_rotating_left()) {
-            return value;
-        }
-        with_placement(|guard| guard.camera_rotating_left)
-    }
-
-    pub fn set_camera_rotate_left(set: bool) {
-        if with_backend(|backend| backend.set_camera_rotate_left(set)) {
-            return;
-        }
-        with_placement(|guard| guard.camera_rotating_left = set);
-    }
-
-    pub fn is_camera_rotating_right() -> bool {
-        if let Some(value) = with_backend_result(|backend| backend.is_camera_rotating_right()) {
-            return value;
-        }
-        with_placement(|guard| guard.camera_rotating_right)
-    }
-
-    pub fn set_camera_rotate_right(set: bool) {
-        if with_backend(|backend| backend.set_camera_rotate_right(set)) {
-            return;
-        }
-        with_placement(|guard| guard.camera_rotating_right = set);
-    }
-
-    pub fn is_camera_zooming_in() -> bool {
-        if let Some(value) = with_backend_result(|backend| backend.is_camera_zooming_in()) {
-            return value;
-        }
-        with_placement(|guard| guard.camera_zooming_in)
-    }
-
-    pub fn set_camera_zoom_in(set: bool) {
-        if with_backend(|backend| backend.set_camera_zoom_in(set)) {
-            return;
-        }
-        with_placement(|guard| guard.camera_zooming_in = set);
-    }
-
-    pub fn is_camera_zooming_out() -> bool {
-        if let Some(value) = with_backend_result(|backend| backend.is_camera_zooming_out()) {
-            return value;
-        }
-        with_placement(|guard| guard.camera_zooming_out)
-    }
-
-    pub fn set_camera_zoom_out(set: bool) {
-        if with_backend(|backend| backend.set_camera_zoom_out(set)) {
-            return;
-        }
-        with_placement(|guard| guard.camera_zooming_out = set);
-    }
-
-    pub fn is_camera_tracking_drawable() -> bool {
-        if let Some(value) = with_backend_result(|backend| backend.is_camera_tracking_drawable()) {
-            return value;
-        }
-        with_placement(|guard| guard.camera_tracking_drawable)
-    }
-
-    pub fn set_camera_tracking_drawable(set: bool) {
-        if with_backend(|backend| backend.set_camera_tracking_drawable(set)) {
-            return;
-        }
-        with_placement(|guard| guard.camera_tracking_drawable = set);
-    }
-
-    pub fn get_frame_selection_changed() -> u32 {
-        if let Some(value) = with_backend_result(|backend| backend.get_frame_selection_changed()) {
-            return value;
-        }
-        0
-    }
-
-    pub fn arm_double_click_attack_move_guard_hint(x: f32, y: f32, z: f32) {
-        with_status(|guard| {
-            guard.double_click_attack_move_guard_timer = 11;
-            guard.guard_hint_stashed_position = (x, y, z);
-        });
-    }
-
-    pub fn trigger_double_click_attack_move_guard_hint() {
-        // C++ InGameUI::triggerDoubleClickAttackMoveGuardHint (InGameUI.cpp:1314-1318)
-        let (mx, my) = crate::input::mouse::with_mouse(|mouse| mouse.state().position());
-        let screen = IPoint2::new(mx as i32, my as i32);
-        let pos = with_tactical_view_ref(|view| {
-            view.screen_to_terrain(&screen)
-                .ok()
-                .map(|point| (point.x, point.y, point.z))
-        })
-        .unwrap_or((0.0, 0.0, 0.0));
-        Self::arm_double_click_attack_move_guard_hint(pos.0, pos.1, pos.2);
-        Self::set_mouse_cursor(MouseCursor::ForceAttackGround);
-        Self::set_radius_cursor_active_with_type("GUARD_AREA");
-    }
-
-    pub fn consume_double_click_attack_move_guard_hint() -> bool {
-        with_status(|guard| {
-            if guard.double_click_attack_move_guard_timer == 0 {
+    pub fn consume_double_click_attack_move_guard_hint(&mut self) -> bool {
+        {
+            if self.status.double_click_attack_move_guard_timer == 0 {
                 return false;
             }
-            guard.double_click_attack_move_guard_timer -= 1;
-            guard.double_click_attack_move_guard_timer > 0
-        })
+            self.status.double_click_attack_move_guard_timer -= 1;
+            self.status.double_click_attack_move_guard_timer > 0
+        }
     }
-
-    pub fn double_click_attack_move_guard_timer() -> u32 {
-        with_status(|guard| guard.double_click_attack_move_guard_timer)
+    pub fn double_click_attack_move_guard_timer(&self) -> u32 {
+        self.status.double_click_attack_move_guard_timer
     }
-
-    pub fn guard_hint_stashed_position() -> (f32, f32, f32) {
-        with_status(|guard| guard.guard_hint_stashed_position)
+    pub fn guard_hint_stashed_position(&self) -> (f32, f32, f32) {
+        self.status.guard_hint_stashed_position
     }
+}
+pub fn popup_message(
+    identifier: &str,
+    x: i32,
+    y: i32,
+    width: i32,
+    pause: bool,
+    pause_music: bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    crate::gui::callbacks::in_game_popup_message::show_receiving_popup_message(
+        identifier,
+        x,
+        y,
+        width,
+        0xffffffff,
+        pause,
+        pause_music,
+        None,
+        effects,
+    );
+}
+pub(crate) fn popup_message_with_host_generation(
+    identifier: &str,
+    x: i32,
+    y: i32,
+    width: i32,
+    pause: bool,
+    pause_music: bool,
+    generation: Option<usize>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    crate::gui::callbacks::in_game_popup_message::show_receiving_popup_message(
+        identifier,
+        x,
+        y,
+        width,
+        0xffffffff,
+        pause,
+        pause_music,
+        generation,
+        effects,
+    );
+}
+pub fn popup_message_with_color(
+    identifier: &str,
+    x: i32,
+    y: i32,
+    width: i32,
+    color: u32,
+    pause: bool,
+    pause_music: bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    crate::gui::callbacks::in_game_popup_message::show_receiving_popup_message(
+        identifier,
+        x,
+        y,
+        width,
+        color,
+        pause,
+        pause_music,
+        None,
+        effects,
+    );
+}
+pub fn get_popup_message_data(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> Option<PopupMessageData> {
+    crate::gui::callbacks::in_game_popup_message::receiving_popup_message(effects)
+}
+pub fn clear_popup_message_data(
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> Option<PopupMessageData> {
+    crate::gui::callbacks::in_game_popup_message::clear_receiving_popup_message(effects)
 }
 
 /// Minimal stand-in for classic `TheControlBar` singleton.
@@ -2173,57 +1466,51 @@ mod in_game_ui_input_and_guard_hint_tests {
     #[test]
     fn set_input_enabled_false_clears_force_waypoint_shift_camera_modes() {
         // C++ InGameUI::setInputEnabled (InGameUI.cpp:3382-3409)
-        let prior_logic = TheGameLogic::is_input_enabled();
-        TheInGameUI::set_input_enabled(true);
-        TheInGameUI::set_selecting(true);
-        TheInGameUI::set_force_attack_mode(true);
-        TheInGameUI::set_force_move_to_mode(true);
-        TheInGameUI::set_waypoint_mode(true);
-        TheInGameUI::set_prefer_selection_mode(true);
-        TheInGameUI::set_camera_rotate_left(true);
-        TheInGameUI::set_camera_rotate_right(true);
-        TheInGameUI::set_camera_zoom_in(true);
-        TheInGameUI::set_camera_zoom_out(true);
+        let mut ui = crate::core::subsystems::InGameUISubsystem::default();
+        ui.set_input_enabled(true);
+        ui.set_selecting(true);
+        ui.set_force_attack_mode(true);
+        ui.set_force_move_to_mode(true);
+        ui.set_waypoint_mode(true);
+        ui.set_prefer_selection_mode(true);
+        ui.set_camera_rotate_left(true);
+        ui.set_camera_rotate_right(true);
+        ui.set_camera_zoom_in(true);
+        ui.set_camera_zoom_out(true);
 
-        TheInGameUI::set_input_enabled(false);
+        ui.set_input_enabled(false);
 
-        assert!(!TheInGameUI::is_selecting());
-        assert!(!TheInGameUI::is_in_force_attack_mode());
-        assert!(!TheInGameUI::is_in_force_move_to_mode());
-        assert!(!TheInGameUI::is_in_waypoint_mode());
-        assert!(!TheInGameUI::is_in_prefer_selection_mode());
-        assert!(!TheInGameUI::is_camera_rotating_left());
-        assert!(!TheInGameUI::is_camera_rotating_right());
-        assert!(!TheInGameUI::is_camera_zooming_in());
-        assert!(!TheInGameUI::is_camera_zooming_out());
+        assert!(!ui.is_selecting());
+        assert!(!ui.is_in_force_attack_mode());
+        assert!(!ui.is_in_force_move_to_mode());
+        assert!(!ui.is_in_waypoint_mode());
+        assert!(!ui.is_in_prefer_selection_mode());
+        assert!(!ui.is_camera_rotating_left());
+        assert!(!ui.is_camera_rotating_right());
+        assert!(!ui.is_camera_zooming_in());
+        assert!(!ui.is_camera_zooming_out());
 
         // Already-disabled: C++ does not re-clear on a second FALSE.
-        TheInGameUI::set_force_attack_mode(true);
-        TheInGameUI::set_input_enabled(false);
-        assert!(TheInGameUI::is_in_force_attack_mode());
+        ui.set_force_attack_mode(true);
+        ui.set_input_enabled(false);
+        assert!(ui.is_in_force_attack_mode());
 
-        TheInGameUI::set_force_attack_mode(false);
-        TheInGameUI::set_input_enabled(prior_logic);
+        ui.set_force_attack_mode(false);
     }
 
     #[test]
     fn trigger_double_click_attack_move_guard_hint_arms_11_frame_timer() {
         // C++ InGameUI::triggerDoubleClickAttackMoveGuardHint (InGameUI.cpp:1314-1318)
-        TheInGameUI::arm_double_click_attack_move_guard_hint(12.0, 24.0, 3.0);
-        assert_eq!(TheInGameUI::double_click_attack_move_guard_timer(), 11);
-        assert_eq!(
-            TheInGameUI::guard_hint_stashed_position(),
-            (12.0, 24.0, 3.0)
-        );
-        assert!(TheInGameUI::consume_double_click_attack_move_guard_hint());
-        assert_eq!(TheInGameUI::double_click_attack_move_guard_timer(), 10);
-        assert_eq!(
-            TheInGameUI::guard_hint_stashed_position(),
-            (12.0, 24.0, 3.0)
-        );
+        let mut ui = crate::core::subsystems::InGameUISubsystem::default();
+        ui.arm_double_click_attack_move_guard_hint(12.0, 24.0, 3.0);
+        assert_eq!(ui.double_click_attack_move_guard_timer(), 11);
+        assert_eq!(ui.guard_hint_stashed_position(), (12.0, 24.0, 3.0));
+        assert!(ui.consume_double_click_attack_move_guard_hint());
+        assert_eq!(ui.double_click_attack_move_guard_timer(), 10);
+        assert_eq!(ui.guard_hint_stashed_position(), (12.0, 24.0, 3.0));
 
-        while TheInGameUI::double_click_attack_move_guard_timer() > 0 {
-            let _ = TheInGameUI::consume_double_click_attack_move_guard_hint();
+        while ui.double_click_attack_move_guard_timer() > 0 {
+            let _ = ui.consume_double_click_attack_move_guard_hint();
         }
     }
 }

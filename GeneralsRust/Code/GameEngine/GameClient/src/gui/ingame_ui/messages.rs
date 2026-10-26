@@ -168,7 +168,6 @@ impl InGameUI {
         duration_ms: i32,
         manager: &mut crate::gui::window_manager::WindowManager,
     ) {
-        crate::gui::ingame_ui::live_hud::start_military_subtitle(title, duration_ms, manager);
         // C++ InGameUI.cpp:4042 — drop any existing caption first.
         self.remove_military_subtitle();
         let title = Self::military_caption_text(title);

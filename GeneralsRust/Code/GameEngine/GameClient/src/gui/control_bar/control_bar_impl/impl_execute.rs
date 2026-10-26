@@ -64,13 +64,14 @@ impl ControlBar {
         button: &CommandButton,
         context: &ControlBarContext,
         emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let source_id = context.selected_objects.first().copied().unwrap_or(0);
-        TheInGameUI::place_build_available(None, None);
-        TheInGameUI::clear_pending_special_power();
-        TheInGameUI::set_force_attack_mode(false);
-        TheInGameUI::set_force_move_to_mode(false);
-        TheInGameUI::set_prefer_selection_mode(false);
+        ui.place_build_available(None, None);
+        ui.clear_pending_special_power();
+        ui.set_force_attack_mode(false);
+        ui.set_force_move_to_mode(false);
+        ui.set_prefer_selection_mode(false);
 
         if (button.options & CommandOption::UsesMineClearingWeaponSet as u32) != 0 {
             emitted_messages.push(crate::message_stream::game_message::GameMessage::new(
@@ -79,17 +80,13 @@ impl ControlBar {
         }
 
         if button.command_type == CommandType::DozerConstruct && !button.object.is_empty() {
-            TheInGameUI::place_build_available(Some(button.object.clone()), Some(source_id));
+            ui.place_build_available(Some(button.object.clone()), Some(source_id));
         }
 
         if !button.special_power.is_empty() {
             if let Some(logic_button) = self.resolve_logic_button(button) {
                 if let Some(sp_template) = logic_button.get_special_power_template() {
-                    TheInGameUI::set_pending_special_power(
-                        sp_template.get_id(),
-                        button.options,
-                        source_id,
-                    );
+                    ui.set_pending_special_power(sp_template.get_id(), button.options, source_id);
                 }
             }
         }
@@ -99,7 +96,7 @@ impl ControlBar {
         } else {
             source_id
         };
-        TheInGameUI::set_pending_command_with_visual(
+        ui.set_pending_command_with_visual(
             button.command_type,
             button.options,
             pending_payload,
@@ -111,17 +108,17 @@ impl ControlBar {
         if (button.options & CommandOption::NeedTargetEnemyObject as u32) != 0
             || (button.options & CommandOption::AttackObjectsPosition as u32) != 0
         {
-            TheInGameUI::set_force_attack_mode(true);
+            ui.set_force_attack_mode(true);
         }
         if (button.options & CommandOption::NeedTargetPos as u32) != 0 {
-            TheInGameUI::set_force_move_to_mode(true);
+            ui.set_force_move_to_mode(true);
         }
         if (button.options
             & (CommandOption::NeedTargetAllyObject as u32
                 | CommandOption::NeedTargetNeutralObject as u32))
             != 0
         {
-            TheInGameUI::set_prefer_selection_mode(true);
+            ui.set_prefer_selection_mode(true);
         }
 
         Ok(())

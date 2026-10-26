@@ -28,7 +28,7 @@ use crate::display::view::{IPoint2, Point3, with_tactical_view, with_tactical_vi
 use crate::game_text::GameText;
 use crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text;
 use crate::gui::game_window::{GameWindow, WindowStatus};
-use crate::helpers::{PendingCommand, TheInGameUI};
+use crate::helpers::PendingCommand;
 use crate::input::keyboard::KeyboardState;
 use crate::input::mouse::{ButtonState, MouseButton, MouseState, with_mouse};
 use crate::message_stream::game_message::{

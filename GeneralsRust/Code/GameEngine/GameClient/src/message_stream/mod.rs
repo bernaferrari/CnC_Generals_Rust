@@ -15,6 +15,8 @@
 //!
 //! Original C++ files: GameClient/MessageStream/
 
+mod receiving_ui;
+pub use receiving_ui::ReceivingUi;
 pub mod command_list;
 pub mod command_router;
 pub mod game_message;

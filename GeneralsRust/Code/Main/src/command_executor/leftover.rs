@@ -874,10 +874,11 @@ impl<'a> CommandExecutor<'a> {
         let mut applied = false;
         for &unit_id in units {
             // Wave 233: rally point via GameLogic authority API.
-            if self
-                .game_logic
-                .unit_command_set_rally_point(unit_id, location)
-            {
+            if self.game_logic.unit_command_set_rally_point_with_effects(
+                unit_id,
+                location,
+                &mut self.ui,
+            ) {
                 applied = true;
             }
         }

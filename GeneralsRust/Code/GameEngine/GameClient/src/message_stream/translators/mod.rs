@@ -31,7 +31,7 @@ pub(in crate::message_stream::translators) use crate::gui::game_window::WindowSt
 pub(in crate::message_stream::translators) use crate::gui::{
     toggle_control_bar, toggle_diplomacy, toggle_quit_menu,
 };
-pub(in crate::message_stream::translators) use crate::helpers::{PendingCommand, TheInGameUI};
+pub(in crate::message_stream::translators) use crate::helpers::PendingCommand;
 pub(in crate::message_stream::translators) use crate::input::KeyModifiers;
 pub(in crate::message_stream::translators) use crate::presentation_translator_residual::{
     translator_catalog_entry, translator_catalog_has_kind, translator_entry_apparent_team,

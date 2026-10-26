@@ -9,6 +9,7 @@ impl InGameUI {
         template_name: String,
         footprint: Vec2,
         input: &InGameUiInputContext<'_>,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) {
         self.placement_preview = Some(PlacementPreview::new(template_name, footprint));
         let builder_id = self.find_selected_builder();
@@ -16,22 +17,28 @@ impl InGameUI {
             .placement_preview
             .as_ref()
             .map(|preview| preview.template_name.clone());
-        TheInGameUI::place_build_available(name.clone(), builder_id);
-        self.place_build_available_icons(name, builder_id, input);
+        ui.place_build_available(name.clone(), builder_id);
+        self.place_build_available_icons(name, builder_id, input, ui);
     }
 
     /// Cancel building placement
-    pub fn cancel_building_placement(&mut self) {
+    pub fn cancel_building_placement(&mut self, ui: &mut crate::message_stream::ReceivingUi<'_>) {
         self.placement_preview = None;
         self.destroy_placement_icons();
-        TheInGameUI::place_build_available(None, None);
-        TheInGameUI::set_placement_start(None);
+        ui.place_build_available(None, None);
+        ui.set_placement_start(None);
     }
 
     /// Update resources display
-    pub fn update_resources(&mut self, credits: i32, power_available: i32, power_used: i32) {
+    pub fn update_resources(
+        &mut self,
+        credits: i32,
+        power_available: i32,
+        power_used: i32,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) {
         self.resource_display
-            .update(credits, power_available, power_used);
+            .update(credits, power_available, power_used, ui);
     }
 
     /// Set local player id used for selection and command routing.
@@ -40,7 +47,13 @@ impl InGameUI {
     }
 
     /// Create a move hint line.
-    pub fn create_move_hint(&mut self, start: Coord3D, end: Coord3D, source_id: u32) {
+    pub fn create_move_hint(
+        &mut self,
+        start: Coord3D,
+        end: Coord3D,
+        source_id: u32,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) {
         self.expire_hint_for_source(HintType::Move, source_id);
 
         // C++ InGameUI.cpp:2152-2160 — single IMMOBILE selection suppresses the hint.
@@ -73,8 +86,8 @@ impl InGameUI {
             source_id,
             lifetime_frames: MOVE_HINT_LIFETIME_FRAMES,
         });
-        // View::draw_view reads TheInGameUI::get_hints(), not this instance store.
-        TheInGameUI::create_move_hint(start_msg, end_msg, source_id);
+        // View::draw_view reads ui.get_hints(), not this instance store.
+        ui.create_move_hint(start_msg, end_msg, source_id);
     }
 
     /// C++ InGameUI.cpp:2176-2179 — intentionally empty.
@@ -145,7 +158,6 @@ impl InGameUI {
     // C++: InGameUI::showNamedTimerDisplay() (InGameUI.cpp:745-748)
     // C++: InGameUI::postDraw named-timer block (InGameUI.cpp:3699-3784)
     pub fn add_named_timer(&mut self, name: &str, text: String, is_countdown: bool) {
-        crate::gui::ingame_ui::live_hud::add_named_timer(name, &text, is_countdown);
         self.named_timers.retain(|t| t.name != name);
         let remaining = Self::script_counter_value(name).unwrap_or(0);
         self.named_timers.push(NamedTimerData {
@@ -165,12 +177,10 @@ impl InGameUI {
     }
 
     pub fn remove_named_timer(&mut self, name: &str) {
-        crate::gui::ingame_ui::live_hud::remove_named_timer(name);
         self.named_timers.retain(|t| t.name != name);
     }
 
     pub fn show_named_timer_display(&mut self, show: bool) {
-        crate::gui::ingame_ui::live_hud::show_named_timer_display(show);
         self.show_named_timers = show;
     }
 
@@ -419,7 +429,12 @@ impl InGameUI {
         }
     }
 
-    pub fn set_gui_command(&mut self, command: Option<String>, input: &InGameUiInputContext<'_>) {
+    pub fn set_gui_command(
+        &mut self,
+        command: Option<String>,
+        input: &InGameUiInputContext<'_>,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) {
         // C++ InGameUI::setGUICommand (InGameUI.cpp:2865-2918)
         if Self::should_skip_gui_command_during_playback(
             self.recorder_playback_active
@@ -428,7 +443,7 @@ impl InGameUI {
             return;
         }
 
-        let pending = TheInGameUI::get_pending_command();
+        let pending = ui.get_pending_command();
         // String-only leftover API: no pending options means the caller already
         // chose a targeting command. Default to NEED_TARGET_POS (non-context).
         let options = pending
@@ -440,38 +455,37 @@ impl InGameUI {
         if command.is_some() && !needs_target {
             self.gui_command = None;
             self.set_mouse_mode(MouseMode::Default);
-            TheInGameUI::set_mouse_mode(MouseMode::Default);
+            ui.set_mouse_mode(MouseMode::Default);
             return;
         }
 
         let mode = Self::mouse_mode_for_gui_command(command.is_some(), needs_target);
         self.set_mouse_mode(mode);
-        TheInGameUI::set_mouse_mode(mode);
+        ui.set_mouse_mode(mode);
         self.gui_command = command;
 
         let is_context = options & CMD_CONTEXTMODE_COMMAND != 0;
         self.set_mouse_cursor(MouseCursor::Arrow);
-        TheInGameUI::set_mouse_cursor(MouseCursor::Arrow);
+        ui.set_mouse_cursor(MouseCursor::Arrow);
         if self.gui_command.is_some() && needs_target && !is_context {
             if let Some(pending) = pending {
                 if let Some(cursor_type) = RadiusCursorType::from_name(&pending.radius_cursor_type)
                 {
                     if cursor_type != RadiusCursorType::None {
-                        TheInGameUI::set_radius_cursor_active_with_type(
-                            &pending.radius_cursor_type,
-                        );
+                        ui.set_radius_cursor_active_with_type(&pending.radius_cursor_type);
                         self.set_radius_cursor(
                             cursor_type,
                             Coord3D::new(0.0, 0.0, 0.0),
                             1.0,
                             input,
+                            ui,
                         );
                     }
                 }
             }
         } else {
             self.clear_radius_cursor();
-            TheInGameUI::set_radius_cursor_none();
+            ui.set_radius_cursor_none();
         }
         self.mouse_mode_cursor = self.current_cursor;
     }
@@ -542,6 +556,7 @@ impl InGameUI {
         &mut self,
         template: Option<String>,
         input: &InGameUiInputContext<'_>,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) {
         match template {
             Some(name) => {
@@ -554,10 +569,10 @@ impl InGameUI {
                         Vec2::new(half_w.abs().max(1.0), half_h.abs().max(1.0))
                     })
                     .unwrap_or(Vec2::new(1.0, 1.0));
-                self.start_building_placement(name, footprint, input);
+                self.start_building_placement(name, footprint, input, ui);
             }
             None => {
-                self.cancel_building_placement();
+                self.cancel_building_placement(ui);
             }
         }
     }
@@ -849,7 +864,7 @@ impl InGameUI {
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
         // C++ InGameUI::popupMessage always UpdateDiplomacyBriefingText first.
-        TheInGameUI::popup_message(identifier, x, y, width, pause, pause_music, effects);
+        crate::helpers::popup_message(identifier, x, y, width, pause, pause_music, effects);
     }
 
     fn update_movie_playback(&mut self, windows: &crate::gui::window_manager::WindowManager) {

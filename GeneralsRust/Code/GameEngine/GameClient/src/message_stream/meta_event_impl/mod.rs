@@ -24,7 +24,7 @@ use super::game_message::{
     Coord3D, GameMessage, GameMessageArgumentType, GameMessageType, ICoord2D, IRegion2D,
     build_region,
 };
-use super::message_stream::{GameMessageDisposition, GameMessageTranslator, emit_message};
+use super::message_stream::{GameMessageDisposition, GameMessageTranslator};
 use crate::core::script_action_handler::{
     get_script_display_debug_callback, script_set_3d_wireframe_mode,
     set_script_display_debug_callback, stop_script_display_movie, toggle_script_display_letter_box,
@@ -34,7 +34,7 @@ use crate::display::display::DebugDisplayCallback;
 use crate::display::view::{FilterMode, FilterType, with_tactical_view};
 use crate::drawable::drawable_manager::with_drawable_manager_ref;
 
-use crate::helpers::{TheControlBar, TheInGameUI};
+use crate::helpers::TheControlBar;
 use crate::message_stream::player_state::{get_local_player_id, set_local_player_id};
 use crate::message_stream::selection_xlat::DRAG_TOLERANCE;
 use crate::presentation_translator_residual::{

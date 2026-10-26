@@ -165,6 +165,8 @@ pub struct BasicDrawable {
     presentation_health_pct: f32,
     /// Wave 965: presentation selected residual.
     presentation_selected: bool,
+    /// Receiving UI hover sampled at the icon-UI draw boundary, never a selector.
+    presentation_moused_over: bool,
     /// Wave 980: presentation orientation residual (radians).
     presentation_orientation: f32,
     /// Wave 970: presentation veterancy residual.
@@ -306,6 +308,7 @@ impl BasicDrawable {
             presentation_formation_id: 0,
             presentation_health_pct: 0.0,
             presentation_selected: false,
+            presentation_moused_over: false,
             presentation_orientation: 0.0,
             presentation_veterancy_level: 0,
             presentation_under_construction: false,

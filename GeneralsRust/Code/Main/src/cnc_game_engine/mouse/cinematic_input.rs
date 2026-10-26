@@ -1,11 +1,8 @@
 //! Source DisableInput/EnableInput operates on these actual receiving fields.
 //! The loan lives only for the synchronous script walk; no state is published.
 use super::*;
-use game_client::core::subsystems::InGameUISubsystem;
-use std::sync::{Arc, Mutex};
 
 pub(in crate::cnc_game_engine) struct CinematicInputLoan<'a> {
-    pub(in crate::cnc_game_engine) ui: Option<Arc<Mutex<InGameUISubsystem>>>,
     pub(in crate::cnc_game_engine) local_player: u32,
     pub(in crate::cnc_game_engine) modes: &'a mut LookAtHostModes,
     pub(in crate::cnc_game_engine) selected: &'a mut Vec<crate::game_logic::ObjectId>,
@@ -25,9 +22,6 @@ pub(in crate::cnc_game_engine) struct CinematicInputLoan<'a> {
     pub(in crate::cnc_game_engine) cursor_visible: &'a mut dyn FnMut(bool),
 }
 impl CinematicInputLoan<'_> {
-    pub(in crate::cnc_game_engine) fn available(&self) -> bool {
-        self.ui.is_some()
-    }
     pub(in crate::cnc_game_engine) fn apply(
         &mut self,
         enabled: bool,
@@ -36,17 +30,16 @@ impl CinematicInputLoan<'_> {
         bar: &mut game_client::gui::control_bar::ControlBar,
         effects: &mut game_client::gui::game_window::WindowEventEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        let owner = self.ui.as_ref().ok_or_else(|| {
-            gamelogic::GameLogicError::Configuration(
+        if !effects.has_ui() {
+            return Err(gamelogic::GameLogicError::Configuration(
                 "cinematic input requires the receiving InGameUI".into(),
-            )
-        })?;
-        {
-            let mut ui = owner.lock().map_err(|_| {
-                gamelogic::GameLogicError::Configuration("receiving InGameUI is poisoned".into())
-            })?;
-            ui.apply_cinematic_input_edge(was_enabled, enabled);
+            ));
         }
+        let ui = effects.ui_mut();
+        // C++ ScriptActions changes the actual UI flag before mouse/selection
+        // callbacks. The world interpreter's source edge remains explicit.
+        ui.set_input_enabled(enabled);
+        ui.apply_cinematic_input_edge(was_enabled, enabled);
         if !enabled {
             *self.dragging = false;
             *self.selection_start = None;
@@ -74,12 +67,7 @@ impl CinematicInputLoan<'_> {
             }
         }
         deselect(self.local_player);
-        owner
-            .lock()
-            .map_err(|_| {
-                gamelogic::GameLogicError::Configuration("receiving InGameUI is poisoned".into())
-            })?
-            .clear_cinematic_selection_and_modes();
+        effects.ui_mut().clear_cinematic_selection_and_modes();
         *self.waypoint = false;
         effects.with_manager(|manager, _| bar.delete_build_tooltip_layout_owned(manager));
         reset_look_at_translator_fields(

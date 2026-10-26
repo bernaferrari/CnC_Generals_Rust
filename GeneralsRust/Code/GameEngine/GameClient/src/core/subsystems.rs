@@ -18,7 +18,7 @@ use crate::{
     drawable::Drawable,
     effects::particle_manager::xfer_particle_system_manager_state,
     game_text::GameText,
-    helpers::{InGameUiHooks, PendingCommand, PendingSpecialPower},
+    helpers::{PendingCommand, PendingSpecialPower},
     message_stream::game_message::{ICoord2D, ObjectID},
     system::{
         BeaconNotification, Coord3D, SubsystemInterface,
@@ -730,45 +730,131 @@ fn xfer_pending_command(
     Ok(())
 }
 
+/// Field-disjoint receivers for the two C++ UI chunks. These loans never
+/// enter GameState's retained registry or outlive their save/load operation.
+pub struct InGameUISnapshot<'a> {
+    pending_place_template: &'a mut Option<String>,
+    pending_place_source_object_id: &'a mut ObjectID,
+    placement_start: &'a mut Option<ICoord2D>,
+    placement_end: &'a mut Option<ICoord2D>,
+    placement_angle: &'a mut f32,
+    radius_cursor_active: &'a mut bool,
+    radius_cursor_type: &'a mut String,
+    attack_move_to_mode: &'a mut bool,
+    force_attack_mode: &'a mut bool,
+    force_move_to_mode: &'a mut bool,
+    prefer_selection_mode: &'a mut bool,
+    waypoint_mode: &'a mut bool,
+    camera_rotating_left: &'a mut bool,
+    camera_rotating_right: &'a mut bool,
+    camera_zooming_in: &'a mut bool,
+    camera_zooming_out: &'a mut bool,
+    camera_tracking_drawable: &'a mut bool,
+    prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: &'a mut bool,
+    pending_special_power: &'a mut Option<PendingSpecialPower>,
+    pending_command: &'a mut Option<PendingCommand>,
+}
+pub struct RadarSnapshot<'a> {
+    pings: &'a mut VecDeque<RadarPingEvent>,
+}
+impl InGameUISubsystem {
+    pub fn snapshot_parts(&mut self) -> (InGameUISnapshot<'_>, RadarSnapshot<'_>) {
+        (
+            InGameUISnapshot {
+                pending_place_template: &mut self.pending_place_template,
+                pending_place_source_object_id: &mut self.pending_place_source_object_id,
+                placement_start: &mut self.placement_start,
+                placement_end: &mut self.placement_end,
+                placement_angle: &mut self.placement_angle,
+                radius_cursor_active: &mut self.radius_cursor_active,
+                radius_cursor_type: &mut self.radius_cursor_type,
+                attack_move_to_mode: &mut self.attack_move_to_mode,
+                force_attack_mode: &mut self.force_attack_mode,
+                force_move_to_mode: &mut self.force_move_to_mode,
+                prefer_selection_mode: &mut self.prefer_selection_mode,
+                waypoint_mode: &mut self.waypoint_mode,
+                camera_rotating_left: &mut self.camera_rotating_left,
+                camera_rotating_right: &mut self.camera_rotating_right,
+                camera_zooming_in: &mut self.camera_zooming_in,
+                camera_zooming_out: &mut self.camera_zooming_out,
+                camera_tracking_drawable: &mut self.camera_tracking_drawable,
+                prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: &mut self
+                    .prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click,
+                pending_special_power: &mut self.pending_special_power,
+                pending_command: &mut self.pending_command,
+            },
+            RadarSnapshot {
+                pings: &mut self.radar_pings,
+            },
+        )
+    }
+    pub fn with_borrowed_ui_snapshots<R>(
+        &mut self,
+        operation: impl FnOnce(&mut [game_engine::System::SaveGame::BorrowedSnapshotBlock<'_>]) -> R,
+    ) -> R {
+        use game_engine::System::SaveGame::BorrowedSnapshotBlock;
+        let (mut ui, mut radar) = self.snapshot_parts();
+        operation(&mut [
+            BorrowedSnapshotBlock {
+                block_name: "CHUNK_InGameUI",
+                snapshot: &mut ui,
+            },
+            BorrowedSnapshotBlock {
+                block_name: "CHUNK_Radar",
+                snapshot: &mut radar,
+            },
+        ])
+    }
+}
+impl XferSnapshotTrait for InGameUISnapshot<'_> {
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
+    }
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        let current_version: XferVersion = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)?;
+
+        xfer_option_string(xfer, self.pending_place_template)?;
+        xfer.xfer_unsigned_int(self.pending_place_source_object_id)?;
+        xfer_option_coord2d(xfer, self.placement_start)?;
+        xfer_option_coord2d(xfer, self.placement_end)?;
+        xfer.xfer_real(self.placement_angle)?;
+        xfer_bool_flag(xfer, self.radius_cursor_active)?;
+        xfer_string_value(xfer, self.radius_cursor_type)?;
+        xfer_bool_flag(xfer, self.attack_move_to_mode)?;
+        xfer_bool_flag(xfer, self.force_attack_mode)?;
+        xfer_bool_flag(xfer, self.force_move_to_mode)?;
+        xfer_bool_flag(xfer, self.prefer_selection_mode)?;
+        xfer_bool_flag(xfer, self.waypoint_mode)?;
+        xfer_bool_flag(xfer, self.camera_rotating_left)?;
+        xfer_bool_flag(xfer, self.camera_rotating_right)?;
+        xfer_bool_flag(xfer, self.camera_zooming_in)?;
+        xfer_bool_flag(xfer, self.camera_zooming_out)?;
+        xfer_bool_flag(xfer, self.camera_tracking_drawable)?;
+        xfer_bool_flag(
+            xfer,
+            self.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click,
+        )?;
+        xfer_pending_special_power(xfer, self.pending_special_power)?;
+        xfer_pending_command(xfer, self.pending_command)?;
+
+        if xfer.get_xfer_mode() == XferMode::Load && !*self.radius_cursor_active {
+            self.radius_cursor_type.clear();
+        }
+
+        Ok(())
+    }
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        Ok(())
+    }
+}
 fn xfer_in_game_ui_state(
     ui: &mut InGameUISubsystem,
     xfer: &mut dyn Xfer,
 ) -> Result<(), XferStatus> {
-    let current_version: XferVersion = 1;
-    let mut version = current_version;
-    xfer.xfer_version(&mut version, current_version)?;
-
-    xfer_option_string(xfer, &mut ui.pending_place_template)?;
-    xfer.xfer_unsigned_int(&mut ui.pending_place_source_object_id)?;
-    xfer_option_coord2d(xfer, &mut ui.placement_start)?;
-    xfer_option_coord2d(xfer, &mut ui.placement_end)?;
-    xfer.xfer_real(&mut ui.placement_angle)?;
-    xfer_bool_flag(xfer, &mut ui.radius_cursor_active)?;
-    xfer_string_value(xfer, &mut ui.radius_cursor_type)?;
-    xfer_bool_flag(xfer, &mut ui.attack_move_to_mode)?;
-    xfer_bool_flag(xfer, &mut ui.force_attack_mode)?;
-    xfer_bool_flag(xfer, &mut ui.force_move_to_mode)?;
-    xfer_bool_flag(xfer, &mut ui.prefer_selection_mode)?;
-    xfer_bool_flag(xfer, &mut ui.waypoint_mode)?;
-    xfer_bool_flag(xfer, &mut ui.camera_rotating_left)?;
-    xfer_bool_flag(xfer, &mut ui.camera_rotating_right)?;
-    xfer_bool_flag(xfer, &mut ui.camera_zooming_in)?;
-    xfer_bool_flag(xfer, &mut ui.camera_zooming_out)?;
-    xfer_bool_flag(xfer, &mut ui.camera_tracking_drawable)?;
-    xfer_bool_flag(
-        xfer,
-        &mut ui.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click,
-    )?;
-    xfer_pending_special_power(xfer, &mut ui.pending_special_power)?;
-    xfer_pending_command(xfer, &mut ui.pending_command)?;
-
-    if xfer.get_xfer_mode() == XferMode::Load && !ui.radius_cursor_active {
-        ui.radius_cursor_type.clear();
-    }
-
-    Ok(())
+    ui.snapshot_parts().0.xfer(xfer)
 }
-
 fn radar_ping_kind_to_u8(kind: RadarPingKind) -> u8 {
     match kind {
         RadarPingKind::Generic => 0,
@@ -785,118 +871,92 @@ fn radar_ping_kind_from_u8(value: u8) -> RadarPingKind {
     }
 }
 
-fn xfer_radar_state(ui: &mut InGameUISubsystem, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-    let current_version: XferVersion = 1;
-    let mut version = current_version;
-    xfer.xfer_version(&mut version, current_version)?;
-
-    let mut pings: Vec<RadarPingEvent> = if xfer.get_xfer_mode() == XferMode::Save {
-        ui.radar_pings.iter().cloned().collect()
-    } else {
-        Vec::new()
-    };
-
-    let mut ping_count = pings.len() as u32;
-    xfer.xfer_unsigned_int(&mut ping_count)?;
-
-    if xfer.get_xfer_mode() == XferMode::Load {
-        pings.clear();
-        pings.reserve(ping_count as usize);
-        for _ in 0..ping_count {
-            let mut ping = RadarPingEvent {
-                position: Coord3D::new(0.0, 0.0, 0.0),
-                kind: RadarPingKind::Generic,
-                age_seconds: 0.0,
-            };
-            xfer.xfer_real(&mut ping.position.x)?;
-            xfer.xfer_real(&mut ping.position.y)?;
-            xfer.xfer_real(&mut ping.position.z)?;
-            let mut kind_value = 0u8;
-            xfer.xfer_unsigned_byte(&mut kind_value)?;
-            ping.kind = radar_ping_kind_from_u8(kind_value);
-            xfer.xfer_real(&mut ping.age_seconds)?;
-            pings.push(ping);
-        }
-        ui.radar_pings = pings.into_iter().collect();
-    } else {
-        for ping in &mut pings {
-            xfer.xfer_real(&mut ping.position.x)?;
-            xfer.xfer_real(&mut ping.position.y)?;
-            xfer.xfer_real(&mut ping.position.z)?;
-            let mut kind_value = radar_ping_kind_to_u8(ping.kind);
-            xfer.xfer_unsigned_byte(&mut kind_value)?;
-            xfer.xfer_real(&mut ping.age_seconds)?;
-            ping.kind = radar_ping_kind_from_u8(kind_value);
-        }
-    }
-
-    Ok(())
-}
-
-struct InGameUISnapshotBridge {
-    ui: Arc<Mutex<InGameUISubsystem>>,
-}
-
-impl InGameUISnapshotBridge {
-    fn new(ui: Arc<Mutex<InGameUISubsystem>>) -> Self {
-        Self { ui }
-    }
-}
-
-impl XferSnapshotTrait for InGameUISnapshotBridge {
+impl XferSnapshotTrait for RadarSnapshot<'_> {
     fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
         self.xfer(xfer)
     }
-
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        let mut guard = self.ui.lock().map_err(|_| XferStatus::InvalidData)?;
-        xfer_in_game_ui_state(&mut guard, xfer)
-    }
+        let current_version: XferVersion = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)?;
 
+        let mut pings: Vec<RadarPingEvent> = if xfer.get_xfer_mode() == XferMode::Save {
+            self.pings.iter().cloned().collect()
+        } else {
+            Vec::new()
+        };
+
+        let mut ping_count = pings.len() as u32;
+        xfer.xfer_unsigned_int(&mut ping_count)?;
+
+        if xfer.get_xfer_mode() == XferMode::Load {
+            pings.clear();
+            pings.reserve(ping_count as usize);
+            for _ in 0..ping_count {
+                let mut ping = RadarPingEvent {
+                    position: Coord3D::new(0.0, 0.0, 0.0),
+                    kind: RadarPingKind::Generic,
+                    age_seconds: 0.0,
+                };
+                xfer.xfer_real(&mut ping.position.x)?;
+                xfer.xfer_real(&mut ping.position.y)?;
+                xfer.xfer_real(&mut ping.position.z)?;
+                let mut kind_value = 0u8;
+                xfer.xfer_unsigned_byte(&mut kind_value)?;
+                ping.kind = radar_ping_kind_from_u8(kind_value);
+                xfer.xfer_real(&mut ping.age_seconds)?;
+                pings.push(ping);
+            }
+            *self.pings = pings.into_iter().collect();
+        } else {
+            for ping in &mut pings {
+                xfer.xfer_real(&mut ping.position.x)?;
+                xfer.xfer_real(&mut ping.position.y)?;
+                xfer.xfer_real(&mut ping.position.z)?;
+                let mut kind_value = radar_ping_kind_to_u8(ping.kind);
+                xfer.xfer_unsigned_byte(&mut kind_value)?;
+                xfer.xfer_real(&mut ping.age_seconds)?;
+                ping.kind = radar_ping_kind_from_u8(kind_value);
+            }
+        }
+
+        Ok(())
+    }
     fn load_post_process(&mut self) -> Result<(), XferStatus> {
         Ok(())
     }
 }
+fn xfer_radar_state(ui: &mut InGameUISubsystem, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    ui.snapshot_parts().1.xfer(xfer)
+}
 
-pub fn register_in_game_ui_snapshot_block(ui: Arc<Mutex<InGameUISubsystem>>) {
-    let mut state = game_engine::System::get_game_state();
-    state.add_snapshot_block(
-        "CHUNK_InGameUI".to_string(),
-        Box::new(InGameUISnapshotBridge::new(ui)),
+// Immutable chunk contract, with no retained UI or process-selected receiver.
+struct ReceivingUiSnapshotRequired;
+impl XferSnapshotTrait for ReceivingUiSnapshotRequired {
+    fn requires_operation_owner(&self) -> bool {
+        true
+    }
+    fn crc(&mut self, _: &mut dyn Xfer) -> Result<(), XferStatus> {
+        Err(XferStatus::InvalidData)
+    }
+    fn xfer(&mut self, _: &mut dyn Xfer) -> Result<(), XferStatus> {
+        Err(XferStatus::InvalidData)
+    }
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        Err(XferStatus::InvalidData)
+    }
+}
+pub fn register_in_game_ui_snapshot_block() {
+    game_engine::System::get_game_state().add_snapshot_block(
+        "CHUNK_InGameUI".into(),
+        Box::new(ReceivingUiSnapshotRequired),
         game_engine::System::SnapshotType::SaveLoad,
     );
 }
-
-struct RadarSnapshotBridge {
-    ui: Arc<Mutex<InGameUISubsystem>>,
-}
-
-impl RadarSnapshotBridge {
-    fn new(ui: Arc<Mutex<InGameUISubsystem>>) -> Self {
-        Self { ui }
-    }
-}
-
-impl XferSnapshotTrait for RadarSnapshotBridge {
-    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        self.xfer(xfer)
-    }
-
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        let mut guard = self.ui.lock().map_err(|_| XferStatus::InvalidData)?;
-        xfer_radar_state(&mut guard, xfer)
-    }
-
-    fn load_post_process(&mut self) -> Result<(), XferStatus> {
-        Ok(())
-    }
-}
-
-pub fn register_radar_snapshot_block(ui: Arc<Mutex<InGameUISubsystem>>) {
-    let mut state = game_engine::System::get_game_state();
-    state.add_snapshot_block(
-        "CHUNK_Radar".to_string(),
-        Box::new(RadarSnapshotBridge::new(ui)),
+pub fn register_radar_snapshot_block() {
+    game_engine::System::get_game_state().add_snapshot_block(
+        "CHUNK_Radar".into(),
+        Box::new(ReceivingUiSnapshotRequired),
         game_engine::System::SnapshotType::SaveLoad,
     );
 }
@@ -1139,60 +1199,66 @@ pub struct PresentationSuperweaponTimerResidual {
 /// In-game UI subsystem bridge.
 #[derive(Default)]
 pub struct InGameUISubsystem {
-    radar_acknowledgments: Vec<(Arc<()>, Vec<(usize, Arc<()>)>)>,
-    radar_presented_keys: Vec<Arc<()>>,
+    pub(crate) live_hud: crate::gui::ingame_ui::LiveHud,
+    pub(crate) superweapon_strip: crate::gui::ingame_ui::LiveSuperweaponStrip,
+    pub(crate) status: crate::helpers::InGameUIStatusState,
+    pub(crate) hints: Vec<crate::gui::HintData>,
+    pub(crate) radar_acknowledgments: Vec<(Arc<()>, Vec<(usize, Arc<()>)>)>,
+    pub(crate) radar_presented_keys: Vec<Arc<()>>,
 
-    radar_presentation: Option<Arc<game_engine::common::system::radar::RadarPresentation>>,
+    pub(crate) radar_presentation:
+        Option<Arc<game_engine::common::system::radar::RadarPresentation>>,
 
-    money_display_cache: Option<(i32, String)>,
+    pub(crate) money_display_cache: Option<(i32, String)>,
     /// Wave 964: presentation selection residual (host empty dual-world).
-    presentation_selected: Vec<crate::gui::ingame_ui::PresentationSelectedUnitResidual>,
+    pub(crate) presentation_selected: Vec<crate::gui::ingame_ui::PresentationSelectedUnitResidual>,
     /// Wave 966: presentation unit catalog residual (host select-similar).
-    presentation_unit_catalog: Vec<crate::gui::ingame_ui::PresentationUnitCatalogEntry>,
+    pub(crate) presentation_unit_catalog: Vec<crate::gui::ingame_ui::PresentationUnitCatalogEntry>,
     /// Wave 968: local team residual.
-    presentation_local_team_name: String,
-    beacon_markers: Vec<BeaconMarker>,
-    pending_beacon_events: VecDeque<BeaconNotification>,
-    selection_events: VecDeque<SelectionEvent>,
-    command_log: VecDeque<CommandLogEntry>,
-    hud_messages: VecDeque<MessageText>,
+    pub(crate) presentation_local_team_name: String,
+    pub(crate) beacon_markers: Vec<BeaconMarker>,
+    pub(crate) pending_beacon_events: VecDeque<BeaconNotification>,
+    pub(crate) selection_events: VecDeque<SelectionEvent>,
+    pub(crate) command_log: VecDeque<CommandLogEntry>,
+    pub(crate) hud_messages: VecDeque<MessageText>,
 
-    military_subtitles: VecDeque<(String, i32)>,
+    pub(crate) military_subtitles: VecDeque<(String, i32)>,
     /// Wave 1060: presentation floating cash/text residual.
-    presentation_floating_texts: Vec<(String, [f32; 3], (u8, u8, u8, u8), u32, u32)>,
+    pub(crate) presentation_floating_texts: Vec<(String, [f32; 3], (u8, u8, u8, u8), u32, u32)>,
     /// Presentation MoneyPickUp / world Anim2D residual (template, pos, time, z-rise, fades, spawn).
-    presentation_world_anims: Vec<game_engine::common::world_animation::WorldAnimationPresentation>,
+    pub(crate) presentation_world_anims:
+        Vec<game_engine::common::world_animation::WorldAnimationPresentation>,
     /// Presentation PublicTimer residual (name + READY/mm:ss).
-    presentation_superweapon_timers: Vec<PresentationSuperweaponTimerResidual>,
-    tooltips_disabled_until: u32,
-    radar_pings: VecDeque<RadarPingEvent>,
-    pending_place_template: Option<String>,
-    pending_place_source_object_id: ObjectID,
-    placement_start: Option<ICoord2D>,
-    placement_end: Option<ICoord2D>,
-    placement_angle: f32,
-    radius_cursor_active: bool,
-    radius_cursor_type: String,
-    attack_move_to_mode: bool,
-    force_attack_mode: bool,
-    force_move_to_mode: bool,
-    prefer_selection_mode: bool,
-    waypoint_mode: bool,
-    camera_rotating_left: bool,
-    camera_rotating_right: bool,
-    camera_zooming_in: bool,
-    camera_zooming_out: bool,
-    camera_tracking_drawable: bool,
-    prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: bool,
-    draw_rmb_scroll_anchor: bool,
-    move_rmb_scroll_anchor: bool,
-    max_select_count: i32,
-    pending_special_power: Option<PendingSpecialPower>,
-    pending_command: Option<PendingCommand>,
+    pub(crate) presentation_superweapon_timers: Vec<PresentationSuperweaponTimerResidual>,
+    pub(crate) tooltips_disabled_until: u32,
+    pub(crate) radar_pings: VecDeque<RadarPingEvent>,
+    pub(crate) pending_place_template: Option<String>,
+    pub(crate) pending_place_source_object_id: ObjectID,
+    pub(crate) placement_start: Option<ICoord2D>,
+    pub(crate) placement_end: Option<ICoord2D>,
+    pub(crate) placement_angle: f32,
+    pub(crate) radius_cursor_active: bool,
+    pub(crate) radius_cursor_type: String,
+    pub(crate) attack_move_to_mode: bool,
+    pub(crate) force_attack_mode: bool,
+    pub(crate) force_move_to_mode: bool,
+    pub(crate) prefer_selection_mode: bool,
+    pub(crate) waypoint_mode: bool,
+    pub(crate) camera_rotating_left: bool,
+    pub(crate) camera_rotating_right: bool,
+    pub(crate) camera_zooming_in: bool,
+    pub(crate) camera_zooming_out: bool,
+    pub(crate) camera_tracking_drawable: bool,
+    pub(crate) prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: bool,
+    pub(crate) draw_rmb_scroll_anchor: bool,
+    pub(crate) move_rmb_scroll_anchor: bool,
+    pub(crate) max_select_count: i32,
+    pub(crate) pending_special_power: Option<PendingSpecialPower>,
+    pub(crate) pending_command: Option<PendingCommand>,
     /// C++ TheRecorder->getMode() == RECORDERMODETYPE_PLAYBACK.
-    recorder_playback_active: bool,
+    pub(crate) recorder_playback_active: bool,
     /// C++ TheLookAtTranslator->hasMouseMovedRecently().
-    look_at_mouse_moved_recently: bool,
+    pub(crate) look_at_mouse_moved_recently: bool,
 }
 
 impl InGameUISubsystem {
@@ -1230,18 +1296,18 @@ impl InGameUISubsystem {
         self.pending_special_power = None;
     }
 
-    fn map_cant_build_message(message: &str) -> String {
+    pub fn map_cant_build_message(message: &str) -> String {
         crate::helpers::map_cant_build_message(message)
     }
 
-    fn beacon_distance_sq(a: &Coord3D, b: &Coord3D) -> f32 {
+    pub fn beacon_distance_sq(a: &Coord3D, b: &Coord3D) -> f32 {
         let dx = a.x - b.x;
         let dy = a.y - b.y;
         let dz = a.z - b.z;
         dx * dx + dy * dy + dz * dz
     }
 
-    fn find_beacon_index(&self, player_id: i32, position: &Coord3D) -> Option<usize> {
+    pub fn find_beacon_index(&self, player_id: i32, position: &Coord3D) -> Option<usize> {
         let threshold_sq = BEACON_MATCH_THRESHOLD * BEACON_MATCH_THRESHOLD;
         self.beacon_markers.iter().position(|marker| {
             marker.player_id == player_id
@@ -1249,7 +1315,7 @@ impl InGameUISubsystem {
         })
     }
 
-    fn upsert_beacon(&mut self, marker: BeaconMarker) {
+    pub fn upsert_beacon(&mut self, marker: BeaconMarker) {
         if let Some(index) = self.find_beacon_index(marker.player_id, &marker.position) {
             self.beacon_markers[index] = marker;
         } else {
@@ -1257,7 +1323,7 @@ impl InGameUISubsystem {
         }
     }
 
-    fn remove_beacon(&mut self, player_id: i32, position: &Coord3D) -> bool {
+    pub fn remove_beacon(&mut self, player_id: i32, position: &Coord3D) -> bool {
         if let Some(index) = self.find_beacon_index(player_id, position) {
             self.beacon_markers.remove(index);
             true
@@ -1301,7 +1367,7 @@ impl InGameUISubsystem {
         self.radar_pings.drain(..).collect()
     }
 
-    fn record_selection(&mut self, upper_left: ICoord2D, lower_right: ICoord2D) {
+    pub fn record_selection(&mut self, upper_left: ICoord2D, lower_right: ICoord2D) {
         const MAX_SELECTION_EVENTS: usize = 32;
         if self.selection_events.len() == MAX_SELECTION_EVENTS {
             self.selection_events.pop_front();
@@ -1312,7 +1378,7 @@ impl InGameUISubsystem {
         });
     }
 
-    fn record_command(&mut self, entry: CommandLogEntry) {
+    pub fn record_command(&mut self, entry: CommandLogEntry) {
         const MAX_COMMAND_EVENTS: usize = 64;
         if self.command_log.len() == MAX_COMMAND_EVENTS {
             self.command_log.pop_front();
@@ -1351,8 +1417,8 @@ impl InGameUISubsystem {
         });
     }
 
-    pub fn push_hud_message(&mut self, message: String) {
-        self.push_hud_message_at(message, TheGameLogic::get_frame());
+    pub fn push_hud_message(&mut self, message: String, frame: u32) {
+        self.push_hud_message_at(message, frame);
     }
     pub fn push_hud_message_at(&mut self, message: String, frame: u32) {
         self.expire_hud_messages(frame);
@@ -1383,9 +1449,16 @@ impl InGameUISubsystem {
         &mut self,
         label: &str,
         duration_ms: i32,
+        frame: u32,
         manager: &mut crate::gui::window_manager::WindowManager,
     ) {
-        crate::gui::ingame_ui::start_military_subtitle(label, duration_ms, manager);
+        crate::gui::ingame_ui::start_military_subtitle(
+            &mut self.live_hud,
+            label,
+            duration_ms,
+            frame,
+            manager,
+        );
         const MAX_MILITARY_SUBTITLES: usize = 8;
         if self.military_subtitles.len() == MAX_MILITARY_SUBTITLES {
             self.military_subtitles.pop_front();
@@ -1393,7 +1466,7 @@ impl InGameUISubsystem {
         self.military_subtitles
             .push_back((label.to_string(), duration_ms));
         let duration_frames = ((duration_ms.max(0) as u32).saturating_mul(30)) / 1000;
-        self.disable_tooltips_until(TheGameLogic::get_frame().saturating_add(duration_frames));
+        self.disable_tooltips_until(frame.saturating_add(duration_frames));
     }
 
     /// Wave 1060: stamp presentation floating text residual.
@@ -1490,44 +1563,54 @@ impl InGameUISubsystem {
     }
 
     /// C++ HintSpy.cpp:26-35 — live host hover tooltip from presentation catalog.
-    pub fn create_mouseover_hint(&mut self, drawable_id: Option<u32>, is_location_hint: bool) {
-        if self.tooltips_disabled_until > TheGameLogic::get_frame() {
+    pub fn create_mouseover_hint(
+        &mut self,
+        drawable_id: Option<u32>,
+        is_location_hint: bool,
+        logic_frame: u32,
+        client_frame: u32,
+    ) {
+        if self.tooltips_disabled_until > logic_frame {
             return;
         }
         // C++ InGameUI.cpp:2462 — playback keeps hover until the viewer moves.
         if self.recorder_playback_active && !self.look_at_mouse_moved_recently {
             return;
         }
+        let catalog = self.presentation_unit_catalog.clone();
+        let mut receiving =
+            crate::message_stream::ReceivingUi::new(self, logic_frame, client_frame);
         let _ = crate::gui::ingame_ui::InGameUI::apply_catalog_mouseover_tooltip(
-            &self.presentation_unit_catalog,
+            &catalog,
             drawable_id,
             is_location_hint,
+            &mut receiving,
         );
     }
 
-    fn disable_tooltips_until(&mut self, frame_num: u32) {
+    pub fn disable_tooltips_until(&mut self, frame_num: u32) {
         if frame_num > self.tooltips_disabled_until {
             self.tooltips_disabled_until = frame_num;
         }
     }
 
-    fn clear_tooltips_disabled(&mut self) {
+    pub fn clear_tooltips_disabled(&mut self) {
         self.tooltips_disabled_until = 0;
     }
 
-    fn are_tooltips_disabled(&self) -> bool {
-        TheGameLogic::get_frame() < self.tooltips_disabled_until
+    pub fn are_tooltips_disabled(&self, logic_frame: u32) -> bool {
+        logic_frame < self.tooltips_disabled_until
     }
 
-    fn get_pending_place_template(&self) -> Option<String> {
+    pub fn get_pending_place_template(&self) -> Option<String> {
         self.pending_place_template.clone()
     }
 
-    fn get_pending_place_source_object_id(&self) -> ObjectID {
+    pub fn get_pending_place_source_object_id(&self) -> ObjectID {
         self.pending_place_source_object_id
     }
 
-    fn set_pending_place(
+    pub fn set_pending_place(
         &mut self,
         template_name: Option<String>,
         source_object_id: Option<ObjectID>,
@@ -1539,35 +1622,35 @@ impl InGameUISubsystem {
         self.placement_angle = 0.0;
     }
 
-    fn get_pending_special_power(&self) -> Option<PendingSpecialPower> {
+    pub fn get_pending_special_power(&self) -> Option<PendingSpecialPower> {
         self.pending_special_power.clone()
     }
 
-    fn set_pending_special_power(&mut self, pending: Option<PendingSpecialPower>) {
+    pub fn set_pending_special_power_state(&mut self, pending: Option<PendingSpecialPower>) {
         self.pending_special_power = pending;
     }
 
-    fn clear_pending_special_power(&mut self) {
+    pub fn clear_pending_special_power(&mut self) {
         self.pending_special_power = None;
     }
 
-    fn get_pending_command(&self) -> Option<PendingCommand> {
+    pub fn get_pending_command(&self) -> Option<PendingCommand> {
         self.pending_command.clone()
     }
 
-    fn set_pending_command(&mut self, pending: Option<PendingCommand>) {
+    pub fn set_pending_command_state(&mut self, pending: Option<PendingCommand>) {
         self.pending_command = pending;
     }
 
-    fn clear_pending_command(&mut self) {
+    pub fn clear_pending_command_state(&mut self) {
         self.pending_command = None;
     }
 
-    fn is_placement_anchored(&self) -> bool {
+    pub fn is_placement_anchored(&self) -> bool {
         self.placement_start.is_some()
     }
 
-    fn set_placement_start(&mut self, start: Option<ICoord2D>) {
+    pub fn set_placement_start(&mut self, start: Option<ICoord2D>) {
         self.placement_start = start.clone();
         if start.is_none() {
             self.placement_end = None;
@@ -1576,25 +1659,25 @@ impl InGameUISubsystem {
         }
     }
 
-    fn set_placement_end(&mut self, end: Option<ICoord2D>) {
+    pub fn set_placement_end(&mut self, end: Option<ICoord2D>) {
         self.placement_end = end;
     }
 
-    fn get_placement_points(&self) -> Option<(ICoord2D, ICoord2D)> {
+    pub fn get_placement_points(&self) -> Option<(ICoord2D, ICoord2D)> {
         let start = self.placement_start.clone()?;
         let end = self.placement_end.clone().unwrap_or_else(|| start.clone());
         Some((start, end))
     }
 
-    fn get_placement_angle(&self) -> f32 {
+    pub fn get_placement_angle(&self) -> f32 {
         self.placement_angle
     }
 
-    fn set_placement_angle(&mut self, angle: f32) {
+    pub fn set_placement_angle(&mut self, angle: f32) {
         self.placement_angle = angle;
     }
 
-    fn set_radius_cursor_active(&mut self, radius_cursor_type: Option<String>) {
+    pub fn set_radius_cursor_active_state(&mut self, radius_cursor_type: Option<String>) {
         match radius_cursor_type {
             Some(radius_cursor_type) => {
                 let radius_type = radius_cursor_type.trim().to_string();
@@ -1609,151 +1692,155 @@ impl InGameUISubsystem {
         }
     }
 
-    fn set_radius_cursor_none(&mut self) {
+    pub fn set_radius_cursor_none(&mut self) {
         self.radius_cursor_active = false;
         self.radius_cursor_type.clear();
     }
 
-    fn display_cant_build_message(&mut self, message: &str) {
+    pub fn display_cant_build_message(&mut self, message: &str, frame: u32) {
         let key = Self::map_cant_build_message(message);
-        self.message(&key);
+        self.message(&key, frame);
     }
 
-    fn message(&mut self, text: &str) {
+    pub fn message(&mut self, text: &str, frame: u32) {
         // C++ InGameUI::message displays the already-formatted UnicodeString.
         // Fetch labels; pass through formatted HUD text so %s substitution survives.
         let (fetched, exists) = GameText::fetch_with_exists(text);
-        self.push_hud_message(if exists { fetched } else { text.to_string() });
+        self.push_hud_message_at(if exists { fetched } else { text.to_string() }, frame);
     }
 
-    fn free_message_resources(&mut self) {
+    pub fn free_message_resources(&mut self) {
         self.hud_messages.clear();
     }
 
-    fn clear_attack_move_to_mode(&mut self) {
+    pub fn clear_attack_move_to_mode(&mut self) {
         self.attack_move_to_mode = false;
     }
 
-    fn is_in_attack_move_to_mode(&self) -> bool {
+    pub fn is_in_attack_move_to_mode(&self) -> bool {
         self.attack_move_to_mode
     }
 
-    fn set_attack_move_to_mode(&mut self, enabled: bool) {
+    pub fn set_attack_move_to_mode(&mut self, enabled: bool) {
         self.attack_move_to_mode = enabled;
     }
 
-    fn is_in_force_attack_mode(&self) -> bool {
+    pub fn is_in_force_attack_mode(&self) -> bool {
         self.force_attack_mode
     }
 
-    fn is_in_force_move_to_mode(&self) -> bool {
+    pub fn is_in_force_move_to_mode(&self) -> bool {
         self.force_move_to_mode
     }
 
-    fn is_in_prefer_selection_mode(&self) -> bool {
+    pub fn is_in_prefer_selection_mode(&self) -> bool {
         self.prefer_selection_mode
     }
 
-    fn set_force_attack_mode(&mut self, enabled: bool) {
+    pub fn set_force_attack_mode(&mut self, enabled: bool) {
         self.force_attack_mode = enabled;
     }
 
-    fn set_force_move_to_mode(&mut self, enabled: bool) {
+    pub fn set_force_move_to_mode(&mut self, enabled: bool) {
         self.force_move_to_mode = enabled;
     }
 
-    fn set_prefer_selection_mode(&mut self, enabled: bool) {
+    pub fn set_prefer_selection_mode(&mut self, enabled: bool) {
         self.prefer_selection_mode = enabled;
     }
 
-    fn is_in_waypoint_mode(&self) -> bool {
+    pub fn is_in_waypoint_mode(&self) -> bool {
         self.waypoint_mode
     }
 
-    fn set_waypoint_mode(&mut self, enabled: bool) {
+    pub fn set_waypoint_mode(&mut self, enabled: bool) {
         self.waypoint_mode = enabled;
     }
 
-    fn is_camera_rotating_left(&self) -> bool {
+    pub fn is_camera_rotating_left(&self) -> bool {
         self.camera_rotating_left
     }
 
-    fn set_camera_rotate_left(&mut self, set: bool) {
+    pub fn set_camera_rotate_left(&mut self, set: bool) {
         self.camera_rotating_left = set;
     }
 
-    fn is_camera_rotating_right(&self) -> bool {
+    pub fn is_camera_rotating_right(&self) -> bool {
         self.camera_rotating_right
     }
 
-    fn set_camera_rotate_right(&mut self, set: bool) {
+    pub fn set_camera_rotate_right(&mut self, set: bool) {
         self.camera_rotating_right = set;
     }
 
-    fn is_camera_zooming_in(&self) -> bool {
+    pub fn is_camera_zooming_in(&self) -> bool {
         self.camera_zooming_in
     }
 
-    fn set_camera_zoom_in(&mut self, set: bool) {
+    pub fn set_camera_zoom_in(&mut self, set: bool) {
         self.camera_zooming_in = set;
     }
 
-    fn is_camera_zooming_out(&self) -> bool {
+    pub fn is_camera_zooming_out(&self) -> bool {
         self.camera_zooming_out
     }
 
-    fn set_camera_zoom_out(&mut self, set: bool) {
+    pub fn set_camera_zoom_out(&mut self, set: bool) {
         self.camera_zooming_out = set;
     }
 
-    fn is_camera_tracking_drawable(&self) -> bool {
+    pub fn is_camera_tracking_drawable(&self) -> bool {
         self.camera_tracking_drawable
     }
 
-    fn set_camera_tracking_drawable(&mut self, set: bool) {
+    pub fn set_camera_tracking_drawable(&mut self, set: bool) {
         self.camera_tracking_drawable = set;
     }
 
-    fn get_frame_selection_changed(&self) -> u32 {
+    pub fn get_frame_selection_changed(&self) -> u32 {
         0
     }
 
-    fn set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
+    pub fn set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
         &mut self,
         enabled: bool,
     ) {
         self.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click = enabled;
     }
 
-    fn get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(&self) -> bool {
+    pub fn get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(&self) -> bool {
         self.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click
     }
 
-    fn set_draw_rmb_scroll_anchor(&mut self, enabled: bool) {
+    pub fn set_draw_rmb_scroll_anchor(&mut self, enabled: bool) {
         self.draw_rmb_scroll_anchor = enabled;
     }
 
-    fn get_draw_rmb_scroll_anchor(&self) -> bool {
+    pub fn get_draw_rmb_scroll_anchor(&self) -> bool {
         self.draw_rmb_scroll_anchor
     }
 
-    fn set_move_rmb_scroll_anchor(&mut self, enabled: bool) {
+    pub fn set_move_rmb_scroll_anchor(&mut self, enabled: bool) {
         self.move_rmb_scroll_anchor = enabled;
     }
 
-    fn get_move_rmb_scroll_anchor(&self) -> bool {
+    pub fn get_move_rmb_scroll_anchor(&self) -> bool {
         self.move_rmb_scroll_anchor
     }
 
-    fn set_max_select_count(&mut self, max_select_count: i32) {
+    pub fn set_max_select_count(&mut self, max_select_count: i32) {
         self.max_select_count = max_select_count;
     }
 
-    fn get_max_select_count(&self) -> i32 {
+    pub fn get_max_select_count(&self) -> i32 {
         self.max_select_count
     }
 
-    fn clear_runtime_state(&mut self) {
+    pub fn clear_runtime_state(&mut self) {
+        crate::gui::ingame_ui::reset_live_hud(&mut self.live_hud);
+        self.superweapon_strip = Default::default();
+        self.status = Default::default();
+        self.hints.clear();
         self.radar_presentation = None;
         self.radar_presented_keys.clear();
         self.radar_acknowledgments.clear();
@@ -1808,6 +1895,22 @@ impl InGameUISubsystem {
 
 impl SubsystemInterface for InGameUISubsystem {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(settings) = game_engine::common::ini::ini_in_game_ui::get_in_game_ui_settings()
+        {
+            let color = settings.military_caption_color;
+            crate::gui::ingame_ui::apply_military_caption_style(
+                &mut self.live_hud,
+                (
+                    settings.military_caption_position.x as f32,
+                    settings.military_caption_position.y as f32,
+                ),
+                ((color.alpha as u32) << 24)
+                    | ((color.red as u32) << 16)
+                    | ((color.green as u32) << 8)
+                    | color.blue as u32,
+                settings.military_caption_title_point_size,
+            );
+        }
         self.clear_runtime_state();
         Ok(())
     }
@@ -1825,17 +1928,24 @@ impl SubsystemInterface for InGameUISubsystem {
 
 impl InGameUI for InGameUISubsystem {
     fn disregard_drawable(
-        &self,
+        &mut self,
         drawable: &dyn Drawable,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let object_id = drawable.get_object_id().unwrap_or(drawable.get_id().0);
-        crate::gui::ingame_ui::InGameUI::disregard_live_drawable(object_id);
+        self.presentation_selected
+            .retain(|entry| entry.object_id != object_id);
+        self.presentation_unit_catalog
+            .retain(|entry| entry.object_id != object_id);
+        if self.get_moused_over_drawable_id() == object_id {
+            self.set_moused_over_drawable_id(0);
+        }
         Ok(())
     }
 
     fn handle_beacon_notification(
         &mut self,
         notification: &BeaconNotification,
+        frame: u32,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.pending_beacon_events.push_back(notification.clone());
 
@@ -1852,7 +1962,7 @@ impl InGameUI for InGameUISubsystem {
                     marker.player_id, marker.position.x, marker.position.y, marker.position.z, text
                 );
                 log::info!("{msg}");
-                self.push_hud_message(msg);
+                self.push_hud_message_at(msg, frame);
             }
             BeaconNotification::Removed {
                 player_id,
@@ -1875,7 +1985,7 @@ impl InGameUI for InGameUISubsystem {
                 } else {
                     log::warn!("{msg}");
                 }
-                self.push_hud_message(msg);
+                self.push_hud_message_at(msg, frame);
             }
             BeaconNotification::TextUpdated {
                 player_id,
@@ -1898,7 +2008,7 @@ impl InGameUI for InGameUISubsystem {
                     player_id, position.x, position.y, position.z, text
                 );
                 log::info!("{msg}");
-                self.push_hud_message(msg);
+                self.push_hud_message_at(msg, frame);
             }
         }
         Ok(())
@@ -1934,486 +2044,6 @@ pub enum RadarPingKind {
     Generic,
     Attack,
     Ally,
-}
-
-/// Thin handle that exposes the in‑game UI subsystem through the legacy
-/// `TheInGameUI` facade.
-#[derive(Clone)]
-pub struct InGameUiHandle {
-    inner: Arc<Mutex<InGameUISubsystem>>,
-}
-
-impl InGameUiHandle {
-    pub fn new(inner: Arc<Mutex<InGameUISubsystem>>) -> Self {
-        Self { inner }
-    }
-}
-
-impl InGameUiHooks for InGameUiHandle {
-    fn admit_radar_draw(
-        &self,
-        radar: &game_engine::common::system::radar::RadarPresentation,
-    ) -> usize {
-        let Ok(mut ui) = self.inner.lock() else {
-            return 0;
-        };
-        if !ui
-            .radar_presentation
-            .as_ref()
-            .is_some_and(|current| Arc::ptr_eq(current.identity(), radar.identity()))
-        {
-            return 0;
-        }
-        ui.radar_presented_keys.retain(|old| {
-            radar
-                .event_keys()
-                .iter()
-                .any(|(_, identity, _, _)| Arc::ptr_eq(old, identity))
-        });
-        let mut events = Vec::new();
-        let mut chirps = 0;
-        for (index, identity, played, beacon) in radar.event_keys() {
-            if !played
-                && !ui
-                    .radar_presented_keys
-                    .iter()
-                    .any(|old| Arc::ptr_eq(old, identity))
-            {
-                ui.radar_presented_keys.push(identity.clone());
-                events.push((*index, identity.clone()));
-                chirps += usize::from(!*beacon);
-            }
-        }
-        if !events.is_empty() {
-            ui.radar_acknowledgments
-                .push((radar.identity().clone(), events));
-        }
-        chirps
-    }
-    fn take_radar_acknowledgments(&self) -> Vec<(Arc<()>, Vec<(usize, Arc<()>)>)> {
-        self.inner
-            .lock()
-            .map(|mut ui| std::mem::take(&mut ui.radar_acknowledgments))
-            .unwrap_or_default()
-    }
-
-    fn radar_presentation(
-        &self,
-    ) -> Option<Arc<game_engine::common::system::radar::RadarPresentation>> {
-        self.inner.lock().ok()?.radar_presentation.clone()
-    }
-    fn set_radar_presentation(
-        &self,
-        radar: Arc<game_engine::common::system::radar::RadarPresentation>,
-    ) {
-        if let Ok(mut ui) = self.inner.lock() {
-            if !ui
-                .radar_presentation
-                .as_ref()
-                .is_some_and(|old| Arc::ptr_eq(old.identity(), radar.identity()))
-            {
-                ui.radar_presented_keys.clear();
-            }
-            ui.radar_presentation = Some(radar);
-        }
-    }
-
-    fn select_area(&self, upper_left: ICoord2D, lower_right: ICoord2D) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.record_selection(upper_left, lower_right);
-        }
-    }
-
-    fn issue_move_command(&self, position: Coord3D, queue: bool) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.record_command(CommandLogEntry::Move {
-                position,
-                queued: queue,
-            });
-        }
-    }
-
-    fn issue_force_attack_ground(&self, position: Coord3D) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.record_command(CommandLogEntry::ForceAttackGround { position });
-        }
-    }
-
-    fn issue_attack_command(&self, target: u32, queue: bool) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.record_command(CommandLogEntry::Attack {
-                target_id: target,
-                queued: queue,
-            });
-        }
-    }
-
-    fn issue_stop_command(&self) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.record_command(CommandLogEntry::Stop);
-        }
-    }
-
-    fn set_hint_text(&self, hint: &str) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.push_hud_message(hint.to_string());
-        }
-    }
-
-    fn get_pending_place_template(&self) -> Option<String> {
-        self.inner
-            .lock()
-            .ok()
-            .and_then(|ui| ui.get_pending_place_template())
-    }
-
-    fn get_pending_place_source_object_id(&self) -> u32 {
-        self.inner
-            .lock()
-            .map(|ui| ui.get_pending_place_source_object_id())
-            .unwrap_or(0)
-    }
-
-    fn set_pending_place(&self, template_name: Option<String>, source_object_id: Option<u32>) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_pending_place(template_name, source_object_id);
-        }
-    }
-
-    fn get_pending_special_power(&self) -> Option<PendingSpecialPower> {
-        self.inner
-            .lock()
-            .ok()
-            .and_then(|ui| ui.get_pending_special_power())
-    }
-
-    fn set_pending_special_power(&self, pending: Option<PendingSpecialPower>) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_pending_special_power(pending);
-        }
-    }
-
-    fn clear_pending_special_power(&self) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.clear_pending_special_power();
-        }
-    }
-
-    fn get_pending_command(&self) -> Option<PendingCommand> {
-        self.inner
-            .lock()
-            .ok()
-            .and_then(|ui| ui.get_pending_command())
-    }
-
-    fn set_pending_command(&self, pending: Option<PendingCommand>) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_pending_command(pending);
-        }
-    }
-
-    fn clear_pending_command(&self) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.clear_pending_command();
-        }
-    }
-
-    fn is_placement_anchored(&self) -> bool {
-        self.inner
-            .lock()
-            .map(|ui| ui.is_placement_anchored())
-            .unwrap_or(false)
-    }
-
-    fn set_placement_start(&self, start: Option<ICoord2D>) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_placement_start(start);
-        }
-    }
-
-    fn set_placement_end(&self, end: Option<ICoord2D>) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_placement_end(end);
-        }
-    }
-
-    fn get_placement_points(&self) -> Option<(ICoord2D, ICoord2D)> {
-        self.inner
-            .lock()
-            .ok()
-            .and_then(|ui| ui.get_placement_points())
-    }
-
-    fn get_placement_angle(&self) -> f32 {
-        self.inner
-            .lock()
-            .map(|ui| ui.get_placement_angle())
-            .unwrap_or(0.0)
-    }
-
-    fn set_placement_angle(&self, angle: f32) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_placement_angle(angle);
-        }
-    }
-
-    fn set_radius_cursor_none(&self) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_radius_cursor_none();
-        }
-    }
-
-    fn set_radius_cursor_active(&self, radius_cursor_type: Option<String>) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_radius_cursor_active(radius_cursor_type);
-        }
-    }
-
-    fn display_cant_build_message(&self, message: &str) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.display_cant_build_message(message);
-        }
-    }
-
-    fn message(&self, text: &str) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.message(text);
-        }
-    }
-
-    fn free_message_resources(&self) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.free_message_resources();
-        }
-    }
-
-    fn military_subtitle(
-        &self,
-        label: &str,
-        duration_ms: i32,
-        manager: &mut crate::gui::window_manager::WindowManager,
-    ) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.push_military_subtitle(label, duration_ms, manager);
-        }
-    }
-
-    fn disable_tooltips_until(&self, frame_num: u32) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.disable_tooltips_until(frame_num);
-        }
-    }
-
-    fn clear_tooltips_disabled(&self) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.clear_tooltips_disabled();
-        }
-    }
-
-    fn are_tooltips_disabled(&self) -> bool {
-        self.inner
-            .lock()
-            .map(|ui| ui.are_tooltips_disabled())
-            .unwrap_or(false)
-    }
-
-    fn clear_attack_move_to_mode(&self) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.clear_attack_move_to_mode();
-        }
-    }
-
-    fn is_in_attack_move_to_mode(&self) -> bool {
-        self.inner
-            .lock()
-            .map(|ui| ui.is_in_attack_move_to_mode())
-            .unwrap_or(false)
-    }
-
-    fn set_attack_move_to_mode(&self, enabled: bool) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_attack_move_to_mode(enabled);
-        }
-    }
-
-    fn is_in_force_attack_mode(&self) -> bool {
-        self.inner
-            .lock()
-            .map(|ui| ui.is_in_force_attack_mode())
-            .unwrap_or(false)
-    }
-
-    fn is_in_force_move_to_mode(&self) -> bool {
-        self.inner
-            .lock()
-            .map(|ui| ui.is_in_force_move_to_mode())
-            .unwrap_or(false)
-    }
-
-    fn is_in_prefer_selection_mode(&self) -> bool {
-        self.inner
-            .lock()
-            .map(|ui| ui.is_in_prefer_selection_mode())
-            .unwrap_or(false)
-    }
-
-    fn set_force_attack_mode(&self, enabled: bool) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_force_attack_mode(enabled);
-        }
-    }
-
-    fn set_force_move_to_mode(&self, enabled: bool) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_force_move_to_mode(enabled);
-        }
-    }
-
-    fn set_prefer_selection_mode(&self, enabled: bool) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_prefer_selection_mode(enabled);
-        }
-    }
-
-    fn is_in_waypoint_mode(&self) -> bool {
-        self.inner
-            .lock()
-            .map(|ui| ui.is_in_waypoint_mode())
-            .unwrap_or(false)
-    }
-
-    fn set_waypoint_mode(&self, enabled: bool) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_waypoint_mode(enabled);
-        }
-    }
-
-    fn is_camera_rotating_left(&self) -> bool {
-        self.inner
-            .lock()
-            .map(|ui| ui.is_camera_rotating_left())
-            .unwrap_or(false)
-    }
-
-    fn set_camera_rotate_left(&self, set: bool) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_camera_rotate_left(set);
-        }
-    }
-
-    fn is_camera_rotating_right(&self) -> bool {
-        self.inner
-            .lock()
-            .map(|ui| ui.is_camera_rotating_right())
-            .unwrap_or(false)
-    }
-
-    fn set_camera_rotate_right(&self, set: bool) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_camera_rotate_right(set);
-        }
-    }
-
-    fn is_camera_zooming_in(&self) -> bool {
-        self.inner
-            .lock()
-            .map(|ui| ui.is_camera_zooming_in())
-            .unwrap_or(false)
-    }
-
-    fn set_camera_zoom_in(&self, set: bool) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_camera_zoom_in(set);
-        }
-    }
-
-    fn is_camera_zooming_out(&self) -> bool {
-        self.inner
-            .lock()
-            .map(|ui| ui.is_camera_zooming_out())
-            .unwrap_or(false)
-    }
-
-    fn set_camera_zoom_out(&self, set: bool) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_camera_zoom_out(set);
-        }
-    }
-
-    fn is_camera_tracking_drawable(&self) -> bool {
-        self.inner
-            .lock()
-            .map(|ui| ui.is_camera_tracking_drawable())
-            .unwrap_or(false)
-    }
-
-    fn set_camera_tracking_drawable(&self, set: bool) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_camera_tracking_drawable(set);
-        }
-    }
-
-    fn get_frame_selection_changed(&self) -> u32 {
-        self.inner
-            .lock()
-            .map(|ui| ui.get_frame_selection_changed())
-            .unwrap_or(0)
-    }
-
-    fn set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
-        &self,
-        enabled: bool,
-    ) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(enabled);
-        }
-    }
-
-    fn get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(&self) -> bool {
-        self.inner
-            .lock()
-            .map(|ui| ui.get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click())
-            .unwrap_or(false)
-    }
-
-    fn set_draw_rmb_scroll_anchor(&self, enabled: bool) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_draw_rmb_scroll_anchor(enabled);
-        }
-    }
-
-    fn set_move_rmb_scroll_anchor(&self, enabled: bool) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_move_rmb_scroll_anchor(enabled);
-        }
-    }
-
-    fn get_draw_rmb_scroll_anchor(&self) -> bool {
-        self.inner
-            .lock()
-            .map(|ui| ui.get_draw_rmb_scroll_anchor())
-            .unwrap_or(false)
-    }
-
-    fn get_move_rmb_scroll_anchor(&self) -> bool {
-        self.inner
-            .lock()
-            .map(|ui| ui.get_move_rmb_scroll_anchor())
-            .unwrap_or(false)
-    }
-
-    fn set_max_select_count(&self, max_select_count: i32) {
-        if let Ok(mut ui) = self.inner.lock() {
-            ui.set_max_select_count(max_select_count);
-        }
-    }
-
-    fn get_max_select_count(&self) -> i32 {
-        self.inner
-            .lock()
-            .map(|ui| ui.get_max_select_count())
-            .unwrap_or(-1)
-    }
 }
 
 /// Client audio bridge. Playback is delivered through the existing Common

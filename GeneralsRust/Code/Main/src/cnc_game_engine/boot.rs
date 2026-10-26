@@ -774,8 +774,10 @@ impl CnCGameEngine {
                 game_client::gui::control_bar::clear_host_control_bar_requests();
                 game_client::gui::control_bar::set_host_control_bar_bridge_enabled(true);
 
-                game_client::core::game_client::GameClient::new()
-                    .map_err(|e| anyhow::anyhow!("Failed to create GameClient: {e}"))?
+                game_client::core::game_client::GameClient::new_with_input_authority(
+                    game_client::core::game_client::ClientInputAuthority::NativeHosted,
+                )
+                .map_err(|e| anyhow::anyhow!("Failed to create GameClient: {e}"))?
             },
             #[cfg(feature = "game_client")]
             control_bar: game_client::gui::control_bar::ControlBar::new(),

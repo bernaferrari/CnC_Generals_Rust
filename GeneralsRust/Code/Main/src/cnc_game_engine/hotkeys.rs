@@ -1234,7 +1234,7 @@ impl CnCGameEngine {
                             crate::ui::ChatTarget::Player(_) => "[Whisper]",
                         };
                         let msg = format!("{prefix} {text}");
-                        self.game_hud_mut().push_info_message(&msg);
+                        self.host_push_info_message(&msg);
                     }
                 }
                 return true;
@@ -1269,7 +1269,7 @@ impl CnCGameEngine {
             "GUI:FF_OFF"
         };
         let msg = host_localized_gui_label(key);
-        self.game_hud_mut().push_info_message(&msg);
+        self.host_push_info_message(&msg);
         info!("{msg}");
     }
 
@@ -1277,9 +1277,15 @@ impl CnCGameEngine {
     pub(super) fn toggle_lower_details_hotkey(&mut self) {
         #[cfg(feature = "game_client")]
         {
-            let Some(now_low) =
-                game_client::message_stream::meta_event::apply_toggle_lower_details()
-            else {
+            let logic_frame = self.game_logic.get_frame();
+            let client_frame = self.game_client.get_frame();
+            let ui = self
+                .game_client
+                .in_game_ui_subsystem_mut()
+                .expect("detail hotkey requires receiving InGameUI");
+            let Some(now_low) = game_client::message_stream::meta_event::apply_toggle_lower_details(
+                &mut game_client::message_stream::ReceivingUi::new(ui, logic_frame, client_frame),
+            ) else {
                 return;
             };
             let key = if now_low {
@@ -1288,7 +1294,7 @@ impl CnCGameEngine {
                 "GUI:ReturnGraphicsToPreviousSettings"
             };
             let msg = host_localized_gui_label(key);
-            self.game_hud_mut().push_info_message(&msg);
+            self.host_push_info_message(&msg);
         }
     }
 
@@ -1470,7 +1476,7 @@ impl CnCGameEngine {
                         .camera
                         .native_camera
                         .toggle_zoom_limited();
-                    self.game_hud_mut().push_info_message(if limited {
+                    self.host_push_info_message(if limited {
                         "Camera Zoom Limit: ON"
                     } else {
                         "Camera Zoom Limit: OFF"

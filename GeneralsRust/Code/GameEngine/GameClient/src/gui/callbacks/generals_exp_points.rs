@@ -4,7 +4,7 @@ use crate::gui::control_bar::publish_host_cancel_structure_placement;
 use crate::gui::{
     GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled, write_input_focus_response,
 };
-use crate::helpers::{TheControlBar, TheInGameUI};
+use crate::helpers::TheControlBar;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 
 const KEY_ESC: usize = 0x1B;
@@ -16,11 +16,12 @@ pub fn generals_exp_points_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     _data2: WindowMsgData,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     match msg {
         WindowMessage::MouseEntering => {
             if !publish_host_cancel_structure_placement() {
-                TheInGameUI::place_build_available(None, None);
+                effects.ui_mut().place_build_available(None, None);
             }
         }
         WindowMessage::Char if data1 == KEY_ESC => {

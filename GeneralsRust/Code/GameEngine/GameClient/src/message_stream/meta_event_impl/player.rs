@@ -278,17 +278,18 @@ fn switch_local_player_between_sides(side_a: &str, side_b: &str) -> bool {
 
 fn stop_movies_for_sound_toggle(
     dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
-    emitted: &mut Vec<GameMessage>,
+
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) {
     let _ = dispatch_display_input(
         game_engine::common::message_stream::DisplayInputAction::StopMovie,
         dispatch,
-        emitted,
+        ui,
     );
     let _ = dispatch_display_input(
         game_engine::common::message_stream::DisplayInputAction::StopRadarMovie,
         dispatch,
-        emitted,
+        ui,
     );
 }
 

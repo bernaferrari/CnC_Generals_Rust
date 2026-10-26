@@ -612,6 +612,7 @@ mod tests {
             "wnd_pause".into(),
             "Windowed pause save".into(),
             SaveFileType::Normal,
+            effects,
         );
         dispatch_load_from_popup_confirmation(SaveLoadSelection::Host(PopupSaveLoadEntry {
             filename: "wnd_pause".into(),
@@ -777,6 +778,7 @@ mod tests {
             "wnd_pause".into(),
             "Windowed pause save".into(),
             SaveFileType::Normal,
+            effects,
         );
         crate::gui::control_bar::with_host_control_bar_input_provenance(
             HostControlBarInputProvenance::InjectedOrUnknown,
@@ -806,6 +808,7 @@ mod tests {
                     "wnd_pause".into(),
                     "Windowed pause save".into(),
                     SaveFileType::Normal,
+                    effects,
                 );
                 dispatch_load_from_popup_confirmation(SaveLoadSelection::Host(
                     PopupSaveLoadEntry {
@@ -1049,7 +1052,9 @@ fn do_load_game(
 
     let load_result = {
         let mut game_state = get_game_state();
-        game_state.load_game(selected)
+        effects.ui_mut().with_borrowed_ui_snapshots(|snapshots| {
+            game_state.load_game_with_snapshots(selected, snapshots)
+        })
     };
     if !matches!(load_result, Ok(SaveCode::Ok)) {
         if TheGameLogic::is_in_game() {
@@ -1081,6 +1086,7 @@ fn dispatch_save_request(
     description: String,
     save_file_type: SaveFileType,
     input_provenance: HostControlBarInputProvenance,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     if queue_host_popup_save_load_request(
         PopupSaveLoadRequest::Save {
@@ -1094,12 +1100,15 @@ fn dispatch_save_request(
     }
 
     let mut game_state = get_game_state();
-    let _ = game_state.save_game(
-        filename,
-        description,
-        save_file_type,
-        SnapshotType::SaveLoad,
-    );
+    let _ = effects.ui_mut().with_borrowed_ui_snapshots(|snapshots| {
+        game_state.save_game_with_snapshots(
+            filename,
+            description,
+            save_file_type,
+            SnapshotType::SaveLoad,
+            snapshots,
+        )
+    });
 }
 
 /// Dispatch a Load through the active host bridge when present.
@@ -1133,12 +1142,14 @@ fn dispatch_save_from_popup_confirmation(
     filename: String,
     description: String,
     save_file_type: SaveFileType,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     dispatch_save_request(
         filename,
         description,
         save_file_type,
         host_control_bar_input_provenance_for_current_dispatch(),
+        effects,
     );
 }
 
@@ -1648,7 +1659,7 @@ pub fn save_load_menu_system(
                     // real save so nested UI/engine work cannot deadlock the
                     // menu mutex during a button dispatch.
                     drop(state);
-                    dispatch_save_from_popup_confirmation(filename, desc, file_type);
+                    dispatch_save_from_popup_confirmation(filename, desc, file_type, effects);
                     return WindowMsgHandled::Handled;
                 } else {
                     if let Some(frame) = state.button_frame.as_ref() {
@@ -1690,7 +1701,7 @@ pub fn save_load_menu_system(
                 // See overwrite-confirm above: serialize only after dropping
                 // the callback's menu-state lock.
                 drop(state);
-                dispatch_save_from_popup_confirmation(filename, desc, file_type);
+                dispatch_save_from_popup_confirmation(filename, desc, file_type, effects);
                 return WindowMsgHandled::Handled;
             }
 

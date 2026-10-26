@@ -115,6 +115,9 @@ impl<'a> CameraOptionsInputContext<'a> {
     }
 }
 pub struct ControlBarInputContext<'a> {
+    pub client_frame: Option<u32>,
+    pub logic_frame: Option<u32>,
+    pub ui: Option<&'a mut crate::core::subsystems::InGameUISubsystem>,
     pub menus: Option<crate::gui::callbacks::menu_callbacks::MenuCallbackRecipients<'a>>,
     pub ime: Option<&'a mut crate::gui::ime_manager::ImeManager>,
     pub upgrade_tooltip:
@@ -157,6 +160,10 @@ impl ControlBarInputContext<'_> {
         ) -> R,
     ) -> R {
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            standalone_view: None,
+            ui: self.ui.as_deref_mut(),
+            logic_frame: self.logic_frame,
+            client_frame: self.client_frame,
             payloads: Default::default(),
             menus: self.menus.as_mut().map(|menus| menus.reborrow()),
             ime: self.ime.as_deref_mut(),

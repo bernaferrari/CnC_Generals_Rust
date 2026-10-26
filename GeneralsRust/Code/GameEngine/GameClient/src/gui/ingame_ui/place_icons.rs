@@ -17,6 +17,7 @@ impl InGameUI {
         template_name: Option<String>,
         source_object_id: Option<u32>,
         input: &InGameUiInputContext<'_>,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) {
         if template_name.is_some() && self.pending_place_icon_template.is_some() {
             self.destroy_placement_icons();
@@ -36,6 +37,7 @@ impl InGameUI {
             Coord3D::new(0.0, 0.0, 0.0),
             0.0,
             input,
+            ui,
         );
         self.mouse_mode = MouseMode::BuildPlace;
 
@@ -48,7 +50,7 @@ impl InGameUI {
         if let Some(icon) = self.spawn_place_icon(&name, Coord3D::new(0.0, 0.0, 0.0), angle) {
             self.place_icons.push(icon);
         }
-        TheInGameUI::set_placement_angle(angle);
+        ui.set_placement_angle(angle);
     }
 
     pub fn destroy_placement_icons(&mut self) {
@@ -127,7 +129,7 @@ impl InGameUI {
     }
 
     /// C++ `InGameUI::handleBuildPlacements` — follow mouse, drag-aim, tile LINEBUILD.
-    pub fn handle_build_placements(&mut self) {
+    pub fn handle_build_placements(&mut self, ui: &mut crate::message_stream::ReceivingUi<'_>) {
         let Some(template_name) = self.pending_place_icon_template.clone().or_else(|| {
             self.placement_preview
                 .as_ref()
@@ -137,8 +139,8 @@ impl InGameUI {
         };
 
         let mouse = with_mouse(|mouse| mouse.state().position());
-        let loc = if TheInGameUI::is_placement_anchored() {
-            TheInGameUI::get_placement_points()
+        let loc = if ui.is_placement_anchored() {
+            ui.get_placement_points()
                 .map(|(start, _)| IPoint2::new(start.x, start.y))
                 .unwrap_or(IPoint2::new(mouse.0 as i32, mouse.1 as i32))
         } else {
@@ -158,10 +160,10 @@ impl InGameUI {
             .first()
             .map(|icon| icon.angle)
             .or_else(|| self.placement_preview.as_ref().map(|p| p.rotation))
-            .unwrap_or(TheInGameUI::get_placement_angle());
+            .unwrap_or(ui.get_placement_angle());
 
-        if TheInGameUI::is_placement_anchored() {
-            if let Some((start, end)) = TheInGameUI::get_placement_points() {
+        if ui.is_placement_anchored() {
+            if let Some((start, end)) = ui.get_placement_points() {
                 if start.x != end.x || start.y != end.y {
                     let start_world = with_tactical_view_ref(|view| {
                         view.screen_to_terrain(&IPoint2::new(start.x, start.y))
@@ -179,7 +181,7 @@ impl InGameUI {
                             &MsgCoord3D::new(e.x, e.y, e.z),
                         ) {
                             angle = drag_angle;
-                            TheInGameUI::set_placement_angle(angle);
+                            ui.set_placement_angle(angle);
                         }
                     }
                 }
@@ -212,13 +214,18 @@ impl InGameUI {
             self.sync_place_icon_faction_bibs(&icon);
         }
 
-        if TheInGameUI::is_placement_anchored() && is_line_build_template_name(&template_name) {
-            self.tile_line_build_icons(&template_name, angle);
+        if ui.is_placement_anchored() && is_line_build_template_name(&template_name) {
+            self.tile_line_build_icons(&template_name, angle, ui);
         }
     }
 
-    fn tile_line_build_icons(&mut self, template_name: &str, angle: f32) {
-        let Some((start, end)) = TheInGameUI::get_placement_points() else {
+    fn tile_line_build_icons(
+        &mut self,
+        template_name: &str,
+        angle: f32,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) {
+        let Some((start, end)) = ui.get_placement_points() else {
             return;
         };
         let Some(world_start) = with_tactical_view_ref(|view| {

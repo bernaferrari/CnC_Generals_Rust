@@ -108,8 +108,6 @@ impl CnCGameEngine {
         let tracked_carriers = &self.physical_gather_carrier_ids;
         let playability = &mut self.interactive_playability;
         #[cfg(feature = "game_client")]
-        let cinematic_ui = self.game_client.in_game_ui_subsystem();
-        #[cfg(feature = "game_client")]
         let window_manager_owner = self.game_client.window_manager_owner();
         #[cfg(feature = "game_client")]
         let mut script_window_messages = Vec::new();
@@ -130,7 +128,6 @@ impl CnCGameEngine {
         let mut cinematic_cursor = |visible| cinematic_window.set_cursor_visible(visible);
         #[cfg(feature = "game_client")]
         let cinematic_input = super::mouse::CinematicInputLoan {
-            ui: cinematic_ui,
             local_player: self.current_player_id,
             modes: &mut self.look_at_modes,
             selected: &mut self.selected_objects,

@@ -179,8 +179,12 @@ impl<'a> CommandExecutor<'a> {
                     {
                         self.game_logic
                             .try_eva_insufficient_funds(self.current_player_id);
-                        #[cfg(feature = "game_client")]
-                        game_client::helpers::TheInGameUI::message("GUI:NotEnoughMoneyToBuild");
+                        if let Some(ui) = self.ui.ui.as_deref_mut() {
+                            ui.hud_message(
+                                "GUI:NotEnoughMoneyToBuild",
+                                self.game_logic.get_frame(),
+                            );
+                        }
                     }
                     return Ok(CommandResult::InvalidCommand);
                 }

@@ -4,12 +4,14 @@ use crate::game_logic::{
     GameLogic, Object, ObjectId, Player, ScriptPresentationEffects, ScriptUiEffects, Team,
     ThingTemplate,
 };
+use game_client::core::subsystems::InGameUISubsystem;
 use game_client::gui::callbacks::control_bar_callbacks::ControlBarCallbacks;
 use game_client::gui::control_bar::ControlBar;
 use gamelogic::scripting::core::{
     Condition, ConditionType, OrCondition, Script, ScriptAction, ScriptActionType, ScriptList,
 };
 use gamelogic::scripting::engine::{ScriptActionHandler, ScriptEngine};
+use std::sync::Arc;
 
 struct NativeFields {
     modes: LookAtHostModes,
@@ -54,13 +56,8 @@ impl NativeFields {
             selection_screen: Some((7., 8.)),
         }
     }
-    fn loan<'a>(
-        &'a mut self,
-        ui: Arc<Mutex<InGameUISubsystem>>,
-        cursor: &'a mut dyn FnMut(bool),
-    ) -> CinematicInputLoan<'a> {
+    fn loan<'a>(&'a mut self, cursor: &'a mut dyn FnMut(bool)) -> CinematicInputLoan<'a> {
         CinematicInputLoan {
-            ui: Some(ui),
             local_player: 0,
             modes: &mut self.modes,
             selected: &mut self.selected,
@@ -180,22 +177,21 @@ fn actual_authored_input_resets_receiving_native_fields_before_next_action_witho
             let peer = world();
             let mut fields = NativeFields::armed();
             let peer_fields = NativeFields::armed();
-            let receiving_ui = Arc::new(Mutex::new(InGameUISubsystem::default()));
-            let peer_ui = Arc::new(Mutex::new(InGameUISubsystem::default()));
-            // Deliberately publish a FOREIGN Core backend and disabled Core gate.
-            game_client::helpers::register_in_game_ui_backend(Arc::new(
-                game_client::core::subsystems::InGameUiHandle::new(Arc::clone(&peer_ui)),
-            ));
-            game_client::core::script_action_handler::GameClientScriptActionHandler::new()
-                .input_enabled(false)
-                .unwrap();
+            let mut client = game_client::core::GameClient::new().unwrap();
+            client.set_in_game_ui_subsystem(InGameUISubsystem::default());
+            let mut peer_ui = InGameUISubsystem::default();
+            peer_ui.set_input_enabled(false);
             let mut cursor = Vec::new();
             let mut cursor_effect = |visible| cursor.push(visible);
-            let mut snow = game_client::snow::SnowManager::new();
+            let window_owner = client.window_manager_owner();
+            let mut messages = Vec::new();
+            let (_, snow, _, _, window_effects, stream) =
+                client.split_frame_snow_drawable_script_ui_and_hints(&mut messages);
             let mut bar = ControlBar::new();
             let mut callbacks = ControlBarCallbacks::new();
-            let native = NativeScriptUi::new(&mut snow, &mut bar, &mut callbacks)
-                .with_cinematic_input(fields.loan(Arc::clone(&receiving_ui), &mut cursor_effect));
+            let native = NativeScriptUi::new(snow, &mut bar, &mut callbacks, window_owner)
+                .with_window_effects(window_effects, stream)
+                .with_cinematic_input(fields.loan(&mut cursor_effect));
             let mut observer = ObserveNext {
                 native,
                 observed: Vec::new(),
@@ -242,6 +238,10 @@ fn actual_authored_input_resets_receiving_native_fields_before_next_action_witho
                 "all actual authored probes must execute"
             );
             drop(observer);
+            assert!(
+                client.in_game_ui_subsystem().unwrap().get_input_enabled(),
+                "actual receiving UI observes the final EnableInput"
+            );
             assert_eq!(cursor, [false, true, false, true]);
             assert!(owner.script_input_enabled());
             assert!(owner.get_player(0).unwrap().selected_objects.is_empty());
@@ -254,12 +254,8 @@ fn actual_authored_input_resets_receiving_native_fields_before_next_action_witho
             );
             assert!(peer.script_input_enabled());
             assert!(
-                !game_client::helpers::TheInGameUI::get_input_enabled(),
-                "native enable must not change foreign Core gate"
-            );
-            assert!(
-                game_client::core::script_action_handler::take_look_at_reset_modes(),
-                "native operation must not consume a foreign pending Core reset"
+                !peer_ui.get_input_enabled(),
+                "native enable must not change peer UI gate"
             );
         },
     );
@@ -271,7 +267,13 @@ fn missing_native_input_capability_rejects_without_ambient_handler_or_owner_writ
     let mut snow = game_client::snow::SnowManager::new();
     let mut bar = ControlBar::new();
     let mut callbacks = ControlBarCallbacks::new();
-    let native = NativeScriptUi::new(&mut snow, &mut bar, &mut callbacks);
+    let client = game_client::core::GameClient::new().unwrap();
+    let native = NativeScriptUi::new(
+        &mut snow,
+        &mut bar,
+        &mut callbacks,
+        client.window_manager_owner(),
+    );
     let mut observer = ObserveNext {
         native,
         observed: Vec::new(),

@@ -18,7 +18,7 @@ use crate::gui::{
     queue_shell_reverse_animate_window, queue_shell_shutdown_complete,
     queue_shell_window_animation, show_shell_map_if_available, write_input_focus_response,
 };
-use crate::helpers::TheInGameUI;
+
 use crate::map_util::{get_map_cache_manager, populate_map_listbox};
 use crate::message_stream::{GameMessage, GameMessageType};
 use game_engine::common::audio::AudioAffect as EngineAudioAffect;
@@ -878,7 +878,7 @@ impl OptionsMenu {
         effects: &mut WindowEventEffects<'_>,
     ) -> bool {
         if control_id == self.check_draw_anchor_id {
-            TheInGameUI::set_draw_rmb_scroll_anchor(checked);
+            effects.ui_mut().set_draw_rmb_scroll_anchor(checked);
             // Main owns the active RMB camera-drag presentation for an
             // AuthorityOnly match. Preserve the legacy standalone state, then
             // publish the same visual preference only while Main hosts it.
@@ -889,7 +889,7 @@ impl OptionsMenu {
             return true;
         }
         if control_id == self.check_move_anchor_id {
-            TheInGameUI::set_move_rmb_scroll_anchor(checked);
+            effects.ui_mut().set_move_rmb_scroll_anchor(checked);
             // Main owns live camera input for AuthorityOnly. Preserve this
             // standalone GameClient update, then send the same typed checkbox
             // choice to Main only while its host bridge is installed.
@@ -994,12 +994,12 @@ impl OptionsMenu {
         let draw_anchor = game_engine::common::user_preferences::scroll_anchor_pref_enabled(
             pref.get_string("DrawScrollAnchor")
                 .map(|value| value.as_str()),
-            TheInGameUI::get_draw_rmb_scroll_anchor(),
+            effects.ui().get_draw_rmb_scroll_anchor(),
         );
         let move_anchor = game_engine::common::user_preferences::scroll_anchor_pref_enabled(
             pref.get_string("MoveScrollAnchor")
                 .map(|value| value.as_str()),
-            TheInGameUI::get_move_rmb_scroll_anchor(),
+            effects.ui().get_move_rmb_scroll_anchor(),
         );
 
         let music_volume = pref
@@ -1203,8 +1203,8 @@ impl OptionsMenu {
             effects,
         );
         // C++ OptionsMenuInit applies these to TheInGameUI on open.
-        TheInGameUI::set_draw_rmb_scroll_anchor(draw_anchor);
-        TheInGameUI::set_move_rmb_scroll_anchor(move_anchor);
+        effects.ui_mut().set_draw_rmb_scroll_anchor(draw_anchor);
+        effects.ui_mut().set_move_rmb_scroll_anchor(move_anchor);
         publish_host_option(
             effects,
             HostOptionsRequest::DrawRmbScrollAnchor {
@@ -1781,8 +1781,8 @@ impl OptionsMenu {
         let _ = pref.write();
         self.firewall_behavior_override = None;
 
-        TheInGameUI::set_draw_rmb_scroll_anchor(draw_anchor);
-        TheInGameUI::set_move_rmb_scroll_anchor(move_anchor);
+        effects.ui_mut().set_draw_rmb_scroll_anchor(draw_anchor);
+        effects.ui_mut().set_move_rmb_scroll_anchor(move_anchor);
         publish_host_option(
             effects,
             HostOptionsRequest::DrawRmbScrollAnchor {

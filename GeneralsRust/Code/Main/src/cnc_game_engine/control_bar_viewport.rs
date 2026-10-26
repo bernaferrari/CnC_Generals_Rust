@@ -107,11 +107,7 @@ impl CnCGameEngine {
         let tooltips_disabled = self
             .game_client
             .in_game_ui_subsystem()
-            .and_then(|ui| {
-                ui.lock()
-                    .ok()
-                    .map(|ui| ui.tooltips_disabled_at(self.game_logic.frame))
-            })
+            .map(|ui| ui.tooltips_disabled_at(self.game_logic.frame))
             .unwrap_or(true);
         let cursor_mouse = self.game_client.input_mouse_handle();
         let (x, y) = self.mouse_position;
@@ -127,8 +123,10 @@ impl CnCGameEngine {
             videos,
             ime,
             mut menus,
+            ui,
         ) = self.game_client.window_owner_campaign_menu_and_host_mut();
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            ui, logic_frame: Some(menu_world.logic_frame), client_frame: Some(menu_world.client_frame),
             menus: Some(menus.reborrow()),
             ime:Some(ime),
             upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_tooltip),
@@ -375,6 +373,51 @@ impl<'a> NativeScriptUi<'a> {
 
 #[cfg(feature = "game_client")]
 impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
+    fn observe_named_timer_counters(&mut self, counters: std::collections::HashMap<String, i32>) {
+        self.window_effects
+            .as_mut()
+            .expect("native timer observation requires receiving callback services")
+            .ui_mut()
+            .observe_named_timer_counters(counters);
+    }
+    fn add_named_timer(&mut self, name: &str, text: &str, countdown: bool) {
+        self.window_effects
+            .as_mut()
+            .expect("native timer action requires receiving callback services")
+            .ui_mut()
+            .add_named_timer(name, text, countdown);
+    }
+    fn remove_named_timer(&mut self, name: &str) {
+        self.window_effects
+            .as_mut()
+            .expect("native timer action requires receiving callback services")
+            .ui_mut()
+            .remove_named_timer(name);
+    }
+    fn show_named_timer_display(&mut self, show: bool) {
+        self.window_effects
+            .as_mut()
+            .expect("native timer action requires receiving callback services")
+            .ui_mut()
+            .show_named_timer_display(show);
+    }
+    fn hud_message(&mut self, text: &str, logic_frame: u32) {
+        let effects = self
+            .window_effects
+            .as_mut()
+            .expect("native HUD feedback requires receiving callback services");
+        effects
+            .ui_mut()
+            .push_hud_message_at(text.to_owned(), logic_frame);
+    }
+    fn placement_preview_pending(&self) -> bool {
+        let effects = self
+            .window_effects
+            .as_ref()
+            .expect("native placement query requires receiving callback services");
+        let ui = effects.ui();
+        ui.get_pending_place_template().is_some() || ui.get_pending_place_source_object_id() != 0
+    }
     fn admit_command_hint_client_frame(&mut self, frame: Option<u32>) {
         self.command_hint_frame = frame;
     }
@@ -409,7 +452,11 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
         self.bar.mark_ui_dirty();
     }
     fn has_cinematic_input(&self) -> bool {
-        self.input.as_ref().is_some_and(|input| input.available())
+        self.input.is_some()
+            && self
+                .window_effects
+                .as_ref()
+                .is_some_and(|effects| effects.has_ui())
     }
     fn cinematic_input(
         &mut self,

@@ -9,7 +9,7 @@ use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
     write_input_focus_response,
 };
-use crate::helpers::TheInGameUI;
+
 use crate::language_filter::get_language_filter;
 use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -141,7 +141,7 @@ fn should_block_chat(effects: &crate::gui::game_window::WindowEventEffects<'_>) 
     if TheGameLogic::is_in_replay_game() {
         return true;
     }
-    if TheInGameUI::is_quit_menu_visible() {
+    if effects.ui().is_quit_menu_visible() {
         return true;
     }
     if effects.receiving_disconnect_menu_visible() {
@@ -161,7 +161,10 @@ fn should_block_chat_in_single_player() -> bool {
     data.net_min_players > 0
 }
 
-fn handle_slash_commands(message: &str) -> bool {
+fn handle_slash_commands(
+    message: &str,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     let trimmed = message.trim();
     if !trimmed.starts_with('/') {
         return false;
@@ -173,7 +176,7 @@ fn handle_slash_commands(message: &str) -> bool {
     };
 
     if cmd.eq_ignore_ascii_case("host") {
-        TheInGameUI::message("Hosting qr2:0 thread:0");
+        effects.message("Hosting qr2:0 thread:0");
         return true;
     }
 
@@ -353,7 +356,7 @@ impl InGameChatCallbacks {
             with_chat_ui_state(|state| {
                 let mut msg = text_entry_text(&state.text_entry);
                 msg = msg.trim().to_string();
-                if !msg.is_empty() && !handle_slash_commands(&msg) {
+                if !msg.is_empty() && !handle_slash_commands(&msg, effects) {
                     let (player_mask, local_id) = build_chat_player_mask(&self.chat_type);
                     let mut filtered = msg.clone();
                     get_language_filter().filter_line(&mut filtered);
@@ -367,7 +370,13 @@ impl InGameChatCallbacks {
                     }
 
                     if let Some(sender) = local_id {
-                        self.receive_network_message(sender, filtered.clone(), player_mask, false);
+                        self.receive_network_message(
+                            sender,
+                            filtered.clone(),
+                            player_mask,
+                            false,
+                            effects,
+                        );
                     }
                 }
                 set_text_entry_text(&state.text_entry, "");
@@ -535,6 +544,7 @@ impl InGameChatCallbacks {
         message: String,
         target_mask: i32,
         is_disconnect: bool,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
         let chat_type = map_target_mask(target_mask);
 
@@ -557,7 +567,7 @@ impl InGameChatCallbacks {
             } else {
                 format!("P{}: {}", sender_id, entry.message)
             };
-            TheInGameUI::message(&ui_line);
+            effects.message(&ui_line);
         }
 
         if is_disconnect {
@@ -719,6 +729,7 @@ impl IdleWorkerCallbacks {
         data1: WindowMsgData,
         data2: WindowMsgData,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        ui: &crate::core::subsystems::InGameUISubsystem,
     ) -> WindowMsgHandled {
         debug!(
             "Idle worker system message: {:?} for window: {}",
@@ -744,7 +755,7 @@ impl IdleWorkerCallbacks {
                 WindowMsgHandled::Handled
             }
             WindowMessage::None => {
-                self.refresh_idle_workers_from_logic(receiving_manager);
+                self.refresh_idle_workers_from_logic(receiving_manager, ui);
                 WindowMsgHandled::Handled
             }
             _ => WindowMsgHandled::Ignored,
@@ -761,16 +772,18 @@ impl IdleWorkerCallbacks {
         &mut self,
         count: i32,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        ui: &crate::core::subsystems::InGameUISubsystem,
     ) -> Result<(), Box<dyn std::error::Error>> {
         debug!("Setting idle worker count to: {}", count);
         self.worker_count = count;
-        self.update_idle_worker_button(receiving_manager);
+        self.update_idle_worker_button(receiving_manager, ui.get_input_enabled());
         Ok(())
     }
 
     fn refresh_idle_workers_from_logic(
         &mut self,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        ui: &crate::core::subsystems::InGameUISubsystem,
     ) {
         let events = gamelogic::helpers::TheInGameUI::take_idle_worker_events();
         let local_index = ThePlayerList()
@@ -779,7 +792,7 @@ impl IdleWorkerCallbacks {
             .map(|list| list.get_local_player_index())
             .unwrap_or(gamelogic::player::PLAYER_INDEX_INVALID);
         self.apply_idle_worker_events(local_index as i32, events);
-        self.update_idle_worker_button(receiving_manager);
+        self.update_idle_worker_button(receiving_manager, ui.get_input_enabled());
     }
 
     /// C++ InGameUI.cpp5444-5480 performs each list mutation immediately.
@@ -840,9 +853,9 @@ impl IdleWorkerCallbacks {
     fn update_idle_worker_button(
         &self,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        input_enabled: bool,
     ) {
         let button_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonIdleWorker") as i32;
-        let input_enabled = TheInGameUI::get_input_enabled();
         (|manager: &mut crate::gui::window_manager::WindowManager| {
             if let Some(button) = manager.get_window_by_id(button_id) {
                 let enabled = self.worker_count > 0 && input_enabled;
@@ -892,9 +905,10 @@ impl InGameUISystem {
         message: String,
         target_mask: i32,
         is_disconnect: bool,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
         let mut chat = self.chat.write().unwrap_or_else(|e| e.into_inner());
-        chat.receive_network_message(sender_id, message, target_mask, is_disconnect);
+        chat.receive_network_message(sender_id, message, target_mask, is_disconnect, effects);
     }
 
     /// Toggle chat through the system
@@ -1042,10 +1056,11 @@ pub fn push_network_chat_message(
     message: String,
     target_mask: i32,
     is_disconnect: bool,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     let system = get_ingame_ui_system();
     let system = system.read().unwrap_or_else(|e| e.into_inner());
-    system.push_chat_message(sender_id, message, target_mask, is_disconnect);
+    system.push_chat_message(sender_id, message, target_mask, is_disconnect, effects);
 }
 
 fn map_target_mask(target_mask: i32) -> InGameChatType {
@@ -1260,12 +1275,15 @@ pub fn simulate_in_game_chat_set_text(text: &str) -> bool {
 }
 
 /// Residual: submit message into local history without network.
-pub fn simulate_in_game_chat_submit(message: &str) -> bool {
+pub fn simulate_in_game_chat_submit(
+    message: &str,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     if message.is_empty() {
         return false;
     }
     with_chat_callbacks_mut(|chat| {
-        chat.receive_network_message(0, message.to_string(), 0, false);
+        chat.receive_network_message(0, message.to_string(), 0, false, effects);
         residual_chat_text_with(|stored| *stored = message.to_string());
         residual_chat_action_store(ResidualInGameChatAction::Submit);
         true
@@ -1287,7 +1305,10 @@ pub fn simulate_in_game_chat_reset() -> bool {
 }
 
 /// Residual: show + Everyone + submit composite.
-pub fn simulate_in_game_chat_prepare_submit(message: &str) -> bool {
+pub fn simulate_in_game_chat_prepare_submit(
+    message: &str,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) -> bool {
     if !simulate_in_game_chat_bind_controls() {
         return false;
     }
@@ -1300,7 +1321,7 @@ pub fn simulate_in_game_chat_prepare_submit(message: &str) -> bool {
     if !simulate_in_game_chat_set_text(message) {
         return false;
     }
-    simulate_in_game_chat_submit(message)
+    simulate_in_game_chat_submit(message, effects)
 }
 
 /// Human click-through: OS LeftDown/Up on `InGameChat.wnd:ParentInGameChat`
@@ -1363,7 +1384,7 @@ pub fn drive_os_wnd_in_game_chat_submit_like_cpp(
     if !clicked {
         return false;
     }
-    simulate_in_game_chat_submit(message)
+    simulate_in_game_chat_submit(message, effects)
 }
 
 /// Human click-through: show parent + type label + TextEntryChat submit.
@@ -1391,9 +1412,9 @@ pub fn drive_os_wnd_in_game_chat_prepare_submit_like_cpp(
     }
     if clicked_entry {
         let _ = simulate_in_game_chat_set_text(message);
-        return simulate_in_game_chat_submit(message);
+        return simulate_in_game_chat_submit(message, effects);
     }
-    simulate_in_game_chat_prepare_submit(message)
+    simulate_in_game_chat_prepare_submit(message, effects)
 }
 
 #[cfg(test)]
@@ -1502,12 +1523,13 @@ pub fn simulate_idle_worker_bind_controls() -> bool {
 pub fn simulate_idle_worker_set_count(
     count: i32,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ui: &crate::core::subsystems::InGameUISubsystem,
 ) -> bool {
     if count < 0 {
         return false;
     }
     with_idle_worker_mut(|idle| {
-        let _ = idle.set_idle_worker_count(count, receiving_manager);
+        let _ = idle.set_idle_worker_count(count, receiving_manager, ui);
         RESIDUAL_IDLE_COUNT.store(count, std::sync::atomic::Ordering::Relaxed);
         residual_idle_action_store(ResidualIdleWorkerAction::SetCount);
         residual_idle_worker_count() == count
@@ -1542,8 +1564,9 @@ pub fn simulate_idle_worker_button_gadget_selected() -> bool {
 pub fn simulate_idle_worker_prepare_select(
     count: i32,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ui: &crate::core::subsystems::InGameUISubsystem,
 ) -> bool {
-    if !simulate_idle_worker_set_count(count, receiving_manager) {
+    if !simulate_idle_worker_set_count(count, receiving_manager, ui) {
         return false;
     }
     simulate_idle_worker_button_gadget_selected()

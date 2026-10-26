@@ -2,10 +2,9 @@
 use super::admit_radar_presentations;
 use crate::game_logic::GameLogic;
 use crate::save_load::snapshot::persist_v18::capture_persist_v18;
-use game_client::core::subsystems::{InGameUISubsystem, InGameUiHandle};
-use game_client::helpers::InGameUiHooks;
+use game_client::core::subsystems::InGameUISubsystem;
 use game_engine::common::system::radar::{Coord3D, RadarEventType};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[test]
 fn radar_draw_receipt_is_admitted_before_save_capture_without_next_tick() {
@@ -18,10 +17,8 @@ fn radar_draw_receipt_is_admitted_before_save_capture_without_next_tick() {
     second
         .radar_mut()
         .create_event(&position, RadarEventType::Information, 1.0);
-    let handle = Arc::new(InGameUiHandle::new(Arc::new(Mutex::new(
-        InGameUISubsystem::default(),
-    ))));
-    let other_handle = InGameUiHandle::new(Arc::new(Mutex::new(InGameUISubsystem::default())));
+    let mut handle = InGameUISubsystem::default();
+    let mut other_handle = InGameUISubsystem::default();
     let other_frozen = Arc::new(second.radar().presentation());
     other_handle.set_radar_presentation(other_frozen.clone());
     assert_eq!(other_handle.admit_radar_draw(&other_frozen), 1);

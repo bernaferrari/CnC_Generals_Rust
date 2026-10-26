@@ -342,7 +342,11 @@ impl GameLogic {
             ObjectLifecycleOp::EnqueueProduction {
                 producer,
                 template_name,
-            } => ObjectLifecycleResult::Bool(self.enqueue_production(producer, template_name)),
+            } => ObjectLifecycleResult::Bool(self.enqueue_production_with_effects(
+                producer,
+                template_name,
+                effects,
+            )),
             ObjectLifecycleOp::CancelProduction { id, template_name } => {
                 ObjectLifecycleResult::Bool(self.cancel_production(id, template_name))
             }

@@ -636,10 +636,13 @@ impl InGameUI {
     // C++: InGameUI.cpp:4900 (selectUnitsMatchingCurrentSelection)
     // C++: InGameUI.cpp:4850 (selectMatchingAcrossMap)
 
-    pub fn select_units_matching_current_selection(&mut self) -> i32 {
+    pub fn select_units_matching_current_selection(
+        &mut self,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> i32 {
         // C++ `InGameUI.cpp:4900-4916`: screen first; -1 does not fall through
         // to the map pass; 0 new screen matches tries the map.
-        let screen_count = self.select_matching_across_screen();
+        let screen_count = self.select_matching_across_screen(ui);
         if screen_count == -1 {
             self.message(&GameText::fetch("GUI:NothingSelected"));
             return screen_count;
@@ -648,7 +651,7 @@ impl InGameUI {
             self.message(&GameText::fetch("GUI:SelectedAcrossScreen"));
             return screen_count;
         }
-        let map_count = self.select_matching_across_map();
+        let map_count = self.select_matching_across_map(ui);
         if map_count == -1 {
             self.message(&GameText::fetch("GUI:NothingSelected"));
         } else if map_count > 0 || !self.first_selected_is_structure() {
@@ -665,7 +668,10 @@ impl InGameUI {
         })
     }
 
-    pub fn select_matching_across_screen(&mut self) -> i32 {
+    pub fn select_matching_across_screen(
+        &mut self,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> i32 {
         let screen_region = with_tactical_view_ref(|view| {
             let tl = view.screen_to_world(&IPoint2::new(0, 0)).ok()?;
             let br = view
@@ -681,13 +687,17 @@ impl InGameUI {
         });
         let region = match screen_region {
             Some(r) => r,
-            None => return self.select_matching_across_map(),
+            None => return self.select_matching_across_map(ui),
         };
-        self.select_matching_across_region(&region)
+        self.select_matching_across_region(&region, ui)
     }
 
     /// Wave 967: host empty dual-world select-matching via presentation unit catalog.
-    fn select_matching_from_presentation_catalog(&mut self, region: Option<&IRegion2D>) -> i32 {
+    fn select_matching_from_presentation_catalog(
+        &mut self,
+        region: Option<&IRegion2D>,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> i32 {
         let selection_manager = get_selection_manager();
         let mut selected_ids: Vec<ObjectID> = if let Ok(manager) = selection_manager.read() {
             manager
@@ -741,7 +751,10 @@ impl InGameUI {
             if local_team.as_deref() != Some(entry.team_name.as_str()) {
                 continue;
             }
-            if entry.kind_names.iter().any(|k| k.eq_ignore_ascii_case("CARBOMB"))
+            if entry
+                .kind_names
+                .iter()
+                .any(|k| k.eq_ignore_ascii_case("CARBOMB"))
                 || entry.disguised
             {
                 is_car_bomb = true;
@@ -795,11 +808,15 @@ impl InGameUI {
                         return false;
                     }
                 }
-                let equivalent = templates.iter().any(|t| Self::templates_equivalent(t, &u.template_name));
+                let equivalent = templates
+                    .iter()
+                    .any(|t| Self::templates_equivalent(t, &u.template_name));
                 equivalent
                     || (is_car_bomb
                         && (u.disguised
-                            || u.kind_names.iter().any(|k| k.eq_ignore_ascii_case("CARBOMB"))))
+                            || u.kind_names
+                                .iter()
+                                .any(|k| k.eq_ignore_ascii_case("CARBOMB"))))
             })
             .map(|u| u.object_id)
             .collect();
@@ -808,7 +825,7 @@ impl InGameUI {
         }
         matching.sort_unstable();
         matching.dedup();
-        self.commit_matching_selection(matching)
+        self.commit_matching_selection(matching, ui)
     }
 
     fn templates_equivalent(a: &str, b: &str) -> bool {
@@ -830,14 +847,18 @@ impl InGameUI {
         ta.is_equivalent_to(&*tb)
     }
 
-    fn commit_matching_selection(&mut self, mut matching: Vec<ObjectID>) -> i32 {
+    fn commit_matching_selection(
+        &mut self,
+        mut matching: Vec<ObjectID>,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> i32 {
         let already: Vec<ObjectID> = self.get_selection();
         matching.retain(|id| !already.contains(id));
         if matching.is_empty() {
             return 0;
         }
 
-        let max = TheInGameUI::get_max_select_count();
+        let max = ui.get_max_select_count();
         let current = already.len() as i32;
         if max > 0 {
             let room = (max - current).max(0) as usize;
@@ -845,7 +866,11 @@ impl InGameUI {
                 if !self.displayed_max_warning {
                     self.displayed_max_warning = true;
                     let label = GameText::fetch("GUI:MaxSelectionSize");
-                    self.message(&label.replace("%d", &max.to_string()).replace("%i", &max.to_string()));
+                    self.message(
+                        &label
+                            .replace("%d", &max.to_string())
+                            .replace("%i", &max.to_string()),
+                    );
                 }
                 matching.truncate(room);
             } else {
@@ -884,13 +909,19 @@ impl InGameUI {
             return false;
         }
         let name = object.get_template_name();
-        let equivalent = templates.iter().any(|t| Self::templates_equivalent(t, name));
+        let equivalent = templates
+            .iter()
+            .any(|t| Self::templates_equivalent(t, name));
         equivalent || (is_car_bomb && Self::object_is_car_bomb(object))
     }
 
-    fn select_matching_across_region(&mut self, region: &IRegion2D) -> i32 {
+    fn select_matching_across_region(
+        &mut self,
+        region: &IRegion2D,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> i32 {
         if dual_world_registry_unavailable() {
-            return self.select_matching_from_presentation_catalog(Some(region));
+            return self.select_matching_from_presentation_catalog(Some(region), ui);
         }
 
         let selection_manager = get_selection_manager();
@@ -952,12 +983,15 @@ impl InGameUI {
         if matching.is_empty() {
             return 0;
         }
-        self.commit_matching_selection(matching)
+        self.commit_matching_selection(matching, ui)
     }
 
-    pub fn select_matching_across_map(&mut self) -> i32 {
+    pub fn select_matching_across_map(
+        &mut self,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> i32 {
         if dual_world_registry_unavailable() {
-            return self.select_matching_from_presentation_catalog(None);
+            return self.select_matching_from_presentation_catalog(None, ui);
         }
 
         let selection_manager = get_selection_manager();
@@ -1011,7 +1045,7 @@ impl InGameUI {
         if matching.is_empty() {
             return 0;
         }
-        self.commit_matching_selection(matching)
+        self.commit_matching_selection(matching, ui)
     }
 
     // ── Drawable lifecycle ─────────────────────────────────────────────
@@ -1043,7 +1077,6 @@ impl InGameUI {
         Self::disregard_live_drawable(drawable_id);
     }
 
-
     // ── Selection change tracking ──────────────────────────────────────
 
     pub fn get_frame_selection_changed(&self) -> u32 {
@@ -1058,5 +1091,4 @@ impl InGameUI {
     fn get_select_count(&self) -> usize {
         self.get_selection().len()
     }
-
 }

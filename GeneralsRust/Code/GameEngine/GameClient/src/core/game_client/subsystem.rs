@@ -13,7 +13,7 @@ pub struct SubsystemManager {
     font_library: Option<Arc<Mutex<FontLibrarySubsystem>>>,
     header_templates: Option<Arc<Mutex<HeaderTemplateManagerSubsystem>>>,
     display_strings: Option<Arc<Mutex<DisplayStringManagerSubsystem>>>,
-    in_game_ui: Option<Arc<Mutex<InGameUISubsystem>>>,
+    in_game_ui: Option<InGameUISubsystem>,
     video_player: Option<Arc<Mutex<VideoPlayerSubsystem>>>,
     decal_manager: Option<Arc<Mutex<DecalManager>>>,
     asset_manager: Option<Arc<AssetManager>>,
@@ -43,8 +43,8 @@ impl SubsystemManager {
     }
 
     fn reset_in_game_ui(&mut self) -> GameClientResult<()> {
-        if let Some(ref ui) = self.in_game_ui {
-            ui.lock().unwrap_or_else(|e| e.into_inner()).reset()?;
+        if let Some(ui) = self.in_game_ui.as_mut() {
+            ui.reset()?;
         }
         Ok(())
     }

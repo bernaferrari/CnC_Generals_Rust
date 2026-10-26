@@ -13,11 +13,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
 use super::game_message::*;
-use super::message_stream::{GameMessageDisposition, GameMessageTranslator, take_emitted_messages};
+use super::message_stream::{GameMessageDisposition, GameMessageTranslator};
 use super::player_state::get_local_player_id;
 use super::selection_xlat::SelectionTranslator;
 use super::translators::CommandTranslator;
-use crate::helpers::TheInGameUI;
+
 use crate::input::{KeyCode, KeyModifiers, KeyboardState, MouseButton, MouseState};
 
 const KEY_STATE_UP: u32 = 0x0001;
@@ -165,16 +165,17 @@ impl InputProcessor {
     pub fn process_input_event(
         &mut self,
         event: InputEvent,
-        window_query: &mut dyn FnMut(i32, i32) -> bool,
+        window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Vec<GameMessage> {
-        if !self.config.enabled || !TheInGameUI::get_input_enabled() {
+        if !self.config.enabled || !ui.get_input_enabled() {
             return Vec::new();
         }
 
         self.events_processed += 1;
 
         // Convert input event to game messages
-        let raw_messages = self.convert_input_to_messages(event);
+        let raw_messages = self.convert_input_to_messages(event, ui);
 
         // Match C++ message-stream behavior more closely: keep track of every message generated
         // by this input event (raw + translator-emitted follow-ups), while still allowing each
@@ -182,22 +183,20 @@ impl InputProcessor {
         let mut processed_messages = Vec::new();
         let mut messages_to_process: VecDeque<GameMessage> = raw_messages.into_iter().collect();
 
-        // Clear any stale emitted messages before this event's pipeline run.
-        let _ = take_emitted_messages();
-
         while let Some(msg) = messages_to_process.pop_front() {
             processed_messages.push(msg.clone());
 
-            let selection_result = self
-                .selection_translator
-                .translate_with_window_query(&msg, window_query);
-            if matches!(selection_result, GameMessageDisposition::KeepMessage) {
-                let _ = self
-                    .command_translator
-                    .translate_with_window_query(&msg, window_query);
-            }
-
-            let emitted = take_emitted_messages();
+            let mut emitted = Vec::new();
+            ui.with_emission_sink(&mut emitted, |ui| {
+                let selection_result =
+                    self.selection_translator
+                        .translate_with_window_query(&msg, window_query, ui);
+                if matches!(selection_result, GameMessageDisposition::KeepMessage) {
+                    let _ =
+                        self.command_translator
+                            .translate_with_window_query(&msg, window_query, ui);
+                }
+            });
             if !emitted.is_empty() {
                 for new_msg in emitted.into_iter().rev() {
                     messages_to_process.push_front(new_msg);
@@ -222,7 +221,11 @@ impl InputProcessor {
 
     /// Convert raw input event to game messages
     /// Port of C++ raw input message creation
-    fn convert_input_to_messages(&mut self, event: InputEvent) -> Vec<GameMessage> {
+    fn convert_input_to_messages(
+        &mut self,
+        event: InputEvent,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> Vec<GameMessage> {
         let mut messages = Vec::new();
         let player_id = get_local_player_id();
 
@@ -371,13 +374,13 @@ impl InputProcessor {
                 }
 
                 if key == KeyCode::Escape {
-                    TheInGameUI::clear_pending_command();
-                    TheInGameUI::clear_pending_special_power();
-                    TheInGameUI::place_build_available(None, None);
-                    TheInGameUI::clear_attack_move_to_mode();
-                    TheInGameUI::set_force_attack_mode(false);
-                    TheInGameUI::set_force_move_to_mode(false);
-                    TheInGameUI::set_prefer_selection_mode(false);
+                    ui.clear_pending_command();
+                    ui.clear_pending_special_power();
+                    ui.place_build_available(None, None);
+                    ui.clear_attack_move_to_mode();
+                    ui.set_force_attack_mode(false);
+                    ui.set_force_move_to_mode(false);
+                    ui.set_prefer_selection_mode(false);
                 }
 
                 // Handle control group shortcuts (Ctrl+0-9)

@@ -5,7 +5,6 @@ use crate::draw_group_info::get_draw_group_info;
 use crate::drawable_info::DrawableInfo;
 use crate::gui::display_string::get_display_string_manager;
 use crate::gui::font::{FontDesc, get_font_library};
-use crate::helpers::TheInGameUI;
 use crate::language_filter::get_language_filter;
 use crate::render_bridge::get_render_bridge;
 use crate::system::TimeOfDay;
@@ -314,12 +313,14 @@ impl BasicDrawable {
         }
     }
 
+    /// Admit the receiving client's current hover once for this presentation
+    /// traversal. UI-text and icon gates read the same completed draw facts.
+    pub fn admit_presentation_moused_over(&mut self, hovered: bool) {
+        self.presentation_moused_over = hovered && self.id != DrawableId::INVALID;
+    }
+
     pub(super) fn selected_or_moused_over_for_icon_pips(&self) -> bool {
-        // Wave 972: host path also honors presentation_selected residual.
-        self.selected
-            || self.presentation_selected
-            || (self.id != DrawableId::INVALID
-                && TheInGameUI::get_moused_over_drawable_id() == self.id.0)
+        self.selected || self.presentation_selected || self.presentation_moused_over
     }
 
     fn show_object_health_enabled(&self) -> bool {

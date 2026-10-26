@@ -444,6 +444,12 @@ pub fn dispatch_translated_window_input_for_owner(
         )
         .map(game_engine::common::message_stream::WindowInputDispatchResult::Display);
     }
+    if let game_engine::common::message_stream::WindowInputDispatch::Camera(action) = request {
+        return context
+            .viewport
+            .camera_input(action)
+            .map(game_engine::common::message_stream::WindowInputDispatchResult::Camera);
+    }
     let ui_operation = matches!(
         request,
         game_engine::common::message_stream::WindowInputDispatch::Ui(_)
@@ -453,7 +459,8 @@ pub fn dispatch_translated_window_input_for_owner(
         game_engine::common::message_stream::WindowInputDispatch::OpaqueWindowAtScreen {
             ..
         }
-        | game_engine::common::message_stream::WindowInputDispatch::Display(_) => {
+        | game_engine::common::message_stream::WindowInputDispatch::Display(_)
+        | game_engine::common::message_stream::WindowInputDispatch::Camera(_) => {
             unreachable!("display dispatch completed above")
         }
         game_engine::common::message_stream::WindowInputDispatch::Ui(action) => {
@@ -495,14 +502,21 @@ pub fn dispatch_translated_window_input_for_owner(
             .as_deref_mut()
             .expect("native translator requires receiving stream");
         owner.with_manager(|manager| {
-            context
-                .control_bar
-                .replay_pending_command_clicks_receiving(owner, messages, manager)
+            context.control_bar.replay_pending_command_clicks_receiving(
+                owner,
+                messages,
+                manager,
+                context.ui.as_deref_mut().expect("receiving UI"),
+            )
         });
     }
     owner.with_manager(|manager| context.complete_options_accept(manager));
     {
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            standalone_view: None,
+            ui: context.ui.as_deref_mut(),
+            logic_frame: context.logic_frame,
+            client_frame: context.client_frame,
             payloads: Default::default(),
             menus: context.menus.as_mut().map(|menus| menus.reborrow()),
             ime: context.ime.as_deref_mut(),
@@ -532,6 +546,7 @@ pub fn dispatch_translated_window_input_for_owner(
                 .as_deref_mut()
                 .expect("native input requires receiving stream"),
             manager,
+            context.ui.as_deref_mut().expect("receiving UI"),
         )
     });
     result.map(|code| {
@@ -576,9 +591,12 @@ pub fn dispatch_os_mouse_to_window_manager_with_control_bar_for_owner(
     );
     if let Some(messages) = context.emitted_messages.as_deref_mut() {
         owner.with_manager(|manager| {
-            context
-                .control_bar
-                .replay_pending_command_clicks_receiving(owner, messages, manager)
+            context.control_bar.replay_pending_command_clicks_receiving(
+                owner,
+                messages,
+                manager,
+                context.ui.as_deref_mut().expect("receiving UI"),
+            )
         });
     } else {
         assert!(
@@ -654,9 +672,12 @@ pub fn dispatch_os_key_to_window_manager_with_control_bar_for_owner(
         .with_manager(|manager| manager.process_key_event_with_control_bar(key, state, context));
     if let Some(messages) = context.emitted_messages.as_deref_mut() {
         owner.with_manager(|manager| {
-            context
-                .control_bar
-                .replay_pending_command_clicks_receiving(owner, messages, manager)
+            context.control_bar.replay_pending_command_clicks_receiving(
+                owner,
+                messages,
+                manager,
+                context.ui.as_deref_mut().expect("receiving UI"),
+            )
         });
     } else {
         assert!(

@@ -16,9 +16,12 @@ impl MetaEventTranslator {
 }
 
 impl GameMessageTranslator for MetaEventTranslator {
+    fn requires_receiving_window_context(&self) -> bool {
+        true
+    }
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
-        let mut no_display = |_, _: &mut Vec<GameMessage>| None;
-        self.translate_receiving(msg, Default::default(), &mut no_display, &mut Vec::new())
+        log::error!("GUI message translator requires receiving UI context");
+        GameMessageDisposition::KeepMessage
     }
 
     fn translate_game_message_with_context(
@@ -27,8 +30,18 @@ impl GameMessageTranslator for MetaEventTranslator {
         client: game_engine::common::message_stream::TranslatorClientObservation,
         _dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
         _emitted: &mut Vec<GameMessage>,
+        client_ui: &mut dyn std::any::Any,
     ) -> GameMessageDisposition {
-        self.translate_receiving(msg, client, _dispatch, _emitted)
+        let ui = &mut crate::message_stream::ReceivingUi::new(
+            client_ui
+                .downcast_mut::<crate::core::subsystems::InGameUISubsystem>()
+                .expect("message translator requires its receiving UI"),
+            client.logic_frame,
+            client.frame,
+        )
+        .with_emitter(_emitted);
+
+        self.translate_receiving(msg, client, _dispatch, ui)
     }
 }
 
@@ -38,7 +51,8 @@ impl MetaEventTranslator {
         msg: &GameMessage,
         client: game_engine::common::message_stream::TranslatorClientObservation,
         display_dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
-        emitted: &mut Vec<GameMessage>,
+
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> GameMessageDisposition {
         let mut disp = GameMessageDisposition::KeepMessage;
         let msg_type = msg.get_type();
@@ -92,7 +106,7 @@ impl MetaEventTranslator {
                     && ((map.transition == Transition::Up && map.mod_state == self.last_mod_state)
                         || (map.transition == Transition::Down && map.mod_state == new_mod_state))
                 {
-                    if let Some(new_disp) = dispatch_map_entry(map, display_dispatch, emitted) {
+                    if let Some(new_disp) = dispatch_map_entry(map, display_dispatch, ui) {
                         disp = new_disp;
                         break;
                     }
@@ -112,7 +126,7 @@ impl MetaEventTranslator {
                         break;
                     }
 
-                    if let Some(new_disp) = dispatch_map_entry(map, display_dispatch, emitted) {
+                    if let Some(new_disp) = dispatch_map_entry(map, display_dispatch, ui) {
                         disp = new_disp;
                         break;
                     }
@@ -194,7 +208,7 @@ impl MetaEventTranslator {
                         _ => GameMessageType::MouseLeftClick(region, *modifiers),
                     }
                 };
-                emit_message(GameMessage::new(click_message));
+                ui.emit(GameMessage::new(click_message));
             }
             _ => {}
         }

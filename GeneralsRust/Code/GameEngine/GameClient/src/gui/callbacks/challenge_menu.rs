@@ -988,6 +988,7 @@ mod tests {
         let layout = WindowLayout::new("Menus/ChallengeMenu.wnd".to_string());
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            standalone_view: None,
             payloads: Default::default(),
             menus: None,
             ime: None,
@@ -1058,6 +1059,7 @@ mod tests {
         let layout = WindowLayout::new("Menus/ChallengeMenu.wnd".to_string());
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            standalone_view: None,
             payloads: Default::default(),
             menus: None,
             ime: None,
@@ -1240,6 +1242,7 @@ mod tests {
 
             let mut messages = Vec::new();
             let mut effects = crate::gui::game_window::WindowEventEffects {
+                standalone_view: None,
                 payloads: Default::default(),
                 menus: None,
                 ime: None,

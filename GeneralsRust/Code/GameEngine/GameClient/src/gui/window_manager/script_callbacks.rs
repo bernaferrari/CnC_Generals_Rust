@@ -1066,7 +1066,14 @@ impl WindowManager {
                             let idle_worker = system.get_idle_worker();
                             with_arc_write(&idle_worker, |idle_worker| {
                                 effects.with_manager(|manager, effects| {
-                                    idle_worker.system(window, msg, data1, data2, manager)
+                                    idle_worker.system(
+                                        window,
+                                        msg,
+                                        data1,
+                                        data2,
+                                        manager,
+                                        effects.ui(),
+                                    )
                                 })
                             })
                         },
@@ -1620,6 +1627,7 @@ impl WindowManager {
                                     data2,
                                     effects.emitted_messages,
                                     effects.pending_control_bar_clicks.as_deref_mut(),
+                                    effects.ui.as_deref_mut().expect("receiving UI"),
                                 )
                             })
                         },
@@ -1741,7 +1749,7 @@ impl WindowManager {
                 "GeneralsExpPointsInput" => {
                     window.set_input_callback_with_message_sink(
                         |window, msg, data1, data2, effects| {
-                            generals_exp_points_input(window, msg, data1, data2)
+                            generals_exp_points_input(window, msg, data1, data2, effects)
                         },
                     );
                 }

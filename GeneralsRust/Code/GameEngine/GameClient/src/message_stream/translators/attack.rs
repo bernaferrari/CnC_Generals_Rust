@@ -433,13 +433,14 @@ pub(super) fn pending_command_selection_valid(
     local_player: Option<u32>,
     selection: &HashSet<ObjectID>,
     target_id: ObjectID,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> bool {
     match pending.command_type {
         CommandType::DoAttackObject | CommandType::DoWeaponAtObject => {
             pending_fire_weapon_can_target_object(pending, local_player, selection, target_id)
         }
         CommandType::DoSpecialPower | CommandType::DoSpecialPowerAtObject => {
-            pending_special_power_can_target_object(pending, local_player, selection, target_id)
+            pending_special_power_can_target_object(pending, local_player, selection, target_id, ui)
         }
         CommandType::Enter => selection_can_enter_target(local_player, selection, target_id),
         CommandType::DoRepair => selection_can_repair_target(local_player, selection, target_id),
@@ -463,6 +464,7 @@ pub(super) fn pending_command_position_valid(
     selection: &HashSet<ObjectID>,
     position: &Coord3D,
     object_in_way: Option<ObjectID>,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> bool {
     match pending.command_type {
         CommandType::DoAttackObject
@@ -480,6 +482,7 @@ pub(super) fn pending_command_position_valid(
                 selection,
                 position,
                 object_in_way,
+                ui,
             )
         }
         _ => true,

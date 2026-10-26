@@ -418,7 +418,7 @@ impl GameLogic {
             // C++ GameLogic.cpp:2340-2343 startNewGame replay hint.
             #[cfg(feature = "game_client")]
             {
-                game_client::helpers::TheInGameUI::message("GUI:FastForwardInstructions");
+                self.push_script_ui_message("GUI:FastForwardInstructions");
             }
         }
         log::info!("New game started successfully");

@@ -63,14 +63,14 @@ impl WindowManager {
     }
     pub fn draw_all_with_radar(
         &mut self,
-        context: &crate::gui::w3d_gadget_draw::RadarDrawContext<'_>,
+        context: &mut crate::gui::w3d_gadget_draw::RadarDrawContext<'_>,
         draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
     ) {
         self.draw_all_with_radar_context(Some(context), draw_context);
     }
     fn draw_all_with_radar_context(
         &mut self,
-        context: Option<&crate::gui::w3d_gadget_draw::RadarDrawContext<'_>>,
+        mut context: Option<&mut crate::gui::w3d_gadget_draw::RadarDrawContext<'_>>,
         draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
     ) {
         let mut tree_draw_context = crate::gui::window_draw_context::WindowDrawContext {
@@ -85,21 +85,36 @@ impl WindowManager {
         for window in self.root_windows.iter().rev() {
             let status = window.borrow().get_status();
             if status.contains(WindowStatus::BELOW) {
-                self.draw_window_hierarchy_radar(window, false, context, &mut tree_draw_context);
+                self.draw_window_hierarchy_radar(
+                    window,
+                    false,
+                    context.as_deref_mut(),
+                    &mut tree_draw_context,
+                );
             }
         }
 
         for window in self.root_windows.iter().rev() {
             let status = window.borrow().get_status();
             if !status.intersects(WindowStatus::ABOVE | WindowStatus::BELOW) {
-                self.draw_window_hierarchy_radar(window, false, context, &mut tree_draw_context);
+                self.draw_window_hierarchy_radar(
+                    window,
+                    false,
+                    context.as_deref_mut(),
+                    &mut tree_draw_context,
+                );
             }
         }
 
         for window in self.root_windows.iter().rev() {
             let status = window.borrow().get_status();
             if status.contains(WindowStatus::ABOVE) {
-                self.draw_window_hierarchy_radar(window, false, context, &mut tree_draw_context);
+                self.draw_window_hierarchy_radar(
+                    window,
+                    false,
+                    context.as_deref_mut(),
+                    &mut tree_draw_context,
+                );
             }
         }
 
@@ -235,7 +250,7 @@ impl WindowManager {
         &self,
         window: &Rc<RefCell<GameWindow>>,
         ancestor_hidden: bool,
-        context: Option<&crate::gui::w3d_gadget_draw::RadarDrawContext<'_>>,
+        mut context: Option<&mut crate::gui::w3d_gadget_draw::RadarDrawContext<'_>>,
         draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
     ) {
         let window_borrow = window.borrow();
@@ -253,7 +268,7 @@ impl WindowManager {
         let is_listbox = (window_borrow.get_style() & GWS_SCROLL_LISTBOX) != 0;
 
         if !see_thru {
-            window_borrow.draw_with_radar(context, draw_context);
+            window_borrow.draw_with_radar(context.as_deref_mut(), draw_context);
         }
 
         if is_listbox && border {
@@ -264,7 +279,12 @@ impl WindowManager {
         // for(; child; child = child->m_prev) drawWindow(child);
         // Our Vec is stored head-first, so reverse iteration matches tail-to-head repaint.
         for child in window_borrow.children().iter().rev() {
-            self.draw_window_hierarchy_radar(child, effectively_hidden, context, draw_context);
+            self.draw_window_hierarchy_radar(
+                child,
+                effectively_hidden,
+                context.as_deref_mut(),
+                draw_context,
+            );
         }
 
         if !is_listbox && border {

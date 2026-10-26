@@ -11,13 +11,16 @@ pub trait MessageFilter {
 /// In-Game UI interface for managing game interface elements
 pub trait InGameUI: SubsystemInterface + Send + Sync {
     /// Stop tracking a drawable object in the UI
-    fn disregard_drawable(&self, drawable: &dyn Drawable)
-        -> Result<(), Box<dyn std::error::Error>>;
+    fn disregard_drawable(
+        &mut self,
+        drawable: &dyn Drawable,
+    ) -> Result<(), Box<dyn std::error::Error>>;
 
     /// React to beacon changes so the HUD/radar can display the correct data.
     fn handle_beacon_notification(
         &mut self,
         _notification: &BeaconNotification,
+        _logic_frame: u32,
     ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
@@ -36,6 +39,7 @@ pub trait CommandTranslator: Send + Sync {
         drawable: &dyn Drawable,
         position: &Coord3D,
         cmd_type: CommandEvaluateType,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> GameMessageResult<GameMessageType>;
 }
 
@@ -53,11 +57,12 @@ impl CommandTranslator for RwLock<CommandTranslatorImpl> {
         drawable: &dyn Drawable,
         position: &Coord3D,
         cmd_type: CommandEvaluateType,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> GameMessageResult<GameMessageType> {
         let mut translator = self.write().map_err(|err| {
             GameClientError::SubsystemError(format!("Command translator lock poisoned: {err}"))
         })?;
-        translator.evaluate_context_command(drawable, position, cmd_type)
+        translator.evaluate_context_command(drawable, position, cmd_type, ui)
     }
 }
 

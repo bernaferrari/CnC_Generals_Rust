@@ -41,6 +41,10 @@ pub type SystemCallback =
 /// Effects borrowed from the receiving GameClient for one synchronous window event.
 /// The effects never outlive callback delivery or enter a queued continuation.
 pub struct WindowEventEffects<'a> {
+    pub(crate) standalone_view: Option<&'a mut crate::display::view::View>,
+    pub(crate) client_frame: Option<u32>,
+    pub(crate) logic_frame: Option<u32>,
+    pub(crate) ui: Option<&'a mut crate::core::subsystems::InGameUISubsystem>,
     /// Stack-owned typed parameters, lent across the same synchronous callbacks.
     pub(crate) payloads: super::payload::WindowMsgPayloadArena,
     pub(crate) ime: Option<&'a mut crate::gui::ime_manager::ImeManager>,
@@ -68,6 +72,10 @@ impl<'effects> WindowEventEffects<'effects> {
     pub fn new(emitted_messages: &'effects mut Vec<GameMessage>) -> Self {
         Self {
             payloads: Default::default(),
+            ui: None,
+            logic_frame: None,
+            client_frame: None,
+            standalone_view: None,
             ime: None,
             manager: None,
             menus: None,
@@ -342,6 +350,45 @@ impl<'effects> WindowEventEffects<'effects> {
         }
     }
 
+    pub fn logic_frame(&self) -> u32 {
+        self.logic_frame
+            .expect("UI operation requires its receiving logic frame")
+    }
+    pub fn receiving_ui(&mut self) -> crate::message_stream::ReceivingUi<'_> {
+        let frame = self.logic_frame();
+        let client_frame = self
+            .client_frame
+            .expect("UI operation requires receiving client frame");
+        crate::message_stream::ReceivingUi::new(
+            self.ui.as_deref_mut().expect("receiving UI"),
+            frame,
+            client_frame,
+        )
+        .with_emitter(self.emitted_messages)
+    }
+    pub fn message(&mut self, text: &str) {
+        let frame = self.logic_frame();
+        self.ui_mut().message(text, frame);
+    }
+    pub fn set_hint_text(&mut self, text: &str) {
+        let frame = self.logic_frame();
+        self.ui_mut().set_hint_text(text, frame);
+    }
+
+    pub fn has_ui(&self) -> bool {
+        self.ui.is_some()
+    }
+    pub fn ui(&self) -> &crate::core::subsystems::InGameUISubsystem {
+        self.ui
+            .as_deref()
+            .expect("UI observation requires receiving client")
+    }
+    pub fn ui_mut(&mut self) -> &mut crate::core::subsystems::InGameUISubsystem {
+        self.ui
+            .as_deref_mut()
+            .expect("UI operation requires receiving client")
+    }
+
     pub(crate) fn ime(&self) -> &crate::gui::ime_manager::ImeManager {
         self.ime
             .as_deref()
@@ -368,6 +415,10 @@ impl<'effects> WindowEventEffects<'effects> {
     ) -> R {
         let mut local = WindowEventEffects {
             payloads: std::mem::take(&mut self.payloads),
+            ui: self.ui.as_deref_mut(),
+            logic_frame: self.logic_frame,
+            client_frame: self.client_frame,
+            standalone_view: self.standalone_view.as_deref_mut(),
             manager: Some(manager),
             menus: self.menus.as_mut().map(|menus| menus.reborrow()),
             ime: self.ime.as_deref_mut(),

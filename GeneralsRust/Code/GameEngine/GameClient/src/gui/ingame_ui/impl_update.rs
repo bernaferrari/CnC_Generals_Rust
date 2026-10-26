@@ -782,7 +782,12 @@ impl InGameUI {
     }
 
     /// Update UI state
-    pub fn update(&mut self, delta_time: Duration, input: &InGameUiInputContext<'_>) {
+    pub fn update(
+        &mut self,
+        delta_time: Duration,
+        input: &InGameUiInputContext<'_>,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) {
         self.last_update = Instant::now();
         self.ui_time += delta_time.as_secs_f32();
         if let Ok(mut renderer) = self.renderer.write() {
@@ -796,11 +801,11 @@ impl InGameUI {
         self.update_named_timers();
         self.update_superweapon_timers(self.current_frame);
         self.last_ui_logic_frame = self.current_frame;
-        self.handle_build_placements();
-        self.handle_radius_cursor(input);
+        self.handle_build_placements(ui);
+        self.handle_radius_cursor(input, ui);
     }
 
-    pub fn pre_draw(&mut self, frame: u32) {
+    pub fn pre_draw(&mut self, frame: u32, ui: &mut crate::message_stream::ReceivingUi<'_>) {
         self.current_frame = frame;
         self.expire_hints();
         self.expire_messages();
@@ -808,7 +813,7 @@ impl InGameUI {
         self.update_superweapon_timers(frame);
         self.update_named_timers();
         self.update_military_subtitle();
-        self.handle_build_placements();
+        self.handle_build_placements(ui);
         let renderer = self.renderer.clone();
         if let Ok(mut renderer) = renderer.write() {
             self.update_and_draw_world_animations(&mut renderer);
@@ -1081,8 +1086,12 @@ impl InGameUI {
     // ── Input enable/disable with mode clearing ────────────────────────
     // C++: InGameUI.cpp:3382 (setInputEnabled)
 
-    pub fn init_from_settings(&mut self, settings: &InGameUIIniSettings) {
-        TheInGameUI::set_max_select_count(settings.max_selection_size);
+    pub fn init_from_settings(
+        &mut self,
+        settings: &InGameUIIniSettings,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) {
+        ui.set_max_select_count(settings.max_selection_size);
         if settings.max_selection_size > 0 {
             self.selection_state = SelectionState::new(settings.max_selection_size as usize);
         }
@@ -1104,17 +1113,6 @@ impl InGameUI {
         self.military_caption_position = (
             settings.military_caption_position.x,
             settings.military_caption_position.y,
-        );
-        crate::gui::ingame_ui::apply_military_caption_style(
-            (
-                settings.military_caption_position.x as f32,
-                settings.military_caption_position.y as f32,
-            ),
-            ((settings.military_caption_color.alpha as u32) << 24)
-                | ((settings.military_caption_color.red as u32) << 16)
-                | ((settings.military_caption_color.green as u32) << 8)
-                | (settings.military_caption_color.blue as u32),
-            settings.military_caption_title_point_size,
         );
         self.military_caption_title_font = settings.military_caption_title_font.clone();
         self.military_caption_title_point_size = settings.military_caption_title_point_size;
@@ -1269,31 +1267,31 @@ impl InGameUI {
 // drawn InGameUI-subsystem presentation residual each HUD build.
 
 /// Flash state mirrors the InGameUI constructor defaults (InGameUI.cpp:925).
-struct LiveSuperweaponStrip {
+pub struct LiveSuperweaponStrip {
     timers: Vec<SuperweaponTimerData>,
     flash_duration: f32,
     last_flash_frame: u32,
     used_flash_color: bool,
 }
 
-static LIVE_SUPERWEAPON_STRIP: std::sync::Mutex<LiveSuperweaponStrip> =
-    std::sync::Mutex::new(LiveSuperweaponStrip {
-        timers: Vec::new(),
-        flash_duration: 1.0,
-        last_flash_frame: 0,
-        used_flash_color: true,
-    });
-
-fn lock_live_superweapon_strip() -> std::sync::MutexGuard<'static, LiveSuperweaponStrip> {
-    LIVE_SUPERWEAPON_STRIP
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
+impl Default for LiveSuperweaponStrip {
+    fn default() -> Self {
+        Self {
+            timers: Vec::new(),
+            flash_duration: 1.0,
+            last_flash_frame: 0,
+            used_flash_color: true,
+        }
+    }
 }
 
 /// Reconcile the live strip against GameLogic's superweapon store snapshot
 /// (adds new entries, drops removed ones) and tick it to `frame`.
-pub fn live_superweapon_strip_sync(entries: &[(i32, String, ObjectID, u32)], frame: u32) {
-    let mut strip = lock_live_superweapon_strip();
+pub fn live_superweapon_strip_sync(
+    strip: &mut LiveSuperweaponStrip,
+    entries: &[(i32, String, ObjectID, u32)],
+    frame: u32,
+) {
     strip.timers.retain(|t| {
         entries
             .iter()
@@ -1317,19 +1315,17 @@ pub fn live_superweapon_strip_sync(entries: &[(i32, String, ObjectID, u32)], fra
         );
         strip.timers.push(timer);
     }
-    drop(strip);
-    live_superweapon_strip_update(frame);
+    live_superweapon_strip_update(strip, frame);
 }
 
 /// Tick the live strip countdown/READY/EVA state (C++ postDraw SW block).
-pub fn live_superweapon_strip_update(frame: u32) {
-    let mut strip = lock_live_superweapon_strip();
+pub fn live_superweapon_strip_update(strip: &mut LiveSuperweaponStrip, frame: u32) {
     let LiveSuperweaponStrip {
         timers,
         flash_duration,
         last_flash_frame,
         used_flash_color,
-    } = &mut *strip;
+    } = strip;
     InGameUI::update_superweapon_timer_entries(
         timers,
         false,
@@ -1343,8 +1339,9 @@ pub fn live_superweapon_strip_update(frame: u32) {
 /// Drawn strip rows (label, m:ss, ready) after the shared visibility filter —
 /// the exact entries bridged into the InGameUI-subsystem presentation
 /// residual that impl_draw renders at (0.7, 0.7).
-pub fn live_superweapon_draw_entries() -> Vec<(String, String, bool)> {
-    let strip = lock_live_superweapon_strip();
+pub fn live_superweapon_draw_entries(
+    strip: &mut LiveSuperweaponStrip,
+) -> Vec<(String, String, bool)> {
     InGameUI::visible_strip_entries(&strip.timers, false)
         .filter(|t| !t.time_text.is_empty() || t.ready)
         .map(|t| {
@@ -1362,6 +1359,6 @@ pub fn live_superweapon_draw_entries() -> Vec<(String, String, bool)> {
 }
 
 /// Clear the live strip (test/reset hook matching C++ InGameUI::reset).
-pub fn live_superweapon_strip_clear() {
-    lock_live_superweapon_strip().timers.clear();
+pub fn live_superweapon_strip_clear(strip: &mut LiveSuperweaponStrip) {
+    strip.timers.clear();
 }

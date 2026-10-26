@@ -23,13 +23,14 @@ impl InGameUI {
         position: Coord3D,
         radius: f32,
         input: &InGameUiInputContext<'_>,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) {
         if cursor_type == self.radius_cursor.cursor_type && self.radius_cursor.active {
             self.radius_cursor.position = position;
             if radius > 0.0 {
                 self.radius_cursor.radius = radius;
             }
-            self.handle_radius_cursor(input);
+            self.handle_radius_cursor(input, ui);
             return;
         }
         if cursor_type == RadiusCursorType::None {
@@ -39,13 +40,13 @@ impl InGameUI {
 
         self.clear_radius_cursor();
 
-        let resolved_radius = self.resolve_radius_cursor_radius(cursor_type, radius);
+        let resolved_radius = self.resolve_radius_cursor_radius(cursor_type, radius, ui);
         if resolved_radius <= 0.0 {
             return;
         }
 
         let controller = self
-            .first_selected_object_for_radius_cursor()
+            .first_selected_object_for_radius_cursor(ui)
             .and_then(|id| OBJECT_REGISTRY.get_object(id))
             .and_then(|obj| {
                 obj.read()
@@ -87,7 +88,7 @@ impl InGameUI {
         self.radius_cursor.position = position;
         self.radius_cursor.radius = resolved_radius;
         // C++ setRadiusCursor does not write m_duringDoubleClickAttackMoveGuardHintStashedPosition.
-        self.handle_radius_cursor(input);
+        self.handle_radius_cursor(input, ui);
     }
 
     pub fn clear_radius_cursor(&mut self) {
@@ -105,16 +106,25 @@ impl InGameUI {
         self.radius_cursor.cursor_type
     }
 
-    pub fn update_radius_cursor(&mut self, mouse_pos: Coord3D, input: &InGameUiInputContext<'_>) {
+    pub fn update_radius_cursor(
+        &mut self,
+        mouse_pos: Coord3D,
+        input: &InGameUiInputContext<'_>,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) {
         if !self.radius_cursor.active {
             return;
         }
         self.radius_cursor.position = mouse_pos;
-        self.handle_radius_cursor(input);
+        self.handle_radius_cursor(input, ui);
     }
 
     /// C++ `InGameUI::handleRadiusCursor` (InGameUI.cpp:1275-1310).
-    pub fn handle_radius_cursor(&mut self, input: &InGameUiInputContext<'_>) {
+    pub fn handle_radius_cursor(
+        &mut self,
+        input: &InGameUiInputContext<'_>,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) {
         if self.cur_radius_decal.is_empty() {
             return;
         }
@@ -124,14 +134,14 @@ impl InGameUI {
         let pos = Self::radius_cursor_world_from_mouse(screen, input)
             .unwrap_or(self.radius_cursor.position);
 
-        let live_timer = TheInGameUI::double_click_attack_move_guard_timer();
+        let live_timer = ui.double_click_attack_move_guard_timer();
         let (guard_timer, stash) = if self.double_click_attack_move_guard_timer > 0 {
             (
                 self.double_click_attack_move_guard_timer,
                 self.guard_hint_stashed_position,
             )
         } else {
-            let (x, y, z) = TheInGameUI::guard_hint_stashed_position();
+            let (x, y, z) = ui.guard_hint_stashed_position();
             (live_timer, Coord3D::new(x, y, z))
         };
         let double_click_guard = get_global_data()
@@ -173,8 +183,11 @@ impl InGameUI {
         radar_screen_pixel_to_world(mx, my, input)
     }
 
-    fn first_selected_object_for_radius_cursor(&self) -> Option<u32> {
-        if let Some(pending) = TheInGameUI::get_pending_special_power() {
+    fn first_selected_object_for_radius_cursor(
+        &self,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> Option<u32> {
+        if let Some(pending) = ui.get_pending_special_power() {
             if self
                 .gui_command
                 .as_deref()
@@ -226,6 +239,7 @@ impl InGameUI {
         cursor_type: RadiusCursorType,
         obj_id: Option<u32>,
         requested: f32,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> f32 {
         if let Some(obj_id) = obj_id {
             if let Some(obj) = OBJECT_REGISTRY.get_object(obj_id) {
@@ -269,7 +283,7 @@ impl InGameUI {
             }
         }
 
-        if let Some(pending) = TheInGameUI::get_pending_special_power() {
+        if let Some(pending) = ui.get_pending_special_power() {
             if let Some(store) = get_special_power_store() {
                 if let Some(template) = store.find_special_power_template_by_id(pending.power_id) {
                     let radius = template.get_radius_cursor_radius();
@@ -287,11 +301,13 @@ impl InGameUI {
         &self,
         cursor_type: RadiusCursorType,
         requested: f32,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> f32 {
         Self::leftover_resolve_radius_cursor_radius(
             cursor_type,
-            self.first_selected_object_for_radius_cursor(),
+            self.first_selected_object_for_radius_cursor(ui),
             requested,
+            ui,
         )
     }
 

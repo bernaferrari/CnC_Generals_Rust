@@ -231,6 +231,8 @@ enum LoadScreenPresentationRecipient<'a> {
     Native(&'a mut dyn for<'draw> FnMut(LoadScreenDrawServices<'draw>) -> Result<(), String>),
 }
 pub struct LoadScreenDrawServices<'a> {
+    pub ui: Option<&'a crate::core::subsystems::InGameUISubsystem>,
+    pub client_frame: u32,
     pub display: &'a mut crate::core::script_action_handler::ScriptDisplayReceiver,
     pub renderer: Option<&'a mut crate::gui::UIRenderer>,
     pub windows: &'a crate::gui::window_manager::WindowManagerOwner,
@@ -296,6 +298,8 @@ impl<'a> LoadScreenPresentationPump<'a> {
                             services.display.fx_mut(),
                             services.renderer,
                             Some(services.windows),
+                            services.ui,
+                            services.client_frame,
                         )
                         .map_err(|error| error.to_string())
                 })
@@ -473,6 +477,11 @@ impl LoadScreenOperation<'_> {
         operation: impl FnOnce(LoadScreenDrawServices<'_>) -> R,
     ) -> R {
         operation(LoadScreenDrawServices {
+            ui: self.effects.ui.as_deref(),
+            client_frame: self
+                .effects
+                .client_frame
+                .expect("loading requires receiving client frame"),
             display: self
                 .effects
                 .script_display

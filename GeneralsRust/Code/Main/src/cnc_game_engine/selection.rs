@@ -1687,7 +1687,7 @@ impl CnCGameEngine {
             }
         };
         if added.is_empty() && msg == "GUI:NothingSelected" {
-            self.game_hud_mut().push_info_message(msg);
+            self.host_push_info_message(msg);
             return;
         }
         for id in added {
@@ -1699,7 +1699,7 @@ impl CnCGameEngine {
         if !self.selected_objects.is_empty() {
             self.play_sound_effect(SoundType::Select);
         }
-        self.game_hud_mut().push_info_message(msg);
+        self.host_push_info_message(msg);
     }
 
     /// Retail SELECT_ALL_AIRCRAFT (KEY_W) residual.
@@ -1792,7 +1792,7 @@ impl CnCGameEngine {
             self.host_set_selection(self.current_player_id, selection);
         }
         if let Some(msg) = plan.message {
-            self.game_hud_mut().push_info_message(msg);
+            self.host_push_info_message(msg);
         }
     }
 }

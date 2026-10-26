@@ -300,8 +300,9 @@ impl<'a> CommandExecutor<'a> {
             if self.game_logic.producer_upgrade_queue_is_full(unit_id) {
                 if !queue_full_warned {
                     queue_full_warned = true;
-                    #[cfg(feature = "game_client")]
-                    game_client::helpers::TheInGameUI::message("GUI:ProductionQueueFull");
+                    if let Some(ui) = self.ui.ui.as_deref_mut() {
+                        ui.hud_message("GUI:ProductionQueueFull", self.game_logic.get_frame());
+                    }
                 }
                 continue;
             }

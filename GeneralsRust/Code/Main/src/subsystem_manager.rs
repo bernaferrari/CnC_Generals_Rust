@@ -948,7 +948,6 @@ impl GameClientSubsystem {
             if let Err(error) = game_client::gui::get_display_string_manager().update() {
                 warn!("Display string manager update failed: {error}");
             }
-            game_client::core::script_action_handler::apply_pending_script_display_state();
         }
         client
             .with_receiving_shell(Some(menu_world), |shell, effects| {

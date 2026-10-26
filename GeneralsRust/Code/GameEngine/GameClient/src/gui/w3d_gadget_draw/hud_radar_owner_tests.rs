@@ -12,15 +12,18 @@ fn owned_radar_role_preserves_custom_callback_and_hierarchy_order() {
         window.set_status(WindowStatus::ENABLED);
         window.set_radar_draw_callback();
         let order = order.clone();
-        window.set_draw_callback(move |_, _| order.set(order.get() * 10 + digit));
+        window.set_draw_callback(move |_, _, _| order.set(order.get() * 10 + digit));
         assert!(!window.callbacks.owned_radar_draw);
     }
-    let context = RadarDrawContext {
+    let mut context = RadarDrawContext {
         radar: None,
         view_box: None,
-        admit: &|_| panic!("missing radar cannot admit"),
+        admit: &mut |_| panic!("missing radar cannot admit"),
     };
-    manager.draw_all_with_radar(&context);
+    manager.draw_all_with_radar(
+        &mut context,
+        &mut crate::gui::window_draw_context::WindowDrawContext::default(),
+    );
     assert_eq!(order.get(), 12);
     parent.borrow_mut().set_radar_draw_callback();
     assert!(parent.borrow().callbacks.owned_radar_draw);
@@ -37,18 +40,21 @@ fn explicit_missing_radar_and_geometry_fail_closed_without_core_projection() {
     let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
     window.borrow_mut().set_status(WindowStatus::ENABLED);
     window.borrow_mut().set_radar_draw_callback();
-    let context = RadarDrawContext {
+    let mut context = RadarDrawContext {
         radar: None,
         view_box: None,
-        admit: &|_| panic!("missing radar cannot admit"),
+        admit: &mut |_| panic!("missing radar cannot admit"),
     };
-    manager.draw_all_with_radar(&context);
+    manager.draw_all_with_radar(
+        &mut context,
+        &mut crate::gui::window_draw_context::WindowDrawContext::default(),
+    );
     assert!(owned_view_box_lines(&context, (1, 1, 98, 98), (0, 0, 100, 100)).is_empty());
     let radar = game_engine::common::system::radar::RadarSystem::new().presentation();
-    let context = RadarDrawContext {
+    let mut context = RadarDrawContext {
         radar: Some(&radar),
         view_box: None,
-        admit: &|_| {},
+        admit: &mut |_| {},
     };
     assert!(owned_view_box_lines(&context, (1, 1, 98, 98), (0, 0, 100, 100)).is_empty());
 }
@@ -67,10 +73,10 @@ fn owned_corner_lines_use_receiving_radar_and_original_cell_order() {
             Coord3D::new(32., 96., 0.),
         ],
     };
-    let context = RadarDrawContext {
+    let mut context = RadarDrawContext {
         radar: Some(&presentation),
         view_box: Some(view),
-        admit: &|_| {},
+        admit: &mut |_| {},
     };
     let lines = owned_view_box_lines(&context, (10, 20, 128, 128), (9, 19, 130, 130));
     let expected = presentation.build_view_box_lines(

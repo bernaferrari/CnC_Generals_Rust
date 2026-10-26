@@ -7,7 +7,7 @@ use super::message_stream::{
 };
 use crate::display::view::with_tactical_view_ref;
 use crate::gui::game_window::{WindowInputReturnCode, WindowMessage};
-use crate::helpers::TheInGameUI;
+
 use game_engine::common::ini::get_global_data;
 
 fn pack_legacy_mouse_data(x: i32, y: i32) -> u32 {
@@ -135,9 +135,11 @@ pub fn should_skip_os_window_manager_while_mouse_locked(
 ///
 /// Returns `true` when `dispatch_os_mouse_to_window_manager` must not call
 /// `process_mouse_event` (C++ KEEP_MESSAGE).
-pub fn os_mouse_blocked_by_mouse_lock(msg: WindowMessage) -> bool {
-    is_mouse_locked()
-        && should_skip_os_window_manager_while_mouse_locked(msg, TheInGameUI::is_scrolling())
+pub fn os_mouse_blocked_by_mouse_lock(
+    msg: WindowMessage,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
+) -> bool {
+    is_mouse_locked() && should_skip_os_window_manager_while_mouse_locked(msg, ui.is_scrolling())
 }
 
 #[derive(Default)]
@@ -154,9 +156,12 @@ impl WindowTranslator {
 }
 
 impl GameMessageTranslator for WindowTranslator {
+    fn requires_receiving_window_context(&self) -> bool {
+        true
+    }
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
-        let mut no_dispatch = |_: WindowInputDispatch, _: &mut Vec<GameMessage>| None;
-        self.translate_with_dispatch(msg, Default::default(), &mut no_dispatch, &mut Vec::new())
+        log::error!("GUI message translator requires receiving UI context");
+        GameMessageDisposition::KeepMessage
     }
 
     fn translate_game_message_with_context(
@@ -165,8 +170,18 @@ impl GameMessageTranslator for WindowTranslator {
         client: game_engine::common::message_stream::TranslatorClientObservation,
         dispatch_window_input: &mut WindowInputDispatchFn<'_>,
         emitted_messages: &mut Vec<GameMessage>,
+        client_ui: &mut dyn std::any::Any,
     ) -> GameMessageDisposition {
-        self.translate_with_dispatch(msg, client, dispatch_window_input, emitted_messages)
+        let ui = &mut crate::message_stream::ReceivingUi::new(
+            client_ui
+                .downcast_mut::<crate::core::subsystems::InGameUISubsystem>()
+                .expect("message translator requires its receiving UI"),
+            client.logic_frame,
+            client.frame,
+        )
+        .with_emitter(emitted_messages);
+
+        self.translate_with_dispatch(msg, client, dispatch_window_input, ui)
     }
 }
 
@@ -176,21 +191,22 @@ impl WindowTranslator {
         msg: &GameMessage,
         client: game_engine::common::message_stream::TranslatorClientObservation,
         dispatch_window_input: &mut WindowInputDispatchFn<'_>,
-        _emitted_messages: &mut Vec<GameMessage>,
+
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> GameMessageDisposition {
         let msg_type = msg.get_type();
         let mut return_code = WindowInputReturnCode::NotUsed;
         let mut force_keep_message = false;
 
-        if is_mouse_locked()
-            && should_keep_message_while_mouse_locked(msg_type, TheInGameUI::is_scrolling())
+        if is_mouse_locked() && should_keep_message_while_mouse_locked(msg_type, ui.is_scrolling())
         {
             return GameMessageDisposition::KeepMessage;
         }
 
         match msg_type {
             GameMessageType::MetaToggleAttackMove => {
-                let _ = dispatch_window_input(
+                let _ = ui.dispatch(
+                    dispatch_window_input,
                     WindowInputDispatch::Mouse {
                         message: window_message_code(WindowMessage::None),
                         x: self.last_mouse_pos.x,
@@ -198,7 +214,6 @@ impl WindowTranslator {
                         data: 0,
                         delta: None,
                     },
-                    _emitted_messages,
                 );
                 return GameMessageDisposition::KeepMessage;
             }
@@ -217,7 +232,7 @@ impl WindowTranslator {
             | GameMessageType::RawMouseRightDrag(..)
             | GameMessageType::RawMouseWheel(..) => {
                 if matches!(msg_type, GameMessageType::RawMouseLeftButtonUp(..))
-                    && TheInGameUI::is_placement_anchored()
+                    && ui.is_placement_anchored()
                 {
                     force_keep_message = true;
                 }
@@ -230,7 +245,8 @@ impl WindowTranslator {
                     return GameMessageDisposition::KeepMessage;
                 };
 
-                return_code = match dispatch_window_input(
+                return_code = match ui.dispatch(
+                    dispatch_window_input,
                     WindowInputDispatch::Mouse {
                         message: window_message_code(window_msg),
                         x: self.last_mouse_pos.x,
@@ -238,12 +254,12 @@ impl WindowTranslator {
                         data: pack_legacy_mouse_data(self.last_mouse_pos.x, self.last_mouse_pos.y),
                         delta: extract_mouse_delta(msg_type),
                     },
-                    _emitted_messages,
                 ) {
                     Some(WindowInputDispatchResult::Used) => WindowInputReturnCode::Used,
                     Some(WindowInputDispatchResult::OpaqueWindow(_))
                     | Some(WindowInputDispatchResult::Display(_))
-                    | Some(WindowInputDispatchResult::Ui(_)) => {
+                    | Some(WindowInputDispatchResult::Ui(_))
+                    | Some(WindowInputDispatchResult::Camera(_)) => {
                         unreachable!("display response returned for a window input request")
                     }
                     Some(WindowInputDispatchResult::NotUsed) | None => {
@@ -255,7 +271,7 @@ impl WindowTranslator {
                     return_code = WindowInputReturnCode::Used;
                 }
 
-                if !TheInGameUI::get_input_enabled() {
+                if !ui.get_input_enabled() {
                     return_code = WindowInputReturnCode::Used;
                 }
             }
@@ -267,17 +283,18 @@ impl WindowTranslator {
                     _ => 0,
                 };
                 let state = (key_state & 0xFF) as u8;
-                return_code = match dispatch_window_input(
+                return_code = match ui.dispatch(
+                    dispatch_window_input,
                     WindowInputDispatch::Key {
                         key: *key as u8,
                         state,
                     },
-                    _emitted_messages,
                 ) {
                     Some(WindowInputDispatchResult::Used) => WindowInputReturnCode::Used,
                     Some(WindowInputDispatchResult::OpaqueWindow(_))
                     | Some(WindowInputDispatchResult::Display(_))
-                    | Some(WindowInputDispatchResult::Ui(_)) => {
+                    | Some(WindowInputDispatchResult::Ui(_))
+                    | Some(WindowInputDispatchResult::Camera(_)) => {
                         unreachable!("display response returned for a window input request")
                     }
                     Some(WindowInputDispatchResult::NotUsed) | None => {
@@ -289,20 +306,17 @@ impl WindowTranslator {
                     && *key == KEY_ESC
                     && (state & KEY_STATE_UP) != 0
                 {
-                    let movie_playing = matches!(dispatch_window_input(
-                        WindowInputDispatch::Display(game_engine::common::message_stream::DisplayInputAction::IsMoviePlaying),
-                        _emitted_messages,
-                    ), Some(WindowInputDispatchResult::Display(true)));
+                    let movie_playing = matches!(ui.dispatch(dispatch_window_input, WindowInputDispatch::Display(game_engine::common::message_stream::DisplayInputAction::IsMoviePlaying)), Some(WindowInputDispatchResult::Display(true)));
                     let allow_exit = get_global_data()
                         .map(|global_data| global_data.read().allow_exit_out_of_movies)
                         .unwrap_or(false);
 
                     if movie_playing && allow_exit {
-                        let _ = dispatch_window_input(
+                        let _ = ui.dispatch(
+                            dispatch_window_input,
                             WindowInputDispatch::Display(
                                 game_engine::common::message_stream::DisplayInputAction::StopMovie,
                             ),
-                            _emitted_messages,
                         );
                         return_code = WindowInputReturnCode::Used;
                     }
@@ -311,7 +325,7 @@ impl WindowTranslator {
                 if return_code != WindowInputReturnCode::Used
                     && *key == KEY_ESC
                     && (state & KEY_STATE_UP) != 0
-                    && !TheInGameUI::get_input_enabled()
+                    && !ui.get_input_enabled()
                 {
                     return_code = WindowInputReturnCode::Used;
                 }

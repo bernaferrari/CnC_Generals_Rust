@@ -7,7 +7,7 @@ use crate::gui::{
     GameFont, GameWindow, WindowLayout, WindowManager, WindowMsgHandled,
     get_display_string_manager,
 };
-use crate::helpers::TheInGameUI;
+
 use crate::message_stream::place_event_confirm::can_make_unit_for_place;
 use game_engine::common::ini::ini_command_button::{
     CommandButton as IniCommandButton, get_control_bar as get_ini_control_bar,
@@ -746,7 +746,7 @@ pub fn show_build_tooltip_layout(
     cmd_button: Rc<RefCell<GameWindow>>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    if TheInGameUI::are_tooltips_disabled() {
+    if effects.ui().tooltips_disabled_at(effects.logic_frame()) {
         return WindowMsgHandled::Ignored;
     }
     effects.with_manager(|manager, effects| {

@@ -44,19 +44,25 @@ impl CommandTranslator {
         }
     }
 
-    pub(super) fn max_select_count() -> i32 {
-        TheInGameUI::get_max_select_count()
+    pub(super) fn max_select_count(ui: &mut crate::message_stream::ReceivingUi<'_>) -> i32 {
+        ui.get_max_select_count()
     }
 
-    pub(super) fn selection_limit_reached(&self) -> bool {
+    pub(super) fn selection_limit_reached(
+        &self,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> bool {
         Self::selection_count_limit_reached_for(
-            Self::max_select_count(),
+            Self::max_select_count(ui),
             self.current_selection.len(),
         )
     }
 
-    pub(super) fn selection_count_limit_reached(count: usize) -> bool {
-        Self::selection_count_limit_reached_for(Self::max_select_count(), count)
+    pub(super) fn selection_count_limit_reached(
+        count: usize,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> bool {
+        Self::selection_count_limit_reached_for(Self::max_select_count(ui), count)
     }
 
     pub(super) fn selection_count_limit_reached_for(max: i32, count: usize) -> bool {
@@ -73,6 +79,7 @@ impl CommandTranslator {
         drawable: &dyn Drawable,
         position: &Coord3D,
         cmd_type: ClientCommandEvaluateType,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> GameMessageResult<GameMessageType> {
         self.sync_selection_from_logic();
 
@@ -101,7 +108,7 @@ impl CommandTranslator {
 
                     if !evaluate_as_position
                         && guard.is_locally_controlled()
-                        && TheInGameUI::is_in_prefer_selection_mode()
+                        && ui.is_in_prefer_selection_mode()
                     {
                         return Ok(GameMessageType::Invalid);
                     }
@@ -111,7 +118,7 @@ impl CommandTranslator {
             evaluate_as_position = true;
         }
 
-        if self.force_move_mode || TheInGameUI::is_in_force_move_to_mode() {
+        if self.force_move_mode || ui.is_in_force_move_to_mode() {
             evaluate_as_position = true;
         }
 
@@ -120,12 +127,12 @@ impl CommandTranslator {
             | ClientCommandEvaluateType::Primary
             | ClientCommandEvaluateType::Secondary => {
                 if evaluate_as_position || drawable.get_object_id().is_none() {
-                    self.handle_mouseover_location_hint(position)
+                    self.handle_mouseover_location_hint(position, ui)
                         .into_iter()
                         .next()
                         .unwrap_or(GameMessageType::Invalid)
                 } else {
-                    self.handle_mouseover_drawable_hint(drawable.get_id().0)
+                    self.handle_mouseover_drawable_hint(drawable.get_id().0, ui)
                         .into_iter()
                         .next()
                         .unwrap_or(GameMessageType::Invalid)
@@ -185,12 +192,15 @@ impl CommandTranslator {
             .extend(selection.get_selected_objects());
     }
 
-    pub(super) fn clear_targeting_modes(&mut self) {
-        TheInGameUI::clear_pending_command();
-        TheInGameUI::clear_pending_special_power();
-        TheInGameUI::set_force_attack_mode(false);
-        TheInGameUI::set_force_move_to_mode(false);
-        TheInGameUI::set_prefer_selection_mode(false);
+    pub(super) fn clear_targeting_modes(
+        &mut self,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) {
+        ui.clear_pending_command();
+        ui.clear_pending_special_power();
+        ui.set_force_attack_mode(false);
+        ui.set_force_move_to_mode(false);
+        ui.set_prefer_selection_mode(false);
         self.force_attack_mode = false;
         self.force_move_mode = false;
         self.prefer_selection_mode = false;
@@ -200,11 +210,12 @@ impl CommandTranslator {
         &self,
         region: &IRegion2D,
         local_player: Option<u32>,
-        window_query: &mut dyn FnMut(i32, i32) -> bool,
+        window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Option<ObjectID> {
         pub(super) const PICK_RADIUS_WORLD: f32 = 10.0;
-        let force_attack_active = self.force_attack_mode || TheInGameUI::is_in_force_attack_mode();
-        let profile = context_pick_profile(force_attack_active, &self.current_selection);
+        let force_attack_active = self.force_attack_mode || ui.is_in_force_attack_mode();
+        let profile = context_pick_profile(force_attack_active, &self.current_selection, ui);
         let (mut mine, mut other) = collect_selectable_objects(
             region,
             true,
@@ -212,6 +223,7 @@ impl CommandTranslator {
             local_player,
             profile,
             window_query,
+            ui,
         );
         let mine_pick = pick_closest(&mut mine);
         let other_pick = pick_closest(&mut other);
@@ -245,8 +257,9 @@ impl CommandTranslator {
         local_player_u32: Option<u32>,
         target: Option<ObjectID>,
         world: &Coord3D,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Vec<GameMessageType> {
-        let Some(pending) = TheInGameUI::get_pending_command() else {
+        let Some(pending) = ui.get_pending_command() else {
             return Vec::new();
         };
 
@@ -258,11 +271,12 @@ impl CommandTranslator {
                     local_player_u32,
                     &self.current_selection,
                     object_id,
+                    ui,
                 )
             {
-                if let Some(message) = pending_command_for_object(&pending, object_id) {
-                    play_voice_for_command(self.current_selection.iter().copied(), &message);
-                    self.clear_targeting_modes();
+                if let Some(message) = pending_command_for_object(&pending, object_id, ui) {
+                    play_voice_for_command(self.current_selection.iter().copied(), &message, ui);
+                    self.clear_targeting_modes(ui);
                     return vec![message];
                 }
             }
@@ -277,19 +291,22 @@ impl CommandTranslator {
                             &self.current_selection,
                             &position,
                             Some(object_id),
+                            ui,
                         ) {
                             let messages = pending_command_messages_for_position(
                                 &pending,
                                 position,
                                 &self.current_selection,
                                 Some(object_id),
+                                ui,
                             );
                             if !messages.is_empty() {
                                 play_voice_for_command(
                                     self.current_selection.iter().copied(),
                                     &messages[0],
+                                    ui,
                                 );
-                                self.clear_targeting_modes();
+                                self.clear_targeting_modes(ui);
                                 return messages;
                             }
                         }
@@ -303,6 +320,7 @@ impl CommandTranslator {
                 &self.current_selection,
                 world,
                 None,
+                ui,
             )
         {
             let messages = pending_command_messages_for_position(
@@ -310,10 +328,11 @@ impl CommandTranslator {
                 world.clone(),
                 &self.current_selection,
                 None,
+                ui,
             );
             if !messages.is_empty() {
-                play_voice_for_command(self.current_selection.iter().copied(), &messages[0]);
-                self.clear_targeting_modes();
+                play_voice_for_command(self.current_selection.iter().copied(), &messages[0], ui);
+                self.clear_targeting_modes(ui);
                 return messages;
             }
         }
@@ -327,26 +346,34 @@ impl CommandTranslator {
         }
     }
 
-    pub(super) fn resolve_move_command(&self, world: Coord3D) -> GameMessageType {
+    pub(super) fn resolve_move_command(
+        &self,
+        world: Coord3D,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> GameMessageType {
         if self.waypoint_mode {
             GameMessageType::AddWaypoint(world)
-        } else if TheInGameUI::is_in_attack_move_to_mode() {
+        } else if ui.is_in_attack_move_to_mode() {
             GameMessageType::DoAttackMoveTo(world)
-        } else if self.force_move_mode || TheInGameUI::is_in_force_move_to_mode() {
+        } else if self.force_move_mode || ui.is_in_force_move_to_mode() {
             GameMessageType::DoForceMoveTO(world)
         } else {
             GameMessageType::DoMoveTo(world)
         }
     }
 
-    pub(super) fn resolve_move_hint(&self, world: Coord3D) -> GameMessageType {
+    pub(super) fn resolve_move_hint(
+        &self,
+        world: Coord3D,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> GameMessageType {
         if !selection_has_quick_path_to(&self.current_selection, &world) {
             return GameMessageType::DoInvalidHint;
         }
 
         if self.waypoint_mode {
             GameMessageType::AddWaypointHint(world)
-        } else if TheInGameUI::is_in_attack_move_to_mode() {
+        } else if ui.is_in_attack_move_to_mode() {
             GameMessageType::DoAttackMoveToHint(world)
         } else {
             GameMessageType::DoMoveToHint(world)
@@ -422,6 +449,7 @@ impl CommandTranslator {
         &self,
         region: &IRegion2D,
         right_click: bool,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Option<GameMessageType> {
         if region.width != 0 || region.height != 0 {
             return None;
@@ -449,7 +477,7 @@ impl CommandTranslator {
         });
 
         Self::record_double_click_attack_move_order_given();
-        TheInGameUI::trigger_double_click_attack_move_guard_hint();
+        ui.trigger_double_click_attack_move_guard_hint((world.x, world.y, world.z));
         Some(GameMessageType::DoGuardPosition(world, 0))
     }
 
@@ -615,6 +643,7 @@ impl CommandTranslator {
         local_player_u32: Option<u32>,
         target_id: ObjectID,
         world: Coord3D,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Option<GameMessageType> {
         if selection_can_override_special_power_destination(
             local_player_u32,
@@ -672,7 +701,7 @@ impl CommandTranslator {
         if selection_can_pickup_crate_target(local_player_u32, &self.current_selection, target_id)
             .is_some()
         {
-            return Some(self.resolve_move_hint(world));
+            return Some(self.resolve_move_hint(world, ui));
         }
 
         if let Some(dest) =
@@ -730,7 +759,8 @@ impl CommandTranslator {
         &mut self,
         region: &IRegion2D,
         right_click: bool,
-        window_query: &mut dyn FnMut(i32, i32) -> bool,
+        window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Vec<GameMessageType> {
         if region.width != 0 || region.height != 0 {
             return Vec::new();
@@ -754,16 +784,16 @@ impl CommandTranslator {
             None
         };
         let alternate_mouse = is_alternate_mouse_enabled();
-        let pending_command_active = TheInGameUI::get_pending_command().is_some();
+        let pending_command_active = ui.get_pending_command().is_some();
         let target = self
-            .pick_context_target(region, local_player_u32, window_query)
+            .pick_context_target(region, local_player_u32, window_query, ui)
             .filter(|object_id| !is_locally_controlled_mine_target(*object_id));
 
         // In C++, right-click in alternate mouse mode still evaluates context/pending
         // commands; non-alternate right-click cancels pending targeting.
         if right_click && pending_command_active && !alternate_mouse {
-            self.clear_targeting_modes();
-            TheInGameUI::clear_attack_move_to_mode();
+            self.clear_targeting_modes(ui);
+            ui.clear_attack_move_to_mode();
             return Vec::new();
         }
 
@@ -775,10 +805,15 @@ impl CommandTranslator {
         // is used to cancel GUI mode by SelectionXlat.
         let should_resolve_pending = pending_command_active && !right_click;
         if should_resolve_pending {
-            let messages =
-                self.resolve_pending_command_click(local_player, local_player_u32, target, &world);
+            let messages = self.resolve_pending_command_click(
+                local_player,
+                local_player_u32,
+                target,
+                &world,
+                ui,
+            );
             if !messages.is_empty() {
-                TheInGameUI::clear_attack_move_to_mode();
+                ui.clear_attack_move_to_mode();
                 return messages;
             }
             // Targeting mode stays active until fulfilled/cancelled.
@@ -789,7 +824,7 @@ impl CommandTranslator {
             return Vec::new();
         }
 
-        let force_attack_active = self.force_attack_mode || TheInGameUI::is_in_force_attack_mode();
+        let force_attack_active = self.force_attack_mode || ui.is_in_force_attack_mode();
         let command = if force_attack_active {
             self.evaluate_force_attack_command(local_player_u32, target, world.clone())
         } else if let Some(target_id) = target {
@@ -807,7 +842,7 @@ impl CommandTranslator {
         } else if selection_can_set_rally_point(&self.current_selection) {
             None
         } else {
-            Some(self.resolve_move_command(world.clone()))
+            Some(self.resolve_move_command(world.clone(), ui))
         };
 
         if command.is_none()
@@ -821,11 +856,11 @@ impl CommandTranslator {
             for id in ids {
                 messages.push(GameMessageType::SetRallyPoint(id, world.clone()));
             }
-            TheInGameUI::clear_attack_move_to_mode();
+            ui.clear_attack_move_to_mode();
             return messages;
         }
 
-        TheInGameUI::clear_attack_move_to_mode();
+        ui.clear_attack_move_to_mode();
 
         if command.is_none() {
             if let Some(target_id) = target {
@@ -851,13 +886,22 @@ impl CommandTranslator {
                     }
                 }
             }
-            pick_and_play_unit_voice_response(self.current_selection.iter().copied(), msg, &info);
+            pick_and_play_unit_voice_response(
+                self.current_selection.iter().copied(),
+                msg,
+                &info,
+                ui,
+            );
         }
 
         command.map(|msg| vec![msg]).unwrap_or_default()
     }
 
-    pub(super) fn handle_mouseover_location_hint(&self, pos: &Coord3D) -> Vec<GameMessageType> {
+    pub(super) fn handle_mouseover_location_hint(
+        &self,
+        pos: &Coord3D,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> Vec<GameMessageType> {
         if self.current_selection.is_empty() {
             return Vec::new();
         }
@@ -869,7 +913,7 @@ impl CommandTranslator {
             None
         };
 
-        if let Some(pending) = TheInGameUI::get_pending_command() {
+        if let Some(pending) = ui.get_pending_command() {
             if pending_command_accepts_position(pending.options) {
                 if !pending_command_position_valid(
                     &pending,
@@ -877,6 +921,7 @@ impl CommandTranslator {
                     &self.current_selection,
                     pos,
                     None,
+                    ui,
                 ) {
                     return vec![GameMessageType::InvalidGUICommandHint];
                 }
@@ -890,7 +935,7 @@ impl CommandTranslator {
             }
         }
 
-        let force_attack_active = self.force_attack_mode || TheInGameUI::is_in_force_attack_mode();
+        let force_attack_active = self.force_attack_mode || ui.is_in_force_attack_mode();
         if force_attack_active {
             return self
                 .evaluate_force_attack_hint(local_player_u32, None, pos.clone())
@@ -912,12 +957,13 @@ impl CommandTranslator {
             return vec![GameMessageType::SetRallyPointHint(pos.clone())];
         }
 
-        vec![self.resolve_move_hint(pos.clone())]
+        vec![self.resolve_move_hint(pos.clone(), ui)]
     }
 
     pub(super) fn handle_mouseover_drawable_hint(
         &self,
         drawable: DrawableID,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Vec<GameMessageType> {
         if self.current_selection.is_empty() {
             return Vec::new();
@@ -942,10 +988,10 @@ impl CommandTranslator {
         // C++ evaluateContextCommand treats locally controlled mines as position
         // interactions instead of object-target interactions.
         if is_locally_controlled_mine_target(target_id) {
-            return self.handle_mouseover_location_hint(&world);
+            return self.handle_mouseover_location_hint(&world, ui);
         }
 
-        if let Some(pending) = TheInGameUI::get_pending_command() {
+        if let Some(pending) = ui.get_pending_command() {
             if pending_command_accepts_object(pending.options) {
                 if pending_command_target_allowed(pending.options, local_player, target_id)
                     && pending_command_selection_valid(
@@ -953,6 +999,7 @@ impl CommandTranslator {
                         local_player_u32,
                         &self.current_selection,
                         target_id,
+                        ui,
                     )
                 {
                     // C++ GUI context-command hover uses generic valid/invalid GUI
@@ -969,6 +1016,7 @@ impl CommandTranslator {
                     &self.current_selection,
                     &world,
                     Some(target_id),
+                    ui,
                 ) {
                     return vec![GameMessageType::InvalidGUICommandHint];
                 }
@@ -979,7 +1027,7 @@ impl CommandTranslator {
             }
         }
 
-        let force_attack_active = self.force_attack_mode || TheInGameUI::is_in_force_attack_mode();
+        let force_attack_active = self.force_attack_mode || ui.is_in_force_attack_mode();
         if force_attack_active {
             return self
                 .evaluate_force_attack_hint(local_player_u32, Some(target_id), world)
@@ -988,12 +1036,12 @@ impl CommandTranslator {
         }
 
         if let Some(hint) =
-            self.evaluate_context_hint(local_player, local_player_u32, target_id, world.clone())
+            self.evaluate_context_hint(local_player, local_player_u32, target_id, world.clone(), ui)
         {
             return vec![hint];
         }
 
-        vec![self.resolve_move_hint(world)]
+        vec![self.resolve_move_hint(world, ui)]
     }
 
     /// Process mouse button up events
@@ -1003,7 +1051,8 @@ impl CommandTranslator {
         button: MouseButton,
         modifiers: u32,
         time: u32,
-        window_query: &mut dyn FnMut(i32, i32) -> bool,
+        window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Vec<GameMessageType> {
         debug!("Mouse button {:?} up at {:?}", button, position);
 
@@ -1028,6 +1077,7 @@ impl CommandTranslator {
                             &region,
                             key_mods,
                             window_query,
+                            ui,
                         ));
                     } else if let Some(anchor) = &self.selection_anchor {
                         let region = build_region(anchor, position);
@@ -1035,6 +1085,7 @@ impl CommandTranslator {
                             &region,
                             key_mods,
                             window_query,
+                            ui,
                         ));
                     }
                 }
@@ -1049,13 +1100,12 @@ impl CommandTranslator {
                 // directly issue command messages; context commands are generated on click events.
                 self.right_click_lift = Some(position.clone());
                 self.right_click_up_time = time;
-                let had_pending_place_source =
-                    TheInGameUI::get_pending_place_source_object_id() != 0;
+                let had_pending_place_source = ui.get_pending_place_source_object_id() != 0;
                 // C++ parity (CommandXlat.cpp MSG_RAW_MOUSE_RIGHT_BUTTON_UP):
                 // right-click click gesture cancels pending build-placement mode.
                 if self.right_click_is_click_gesture() {
-                    TheInGameUI::place_build_available(None, None);
-                    if TheInGameUI::get_pending_command().is_none()
+                    ui.place_build_available(None, None);
+                    if ui.get_pending_command().is_none()
                         && (!is_alternate_mouse_enabled() || had_pending_place_source)
                         && !self.current_selection.is_empty()
                     {
@@ -1089,7 +1139,8 @@ impl CommandTranslator {
         &mut self,
         region: &IRegion2D,
         modifiers: KeyModifiers,
-        window_query: &mut dyn FnMut(i32, i32) -> bool,
+        window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Vec<GameMessageType> {
         pub(super) const PICK_RADIUS_WORLD: f32 = 10.0;
 
@@ -1111,12 +1162,13 @@ impl CommandTranslator {
             local_player_u32,
             ContextPickProfile::default(),
             window_query,
+            ui,
         );
 
         if is_point {
             let picked_object = pick_closest(&mut mine).or_else(|| pick_closest(&mut other));
 
-            if TheInGameUI::get_pending_command().is_some() {
+            if ui.get_pending_command().is_some() {
                 let world =
                     screen_to_terrain(&ICoord2D::new(region.x, region.y)).unwrap_or(Coord3D {
                         x: region.x as f32,
@@ -1128,6 +1180,7 @@ impl CommandTranslator {
                     local_player_u32,
                     picked_object,
                     &world,
+                    ui,
                 );
                 if !messages.is_empty() {
                     return messages;
@@ -1230,7 +1283,7 @@ impl CommandTranslator {
                 if self.current_selection.remove(&object_id) {
                     return vec![GameMessageType::RemoveFromSelectedGroup(vec![object_id])];
                 }
-                if self.selection_limit_reached() {
+                if self.selection_limit_reached(ui) {
                     return Vec::new();
                 }
                 self.current_selection.insert(object_id);
@@ -1242,7 +1295,7 @@ impl CommandTranslator {
                     self.current_selection.remove(&object_id);
                     return vec![GameMessageType::RemoveFromSelectedGroup(vec![object_id])];
                 }
-                if self.selection_limit_reached() {
+                if self.selection_limit_reached(ui) {
                     return Vec::new();
                 }
                 self.current_selection.insert(object_id);
@@ -1261,7 +1314,7 @@ impl CommandTranslator {
         let mut selected_ids = Vec::new();
         let mut building_ids = Vec::new();
         for (id, _) in mine.into_iter() {
-            if Self::selection_count_limit_reached(selected_ids.len()) {
+            if Self::selection_count_limit_reached(selected_ids.len(), ui) {
                 break;
             }
 
@@ -1291,7 +1344,7 @@ impl CommandTranslator {
         if allow_add {
             let mut new_ids = Vec::new();
             for id in selected_ids {
-                if self.selection_limit_reached() {
+                if self.selection_limit_reached(ui) {
                     break;
                 }
                 if self.current_selection.insert(id) {
@@ -1311,7 +1364,12 @@ impl CommandTranslator {
     }
 
     /// Process keyboard events
-    pub(super) fn handle_keyboard(&mut self, key: u32, down: bool) -> Vec<GameMessageType> {
+    pub(super) fn handle_keyboard(
+        &mut self,
+        key: u32,
+        down: bool,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> Vec<GameMessageType> {
         debug!("Key {} {}", key, if down { "down" } else { "up" });
 
         let mut messages = Vec::new();
@@ -1367,12 +1425,12 @@ impl CommandTranslator {
                 // CommandXlat.cpp:3424-3434 sets both InGameUI modes).
                 if down {
                     self.force_attack_mode = true;
-                    TheInGameUI::set_force_attack_mode(true);
+                    ui.set_force_attack_mode(true);
                     messages.push(GameMessageType::MetaBeginForceAttack);
                     messages.push(GameMessageType::MetaBeginForceMove);
                 } else {
                     self.force_attack_mode = false;
-                    TheInGameUI::set_force_attack_mode(false);
+                    ui.set_force_attack_mode(false);
                     messages.push(GameMessageType::MetaEndForceAttack);
                     messages.push(GameMessageType::MetaEndForceMove);
                 }
@@ -1391,11 +1449,11 @@ impl CommandTranslator {
                 // Shift key
                 if down {
                     self.prefer_selection_mode = true;
-                    TheInGameUI::set_prefer_selection_mode(true);
+                    ui.set_prefer_selection_mode(true);
                     messages.push(GameMessageType::MetaBeginPreferSelection);
                 } else {
                     self.prefer_selection_mode = false;
-                    TheInGameUI::set_prefer_selection_mode(false);
+                    ui.set_prefer_selection_mode(false);
                     messages.push(GameMessageType::MetaEndPreferSelection);
                 }
             }

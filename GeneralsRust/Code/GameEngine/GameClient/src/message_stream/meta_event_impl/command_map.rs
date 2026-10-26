@@ -195,11 +195,7 @@ pub fn translate_command_map_label(label: &str) -> String {
         return String::new();
     }
     let (text, exists) = crate::game_text::GameText::fetch_with_exists(trimmed);
-    if exists {
-        text
-    } else {
-        trimmed.to_string()
-    }
+    if exists { text } else { trimmed.to_string() }
 }
 
 fn command_map_labels_match(stored: &str, query: &str) -> bool {
@@ -209,7 +205,7 @@ fn command_map_labels_match(stored: &str, query: &str) -> bool {
 
 /// C++ CommandXlat.cpp:3098-3140 `MSG_META_TOGGLE_LOWER_DETAILS`.
 /// Returns `Some(now_low)` after a successful toggle.
-pub fn apply_toggle_lower_details() -> Option<bool> {
+pub fn apply_toggle_lower_details(ui: &mut crate::message_stream::ReceivingUi<'_>) -> Option<bool> {
     let global_data = get_global_data()?;
     let mut global = global_data.write();
     LOWER_DETAIL_TOGGLE_STATE.with_borrow_mut(|state| {
@@ -219,7 +215,7 @@ pub fn apply_toggle_lower_details() -> Option<bool> {
             global.use_cloud_map = state.old_use_cloud_map;
             global.max_particle_count = state.old_max_particle_count;
             TheGameLogic::set_show_behind_building_markers(state.old_show_behind_building_markers);
-            TheInGameUI::message("GUI:ReturnGraphicsToPreviousSettings");
+            ui.message("GUI:ReturnGraphicsToPreviousSettings");
         } else {
             state.old_use_shadow_volumes = global.use_shadow_volumes;
             global.use_shadow_volumes = false;
@@ -232,7 +228,7 @@ pub fn apply_toggle_lower_details() -> Option<bool> {
             TheGameLogic::set_show_behind_building_markers(false);
             state.old_max_particle_count = global.max_particle_count;
             global.max_particle_count = DROPPED_MAX_PARTICLE_COUNT;
-            TheInGameUI::message("GUI:DetailsSetToLowest");
+            ui.message("GUI:DetailsSetToLowest");
         }
         state.is_low_details = !state.is_low_details;
         Some(state.is_low_details)

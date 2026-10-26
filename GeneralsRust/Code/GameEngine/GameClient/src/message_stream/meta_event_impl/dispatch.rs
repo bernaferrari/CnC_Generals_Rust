@@ -3,7 +3,8 @@
 fn dispatch_map_entry(
     record: &MetaMapRec,
     display_dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
-    emitted: &mut Vec<GameMessage>,
+
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> Option<GameMessageDisposition> {
     if let Some(meta) = &record.meta {
         if matches!(meta, GameMessageType::MetaToggleFastForwardReplay) {
@@ -16,12 +17,12 @@ fn dispatch_map_entry(
                         guard.tivo_fast_mode = !guard.tivo_fast_mode;
                         guard.tivo_fast_mode
                     };
-                    TheInGameUI::message(if enabled { "GUI:FF_ON" } else { "GUI:FF_OFF" });
+                    ui.message(if enabled { "GUI:FF_ON" } else { "GUI:FF_OFF" });
                 }
             }
             return Some(GameMessageDisposition::KeepMessage);
         }
-        emit_message(GameMessage::new(meta.clone()));
+        ui.emit(GameMessage::new(meta.clone()));
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -30,18 +31,18 @@ fn dispatch_map_entry(
     if record.name.eq_ignore_ascii_case("PLACE_BEACON") {
         if can_enter_place_beacon_mode() {
             const CMD_NEED_TARGET_POS: u32 = 0x0000_0020;
-            TheInGameUI::clear_pending_special_power();
-            TheInGameUI::set_pending_command(CommandType::PlaceBeacon, CMD_NEED_TARGET_POS, 0);
-            TheInGameUI::set_force_attack_mode(false);
-            TheInGameUI::set_force_move_to_mode(false);
-            TheInGameUI::set_prefer_selection_mode(false);
+            ui.clear_pending_special_power();
+            ui.set_pending_command(CommandType::PlaceBeacon, CMD_NEED_TARGET_POS, 0);
+            ui.set_force_attack_mode(false);
+            ui.set_force_move_to_mode(false);
+            ui.set_prefer_selection_mode(false);
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DELETE_BEACON") {
         if TheGameLogic::is_in_multiplayer_game() && !TheGameLogic::is_in_replay_game() {
-            emit_message(GameMessage::new(GameMessageType::RemoveBeacon(
+            ui.emit(GameMessage::new(GameMessageType::RemoveBeacon(
                 Coord3D::default(),
             )));
         }
@@ -49,7 +50,7 @@ fn dispatch_map_entry(
     }
 
     if record.name.eq_ignore_ascii_case("TOGGLE_LOWER_DETAILS") {
-        let _ = apply_toggle_lower_details();
+        let _ = apply_toggle_lower_details(ui);
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -100,13 +101,13 @@ fn dispatch_map_entry(
 
     if record.name.eq_ignore_ascii_case("DEMO_VTUNE_ON") {
         set_vtune_enabled(true);
-        TheInGameUI::message("VTune Gathering is ON");
+        ui.message("VTune Gathering is ON");
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_VTUNE_OFF") {
         set_vtune_enabled(false);
-        TheInGameUI::message("VTune Gathering is OFF");
+        ui.message("VTune Gathering is OFF");
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -131,7 +132,7 @@ fn dispatch_map_entry(
     }
 
     if let Some(extent_adjust) = parse_extent_adjust_alias(&record.name) {
-        apply_extent_adjust_to_local_selection(extent_adjust);
+        apply_extent_adjust_to_local_selection(extent_adjust, ui);
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -140,7 +141,7 @@ fn dispatch_map_entry(
         .eq_ignore_ascii_case("DEMO_INCR_ANIM_SKATE_SPEED")
     {
         let value = adjust_skate_distance_override(0.25);
-        TheInGameUI::message(&format!("Skate Distance Override is now {value:.6}"));
+        ui.message(&format!("Skate Distance Override is now {value:.6}"));
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -149,7 +150,7 @@ fn dispatch_map_entry(
         .eq_ignore_ascii_case("DEMO_DECR_ANIM_SKATE_SPEED")
     {
         let value = adjust_skate_distance_override(-0.25);
-        TheInGameUI::message(&format!("Skate Distance Override is now {value:.6}"));
+        ui.message(&format!("Skate Distance Override is now {value:.6}"));
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -159,7 +160,7 @@ fn dispatch_map_entry(
     {
         if !TheGameLogic::is_in_multiplayer_game() {
             let enabled = toggle_shared_bool_state(&HAND_OF_GOD_MODE);
-            TheInGameUI::message(if enabled {
+            ui.message(if enabled {
                 "Meta Hand-Of-God Mode is ON"
             } else {
                 "Meta Hand-Of-God Mode is OFF"
@@ -175,7 +176,7 @@ fn dispatch_map_entry(
     {
         if !TheGameLogic::is_in_multiplayer_game() {
             let enabled = toggle_shared_bool_state(&HAND_OF_GOD_MODE);
-            TheInGameUI::message(if enabled {
+            ui.message(if enabled {
                 "Hand-Of-God Mode is ON"
             } else {
                 "Hand-Of-God Mode is OFF"
@@ -188,7 +189,7 @@ fn dispatch_map_entry(
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_HURT_ME_MODE") {
         if !TheGameLogic::is_in_multiplayer_game() {
             let enabled = toggle_shared_bool_state(&HURT_ME_MODE);
-            TheInGameUI::message(if enabled {
+            ui.message(if enabled {
                 "Hurt-Me Mode is ON"
             } else {
                 "Hurt-Me Mode is OFF"
@@ -200,7 +201,7 @@ fn dispatch_map_entry(
 
     if record.name.eq_ignore_ascii_case("DEMO_DEBUG_SELECTION") {
         let enabled = toggle_shared_bool_state(&DEBUG_SELECTION_MODE);
-        TheInGameUI::message(if enabled {
+        ui.message(if enabled {
             "Debug-Selected-Item Mode is ON"
         } else {
             "Debug-Selected-Item Mode is OFF"
@@ -210,7 +211,7 @@ fn dispatch_map_entry(
 
     if record.name.eq_ignore_ascii_case("DEMO_TEST_SURRENDER") {
         let local_player = get_local_player_id() as u32;
-        emit_message(GameMessage::new(GameMessageType::SelfDestruct(
+        ui.emit(GameMessage::new(GameMessageType::SelfDestruct(
             local_player,
         )));
         return Some(GameMessageDisposition::DestroyMessage);
@@ -285,7 +286,7 @@ fn dispatch_map_entry(
             let _ = with_local_player_mut(|player| {
                 player.add_science_purchase_points(1);
             });
-            TheInGameUI::message("Adding a SciencePurchasePoint");
+            ui.message("Adding a SciencePurchasePoint");
             return Some(GameMessageDisposition::DestroyMessage);
         }
         return Some(GameMessageDisposition::DestroyMessage);
@@ -298,7 +299,7 @@ fn dispatch_map_entry(
         let _ = with_local_player_mut(|player| {
             player.add_science_purchase_points(1);
         });
-        TheInGameUI::message("Adding a SciencePurchasePoint");
+        ui.message("Adding a SciencePurchasePoint");
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -314,7 +315,7 @@ fn dispatch_map_entry(
                     }
                 }
             });
-            TheInGameUI::message("Granting all sciences!");
+            ui.message("Granting all sciences!");
             return Some(GameMessageDisposition::DestroyMessage);
         }
         return Some(GameMessageDisposition::DestroyMessage);
@@ -340,7 +341,7 @@ fn dispatch_map_entry(
                 }
             }
         });
-        TheInGameUI::message("Granting all sciences!");
+        ui.message("Granting all sciences!");
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -348,7 +349,7 @@ fn dispatch_map_entry(
         let _ = with_local_player_mut(|player| {
             let _ = player.set_rank_level(player.get_rank_level() + 1);
         });
-        TheInGameUI::message("Adding a RankLevel");
+        ui.message("Adding a RankLevel");
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -356,7 +357,7 @@ fn dispatch_map_entry(
         let _ = with_local_player_mut(|player| {
             let _ = player.set_rank_level(player.get_rank_level() - 1);
         });
-        TheInGameUI::message("Subtracting a RankLevel");
+        ui.message("Subtracting a RankLevel");
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -460,7 +461,7 @@ fn dispatch_map_entry(
         if let Some(manager) = get_global_audio_manager() {
             if let Ok(mut audio) = manager.lock() {
                 if audio.is_on(AudioAffect::Sound) {
-                    stop_movies_for_sound_toggle(display_dispatch, emitted);
+                    stop_movies_for_sound_toggle(display_dispatch, ui);
                     audio.set_on(false, AudioAffect::All);
                 } else {
                     audio.set_on(true, AudioAffect::All);
@@ -477,7 +478,7 @@ fn dispatch_map_entry(
         let _ = dispatch_ui_input(
             game_engine::common::message_stream::UiInputAction::DemoMilitarySubtitle,
             display_dispatch,
-            emitted,
+            ui,
         );
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -490,7 +491,7 @@ fn dispatch_map_entry(
             let _ = dispatch_display_input(
                 game_engine::common::message_stream::DisplayInputAction::NextObjectiveMovie,
                 display_dispatch,
-                emitted,
+                ui,
             );
         }
         return Some(GameMessageDisposition::DestroyMessage);
@@ -503,7 +504,7 @@ fn dispatch_map_entry(
                     movie_index as u8,
                 ),
                 display_dispatch,
-                emitted,
+                ui,
             );
         }
         return Some(GameMessageDisposition::DestroyMessage);
@@ -514,7 +515,7 @@ fn dispatch_map_entry(
             let _ = dispatch_display_input(
                 game_engine::common::message_stream::DisplayInputAction::ToggleCameoMovie,
                 display_dispatch,
-                emitted,
+                ui,
             );
         }
         return Some(GameMessageDisposition::DestroyMessage);
@@ -594,10 +595,10 @@ fn dispatch_map_entry(
         let show_markers = TheGameLogic::get_show_behind_building_markers();
         if show_markers {
             TheGameLogic::set_show_behind_building_markers(false);
-            TheInGameUI::message("GUI:ShowBehindBuildings");
+            ui.message("GUI:ShowBehindBuildings");
         } else {
             TheGameLogic::set_show_behind_building_markers(true);
-            TheInGameUI::message("GUI:HideBehindBuildings");
+            ui.message("GUI:HideBehindBuildings");
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -606,13 +607,13 @@ fn dispatch_map_entry(
         let handled = dispatch_ui_input(
             game_engine::common::message_stream::UiInputAction::ToggleShellTopVisibility,
             display_dispatch,
-            emitted,
+            ui,
         );
         if !handled {
             let _ = dispatch_display_input(
                 game_engine::common::message_stream::DisplayInputAction::ToggleLetterbox,
                 display_dispatch,
-                emitted,
+                ui,
             );
         }
         return Some(GameMessageDisposition::DestroyMessage);
@@ -648,7 +649,7 @@ fn dispatch_map_entry(
         if let Some(global_data) = get_global_data() {
             let mut global = global_data.write();
             global.debug_supply_center_placement = !global.debug_supply_center_placement;
-            TheInGameUI::message(if global.debug_supply_center_placement {
+            ui.message(if global.debug_supply_center_placement {
                 "Log SupplyCenter Placement is ON"
             } else {
                 "Log SupplyCenter Placement is OFF"
@@ -669,9 +670,9 @@ fn dispatch_map_entry(
             };
 
             if debug_level == 0 {
-                TheInGameUI::message("Debug AI Mode is OFF");
+                ui.message("Debug AI Mode is OFF");
             } else {
-                TheInGameUI::message(&format!("Debug AI Mode is Level {}", debug_level));
+                ui.message(&format!("Debug AI Mode is Level {}", debug_level));
             }
         }
         return Some(GameMessageDisposition::DestroyMessage);
@@ -681,7 +682,7 @@ fn dispatch_map_entry(
         if let Some(global_data) = get_global_data() {
             let mut global = global_data.write();
             global.debug_camera = !global.debug_camera;
-            TheInGameUI::message(if global.debug_camera {
+            ui.message(if global.debug_camera {
                 "Debug Camera Mode is On"
             } else {
                 "Debug Camera Mode is OFF"
@@ -694,7 +695,7 @@ fn dispatch_map_entry(
         if let Some(global_data) = get_global_data() {
             let mut global = global_data.write();
             global.debug_visibility = !global.debug_visibility;
-            TheInGameUI::message(if global.debug_visibility {
+            ui.message(if global.debug_visibility {
                 "Debug Vision Mode is On"
             } else {
                 "Debug Vision Mode is OFF"
@@ -710,7 +711,7 @@ fn dispatch_map_entry(
         if let Some(global_data) = get_global_data() {
             let mut global = global_data.write();
             global.debug_projectile_path = !global.debug_projectile_path;
-            TheInGameUI::message(if global.debug_projectile_path {
+            ui.message(if global.debug_projectile_path {
                 "Debug Projectile Path Mode is On"
             } else {
                 "Debug Projectile Path Mode is OFF"
@@ -726,7 +727,7 @@ fn dispatch_map_entry(
             if global.debug_threat_map {
                 global.debug_cash_value_map = false;
             }
-            TheInGameUI::message(if global.debug_threat_map {
+            ui.message(if global.debug_threat_map {
                 "Debug Threat Map is On"
             } else {
                 "Debug Threat Map is OFF"
@@ -742,7 +743,7 @@ fn dispatch_map_entry(
             if global.debug_cash_value_map {
                 global.debug_threat_map = false;
             }
-            TheInGameUI::message(if global.debug_cash_value_map {
+            ui.message(if global.debug_cash_value_map {
                 "Debug Cash Value Map is On"
             } else {
                 "Debug Cash Value Map is OFF"
@@ -766,7 +767,7 @@ fn dispatch_map_entry(
         if let Some(global_data) = get_global_data() {
             let mut global = global_data.write();
             global.show_collision_extents = !global.show_collision_extents;
-            TheInGameUI::message(if global.show_collision_extents {
+            ui.message(if global.show_collision_extents {
                 "Show Object Extents ON"
             } else {
                 "Show Object Extents OFF"
@@ -782,7 +783,7 @@ fn dispatch_map_entry(
         if let Some(global_data) = get_global_data() {
             let mut global = global_data.write();
             global.show_audio_locations = !global.show_audio_locations;
-            TheInGameUI::message(if global.show_audio_locations {
+            ui.message(if global.show_audio_locations {
                 "Show AudioLocations ON"
             } else {
                 "Show AudioLocations OFF"
@@ -795,7 +796,7 @@ fn dispatch_map_entry(
         if let Some(global_data) = get_global_data() {
             let mut global = global_data.write();
             global.show_object_health = !global.show_object_health;
-            TheInGameUI::message(if global.show_object_health {
+            ui.message(if global.show_object_health {
                 "Object Health ON"
             } else {
                 "Object Health OFF"
@@ -818,7 +819,7 @@ fn dispatch_map_entry(
                 game_engine::common::message_stream::DisplayDebugKind::Statistics,
             ),
             display_dispatch,
-            emitted,
+            ui,
         );
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -827,7 +828,7 @@ fn dispatch_map_entry(
         .name
         .eq_ignore_ascii_case("DEBUG_DUMP_PLAYER_OBJECTS")
     {
-        dump_player_object_counts(false);
+        dump_player_object_counts(false, ui);
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -835,7 +836,7 @@ fn dispatch_map_entry(
         .name
         .eq_ignore_ascii_case("DEBUG_DUMP_ALL_PLAYER_OBJECTS")
     {
-        dump_player_object_counts(true);
+        dump_player_object_counts(true, ui);
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -843,7 +844,7 @@ fn dispatch_map_entry(
         .name
         .eq_ignore_ascii_case("DEBUG_OBJECT_ID_PERFORMANCE")
     {
-        report_object_id_lookup_performance();
+        report_object_id_lookup_performance(ui);
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -851,7 +852,7 @@ fn dispatch_map_entry(
         .name
         .eq_ignore_ascii_case("DEBUG_DRAWABLE_ID_PERFORMANCE")
     {
-        report_drawable_id_lookup_performance();
+        report_drawable_id_lookup_performance(ui);
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -860,7 +861,7 @@ fn dispatch_map_entry(
         .eq_ignore_ascii_case("DEBUG_SLEEPY_UPDATE_PERFORMANCE")
     {
         let count = TheGameLogic::get_number_sleepy_updates();
-        TheInGameUI::message(&format!("Number of Sleepy Modules: {count}."));
+        ui.message(&format!("Number of Sleepy Modules: {count}."));
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -870,7 +871,7 @@ fn dispatch_map_entry(
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_CYCLE_LOD_LEVEL") {
-        cycle_dynamic_lod_level();
+        cycle_dynamic_lod_level(ui);
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -883,7 +884,7 @@ fn dispatch_map_entry(
                 game_engine::common::message_stream::DisplayDebugKind::Particles,
             ),
             display_dispatch,
-            emitted,
+            ui,
         );
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -894,7 +895,7 @@ fn dispatch_map_entry(
                 game_engine::common::message_stream::DisplayDebugKind::Audio,
             ),
             display_dispatch,
-            emitted,
+            ui,
         );
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -903,7 +904,7 @@ fn dispatch_map_entry(
         let _ = dispatch_display_input(
             game_engine::common::message_stream::DisplayInputAction::ToggleMovieCapture,
             display_dispatch,
-            emitted,
+            ui,
         );
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -914,11 +915,11 @@ fn dispatch_map_entry(
             if audio.is_music_playing() {
                 audio.stop_audio(AudioAffect::Music);
                 audio.set_on(false, AudioAffect::Music);
-                TheInGameUI::message("Stopping Music");
+                ui.message("Stopping Music");
             } else {
                 audio.set_on(true, AudioAffect::Music);
                 audio.resume_audio(AudioAffect::Music);
-                TheInGameUI::message("Resuming Music");
+                ui.message("Resuming Music");
             }
         }
         return Some(GameMessageDisposition::DestroyMessage);
@@ -926,14 +927,14 @@ fn dispatch_map_entry(
 
     if record.name.eq_ignore_ascii_case("DEMO_MUSIC_NEXT_TRACK") {
         if let Some(track_name) = cycle_music_track(true) {
-            TheInGameUI::message(&format!("Playing Track: {track_name}"));
+            ui.message(&format!("Playing Track: {track_name}"));
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_MUSIC_PREV_TRACK") {
         if let Some(track_name) = cycle_music_track(false) {
-            TheInGameUI::message(&format!("Playing Track: {track_name}"));
+            ui.message(&format!("Playing Track: {track_name}"));
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -945,7 +946,7 @@ fn dispatch_map_entry(
         if let Some(global_data) = get_global_data() {
             global_data.write().dump_performance_statistics = true;
         }
-        TheInGameUI::message(&format!(
+        ui.message(&format!(
             "Statistics dump made on frame: {}",
             TheGameLogic::get_frame()
         ));
@@ -967,7 +968,7 @@ fn dispatch_map_entry(
                 engine.start_end_game_timer();
             }
         }
-        TheInGameUI::message("Instant Win");
+        ui.message("Instant Win");
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -977,7 +978,7 @@ fn dispatch_map_entry(
             view.set_zoom_limited(next);
             next
         });
-        TheInGameUI::message(if zoom_limited {
+        ui.message(if zoom_limited {
             "Camera Zoom Limit: ON"
         } else {
             "Camera Zoom Limit: OFF"
@@ -992,7 +993,7 @@ fn dispatch_map_entry(
         if let Some(global_data) = get_global_data() {
             let mut global = global_data.write();
             global.special_power_uses_delay = !global.special_power_uses_delay;
-            TheInGameUI::message(if global.special_power_uses_delay {
+            ui.message(if global.special_power_uses_delay {
                 "Special Power (Superweapon) Delay: ON"
             } else {
                 "Special Power (Superweapon) Delay: OFF"
@@ -1020,7 +1021,7 @@ fn dispatch_map_entry(
             if let Some(global_data) = get_global_data() {
                 let mut global = global_data.write();
                 global.show_object_health = !global.show_object_health;
-                TheInGameUI::message(if global.show_object_health {
+                ui.message(if global.show_object_health {
                     "Object Health ON"
                 } else {
                     "Object Health OFF"
@@ -1035,9 +1036,9 @@ fn dispatch_map_entry(
         .eq_ignore_ascii_case("CHEAT_TOGGLE_MESSAGE_TEXT")
     {
         if !TheGameLogic::is_in_multiplayer_game() {
-            TheInGameUI::toggle_messages();
-            if TheInGameUI::is_messages_on() {
-                TheInGameUI::message("GUI:MessagesOn");
+            ui.toggle_messages();
+            if ui.is_messages_on() {
+                ui.message("GUI:MessagesOn");
             }
             return Some(GameMessageDisposition::DestroyMessage);
         }
@@ -1045,9 +1046,9 @@ fn dispatch_map_entry(
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_MESSAGE_TEXT") {
-        TheInGameUI::toggle_messages();
-        if TheInGameUI::is_messages_on() {
-            TheInGameUI::message("GUI:MessagesOn");
+        ui.toggle_messages();
+        if ui.is_messages_on() {
+            ui.message("GUI:MessagesOn");
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -1060,7 +1061,7 @@ fn dispatch_map_entry(
             if let Some(global_data) = get_global_data() {
                 let mut global = global_data.write();
                 global.special_power_uses_delay = !global.special_power_uses_delay;
-                TheInGameUI::message(if global.special_power_uses_delay {
+                ui.message(if global.special_power_uses_delay {
                     "Special Power (Superweapon) Delay: ON"
                 } else {
                     "Special Power (Superweapon) Delay: OFF"

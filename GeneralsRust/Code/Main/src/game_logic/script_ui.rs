@@ -4,6 +4,18 @@
 //! driving application lends this interface during execution instead of storing
 //! window resources or selecting another session's UI inside GameLogic.
 pub(crate) trait ScriptUiEffects {
+    fn add_named_timer(&mut self, _name: &str, _text: &str, _countdown: bool) {}
+    fn remove_named_timer(&mut self, _name: &str) {}
+    fn show_named_timer_display(&mut self, _show: bool) {}
+    /// Read-only counter observations from the invocation's exact interpreter.
+    fn observe_named_timer_counters(&mut self, _counters: std::collections::HashMap<String, i32>) {}
+    /// Immediate HUD delivery at this receiving world's logic frame.
+    fn hud_message(&mut self, _text: &str, _logic_frame: u32) {}
+    /// Headless execution has no structure-placement preview.
+    fn placement_preview_pending(&self) -> bool {
+        false
+    }
+
     fn popup_message(
         &mut self,
         _popup: &crate::game_logic::ScriptPopupMessageRequest,

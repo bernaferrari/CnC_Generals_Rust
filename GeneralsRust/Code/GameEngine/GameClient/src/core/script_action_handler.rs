@@ -5,7 +5,6 @@ use crate::display::view::{
 };
 use crate::game_text::GameText;
 use crate::gui::callbacks::control_bar_callbacks::{hide_control_bar, show_control_bar};
-use crate::helpers::TheInGameUI;
 use crate::terrain::TerrainVisual;
 use crate::terrain::terrain_visual::get_terrain_visual;
 use game_engine::common::ini::get_global_data;
@@ -139,8 +138,19 @@ pub fn set_script_display_gamma(
     receiver.fx.set_gamma_state(gamma, bright, contrast);
     true
 }
-pub fn take_script_display_screenshot(receiver: &mut ScriptDisplayReceiver) -> Option<String> {
-    receiver.with_display(|display, fx| display.take_screenshot(fx))
+pub fn take_script_display_screenshot(
+    receiver: &mut ScriptDisplayReceiver,
+    ui: &mut crate::core::subsystems::InGameUISubsystem,
+    logic_frame: u32,
+) -> Option<String> {
+    let leaf = receiver.with_display(|display, fx| display.take_screenshot(fx))?;
+    // The display/FX loan has ended. Deliver the same ScreenCapture text to
+    // the receiving UI at this action, with the driving world's frame.
+    ui.push_hud_message_at(
+        format!("{} {}", GameText::fetch("GUI:ScreenCapture"), leaf),
+        logic_frame,
+    );
+    Some(leaf)
 }
 
 pub fn script_popup_message(
@@ -152,7 +162,7 @@ pub fn script_popup_message(
     pause_music: bool,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    TheInGameUI::popup_message(
+    crate::helpers::popup_message(
         message,
         x_percent,
         y_percent,
@@ -176,7 +186,7 @@ pub fn script_popup_message_with_host_generation(
     host_popup_generation: Option<usize>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    TheInGameUI::popup_message_with_host_generation(
+    crate::helpers::popup_message_with_host_generation(
         message,
         x_percent,
         y_percent,
@@ -291,28 +301,39 @@ pub fn script_cameo_flash(command_button_name: &str, flash_count: i32) {
     });
 }
 
-pub fn script_add_named_timer(name: &str, text: &str, countdown: bool) {
-    crate::gui::ingame_ui::add_named_timer(name, text, countdown);
-    with_script_runtime(|state| {
-        state
-            .ui
-            .named_timers
-            .insert(name.to_string(), (text.to_string(), countdown));
-    });
+impl crate::core::subsystems::InGameUISubsystem {
+    pub fn observe_named_timer_counters(&mut self, counters: HashMap<String, i32>) {
+        crate::gui::ingame_ui::observe_named_timer_counters(&mut self.live_hud, counters);
+    }
+    pub fn add_named_timer(&mut self, name: &str, text: &str, countdown: bool) {
+        crate::gui::ingame_ui::add_named_timer(&mut self.live_hud, name, text, countdown);
+    }
+    pub fn remove_named_timer(&mut self, name: &str) {
+        crate::gui::ingame_ui::remove_named_timer(&mut self.live_hud, name);
+    }
+    pub fn show_named_timer_display(&mut self, show: bool) {
+        crate::gui::ingame_ui::show_named_timer_display(&mut self.live_hud, show);
+    }
 }
 
-pub fn script_remove_named_timer(name: &str) {
-    crate::gui::ingame_ui::remove_named_timer(name);
-    with_script_runtime(|state| {
-        state.ui.named_timers.remove(name);
-    });
+pub fn script_add_named_timer(
+    ui: &mut crate::core::subsystems::InGameUISubsystem,
+    name: &str,
+    text: &str,
+    countdown: bool,
+) {
+    ui.add_named_timer(name, text, countdown);
 }
 
-pub fn script_show_named_timer_display(show: bool) {
-    crate::gui::ingame_ui::show_named_timer_display(show);
-    with_script_runtime(|state| {
-        state.ui.named_timer_display_shown = show;
-    });
+pub fn script_remove_named_timer(ui: &mut crate::core::subsystems::InGameUISubsystem, name: &str) {
+    ui.remove_named_timer(name);
+}
+
+pub fn script_show_named_timer_display(
+    ui: &mut crate::core::subsystems::InGameUISubsystem,
+    show: bool,
+) {
+    ui.show_named_timer_display(show);
 }
 
 pub fn script_set_superweapon_display_enabled(enabled: bool) {
@@ -342,7 +363,7 @@ pub fn reset_script_action_runtime_state() {
     TheGameLogic::set_intro_movie_playing(false);
 }
 
-pub fn apply_pending_script_display_state() {
+pub fn apply_pending_script_display_state(ui: &mut crate::core::subsystems::InGameUISubsystem) {
     let wireframe = game_engine::common::global_data::read().writable.wireframe;
     with_tactical_view(|view| {
         if view.pending_3d_wireframe_mode() != wireframe {
@@ -351,20 +372,20 @@ pub fn apply_pending_script_display_state() {
     });
 
     if let Some(disable) = gamelogic::helpers::TheInGameUI::take_cinematic_input_lock() {
-        apply_cinematic_input_lock(disable);
+        apply_cinematic_input_lock(ui, disable);
     }
 }
 
 /// C++ ScriptActions::doDisableInput / doEnableInput cinematic teardown.
-fn apply_cinematic_input_lock(disable: bool) {
-    crate::helpers::TheInGameUI::set_input_enabled(!disable);
+fn apply_cinematic_input_lock(ui: &mut crate::core::subsystems::InGameUISubsystem, disable: bool) {
+    ui.set_input_enabled(!disable);
     crate::input::mouse::with_mouse(|mouse| {
         mouse.set_visibility(!disable);
     });
     if !disable {
         return;
     }
-    crate::helpers::TheInGameUI::deselect_all();
+    ui.deselect_all();
     if let Ok(list) = player_list().read() {
         let local_index = list.get_local_player_index();
         if local_index != gamelogic::player::PLAYER_INDEX_INVALID {
@@ -376,8 +397,8 @@ fn apply_cinematic_input_lock(disable: bool) {
             }
         }
     }
-    crate::helpers::TheInGameUI::clear_attack_move_to_mode();
-    crate::helpers::TheInGameUI::set_waypoint_mode(false);
+    ui.clear_attack_move_to_mode();
+    ui.set_waypoint_mode(false);
     request_look_at_reset_modes();
 }
 
@@ -628,6 +649,7 @@ impl GameClientScriptActionHandler {
     fn maybe_show_speech_subtitle(
         name: &str,
         ui: &mut crate::core::subsystems::InGameUISubsystem,
+        logic_frame: u32,
         manager: &mut crate::gui::window_manager::WindowManager,
     ) {
         let subtitle_label = format!("DIALOGEVENT:{name}Subtitle");
@@ -636,12 +658,13 @@ impl GameClientScriptActionHandler {
         if subtitle.is_empty() || subtitle.starts_with('*') || subtitle == fallback {
             return;
         }
-        ui.push_military_subtitle(&subtitle_label, SUBTITLE_DURATION_MS, manager);
+        ui.push_military_subtitle(&subtitle_label, SUBTITLE_DURATION_MS, logic_frame, manager);
     }
     pub(crate) fn speech_play_receiving(
         name: &str,
         allow_overlap: bool,
         ui: &mut crate::core::subsystems::InGameUISubsystem,
+        logic_frame: u32,
         manager: &mut crate::gui::window_manager::WindowManager,
     ) -> GameLogicResult<()> {
         if let Some(audio) = TheAudio::get() {
@@ -654,15 +677,16 @@ impl GameClientScriptActionHandler {
             let handle = audio.add_audio_event(&event);
             with_script_runtime(|state| track_audio_handle(&mut state.speech_waits, name, handle));
         }
-        Self::maybe_show_speech_subtitle(name, ui, manager);
+        Self::maybe_show_speech_subtitle(name, ui, logic_frame, manager);
         Ok(())
     }
 }
 
 impl ScriptActionHandler for GameClientScriptActionHandler {
-    fn input_enabled(&self, enabled: bool) -> GameLogicResult<()> {
-        apply_cinematic_input_lock(!enabled);
-        Ok(())
+    fn input_enabled(&self, _enabled: bool) -> GameLogicResult<()> {
+        Err(gamelogic::GameLogicError::Configuration(
+            "input script action requires the receiving presentation execution driver".into(),
+        ))
     }
 
     fn set_border_shroud_level(&self, level: u8) -> GameLogicResult<()> {
@@ -671,9 +695,10 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
         ))
     }
 
-    fn display_text(&self, text: &str) -> GameLogicResult<()> {
-        TheInGameUI::message(text);
-        Ok(())
+    fn display_text(&self, _text: &str) -> GameLogicResult<()> {
+        Err(gamelogic::GameLogicError::Configuration(
+            "display text requires the receiving presentation execution driver".into(),
+        ))
     }
 
     fn display_cinematic_text(
@@ -682,8 +707,9 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
         _font_type: &str,
         _duration_seconds: i32,
     ) -> GameLogicResult<()> {
-        TheInGameUI::message(text);
-        Ok(())
+        Err(gamelogic::GameLogicError::Configuration(
+            "cinematic text requires the receiving presentation execution driver".into(),
+        ))
     }
 
     fn military_caption(&self, text: &str, duration_ms: i32) -> GameLogicResult<()> {
@@ -1506,12 +1532,9 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
         description: &str,
         completed: bool,
     ) -> GameLogicResult<()> {
-        if completed {
-            TheInGameUI::message(&format!("Objective Complete: {}", description));
-        } else {
-            TheInGameUI::message(description);
-        }
-        Ok(())
+        Err(gamelogic::GameLogicError::Configuration(
+            "objective feedback requires the receiving presentation execution driver".into(),
+        ))
     }
 
     fn spawn_effect(&self, effect_type: &str, x: f32, y: f32, z: f32) -> GameLogicResult<()> {

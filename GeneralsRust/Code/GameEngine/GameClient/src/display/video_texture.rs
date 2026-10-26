@@ -1043,7 +1043,7 @@ impl VideoTexture {
             occlusion_query_set: None,
             timestamp_writes: None,
             multiview_mask: None,
-});
+        });
         pass.set_pipeline(pipeline);
         pass.set_bind_group(0, bind_group, &[]);
         pass.set_viewport(vp_x, vp_y, vp_w.max(1.0), vp_h.max(1.0), 0.0, 1.0);

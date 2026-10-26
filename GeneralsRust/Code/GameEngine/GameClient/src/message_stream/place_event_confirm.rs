@@ -4,7 +4,7 @@
 
 use super::game_message::Coord3D;
 use crate::eva::{EvaMessage, with_eva};
-use crate::helpers::{PendingSpecialPower, TheInGameUI};
+use crate::helpers::PendingSpecialPower;
 use game_engine::common::system::build_assistant::CanMakeType as BuildCanMakeType;
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::common::{Coord3D as LogicCoord3D, KindOf};
@@ -37,12 +37,13 @@ pub fn is_line_build_template_name(template_name: &str) -> bool {
 pub fn special_power_construction_for_builder(
     builder_id: u32,
     template_name: &str,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> Option<PendingSpecialPower> {
-    let pending = TheInGameUI::get_pending_special_power()?;
+    let pending = ui.get_pending_special_power()?;
     if pending.source_object_id != builder_id {
         return None;
     }
-    let pending_template = TheInGameUI::get_pending_place_template()?;
+    let pending_template = ui.get_pending_place_template()?;
     if pending_template != template_name {
         return None;
     }
@@ -121,12 +122,15 @@ pub fn can_make_unit_for_place(
     BuildCanMakeType::Ok
 }
 
-pub fn play_can_make_failure(failure: BuildCanMakeType) {
+pub fn play_can_make_failure(
+    failure: BuildCanMakeType,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
+) {
     if failure == BuildCanMakeType::NoMoney {
         with_eva(|eva| eva.set_should_play(EvaMessage::InsufficientFunds));
     }
     if let Some(message) = failure_message_for_can_make(failure) {
-        TheInGameUI::message(message);
+        ui.message(message);
     }
 }
 

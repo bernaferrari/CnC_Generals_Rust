@@ -1009,6 +1009,7 @@ pub fn pack_health_bar_quads(
     tactical_viewport: (f32, f32),
     display_size: (f32, f32),
     camera_zoom: f32,
+    hovered_id: Option<u32>,
 ) -> Vec<f32> {
     use crate::game_logic::host_enum_table_residual::{
         MC_BIT_DAMAGED, MC_BIT_REALLYDAMAGED, host_model_condition_has,
@@ -1042,12 +1043,6 @@ pub fn pack_health_bar_quads(
     // (camera.rs `sync_ingame_mouseover_hint` → `create_mouseover_hint`,
     // C++ InGameUI.cpp:2254-2284 / impl_input.rs moused_over_drawable_id),
     // and the id shares the presentation ObjectId u32 space.
-    #[cfg(feature = "game_client")]
-    let moused_over_drawable_id = game_client::helpers::TheInGameUI::get_moused_over_drawable_id();
-    #[cfg(not(feature = "game_client"))]
-    let moused_over_drawable_id: u32 = 0;
-    // INVALID_DRAWABLE_ID == 0 (game_client impl_update.rs) means no hover.
-    let hovered_id = (moused_over_drawable_id != 0).then_some(moused_over_drawable_id);
 
     for object in frame
         .objects
@@ -1191,6 +1186,7 @@ pub fn enqueue_selection_render(
     // Full window pixel size, for screen-space health-bar clip conversion.
     display_size: (f32, f32),
     camera_zoom: f32,
+    hovered_drawable: Option<u32>,
 ) {
     let view_proj = *projection_matrix * *view_matrix;
 
@@ -1214,6 +1210,7 @@ pub fn enqueue_selection_render(
                 (tactical_viewport.0.max(1.0), tactical_viewport.1.max(1.0)),
                 display_size,
                 camera_zoom,
+                hovered_drawable,
             )
         })
         .unwrap_or_default();
@@ -1724,7 +1721,6 @@ mod presentation_selection_tests {
             .expect("GameData")
             .write()
             .show_object_health = true;
-        game_client::helpers::TheInGameUI::set_moused_over_drawable_id(0);
 
         let mut logic = GameLogic::new();
         let mut template = ThingTemplate::new("HeldHealthColorUnit");
@@ -1769,8 +1765,15 @@ mod presentation_selection_tests {
             let older: crate::presentation_frame::RenderableObject =
                 serde_json::from_value(encoded).expect("older JSON frame object");
             assert!(!older.disabled_held, "missing held fact defaults inactive");
-            let packed =
-                pack_health_bar_quads(&frame, &view, &proj, (640.0, 384.0), (640.0, 480.0), 1.0);
+            let packed = pack_health_bar_quads(
+                &frame,
+                &view,
+                &proj,
+                (640.0, 384.0),
+                (640.0, 480.0),
+                1.0,
+                None,
+            );
             assert_eq!(packed.len(), 180, "one outlined health bar");
             let fill = &packed[packed.len() - 36..];
             for channel in 0..3 {
@@ -1828,8 +1831,16 @@ mod presentation_selection_tests {
             Vec3::Y,
         );
         let proj = Mat4::perspective_rh(1.0, 640.0 / 384.0, 1.0, 800.0);
-        let pack = |snap: &PresentationFrame| {
-            pack_health_bar_quads(snap, &view, &proj, (640.0, 384.0), (640.0, 480.0), 1.0)
+        let pack = |snap: &PresentationFrame, hover| {
+            pack_health_bar_quads(
+                snap,
+                &view,
+                &proj,
+                (640.0, 384.0),
+                (640.0, 480.0),
+                1.0,
+                hover,
+            )
         };
 
         // Gate closed: authored No with a GameData source present (C++
@@ -1838,15 +1849,14 @@ mod presentation_selection_tests {
         if let Some(data) = game_engine::common::ini::get_global_data() {
             data.write().show_object_health = false;
         }
-        game_client::helpers::TheInGameUI::set_moused_over_drawable_id(0);
-        assert!(pack(&snap).is_empty());
+        assert!(pack(&snap, None).is_empty());
 
         // Gate open: outline (4 quads) + fill (1 quad) = 5 quads of 6 verts
         // x 6 floats = 180 floats for the selected unit alone.
         if let Some(data) = game_engine::common::ini::get_global_data() {
             data.write().show_object_health = true;
         }
-        let verts = pack(&snap);
+        let verts = pack(&snap, None);
         assert_eq!(
             verts.len(),
             180,
@@ -1872,8 +1882,15 @@ mod presentation_selection_tests {
 
         // Width follows C++ 1/zoom without changing the authored height.
         for zoom in [0.5, 1.0, 1.3] {
-            let packed =
-                pack_health_bar_quads(&snap, &view, &proj, (640.0, 384.0), (640.0, 480.0), zoom);
+            let packed = pack_health_bar_quads(
+                &snap,
+                &view,
+                &proj,
+                (640.0, 384.0),
+                (640.0, 480.0),
+                zoom,
+                None,
+            );
             let width = (packed[6] - packed[0]) * 0.5 * 640.0;
             assert!((width - object.health_box_width / zoom).abs() < 0.01);
             let top = (1.0 - packed[13]) * 0.5 * 480.0;
@@ -1888,7 +1905,7 @@ mod presentation_selection_tests {
             .find(|o| o.id == id)
             .unwrap()
             .health_box_width = 0.0;
-        assert!(pack(&no_bar).is_empty());
+        assert!(pack(&no_bar, None).is_empty());
         let mut offscreen = snap.clone();
         offscreen
             .objects
@@ -1897,11 +1914,10 @@ mod presentation_selection_tests {
             .unwrap()
             .position
             .x += 10_000.0;
-        assert!(pack(&offscreen).is_empty());
+        assert!(pack(&offscreen, None).is_empty());
         // Contract (d): a hovered NON-selected unit gets its own bar quad set
         // (Drawable.cpp:3834-3835 moused-over branch).
-        game_client::helpers::TheInGameUI::set_moused_over_drawable_id(hover_id.0);
-        let verts = pack(&snap);
+        let verts = pack(&snap, Some(hover_id.0));
         assert_eq!(
             verts.len(),
             360,
@@ -1919,14 +1935,13 @@ mod presentation_selection_tests {
             sel.selected = false;
         }
         assert_eq!(
-            pack(&hover_only).len(),
+            pack(&hover_only, Some(hover_id.0)).len(),
             180,
             "hover-only unit keeps its bar"
         );
 
         // Clearing the mouseover (INVALID_DRAWABLE_ID) removes the hover bar.
-        game_client::helpers::TheInGameUI::set_moused_over_drawable_id(0);
-        assert!(pack(&hover_only).is_empty());
+        assert!(pack(&hover_only, None).is_empty());
 
         // Retail default: an install whose boot lacks the GameData block
         // falls open to the shipped `ShowObjectHealth = Yes`
@@ -1936,7 +1951,7 @@ mod presentation_selection_tests {
         }
         super::force_retail_game_data_probe_for_tests(2);
         assert_eq!(
-            pack(&snap).len(),
+            pack(&snap, None).len(),
             180,
             "absent GameData block must fail open to the retail default"
         );

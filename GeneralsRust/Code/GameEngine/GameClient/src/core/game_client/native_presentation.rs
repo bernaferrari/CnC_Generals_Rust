@@ -13,6 +13,7 @@ pub struct PreparedPresentationShell {
     owner: std::sync::Arc<()>,
     generation: u64,
     frames: NativeParticleFrames,
+    game_mode: i32,
     frozen: bool,
     skip_draw: bool,
 }
@@ -114,9 +115,10 @@ impl GameClient {
         NativeRenderReceiver::new(
             state,
             &mut self.native_particle_capability_gaps,
-            &self.subsystem_manager,
+            self.subsystem_manager.in_game_ui.as_mut(),
             self.frame,
             self.local_player_id,
+            self.input_authority,
         )
         .run_native_views_with_keys(
             manager,

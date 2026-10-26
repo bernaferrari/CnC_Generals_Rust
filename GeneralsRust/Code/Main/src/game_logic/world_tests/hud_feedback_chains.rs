@@ -134,20 +134,16 @@ fn defeat_message_routes_localized_to_hud_and_local_defeat_forces_radar_and_chat
         .unwrap_or_else(|e| e.into_inner());
 
     let mut client = game_client::core::game_client::GameClient::new().expect("GameClient::new");
-    client.set_in_game_ui_subsystem(std::sync::Arc::new(std::sync::Mutex::new(
-        game_client::core::subsystems::InGameUISubsystem::default(),
-    )));
+    client.set_in_game_ui_subsystem(game_client::core::subsystems::InGameUISubsystem::default());
 
     // The local player has been eliminated (VictoryConditions latch).
     gamelogic::helpers::TheVictoryConditions::set_local_player_defeated(true);
     gamelogic::helpers::TheInGameUI::display_message("GUI:PlayerHasBeenDefeated Napoleon");
 
-    client.drain_logic_hud_messages();
+    client.drain_logic_hud_messages(0);
 
     let subsystem = client.in_game_ui_subsystem().expect("in_game_ui subsystem");
     let messages = subsystem
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
         .hud_messages()
         .iter()
         .map(|m| m.text.clone())

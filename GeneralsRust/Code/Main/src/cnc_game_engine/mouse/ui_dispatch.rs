@@ -257,8 +257,10 @@ impl CnCGameEngine {
                 videos,
                 ime,
                 mut menus,
+                ui,
             ) = self.game_client.window_owner_campaign_menu_and_host_mut();
             let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            ui, logic_frame: Some(menu_world.logic_frame), client_frame: Some(menu_world.client_frame),
             menus: Some(menus.reborrow()),
             ime:Some(ime),
             upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_tooltip),
@@ -428,11 +430,7 @@ impl CnCGameEngine {
     pub(in crate::cnc_game_engine) fn receiving_tooltips_disabled(&self) -> bool {
         self.game_client
             .in_game_ui_subsystem()
-            .and_then(|ui| {
-                ui.lock()
-                    .ok()
-                    .map(|ui| ui.tooltips_disabled_at(self.game_logic.frame))
-            })
+            .map(|ui| ui.tooltips_disabled_at(self.game_logic.frame))
             .unwrap_or(true)
     }
 
@@ -482,8 +480,10 @@ impl CnCGameEngine {
             videos,
             ime,
             mut menus,
+            ui,
         ) = self.game_client.window_owner_campaign_menu_and_host_mut();
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            ui, logic_frame: Some(menu_world.logic_frame), client_frame: Some(menu_world.client_frame),
             menus: Some(menus.reborrow()),
             ime:Some(ime),
             upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_tooltip),

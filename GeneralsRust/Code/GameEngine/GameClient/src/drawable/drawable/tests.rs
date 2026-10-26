@@ -345,19 +345,17 @@ fn test_drawable_selection() {
 
 #[test]
 fn icon_pip_gate_matches_cpp_selected_or_moused_over_drawable() {
-    TheInGameUI::set_moused_over_drawable_id(0);
     let mut drawable = BasicDrawable::new(DrawableId(424_242));
-
+    let peer = BasicDrawable::new(DrawableId(424_242));
     assert!(!drawable.selected_or_moused_over_for_icon_pips());
 
-    TheInGameUI::set_moused_over_drawable_id(424_242);
+    drawable.admit_presentation_moused_over(true);
     assert!(drawable.selected_or_moused_over_for_icon_pips());
+    assert!(!peer.selected_or_moused_over_for_icon_pips());
 
-    TheInGameUI::set_moused_over_drawable_id(0);
+    drawable.admit_presentation_moused_over(false);
     drawable.set_selected(true);
     assert!(drawable.selected_or_moused_over_for_icon_pips());
-
-    TheInGameUI::set_moused_over_drawable_id(0);
 }
 
 #[test]

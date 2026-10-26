@@ -233,7 +233,10 @@ impl ControlBar {
     }
 
     /// C++ ControlBarStructureInventory.cpp:181-214: update garrison/contain inventory.
-    fn update_context_structure_inventory(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn update_context_structure_inventory(
+        &mut self,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let selected_object = self.context.selected_objects.first().copied();
 
         let Some(object_id) = selected_object else {
@@ -291,7 +294,7 @@ impl ControlBar {
                 if let (Ok(local_guard), Ok(obj_guard)) = (local_arc.read(), obj_arc.read()) {
                     let rel = local_guard.get_relationship(&obj_guard);
                     if rel != gamelogic::common::Relationship::Neutral {
-                        TheInGameUI::deselect_all();
+                        ui.deselect_all();
                         return Ok(());
                     }
                 }

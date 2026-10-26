@@ -533,7 +533,7 @@ fn display_challenge_win_loss(
 
 fn finalize_single_player_init(state: &mut ScoreScreenState, effects: &mut WindowEventEffects<'_>) {
     // C++ finishSinglePlayerInit: freeMessageResources before destroying BlankWindow.
-    crate::helpers::TheInGameUI::free_message_resources();
+    effects.ui_mut().free_message_resources();
     if let Some(blank) = state.blank_layout.take() {
         effects
             .with_manager(|manager, effects| blank.borrow_mut().destroy_windows(manager, effects));
@@ -2053,6 +2053,7 @@ mod tests {
 
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
+            standalone_view: None,
             payloads: Default::default(),
             menus: None,
             ime: None,
@@ -2084,6 +2085,7 @@ mod tests {
         campaign_manager.set_campaign("testcampaign");
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
+            standalone_view: None,
             payloads: Default::default(),
             menus: None,
             ime: None,
@@ -2514,6 +2516,7 @@ mod os_wnd_tests {
         let _ = simulate_score_screen_set_finish_campaign(false);
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
+            standalone_view: None,
             payloads: Default::default(),
             menus: None,
             ime: None,

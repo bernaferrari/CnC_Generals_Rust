@@ -27,7 +27,11 @@ impl GameLogic {
         // cancel/end-of-preview here: with no pending placement, any Object
         // highlight bibs left by the last blocked preview frame are stale and
         // must go (the audit's persistent yellow grid).
-        if !Self::placement_preview_pending() {
+        if !effects
+            .ui
+            .as_deref()
+            .is_some_and(|ui| ui.placement_preview_pending())
+        {
             self.clear_placement_highlight_bibs_with_effects(effects);
         }
 
@@ -1114,20 +1118,6 @@ impl GameLogic {
     ) {
         if let Some(visual) = effects.terrain.as_mut() {
             visual.clear_placement_bibs();
-        }
-    }
-
-    /// True while the client still holds a pending structure placement (the
-    /// pending-place state that drives the preview legal-build checks).
-    pub(crate) fn placement_preview_pending() -> bool {
-        #[cfg(feature = "game_client")]
-        {
-            game_client::helpers::TheInGameUI::get_pending_place_template().is_some()
-                || game_client::helpers::TheInGameUI::get_pending_place_source_object_id() != 0
-        }
-        #[cfg(not(feature = "game_client"))]
-        {
-            false
         }
     }
 
@@ -2499,6 +2489,14 @@ impl GameLogic {
     }
 
     pub fn enqueue_production(&mut self, producer_id: ObjectId, template_name: String) -> bool {
+        self.enqueue_production_with_effects(producer_id, template_name, &mut Default::default())
+    }
+    pub(crate) fn enqueue_production_with_effects(
+        &mut self,
+        producer_id: ObjectId,
+        template_name: String,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         use crate::game_logic::host_production_buildable_command_residual::{
             CANMAKE_NO_MONEY, CANMAKE_OK,
         };
@@ -2524,10 +2522,7 @@ impl GameLogic {
                         self.try_eva_insufficient_funds(pid);
                         // C++ ControlBarCommandProcessing.cpp:388-389 — every
                         if is_local {
-                            #[cfg(feature = "game_client")]
-                            game_client::helpers::TheInGameUI::message(
-                                "GUI:NotEnoughMoneyToBuild",
-                            );
+                            if let Some(ui) = effects.ui.as_deref_mut() { ui.hud_message("GUI:NotEnoughMoneyToBuild", self.get_frame()); }
                         }
                     }
                 }
@@ -2535,20 +2530,17 @@ impl GameLogic {
                 == crate::game_logic::host_production_buildable_command_residual::CANMAKE_QUEUE_FULL
             {
                 // C++ ControlBarCommandProcessing.cpp:392-395 — queue-full text.
-                #[cfg(feature = "game_client")]
-                game_client::helpers::TheInGameUI::message("GUI:ProductionQueueFull");
+                if let Some(ui) = effects.ui.as_deref_mut() { ui.hud_message("GUI:ProductionQueueFull", self.get_frame()); }
             } else if can_make
                 == crate::game_logic::host_production_buildable_command_residual::CANMAKE_PARKING_PLACES_FULL
             {
                 // C++ ControlBarCommandProcessing.cpp:397-400.
-                #[cfg(feature = "game_client")]
-                game_client::helpers::TheInGameUI::message("GUI:ParkingPlacesFull");
+                if let Some(ui) = effects.ui.as_deref_mut() { ui.hud_message("GUI:ParkingPlacesFull", self.get_frame()); }
             } else if can_make
                 == crate::game_logic::host_production_buildable_command_residual::CANMAKE_MAXED_OUT_FOR_PLAYER
             {
                 // C++ ControlBarCommandProcessing.cpp:402-405.
-                #[cfg(feature = "game_client")]
-                game_client::helpers::TheInGameUI::message("GUI:UnitMaxedOut");
+                if let Some(ui) = effects.ui.as_deref_mut() { ui.hud_message("GUI:UnitMaxedOut", self.get_frame()); }
             }
             if science_gated
                 && can_make

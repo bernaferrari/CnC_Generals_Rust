@@ -1710,7 +1710,7 @@ impl GameWindow {
 
     pub(crate) fn draw_with_radar(
         &self,
-        context: Option<&crate::gui::w3d_gadget_draw::RadarDrawContext<'_>>,
+        mut context: Option<&mut crate::gui::w3d_gadget_draw::RadarDrawContext<'_>>,
         draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
     ) {
         if self.callbacks.owned_radar_draw && !self.is_hidden() {

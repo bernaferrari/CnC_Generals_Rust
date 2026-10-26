@@ -227,7 +227,7 @@ impl WgpuBinkVideoPlayer {
             occlusion_query_set: None,
             timestamp_writes: None,
             multiview_mask: None,
-});
+        });
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, bind_group, &[]);
         pass.set_viewport(

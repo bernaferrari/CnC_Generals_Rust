@@ -288,9 +288,10 @@ impl GameClient {
         NativeRenderReceiver::new(
             &mut self.drawables.state,
             &mut self.native_particle_capability_gaps,
-            &self.subsystem_manager,
+            self.subsystem_manager.in_game_ui.as_mut(),
             self.frame,
             self.local_player_id,
+            self.input_authority,
         )
         .destroy_drawable_with_particles(id, Some(&mut self.drawables.particles))
     }
@@ -378,14 +379,19 @@ impl GameClient {
 
     /// Evaluates context commands for a drawable
     pub fn evaluate_context_command(
-        &self,
+        &mut self,
         drawable: &dyn Drawable,
         position: &Coord3D,
         cmd_type: CommandEvaluateType,
+        logic_frame: u32,
     ) -> GameClientResult<GameMessageType> {
+        let ui = self.subsystem_manager.in_game_ui.as_mut().ok_or_else(|| {
+            GameClientError::SubsystemError("context command requires receiving InGameUI".into())
+        })?;
+        let mut ui = crate::message_stream::ReceivingUi::new(ui, logic_frame, self.frame);
         match &self.command_translator {
             Some(translator) => {
-                Ok(translator.evaluate_context_command(drawable, position, cmd_type)?)
+                Ok(translator.evaluate_context_command(drawable, position, cmd_type, &mut ui)?)
             }
             None => Ok(GameMessageType::Invalid),
         }

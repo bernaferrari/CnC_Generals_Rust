@@ -699,18 +699,42 @@ impl GameLogic {
                     text,
                     countdown,
                 } => {
-                    #[cfg(feature = "game_client")]
-                    game_client::core::script_action_handler::script_add_named_timer(
-                        &name, &text, countdown,
-                    );
+                    if let Some(native_ui) = ui.ui.as_deref_mut() {
+                        let counters = self
+                            .script_named_timers
+                            .keys()
+                            .chain(std::iter::once(&name))
+                            .filter_map(|name| {
+                                interpreter
+                                    .get_counter(name)
+                                    .map(|counter| (name.clone(), counter.value))
+                            })
+                            .collect();
+                        native_ui.observe_named_timer_counters(counters);
+                        native_ui.add_named_timer(&name, &text, countdown);
+                    }
                     self.script_named_timers.insert(name, (text, countdown));
                 }
                 NamedTimerMutation::Remove { name } => {
-                    #[cfg(feature = "game_client")]
-                    game_client::core::script_action_handler::script_remove_named_timer(&name);
+                    if let Some(native_ui) = ui.ui.as_deref_mut() {
+                        native_ui.remove_named_timer(&name);
+                    }
                     self.script_named_timers.remove(&name);
                 }
             }
+        }
+
+        if let Some(native_ui) = ui.ui.as_deref_mut() {
+            let counters = self
+                .script_named_timers
+                .keys()
+                .filter_map(|name| {
+                    interpreter
+                        .get_counter(name)
+                        .map(|counter| (name.clone(), counter.value))
+                })
+                .collect();
+            native_ui.observe_named_timer_counters(counters);
         }
 
         if let Some(show) = self
@@ -719,8 +743,9 @@ impl GameLogic {
             .into_iter()
             .last()
         {
-            #[cfg(feature = "game_client")]
-            game_client::core::script_action_handler::script_show_named_timer_display(show);
+            if let Some(native_ui) = ui.ui.as_deref_mut() {
+                native_ui.show_named_timer_display(show);
+            }
             self.script_named_timer_display_shown = show;
         }
 

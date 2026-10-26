@@ -14,10 +14,10 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use super::game_message::*;
-use super::message_stream::{GameMessageDisposition, GameMessageTranslator, emit_message};
+use super::message_stream::{GameMessageDisposition, GameMessageTranslator};
 use crate::display::view::{IPoint2, Point3, with_tactical_view, with_tactical_view_ref};
 use crate::gui::game_window::{GameWindow, WindowStatus};
-use crate::helpers::TheInGameUI;
+
 use crate::input::{KeyCode, KeyModifiers};
 use crate::presentation_translator_residual::{
     translator_entry_has_kind, translator_entry_is_local, with_translator_catalog,
@@ -70,14 +70,15 @@ fn selection_window_chain_blocks_world_input(mut window: Option<Rc<RefCell<GameW
 
 fn world_position_is_under_opaque_window(
     position: &Coord3D,
-    window_query: &mut dyn FnMut(i32, i32) -> bool,
+    window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> bool {
     let point = Point3::new(position.x, position.y, position.z);
     let Some(screen) = with_tactical_view_ref(|view| view.world_to_screen(&point)) else {
         return false;
     };
 
-    window_query(screen.x, screen.y)
+    window_query(screen.x, screen.y, ui)
 }
 
 /// Drawable selection state
@@ -113,7 +114,8 @@ impl SelectableDrawable {
     pub fn can_select(
         &self,
         drag_selecting: bool,
-        window_query: &mut dyn FnMut(i32, i32) -> bool,
+        window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> bool {
         // Can't select if no object
         if self.object_id == 0 {
@@ -140,7 +142,7 @@ impl SelectableDrawable {
 
         // Ignore objects obscured by opaque GUI windows
         // Matches C++ SelectionXlat.cpp:134-153
-        if world_position_is_under_opaque_window(&self.position, window_query) {
+        if world_position_is_under_opaque_window(&self.position, window_query, ui) {
             return false;
         }
 
@@ -327,8 +329,8 @@ impl SelectionTranslator {
         self.drawable_registry.insert(drawable.id, drawable);
     }
 
-    fn max_select_count() -> i32 {
-        TheInGameUI::get_max_select_count()
+    fn max_select_count(ui: &mut crate::message_stream::ReceivingUi<'_>) -> i32 {
+        ui.get_max_select_count()
     }
 
     /// C++ `Player::processCreateTeamGameMessage` leftover `m_squads` / Squad xfer.
@@ -387,22 +389,25 @@ impl SelectionTranslator {
             .unwrap_or(true)
     }
 
-    fn selection_limit_reached(&self) -> bool {
-        let max = Self::max_select_count();
+    fn selection_limit_reached(&self, ui: &mut crate::message_stream::ReceivingUi<'_>) -> bool {
+        let max = Self::max_select_count(ui);
         max > 0 && self.current_selection.len() >= max as usize
     }
 
-    fn warn_selection_limit_once(&mut self) {
+    fn warn_selection_limit_once(&mut self, ui: &mut crate::message_stream::ReceivingUi<'_>) {
         if self.displayed_max_warning {
             return;
         }
-        let max = Self::max_select_count();
+        let max = Self::max_select_count(ui);
         warn!("Maximum selection count ({}) reached", max);
         self.displayed_max_warning = true;
     }
 
     /// Collect selectable drawables from the registry if present, otherwise build from GameLogic objects.
-    fn collect_drawables(&self) -> Vec<SelectableDrawable> {
+    fn collect_drawables(
+        &self,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> Vec<SelectableDrawable> {
         if !self.drawable_registry.is_empty() {
             return self.drawable_registry.values().cloned().collect();
         }
@@ -442,7 +447,7 @@ impl SelectionTranslator {
                     let is_garrisonable_building = is_structure
                         && (translator_entry_has_kind(entry, "GarrisonableStructure")
                             || translator_entry_has_kind(entry, "Structure"));
-                    // Wave 1037: KindOf residual bits for can_select (ForceAttackable/Structure/…).
+                    // Wave 1037: KindOf residual bits for can_select (ForceAttackable/Structure/…, ui).
                     let kind_of_flags = catalog_kind_of_flags(&entry.kind_names);
                     drawables.push(SelectableDrawable {
                         id: entry.object_id,
@@ -565,12 +570,15 @@ impl SelectionTranslator {
         drawables
     }
 
-    fn current_selection_context_counts(&self) -> (usize, usize, usize) {
+    fn current_selection_context_counts(
+        &self,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> (usize, usize, usize) {
         let mut mine = 0usize;
         let mut other = 0usize;
         let mut mine_infantry = 0usize;
 
-        for drawable in self.collect_drawables() {
+        for drawable in self.collect_drawables(ui) {
             if !self.current_selection.contains(&drawable.object_id) {
                 continue;
             }
@@ -592,16 +600,17 @@ impl SelectionTranslator {
         &self,
         clicked: &SelectableDrawable,
         selection_is_point: bool,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> bool {
-        if TheInGameUI::is_in_force_attack_mode()
-            || TheInGameUI::is_in_force_move_to_mode()
+        if ui.is_in_force_attack_mode()
+            || ui.is_in_force_move_to_mode()
             || is_alternate_mouse_enabled()
         {
             return false;
         }
 
         let (current_mine, current_other, current_mine_infantry) =
-            self.current_selection_context_counts();
+            self.current_selection_context_counts(ui);
         if current_other > 0 || current_mine == 0 {
             return false;
         }
@@ -615,7 +624,7 @@ impl SelectionTranslator {
         }
 
         if clicked.is_local_controlled {
-            return selection_is_point && !TheInGameUI::is_in_prefer_selection_mode();
+            return selection_is_point && !ui.is_in_prefer_selection_mode();
         }
 
         selection_is_point
@@ -659,18 +668,19 @@ impl SelectionTranslator {
     fn select_single_drawable_without_sound(
         &mut self,
         drawable_id: DrawableID,
-        window_query: &mut dyn FnMut(i32, i32) -> bool,
+        window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> bool {
         // Deselect everything else
         self.deselect_all();
 
         // Select the drawable
         if let Some(drawable) = self
-            .collect_drawables()
+            .collect_drawables(ui)
             .into_iter()
             .find(|drawable| drawable.id == drawable_id)
         {
-            if drawable.can_select(false, window_query) {
+            if drawable.can_select(false, window_query, ui) {
                 self.current_selection.insert(drawable.object_id);
                 debug!("Selected single drawable: {}", drawable_id);
                 return true;
@@ -717,7 +727,11 @@ impl SelectionTranslator {
 
     /// Handle mouse position updates
     /// Port of C++ MSG_RAW_MOUSE_POSITION from SelectionXlat.cpp:383-450
-    fn handle_mouse_position(&mut self, position: ICoord2D) {
+    fn handle_mouse_position(
+        &mut self,
+        position: ICoord2D,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) {
         if self.left_mouse_button_is_down {
             let delta_x = (position.x - self.select_feedback_anchor.x).abs();
             let delta_y = (position.y - self.select_feedback_anchor.y).abs();
@@ -726,7 +740,7 @@ impl SelectionTranslator {
             // Matches C++ SelectionXlat.cpp:399-408
             if (delta_x > DRAG_TOLERANCE || delta_y > DRAG_TOLERANCE) && !self.drag_selecting {
                 self.drag_selecting = true;
-                TheInGameUI::set_selecting(true);
+                ui.set_selecting(true);
                 debug!(
                     "Started drag selection at {:?}",
                     self.select_feedback_anchor
@@ -751,6 +765,7 @@ impl SelectionTranslator {
         &mut self,
         position: ICoord2D,
         modifiers: KeyModifiers,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Vec<GameMessageType> {
         let mut messages = Vec::new();
 
@@ -760,24 +775,24 @@ impl SelectionTranslator {
             // Stop drag selecting
             // Matches C++ SelectionXlat.cpp:909-915
             self.drag_selecting = false;
-            TheInGameUI::set_selecting(false);
+            ui.set_selecting(false);
             debug!("Ended drag selection");
 
             let region = self.build_region(&self.select_feedback_anchor, &position);
             // C++ emits MSG_AREA_SELECTION here and resolves selection in that path.
             messages.push(GameMessageType::AreaSelection(region));
         } else {
-            TheInGameUI::set_selecting(false);
+            ui.set_selecting(false);
             // Raw left-up only resolves selection on the higher-level click path now.
             // Preserve the C++ alternate-mouse blank-click deselect behavior here, and
             // otherwise forward a click message so selection and context-command guards
             // happen in the click pipeline.
-            let pending_command_active = TheInGameUI::get_pending_command().is_some();
-            let pending_place_source_object_id = TheInGameUI::get_pending_place_source_object_id();
+            let pending_command_active = ui.get_pending_command().is_some();
+            let pending_place_source_object_id = ui.get_pending_place_source_object_id();
             let is_blank_click = modifiers.bits() == 0;
             let use_alternate_mouse = is_alternate_mouse_enabled();
-            let prevent_deselect_for_one_click = TheInGameUI::
-                get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click();
+            let prevent_deselect_for_one_click =
+                ui.get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click();
 
             if is_blank_click
                 && !pending_command_active
@@ -785,10 +800,9 @@ impl SelectionTranslator {
                 && pending_place_source_object_id == 0
             {
                 if prevent_deselect_for_one_click {
-                    TheInGameUI::
-                        set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
-                            false,
-                        );
+                    ui.set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
+                        false,
+                    );
                 } else if !self.current_selection.is_empty() {
                     self.deselect_all();
                     messages.push(GameMessageType::CreateSelectedGroup(true, Vec::new()));
@@ -815,7 +829,8 @@ impl SelectionTranslator {
         &mut self,
         region: IRegion2D,
         modifiers: KeyModifiers,
-        window_query: &mut dyn FnMut(i32, i32) -> bool,
+        window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Vec<GameMessageType> {
         let mut messages = Vec::new();
 
@@ -823,11 +838,11 @@ impl SelectionTranslator {
             return messages;
         }
 
-        if TheInGameUI::is_quit_menu_visible() {
+        if ui.is_quit_menu_visible() {
             return messages;
         }
 
-        if TheInGameUI::get_pending_command().is_some() {
+        if ui.get_pending_command().is_some() {
             return messages;
         }
 
@@ -837,18 +852,19 @@ impl SelectionTranslator {
                 y: region.y,
             },
             window_query,
+            ui,
         ) else {
             return messages;
         };
 
         // C++ SelectionXlat short-circuits to context-command handling before committing a
         // selection change when the click target can drive a command for the current selection.
-        if self.should_short_circuit_selection_for_context_command(&clicked, true) {
+        if self.should_short_circuit_selection_for_context_command(&clicked, true, ui) {
             return messages;
         }
 
         let add_to_group =
-            modifiers.contains(KeyModifiers::SHIFT) || TheInGameUI::is_in_prefer_selection_mode();
+            modifiers.contains(KeyModifiers::SHIFT) || ui.is_in_prefer_selection_mode();
 
         if add_to_group && self.current_selection.contains(&clicked.object_id) {
             self.current_selection.remove(&clicked.object_id);
@@ -862,13 +878,13 @@ impl SelectionTranslator {
             self.deselect_all();
         }
 
-        if !self.selection_limit_reached() && self.current_selection.insert(clicked.object_id) {
+        if !self.selection_limit_reached(ui) && self.current_selection.insert(clicked.object_id) {
             messages.push(GameMessageType::CreateSelectedGroup(
                 !add_to_group,
                 vec![clicked.object_id],
             ));
-        } else if self.selection_limit_reached() {
-            self.warn_selection_limit_once();
+        } else if self.selection_limit_reached(ui) {
+            self.warn_selection_limit_once(ui);
         }
 
         messages
@@ -896,6 +912,7 @@ impl SelectionTranslator {
         position: ICoord2D,
         time: u32,
         camera_position: Coord3D,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Vec<GameMessageType> {
         let mut messages = Vec::new();
 
@@ -933,15 +950,15 @@ impl SelectionTranslator {
         // Right click behavior (not right drag)
         // Matches C++ SelectionXlat.cpp:1002-1025
         if is_click {
-            if TheInGameUI::get_pending_command().is_some() {
+            if ui.get_pending_command().is_some() {
                 // Cancel GUI command mode and do not touch selection.
-                TheInGameUI::clear_pending_command();
-                TheInGameUI::set_scrolling(false);
+                ui.clear_pending_command();
+                ui.set_scrolling(false);
                 return messages;
             }
 
             let use_alternate_mouse = is_alternate_mouse_enabled();
-            let pending_place_source_object_id = TheInGameUI::get_pending_place_source_object_id();
+            let pending_place_source_object_id = ui.get_pending_place_source_object_id();
 
             if (!use_alternate_mouse || pending_place_source_object_id != 0)
                 && !self.current_selection.is_empty()
@@ -960,15 +977,16 @@ impl SelectionTranslator {
         &mut self,
         position: ICoord2D,
         modifiers: KeyModifiers,
-        window_query: &mut dyn FnMut(i32, i32) -> bool,
+        window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Vec<GameMessageType> {
         let mut messages = Vec::new();
 
-        if TheInGameUI::is_quit_menu_visible() || TheInGameUI::get_pending_command().is_some() {
+        if ui.is_quit_menu_visible() || ui.get_pending_command().is_some() {
             return messages;
         }
 
-        if TheInGameUI::is_in_force_attack_mode() {
+        if ui.is_in_force_attack_mode() {
             return messages;
         }
 
@@ -976,7 +994,8 @@ impl SelectionTranslator {
         // Matches C++ SelectionXlat.cpp:458-520
 
         // Find drawable at click position
-        if let Some(clicked_drawable) = self.find_drawable_at_position(&position, window_query) {
+        if let Some(clicked_drawable) = self.find_drawable_at_position(&position, window_query, ui)
+        {
             if !clicked_drawable.is_mass_selectable() {
                 return messages;
             }
@@ -987,9 +1006,9 @@ impl SelectionTranslator {
             let add_to_group = modifiers.contains(KeyModifiers::SHIFT);
 
             let matching = if select_across_map {
-                self.collect_matching_across_map(clicked_drawable.object_id, window_query)
+                self.collect_matching_across_map(clicked_drawable.object_id, window_query, ui)
             } else {
-                self.collect_matching_across_screen(clicked_drawable.object_id, window_query)
+                self.collect_matching_across_screen(clicked_drawable.object_id, window_query, ui)
             };
 
             if matching.is_empty() {
@@ -1002,8 +1021,8 @@ impl SelectionTranslator {
 
             let mut added = Vec::new();
             for id in matching {
-                if self.selection_limit_reached() {
-                    self.warn_selection_limit_once();
+                if self.selection_limit_reached(ui) {
+                    self.warn_selection_limit_once(ui);
                     break;
                 }
                 if self.current_selection.insert(id) {
@@ -1025,7 +1044,11 @@ impl SelectionTranslator {
 
     /// Handle control group creation (Ctrl+0-9)
     /// Port of C++ MSG_META_CREATE_TEAM0-9 from SelectionXlat.cpp:1031-1060
-    fn handle_create_control_group(&mut self, group: u8) -> Vec<GameMessageType> {
+    fn handle_create_control_group(
+        &mut self,
+        group: u8,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> Vec<GameMessageType> {
         let mut messages = Vec::new();
 
         if group < 10 {
@@ -1033,7 +1056,7 @@ impl SelectionTranslator {
 
             // Assign selected items to a group
             // Matches C++ SelectionXlat.cpp:1045-1056
-            let drawables = self.collect_drawables();
+            let drawables = self.collect_drawables(ui);
             let selected: Vec<_> = self
                 .current_selection
                 .iter()
@@ -1066,7 +1089,11 @@ impl SelectionTranslator {
 
     /// Handle control group selection (0-9)
     /// Port of C++ MSG_META_SELECT_TEAM0-9 from SelectionXlat.cpp:1063-1134
-    fn handle_select_control_group(&mut self, group: u8) -> Vec<GameMessageType> {
+    fn handle_select_control_group(
+        &mut self,
+        group: u8,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> Vec<GameMessageType> {
         let mut messages = Vec::new();
 
         if group < 10 {
@@ -1082,7 +1109,7 @@ impl SelectionTranslator {
                 && group as i32 == self.last_group_sel_group
             {
                 debug!("Double-tap select control group {}", group);
-                self.look_at_control_group(group);
+                self.look_at_control_group(group, ui);
             } else {
                 self.deselect_all();
 
@@ -1095,8 +1122,8 @@ impl SelectionTranslator {
                     if !Self::leftover_squad_member_is_local(object_id) {
                         continue;
                     }
-                    if self.selection_limit_reached() {
-                        self.warn_selection_limit_once();
+                    if self.selection_limit_reached(ui) {
+                        self.warn_selection_limit_once(ui);
                         break;
                     }
                     if self.current_selection.insert(object_id) {
@@ -1114,6 +1141,7 @@ impl SelectionTranslator {
                     crate::message_stream::translators::play_voice_for_command(
                         self.current_selection.iter().copied(),
                         msg,
+                        ui,
                     );
                 }
             }
@@ -1127,7 +1155,11 @@ impl SelectionTranslator {
 
     /// Handle adding a control group to current selection (Shift+0-9)
     /// Port of C++ MSG_META_ADD_TEAM0-9 from SelectionXlat.cpp:1136-1214
-    fn handle_add_control_group(&mut self, group: u8) -> Vec<GameMessageType> {
+    fn handle_add_control_group(
+        &mut self,
+        group: u8,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> Vec<GameMessageType> {
         let mut messages = Vec::new();
 
         if group >= 10 {
@@ -1143,14 +1175,14 @@ impl SelectionTranslator {
         if now.saturating_sub(self.last_group_sel_time) < CONTROL_GROUP_DOUBLE_TAP_FRAMES
             && group as i32 == self.last_group_sel_group
         {
-            self.look_at_control_group(group);
+            self.look_at_control_group(group, ui);
             self.last_group_sel_time = now;
             self.last_group_sel_group = group as i32;
             return messages;
         }
 
         // If a structure is selected, clear selection before adding (C++ exploit guard).
-        let drawables = self.collect_drawables();
+        let drawables = self.collect_drawables(ui);
         let has_structure_selected = self.current_selection.iter().any(|id| {
             drawables
                 .iter()
@@ -1167,8 +1199,8 @@ impl SelectionTranslator {
             if !Self::leftover_squad_member_is_live(object_id) {
                 continue;
             }
-            if self.selection_limit_reached() {
-                self.warn_selection_limit_once();
+            if self.selection_limit_reached(ui) {
+                self.warn_selection_limit_once(ui);
                 break;
             }
             if self.current_selection.insert(object_id) {
@@ -1191,21 +1223,25 @@ impl SelectionTranslator {
     /// Handle view-only control group hotkeys (Alt+0-9 in retail bindings).
     /// Matches C++ MSG_META_VIEW_TEAM0-9: `if (group >= 1 && group <= 10)`.
     /// VIEW_TEAM0 is a silent no-op; `getHotkeySquad(10)` is NULL.
-    fn handle_view_control_group(&self, group: u8) {
+    fn handle_view_control_group(
+        &self,
+        group: u8,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) {
         if group < 1 || group > 9 {
             return;
         }
-        self.look_at_control_group(group);
+        self.look_at_control_group(group, ui);
     }
 
     /// Center the tactical view on the last live object in a hotkey squad.
     /// C++ `TheTacticalView->lookAt(objlist[numObjs-1]->getDrawable()->getPosition())`.
-    fn look_at_control_group(&self, group: u8) {
+    fn look_at_control_group(&self, group: u8, ui: &mut crate::message_stream::ReceivingUi<'_>) {
         if group >= 10 {
             return;
         }
 
-        let drawables = self.collect_drawables();
+        let drawables = self.collect_drawables(ui);
         let last_live = self.control_groups[group as usize]
             .iter()
             .rev()
@@ -1246,14 +1282,15 @@ impl SelectionTranslator {
     fn find_drawable_at_position(
         &self,
         position: &ICoord2D,
-        window_query: &mut dyn FnMut(i32, i32) -> bool,
+        window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Option<SelectableDrawable> {
         let world = self.screen_to_world(position)?;
         let max_dist_sq = PICK_RADIUS_WORLD * PICK_RADIUS_WORLD;
 
-        self.collect_drawables()
+        self.collect_drawables(ui)
             .into_iter()
-            .filter(|d| d.can_select(false, window_query))
+            .filter(|d| d.can_select(false, window_query, ui))
             .filter_map(|d| {
                 let dx = d.position.x - world.x;
                 let dy = d.position.y - world.y;
@@ -1267,9 +1304,10 @@ impl SelectionTranslator {
     fn collect_matching_across_map(
         &self,
         template_object_id: ObjectID,
-        window_query: &mut dyn FnMut(i32, i32) -> bool,
+        window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Vec<ObjectID> {
-        let drawables = self.collect_drawables();
+        let drawables = self.collect_drawables(ui);
         let Some(reference) = drawables.iter().find(|d| d.object_id == template_object_id) else {
             return Vec::new();
         };
@@ -1277,7 +1315,7 @@ impl SelectionTranslator {
 
         let mut matching: Vec<ObjectID> = drawables
             .into_iter()
-            .filter(|d| d.can_select(false, window_query))
+            .filter(|d| d.can_select(false, window_query, ui))
             .filter(|d| d.is_local_controlled)
             .filter(|d| d.is_mass_selectable())
             .filter(|d| d.kind_of_flags == reference_kind_of_flags)
@@ -1291,10 +1329,11 @@ impl SelectionTranslator {
     fn collect_matching_across_screen(
         &self,
         template_object_id: ObjectID,
-        window_query: &mut dyn FnMut(i32, i32) -> bool,
+        window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Vec<ObjectID> {
         let (screen_w, screen_h) = with_tactical_view_ref(|view| (view.width(), view.height()));
-        let drawables = self.collect_drawables();
+        let drawables = self.collect_drawables(ui);
         let Some(reference) = drawables.iter().find(|d| d.object_id == template_object_id) else {
             return Vec::new();
         };
@@ -1302,7 +1341,7 @@ impl SelectionTranslator {
 
         let mut matching: Vec<ObjectID> = drawables
             .into_iter()
-            .filter(|d| d.can_select(false, window_query))
+            .filter(|d| d.can_select(false, window_query, ui))
             .filter(|d| d.is_local_controlled)
             .filter(|d| d.is_mass_selectable())
             .filter(|d| d.kind_of_flags == reference_kind_of_flags)
@@ -1324,7 +1363,8 @@ impl SelectionTranslator {
         &self,
         region: &IRegion2D,
         drag_selecting: bool,
-        window_query: &mut dyn FnMut(i32, i32) -> bool,
+        window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Vec<SelectableDrawable> {
         let min_x = region.x.min(region.x + region.width);
         let min_y = region.y.min(region.y + region.height);
@@ -1332,9 +1372,9 @@ impl SelectionTranslator {
         let max_y = region.y.max(region.y + region.height);
 
         let mut out: Vec<SelectableDrawable> = self
-            .collect_drawables()
+            .collect_drawables(ui)
             .into_iter()
-            .filter(|d| d.can_select(drag_selecting, window_query))
+            .filter(|d| d.can_select(drag_selecting, window_query, ui))
             .filter(|d| {
                 self.world_to_screen(&d.position)
                     .map(|(x, y)| {
@@ -1377,7 +1417,8 @@ impl SelectionTranslator {
     pub fn translate_with_window_query(
         &mut self,
         msg: &GameMessage,
-        window_query: &mut dyn FnMut(i32, i32) -> bool,
+        window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> GameMessageDisposition {
         let is_mouse_click_message = matches!(
             msg.get_type(),
@@ -1387,7 +1428,7 @@ impl SelectionTranslator {
         let new_messages = match msg.get_type() {
             // Mouse position tracking
             GameMessageType::RawMousePosition(pos) => {
-                self.handle_mouse_position(pos.clone());
+                self.handle_mouse_position(pos.clone(), ui);
                 Vec::new()
             }
 
@@ -1401,12 +1442,12 @@ impl SelectionTranslator {
 
             GameMessageType::RawMouseLeftButtonUp(pos, modifiers, _time) => {
                 let modifiers = KeyModifiers::from_bits_truncate((*modifiers & 0xFF) as u8);
-                self.handle_left_button_up(pos.clone(), modifiers)
+                self.handle_left_button_up(pos.clone(), modifiers, ui)
             }
 
             GameMessageType::MouseLeftClick(region, modifiers) => {
                 let modifiers = KeyModifiers::from_bits_truncate((*modifiers & 0xFF) as u8);
-                self.handle_mouse_left_click(region.clone(), modifiers, window_query)
+                self.handle_mouse_left_click(region.clone(), modifiers, window_query, ui)
             }
 
             GameMessageType::MouseLeftDoubleClick(region, modifiers) => {
@@ -1415,7 +1456,7 @@ impl SelectionTranslator {
                     x: region.x,
                     y: region.y,
                 };
-                self.handle_double_click(pos, modifiers, window_query)
+                self.handle_double_click(pos, modifiers, window_query, ui)
             }
 
             // Right mouse button
@@ -1425,32 +1466,36 @@ impl SelectionTranslator {
             }
 
             GameMessageType::RawMouseRightButtonUp(pos, _modifiers, time) => {
-                let pending_before = TheInGameUI::get_pending_command().is_some();
-                let new_messages =
-                    self.handle_right_button_up(pos.clone(), *time, self.current_camera_position());
+                let pending_before = ui.get_pending_command().is_some();
+                let new_messages = self.handle_right_button_up(
+                    pos.clone(),
+                    *time,
+                    self.current_camera_position(),
+                    ui,
+                );
                 for new_msg in new_messages {
-                    emit_message(GameMessage::new(new_msg));
+                    ui.emit(GameMessage::new(new_msg));
                 }
 
                 // Match C++ SelectionXlat behavior: consume raw right-up only when it cancels
                 // GUI command mode; otherwise keep it so CommandXlat can evaluate click context.
-                if pending_before && TheInGameUI::get_pending_command().is_none() {
+                if pending_before && ui.get_pending_command().is_none() {
                     return GameMessageDisposition::DestroyMessage;
                 }
                 return GameMessageDisposition::KeepMessage;
             }
 
             // Control group creation (Ctrl+0-9)
-            GameMessageType::MetaCreateTeam(group) => self.handle_create_control_group(*group),
+            GameMessageType::MetaCreateTeam(group) => self.handle_create_control_group(*group, ui),
 
             // Control group selection (0-9)
-            GameMessageType::MetaSelectTeam(group) => self.handle_select_control_group(*group),
+            GameMessageType::MetaSelectTeam(group) => self.handle_select_control_group(*group, ui),
 
             // Control group add (Shift+0-9)
-            GameMessageType::MetaAddTeam(group) => self.handle_add_control_group(*group),
+            GameMessageType::MetaAddTeam(group) => self.handle_add_control_group(*group, ui),
 
             GameMessageType::MetaViewTeam(group) => {
-                self.handle_view_control_group(*group);
+                self.handle_view_control_group(*group, ui);
                 return GameMessageDisposition::DestroyMessage;
             }
 
@@ -1459,7 +1504,7 @@ impl SelectionTranslator {
             GameMessageType::MetaOptions => {
                 self.left_mouse_button_is_down = false;
                 self.drag_selecting = false;
-                TheInGameUI::set_selecting(false);
+                ui.set_selecting(false);
                 return GameMessageDisposition::KeepMessage;
             }
 
@@ -1479,12 +1524,10 @@ impl SelectionTranslator {
                 | GameMessageType::RawMouseLeftButtonUp(..)
         );
         let should_keep_message = keep_raw_mouse_message
-            || (is_mouse_click_message
-                && new_messages.is_empty()
-                && !TheInGameUI::is_quit_menu_visible());
+            || (is_mouse_click_message && new_messages.is_empty() && !ui.is_quit_menu_visible());
 
         for new_msg in new_messages {
-            emit_message(GameMessage::new(new_msg));
+            ui.emit(GameMessage::new(new_msg));
         }
 
         if should_keep_message {
@@ -2081,7 +2124,7 @@ mod tests {
     #[test]
     fn test_right_click_cancels_pending_command_without_clearing_selection() {
         let _guard = test_state_lock();
-        use crate::helpers::TheInGameUI;
+
         use gamelogic::commands::command::CommandType;
 
         let mut translator = SelectionTranslator::new();
@@ -2102,7 +2145,7 @@ mod tests {
     #[test]
     fn test_right_click_slow_release_does_not_cancel_pending_command() {
         let _guard = test_state_lock();
-        use crate::helpers::TheInGameUI;
+
         use gamelogic::commands::command::CommandType;
 
         let mut translator = SelectionTranslator::new();
@@ -2125,7 +2168,6 @@ mod tests {
     #[test]
     fn test_mouse_left_click_quit_menu_guard() {
         let _guard = test_state_lock();
-        use crate::helpers::TheInGameUI;
 
         let mut translator = SelectionTranslator::new();
         TheInGameUI::set_quit_menu_visible(true);
@@ -2148,7 +2190,6 @@ mod tests {
     #[test]
     fn test_meta_options_clears_left_selection_feedback_state() {
         let _guard = test_state_lock();
-        use crate::helpers::TheInGameUI;
 
         let mut translator = SelectionTranslator::new();
         translator.set_left_mouse_button(true);
@@ -2245,18 +2286,37 @@ impl GameMessageTranslator for SelectionTranslator {
     fn translate_game_message_with_context(
         &mut self,
         msg: &GameMessage,
-        _client: game_engine::common::message_stream::TranslatorClientObservation,
+        client: game_engine::common::message_stream::TranslatorClientObservation,
         dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
         emitted: &mut Vec<GameMessage>,
+        client_ui: &mut dyn std::any::Any,
     ) -> GameMessageDisposition {
-        self.translate_with_window_query(msg, &mut |x, y| match dispatch(
-            game_engine::common::message_stream::WindowInputDispatch::OpaqueWindowAtScreen { x, y },
-            emitted,
-        ) {
-            Some(game_engine::common::message_stream::WindowInputDispatchResult::OpaqueWindow(
-                blocked,
-            )) => blocked,
-            _ => panic!("receiving input driver did not supply its opaque-window query"),
-        })
+        let ui = &mut crate::message_stream::ReceivingUi::new(
+            client_ui
+                .downcast_mut::<crate::core::subsystems::InGameUISubsystem>()
+                .expect("message translator requires its receiving UI"),
+            client.logic_frame,
+            client.frame,
+        )
+        .with_emitter(emitted);
+
+        self.translate_with_window_query(
+            msg,
+            &mut |x, y, ui| match ui.dispatch(
+                dispatch,
+                game_engine::common::message_stream::WindowInputDispatch::OpaqueWindowAtScreen {
+                    x,
+                    y,
+                },
+            ) {
+                Some(
+                    game_engine::common::message_stream::WindowInputDispatchResult::OpaqueWindow(
+                        blocked,
+                    ),
+                ) => blocked,
+                _ => panic!("receiving input driver did not supply its opaque-window query"),
+            },
+            ui,
+        )
     }
 }

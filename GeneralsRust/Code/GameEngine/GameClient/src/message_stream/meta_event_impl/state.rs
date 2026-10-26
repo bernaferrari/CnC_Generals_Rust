@@ -219,7 +219,10 @@ fn format_extent_debug(geometry: &GeometryInfo) -> String {
     geometry.get_descriptive_string()
 }
 
-fn apply_extent_adjust_to_local_selection(spec: ExtentAdjustSpec) {
+fn apply_extent_adjust_to_local_selection(
+    spec: ExtentAdjustSpec,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
+) {
     // Wave 976: host empty dual-world still routes extent adjust through TheGameLogic IDs.
     for object_id in local_selection_object_ids() {
         let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
@@ -234,7 +237,7 @@ fn apply_extent_adjust_to_local_selection(spec: ExtentAdjustSpec) {
         apply_extent_adjust(&mut new_geometry, spec);
         object.set_geometry_info(new_geometry.clone());
 
-        TheInGameUI::message(&format!(
+        ui.message(&format!(
             "Extent {} --> {}   {} {}",
             format_extent_debug(&old_geometry),
             format_extent_debug(&new_geometry),

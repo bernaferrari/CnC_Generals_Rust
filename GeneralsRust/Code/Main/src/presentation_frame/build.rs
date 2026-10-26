@@ -1688,17 +1688,8 @@ impl PresentationFrame {
 
         let camera_fade = camera_fade.sample();
 
-        #[cfg(all(feature = "game_client", feature = "game_engine_device"))]
-        {
-            let context = game_engine_device::w3_d_device::game_client::w3_d_waypoint_buffer::WaypointDrawContext {
-                in_waypoint_mode: game_client::helpers::TheInGameUI::is_in_waypoint_mode(),
-                selected: Vec::new(),
-                moused_over: None,
-            };
-            let _ = game_engine_device::w3_d_device::game_client::w3_d_waypoint_buffer::draw_live_waypoints(
-                Some(&context),
-            );
-        }
+        // Waypoint drawing belongs to the receiving terrain/render operation.
+        // A logic-only freeze must not publish an empty global device frame.
 
         let projectile_streams: Vec<PresentationProjectileStream> = logic
             .projectile_stream_snapshot()

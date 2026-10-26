@@ -9,7 +9,7 @@ use crate::gui::{
     AnimateWindowManager, AnimationType, Color, GameWindow, WindowLayout, WindowMessage,
     WindowMsgData, WindowMsgHandled, WindowWidget,
 };
-use crate::helpers::TheInGameUI;
+
 use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::recorder::with_recorder;
@@ -492,7 +492,7 @@ impl DiplomacyCallbacks {
         {
             return;
         }
-        if TheInGameUI::is_quit_menu_visible() {
+        if effects.ui().is_quit_menu_visible() {
             return;
         }
         if effects.receiving_disconnect_menu_visible() {

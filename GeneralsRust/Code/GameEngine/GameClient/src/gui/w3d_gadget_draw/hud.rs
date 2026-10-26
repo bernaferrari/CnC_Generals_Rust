@@ -9,7 +9,7 @@ pub struct RadarViewCorners {
 pub struct RadarDrawContext<'a> {
     pub radar: Option<&'a game_engine::common::system::radar::RadarPresentation>,
     pub view_box: Option<RadarViewCorners>,
-    pub admit: &'a dyn Fn(&game_engine::common::system::radar::RadarPresentation),
+    pub admit: &'a mut dyn FnMut(&game_engine::common::system::radar::RadarPresentation),
 }
 
 use super::*;
@@ -80,11 +80,6 @@ pub fn w3d_cameo_movie_draw(
     draw_video_buffer(window, inst_data, draw_context);
 }
 
-/// Check if radar should be drawn (helper function to avoid lifetime issues)
-pub(super) fn should_draw_radar_check() -> bool {
-    crate::helpers::TheInGameUI::radar_presentation().is_some_and(|radar| radar.is_radar_shown())
-}
-
 pub fn w3d_left_hud_draw(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
@@ -95,7 +90,7 @@ pub fn w3d_left_hud_draw(
 pub(crate) fn w3d_left_hud_draw_with_radar(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
-    context: &RadarDrawContext<'_>,
+    context: &mut RadarDrawContext<'_>,
     draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     draw_left_hud(window, inst_data, Some(context), draw_context);
@@ -103,7 +98,7 @@ pub(crate) fn w3d_left_hud_draw_with_radar(
 fn draw_left_hud(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
-    context: Option<&RadarDrawContext<'_>>,
+    mut context: Option<&mut RadarDrawContext<'_>>,
     draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     // First check for video buffer (in-game movies)
@@ -121,9 +116,10 @@ fn draw_left_hud(
     // W3DLeftHUDDraw draws radar when:
     // - TheRadar->isRadarForced() OR
     // - (!TheRadar->isRadarHidden() AND player->hasRadar())
-    if context.map_or_else(should_draw_radar_check, |context| {
-        context.radar.is_some_and(|radar| radar.is_radar_shown())
-    }) {
+    if context
+        .as_ref()
+        .is_some_and(|context| context.radar.is_some_and(|radar| radar.is_radar_shown()))
+    {
         // Get window position and size for radar drawing
         let (pos_x, pos_y) = window.get_screen_position();
         let (size_x, size_y) = window.get_size();
@@ -160,27 +156,21 @@ fn draw_radar_in_hud_with_context(
     y: i32,
     width: i32,
     height: i32,
-    context: Option<&RadarDrawContext<'_>>,
+    mut context: Option<&mut RadarDrawContext<'_>>,
     draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
 ) {
     if width <= 0 || height <= 0 {
         return;
     }
-    let standalone;
-    let radar = if let Some(context) = context {
-        let Some(radar) = context.radar else {
-            return;
-        };
-        (context.admit)(radar);
-        radar
-    } else {
-        standalone = crate::helpers::TheInGameUI::radar_presentation();
-        let Some(radar) = standalone.as_ref() else {
-            return;
-        };
-        crate::helpers::TheInGameUI::admit_radar_draw(radar);
-        radar.as_ref()
+    let Some(context) = context.as_deref_mut() else {
+        return;
     };
+    let Some(radar) = context.radar else {
+        return;
+    };
+    // W3DRadar::drawEvents admits sound at this draw, through the actual
+    // receiving UI loan. No ambient UI or retained mutable handle exists.
+    (context.admit)(radar);
     let events = radar.draw_events();
 
     // Draw terrain texture from radar system
@@ -466,49 +456,12 @@ fn draw_radar_in_hud_with_context(
             }
         }
 
-        let view_box_lines = if let Some(context) = context {
-            owned_view_box_lines(
-                context,
-                (ul.x, ul.y, scaled_width, scaled_height),
-                (x - 1, y - 1, width + 2, height + 2),
-            )
-        } else {
-            with_tactical_view_ref(|view| {
-                let terrain_z = radar.terrain_average_z();
-                let (origin_x, origin_y) = view.origin();
-                let origin_world =
-                    view.screen_to_world_at_z(&IPoint2::new(origin_x, origin_y), terrain_z);
-                let corners = view.get_screen_corner_world_points_at_z(terrain_z);
-                match (origin_world, corners) {
-                    (Ok(origin_world), Ok(corners)) => {
-                        let to_coord = |point: crate::display::view::Point3| {
-                            Coord3D::new(point.x, point.y, point.z)
-                        };
-                        radar.build_view_box_lines(
-                            to_coord(origin_world),
-                            [
-                                to_coord(corners[0]),
-                                to_coord(corners[1]),
-                                to_coord(corners[3]),
-                                to_coord(corners[2]),
-                            ],
-                            ul.x,
-                            ul.y,
-                            scaled_width,
-                            scaled_height,
-                            // C++ `drawViewBox` clips against the whole radar
-                            // window, while the draw rect here is inset by 1px
-                            // (W3DLeftHUDDraw `pos+1 / size-2`).
-                            x - 1,
-                            y - 1,
-                            width + 2,
-                            height + 2,
-                        )
-                    }
-                    _ => Vec::new(),
-                }
-            })
-        };
+        let view_box_lines = owned_view_box_lines(
+            context,
+            (ul.x, ul.y, scaled_width, scaled_height),
+            (x - 1, y - 1, width + 2, height + 2),
+        );
+
         for line in view_box_lines {
             // Degenerate initial camera: all four screen corners project onto
             // the same radar cell, so `build_view_box_lines` emits zero-length

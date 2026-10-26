@@ -105,7 +105,12 @@ impl CnCGameEngine {
     pub(super) fn gameplay_ui_active(&self) -> bool {
         #[cfg(feature = "game_client")]
         {
-            game_client::helpers::TheInGameUI::get_input_enabled()
+            self.game_logic.script_input_enabled()
+                && self
+                    .game_client
+                    .in_game_ui_subsystem()
+                    .expect("receiving InGameUI initialized")
+                    .get_input_enabled()
         }
         #[cfg(not(feature = "game_client"))]
         {

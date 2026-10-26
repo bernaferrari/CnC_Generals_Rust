@@ -23,9 +23,7 @@ use super::{
 use crate::game_text::GameText;
 use crate::gui::{GameWindow, WindowManager};
 
-use crate::helpers::{
-    TheInGameUI, drain_live_control_bar_events, set_live_control_bar_observer_look_at,
-};
+use crate::helpers::{drain_live_control_bar_events, set_live_control_bar_observer_look_at};
 use crate::message_stream::game_message::GameMessageType;
 use crate::message_stream::message_stream::THE_MESSAGE_STREAM;
 use crate::system::SubsystemInterface;

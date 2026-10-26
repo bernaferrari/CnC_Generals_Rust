@@ -239,10 +239,20 @@ impl CnCGameEngine {
         }
         #[cfg(feature = "game_client")]
         {
-            if let Some(pending) = game_client::helpers::TheInGameUI::get_pending_command() {
+            if let Some(pending) = self
+                .game_client
+                .in_game_ui_subsystem()
+                .expect("receiving InGameUI initialized")
+                .get_pending_command()
+            {
                 return Some(pending.options);
             }
-            if let Some(pending) = game_client::helpers::TheInGameUI::get_pending_special_power() {
+            if let Some(pending) = self
+                .game_client
+                .in_game_ui_subsystem()
+                .expect("receiving InGameUI initialized")
+                .get_pending_special_power()
+            {
                 return Some(pending.options);
             }
         }
@@ -559,9 +569,18 @@ impl CnCGameEngine {
         self.game_hud_mut()
             .construction_panel
             .clear_structure_placement();
-        game_client::helpers::TheInGameUI::place_build_available(None, None);
-        game_client::helpers::TheInGameUI::clear_pending_special_power();
-        game_client::helpers::TheInGameUI::set_placement_start(None);
+        self.game_client
+            .in_game_ui_subsystem_mut()
+            .expect("receiving InGameUI initialized")
+            .place_build_available(None, None);
+        self.game_client
+            .in_game_ui_subsystem_mut()
+            .expect("receiving InGameUI initialized")
+            .clear_pending_special_power();
+        self.game_client
+            .in_game_ui_subsystem_mut()
+            .expect("receiving InGameUI initialized")
+            .set_placement_start(None);
     }
 
     /// Update structure placement ghost legality under cursor residual.
@@ -609,21 +628,6 @@ impl CnCGameEngine {
         // otherwise resolves a potentially unrelated Core object with this ID.
         if cursor_type == "GUARD_AREA" {
             return self.radius_cursor_guard_range(seed);
-        }
-
-        #[cfg(feature = "game_client")]
-        {
-            if let Some(kind) = game_client::in_game_ui::RadiusCursorType::from_name(cursor_type) {
-                let leftover =
-                    game_client::in_game_ui::InGameUI::leftover_resolve_radius_cursor_radius(
-                        kind,
-                        seed.map(|id| id.0),
-                        0.0,
-                    );
-                if leftover > 0.0 {
-                    return leftover;
-                }
-            }
         }
 
         let weapon_name = self.radius_cursor_primary_weapon_name(seed);
@@ -711,7 +715,12 @@ impl CnCGameEngine {
     fn leftover_special_power_radius_cursor(&self, cursor_type: &str) -> f32 {
         #[cfg(feature = "game_client")]
         {
-            if let Some(pending) = game_client::helpers::TheInGameUI::get_pending_special_power() {
+            if let Some(pending) = self
+                .game_client
+                .in_game_ui_subsystem()
+                .expect("receiving InGameUI initialized")
+                .get_pending_special_power()
+            {
                 if let Some(store) =
                     gamelogic::object::special_power_template::get_special_power_store()
                 {
@@ -830,14 +839,17 @@ impl CnCGameEngine {
             .or_else(|| selected.first().copied())
             .map(|id| id.0)
             .or_else(|| {
-                let existing =
-                    game_client::helpers::TheInGameUI::get_pending_place_source_object_id();
+                let existing = self
+                    .game_client
+                    .in_game_ui_subsystem()
+                    .expect("receiving InGameUI initialized")
+                    .get_pending_place_source_object_id();
                 (existing != 0).then_some(existing)
             });
-        game_client::helpers::TheInGameUI::place_build_available(
-            Some(template_name.to_string()),
-            source_id,
-        );
+        self.game_client
+            .in_game_ui_subsystem_mut()
+            .expect("receiving InGameUI initialized")
+            .place_build_available(Some(template_name.to_string()), source_id);
         log::debug!("BeginStructurePlacement residual: {template_name}");
     }
 
@@ -993,10 +1005,14 @@ impl CnCGameEngine {
         ok
     }
 
-    fn live_max_select_count() -> i32 {
+    fn live_max_select_count(&self) -> i32 {
         #[cfg(feature = "game_client")]
         {
-            let v = game_client::helpers::TheInGameUI::get_max_select_count();
+            let v = self
+                .game_client
+                .in_game_ui_subsystem()
+                .expect("receiving InGameUI initialized")
+                .get_max_select_count();
             if v != 0 {
                 return v;
             }
@@ -1010,13 +1026,13 @@ impl CnCGameEngine {
         &mut self,
         mut ids: Vec<crate::game_logic::ObjectId>,
     ) -> Vec<crate::game_logic::ObjectId> {
-        let max = Self::live_max_select_count();
+        let max = self.live_max_select_count();
         if max > 0 && ids.len() > max as usize {
             ids.truncate(max as usize);
             if !self.displayed_max_selection_warning {
                 self.displayed_max_selection_warning = true;
                 let msg = format_max_selection_size_message(max);
-                self.game_hud_mut().push_info_message(&msg);
+                self.host_push_info_message(&msg);
             }
         } else if max > 0 {
             self.displayed_max_selection_warning = false;
@@ -1071,8 +1087,14 @@ impl CnCGameEngine {
         }
         #[cfg(feature = "game_client")]
         {
-            game_client::helpers::TheInGameUI::clear_pending_command();
-            game_client::helpers::TheInGameUI::clear_pending_special_power();
+            self.game_client
+                .in_game_ui_subsystem_mut()
+                .expect("receiving InGameUI initialized")
+                .clear_pending_command();
+            self.game_client
+                .in_game_ui_subsystem_mut()
+                .expect("receiving InGameUI initialized")
+                .clear_pending_special_power();
         }
     }
 
@@ -1561,8 +1583,6 @@ impl CnCGameEngine {
         op: crate::game_logic::CommandPipelineOp,
     ) -> bool {
         #[cfg(feature = "game_client")]
-        let cinematic_ui = self.game_client.in_game_ui_subsystem();
-        #[cfg(feature = "game_client")]
         let window_manager_owner = self.game_client.window_manager_owner();
         #[cfg(feature = "game_client")]
         let mut script_window_messages = Vec::new();
@@ -1576,7 +1596,6 @@ impl CnCGameEngine {
         let mut cinematic_cursor = |visible| cinematic_window.set_cursor_visible(visible);
         #[cfg(feature = "game_client")]
         let cinematic_input = super::mouse::CinematicInputLoan {
-            ui: cinematic_ui,
             local_player: self.current_player_id,
             modes: &mut self.look_at_modes,
             selected: &mut self.selected_objects,
@@ -2074,7 +2093,11 @@ impl CnCGameEngine {
         // armed pending place source; it never re-picks a different builder.
         // Wave 924: structure place builder threads the armed source.
         let armed_source = if self.pending_structure_placement.is_some() {
-            let existing = game_client::helpers::TheInGameUI::get_pending_place_source_object_id();
+            let existing = self
+                .game_client
+                .in_game_ui_subsystem()
+                .expect("receiving InGameUI initialized")
+                .get_pending_place_source_object_id();
             (existing != 0).then_some(crate::game_logic::ObjectId(existing))
         } else {
             None
@@ -2111,7 +2134,10 @@ impl CnCGameEngine {
             self.game_hud_mut()
                 .construction_panel
                 .clear_structure_placement();
-            game_client::helpers::TheInGameUI::place_build_available(None, None);
+            self.game_client
+                .in_game_ui_subsystem_mut()
+                .expect("receiving InGameUI initialized")
+                .place_build_available(None, None);
             return;
         }
 
@@ -2120,13 +2146,22 @@ impl CnCGameEngine {
         let lbc = self.host_legal_build_code_at_for_builder(team, location, &template, builder_id);
 
         if let Some(id) = builder_id {
-            if let Some(pending) = game_client::helpers::TheInGameUI::get_pending_special_power() {
+            if let Some(pending) = self
+                .game_client
+                .in_game_ui_subsystem()
+                .expect("receiving InGameUI initialized")
+                .get_pending_special_power()
+            {
                 if pending.source_object_id == id.0 {
                     self.pending_structure_placement = None;
                     self.game_hud_mut()
                         .construction_panel
                         .clear_structure_placement();
-                    let placement_angle = game_client::helpers::TheInGameUI::get_placement_angle();
+                    let placement_angle = self
+                        .game_client
+                        .in_game_ui_subsystem()
+                        .expect("receiving InGameUI initialized")
+                        .get_placement_angle();
                     self.host_queue_and_process_command_silent(
                         crate::command_system::GameCommand {
                             command_type: crate::command_system::CommandType::DoSpecialPower {
@@ -2143,8 +2178,14 @@ impl CnCGameEngine {
                             modifier_keys: crate::command_system::ModifierKeys::default(),
                         },
                     );
-                    game_client::helpers::TheInGameUI::place_build_available(None, None);
-                    game_client::helpers::TheInGameUI::clear_pending_special_power();
+                    self.game_client
+                        .in_game_ui_subsystem_mut()
+                        .expect("receiving InGameUI initialized")
+                        .place_build_available(None, None);
+                    self.game_client
+                        .in_game_ui_subsystem_mut()
+                        .expect("receiving InGameUI initialized")
+                        .clear_pending_special_power();
                     return;
                 }
             }
@@ -2156,15 +2197,31 @@ impl CnCGameEngine {
                     if let Some(tmpl) =
                         gamelogic::helpers::TheThingFactory::find_template(&template)
                     {
-                        let pending =
-                            game_client::helpers::TheInGameUI::get_pending_special_power();
+                        let pending = self
+                            .game_client
+                            .in_game_ui_subsystem()
+                            .expect("receiving InGameUI initialized")
+                            .get_pending_special_power();
                         let cmt = game_client::message_stream::can_make_unit_for_place(
                             &guard,
                             tmpl.as_ref(),
                             pending.as_ref(),
                         );
                         if cmt != game_engine::common::system::build_assistant::CanMakeType::Ok {
-                            game_client::message_stream::play_can_make_failure(cmt);
+                            let logic_frame = self.game_logic.get_frame();
+                            let client_frame = self.game_client.get_frame();
+                            let ui = self
+                                .game_client
+                                .in_game_ui_subsystem_mut()
+                                .expect("placement feedback requires receiving InGameUI");
+                            game_client::message_stream::play_can_make_failure(
+                                cmt,
+                                &mut game_client::message_stream::ReceivingUi::new(
+                                    ui,
+                                    logic_frame,
+                                    client_frame,
+                                ),
+                            );
                             if matches!(
                                 cmt,
                                 game_engine::common::system::build_assistant::CanMakeType::NoMoney
@@ -2174,7 +2231,10 @@ impl CnCGameEngine {
                             ) {
                                 return;
                             }
-                            game_client::helpers::TheInGameUI::place_build_available(None, None);
+                            self.game_client
+                                .in_game_ui_subsystem_mut()
+                                .expect("receiving InGameUI initialized")
+                                .place_build_available(None, None);
                             self.pending_structure_placement = None;
                             return;
                         }
@@ -2199,7 +2259,7 @@ impl CnCGameEngine {
                 _ => "GUI:CantBuildThere",
             };
             let msg = game_client::helpers::map_cant_build_message(cpp_key);
-            self.game_hud_mut().push_info_message(&msg);
+            self.host_push_info_message(&msg);
             if let Some(id) = builder_id {
                 play_host_illegal_place_feedback(self, id);
             }

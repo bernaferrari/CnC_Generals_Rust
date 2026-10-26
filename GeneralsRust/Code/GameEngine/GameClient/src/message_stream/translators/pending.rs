@@ -146,9 +146,10 @@ pub(super) fn pending_weapon_slot(pending: &PendingCommand) -> WeaponSlotType {
     weapon_slot_from_u32(pending.source_object_id)
 }
 
-pub(super) fn pending_special_power_payload()
--> Option<(crate::helpers::PendingSpecialPower, SpecialPowerTemplate)> {
-    let power = TheInGameUI::get_pending_special_power()?;
+pub(super) fn pending_special_power_payload(
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
+) -> Option<(crate::helpers::PendingSpecialPower, SpecialPowerTemplate)> {
+    let power = ui.get_pending_special_power()?;
     let store = get_special_power_store()?;
     let template = store
         .find_special_power_template_by_id(power.power_id)?
@@ -256,6 +257,7 @@ pub(super) fn pending_special_power_can_target_object(
     local_player: Option<u32>,
     selection: &HashSet<ObjectID>,
     target_id: ObjectID,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> bool {
     let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
         return false;
@@ -263,7 +265,7 @@ pub(super) fn pending_special_power_can_target_object(
     let Ok(target_guard) = target.read() else {
         return false;
     };
-    let Some((power, template)) = pending_special_power_payload() else {
+    let Some((power, template)) = pending_special_power_payload(ui) else {
         // Keep legacy permissive behavior when special-power metadata isn't available yet.
         return true;
     };
@@ -315,8 +317,9 @@ pub(super) fn pending_special_power_can_target_position(
     selection: &HashSet<ObjectID>,
     position: &Coord3D,
     object_in_way: Option<ObjectID>,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> bool {
-    let Some((power, template)) = pending_special_power_payload() else {
+    let Some((power, template)) = pending_special_power_payload(ui) else {
         // Keep legacy permissive behavior when special-power metadata isn't available yet.
         return true;
     };
@@ -370,6 +373,7 @@ pub(super) fn pending_special_power_can_target_position(
 pub(super) fn pending_command_for_object(
     pending: &PendingCommand,
     target: ObjectID,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> Option<GameMessageType> {
     match pending.command_type {
         CommandType::CombatDropAtObject => Some(GameMessageType::CombatDropAtObject(target)),
@@ -387,7 +391,7 @@ pub(super) fn pending_command_for_object(
             if !pending_command_accepts_object(pending.options) {
                 return None;
             }
-            TheInGameUI::get_pending_special_power().map(|power| {
+            ui.get_pending_special_power().map(|power| {
                 GameMessageType::DoSpecialPowerAtObject(
                     power.power_id,
                     target,
@@ -499,6 +503,7 @@ pub(super) fn pending_command_for_position(
     pending: &PendingCommand,
     position: Coord3D,
     object_in_way: Option<ObjectID>,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> Option<GameMessageType> {
     match pending.command_type {
         CommandType::CombatDropAtLocation => Some(GameMessageType::CombatDropAtLocation(position)),
@@ -517,7 +522,7 @@ pub(super) fn pending_command_for_position(
             if !pending_command_accepts_position(pending.options) {
                 return None;
             }
-            TheInGameUI::get_pending_special_power().map(|power| {
+            ui.get_pending_special_power().map(|power| {
                 GameMessageType::DoSpecialPowerAtLocation(
                     power.power_id,
                     position,
@@ -552,6 +557,7 @@ pub(super) fn pending_command_messages_for_position(
     position: Coord3D,
     selection: &HashSet<ObjectID>,
     object_in_way: Option<ObjectID>,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> Vec<GameMessageType> {
     if pending.command_type == CommandType::SetRallyPoint {
         let mut ids: Vec<ObjectID> = selection.iter().copied().collect();
@@ -562,7 +568,7 @@ pub(super) fn pending_command_messages_for_position(
             .collect();
     }
 
-    pending_command_for_position(pending, position, object_in_way)
+    pending_command_for_position(pending, position, object_in_way, ui)
         .into_iter()
         .collect()
 }

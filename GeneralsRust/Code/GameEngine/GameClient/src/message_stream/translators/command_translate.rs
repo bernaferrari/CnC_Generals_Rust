@@ -5,7 +5,8 @@ impl CommandTranslator {
     pub fn translate_with_window_query(
         &mut self,
         msg: &GameMessage,
-        window_query: &mut dyn FnMut(i32, i32) -> bool,
+        window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> GameMessageDisposition {
         // C++ CommandXlat.cpp:2322-2326 — DISABLE_INPUT destroys every message
         // except OPTIONS, CLEAR_GAME_DATA, and system ticks/CRC/replay camera.
@@ -19,7 +20,7 @@ impl CommandTranslator {
                 | GameMessageType::SetReplayCamera(..)
                 | GameMessageType::FrameTick(_)
         );
-        if !TheInGameUI::get_input_enabled() && !input_disabled_passthrough {
+        if !ui.get_input_enabled() && !input_disabled_passthrough {
             return GameMessageDisposition::DestroyMessage;
         }
 
@@ -53,22 +54,22 @@ impl CommandTranslator {
             }
             GameMessageType::MetaBeginForceAttack => {
                 self.force_attack_mode = true;
-                TheInGameUI::set_force_attack_mode(true);
+                ui.set_force_attack_mode(true);
                 return GameMessageDisposition::DestroyMessage;
             }
             GameMessageType::MetaEndForceAttack => {
                 self.force_attack_mode = false;
-                TheInGameUI::set_force_attack_mode(false);
+                ui.set_force_attack_mode(false);
                 return GameMessageDisposition::DestroyMessage;
             }
             GameMessageType::MetaBeginForceMove => {
                 self.force_move_mode = true;
-                TheInGameUI::set_force_move_to_mode(true);
+                ui.set_force_move_to_mode(true);
                 return GameMessageDisposition::DestroyMessage;
             }
             GameMessageType::MetaEndForceMove => {
                 self.force_move_mode = false;
-                TheInGameUI::set_force_move_to_mode(false);
+                ui.set_force_move_to_mode(false);
                 return GameMessageDisposition::DestroyMessage;
             }
             GameMessageType::MetaBeginWaypoints => {
@@ -81,12 +82,12 @@ impl CommandTranslator {
             }
             GameMessageType::MetaBeginPreferSelection => {
                 self.prefer_selection_mode = true;
-                TheInGameUI::set_prefer_selection_mode(true);
+                ui.set_prefer_selection_mode(true);
                 return GameMessageDisposition::DestroyMessage;
             }
             GameMessageType::MetaEndPreferSelection => {
                 self.prefer_selection_mode = false;
-                TheInGameUI::set_prefer_selection_mode(false);
+                ui.set_prefer_selection_mode(false);
                 return GameMessageDisposition::DestroyMessage;
             }
             GameMessageType::MetaBeginPathBuild => {
@@ -98,7 +99,7 @@ impl CommandTranslator {
                 return GameMessageDisposition::DestroyMessage;
             }
             GameMessageType::MetaStop => {
-                TheInGameUI::issue_stop_command();
+                ui.issue_stop_command();
                 dispatch_translated_message(&GameMessageType::DoStop);
                 return GameMessageDisposition::DestroyMessage;
             }
@@ -111,8 +112,9 @@ impl CommandTranslator {
                 return GameMessageDisposition::DestroyMessage;
             }
             GameMessageType::MetaViewLastRadarEvent => {
-                if let Some(position) =
-                    TheInGameUI::radar_presentation().and_then(|radar| radar.get_last_event_loc())
+                if let Some(position) = ui
+                    .radar_presentation()
+                    .and_then(|radar| radar.get_last_event_loc())
                 {
                     with_tactical_view(|view| {
                         view.look_at(&Point3::new(position.x, position.y, position.z));
@@ -139,7 +141,7 @@ impl CommandTranslator {
                             guard.tivo_fast_mode = !guard.tivo_fast_mode;
                             guard.tivo_fast_mode
                         };
-                        TheInGameUI::message(if enabled {
+                        ui.message(if enabled {
                             "m_TiVOFastMode: ON"
                         } else {
                             "m_TiVOFastMode: OFF"
@@ -191,7 +193,7 @@ impl CommandTranslator {
             }
             GameMessageType::MetaSelectAll => {
                 return {
-                    for msg in handle_select_all(false, window_query) {
+                    for msg in handle_select_all(false, window_query, ui) {
                         dispatch_translated_message(&msg);
                     }
                     GameMessageDisposition::DestroyMessage
@@ -199,7 +201,7 @@ impl CommandTranslator {
             }
             GameMessageType::MetaSelectAllAircraft => {
                 return {
-                    for msg in handle_select_all(true, window_query) {
+                    for msg in handle_select_all(true, window_query, ui) {
                         dispatch_translated_message(&msg);
                     }
                     GameMessageDisposition::DestroyMessage
@@ -213,31 +215,31 @@ impl CommandTranslator {
                 return GameMessageDisposition::DestroyMessage;
             }
             GameMessageType::MouseRightClick(region, _modifiers) => (
-                self.handle_point_click(region, true, window_query),
+                self.handle_point_click(region, true, window_query, ui),
                 GameMessageDisposition::DestroyMessage,
             ),
             GameMessageType::MouseLeftClick(region, _modifiers) => (
-                self.handle_point_click(region, false, window_query),
+                self.handle_point_click(region, false, window_query, ui),
                 GameMessageDisposition::DestroyMessage,
             ),
             GameMessageType::MouseRightDoubleClick(region, _modifiers) => (
-                self.try_double_click_guard_command(region, true)
+                self.try_double_click_guard_command(region, true, ui)
                     .map(|msg| vec![msg])
-                    .unwrap_or_else(|| self.handle_point_click(region, true, window_query)),
+                    .unwrap_or_else(|| self.handle_point_click(region, true, window_query, ui)),
                 GameMessageDisposition::DestroyMessage,
             ),
             GameMessageType::MouseLeftDoubleClick(region, _modifiers) => (
-                self.try_double_click_guard_command(region, false)
+                self.try_double_click_guard_command(region, false, ui)
                     .map(|msg| vec![msg])
-                    .unwrap_or_else(|| self.handle_point_click(region, false, window_query)),
+                    .unwrap_or_else(|| self.handle_point_click(region, false, window_query, ui)),
                 GameMessageDisposition::DestroyMessage,
             ),
             GameMessageType::MouseoverLocationHint(pos) => (
-                self.handle_mouseover_location_hint(pos),
+                self.handle_mouseover_location_hint(pos, ui),
                 GameMessageDisposition::KeepMessage,
             ),
             GameMessageType::MouseoverDrawableHint(drawable) => (
-                self.handle_mouseover_drawable_hint(*drawable),
+                self.handle_mouseover_drawable_hint(*drawable, ui),
                 GameMessageDisposition::KeepMessage,
             ),
             GameMessageType::RawMouseLeftButtonDown(pos, _modifiers, time) => (
@@ -259,6 +261,7 @@ impl CommandTranslator {
                     *_modifiers,
                     *time,
                     window_query,
+                    ui,
                 ),
                 GameMessageDisposition::KeepMessage,
             ),
@@ -269,6 +272,7 @@ impl CommandTranslator {
                     *_modifiers,
                     *time,
                     window_query,
+                    ui,
                 ),
                 GameMessageDisposition::KeepMessage,
             ),
@@ -279,15 +283,16 @@ impl CommandTranslator {
                     *_modifiers,
                     *time,
                     window_query,
+                    ui,
                 ),
                 GameMessageDisposition::DestroyMessage,
             ),
             GameMessageType::RawKeyDown(key) => (
-                self.handle_keyboard(*key, true),
+                self.handle_keyboard(*key, true, ui),
                 GameMessageDisposition::KeepMessage,
             ),
             GameMessageType::RawKeyUp(key) => (
-                self.handle_keyboard(*key, false),
+                self.handle_keyboard(*key, false, ui),
                 GameMessageDisposition::KeepMessage,
             ),
             _ => {
@@ -319,18 +324,37 @@ impl GameMessageTranslator for CommandTranslator {
     fn translate_game_message_with_context(
         &mut self,
         msg: &GameMessage,
-        _client: game_engine::common::message_stream::TranslatorClientObservation,
+        client: game_engine::common::message_stream::TranslatorClientObservation,
         dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
         emitted: &mut Vec<GameMessage>,
+        client_ui: &mut dyn std::any::Any,
     ) -> GameMessageDisposition {
-        self.translate_with_window_query(msg, &mut |x, y| match dispatch(
-            game_engine::common::message_stream::WindowInputDispatch::OpaqueWindowAtScreen { x, y },
-            emitted,
-        ) {
-            Some(game_engine::common::message_stream::WindowInputDispatchResult::OpaqueWindow(
-                blocked,
-            )) => blocked,
-            _ => panic!("receiving input driver did not supply its opaque-window query"),
-        })
+        let ui = &mut crate::message_stream::ReceivingUi::new(
+            client_ui
+                .downcast_mut::<crate::core::subsystems::InGameUISubsystem>()
+                .expect("message translator requires its receiving UI"),
+            client.logic_frame,
+            client.frame,
+        )
+        .with_emitter(emitted);
+
+        self.translate_with_window_query(
+            msg,
+            &mut |x, y, ui| match ui.dispatch(
+                dispatch,
+                game_engine::common::message_stream::WindowInputDispatch::OpaqueWindowAtScreen {
+                    x,
+                    y,
+                },
+            ) {
+                Some(
+                    game_engine::common::message_stream::WindowInputDispatchResult::OpaqueWindow(
+                        blocked,
+                    ),
+                ) => blocked,
+                _ => panic!("receiving input driver did not supply its opaque-window query"),
+            },
+            ui,
+        )
     }
 }

@@ -24,30 +24,42 @@ struct ReceivingClientScriptDriver<'a, 'effects> {
     world: &'a mut gamelogic::system::game_logic::GameLogic,
     bar: &'a mut crate::gui::control_bar::ControlBar,
     stream: &'a mut crate::message_stream::message_stream::MessageStream,
-    military_ui: Option<&'a Arc<Mutex<InGameUISubsystem>>>,
 }
 impl ScriptExecutionDriver for ReceivingClientScriptDriver<'_, '_> {
     fn display(
         &mut self,
         request: gamelogic::scripting::engine::ScriptDisplayRequest<'_>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
+        let frame = self.world.get_frame();
         match request {
+            gamelogic::scripting::engine::ScriptDisplayRequest::Text(text)
+            | gamelogic::scripting::engine::ScriptDisplayRequest::Cinematic { text, .. } => {
+                if !self.effects.has_ui() {
+                    return Some(Err(gamelogic::GameLogicError::Configuration(
+                        "display text requires receiving InGameUI".into(),
+                    )));
+                }
+                self.effects
+                    .ui_mut()
+                    .push_hud_message_at(text.to_owned(), frame);
+                Some(Ok(()))
+            }
             gamelogic::scripting::engine::ScriptDisplayRequest::MilitaryCaption {
                 text,
                 duration_ms,
             } => {
-                let Some(ui) = self.military_ui else {
+                if !self.effects.has_ui() {
                     return Some(Err(gamelogic::GameLogicError::Configuration(
                         "military caption requires receiving InGameUI".into(),
                     )));
                 };
-                let mut ui = ui.lock().unwrap_or_else(|error| error.into_inner());
-                self.effects.with_manager(|manager, _| {
-                    ui.push_military_subtitle(text, duration_ms, manager)
+                self.effects.with_manager(|manager, effects| {
+                    effects
+                        .ui_mut()
+                        .push_military_subtitle(text, duration_ms, frame, manager)
                 });
                 Some(Ok(()))
             }
-            _ => None,
         }
     }
     fn speech_play(
@@ -55,14 +67,14 @@ impl ScriptExecutionDriver for ReceivingClientScriptDriver<'_, '_> {
         name: &str,
         allow_overlap: bool,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        let Some(ui) = self.military_ui else {
+        if !self.effects.has_ui() {
             return Some(Err(gamelogic::GameLogicError::Configuration(
                 "speech subtitles require receiving InGameUI".into(),
             )));
         };
-        let mut ui = ui.lock().unwrap_or_else(|error| error.into_inner());
-        Some(self.effects.with_manager(|manager, _| {
-            crate::core::script_action_handler::GameClientScriptActionHandler::speech_play_receiving(name, allow_overlap, &mut ui, manager)
+        let frame = self.world.get_frame();
+        Some(self.effects.with_manager(|manager, effects| {
+            crate::core::script_action_handler::GameClientScriptActionHandler::speech_play_receiving(name, allow_overlap, effects.ui_mut(), frame, manager)
         }))
     }
 
@@ -208,9 +220,14 @@ impl GameClient {
         self.script_display
             .bind(self.subsystem_manager.display.as_ref());
         let mut messages = Vec::new();
+        let logic_frame = world.get_frame();
         let mut driver = ReceivingClientScriptDriver {
             world,
             effects: WindowEventEffects {
+                standalone_view: None,
+                client_frame: Some(self.frame),
+                logic_frame: Some(logic_frame),
+                ui: self.subsystem_manager.in_game_ui.as_mut(),
                 payloads: Default::default(),
                 menus: Some(self.menu_manager.receiving_menus()),
                 manager: None,
@@ -229,7 +246,6 @@ impl GameClient {
             },
             bar,
             stream: &mut self.message_stream,
-            military_ui: self.subsystem_manager.in_game_ui.as_ref(),
         };
         let result = operation(&mut driver);
         let completed = driver.after_action();
@@ -289,6 +305,7 @@ impl GameClient {
 #[cfg(test)]
 mod popup_owner_tests {
     use super::*;
+    use gamelogic::scripting::engine::ScriptActionHandler as _;
 
     fn popup(client: &mut GameClient, pause: bool) {
         client.with_window_event_effects(None, |effects| {
@@ -344,6 +361,56 @@ mod popup_owner_tests {
         popup(&mut client, true);
         assert!(client.reset().is_err());
         assert!(has_popup(&mut client));
+    }
+
+    #[test]
+    fn script_display_text_reaches_only_the_receiving_client() {
+        let mut client = GameClient::new().unwrap();
+        let mut peer = GameClient::new().unwrap();
+        client.set_in_game_ui_subsystem(InGameUISubsystem::default());
+        peer.set_in_game_ui_subsystem(InGameUISubsystem::default());
+        let mut world = gamelogic::system::game_logic::GameLogic::new();
+        let mut bar = crate::gui::control_bar::ControlBar::new();
+        client
+            .with_receiving_core_script_driver(&mut bar, &mut world, |driver| {
+                driver
+                    .display(gamelogic::scripting::engine::ScriptDisplayRequest::Text(
+                        "Owned text",
+                    ))
+                    .expect("receiving text action is implemented")
+            })
+            .unwrap();
+        assert_eq!(
+            client
+                .in_game_ui_subsystem_mut()
+                .unwrap()
+                .drain_hud_messages(),
+            ["Owned text"]
+        );
+        assert!(
+            peer.in_game_ui_subsystem_mut()
+                .unwrap()
+                .drain_hud_messages()
+                .is_empty()
+        );
+        assert!(
+            GameClientScriptActionHandler::new()
+                .display_text("Unowned")
+                .is_err()
+        );
+        assert!(
+            client
+                .in_game_ui_subsystem_mut()
+                .unwrap()
+                .drain_hud_messages()
+                .is_empty()
+        );
+        assert!(
+            peer.in_game_ui_subsystem_mut()
+                .unwrap()
+                .drain_hud_messages()
+                .is_empty()
+        );
     }
 
     #[test]

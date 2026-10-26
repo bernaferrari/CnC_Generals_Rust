@@ -120,7 +120,7 @@ fn dump_used_map_assets() -> std::io::Result<()> {
     fs::write("UsedMapAssets.txt", output)
 }
 
-fn cycle_dynamic_lod_level() {
+fn cycle_dynamic_lod_level(ui: &mut crate::message_stream::ReceivingUi<'_>) {
     let next = CYCLE_LOD_LEVEL_STATE.with(|level| {
         let next = match level.get() {
             DynamicGameLODLevel::VeryHigh => DynamicGameLODLevel::High,
@@ -134,7 +134,7 @@ fn cycle_dynamic_lod_level() {
 
     game_engine::common::game_lod::set_dynamic_lod_from_string(next.to_str());
     let message = format!("Dynamic Game Detail {}", next.to_str());
-    TheInGameUI::message(&message);
+    ui.message(&message);
 }
 
 #[cfg(test)]
@@ -344,13 +344,16 @@ fn local_selection_object_ids() -> Vec<u32> {
         .unwrap_or_default()
 }
 
-fn dump_player_object_counts(include_all_objects: bool) {
+fn dump_player_object_counts(
+    include_all_objects: bool,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
+) {
     let Ok(player_list) = ThePlayerList().read() else {
         return;
     };
 
-    TheInGameUI::message("*******************************");
-    TheInGameUI::message("Dumping player object counts");
+    ui.message("*******************************");
+    ui.message("Dumping player object counts");
 
     for i in 0..player_list.get_player_count() {
         let Some(player_arc) = player_list.get_player(i as i32).cloned() else {
@@ -384,27 +387,27 @@ fn dump_player_object_counts(include_all_objects: bool) {
             Ok(())
         });
 
-        TheInGameUI::message(&format!(
+        ui.message(&format!(
             "Player {i} ({}) has {object_count} non-dead objects",
             player_guard.get_player_display_name()
         ));
 
         if object_count > 0 && (include_all_objects || object_count <= 5) {
-            TheInGameUI::message("Objects are:");
+            ui.message("Objects are:");
             for line in object_lines {
-                TheInGameUI::message(&line);
+                ui.message(&line);
             }
         }
     }
 }
 
-fn report_object_id_lookup_performance() {
+fn report_object_id_lookup_performance(ui: &mut crate::message_stream::ReceivingUi<'_>) {
     // Wave 345/1005: empty dual-world → presentation catalog residual metrics.
     if dual_world_registry_unavailable() {
         let n = crate::presentation_translator_residual::translator_catalog_len();
         // C++ debug residual: report presentation-known object count instead of
         // dual-world OBJECT_REGISTRY lookup timing.
-        TheInGameUI::message(&format!(
+        ui.message(&format!(
             "Dual-world residual: presentation catalog knows {n} object ids (no OBJECT_REGISTRY lookup timing)."
         ));
         return;
@@ -417,20 +420,20 @@ fn report_object_id_lookup_performance() {
         }
         let elapsed = start.elapsed().as_secs_f64();
         let next_index = TheGameLogic::get_object_id_counter();
-        TheInGameUI::message(&format!(
+        ui.message(&format!(
             "Time to run {number_lookups} ObjectID lookups is {elapsed:.6}. Next index is {next_index}."
         ));
     }
 }
 
-fn report_drawable_id_lookup_performance() {
+fn report_drawable_id_lookup_performance(ui: &mut crate::message_stream::ReceivingUi<'_>) {
     // Wave 1006: dual-world residual — report presentation drawable count instead of
     // hammering empty dual-world id space timing.
     if dual_world_registry_unavailable() {
         let n = TheGameClient::get()
             .map(|c| c.drawable_count())
             .unwrap_or(0);
-        TheInGameUI::message(&format!(
+        ui.message(&format!(
             "Dual-world residual: presentation shell has {n} drawables (no DrawableID lookup timing)."
         ));
         return;
@@ -445,7 +448,7 @@ fn report_drawable_id_lookup_performance() {
         }
         let elapsed = start.elapsed().as_secs_f64();
         let next_index = Drawable::get_drawable_id_counter();
-        TheInGameUI::message(&format!(
+        ui.message(&format!(
             "Time to run {number_lookups} DrawableID lookups is {elapsed:.6}. Next index is {next_index}."
         ));
     }
@@ -490,12 +493,13 @@ pub(crate) fn execute_display_input_action(
 fn dispatch_display_input(
     action: game_engine::common::message_stream::DisplayInputAction,
     dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
-    emitted: &mut Vec<GameMessage>,
+
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> bool {
     matches!(
-        dispatch(
-            game_engine::common::message_stream::WindowInputDispatch::Display(action),
-            emitted
+        ui.dispatch(
+            dispatch,
+            game_engine::common::message_stream::WindowInputDispatch::Display(action)
         ),
         Some(game_engine::common::message_stream::WindowInputDispatchResult::Display(true))
     )
@@ -512,7 +516,10 @@ pub(crate) fn execute_ui_input_action(
     use game_engine::common::message_stream::UiInputAction as Action;
     match action {
         Action::DemoMilitarySubtitle => {
-            crate::helpers::TheInGameUI::military_subtitle("MSG:Testing", 10_000, manager);
+            let frame = effects.logic_frame();
+            effects
+                .ui_mut()
+                .military_subtitle("MSG:Testing", 10_000, frame, manager);
             true
         }
         Action::ToggleDiplomacy { immediate } => {
@@ -560,11 +567,12 @@ pub(crate) fn execute_ui_input_action(
 pub(crate) fn dispatch_ui_input(
     action: game_engine::common::message_stream::UiInputAction,
     dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
-    emitted: &mut Vec<GameMessage>,
+
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> bool {
-    match dispatch(
+    match ui.dispatch(
+        dispatch,
         game_engine::common::message_stream::WindowInputDispatch::Ui(action),
-        emitted,
     ) {
         Some(game_engine::common::message_stream::WindowInputDispatchResult::Ui(handled)) => {
             handled

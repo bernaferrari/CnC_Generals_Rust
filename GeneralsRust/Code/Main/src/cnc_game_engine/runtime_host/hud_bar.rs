@@ -144,16 +144,14 @@ impl CnCGameEngine {
                 }
                 "type" => simulate_in_game_chat_set_type(chat_type),
                 "reset" => simulate_in_game_chat_reset(),
-                "prepare_submit" => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_in_game_chat_prepare_submit_like_cpp(&message, effects)
-                    })? || simulate_in_game_chat_prepare_submit(&message)
-                }
-                _ => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_in_game_chat_submit_like_cpp(&message, effects)
-                    })? || simulate_in_game_chat_submit(&message)
-                }
+                "prepare_submit" => self.with_receiving_menu_effects(|effects| {
+                    drive_os_wnd_in_game_chat_prepare_submit_like_cpp(&message, effects)
+                        || simulate_in_game_chat_prepare_submit(&message, effects)
+                })?,
+                _ => self.with_receiving_menu_effects(|effects| {
+                    drive_os_wnd_in_game_chat_submit_like_cpp(&message, effects)
+                        || simulate_in_game_chat_submit(&message, effects)
+                })?,
             };
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -183,11 +181,13 @@ impl CnCGameEngine {
             };
             wnd_ok = self
                 .with_receiving_menu_effects(|effects| {
-                    effects.with_manager(|manager, _effects| match action.as_str() {
-                        "count" | "set_count" => simulate_idle_worker_set_count(count, manager),
+                    effects.with_manager(|manager, effects| match action.as_str() {
+                        "count" | "set_count" => {
+                            simulate_idle_worker_set_count(count, manager, effects.ui())
+                        }
                         "next" => simulate_idle_worker_select_next(),
                         "prepare" | "prepare_select" => {
-                            simulate_idle_worker_prepare_select(count, manager)
+                            simulate_idle_worker_prepare_select(count, manager, effects.ui())
                         }
                         _ => simulate_idle_worker_button_gadget_selected(),
                     })

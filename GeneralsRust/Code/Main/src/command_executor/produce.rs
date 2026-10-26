@@ -32,10 +32,11 @@ impl<'a> CommandExecutor<'a> {
         let mut queued = false;
         for &unit_id in units {
             for _ in 0..quantity {
-                if self
-                    .game_logic
-                    .enqueue_production(unit_id, template_name.to_string())
-                {
+                if self.game_logic.enqueue_production_with_effects(
+                    unit_id,
+                    template_name.to_string(),
+                    &mut self.ui,
+                ) {
                     queued = true;
                 }
             }

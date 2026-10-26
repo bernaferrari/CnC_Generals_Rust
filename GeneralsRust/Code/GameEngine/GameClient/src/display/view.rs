@@ -19,7 +19,6 @@ use crate::display::cinematic_camera::{
 use crate::drawable::drawable_manager::{with_drawable_manager, with_drawable_manager_ref};
 use crate::drawable::{DrawableType, Vector3 as DrawVec3};
 use crate::gui::{HintType, WindowStatus};
-use crate::helpers::TheInGameUI;
 use crate::terrain::terrain_visual::get_terrain_visual;
 use gamelogic::helpers::{TheGameLogic, TheTerrainLogic};
 use gamelogic::scripting::engine::get_named_object_tracker;
@@ -2069,8 +2068,12 @@ fn hide_or_move_model(id: crate::drawable::DrawableId, position: Option<Point3>)
     });
 }
 
-fn draw_move_hint_and_locater_models(view: &View) {
-    let frame = TheGameLogic::get_frame();
+fn draw_move_hint_and_locater_models(
+    view: &View,
+    ui: &crate::core::subsystems::InGameUISubsystem,
+    client_frame: u32,
+) {
+    let frame = client_frame;
     let hint_name = get_global_data()
         .map(|data| {
             let name = data.read().move_hint_name.clone();
@@ -2082,7 +2085,8 @@ fn draw_move_hint_and_locater_models(view: &View) {
         })
         .unwrap_or_else(|| "MoveHint".to_string());
 
-    let live: Vec<Point3> = TheInGameUI::get_hints()
+    let live: Vec<Point3> = ui
+        .get_hints()
         .into_iter()
         .filter(|hint| {
             hint.hint_type == HintType::Move && frame.saturating_sub(hint.creation_frame) <= 40
@@ -2106,8 +2110,8 @@ fn draw_move_hint_and_locater_models(view: &View) {
         }
     });
 
-    if TheInGameUI::is_placement_anchored() {
-        if let Some((start, end)) = TheInGameUI::get_placement_points() {
+    if ui.is_placement_anchored() {
+        if let Some((start, end)) = ui.get_placement_points() {
             let start_world = view
                 .screen_to_terrain(&IPoint2::new(start.x, start.y))
                 .unwrap_or(Point3::new(start.x as f32, start.y as f32, 0.0));
@@ -2173,9 +2177,15 @@ fn draw_move_hint_and_locater_models(view: &View) {
 /// reserves (`HintSpy.cpp:99-100` → `InGameUI::createAttackHint`); the C++
 /// body is intentionally empty (InGameUI.cpp:2176-2179), so the red attack
 /// ring is a documented host adaptation requested for order feedback.
-pub fn draw_live_command_markers(renderer: &mut crate::gui::UIRenderer) {
-    let frame = TheGameLogic::get_frame();
-    let hints: Vec<(IPoint2, HintType, u32)> = TheInGameUI::get_hints()
+pub fn draw_live_command_markers(
+    renderer: &mut crate::gui::UIRenderer,
+    view: &View,
+    ui: &crate::core::subsystems::InGameUISubsystem,
+    client_frame: u32,
+) {
+    let frame = client_frame;
+    let hints: Vec<(IPoint2, HintType, u32)> = ui
+        .get_hints()
         .into_iter()
         .filter(|hint| matches!(hint.hint_type, HintType::Move | HintType::Attack))
         .filter_map(|hint| {
@@ -2184,10 +2194,8 @@ pub fn draw_live_command_markers(renderer: &mut crate::gui::UIRenderer) {
                 return None;
             }
             let world = Point3::new(hint.end.x, hint.end.y, hint.end.z);
-            with_tactical_view_ref(|view| {
-                view.world_to_screen(&world)
-                    .map(|screen| (screen, hint.hint_type, elapsed))
-            })
+            view.world_to_screen(&world)
+                .map(|screen| (screen, hint.hint_type, elapsed))
         })
         .collect();
     if hints.is_empty() {
@@ -3545,7 +3553,11 @@ pub trait ViewTrait: Send + Sync {
     fn origin(&self) -> (i32, i32);
 
     /// Draw this view (called by the Display system)
-    fn draw_view(&self) -> Result<(), ViewError>;
+    fn draw_view(
+        &self,
+        ui: Option<&crate::core::subsystems::InGameUISubsystem>,
+        client_frame: u32,
+    ) -> Result<(), ViewError>;
 
     /// Update view state (called once per frame)
     fn update_view(&mut self) -> Result<(), ViewError>;
@@ -3577,8 +3589,14 @@ impl ViewTrait for View {
         self.origin()
     }
 
-    fn draw_view(&self) -> Result<(), ViewError> {
-        draw_move_hint_and_locater_models(self);
+    fn draw_view(
+        &self,
+        ui: Option<&crate::core::subsystems::InGameUISubsystem>,
+        client_frame: u32,
+    ) -> Result<(), ViewError> {
+        if let Some(ui) = ui {
+            draw_move_hint_and_locater_models(self, ui, client_frame);
+        }
         View::force_redraw(self);
         Ok(())
     }

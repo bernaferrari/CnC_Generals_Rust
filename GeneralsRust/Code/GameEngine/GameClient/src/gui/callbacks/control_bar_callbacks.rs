@@ -16,7 +16,7 @@ use crate::gui::{
     AnimateWindowManager, AnimationType, GameWindow, WindowMessage, WindowMsgData,
     WindowMsgHandled, hide_quit_menu, toggle_diplomacy, toggle_quit_menu,
 };
-use crate::helpers::{TheControlBar, TheInGameUI};
+use crate::helpers::TheControlBar;
 
 use crate::input::{MouseButton, with_mouse};
 use crate::language_filter::get_language_filter;
@@ -39,27 +39,99 @@ const KEY_ESC: usize = 0x1B;
 pub trait ControlBarViewport {
     fn display_size(&self) -> (u32, u32);
     fn set_height_px(&mut self, height: i32);
+    fn camera_input(
+        &mut self,
+        _action: game_engine::common::message_stream::CameraInputAction,
+    ) -> Option<game_engine::common::message_stream::CameraInputObservation> {
+        None
+    }
 }
 
 /// Standalone layout dimensions are captured from the receiving manager.
 /// Native clients supply their SessionCamera through ControlBarViewport.
-pub struct StandaloneControlBarViewport {
+pub struct StandaloneControlBarViewport<'a> {
     dimensions: (u32, u32),
+    view: &'a mut crate::display::view::View,
 }
-impl StandaloneControlBarViewport {
-    pub fn new(manager: &crate::gui::window_manager::WindowManager) -> Self {
+impl<'a> StandaloneControlBarViewport<'a> {
+    pub fn new(
+        manager: &crate::gui::window_manager::WindowManager,
+        view: &'a mut crate::display::view::View,
+    ) -> Self {
         let (width, height) = manager.screen_size();
         Self {
             dimensions: (width.max(0) as u32, height.max(0) as u32),
+            view,
         }
     }
 }
-impl ControlBarViewport for StandaloneControlBarViewport {
+impl ControlBarViewport for StandaloneControlBarViewport<'_> {
     fn display_size(&self) -> (u32, u32) {
         self.dimensions
     }
     fn set_height_px(&mut self, height: i32) {
-        with_tactical_view(|view| view.set_height(height));
+        self.view.set_height(height);
+    }
+    fn camera_input(
+        &mut self,
+        action: game_engine::common::message_stream::CameraInputAction,
+    ) -> Option<game_engine::common::message_stream::CameraInputObservation> {
+        Some(apply_camera_input(self.view, action))
+    }
+}
+
+/// Execute one original camera operation on an explicitly borrowed standalone view.
+pub fn apply_camera_input(
+    view: &mut crate::display::view::View,
+    action: game_engine::common::message_stream::CameraInputAction,
+) -> game_engine::common::message_stream::CameraInputObservation {
+    use game_engine::common::message_stream::{
+        CameraInputAction as Action, CameraInputObservation, CameraLocation,
+    };
+    match action {
+        Action::Observe => {}
+        Action::SetMouseLock(value) => view.set_mouse_lock(value),
+        Action::ClearTracking => {
+            view.set_camera_lock(None);
+            view.set_camera_lock_drawable(None);
+        }
+        Action::Scroll { x, y } => view.scroll_by(&crate::display::view::Vector2::new(x, y)),
+        Action::Rotate(delta) => view.set_angle(view.angle() + delta),
+        Action::Pitch(delta) => view.set_pitch(view.pitch() + delta),
+        Action::ZoomIn => view.zoom_in(),
+        Action::ZoomOut => view.zoom_out(),
+        Action::ResetPose => {
+            view.set_angle_and_pitch_to_default();
+            view.set_zoom_to_default();
+        }
+        Action::SetLocation(location) => {
+            if location.valid {
+                let mut value = crate::display::view::ViewLocation::new();
+                value.init(
+                    location.position[0],
+                    location.position[1],
+                    location.position[2],
+                    location.angle,
+                    location.pitch,
+                    location.zoom,
+                );
+                view.set_location(&value);
+            }
+        }
+    }
+    let location = view.get_location();
+    let position = location.position();
+    CameraInputObservation {
+        width: view.width(),
+        height: view.height(),
+        movement_finished: view.is_camera_movement_finished(),
+        location: CameraLocation {
+            position: [position.x, position.y, position.z],
+            angle: location.angle(),
+            pitch: location.pitch(),
+            zoom: location.zoom(),
+            valid: location.is_valid(),
+        },
     }
 }
 
@@ -81,8 +153,9 @@ fn decode_mouse_pos(data: WindowMsgData) -> (i32, i32) {
     (x, y)
 }
 
-fn radar_allows_input() -> bool {
-    TheInGameUI::radar_presentation().is_some_and(|radar| radar.is_radar_shown())
+fn radar_allows_input(ui: &mut crate::core::subsystems::InGameUISubsystem) -> bool {
+    ui.radar_presentation()
+        .is_some_and(|radar| radar.is_radar_shown())
 }
 
 /// After C++ `LeftHUDInput` validates radar availability, a held middle button
@@ -91,9 +164,15 @@ fn middle_mouse_is_held() -> bool {
     with_mouse(|mouse| mouse.get_mouse_status().is_button_down(MouseButton::Middle))
 }
 
-fn local_pixel_to_radar(local_x: i32, local_y: i32, width: i32, height: i32) -> Option<ICoord2D> {
+fn local_pixel_to_radar(
+    local_x: i32,
+    local_y: i32,
+    width: i32,
+    height: i32,
+    ui: &mut crate::core::subsystems::InGameUISubsystem,
+) -> Option<ICoord2D> {
     use crate::gui::ingame_ui::local_pixel_to_radar_cell;
-    let extent = TheInGameUI::radar_presentation()?.map_extent();
+    let extent = ui.radar_presentation()?.map_extent();
     let cell = local_pixel_to_radar_cell(
         local_x,
         local_y,
@@ -164,14 +243,14 @@ fn filter_beacon_edit_text(mut text: String) -> String {
     text
 }
 
-fn has_pending_radar_targeting_mode() -> bool {
-    if let Some(pending_power) = TheInGameUI::get_pending_special_power() {
+fn has_pending_radar_targeting_mode(ui: &mut crate::core::subsystems::InGameUISubsystem) -> bool {
+    if let Some(pending_power) = ui.get_pending_special_power() {
         if (pending_power.options & (CMD_NEED_TARGET_POS | CMD_ATTACK_OBJECTS_POSITION)) != 0 {
             return true;
         }
     }
 
-    if let Some(pending_command) = TheInGameUI::get_pending_command() {
+    if let Some(pending_command) = ui.get_pending_command() {
         if (pending_command.options & (CMD_NEED_TARGET_POS | CMD_ATTACK_OBJECTS_POSITION)) != 0 {
             return true;
         }
@@ -216,31 +295,32 @@ fn radar_targeting_cursor_name(cursor_name: Option<&str>) -> &str {
     }
 }
 
-fn refresh_radar_cursor(msg: WindowMessage) {
+fn refresh_radar_cursor(msg: WindowMessage, ui: &mut crate::core::subsystems::InGameUISubsystem) {
     if msg == WindowMessage::MouseLeaving {
-        TheInGameUI::set_cursor_arrow();
+        ui.set_cursor_arrow();
         return;
     }
 
-    if has_pending_radar_targeting_mode() {
+    if has_pending_radar_targeting_mode(ui) {
         // C++ LeftHUDInput: keep a targeted command cursor over radar, falling
         // back to CROSS when no valid cursor name is available.
-        let cursor_name = TheInGameUI::get_pending_command()
+        let cursor_name = ui
+            .get_pending_command()
             .map(|pending| pending.cursor_name)
             .filter(|name| !name.is_empty());
-        TheInGameUI::set_cursor_by_name(radar_targeting_cursor_name(cursor_name.as_deref()));
+        ui.set_cursor_by_name(radar_targeting_cursor_name(cursor_name.as_deref()));
         return;
     }
 
     if selection_is_empty() {
-        TheInGameUI::set_cursor_arrow();
+        ui.set_cursor_arrow();
         return;
     }
 
-    if TheInGameUI::is_in_attack_move_to_mode() {
-        TheInGameUI::set_cursor_by_name("ATTACKMOVETO");
+    if ui.is_in_attack_move_to_mode() {
+        ui.set_cursor_by_name("ATTACKMOVETO");
     } else {
-        TheInGameUI::set_cursor_by_name("MOVETO");
+        ui.set_cursor_by_name("MOVETO");
     }
 }
 
@@ -569,11 +649,15 @@ impl ControlBarCallbacks {
                     .and_then(|player| player.read().ok().map(|p| p.is_player_active()))
                     .unwrap_or(false)
             {
-                TheInGameUI::clear_pending_special_power();
-                TheInGameUI::set_pending_command(CommandType::PlaceBeacon, CMD_NEED_TARGET_POS, 0);
-                TheInGameUI::set_force_attack_mode(false);
-                TheInGameUI::set_force_move_to_mode(false);
-                TheInGameUI::set_prefer_selection_mode(false);
+                effects.ui_mut().clear_pending_special_power();
+                effects.ui_mut().set_pending_command(
+                    CommandType::PlaceBeacon,
+                    CMD_NEED_TARGET_POS,
+                    0,
+                );
+                effects.ui_mut().set_force_attack_mode(false);
+                effects.ui_mut().set_force_move_to_mode(false);
+                effects.ui_mut().set_prefer_selection_mode(false);
             }
             return;
         }
@@ -872,6 +956,7 @@ impl LeftHUDCallbacks {
         _data2: WindowMsgData,
         emitted_messages: &mut Vec<GameMessage>,
         _pending_clicks: Option<&mut Vec<crate::helpers::LiveControlBarClick>>,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) -> WindowMsgHandled {
         let host_bridge = host_control_bar_bridge_enabled();
 
@@ -879,7 +964,7 @@ impl LeftHUDCallbacks {
         // held MMB.  Main owns radar authority while the bridge is active,
         // so defer the equivalent check to its existing presentation-side
         // gate rather than consulting the dormant standalone globals.
-        if !host_bridge && !radar_allows_input() {
+        if !host_bridge && !radar_allows_input(ui) {
             return WindowMsgHandled::Handled;
         }
 
@@ -896,26 +981,26 @@ impl LeftHUDCallbacks {
         // Main before consulting those globals, while leaving the standalone
         // path below exactly intact when the bridge is disabled.
         if host_bridge && matches!(msg, WindowMessage::LeftDown | WindowMessage::RightDown) {
-            self.publish_host_minimap_mouse_down(window, msg, data1);
+            self.publish_host_minimap_mouse_down(window, msg, data1, ui);
             return WindowMsgHandled::Handled;
         }
 
-        if !radar_allows_input() {
+        if !radar_allows_input(ui) {
             return WindowMsgHandled::Handled;
         }
 
         match msg {
             WindowMessage::MiddleDown => WindowMsgHandled::Ignored,
             WindowMessage::None | WindowMessage::MouseEntering | WindowMessage::MouseLeaving => {
-                refresh_radar_cursor(msg);
+                refresh_radar_cursor(msg, ui);
                 WindowMsgHandled::Handled
             }
             WindowMessage::MousePos => {
-                self.handle_mouse_pos(window, data1);
+                self.handle_mouse_pos(window, data1, ui);
                 WindowMsgHandled::Handled
             }
             WindowMessage::LeftDown | WindowMessage::RightDown => {
-                self.handle_mouse_down(window, msg, data1, emitted_messages);
+                self.handle_mouse_down(window, msg, data1, emitted_messages, ui);
                 WindowMsgHandled::Handled
             }
             WindowMessage::LeftUp | WindowMessage::RightUp => WindowMsgHandled::Handled,
@@ -923,14 +1008,19 @@ impl LeftHUDCallbacks {
         }
     }
 
-    fn handle_mouse_pos(&self, window: &GameWindow, data1: WindowMsgData) {
+    fn handle_mouse_pos(
+        &self,
+        window: &GameWindow,
+        data1: WindowMsgData,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
+    ) {
         let (mouse_x, mouse_y) = decode_mouse_pos(data1);
         let (screen_x, screen_y) = window.get_screen_position();
         let (width, height) = window.get_size();
         let local_x = mouse_x - screen_x;
         let local_y = mouse_y - screen_y;
-        if local_pixel_to_radar(local_x, local_y, width, height).is_some() {
-            refresh_radar_cursor(WindowMessage::MousePos);
+        if local_pixel_to_radar(local_x, local_y, width, height, ui).is_some() {
+            refresh_radar_cursor(WindowMessage::MousePos, ui);
         }
     }
 
@@ -946,13 +1036,14 @@ impl LeftHUDCallbacks {
         window: &GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) {
         let (mouse_x, mouse_y) = decode_mouse_pos(data1);
         let (screen_x, screen_y) = window.get_screen_position();
         let (width, height) = window.get_size();
         let local_x = mouse_x - screen_x;
         let local_y = mouse_y - screen_y;
-        if local_pixel_to_radar(local_x, local_y, width, height).is_none() {
+        if local_pixel_to_radar(local_x, local_y, width, height, ui).is_none() {
             return;
         }
 
@@ -976,16 +1067,17 @@ impl LeftHUDCallbacks {
         msg: WindowMessage,
         data1: WindowMsgData,
         emitted_messages: &mut Vec<GameMessage>,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) {
         let (mouse_x, mouse_y) = decode_mouse_pos(data1);
         let (screen_x, screen_y) = window.get_screen_position();
         let (width, height) = window.get_size();
         let local_x = mouse_x - screen_x;
         let local_y = mouse_y - screen_y;
-        let Some(radar_pos) = local_pixel_to_radar(local_x, local_y, width, height) else {
+        let Some(radar_pos) = local_pixel_to_radar(local_x, local_y, width, height, ui) else {
             return;
         };
-        let Some(radar) = TheInGameUI::radar_presentation() else {
+        let Some(radar) = ui.radar_presentation() else {
             return;
         };
         let Some(world) = radar.radar_to_world(&radar_pos) else {
@@ -1005,7 +1097,7 @@ impl LeftHUDCallbacks {
             let world_pos =
                 crate::message_stream::game_message::Coord3D::new(world.x, world.y, world.z);
 
-            if let Some(pending_power) = TheInGameUI::get_pending_special_power() {
+            if let Some(pending_power) = ui.get_pending_special_power() {
                 if (pending_power.options & (CMD_NEED_TARGET_POS | CMD_ATTACK_OBJECTS_POSITION))
                     != 0
                 {
@@ -1019,13 +1111,13 @@ impl LeftHUDCallbacks {
                             pending_power.source_object_id,
                         ),
                     ));
-                    TheInGameUI::clear_pending_special_power();
-                    TheInGameUI::clear_attack_move_to_mode();
+                    ui.clear_pending_special_power();
+                    ui.clear_attack_move_to_mode();
                     return;
                 }
             }
 
-            if let Some(pending_command) = TheInGameUI::get_pending_command() {
+            if let Some(pending_command) = ui.get_pending_command() {
                 if (pending_command.options & (CMD_NEED_TARGET_POS | CMD_ATTACK_OBJECTS_POSITION))
                     != 0
                 {
@@ -1051,14 +1143,14 @@ impl LeftHUDCallbacks {
 
                     if let Some(message) = pending_message {
                         emitted_messages.push(GameMessage::new(message));
-                        TheInGameUI::clear_pending_command();
-                        TheInGameUI::clear_attack_move_to_mode();
+                        ui.clear_pending_command();
+                        ui.clear_attack_move_to_mode();
                         return;
                     }
                 }
             }
 
-            if TheInGameUI::is_in_attack_move_to_mode() {
+            if ui.is_in_attack_move_to_mode() {
                 emitted_messages.push(GameMessage::new(GameMessageType::DoAttackMoveTo(
                     world_pos.clone(),
                 )));
@@ -1067,7 +1159,7 @@ impl LeftHUDCallbacks {
             }
         }
 
-        TheInGameUI::clear_attack_move_to_mode();
+        ui.clear_attack_move_to_mode();
     }
 }
 
@@ -1479,6 +1571,7 @@ mod tests {
 
     #[test]
     fn left_hud_host_request_captures_the_live_alternate_mouse_setting() {
+        let ui = &mut crate::core::subsystems::InGameUISubsystem::default();
         let _bridge_guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
         let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
         let previous_alternate_mouse = ini_global.read().use_alternate_mouse;
@@ -1504,7 +1597,8 @@ mod tests {
                     click,
                     0,
                     &mut Vec::new(),
-                    None
+                    None,
+                    ui
                 ),
                 WindowMsgHandled::Handled
             );
@@ -1527,6 +1621,7 @@ mod tests {
 
     #[test]
     fn held_middle_button_bypasses_left_hud_before_host_minimap_publication() {
+        let ui = &mut crate::core::subsystems::InGameUISubsystem::default();
         let _bridge_guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             crate::gui::control_bar::set_host_control_bar_bridge_enabled(true);
@@ -1548,7 +1643,7 @@ mod tests {
             let click = 42usize | (491usize << 16);
             for message in [WindowMessage::LeftDown, WindowMessage::RightDown] {
                 assert_eq!(
-                    callbacks.input(&window, message, click, 0, &mut Vec::new(), None),
+                    callbacks.input(&window, message, click, 0, &mut Vec::new(), None, ui),
                     WindowMsgHandled::Ignored,
                     "C++ LeftHUDInput yields to the held-middle route before {message:?}"
                 );

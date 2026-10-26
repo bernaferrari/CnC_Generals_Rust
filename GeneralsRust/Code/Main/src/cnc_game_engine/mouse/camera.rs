@@ -285,7 +285,10 @@ impl CnCGameEngine {
                         self.mouse_cursor_seen = true;
                         #[cfg(feature = "game_client")]
                         if let Some(cursor) = game_client::gui::MouseCursor::from_i32(pose.cursor) {
-                            game_client::helpers::TheInGameUI::set_mouse_cursor(cursor);
+                            self.game_client
+                                .in_game_ui_subsystem_mut()
+                                .expect("receiving InGameUI initialized")
+                                .set_mouse_cursor(cursor);
                         }
                     }
                 }
@@ -393,7 +396,10 @@ impl CnCGameEngine {
             let cursor = {
                 #[cfg(feature = "game_client")]
                 {
-                    game_client::helpers::TheInGameUI::get_mouse_cursor() as i32
+                    self.game_client
+                        .in_game_ui_subsystem()
+                        .expect("receiving InGameUI initialized")
+                        .get_mouse_cursor() as i32
                 }
                 #[cfg(not(feature = "game_client"))]
                 {
@@ -533,8 +539,14 @@ impl CnCGameEngine {
         // C++ SelectionXlat.cpp:429 hardcodes getPickTypesForContext(true).
         let hover = self.host_pick_hover_object_at_cursor();
         match hover {
-            Some(id) => self.game_client.create_mouseover_hint(Some(id.0), false),
-            None => self.game_client.create_mouseover_hint(None, true),
+            Some(id) => self.game_client.create_mouseover_hint(
+                Some(id.0),
+                false,
+                self.game_logic.get_frame(),
+            ),
+            None => self
+                .game_client
+                .create_mouseover_hint(None, true, self.game_logic.get_frame()),
         }
     }
 
@@ -1102,7 +1114,7 @@ impl CnCGameEngine {
             self.look_at_modes.views[slot] = Some(loc);
             self.camera_view_bookmarks[slot] = Some(loc.pos);
             let msg = lookat_bookmark_message(slot + 1);
-            self.game_hud_mut().push_info_message(&msg);
+            self.host_push_info_message(&msg);
         } else if let Some(loc) = self.look_at_modes.views[slot] {
             if let Err(error) =
                 self.apply_native_camera_location(loc.pos, loc.yaw, loc.pitch, loc.zoom)

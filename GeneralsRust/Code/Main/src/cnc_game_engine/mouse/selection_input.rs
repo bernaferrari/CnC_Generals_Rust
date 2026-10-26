@@ -12,7 +12,10 @@ impl CnCGameEngine {
         self.left_click_release_behavior = LeftMouseReleaseBehavior::Selection;
         #[cfg(feature = "game_client")]
         {
-            game_client::helpers::TheInGameUI::set_selecting(false);
+            self.game_client
+                .in_game_ui_subsystem_mut()
+                .expect("receiving InGameUI initialized")
+                .set_selecting(false);
         }
     }
 
@@ -30,7 +33,11 @@ impl CnCGameEngine {
         }
         #[cfg(feature = "game_client")]
         {
-            return game_client::helpers::TheInGameUI::is_quit_menu_visible()
+            return self
+                .game_client
+                .in_game_ui_subsystem()
+                .expect("receiving InGameUI initialized")
+                .is_quit_menu_visible()
                 || self.game_client.quit_menu_visible();
         }
         #[cfg(not(feature = "game_client"))]
@@ -73,10 +80,14 @@ impl CnCGameEngine {
         )
     }
 
-    pub(in crate::cnc_game_engine) fn sync_host_selecting_flag(&self) {
+    pub(in crate::cnc_game_engine) fn sync_host_selecting_flag(&mut self) {
         #[cfg(feature = "game_client")]
         {
-            game_client::helpers::TheInGameUI::set_selecting(self.host_is_selecting());
+            let selecting = self.host_is_selecting();
+            self.game_client
+                .in_game_ui_subsystem_mut()
+                .expect("receiving InGameUI initialized")
+                .set_selecting(selecting);
         }
     }
 
@@ -84,7 +95,10 @@ impl CnCGameEngine {
         self.game_hud_mut()
             .construction_panel
             .rotate_structure_placement(angle);
-        game_client::helpers::TheInGameUI::set_placement_angle(angle);
+        self.game_client
+            .in_game_ui_subsystem_mut()
+            .expect("receiving InGameUI initialized")
+            .set_placement_angle(angle);
     }
 
     /// C++ `W3DView::screenToTerrain` analog through the live WGPU camera.
@@ -115,7 +129,11 @@ impl CnCGameEngine {
     /// C++ `PlaceEventTranslator.cpp:68-75` — `findObjectByID` of the pending
     /// place source. Dead/sold/missing builder cancels instead of anchoring.
     fn pending_place_builder_is_gone(&self) -> bool {
-        let builder_id = game_client::helpers::TheInGameUI::get_pending_place_source_object_id();
+        let builder_id = self
+            .game_client
+            .in_game_ui_subsystem()
+            .expect("receiving InGameUI initialized")
+            .get_pending_place_source_object_id();
         if builder_id == 0 {
             return true;
         }
@@ -143,7 +161,10 @@ impl CnCGameEngine {
             self.mouse_position.0 as i32,
             self.mouse_position.1 as i32,
         );
-        game_client::helpers::TheInGameUI::set_placement_end(Some(end));
+        self.game_client
+            .in_game_ui_subsystem_mut()
+            .expect("receiving InGameUI initialized")
+            .set_placement_end(Some(end));
         let start_world = self
             .screen_to_terrain(start)
             .or(self.selection_start)
@@ -185,7 +206,10 @@ impl CnCGameEngine {
                     self.mouse_position.0 as i32,
                     self.mouse_position.1 as i32,
                 );
-                game_client::helpers::TheInGameUI::set_placement_start(Some(start));
+                self.game_client
+                    .in_game_ui_subsystem_mut()
+                    .expect("receiving InGameUI initialized")
+                    .set_placement_start(Some(start));
                 return;
             }
         }
@@ -523,7 +547,14 @@ impl CnCGameEngine {
             self.host_process_commands_with_command_sound();
         }
         #[cfg(feature = "game_client")]
-        game_client::helpers::TheInGameUI::trigger_double_click_attack_move_guard_hint();
+        self.game_client
+            .in_game_ui_subsystem_mut()
+            .expect("receiving InGameUI initialized")
+            .trigger_double_click_attack_move_guard_hint((
+                self.mouse_world_position.x,
+                self.mouse_world_position.z,
+                self.mouse_world_position.y,
+            ));
         true
     }
 
@@ -651,7 +682,7 @@ impl CnCGameEngine {
 
         if similar_units.is_empty() {
             // C++ InGameUI::selectMatchingAcrossScreen/Map: empty seed → GUI:NothingSelected.
-            self.game_hud_mut().push_info_message("GUI:NothingSelected");
+            self.host_push_info_message("GUI:NothingSelected");
             return;
         }
         let selection = if shift_down {
@@ -666,7 +697,7 @@ impl CnCGameEngine {
         } else {
             "GUI:SelectedAcrossScreen"
         };
-        self.game_hud_mut().push_info_message(msg);
+        self.host_push_info_message(msg);
         info!(
             "Selected {} similar units ({})",
             self.selected_objects.len(),
@@ -785,7 +816,10 @@ impl CnCGameEngine {
                     self.mouse_position.0 as i32,
                     self.mouse_position.1 as i32,
                 );
-                game_client::helpers::TheInGameUI::set_placement_end(Some(end_px));
+                self.game_client
+                    .in_game_ui_subsystem_mut()
+                    .expect("receiving InGameUI initialized")
+                    .set_placement_end(Some(end_px));
                 self.apply_structure_placement_angle(dz.atan2(dx));
             }
             if Self::is_wall_structure_template(&template)

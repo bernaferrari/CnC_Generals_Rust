@@ -7,7 +7,6 @@
 
 use super::game_message::*;
 use log::{debug, error, info, warn};
-use std::cell::RefCell;
 use std::collections::LinkedList;
 use std::sync::{Arc, RwLock};
 
@@ -18,10 +17,6 @@ pub enum GameMessageDisposition {
     KeepMessage,
     /// Destroy this message immediately and don't hand it to any other translators
     DestroyMessage,
-}
-
-thread_local! {
-    static EMITTED_MESSAGES: RefCell<Vec<GameMessage>> = RefCell::new(Vec::new());
 }
 
 type CommandListAppendFn = dyn Fn(Vec<GameMessage>) + Send + Sync + 'static;
@@ -47,20 +42,6 @@ fn deliver_surviving_messages_to_command_list(messages: &[GameMessage]) {
             append_fn(messages.to_vec());
         }
     }
-}
-
-/// Emit a new message from inside a translator.
-pub fn emit_message(message: GameMessage) {
-    EMITTED_MESSAGES.with(|slot| slot.borrow_mut().push(message));
-}
-
-/// Drain translator-emitted messages for custom propagation pipelines.
-///
-/// `MessageStream::propagate_messages` uses this internally. The input processor
-/// also consumes it to mirror C++ raw-input translation order without routing
-/// through the global stream object.
-pub fn take_emitted_messages() -> Vec<GameMessage> {
-    EMITTED_MESSAGES.with(|slot| slot.borrow_mut().drain(..).collect())
 }
 
 /// A source translator's synchronous operation on its receiving presentation.
@@ -95,9 +76,40 @@ pub enum UiInputAction {
     ActivateHotKey(u32),
 }
 
+/// Original camera values observed at a synchronous input boundary.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct CameraLocation {
+    pub position: [f32; 3],
+    pub angle: f32,
+    pub pitch: f32,
+    pub zoom: f32,
+    pub valid: bool,
+}
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct CameraInputObservation {
+    pub width: i32,
+    pub height: i32,
+    pub location: CameraLocation,
+    pub movement_finished: bool,
+}
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CameraInputAction {
+    Observe,
+    SetMouseLock(bool),
+    ClearTracking,
+    Scroll { x: f32, y: f32 },
+    Rotate(f32),
+    Pitch(f32),
+    ZoomIn,
+    ZoomOut,
+    ResetPose,
+    SetLocation(CameraLocation),
+}
+
 /// One native window input operation requested by the WindowTranslator.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WindowInputDispatch {
+    Camera(CameraInputAction),
     OpaqueWindowAtScreen {
         x: i32,
         y: i32,
@@ -118,8 +130,9 @@ pub enum WindowInputDispatch {
 }
 
 /// Result returned by the receiving WindowManager for one input operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WindowInputDispatchResult {
+    Camera(CameraInputObservation),
     OpaqueWindow(bool),
     Display(bool),
     Ui(bool),
@@ -146,19 +159,28 @@ pub enum PropagationProgress {
 }
 
 /// Borrowed receiver context supplied by the driving GameClient for one stream pass.
-pub type WindowInputDispatchFn<'a> =
-    dyn FnMut(WindowInputDispatch, &mut Vec<GameMessage>) -> Option<WindowInputDispatchResult> + 'a;
+pub type WindowInputDispatchFn<'a> = dyn FnMut(
+        WindowInputDispatch,
+        &mut Vec<GameMessage>,
+        &mut dyn std::any::Any,
+    ) -> Option<WindowInputDispatchResult>
+    + 'a;
 
 /// Read-only facts from the client driving this input operation.
 /// A fresh standalone stream starts at frame zero with an inactive Shell.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct TranslatorClientObservation {
     pub frame: u32,
+    pub logic_frame: u32,
+    pub game_mode: i32,
     pub shell_active: bool,
 }
 
 /// Trait for game message translators
 pub trait GameMessageTranslator: Send + Sync {
+    fn requires_receiving_camera_context(&self) -> bool {
+        false
+    }
     /// Stateful GUI translators require an explicit synchronous receiving driver.
     fn requires_receiving_window_context(&self) -> bool {
         false
@@ -173,6 +195,7 @@ pub trait GameMessageTranslator: Send + Sync {
         _client: TranslatorClientObservation,
         _dispatch_window_input: &mut WindowInputDispatchFn<'_>,
         _emitted_messages: &mut Vec<GameMessage>,
+        _client_ui: &mut dyn std::any::Any,
     ) -> GameMessageDisposition {
         self.translate_game_message(msg)
     }
@@ -409,20 +432,23 @@ impl MessageStream {
             }
         }
 
-        let mut no_window_dispatch = |_: WindowInputDispatch, _: &mut Vec<GameMessage>| None;
-        self.propagate_messages_with_context(&mut no_window_dispatch)
+        let mut no_window_dispatch =
+            |_: WindowInputDispatch, _: &mut Vec<GameMessage>, _: &mut dyn std::any::Any| None;
+        self.propagate_messages_with_context(&mut no_window_dispatch, &mut ())
     }
 
     /// Propagate using the driving client's synchronous window dispatcher.
     pub fn propagate_messages_with_context(
         &mut self,
         dispatch_window_input: &mut WindowInputDispatchFn<'_>,
+        client_ui: &mut dyn std::any::Any,
     ) -> Result<Vec<GameMessage>, Box<dyn std::error::Error>> {
         match self.propagate_messages_until_host_boundary(
             dispatch_window_input,
             None,
             &mut || false,
             &mut || Some(TranslatorClientObservation::default()),
+            client_ui,
         )? {
             PropagationProgress::Complete(messages) => Ok(messages),
             PropagationProgress::HostBoundary(_) => {
@@ -437,9 +463,30 @@ impl MessageStream {
         cursor: Option<PropagationCursor>,
         should_yield: &mut dyn FnMut() -> bool,
         observe_client: &mut dyn FnMut() -> Option<TranslatorClientObservation>,
+        client_ui: &mut dyn std::any::Any,
     ) -> Result<PropagationProgress, Box<dyn std::error::Error>> {
-        if cursor.is_none() {
-            let _ = take_emitted_messages();
+        // A missing standalone camera is a configuration error before any
+        // translator can mutate its UI or consume input. Native-hosted clients
+        // do not register the classic camera translator.
+        for entry in &self.translators {
+            let translator = entry.translator.read().map_err(|error| {
+                std::io::Error::other(format!("translator lock poisoned: {error}"))
+            })?;
+            if translator.requires_receiving_camera_context() {
+                let observed = dispatch_window_input(
+                    WindowInputDispatch::Camera(CameraInputAction::Observe),
+                    &mut Vec::new(),
+                    client_ui,
+                );
+                if !matches!(observed, Some(WindowInputDispatchResult::Camera(_))) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "standalone camera translation requires its receiving View",
+                    )
+                    .into());
+                }
+                break;
+            }
         }
 
         debug!(
@@ -475,6 +522,7 @@ impl MessageStream {
                         client,
                         dispatch_window_input,
                         &mut emitted,
+                        client_ui,
                     ),
                     Err(e) => {
                         error!("Failed to acquire translator lock: {}", e);
@@ -482,9 +530,6 @@ impl MessageStream {
                     }
                 };
 
-                // Legacy translators still emit through the compatibility helper. Drain it at
-                // the same per-translator/per-message boundary and append after borrowed emits.
-                emitted.extend(take_emitted_messages());
                 if !emitted.is_empty() {
                     // C++ appends to the list tail; later iterations of this
                     // translator's pass see the newly appended messages.
@@ -875,10 +920,20 @@ mod tests {
     }
 
     impl GameMessageTranslator for EmittingTranslator {
-        fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+        fn translate_game_message(&mut self, _msg: &GameMessage) -> GameMessageDisposition {
+            panic!("emitting translator requires its receiving sink")
+        }
+        fn translate_game_message_with_context(
+            &mut self,
+            msg: &GameMessage,
+            _client: TranslatorClientObservation,
+            _dispatch: &mut WindowInputDispatchFn<'_>,
+            emitted: &mut Vec<GameMessage>,
+            _ui: &mut dyn std::any::Any,
+        ) -> GameMessageDisposition {
             self.seen.push(msg.get_type().clone());
             if std::mem::discriminant(msg.get_type()) == std::mem::discriminant(&self.emit_on) {
-                emit_message(GameMessage::new(self.emitted.clone()));
+                emitted.push(GameMessage::new(self.emitted.clone()));
             }
             GameMessageDisposition::KeepMessage
         }

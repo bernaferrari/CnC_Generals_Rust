@@ -3,17 +3,19 @@
 use super::game_message::{
     Coord3D, GameMessage, GameMessageArgumentType, GameMessageType, ICoord2D,
 };
-use super::message_stream::{
-    GameMessageDisposition, GameMessageTranslator, emit_message, take_emitted_messages,
+use super::message_stream::{GameMessageDisposition, GameMessageTranslator};
+#[cfg(test)]
+use crate::display::view::{with_tactical_view, with_tactical_view_ref};
+use game_engine::common::message_stream::{
+    CameraInputAction, CameraInputObservation, CameraLocation,
 };
-use crate::display::view::{ViewLocation, with_tactical_view, with_tactical_view_ref};
+type CameraInputFn<'a> = dyn FnMut(CameraInputAction, &mut crate::message_stream::ReceivingUi<'_>) -> CameraInputObservation
+    + 'a;
 use crate::gui::MouseCursor;
-use crate::helpers::TheInGameUI;
+
 use game_engine::common::game_common::LOGICFRAMES_PER_SECOND;
 use game_engine::common::global_data;
 use game_engine::common::ini::ini_game_data::get_global_data;
-use game_engine::common::recorder::with_recorder;
-use gamelogic::helpers::TheGameLogic;
 
 const MAX_VIEW_LOCS: usize = 8;
 const SCROLL_AMT: f32 = 100.0;
@@ -68,7 +70,7 @@ pub struct LookAtTranslator {
     is_pitching: bool,
     is_changing_fov: bool,
     timestamp: u32,
-    view_location: [ViewLocation; MAX_VIEW_LOCS],
+    view_location: [CameraLocation; MAX_VIEW_LOCS],
     scroll_type: ScrollType,
     scroll_dir: [bool; 4],
     last_mouse_move_frame: u32,
@@ -80,16 +82,15 @@ pub struct LookAtTranslator {
     prev_cursor: MouseCursor,
 }
 
-fn should_emit_replay_camera() -> bool {
+fn should_emit_replay_camera(game_mode: i32, ui: &crate::message_stream::ReceivingUi<'_>) -> bool {
     if !global_data::read().save_camera_in_replay {
         return false;
     }
-    if with_recorder(|recorder| recorder.is_playback()).unwrap_or(false) {
+    if ui.recorder_playback_active() {
         return false;
     }
     // C++ LookAtXlat.cpp:459 — single-player or skirmish only.
-    let mode = TheGameLogic::get_game_mode();
-    mode == 0 || mode == 2
+    game_mode == 0 || game_mode == 2
 }
 impl LookAtTranslator {
     pub fn new() -> Self {
@@ -114,24 +115,35 @@ impl LookAtTranslator {
         self.scroll_type = ScrollType::None;
     }
 
-    fn set_scrolling(&mut self, scroll_type: ScrollType) {
-        if !TheInGameUI::get_input_enabled() {
+    fn set_scrolling(
+        &mut self,
+        scroll_type: ScrollType,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+        camera: &mut CameraInputFn<'_>,
+    ) {
+        if !ui.get_input_enabled() {
             return;
         }
         // C++ LookAtXlat.cpp:55-61: save cursor, setScrolling, setMouseLock.
-        self.prev_cursor = TheInGameUI::get_mouse_cursor();
+        self.prev_cursor = ui.get_mouse_cursor();
         self.is_scrolling = true;
         self.scroll_type = scroll_type;
-        TheInGameUI::set_scrolling(true);
-        with_tactical_view(|view| view.set_mouse_lock(true));
+        if ui.set_scrolling(true) {
+            camera(CameraInputAction::ClearTracking, ui);
+        }
+        camera(CameraInputAction::SetMouseLock(true), ui);
     }
 
-    fn stop_scrolling(&mut self) {
+    fn stop_scrolling(
+        &mut self,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+        camera: &mut CameraInputFn<'_>,
+    ) {
         self.is_scrolling = false;
         self.scroll_type = ScrollType::None;
-        TheInGameUI::set_scrolling(false);
-        with_tactical_view(|view| view.set_mouse_lock(false));
-        TheInGameUI::set_mouse_cursor(self.prev_cursor);
+        ui.set_scrolling(false);
+        camera(CameraInputAction::SetMouseLock(false), ui);
+        ui.set_mouse_cursor(self.prev_cursor);
     }
 
     fn update_scroll_dir(&mut self, key: u32, pressed: bool) {
@@ -159,16 +171,21 @@ impl LookAtTranslator {
         }
     }
 
-    fn handle_frame_tick(&mut self) {
+    fn handle_frame_tick(
+        &mut self,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+        camera: &mut CameraInputFn<'_>,
+        game_mode: i32,
+    ) {
         // Host Main update_camera drains take_look_at_reset_modes (doDisableInput).
-        let (display_width, display_height) =
-            with_tactical_view_ref(|view| (view.width(), view.height()));
+        let dimensions = camera(CameraInputAction::Observe, ui);
+        let (display_width, display_height) = (dimensions.width, dimensions.height);
         let (h_factor, v_factor, key_factor, _windowed, cutoff) = self.get_global_scroll_factors();
 
         let mut offset = Coord2D::zero();
-        if self.is_scrolling && !TheInGameUI::is_scrolling() {
-            TheInGameUI::set_scroll_amount(0.0, 0.0);
-            self.stop_scrolling();
+        if self.is_scrolling && !ui.is_scrolling() {
+            ui.set_scroll_amount(0.0, 0.0);
+            self.stop_scrolling(ui, camera);
         } else if self.is_scrolling {
             match self.scroll_type {
                 ScrollType::Rmb => {
@@ -219,56 +236,60 @@ impl LookAtTranslator {
                 }
             }
 
-            TheInGameUI::set_scroll_amount(offset.x, offset.y);
-            with_tactical_view(|view| {
-                view.scroll_by(&crate::display::view::Vector2::new(offset.x, offset.y));
-            });
+            ui.set_scroll_amount(offset.x, offset.y);
+            camera(
+                CameraInputAction::Scroll {
+                    x: offset.x,
+                    y: offset.y,
+                },
+                ui,
+            );
         } else {
-            TheInGameUI::set_scroll_amount(0.0, 0.0);
+            ui.set_scroll_amount(0.0, 0.0);
         }
 
-        with_tactical_view(|view| {
-            if self.rotate_left {
-                view.set_angle(view.angle() - 0.02);
-            }
-            if self.rotate_right {
-                view.set_angle(view.angle() + 0.02);
-            }
-            if self.zoom_in {
-                view.zoom_in();
-            }
-            if self.zoom_out {
-                view.zoom_out();
-            }
-        });
+        if self.rotate_left {
+            camera(CameraInputAction::Rotate(-0.02), ui);
+        }
+        if self.rotate_right {
+            camera(CameraInputAction::Rotate(0.02), ui);
+        }
+        if self.zoom_in {
+            camera(CameraInputAction::ZoomIn, ui);
+        }
+        if self.zoom_out {
+            camera(CameraInputAction::ZoomOut, ui);
+        }
 
         // C++ LookAtXlat.cpp:459-470 — record camera for skirmish/SP replays.
-        if should_emit_replay_camera() {
-            with_tactical_view_ref(|view| {
-                let loc = view.get_location();
-                let pos = loc.position();
-                let coord = Coord3D::new(pos.x, pos.y, pos.z);
-                let mut msg = GameMessage::new(GameMessageType::SetReplayCamera(
-                    coord.clone(),
-                    loc.angle(),
-                    loc.zoom(),
-                ));
-                msg.append_location_argument(coord);
-                msg.append_real_argument(loc.angle());
-                msg.append_real_argument(loc.pitch());
-                msg.append_real_argument(loc.zoom());
-                emit_message(msg);
-            });
+        if should_emit_replay_camera(game_mode, ui) {
+            let loc = camera(CameraInputAction::Observe, ui).location;
+            let pos = loc.position;
+            let coord = Coord3D::new(pos[0], pos[1], pos[2]);
+            let mut msg = GameMessage::new(GameMessageType::SetReplayCamera(
+                coord.clone(),
+                loc.angle,
+                loc.zoom,
+            ));
+            msg.append_location_argument(coord);
+            msg.append_real_argument(loc.angle);
+            msg.append_real_argument(loc.pitch);
+            msg.append_real_argument(loc.zoom);
+            ui.emit(msg);
         }
     }
 }
 
 impl GameMessageTranslator for LookAtTranslator {
+    fn requires_receiving_camera_context(&self) -> bool {
+        true
+    }
     fn requires_receiving_window_context(&self) -> bool {
         true
     }
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
-        self.translate_with_client(msg, Default::default())
+        log::error!("GUI message translator requires receiving UI context");
+        GameMessageDisposition::KeepMessage
     }
     fn translate_game_message_with_context(
         &mut self,
@@ -276,8 +297,26 @@ impl GameMessageTranslator for LookAtTranslator {
         client: game_engine::common::message_stream::TranslatorClientObservation,
         _dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
         _emitted: &mut Vec<GameMessage>,
+        client_ui: &mut dyn std::any::Any,
     ) -> GameMessageDisposition {
-        self.translate_with_client(msg, client)
+        let ui = &mut crate::message_stream::ReceivingUi::new(
+            client_ui
+                .downcast_mut::<crate::core::subsystems::InGameUISubsystem>()
+                .expect("message translator requires its receiving UI"),
+            client.logic_frame,
+            client.frame,
+        )
+        .with_emitter(_emitted);
+
+        self.translate_with_client(msg, client, ui, &mut |action, ui| match ui.dispatch(
+            _dispatch,
+            game_engine::common::message_stream::WindowInputDispatch::Camera(action),
+        ) {
+            Some(game_engine::common::message_stream::WindowInputDispatchResult::Camera(
+                observation,
+            )) => observation,
+            _ => panic!("camera translator requires receiving camera"),
+        })
     }
 }
 impl LookAtTranslator {
@@ -285,6 +324,8 @@ impl LookAtTranslator {
         &mut self,
         msg: &GameMessage,
         client: game_engine::common::message_stream::TranslatorClientObservation,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+        camera: &mut CameraInputFn<'_>,
     ) -> GameMessageDisposition {
         // Live drain is Main update_camera → apply_look_at_reset_modes.
         let msg_type = msg.get_type();
@@ -300,68 +341,63 @@ impl LookAtTranslator {
                 let pressed = (key_state & 0x0001) == 0;
                 self.update_scroll_dir(*key, pressed);
 
-                if TheInGameUI::is_selecting()
-                    || (self.is_scrolling && self.scroll_type != ScrollType::Key)
-                {
+                if ui.is_selecting() || (self.is_scrolling && self.scroll_type != ScrollType::Key) {
                     return GameMessageDisposition::KeepMessage;
                 }
 
                 let num_dirs = self.scroll_dir.iter().filter(|&&dir| dir).count();
                 if num_dirs > 0 && !self.is_scrolling {
-                    self.set_scrolling(ScrollType::Key);
+                    self.set_scrolling(ScrollType::Key, ui, camera);
                 } else if num_dirs == 0 && self.is_scrolling {
-                    self.stop_scrolling();
+                    self.stop_scrolling(ui, camera);
                 }
             }
             GameMessageType::RawMouseRightButtonDown(pos, ..) => {
-                self.last_mouse_move_frame = TheGameLogic::get_frame();
+                self.last_mouse_move_frame = ui.logic_frame;
                 self.anchor = pos.clone();
                 self.current_pos = pos.clone();
-                if !TheInGameUI::is_selecting() && !self.is_scrolling {
-                    self.set_scrolling(ScrollType::Rmb);
+                if !ui.is_selecting() && !self.is_scrolling {
+                    self.set_scrolling(ScrollType::Rmb, ui, camera);
                 }
             }
             GameMessageType::RawMouseRightButtonUp(..) => {
-                self.last_mouse_move_frame = TheGameLogic::get_frame();
+                self.last_mouse_move_frame = ui.logic_frame;
                 if self.scroll_type == ScrollType::Rmb {
-                    self.stop_scrolling();
+                    self.stop_scrolling(ui, camera);
                 }
             }
             GameMessageType::RawMouseMiddleButtonDown(pos, ..) => {
-                self.last_mouse_move_frame = TheGameLogic::get_frame();
+                self.last_mouse_move_frame = ui.logic_frame;
                 self.is_rotating = true;
                 self.anchor = pos.clone();
                 self.original_anchor = pos.clone();
                 self.current_pos = pos.clone();
-                self.timestamp = TheGameLogic::get_frame();
+                self.timestamp = ui.logic_frame;
             }
             GameMessageType::RawMouseMiddleButtonUp(..) => {
-                self.last_mouse_move_frame = TheGameLogic::get_frame();
+                self.last_mouse_move_frame = ui.logic_frame;
                 self.is_rotating = false;
                 let dx = (self.current_pos.x - self.original_anchor.x).abs();
                 let dy = (self.current_pos.y - self.original_anchor.y).abs();
                 let did_move = dx > MMB_CLICK_PIXEL_OFFSET || dy > MMB_CLICK_PIXEL_OFFSET;
-                let is_short_click = TheGameLogic::get_frame().wrapping_sub(self.timestamp)
-                    < MMB_CLICK_DURATION_FRAMES;
+                let is_short_click =
+                    ui.logic_frame.wrapping_sub(self.timestamp) < MMB_CLICK_DURATION_FRAMES;
                 if !did_move && is_short_click {
-                    with_tactical_view(|view| {
-                        view.set_angle_and_pitch_to_default();
-                        view.set_zoom_to_default();
-                    });
+                    camera(CameraInputAction::ResetPose, ui);
                 }
             }
             GameMessageType::RawMousePosition(pos) => {
                 if self.current_pos.x != pos.x || self.current_pos.y != pos.y {
-                    self.last_mouse_move_frame = TheGameLogic::get_frame();
+                    self.last_mouse_move_frame = ui.logic_frame;
                 }
                 self.current_pos = pos.clone();
 
-                let (display_width, display_height) =
-                    with_tactical_view_ref(|view| (view.width(), view.height()));
+                let dimensions = camera(CameraInputAction::Observe, ui);
+                let (display_width, display_height) = (dimensions.width, dimensions.height);
                 let (_, _, _, windowed, _) = self.get_global_scroll_factors();
-                if !TheInGameUI::get_input_enabled() {
+                if !ui.get_input_enabled() {
                     if self.is_scrolling {
-                        self.stop_scrolling();
+                        self.stop_scrolling(ui, camera);
                     }
                     return GameMessageDisposition::KeepMessage;
                 }
@@ -374,47 +410,47 @@ impl LookAtTranslator {
                             && self.current_pos.y < display_height - EDGE_SCROLL_SIZE
                             && self.current_pos.x < display_width - EDGE_SCROLL_SIZE
                         {
-                            self.stop_scrolling();
+                            self.stop_scrolling(ui, camera);
                         }
                     } else if self.current_pos.x < EDGE_SCROLL_SIZE
                         || self.current_pos.y < EDGE_SCROLL_SIZE
                         || self.current_pos.y >= display_height - EDGE_SCROLL_SIZE
                         || self.current_pos.x >= display_width - EDGE_SCROLL_SIZE
                     {
-                        self.set_scrolling(ScrollType::ScreenEdge);
+                        self.set_scrolling(ScrollType::ScreenEdge, ui, camera);
                     }
                 }
 
                 if self.is_rotating {
                     let delta = (self.current_pos.x - self.anchor.x) as f32 * 0.01;
-                    with_tactical_view(|view| view.set_angle(view.angle() + delta));
+                    camera(CameraInputAction::Rotate(delta), ui);
                     self.anchor = pos.clone();
                 }
                 if self.is_pitching {
                     let delta = (self.current_pos.y - self.anchor.y) as f32 * 0.01;
-                    with_tactical_view(|view| view.set_pitch(view.pitch() + delta));
+                    camera(CameraInputAction::Pitch(delta), ui);
                     self.anchor = pos.clone();
                 }
             }
             GameMessageType::RawMouseWheel(spin) => {
-                self.last_mouse_move_frame = TheGameLogic::get_frame();
+                self.last_mouse_move_frame = ui.logic_frame;
                 if *spin > 0 {
                     for _ in 0..*spin {
-                        with_tactical_view(|view| view.zoom_in());
+                        camera(CameraInputAction::ZoomIn, ui);
                     }
                 } else if *spin < 0 {
                     for _ in 0..(-*spin) {
-                        with_tactical_view(|view| view.zoom_out());
+                        camera(CameraInputAction::ZoomOut, ui);
                     }
                 }
                 // C++ LookAtXlat.cpp:333-358 falls through into MSG_META_OPTIONS.
-                self.stop_scrolling();
+                self.stop_scrolling(ui, camera);
             }
             GameMessageType::MetaOptions => {
-                self.stop_scrolling();
+                self.stop_scrolling(ui, camera);
             }
             GameMessageType::FrameTick(..) => {
-                self.handle_frame_tick();
+                self.handle_frame_tick(ui, camera, client.game_mode);
             }
             GameMessageType::MetaBeginCameraRotateLeft => {
                 self.rotate_left = true;
@@ -450,31 +486,28 @@ impl LookAtTranslator {
             }
             GameMessageType::MetaCameraReset => {
                 // C++ InGameUI::resetCamera keeps look-at and restores default pose.
-                with_tactical_view(|view| {
-                    view.set_angle_and_pitch_to_default();
-                    view.set_zoom_to_default();
-                });
+                camera(CameraInputAction::ResetPose, ui);
                 return GameMessageDisposition::DestroyMessage;
             }
             GameMessageType::MetaSaveView(slot) => {
                 let index = (*slot as usize).saturating_sub(1);
                 if index < self.view_location.len() {
-                    self.view_location[index] = with_tactical_view_ref(|view| view.get_location());
+                    self.view_location[index] = camera(CameraInputAction::Observe, ui).location;
                     let template = crate::game_text::GameText::fetch("GUI:BookmarkXSet");
                     let msg = if template.contains("%d") {
                         template.replacen("%d", &(*slot).to_string(), 1)
                     } else {
                         format!("{template} {slot}")
                     };
-                    TheInGameUI::message(&msg);
+                    ui.message(&msg);
                 }
                 return GameMessageDisposition::DestroyMessage;
             }
             GameMessageType::MetaViewView(slot) => {
                 let index = (*slot as usize).saturating_sub(1);
-                if index < self.view_location.len() && self.view_location[index].is_valid() {
+                if index < self.view_location.len() && self.view_location[index].valid {
                     let location = self.view_location[index].clone();
-                    with_tactical_view(|view| view.set_location(&location));
+                    camera(CameraInputAction::SetLocation(location), ui);
                 }
                 return GameMessageDisposition::DestroyMessage;
             }
@@ -483,17 +516,20 @@ impl LookAtTranslator {
             }
             GameMessageType::SetReplayCamera(pos, angle, zoom) => {
                 // C++ GameLogicDispatch.cpp:1801-1825 applies only during playback.
-                let playback = with_recorder(|recorder| recorder.is_playback()).unwrap_or(false);
+                let playback = ui.recorder_playback_active();
                 let use_camera = global_data::read().use_camera_in_replay;
                 if playback && use_camera {
-                    with_tactical_view(|view| {
-                        if view.is_camera_movement_finished() {
-                            let pitch = view.pitch();
-                            let mut location = ViewLocation::new();
-                            location.init(pos.x, pos.y, pos.z, *angle, pitch, *zoom);
-                            view.set_location(&location);
-                        }
-                    });
+                    let observed = camera(CameraInputAction::Observe, ui);
+                    if observed.movement_finished {
+                        let location = CameraLocation {
+                            position: [pos.x, pos.y, pos.z],
+                            angle: *angle,
+                            pitch: observed.location.pitch,
+                            zoom: *zoom,
+                            valid: true,
+                        };
+                        camera(CameraInputAction::SetLocation(location), ui);
+                    };
                 }
             }
             _ => {}
@@ -595,29 +631,33 @@ mod tests {
 
     #[test]
     fn frame_tick_emits_set_replay_camera_for_skirmish_when_save_flag() {
-        // C++ LookAtXlat.cpp:459-467 appends MSG_SET_REPLAY_CAMERA on FrameTick.
+        // C++ LookAtXlat.cpp:459-467 appends camera to this source pass only.
         let previous = global_data::read().save_camera_in_replay;
         global_data::write().save_camera_in_replay = true;
-        let _ = take_emitted_messages();
-        let mut translator = LookAtTranslator::new();
-        let _ = translator.translate_game_message(&GameMessage::new(GameMessageType::FrameTick(1)));
-        let emitted = take_emitted_messages();
-        global_data::write().save_camera_in_replay = previous;
-        let mode = TheGameLogic::get_game_mode();
-        if mode == 0 || mode == 2 {
-            assert!(
+        for mode in [0, 2, 3] {
+            let mut state = crate::core::subsystems::InGameUISubsystem::default();
+            let mut view = crate::display::view::View::new();
+            let mut emitted = Vec::new();
+            let mut ui = crate::message_stream::ReceivingUi::new(&mut state, 1, 1)
+                .with_emitter(&mut emitted);
+            let mut translator = LookAtTranslator::new();
+            translator.handle_frame_tick(
+                &mut ui,
+                &mut |action, _| {
+                    crate::gui::callbacks::control_bar_callbacks::apply_camera_input(
+                        &mut view, action,
+                    )
+                },
+                mode,
+            );
+            drop(ui);
+            assert_eq!(
                 emitted
                     .iter()
                     .any(|msg| matches!(msg.get_type(), GameMessageType::SetReplayCamera(..))),
-                "skirmish/SP FrameTick must emit MSG_SET_REPLAY_CAMERA"
-            );
-        } else {
-            assert!(
-                emitted
-                    .iter()
-                    .all(|msg| !matches!(msg.get_type(), GameMessageType::SetReplayCamera(..))),
-                "non-skirmish/SP must not emit MSG_SET_REPLAY_CAMERA"
+                mode == 0 || mode == 2
             );
         }
+        global_data::write().save_camera_in_replay = previous;
     }
 }

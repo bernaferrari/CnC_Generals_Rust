@@ -21,14 +21,15 @@ impl GUICommandTranslator {
     pub(super) fn handle_toggle_control_bar(
         &mut self,
         dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
-        emitted: &mut Vec<GameMessage>,
+
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Vec<GameMessageType> {
         let new_state = self.toggle_flag("control_bar_visible", true);
         info!("Toggling control bar to: {}", new_state);
         if !crate::message_stream::meta_event::dispatch_ui_input(
             game_engine::common::message_stream::UiInputAction::ToggleControlBar,
             dispatch,
-            emitted,
+            ui,
         ) {
             warn!("Receiving control-bar operation did not complete");
         }
@@ -38,17 +39,18 @@ impl GUICommandTranslator {
     pub(super) fn handle_toggle_diplomacy(
         &mut self,
         dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
-        emitted: &mut Vec<GameMessage>,
+
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Vec<GameMessageType> {
         let new_state = self.toggle_flag("diplomacy_visible", false);
         info!("Toggling diplomacy to: {}", new_state);
-        let result = dispatch(
+        let result = ui.dispatch(
+            dispatch,
             game_engine::common::message_stream::WindowInputDispatch::Ui(
                 game_engine::common::message_stream::UiInputAction::ToggleDiplomacy {
                     immediate: false,
                 },
             ),
-            emitted,
         );
         if result != Some(game_engine::common::message_stream::WindowInputDispatchResult::Ui(true))
         {
@@ -57,18 +59,22 @@ impl GUICommandTranslator {
         vec![]
     }
 
-    pub(super) fn clear_pending_gui_command_mode(&self) {
-        TheInGameUI::clear_pending_command();
-        TheInGameUI::clear_pending_special_power();
-        TheInGameUI::clear_attack_move_to_mode();
+    pub(super) fn clear_pending_gui_command_mode(
+        &self,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) {
+        ui.clear_pending_command();
+        ui.clear_pending_special_power();
+        ui.clear_attack_move_to_mode();
     }
 
     pub(super) fn handle_pending_non_context_gui_click(
         &mut self,
         region: &IRegion2D,
-        window_query: &mut dyn FnMut(i32, i32) -> bool,
+        window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> GameMessageDisposition {
-        let Some(pending) = TheInGameUI::get_pending_command() else {
+        let Some(pending) = ui.get_pending_command() else {
             return GameMessageDisposition::KeepMessage;
         };
         if !is_pending_gui_non_context_command(&pending) {
@@ -101,8 +107,9 @@ impl GUICommandTranslator {
             &click_region,
             local_player_u32,
             &selection_ids,
-            TheInGameUI::is_in_force_attack_mode(),
+            ui.is_in_force_attack_mode(),
             window_query,
+            ui,
         );
 
         let mut translated: Vec<GameMessageType> = Vec::new();
@@ -114,9 +121,10 @@ impl GUICommandTranslator {
                     local_player_u32,
                     &selection_ids,
                     target_id,
+                    ui,
                 )
             {
-                if let Some(message) = pending_command_for_object(&pending, target_id) {
+                if let Some(message) = pending_command_for_object(&pending, target_id, ui) {
                     translated.push(message);
                 }
             }
@@ -131,12 +139,14 @@ impl GUICommandTranslator {
                             &selection_ids,
                             &position,
                             Some(target_id),
+                            ui,
                         ) {
                             translated = pending_command_messages_for_position(
                                 &pending,
                                 position,
                                 &selection_ids,
                                 Some(target_id),
+                                ui,
                             );
                         }
                     }
@@ -149,10 +159,11 @@ impl GUICommandTranslator {
                 &selection_ids,
                 &world,
                 None,
+                ui,
             )
         {
             translated =
-                pending_command_messages_for_position(&pending, world, &selection_ids, None);
+                pending_command_messages_for_position(&pending, world, &selection_ids, None, ui);
         }
 
         for message in &translated {
@@ -161,9 +172,9 @@ impl GUICommandTranslator {
 
         // C++ GUICommandTranslator suppresses one alternate-mouse blank-click deselect
         // after completing a non-context GUI command.
-        TheInGameUI::set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(true);
+        ui.set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(true);
         // Non-context GUI command clicks complete this mode even when target validation fails.
-        self.clear_pending_gui_command_mode();
+        self.clear_pending_gui_command_mode(ui);
         GameMessageDisposition::DestroyMessage
     }
 }
@@ -185,11 +196,21 @@ impl GameMessageTranslator for GUICommandTranslator {
     fn translate_game_message_with_context(
         &mut self,
         msg: &GameMessage,
-        _client: game_engine::common::message_stream::TranslatorClientObservation,
+        client: game_engine::common::message_stream::TranslatorClientObservation,
         dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
         emitted: &mut Vec<GameMessage>,
+        client_ui: &mut dyn std::any::Any,
     ) -> GameMessageDisposition {
-        if let Some(pending) = TheInGameUI::get_pending_command() {
+        let ui = &mut crate::message_stream::ReceivingUi::new(
+            client_ui
+                .downcast_mut::<crate::core::subsystems::InGameUISubsystem>()
+                .expect("message translator requires its receiving UI"),
+            client.logic_frame,
+            client.frame,
+        )
+        .with_emitter(emitted);
+
+        if let Some(pending) = ui.get_pending_command() {
             if is_pending_gui_non_context_command(&pending) {
                 match msg.get_type() {
                     // Consume raw left input while in pending GUI command mode so selection
@@ -200,15 +221,18 @@ impl GameMessageTranslator for GUICommandTranslator {
                     }
                     GameMessageType::MouseLeftClick(region, _)
                     | GameMessageType::MouseLeftDoubleClick(region, _) => {
-                        let mut window_query = |x, y| {
-                            match dispatch(
-                            game_engine::common::message_stream::WindowInputDispatch::OpaqueWindowAtScreen { x, y }, emitted) {
+                        let mut window_query =
+                            |x, y, ui: &mut crate::message_stream::ReceivingUi<'_>| {
+                                match ui.dispatch(dispatch, game_engine::common::message_stream::WindowInputDispatch::OpaqueWindowAtScreen { x, y }) {
                             Some(game_engine::common::message_stream::WindowInputDispatchResult::OpaqueWindow(blocked)) => blocked,
                             _ => panic!("receiving GUI query returned an invalid response"),
                         }
-                        };
-                        return self
-                            .handle_pending_non_context_gui_click(region, &mut window_query);
+                            };
+                        return self.handle_pending_non_context_gui_click(
+                            region,
+                            &mut window_query,
+                            ui,
+                        );
                     }
                     _ => {}
                 }
@@ -217,11 +241,11 @@ impl GameMessageTranslator for GUICommandTranslator {
 
         match msg.get_type() {
             GameMessageType::MetaToggleControlBar => {
-                self.handle_toggle_control_bar(dispatch, emitted);
+                self.handle_toggle_control_bar(dispatch, ui);
                 GameMessageDisposition::DestroyMessage
             }
             GameMessageType::MetaDiplomacy => {
-                self.handle_toggle_diplomacy(dispatch, emitted);
+                self.handle_toggle_diplomacy(dispatch, ui);
                 GameMessageDisposition::DestroyMessage
             }
             GameMessageType::MetaOptions => {
@@ -229,7 +253,7 @@ impl GameMessageTranslator for GUICommandTranslator {
                 crate::message_stream::meta_event::dispatch_ui_input(
                     game_engine::common::message_stream::UiInputAction::ToggleQuitMenu,
                     dispatch,
-                    emitted,
+                    ui,
                 );
                 GameMessageDisposition::DestroyMessage
             }

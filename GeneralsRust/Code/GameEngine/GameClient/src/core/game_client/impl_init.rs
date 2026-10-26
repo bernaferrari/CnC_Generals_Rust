@@ -30,6 +30,14 @@ impl GameClient {
 
     /// Creates a new GameClient instance
     pub fn new() -> GameClientResult<Self> {
+        Self::new_with_input_authority(ClientInputAuthority::StandaloneCore)
+    }
+
+    /// Construction chooses the runtime owner but installs no translators or
+    /// global state. The role remains fixed for this client's lifetime.
+    pub fn new_with_input_authority(
+        input_authority: ClientInputAuthority,
+    ) -> GameClientResult<Self> {
         let window_manager_owner = WindowManagerOwner::new();
         let client = Self {
             window_manager_owner,
@@ -42,6 +50,7 @@ impl GameClient {
             ime: crate::gui::ime_manager::ImeManager::new(),
             script_display: crate::core::script_action_handler::ScriptDisplayReceiver::default(),
             message_stream: crate::message_stream::message_stream::MessageStream::new(),
+            input_authority,
             shell_game_first_load: true,
             window_videos: crate::gui::window_video_manager::ClientWindowVideos::new(),
             load_screen_runtime: crate::gui::load_screen::LoadScreenRuntime::default(),
@@ -254,15 +263,6 @@ impl GameClient {
     }
 
     fn try_invalidate_presentation_drawable_world(&mut self) -> GameClientResult<()> {
-        // Do not retire the live native world if its transport cannot be
-        // cleared. Release the UI loan before native particle callbacks.
-        if let Some(ui) = &self.subsystem_manager.in_game_ui {
-            drop(ui.lock().map_err(|_| {
-                GameClientError::SubsystemError(
-                    "UI lock poisoned before world-animation retirement".into(),
-                )
-            })?);
-        }
         self.retire_native_drawable_particles(None)?;
         self.drawables.finish_native_retirement();
         self.invalidate_presentation_shell();
@@ -287,20 +287,9 @@ impl GameClient {
     }
 
     fn clear_world_animation_runtime_after_retirement(&mut self) -> GameClientResult<()> {
-        let ui = self
-            .subsystem_manager
-            .in_game_ui
-            .as_ref()
-            .map(|ui| {
-                ui.lock().map_err(|_| {
-                    GameClientError::SubsystemError(
-                        "UI lock poisoned after world-animation retirement".into(),
-                    )
-                })
-            })
-            .transpose()?;
+        let ui = self.subsystem_manager.in_game_ui.as_mut();
         self.owned_world_animations.clear_runtime();
-        if let Some(mut ui) = ui {
+        if let Some(ui) = ui {
             ui.replace_world_anims_from_presentation(&[]);
         }
         Ok(())
@@ -857,11 +846,9 @@ impl GameClient {
         if self.subsystem_manager.in_game_ui.is_none() {
             let mut ui = InGameUISubsystem::default();
             ui.init()?;
-            let ui_arc = Arc::new(Mutex::new(ui));
-            register_in_game_ui_backend(Arc::new(InGameUiHandle::new(ui_arc.clone())));
-            crate::core::subsystems::register_in_game_ui_snapshot_block(ui_arc.clone());
-            register_radar_snapshot_block(ui_arc.clone());
-            self.subsystem_manager.in_game_ui = Some(ui_arc);
+            crate::core::subsystems::register_in_game_ui_snapshot_block();
+            register_radar_snapshot_block();
+            self.subsystem_manager.in_game_ui = Some(ui);
             // InGameUI.cpp1157 creates this authored transport during UI init;
             // Recorder::initControls later only changes existing visibility.
             self.with_window_event_effects(None, |effects| {
@@ -879,7 +866,6 @@ impl GameClient {
 
         crate::core::subsystems::register_tactical_view_snapshot_block();
 
-        crate::helpers::register_game_pause_restore_hooks();
         crate::helpers::register_observer_audio_locality_hooks();
         crate::helpers::register_observer_audio_view_hooks();
         crate::helpers::register_live_control_bar_hooks();
@@ -948,7 +934,11 @@ impl GameClient {
         register_translator(TranslatorFactory::create_place_event_translator(), 30);
         register_translator(TranslatorFactory::create_gui_command_translator(), 40);
         register_translator(TranslatorFactory::create_selection_translator(), 50);
-        register_translator(TranslatorFactory::create_look_at_translator(), 60);
+        // Main's physical/raw input and per-frame camera step already own
+        // the native view. Only standalone Core installs its LookAt state.
+        if self.input_authority.runs_core_look_at() {
+            register_translator(TranslatorFactory::create_look_at_translator(), 60);
+        }
 
         let command_translator = TranslatorFactory::create_command_translator();
         self.command_translator = Some(command_translator.clone());
@@ -1013,6 +1003,7 @@ impl GameClient {
         &mut crate::gui::window_video_manager::ClientWindowVideos,
         &mut crate::gui::ime_manager::ImeManager,
         crate::gui::callbacks::menu_callbacks::MenuCallbackRecipients<'_>,
+        Option<&mut crate::core::subsystems::InGameUISubsystem>,
     ) {
         self.script_display
             .bind(self.subsystem_manager.display.as_ref());
@@ -1025,6 +1016,7 @@ impl GameClient {
             &mut self.window_videos,
             &mut self.ime,
             self.menu_manager.receiving_menus(),
+            self.subsystem_manager.in_game_ui.as_mut(),
         )
     }
     pub fn main_menu(&self) -> &crate::gui::shell::main_menu::MainMenu {
@@ -1079,10 +1071,8 @@ impl GameClient {
         }
     }
     pub fn reset_receiving_menu_placement(&mut self) {
-        if let Some(ui) = self.subsystem_manager.in_game_ui.as_ref() {
-            ui.lock()
-                .expect("receiving InGameUI owner poisoned")
-                .reset_menu_placement();
+        if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+            ui.reset_menu_placement();
         }
     }
 
@@ -1135,6 +1125,10 @@ impl GameClient {
         let owner = &self.window_manager_owner;
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            standalone_view: None,
+            client_frame: Some(self.frame),
+            logic_frame: menu_world.map(|facts| facts.logic_frame),
+            ui: self.subsystem_manager.in_game_ui.as_mut(),
             payloads: Default::default(),
             menus: Some(self.menu_manager.receiving_menus()),
             manager: None,
@@ -1172,6 +1166,10 @@ impl GameClient {
         let owner = &self.window_manager_owner;
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            standalone_view: None,
+            client_frame: Some(self.frame),
+            logic_frame: menu_world.map(|facts| facts.logic_frame),
+            ui: self.subsystem_manager.in_game_ui.as_mut(),
             payloads: Default::default(),
             menus: Some(self.menu_manager.receiving_menus()),
             manager: None,
@@ -1206,6 +1204,10 @@ impl GameClient {
             .bind(self.subsystem_manager.display.as_ref());
         let owner = &self.window_manager_owner;
         let mut effects = crate::gui::game_window::WindowEventEffects {
+            standalone_view: None,
+            client_frame: Some(self.frame),
+            logic_frame: menu_world.map(|facts| facts.logic_frame),
+            ui: self.subsystem_manager.in_game_ui.as_mut(),
             payloads: Default::default(),
             menus: Some(self.menu_manager.receiving_menus()),
             manager: None,
@@ -1231,7 +1233,11 @@ impl GameClient {
     fn take_completed_client_messages(
         &mut self,
         playback: bool,
+        logic_frame: u32,
+        game_mode: i32,
+        mut view: Option<&mut crate::display::view::View>,
     ) -> GameClientResult<Vec<GameMessage>> {
+        let client_frame = self.frame;
         let mut standalone =
             |owner: &crate::gui::window_manager::WindowManagerOwner,
              campaign_manager: &mut crate::gui::campaign_manager::CampaignManager,
@@ -1241,10 +1247,26 @@ impl GameClient {
              display: &mut crate::core::script_action_handler::ScriptDisplayReceiver,
              videos: &mut crate::gui::window_video_manager::ClientWindowVideos,
              ime: &mut crate::gui::ime_manager::ImeManager,
+             ui: &mut crate::core::subsystems::InGameUISubsystem,
              request,
              _emitted_messages: &mut Vec<GameMessage>| {
+                if let game_engine::common::message_stream::WindowInputDispatch::Camera(action) =
+                    request
+                {
+                    return view.as_deref_mut().map(|view| {
+                        game_engine::common::message_stream::WindowInputDispatchResult::Camera(
+                            crate::gui::callbacks::control_bar_callbacks::apply_camera_input(
+                                view, action,
+                            ),
+                        )
+                    });
+                }
                 let mut pending_clicks = Vec::new();
                 let mut effects = crate::gui::game_window::WindowEventEffects {
+                    standalone_view: view.as_deref_mut(),
+                    client_frame: Some(client_frame),
+                    logic_frame: Some(logic_frame),
+                    ui: Some(ui),
                     payloads: Default::default(),
                     menus: Some(menus.reborrow()),
                     manager: None,
@@ -1278,7 +1300,7 @@ impl GameClient {
                     );
                 }
                 let result = owner.try_with_manager(|manager| match request {
-                    game_engine::common::message_stream::WindowInputDispatch::OpaqueWindowAtScreen{..} | game_engine::common::message_stream::WindowInputDispatch::Display(_) | game_engine::common::message_stream::WindowInputDispatch::Ui(_) => {
+                    game_engine::common::message_stream::WindowInputDispatch::Camera(_) | game_engine::common::message_stream::WindowInputDispatch::OpaqueWindowAtScreen{..} | game_engine::common::message_stream::WindowInputDispatch::Display(_) | game_engine::common::message_stream::WindowInputDispatch::Ui(_) => {
                         unreachable!("display dispatch is completed before the window manager loan")
                     }
                     game_engine::common::message_stream::WindowInputDispatch::Mouse {
@@ -1314,15 +1336,28 @@ impl GameClient {
                     }
                 })
             };
-        self.take_message_stream_with_native_input(playback, &mut standalone)
+        self.take_message_stream_with_native_input(
+            playback,
+            logic_frame,
+            game_mode,
+            &mut standalone,
+        )
     }
 
     pub fn take_message_stream_with_native_input(
         &mut self,
         playback: bool,
+        logic_frame: u32,
+        game_mode: i32,
         driver: &mut NativeWindowInputDriver<'_>,
     ) -> GameClientResult<Vec<GameMessage>> {
-        match self.take_message_stream_until_menu_host(playback, driver, None)? {
+        match self.take_message_stream_until_menu_host(
+            playback,
+            logic_frame,
+            game_mode,
+            driver,
+            None,
+        )? {
             game_engine::common::message_stream::PropagationProgress::Complete(messages) => {
                 Ok(messages)
             }
@@ -1337,6 +1372,8 @@ impl GameClient {
     pub fn take_message_stream_until_menu_host(
         &mut self,
         playback: bool,
+        logic_frame: u32,
+        game_mode: i32,
         driver: &mut NativeWindowInputDriver<'_>,
         cursor: Option<game_engine::common::message_stream::PropagationCursor>,
     ) -> GameClientResult<game_engine::common::message_stream::PropagationProgress> {
@@ -1353,7 +1390,17 @@ impl GameClient {
         let display = &mut self.script_display;
         let videos = &mut self.window_videos;
         let ime = &mut self.ime;
-        let mut dispatch = |request, emitted: &mut Vec<GameMessage>| {
+        let ui = self.subsystem_manager.in_game_ui.as_mut().ok_or_else(|| {
+            GameClientError::SubsystemError(
+                "message translation requires receiving InGameUI".into(),
+            )
+        })?;
+        let mut dispatch = |request,
+                            emitted: &mut Vec<GameMessage>,
+                            client_ui: &mut dyn std::any::Any| {
+            let ui = client_ui
+                .downcast_mut::<crate::core::subsystems::InGameUISubsystem>()
+                .expect("GameClient passes canonical UI to its translator driver");
             if let game_engine::common::message_stream::WindowInputDispatch::OpaqueWindowAtScreen{x,y} = request {
                 return owner.try_with_manager_ref(|manager| game_engine::common::message_stream::WindowInputDispatchResult::OpaqueWindow(crate::gui::window_manager::opaque_window_at_screen(manager,x,y)));
             }
@@ -1370,7 +1417,7 @@ impl GameClient {
                 .map(game_engine::common::message_stream::WindowInputDispatchResult::Display);
             }
             let result = driver(
-                owner, campaign, menu, host, &mut menus, display, videos, ime, request, emitted,
+                owner, campaign, menu, host, &mut menus, display, videos, ime, ui, request, emitted,
             );
             yielded.set(host.has_requests());
             result
@@ -1385,10 +1432,13 @@ impl GameClient {
                     owner.shell_is_active().map(|shell_active| {
                         game_engine::common::message_stream::TranslatorClientObservation {
                             frame,
+                            logic_frame,
+                            game_mode,
                             shell_active,
                         }
                     })
                 },
+                ui,
             )
             .map_err(|error| {
                 GameClientError::SubsystemError(format!("Message stream update failed: {error}"))
@@ -1404,11 +1454,17 @@ impl GameClient {
         Ok(progress)
     }
 
-    pub fn pump_message_stream(&mut self) -> GameClientResult<()> {
+    pub fn pump_message_stream(
+        &mut self,
+        logic_frame: u32,
+        game_mode: i32,
+        view: Option<&mut crate::display::view::View>,
+    ) -> GameClientResult<()> {
         let playback =
             game_engine::common::recorder::with_recorder(|recorder| recorder.is_playback())
                 .unwrap_or(false);
-        let completed_messages = self.take_completed_client_messages(playback)?;
+        let completed_messages =
+            self.take_completed_client_messages(playback, logic_frame, game_mode, view)?;
         if completed_messages.is_empty() {
             return Ok(());
         }
@@ -1425,8 +1481,15 @@ impl GameClient {
         &mut self,
         recorder: &game_engine::common::recorder::Recorder,
         receive: &mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>,
+        logic_frame: u32,
+        game_mode: i32,
     ) -> GameClientResult<()> {
-        let completed_messages = self.take_completed_client_messages(recorder.is_playback())?;
+        let completed_messages = self.take_completed_client_messages(
+            recorder.is_playback(),
+            logic_frame,
+            game_mode,
+            None,
+        )?;
         if completed_messages.is_empty() {
             return Ok(());
         }

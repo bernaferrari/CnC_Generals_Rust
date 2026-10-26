@@ -47,6 +47,8 @@ impl GameClient {
                     self.script_display.fx_mut(),
                     self.ui_renderer.as_mut(),
                     Some(&self.window_manager_owner),
+                    self.subsystem_manager.in_game_ui.as_ref(),
+                    self.frame,
                 )?;
         }
         Ok(())
@@ -63,6 +65,10 @@ impl GameClient {
             renderer: self.ui_renderer.as_mut(),
             message_stream: &mut self.message_stream,
             effects: crate::gui::game_window::WindowEventEffects {
+                standalone_view: None,
+                client_frame: Some(self.frame),
+                logic_frame: None,
+                ui: self.subsystem_manager.in_game_ui.as_mut(),
                 payloads: Default::default(),
                 manager: None,
                 menus: Some(self.menu_manager.receiving_menus()),
@@ -120,8 +126,21 @@ impl GameClient {
         (self.load_screen_runtime_mut(), pump)
     }
     fn draw_drawable_icon_ui(&mut self) {
+        // This traversal does not dispatch UI input; all nested icon/text
+        // gates observe this receiving UI's current hover for the same draw.
+        let hovered = self
+            .subsystem_manager
+            .in_game_ui
+            .as_ref()
+            .map(|ui| ui.get_moused_over_drawable_id());
         let mut text_ids = Vec::new();
         for (id, drawable) in self.drawables.drawable_map.iter_mut() {
+            if let Some(basic) = drawable
+                .as_any_mut()
+                .downcast_mut::<crate::drawable::drawable::BasicDrawable>()
+            {
+                basic.admit_presentation_moused_over(hovered == Some(id.0));
+            }
             if drawable.is_visible() {
                 if let Some(basic) = drawable
                     .as_any_mut()
@@ -153,15 +172,15 @@ impl GameClient {
     ///
     /// Called from the presentation-shell / host present path so
     /// `flush_ui_to_frame` submits them after the 3D scene (C++ postDraw).
-    pub fn draw_live_ingame_hud(&mut self) -> LiveInGameHudDrawCounts {
-        let frame = gamelogic::helpers::TheGameLogic::get_frame();
-        if let Some(ui) = &self.subsystem_manager.in_game_ui {
-            if let Ok(mut guard) = ui.lock() {
+    pub fn draw_live_ingame_hud(&mut self, frame: u32) -> LiveInGameHudDrawCounts {
+        if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+            {
+                let guard = ui;
                 guard.expire_hud_messages(frame);
             }
         }
         let mut counts = LiveInGameHudDrawCounts::default();
-        self.draw_ingame_post_draw_hud(&mut counts);
+        self.draw_ingame_post_draw_hud(frame, &mut counts);
         self.draw_drawable_icon_overlays(&mut counts);
         let _ = self.flush_text_bearing_drawables();
         self.last_live_ingame_hud_draw = counts;
@@ -169,7 +188,8 @@ impl GameClient {
     }
 
     fn packed_ingame_hud_snapshot(
-        &self,
+        &mut self,
+        frame: u32,
     ) -> (
         Vec<(String, [f32; 4])>,
         Option<String>,
@@ -177,12 +197,10 @@ impl GameClient {
         Vec<(String, [f32; 3], (u8, u8, u8, u8), u32, u32)>,
         Vec<game_engine::common::world_animation::WorldAnimationPresentation>,
     ) {
-        let Some(ui) = &self.subsystem_manager.in_game_ui else {
+        let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() else {
             return (Vec::new(), None, Vec::new(), Vec::new(), Vec::new());
         };
-        let Ok(guard) = ui.lock() else {
-            return (Vec::new(), None, Vec::new(), Vec::new(), Vec::new());
-        };
+        let guard = ui;
         let messages: Vec<(String, [f32; 4])> = guard
             .hud_messages()
             .iter()
@@ -200,10 +218,10 @@ impl GameClient {
             .rev()
             .collect();
 
-        let frame = gamelogic::helpers::TheGameLogic::get_frame();
-        crate::gui::ingame_ui::step_live_hud(frame);
-        let subtitle = crate::gui::ingame_ui::live_military_subtitle_draw(frame)
-            .map(|(text, _, _, _, _)| text);
+        crate::gui::ingame_ui::step_live_hud(&mut guard.live_hud, frame);
+        let subtitle =
+            crate::gui::ingame_ui::live_military_subtitle_draw(&mut guard.live_hud, frame)
+                .map(|(text, _, _, _, _)| text);
         // C++ draws named timers (0.05,0.7) and superweapon timers (0.7,0.7)
         // independently. Named lines must not replace the SW strip.
         let timers: Vec<(String, String, bool)> = guard
@@ -216,11 +234,12 @@ impl GameClient {
         (messages, subtitle, timers, floating, world_anims)
     }
 
-    fn draw_ingame_post_draw_hud(&mut self, counts: &mut LiveInGameHudDrawCounts) {
+    fn draw_ingame_post_draw_hud(&mut self, frame: u32, counts: &mut LiveInGameHudDrawCounts) {
         use crate::display::view::{Point3, with_tactical_view_ref};
         use glam::Vec2;
 
-        let (messages, subtitle, timers, floating, world_anims) = self.packed_ingame_hud_snapshot();
+        let (messages, subtitle, timers, floating, world_anims) =
+            self.packed_ingame_hud_snapshot(frame);
         counts.messages = messages.len() as u32;
         counts.military_subtitles = u32::from(subtitle.is_some());
         counts.superweapon_timers = timers.len() as u32;
@@ -249,6 +268,25 @@ impl GameClient {
                     .then_some(pos)
             })
             .collect();
+        let (subtitle_draw, named, timer_styles) =
+            if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+                let caption =
+                    crate::gui::ingame_ui::live_military_subtitle_draw(&mut ui.live_hud, frame);
+                let named = crate::gui::ingame_ui::live_named_timer_draw(&mut ui.live_hud, frame);
+                let styles: Vec<_> = timers
+                    .iter()
+                    .map(|(_, _, ready)| {
+                        crate::gui::ingame_ui::live_superweapon_draw_style(
+                            &mut ui.live_hud,
+                            frame,
+                            *ready,
+                        )
+                    })
+                    .collect();
+                (caption, named, styles)
+            } else {
+                (None, Vec::new(), Vec::new())
+            };
         if let Some(renderer) = self.ui_renderer.as_mut() {
             let (screen_w, screen_h) = renderer.screen_size();
             let screen_w = if screen_w == 0 {
@@ -273,10 +311,7 @@ impl GameClient {
             }
 
             // C++ military subtitle (InGameUI.cpp:3461-3484) — typed lines + block.
-            let frame = gamelogic::helpers::TheGameLogic::get_frame();
-            if let Some((text, block_drawn, color, pos, block_pos)) =
-                crate::gui::ingame_ui::live_military_subtitle_draw(frame)
-            {
+            if let Some((text, block_drawn, color, pos, block_pos)) = subtitle_draw {
                 let a = ((color >> 24) & 0xFF) as f32 / 255.0;
                 let r = ((color >> 16) & 0xFF) as f32 / 255.0;
                 let g = ((color >> 8) & 0xFF) as f32 / 255.0;
@@ -306,7 +341,6 @@ impl GameClient {
             }
 
             // Named timers (C++ InGameUI.cpp:3699-3784) at constructor pos 0.05, 0.7.
-            let named = crate::gui::ingame_ui::live_named_timer_draw(frame);
             let mut nt_y = 0.7 * screen_h;
             let nt_x = 0.05 * screen_w;
             for (text, color, ready) in &named {
@@ -323,9 +357,7 @@ impl GameClient {
             // READY blinks flash color vs default (color 0) and uses ready font size.
             let mut sw_y = 0.7 * screen_h;
             let sw_x = 0.7 * screen_w;
-            for (name, countdown, ready) in &timers {
-                let (color, size) =
-                    crate::gui::ingame_ui::live_superweapon_draw_style(frame, *ready);
+            for ((name, countdown, _), (color, size)) in timers.iter().zip(timer_styles) {
                 let line = format!("{name} {countdown}");
                 let _ = renderer.draw_text_simple(&line, Vec2::new(sw_x, sw_y), size, color);
                 sw_y += 16.0;
@@ -694,12 +726,10 @@ impl GameClient {
     /// Full InGameUI::draw is not on the presentation shell path; stamp residual
     /// selection HUD here so empty dual-world still shows selection health.
     fn draw_presentation_selection_residual(&mut self) {
-        let Some(ui) = &self.subsystem_manager.in_game_ui else {
+        let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() else {
             return;
         };
-        let Ok(guard) = ui.lock() else {
-            return;
-        };
+        let guard = ui;
         let units: Vec<_> = guard.presentation_selection_residual().to_vec();
         drop(guard);
         if units.is_empty() {

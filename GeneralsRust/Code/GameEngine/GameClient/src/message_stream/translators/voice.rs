@@ -15,6 +15,7 @@ pub(super) fn pick_and_play_unit_voice_response(
     selection: impl IntoIterator<Item = ObjectID>,
     msg: &GameMessageType,
     info: &VoicePlayInfo,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) {
     let Some(audio) = TheAudio::get() else {
         return;
@@ -52,7 +53,7 @@ pub(super) fn pick_and_play_unit_voice_response(
             | GameMessageType::DoForceMoveTO(_)
             | GameMessageType::GetRepaired(_)
             | GameMessageType::GetHealed(_)
-            | GameMessageType::DoSalvage(_) => move_voice_name(&guard, msg, info),
+            | GameMessageType::DoSalvage(_) => move_voice_name(&guard, msg, info, ui),
             GameMessageType::ResumeConstruction(_)
             | GameMessageType::DozerConstruct(_, _, _)
             | GameMessageType::DozerConstructLine(_, _, _, _) => Some("VoiceBuildResponse"),
@@ -136,8 +137,9 @@ pub(super) fn pick_and_play_unit_voice_response(
 pub(crate) fn play_voice_for_command(
     selection: impl IntoIterator<Item = ObjectID>,
     msg: &GameMessageType,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) {
-    pick_and_play_unit_voice_response(selection, msg, &VoicePlayInfo::default());
+    pick_and_play_unit_voice_response(selection, msg, &VoicePlayInfo::default(), ui);
 }
 
 fn enter_voice_name(
@@ -169,12 +171,13 @@ fn move_voice_name(
     guard: &gamelogic::object::Object,
     msg: &GameMessageType,
     info: &VoicePlayInfo,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> Option<&'static str> {
-    if TheInGameUI::is_in_waypoint_mode() && guard.is_moving() {
+    if ui.is_in_waypoint_mode() && guard.is_moving() {
         return None;
     }
     let salvage = matches!(msg, GameMessageType::DoSalvage(_));
-    if TheInGameUI::is_in_force_move_to_mode() {
+    if ui.is_in_force_move_to_mode() {
         if let Some(target_id) = info.target_id {
             if let Some(target_obj) = OBJECT_REGISTRY.get_object(target_id) {
                 if let Ok(target_guard) = target_obj.read() {

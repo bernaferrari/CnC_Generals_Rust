@@ -185,7 +185,7 @@ impl CnCGameEngine {
             if self.eva_recipient.is_enabled() {
                 let human = Self::eva_alert_human_message(name);
                 self.chat_panel.add_eva_message(&human);
-                self.game_hud_mut().push_info_message(&human);
+                self.host_push_info_message(&human);
             }
         }
         // Admission does not advance speech: host_update_the_audio owns that
@@ -243,9 +243,16 @@ impl CnCGameEngine {
         }
         let chat_panel = &mut self.chat_panel;
         let hud = self.ui_manager.game_hud_mut();
+        #[cfg(feature = "game_client")]
+        let mut native_ui = self.game_client.in_game_ui_subsystem_mut();
+        let logic_frame = self.game_logic.get_frame();
         let mut push = |msg: &str| {
             chat_panel.add_eva_message(msg);
             hud.push_info_message(msg);
+            #[cfg(feature = "game_client")]
+            if let Some(ui) = native_ui.as_deref_mut() {
+                ui.push_hud_message_at(msg.to_owned(), logic_frame);
+            }
         };
         if low_power > self.last_eva_low_power_count {
             self.last_eva_low_power_count = low_power;

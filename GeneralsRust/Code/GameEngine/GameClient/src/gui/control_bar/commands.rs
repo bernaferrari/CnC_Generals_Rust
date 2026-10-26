@@ -2,7 +2,7 @@
 //! C++ parity: ControlBarCommandProcessing.cpp, ControlBarCommand.cpp
 
 use super::{CommandAvailability, CommandButton, CommandOption, CommandSourceType};
-use crate::helpers::TheInGameUI;
+
 use crate::message_stream::{Coord3D as MsgCoord3D, GameMessageType, get_message_stream};
 use gamelogic::commands::command::CommandType;
 use gamelogic::commands::selection::get_selection_manager;
@@ -30,10 +30,11 @@ impl ControlBarCommandProcessor {
         &self,
         button: &CommandButton,
         source: CommandSourceType,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         // C++ parity: selecting a control-bar command clears any pending
         // structure placement preview before evaluating command behavior.
-        TheInGameUI::place_build_available(None, None);
+        ui.place_build_available(None, None);
 
         // C++ ControlBarCommandProcessing.cpp:183-189 — play UnitSpecificSound
         // with the local player index before the command is dispatched.
@@ -58,8 +59,8 @@ impl ControlBarCommandProcessor {
                 0
             };
 
-            TheInGameUI::clear_pending_special_power();
-            TheInGameUI::set_pending_command_with_visual(
+            ui.clear_pending_special_power();
+            ui.set_pending_command_with_visual(
                 button.command_type,
                 button.options,
                 pending_payload,
@@ -67,24 +68,24 @@ impl ControlBarCommandProcessor {
                 button.invalid_cursor_name.clone(),
                 button.radius_cursor_type.clone(),
             );
-            TheInGameUI::set_force_attack_mode(false);
-            TheInGameUI::set_force_move_to_mode(false);
-            TheInGameUI::set_prefer_selection_mode(false);
+            ui.set_force_attack_mode(false);
+            ui.set_force_move_to_mode(false);
+            ui.set_prefer_selection_mode(false);
 
             if (button.options & CommandOption::NeedTargetEnemyObject as u32) != 0
                 || (button.options & CommandOption::AttackObjectsPosition as u32) != 0
             {
-                TheInGameUI::set_force_attack_mode(true);
+                ui.set_force_attack_mode(true);
             }
             if (button.options & CommandOption::NeedTargetPos as u32) != 0 {
-                TheInGameUI::set_force_move_to_mode(true);
+                ui.set_force_move_to_mode(true);
             }
             if (button.options
                 & (CommandOption::NeedTargetAllyObject as u32
                     | CommandOption::NeedTargetNeutralObject as u32))
                 != 0
             {
-                TheInGameUI::set_prefer_selection_mode(true);
+                ui.set_prefer_selection_mode(true);
             }
 
             return Ok(true);
@@ -125,7 +126,7 @@ impl ControlBarCommandProcessor {
             }
 
             // C++ parity: GUI_COMMAND_DOZER_CONSTRUCT -> placeBuildAvailable()
-            CommandType::DozerConstruct => self.process_dozer_construct(button),
+            CommandType::DozerConstruct => self.process_dozer_construct(button, ui),
 
             // C++ parity: GUI_COMMAND_DOZER_CONSTRUCT_CANCEL -> MSG_DOZER_CANCEL_CONSTRUCT
             CommandType::DozerCancelConstruct => {
@@ -264,11 +265,7 @@ impl ControlBarCommandProcessor {
 
             // Attack move toggle
             CommandType::DoAttackMoveTo => {
-                TheInGameUI::set_pending_command(
-                    CommandType::DoAttackMoveTo,
-                    CMD_NEED_TARGET_POS,
-                    0,
-                );
+                ui.set_pending_command(CommandType::DoAttackMoveTo, CMD_NEED_TARGET_POS, 0);
                 true
             }
 
@@ -295,34 +292,26 @@ impl ControlBarCommandProcessor {
             }
 
             CommandType::PlaceBeacon => {
-                TheInGameUI::set_pending_command(CommandType::PlaceBeacon, CMD_NEED_TARGET_POS, 0);
+                ui.set_pending_command(CommandType::PlaceBeacon, CMD_NEED_TARGET_POS, 0);
                 true
             }
             CommandType::RemoveBeacon => {
-                TheInGameUI::set_pending_command(CommandType::RemoveBeacon, CMD_NEED_TARGET_POS, 0);
+                ui.set_pending_command(CommandType::RemoveBeacon, CMD_NEED_TARGET_POS, 0);
                 true
             }
 
             CommandType::SetRallyPoint => {
-                TheInGameUI::set_pending_command(
-                    CommandType::SetRallyPoint,
-                    CMD_NEED_TARGET_POS,
-                    0,
-                );
+                ui.set_pending_command(CommandType::SetRallyPoint, CMD_NEED_TARGET_POS, 0);
                 true
             }
 
             CommandType::AddWaypoint => {
-                TheInGameUI::set_waypoint_mode(true);
+                ui.set_waypoint_mode(true);
                 true
             }
 
             CommandType::CombatDropAtLocation => {
-                TheInGameUI::set_pending_command(
-                    CommandType::CombatDropAtLocation,
-                    CMD_NEED_TARGET_POS,
-                    0,
-                );
+                ui.set_pending_command(CommandType::CombatDropAtLocation, CMD_NEED_TARGET_POS, 0);
                 true
             }
 
@@ -462,7 +451,11 @@ impl ControlBarCommandProcessor {
     }
 
     // C++ parity: GUI_COMMAND_DOZER_CONSTRUCT -> placeBuildAvailable()
-    fn process_dozer_construct(&self, button: &CommandButton) -> bool {
+    fn process_dozer_construct(
+        &self,
+        button: &CommandButton,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> bool {
         let Some(control_bar) = get_control_bar_bridge() else {
             return false;
         };
@@ -490,11 +483,11 @@ impl ControlBarCommandProcessor {
             return false;
         };
         if !player.can_build_template(thing_template.as_ref()) {
-            TheInGameUI::display_cant_build_message("GUI:NotEnoughMoneyToBuild");
+            ui.display_cant_build_message("GUI:NotEnoughMoneyToBuild");
             return false;
         }
 
-        TheInGameUI::place_build_available(Some(thing_template.get_name().to_string()), None);
+        ui.place_build_available(Some(thing_template.get_name().to_string()), None);
 
         true
     }

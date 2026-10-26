@@ -302,9 +302,9 @@ pub async fn run_cnc_game(
 
             let update_started = Instant::now();
             // Admit the app's presentation control into this specific session.
-            engine.host_game_logic_mut().set_radar_client_quiet(
-                game_client::helpers::TheInGameUI::is_client_quiet(),
-            );
+            let client_quiet = engine.game_client.in_game_ui_subsystem()
+                .expect("receiving InGameUI initialized").is_client_quiet();
+            engine.host_game_logic_mut().set_radar_client_quiet(client_quiet);
             // C++ GameEngine::update (GameEngine.cpp:732-752):
             // VERIFY_CRC → TheRadar->UPDATE() → TheAudio->UPDATE() →
             // TheGameClient->UPDATE() → propagateMessages → … →
@@ -1067,9 +1067,7 @@ impl CnCGameEngine {
     /// C++ `GameEngine::update` (`GameEngine.cpp:732`) `TheRadar->UPDATE()`.
     pub(super) fn host_update_the_radar(&mut self) {
         #[cfg(feature = "game_client")]
-        if let Some(ui) = self.game_client.in_game_ui_subsystem() {
-            use game_client::helpers::InGameUiHooks;
-            let ui = game_client::core::subsystems::InGameUiHandle::new(ui);
+        if let Some(ui) = self.game_client.in_game_ui_subsystem_mut() {
             admit_radar_presentations(&mut self.game_logic, ui.take_radar_acknowledgments());
         }
         let frame = self.game_logic.frame;
@@ -1101,9 +1099,7 @@ impl CnCGameEngine {
             // C++ W3DRadar::drawEvents admits its once-only chirp on the first
             // visible radar draw. The GUI admits sound once and returns checked
             // event identities; it cannot mutate the session's event ring.
-            if let Some(ui) = self.game_client.in_game_ui_subsystem() {
-                use game_client::helpers::InGameUiHooks;
-                let ui = game_client::core::subsystems::InGameUiHandle::new(ui);
+            if let Some(ui) = self.game_client.in_game_ui_subsystem_mut() {
                 ui.set_radar_presentation(std::sync::Arc::new(radar.presentation()));
             }
         }

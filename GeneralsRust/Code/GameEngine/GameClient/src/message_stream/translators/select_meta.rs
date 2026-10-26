@@ -167,7 +167,8 @@ fn object_disqualifies_select_all(obj: &gamelogic::object::Object, aircraft_only
 /// C++ CommandXlat.cpp:2864-2902 + InGameUI::selectAllUnitsByType.
 pub(super) fn handle_select_all(
     aircraft_only: bool,
-    window_query: &mut dyn FnMut(i32, i32) -> bool,
+    window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> Vec<GameMessageType> {
     for id in current_selected_ids() {
         if let Some(obj_ref) = OBJECT_REGISTRY.get_object(id) {
@@ -186,5 +187,5 @@ pub(super) fn handle_select_all(
             }
         }
     }
-    crate::gui::ingame_ui::select_all_units_by_type(aircraft_only, window_query)
+    crate::gui::ingame_ui::select_all_units_by_type(aircraft_only, window_query, ui)
 }

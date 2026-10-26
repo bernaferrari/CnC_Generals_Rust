@@ -25,7 +25,7 @@ use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_shell,
     with_window_manager, write_input_focus_response,
 };
-use crate::helpers::TheInGameUI;
+
 use crate::map_util::get_map_cache_manager;
 use crate::shell_hooks::{
     SHELL_SCRIPT_HOOK_GENERALS_ONLINE_ENTERED_FROM_GAME, signal_ui_interaction,
@@ -1083,7 +1083,11 @@ pub fn wol_quick_match_menu_shutdown(layout: &WindowLayout, user_data: Option<&d
     raise_gs_message_box();
 }
 
-pub fn wol_quick_match_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn wol_quick_match_menu_update(
+    layout: &WindowLayout,
+    _user_data: Option<&dyn std::any::Any>,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
+) {
     let state_slot = quickmatch_state();
     let mut state = state_slot.borrow_mut();
     let shell_finished = get_shell().is_anim_finished();
@@ -1165,7 +1169,7 @@ pub fn wol_quick_match_menu_update(layout: &WindowLayout, _user_data: Option<&dy
                                     );
                                 }
                             } else {
-                                TheInGameUI::message(&reason_key);
+                                ui.message(&reason_key);
                             }
                             if let Some(info) = get_gamespy_info() {
                                 if let Ok(mut info) = info.lock() {

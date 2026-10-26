@@ -379,16 +379,21 @@ impl CnCGameEngine {
         enabled: bool,
     ) {
         self.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click = enabled;
-        game_client::helpers::TheInGameUI::set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
-            enabled,
-        );
+        self.game_client
+            .in_game_ui_subsystem_mut()
+            .expect("receiving InGameUI initialized")
+            .set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(enabled);
     }
 
     /// C++ `SelectionXlat.cpp:935-943`: consume the one-click keep-selection flag.
     pub(in crate::cnc_game_engine) fn host_consume_prevent_left_click_deselection(
         &mut self,
     ) -> bool {
-        let leftover = game_client::helpers::TheInGameUI::get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click();
+        let leftover = self
+            .game_client
+            .in_game_ui_subsystem()
+            .expect("receiving InGameUI initialized")
+            .get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click();
         let prevent =
             self.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click || leftover;
         if prevent {

@@ -61,15 +61,20 @@ pub(super) fn selection_has_flame_weapon(selection: &HashSet<ObjectID>) -> bool 
 pub(super) fn context_pick_profile(
     force_attack_mode: bool,
     selection: &HashSet<ObjectID>,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> ContextPickProfile {
     let mut profile = ContextPickProfile::default();
     if force_attack_mode {
         profile.include_force_attackable = true;
     }
 
-    let pending_options = TheInGameUI::get_pending_command()
+    let pending_options = ui
+        .get_pending_command()
         .map(|pending| pending.options)
-        .or_else(|| TheInGameUI::get_pending_special_power().map(|pending| pending.options));
+        .or_else(|| {
+            ui.get_pending_special_power()
+                .map(|pending| pending.options)
+        });
 
     if let Some(options) = pending_options {
         if options & CMD_ALLOW_MINE_TARGET != 0 {

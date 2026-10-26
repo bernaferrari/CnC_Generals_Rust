@@ -23,6 +23,7 @@ pub(crate) struct NativeUiDraw<'a> {
     hints: Vec<game_client::gui::command_hints::CommandHint>,
     client_frame: u32,
     loading: bool,
+    ui: Option<&'a mut game_client::core::subsystems::InGameUISubsystem>,
 }
 impl<'a> NativeUiDraw<'a> {
     pub(crate) fn new(
@@ -41,7 +42,15 @@ impl<'a> NativeUiDraw<'a> {
             hints: Vec::new(),
             client_frame: 0,
             loading: false,
+            ui: None,
         }
+    }
+    pub(crate) fn with_receiving_ui(
+        mut self,
+        ui: Option<&'a mut game_client::core::subsystems::InGameUISubsystem>,
+    ) -> Self {
+        self.ui = ui;
+        self
     }
     pub(crate) fn for_load_screen(mut self) -> Self {
         self.loading = true;
@@ -133,7 +142,7 @@ impl<'a> NativeUiDraw<'a> {
                         windows.set_screen_size(width as i32, height as i32);
                     }
                     if let Some(radar) = radar {
-                        radar.draw_windows(windows, &mut context);
+                        radar.draw_windows(windows, &mut context, self.ui.as_deref_mut());
                     } else {
                         windows.draw_all(&mut context);
                     }

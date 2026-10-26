@@ -1260,7 +1260,9 @@ impl ScriptCallbackRegistry {
         });
         self.register_win_input_with_effects(
             "GeneralsExpPointsInput",
-            |window, msg, d1, d2, effects| cb::generals_exp_points_input(window, msg, d1, d2),
+            |window, msg, d1, d2, effects| {
+                cb::generals_exp_points_input(window, msg, d1, d2, effects)
+            },
         );
         self.register_win_input_with_effects(
             "DownloadMenuInput",
@@ -2011,6 +2013,7 @@ fn left_hud_input(
             data2,
             effects.emitted_messages,
             effects.pending_control_bar_clicks.as_deref_mut(),
+            effects.ui.as_deref_mut().expect("receiving UI"),
         )
     })
 }
@@ -2092,8 +2095,9 @@ fn idle_worker_system(
     let system = system.read().unwrap_or_else(|e| e.into_inner());
     let idle_worker = system.get_idle_worker();
     with_arc_write(&idle_worker, |idle_worker| {
-        effects
-            .with_manager(|manager, effects| idle_worker.system(window, msg, data1, data2, manager))
+        effects.with_manager(|manager, effects| {
+            idle_worker.system(window, msg, data1, data2, manager, effects.ui())
+        })
     })
 }
 

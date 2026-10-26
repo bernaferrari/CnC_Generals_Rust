@@ -8,7 +8,7 @@ use crate::gui::callbacks::popup_save_load::show_live_popup_save_load_layout;
 use crate::gui::game_window::WindowEventEffects;
 use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
 use crate::gui::{get_lan_setup, hide_diplomacy, hide_in_game_chat, show_shell_map_if_available};
-use crate::helpers::{TheControlBar, TheInGameUI};
+use crate::helpers::TheControlBar;
 use crate::message_stream::{GameMessage, GameMessageType};
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data;
@@ -184,7 +184,7 @@ fn exit_quit_menu(effects: &mut WindowEventEffects<'_>) {
     if !TheGameLogic::is_in_multiplayer_game() {
         TheGameLogic::set_game_paused(false, true);
     }
-    TheInGameUI::set_client_quiet(true);
+    effects.ui_mut().set_client_quiet(true);
 }
 
 fn no_exit_quit_menu(effects: &mut WindowEventEffects<'_>) {
@@ -208,7 +208,7 @@ fn quit_to_desktop_quit_menu(effects: &mut crate::gui::game_window::WindowEventE
         let mut engine = engine.lock();
         engine.set_quitting(true);
     }
-    TheInGameUI::set_client_quiet(true);
+    effects.ui_mut().set_client_quiet(true);
 }
 
 fn surrender_quit_menu(effects: &mut WindowEventEffects<'_>) {
@@ -225,7 +225,7 @@ fn surrender_quit_menu(effects: &mut WindowEventEffects<'_>) {
             local_player,
         )));
 
-    TheInGameUI::set_client_quiet(true);
+    effects.ui_mut().set_client_quiet(true);
 }
 
 fn restart_mission_menu(effects: &mut WindowEventEffects<'_>) {
@@ -276,7 +276,7 @@ fn restart_mission_menu(effects: &mut WindowEventEffects<'_>) {
         init_random_with_seed(0);
     }
 
-    TheInGameUI::set_client_quiet(true);
+    effects.ui_mut().set_client_quiet(true);
 }
 
 fn restart_map_name_for_pending_file(map_name: &str) -> String {
@@ -321,7 +321,7 @@ pub fn hide_quit_menu(
     if let Some(group) = group {
         receiving_manager.transition_reverse(group, selected_window.as_deref_mut());
     }
-    TheInGameUI::set_quit_menu_visible(false);
+    effects.ui_mut().set_quit_menu_visible(false);
     let confirmation = effects.with_quit_menu(|state| {
         state.is_visible = false;
         state.quit_confirmation_window.take()
@@ -506,7 +506,7 @@ fn toggle_quit_menu_with_selected(
             });
         }
     } else {
-        TheInGameUI::set_cursor_arrow();
+        effects.ui_mut().set_cursor_arrow();
         TheControlBar::hide_purchase_science();
 
         let in_multiplayer = TheGameLogic::is_in_multiplayer_game();
@@ -556,7 +556,7 @@ fn toggle_quit_menu_with_selected(
         let layout = effects.with_quit_menu(|state| state.quit_menu_layout.clone());
         let Some(layout) = layout else {
             effects.with_quit_menu(|state| state.is_visible = false);
-            TheInGameUI::set_quit_menu_visible(false);
+            effects.ui_mut().set_quit_menu_visible(false);
             return QuitMenuToggleResult::LayoutUnavailable;
         };
 
@@ -571,7 +571,7 @@ fn toggle_quit_menu_with_selected(
                 )
             });
 
-        if !TheInGameUI::get_input_enabled() {
+        if !effects.ui().get_input_enabled() {
             if let Some(save) = save_button.as_ref() {
                 let _ = save.borrow_mut().enable(false);
             }
@@ -655,7 +655,8 @@ fn toggle_quit_menu_with_selected(
         effects.with_quit_menu(|state| state.is_visible = true);
     }
 
-    TheInGameUI::set_quit_menu_visible(effects.with_quit_menu(|state| state.is_visible));
+    let visible = effects.with_quit_menu(|state| state.is_visible);
+    effects.ui_mut().set_quit_menu_visible(visible);
     QuitMenuToggleResult::ToggledQuitMenu
 }
 

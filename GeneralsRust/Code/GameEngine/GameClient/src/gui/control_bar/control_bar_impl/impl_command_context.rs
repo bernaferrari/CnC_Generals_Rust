@@ -992,6 +992,7 @@ impl ControlBar {
         window_manager_owner: &crate::gui::window_manager::WindowManagerOwner,
         emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) -> bool {
         let resolved = (|manager: &crate::gui::window_manager::WindowManager| {
             let Some(target) = click.target.as_ref().and_then(std::rc::Weak::upgrade) else {
@@ -1067,13 +1068,19 @@ impl ControlBar {
                             CommandSourceType::FromUser,
                             &ctx,
                             emitted_messages,
+                            ui,
                         );
                     }
                     return true;
                 }
             }
         }
-        let _ = self.process_command(&command_name, CommandSourceType::FromUser, emitted_messages);
+        let _ = self.process_command(
+            &command_name,
+            CommandSourceType::FromUser,
+            emitted_messages,
+            ui,
+        );
         true
     }
 
@@ -1082,6 +1089,7 @@ impl ControlBar {
         command_name: &str,
         source: CommandSourceType,
         emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let context = &self.context;
 
@@ -1100,12 +1108,12 @@ impl ControlBar {
                 return Ok(false);
             }
 
-            self.execute_command(button, source, &context, emitted_messages)?;
+            self.execute_command(button, source, &context, emitted_messages, ui)?;
             Ok(true)
         } else if let Some(button) = Self::leftover_lookup_command_button(command_name) {
             // C++ processCommandUI uses GadgetButtonGetData (setControlCommand).
             // Purchase-science cameos are not in the 14-slot available_commands.
-            self.execute_command(&button, source, &context, emitted_messages)?;
+            self.execute_command(&button, source, &context, emitted_messages, ui)?;
             Ok(true)
         } else {
             Ok(false)
@@ -1118,6 +1126,7 @@ impl ControlBar {
         source: CommandSourceType,
         context: &ControlBarContext,
         emitted_messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // C++ processCommandUI plays UnitSpecificSound before dispatch.
         crate::gui::control_bar::commands::play_command_button_unit_specific_sound(button);
@@ -1130,7 +1139,7 @@ impl ControlBar {
         }
 
         if Self::command_needs_target(button.options) {
-            self.enter_targeting_mode(button, context, emitted_messages)?;
+            self.enter_targeting_mode(button, context, emitted_messages, ui)?;
             return Ok(());
         }
 

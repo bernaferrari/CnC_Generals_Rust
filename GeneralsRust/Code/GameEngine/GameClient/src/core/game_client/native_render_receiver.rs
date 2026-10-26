@@ -3,24 +3,27 @@
 struct NativeRenderReceiver<'a> {
     drawables: &'a mut drawable_world::DrawableState,
     native_particle_capability_gaps: &'a mut Vec<NativeParticleCapabilityGap>,
-    subsystem_manager: &'a SubsystemManager,
+    ui: Option<&'a mut InGameUISubsystem>,
     frame: u32,
     local_player_id: i32,
+    input_authority: ClientInputAuthority,
 }
 impl<'a> NativeRenderReceiver<'a> {
     fn new(
         drawables: &'a mut drawable_world::DrawableState,
         native_particle_capability_gaps: &'a mut Vec<NativeParticleCapabilityGap>,
-        subsystem_manager: &'a SubsystemManager,
+        ui: Option<&'a mut InGameUISubsystem>,
         frame: u32,
         local_player_id: i32,
+        input_authority: ClientInputAuthority,
     ) -> Self {
         Self {
             drawables,
             native_particle_capability_gaps,
-            subsystem_manager,
+            ui,
             frame,
             local_player_id,
+            input_authority,
         }
     }
     fn run_native_views_with_keys(
@@ -343,12 +346,14 @@ impl<'a> NativeRenderReceiver<'a> {
             ));
         }
         if let Some(drawable) = self.drawables.drawable_map.get(&id) {
-            if let Some(ref ui) = self.subsystem_manager.in_game_ui {
-                ui.lock()
-                    .map_err(|_| {
-                        GameClientError::SubsystemError("In-game UI lock poisoned".into())
-                    })?
-                    .disregard_drawable(drawable.as_ref())?;
+            // Native Main retires its actual world selection with the object.
+            // Only the original standalone Core route owns this Core registry.
+            if self.input_authority == ClientInputAuthority::StandaloneCore {
+                let object_id = drawable.get_object_id().unwrap_or(id.0);
+                crate::gui::ingame_ui::InGameUI::disregard_live_drawable(object_id);
+            }
+            if let Some(ui) = self.ui.as_deref_mut() {
+                ui.disregard_drawable(drawable.as_ref())?;
             }
         }
         self.native_particle_capability_gaps
@@ -525,9 +530,10 @@ impl GameClient {
         NativeRenderReceiver::new(
             &mut self.drawables.state,
             &mut self.native_particle_capability_gaps,
-            &self.subsystem_manager,
+            self.subsystem_manager.in_game_ui.as_mut(),
             self.frame,
             self.local_player_id,
+            self.input_authority,
         )
     }
 }
@@ -623,6 +629,7 @@ impl GameClient {
         Option<&mut crate::gui::UIRenderer>,
         &crate::gui::window_manager::WindowManagerOwner,
         &crate::gui::ime_manager::ImeManager,
+        Option<&mut crate::core::subsystems::InGameUISubsystem>,
     ) {
         (
             &mut self.render_bridge,
@@ -633,6 +640,7 @@ impl GameClient {
             self.ui_renderer.as_mut(),
             &self.window_manager_owner,
             &self.ime,
+            self.subsystem_manager.in_game_ui.as_mut(),
         )
     }
     pub fn draw_receiving_ui(&mut self, facts: crate::display::display_fx::DisplayDrawFacts) {
@@ -646,7 +654,7 @@ impl GameClient {
     }
     pub fn draw_receiving_ui_with_radar(
         &mut self,
-        radar: &crate::gui::w3d_gadget_draw::RadarDrawContext<'_>,
+        radar: &mut crate::gui::w3d_gadget_draw::RadarDrawContext<'_>,
         facts: crate::display::display_fx::DisplayDrawFacts,
     ) {
         let mut context = crate::gui::window_draw_context::WindowDrawContext::new(

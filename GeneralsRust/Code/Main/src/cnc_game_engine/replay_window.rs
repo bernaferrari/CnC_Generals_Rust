@@ -215,9 +215,12 @@ impl ReplayMenuReceiver for CnCGameEngine {
         } else {
             warn!("Cannot restart without owned NewGame identity");
         }
-        // Existing application UI compatibility boundary; owning this status is
-        // separate from receiving Recorder/world ownership.
-        game_client::helpers::TheInGameUI::set_client_quiet(true);
+        // The receiving client's quiet flag and its world radar agree at the
+        // same replay-restart boundary; another client's UI is never selected.
+        self.game_client
+            .in_game_ui_subsystem_mut()
+            .expect("receiving InGameUI initialized")
+            .set_client_quiet(true);
         self.game_logic.set_radar_client_quiet(true);
         Ok(())
     }

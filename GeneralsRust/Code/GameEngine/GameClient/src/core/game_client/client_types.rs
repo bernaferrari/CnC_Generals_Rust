@@ -20,6 +20,21 @@ struct LoadedMap {
 pub type TranslatorId = u32;
 pub const TRANSLATOR_ID_INVALID: TranslatorId = 0;
 
+/// Which receiving runtime owns player-camera input. Main handles native raw
+/// events and held-key steps directly; attaching Core LookAt as well would
+/// execute the same camera action twice against the native world.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ClientInputAuthority {
+    #[default]
+    StandaloneCore,
+    NativeHosted,
+}
+impl ClientInputAuthority {
+    const fn runs_core_look_at(self) -> bool {
+        matches!(self, Self::StandaloneCore)
+    }
+}
+
 /// The main GameClient struct - central hub for all client operations
 pub struct GameClient {
     // Core state
@@ -37,6 +52,8 @@ pub struct GameClient {
     pub(crate) main_menu: crate::gui::shell::main_menu::MainMenu,
     pub(crate) menu_manager: crate::gui::callbacks::menu_callbacks::MenuManager,
     message_stream: crate::message_stream::message_stream::MessageStream,
+    /// Fixed at inert construction; never inferred from a global registry.
+    input_authority: ClientInputAuthority,
     /// C++ shell-game load-screen first-load latch for this receiving client.
     shell_game_first_load: bool,
     window_videos: crate::gui::window_video_manager::ClientWindowVideos,
@@ -128,6 +145,7 @@ pub type NativeWindowInputDriver<'a> = dyn FnMut(
         &mut crate::core::script_action_handler::ScriptDisplayReceiver,
         &mut crate::gui::window_video_manager::ClientWindowVideos,
         &mut crate::gui::ime_manager::ImeManager,
+        &mut crate::core::subsystems::InGameUISubsystem,
         game_engine::common::message_stream::WindowInputDispatch,
         &mut Vec<crate::message_stream::game_message::GameMessage>,
     ) -> Option<game_engine::common::message_stream::WindowInputDispatchResult>

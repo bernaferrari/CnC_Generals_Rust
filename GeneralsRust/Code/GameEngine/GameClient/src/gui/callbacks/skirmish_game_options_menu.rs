@@ -2383,6 +2383,7 @@ mod tests {
             });
             let mut emitted = Vec::new();
             let mut effects = WindowEventEffects {
+                standalone_view: None,
                 payloads: Default::default(),
                 menus: None,
                 ime: None,

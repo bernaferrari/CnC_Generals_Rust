@@ -144,6 +144,15 @@ impl CnCGameEngine {
         self.ui_manager.game_hud()
     }
 
+    /// Deliver to this application's two presentation recipients synchronously.
+    pub(super) fn host_push_info_message(&mut self, text: &str) {
+        #[cfg(feature = "game_client")]
+        if let Some(ui) = self.game_client.in_game_ui_subsystem_mut() {
+            ui.push_hud_message_at(text.to_owned(), self.game_logic.get_frame());
+        }
+        self.game_hud_mut().push_info_message(text);
+    }
+
     pub(super) fn game_hud_mut(&mut self) -> &mut GameHUD {
         self.ui_manager.game_hud_mut()
     }
@@ -783,7 +792,10 @@ impl CnCGameEngine {
             let placement_anchored = self.pending_structure_placement.is_some() && {
                 #[cfg(feature = "game_client")]
                 {
-                    game_client::helpers::TheInGameUI::is_placement_anchored()
+                    self.game_client
+                        .in_game_ui_subsystem()
+                        .expect("receiving InGameUI initialized")
+                        .is_placement_anchored()
                 }
                 #[cfg(not(feature = "game_client"))]
                 {
@@ -1562,6 +1574,8 @@ impl CnCGameEngine {
                                 client
                                     .take_message_stream_until_menu_host(
                                         playback,
+                                        facts.logic_frame,
+                                        facts.game_mode,
                                         driver,
                                         stream_cursor,
                                     )
@@ -2051,10 +2065,7 @@ impl CnCGameEngine {
             .set_presentation_frame(self.last_presentation_frame.clone());
         #[cfg(feature = "game_client")]
         {
-            let ui = self
-                .game_client
-                .in_game_ui_subsystem()
-                .map(game_client::core::subsystems::InGameUiHandle::new);
+            let ui = self.game_client.in_game_ui_subsystem();
             let camera = crate::graphics::radar_view::RadarCamera::capture(
                 &self.game_logic.session_view,
                 self.game_logic.radar().terrain_average_z(),
@@ -2120,6 +2131,14 @@ impl CnCGameEngine {
                     (display_w as f32, display_h as f32),
                 );
             let ground_markers = self.collect_ground_marker_circles();
+            #[cfg(feature = "game_client")]
+            let hovered_drawable = self
+                .game_client
+                .in_game_ui_subsystem()
+                .map(|ui| ui.get_moused_over_drawable_id())
+                .filter(|id| *id != 0);
+            #[cfg(not(feature = "game_client"))]
+            let hovered_drawable = None;
             crate::graphics::selection_renderer::enqueue_selection_render(
                 &mut self.render_pipeline,
                 &self.game_logic.session_view.camera.view_matrix,
@@ -2132,6 +2151,7 @@ impl CnCGameEngine {
                 self.show_attack_lines,
                 (display_w as f32, display_h as f32),
                 self.game_logic.session_view.camera.camera_zoom,
+                hovered_drawable,
             );
             #[cfg(feature = "game_client")]
             {
@@ -2249,7 +2269,7 @@ impl CnCGameEngine {
             let mouse = game_client.input_mouse_handle();
             let command_hints = game_client.command_hint_snapshot();
             let client_frame = game_client.get_frame();
-            let (render_bridge, mut scene_drawables, ui_renderer, window_owner, ime) =
+            let (render_bridge, mut scene_drawables, ui_renderer, window_owner, ime, receiving_ui) =
                 game_client.split_render_bridge_drawables_and_ui_renderer();
             let mut ui_draw = ui_renderer.map(|renderer| {
                 crate::graphics::ui_render_pass::NativeUiDraw::new(
@@ -2260,6 +2280,7 @@ impl CnCGameEngine {
                     ime,
                 )
                 .with_command_hints(command_hints, client_frame)
+                .with_receiving_ui(receiving_ui)
             });
             let mut ui_overlay =
                 |frame: &mut ww3d_engine::RenderFrame,
@@ -3067,6 +3088,17 @@ impl CnCGameEngine {
     ) -> game_client::gui::campaign_launch_host_bridge::MenuWorldFacts {
         let mode = self.game_logic.game_mode();
         game_client::gui::campaign_launch_host_bridge::MenuWorldFacts {
+            client_frame: self.game_client.get_frame(),
+            logic_frame: self.game_logic.get_frame(),
+            game_mode: match mode {
+                GameMode::SinglePlayer => gamelogic::system::game_logic::GAME_SINGLE_PLAYER,
+                GameMode::Skirmish => gamelogic::system::game_logic::GAME_SKIRMISH,
+                GameMode::Replay => gamelogic::system::game_logic::GAME_REPLAY,
+                GameMode::Shell => gamelogic::system::game_logic::GAME_SHELL,
+                GameMode::Internet => gamelogic::system::game_logic::GAME_INTERNET,
+                GameMode::Lan | GameMode::Multiplayer => gamelogic::system::game_logic::GAME_LAN,
+                GameMode::None => gamelogic::system::game_logic::GAME_NONE,
+            },
             in_game: mode != GameMode::None,
             in_shell_game: mode == GameMode::Shell,
         }

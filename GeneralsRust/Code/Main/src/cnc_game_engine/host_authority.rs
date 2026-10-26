@@ -1945,9 +1945,7 @@ impl CnCGameEngine {
         // DrawEvents marks chirps once before saving. Rendering sends immutable
         // receipts; admit them to this session before serializing soundPlayed.
         #[cfg(feature = "game_client")]
-        if let Some(ui) = self.game_client.in_game_ui_subsystem() {
-            use game_client::helpers::InGameUiHooks;
-            let ui = game_client::core::subsystems::InGameUiHandle::new(ui);
+        if let Some(ui) = self.game_client.in_game_ui_subsystem_mut() {
             super::run_loop::admit_radar_presentations(
                 &mut self.game_logic,
                 ui.take_radar_acknowledgments(),

@@ -6,6 +6,7 @@ impl InGameUI {
         &mut self,
         mouse: &MouseState,
         keyboard: &KeyboardState,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Result<()> {
         if !self.enabled {
             return Ok(());
@@ -29,7 +30,7 @@ impl InGameUI {
             return Ok(());
         }
 
-        if self.handle_pending_special_power(mouse_pos, left_button, right_button)? {
+        if self.handle_pending_special_power(mouse_pos, left_button, right_button, ui)? {
             return Ok(());
         }
 
@@ -50,7 +51,7 @@ impl InGameUI {
             ButtonState::Pressed => {
                 // Update selection box
                 if self.selection_box.active {
-                    self.selection_box.update(mouse_pos);
+                    self.selection_box.update(mouse_pos, ui);
                 }
             }
             ButtonState::JustReleased
@@ -96,21 +97,21 @@ impl InGameUI {
                             self.player_id as ObjectID,
                         )
                         .is_ok();
-                    TheInGameUI::set_placement_angle(preview.rotation);
+                    ui.set_placement_angle(preview.rotation);
                 }
             }
 
-            if TheInGameUI::is_placement_anchored() {
+            if ui.is_placement_anchored() {
                 if let Some(preview) = self.placement_preview.as_ref() {
                     if let Some(template) = TheThingFactory::find_template(&preview.template_name) {
                         if template.is_kind_of(KindOf::Barrier) {
-                            if let Some((start, _)) = TheInGameUI::get_placement_points() {
+                            if let Some((start, _)) = ui.get_placement_points() {
                                 let current =
                                     MsgICoord2D::new(mouse_pos.x as i32, mouse_pos.y as i32);
                                 let dx = (current.x - start.x) as f32;
                                 let dy = (current.y - start.y) as f32;
                                 if (dx * dx + dy * dy).sqrt() >= PLACEMENT_DRAG_DISTANCE {
-                                    TheInGameUI::set_placement_end(Some(current));
+                                    ui.set_placement_end(Some(current));
                                 }
                             }
                         }
@@ -138,12 +139,12 @@ impl InGameUI {
 
                     if is_line_build {
                         let start = MsgICoord2D::new(mouse_pos.x as i32, mouse_pos.y as i32);
-                        if !TheInGameUI::is_placement_anchored() {
-                            TheInGameUI::set_placement_start(Some(start));
+                        if !ui.is_placement_anchored() {
+                            ui.set_placement_start(Some(start));
                             return Ok(());
                         }
-                        TheInGameUI::set_placement_end(Some(start.clone()));
-                        if let Some((start, end)) = TheInGameUI::get_placement_points() {
+                        ui.set_placement_end(Some(start.clone()));
+                        if let Some((start, end)) = ui.get_placement_points() {
                             let dx = (end.x - start.x) as f32;
                             let dy = (end.y - start.y) as f32;
                             if (dx * dx + dy * dy).sqrt() < PLACEMENT_DRAG_DISTANCE {
@@ -174,8 +175,8 @@ impl InGameUI {
                         ));
                     }
 
-                    TheInGameUI::place_build_available(None, None);
-                    TheInGameUI::set_placement_start(None);
+                    ui.place_build_available(None, None);
+                    ui.set_placement_start(None);
                     self.placement_preview = None;
                 }
             }
@@ -189,13 +190,14 @@ impl InGameUI {
         mouse_pos: Vec2,
         left_button: ButtonState,
         right_button: ButtonState,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Result<bool> {
-        let Some(pending) = TheInGameUI::get_pending_special_power() else {
+        let Some(pending) = ui.get_pending_special_power() else {
             return Ok(false);
         };
 
         if right_button.just_pressed() {
-            TheInGameUI::clear_pending_special_power();
+            ui.clear_pending_special_power();
             return Ok(true);
         }
 
@@ -264,7 +266,7 @@ impl InGameUI {
                     vec![pending.source_object_id],
                 ));
             }
-            TheInGameUI::clear_pending_special_power();
+            ui.clear_pending_special_power();
         } else if options.intersects(
             SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
                 | SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT
@@ -628,6 +630,7 @@ impl InGameUI {
     pub fn trigger_double_click_attack_move_guard_hint(
         &mut self,
         input: &InGameUiInputContext<'_>,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) {
         let pos = Self::mouse_screen_to_terrain_for_guard_hint();
         Self::arm_double_click_attack_move_guard_hint(
@@ -635,11 +638,11 @@ impl InGameUI {
             &mut self.guard_hint_stashed_position,
             pos,
         );
-        TheInGameUI::trigger_double_click_attack_move_guard_hint();
+        ui.trigger_double_click_attack_move_guard_hint((pos.x, pos.y, pos.z));
         // createCommandHint (InGameUI.cpp:2526-2534) holds these after the trigger;
         // arm them here so leftover handleRadiusCursor has a decal to fade.
         self.set_mouse_cursor(MouseCursor::ForceAttackGround);
-        self.set_radius_cursor(RadiusCursorType::GuardArea, pos, 1.0, input);
+        self.set_radius_cursor(RadiusCursorType::GuardArea, pos, 1.0, input, ui);
     }
 
     fn mouse_screen_to_terrain_for_guard_hint() -> Coord3D {
@@ -809,9 +812,12 @@ impl InGameUI {
         }
     }
 
-    fn consume_double_click_attack_move_guard_hint(timer: &mut u32) -> bool {
+    fn consume_double_click_attack_move_guard_hint(
+        timer: &mut u32,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> bool {
         if *timer == 0 {
-            return TheInGameUI::consume_double_click_attack_move_guard_hint();
+            return ui.consume_double_click_attack_move_guard_hint();
         }
 
         *timer -= 1;
@@ -1060,6 +1066,7 @@ impl InGameUI {
         &mut self,
         hint_type: CommandHintType,
         input: &InGameUiInputContext<'_>,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) {
         // Wave 969: host empty dual-world uses presentation catalog hover residual
         // (see hover_target_command_context / hover_target_shroud_for_command_hint).
@@ -1080,7 +1087,8 @@ impl InGameUI {
         // after a double-click attack-move to prevent spurious cursor flicker.
         if Self::consume_double_click_attack_move_guard_hint(
             &mut self.double_click_attack_move_guard_timer,
-        ) || TheInGameUI::consume_double_click_attack_move_guard_hint()
+            ui,
+        ) || ui.consume_double_click_attack_move_guard_hint()
         {
             self.set_mouse_cursor(MouseCursor::ForceAttackGround);
             self.set_radius_cursor(
@@ -1088,6 +1096,7 @@ impl InGameUI {
                 Coord3D::new(0.0, 0.0, 0.0),
                 1.0,
                 input,
+                ui,
             );
             return;
         }
@@ -1102,7 +1111,7 @@ impl InGameUI {
 
         let under_window = Self::cursor_is_under_opaque_window(input);
 
-        let mouse_mode = if TheInGameUI::get_mouse_mode() == MouseMode::GuiCommand {
+        let mouse_mode = if ui.get_mouse_mode() == MouseMode::GuiCommand {
             MouseMode::GuiCommand
         } else {
             self.mouse_mode
@@ -1282,20 +1291,19 @@ impl InGameUI {
                     return;
                 }
 
-                if let Some(pending) = TheInGameUI::get_pending_command() {
+                if let Some(pending) = ui.get_pending_command() {
                     self.set_mouse_cursor(Self::pending_gui_command_cursor(&pending, hint_type));
                     if let Some(cursor_type) =
                         RadiusCursorType::from_name(&pending.radius_cursor_type)
                     {
                         if cursor_type != RadiusCursorType::None {
-                            TheInGameUI::set_radius_cursor_active_with_type(
-                                &pending.radius_cursor_type,
-                            );
+                            ui.set_radius_cursor_active_with_type(&pending.radius_cursor_type);
                             self.set_radius_cursor(
                                 cursor_type,
                                 Coord3D::new(0.0, 0.0, 0.0),
                                 1.0,
                                 input,
+                                ui,
                             );
                         }
                     }
@@ -1320,6 +1328,7 @@ impl InGameUI {
         drawable_id: Option<u32>,
         is_location_hint: bool,
         input: &InGameUiInputContext<'_>,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) {
         if self.is_scrolling || self.is_selecting {
             return;
@@ -1333,6 +1342,7 @@ impl InGameUI {
             &self.presentation_unit_catalog,
             drawable_id,
             is_location_hint,
+            ui,
         );
 
         if self.mouse_mode == MouseMode::Default
@@ -1367,7 +1377,7 @@ impl InGameUI {
         {
             self.set_mouse_cursor(self.mouse_mode_cursor);
         }
-        TheInGameUI::set_moused_over_drawable_id(self.moused_over_drawable_id);
+        ui.set_moused_over_drawable_id(self.moused_over_drawable_id);
     }
 
     /// Live host / leftover presentation catalog tooltip (InGameUI.cpp:2256-2459).
@@ -1375,8 +1385,9 @@ impl InGameUI {
         catalog: &[PresentationUnitCatalogEntry],
         drawable_id: Option<u32>,
         is_location_hint: bool,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> u32 {
-        let old_id = TheInGameUI::get_moused_over_drawable_id();
+        let old_id = ui.get_moused_over_drawable_id();
         let mut moused_over = Self::INVALID_DRAWABLE_ID;
         if is_location_hint {
             with_mouse(|m| m.set_cursor_tooltip(String::new(), None, None, None));
@@ -1490,7 +1501,7 @@ impl InGameUI {
         if old_id != moused_over {
             with_mouse(|m| m.reset_tooltip_delay());
         }
-        TheInGameUI::set_moused_over_drawable_id(moused_over);
+        ui.set_moused_over_drawable_id(moused_over);
         moused_over
     }
 
@@ -1499,10 +1510,11 @@ impl InGameUI {
         drawable_id: Option<u32>,
         is_location_hint: bool,
         input: &InGameUiInputContext<'_>,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) {
         // Wave 968: host empty dual-world → presentation catalog residual path.
         if dual_world_registry_unavailable() {
-            self.create_mouseover_hint_from_presentation(drawable_id, is_location_hint, input);
+            self.create_mouseover_hint_from_presentation(drawable_id, is_location_hint, input, ui);
             return;
         }
 
@@ -1626,6 +1638,6 @@ impl InGameUI {
         {
             self.set_mouse_cursor(self.mouse_mode_cursor);
         }
-        TheInGameUI::set_moused_over_drawable_id(self.moused_over_drawable_id);
+        ui.set_moused_over_drawable_id(self.moused_over_drawable_id);
     }
 }

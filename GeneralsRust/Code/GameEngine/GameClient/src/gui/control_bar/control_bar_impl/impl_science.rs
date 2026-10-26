@@ -1040,12 +1040,14 @@ impl ControlBar {
         &mut self,
         stage: ControlBarStage,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        view: &mut crate::display::view::View,
     ) {
         PENDING_CONTROL_BAR_STAGE.store(0xFF, std::sync::atomic::Ordering::SeqCst);
         let parent = leftover_find_window(CONTROL_BAR_PARENT, receiving_manager);
         let mut viewport =
             crate::gui::callbacks::control_bar_callbacks::StandaloneControlBarViewport::new(
                 receiving_manager,
+                view,
             );
         self.switch_control_bar_stage_on_window_owned(
             stage,
@@ -1216,20 +1218,22 @@ impl ControlBar {
     pub fn apply_pending_control_bar_stage(
         &mut self,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        view: &mut crate::display::view::View,
     ) {
         if let Some(stage) = take_pending_control_bar_stage() {
-            self.switch_control_bar_stage(stage, receiving_manager);
+            self.switch_control_bar_stage(stage, receiving_manager, view);
         }
     }
 
     pub fn toggle_control_bar_stage(
         &mut self,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        view: &mut crate::display::view::View,
     ) {
         if self.control_bar_stage == ControlBarStage::Default {
-            self.switch_control_bar_stage(ControlBarStage::Low, receiving_manager);
+            self.switch_control_bar_stage(ControlBarStage::Low, receiving_manager, view);
         } else {
-            self.switch_control_bar_stage(ControlBarStage::Default, receiving_manager);
+            self.switch_control_bar_stage(ControlBarStage::Default, receiving_manager, view);
         }
     }
 
@@ -1574,7 +1578,14 @@ impl ControlBar {
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
         self.apply_scheme_context(receiving_manager, effects);
-        self.switch_control_bar_stage(ControlBarStage::Default, receiving_manager);
+        self.switch_control_bar_stage(
+            ControlBarStage::Default,
+            receiving_manager,
+            effects
+                .standalone_view
+                .as_deref_mut()
+                .expect("standalone control bar requires receiving View"),
+        );
         self.mark_ui_dirty();
     }
 
@@ -1621,6 +1632,7 @@ impl ControlBar {
     fn leftover_maybe_flash_control_bar_arrow(
         &self,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) {
         let current_points = logic_player_list()
             .read()
@@ -1631,7 +1643,7 @@ impl ControlBar {
         if self.last_flashed_at_point_value > current_points {
             return;
         }
-        if crate::helpers::TheInGameUI::get_input_enabled() {
+        if ui.get_input_enabled() {
             leftover_transition_group("ControlBarArrow", receiving_manager);
         }
     }
@@ -1639,8 +1651,9 @@ impl ControlBar {
     pub fn on_player_rank_changed(
         &mut self,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) {
-        self.leftover_maybe_flash_control_bar_arrow(receiving_manager);
+        self.leftover_maybe_flash_control_bar_arrow(receiving_manager, ui);
         self.gen_star_flash = true;
         self.mark_ui_dirty();
     }
@@ -1648,8 +1661,9 @@ impl ControlBar {
     pub fn on_player_science_purchase_points_changed(
         &mut self,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) {
-        self.leftover_maybe_flash_control_bar_arrow(receiving_manager);
+        self.leftover_maybe_flash_control_bar_arrow(receiving_manager, ui);
         self.gen_star_flash = true;
         self.mark_ui_dirty();
     }
@@ -2498,7 +2512,13 @@ impl ControlBar {
         }
         self.mark_ui_dirty();
         self.update(Duration::from_millis(33), receiving_manager, effects)?;
-        self.apply_pending_control_bar_stage(receiving_manager);
+        self.apply_pending_control_bar_stage(
+            receiving_manager,
+            effects
+                .standalone_view
+                .as_deref_mut()
+                .expect("standalone control bar requires receiving View"),
+        );
         Ok(())
     }
 

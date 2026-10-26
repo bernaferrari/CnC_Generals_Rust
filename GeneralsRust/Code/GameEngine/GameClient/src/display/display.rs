@@ -338,9 +338,13 @@ impl Display {
         self.view_list.clear();
     }
 
-    pub fn draw_views(&self) {
+    pub fn draw_views(
+        &self,
+        ui: Option<&crate::core::subsystems::InGameUISubsystem>,
+        client_frame: u32,
+    ) {
         for view in &self.view_list {
-            let _ = view.draw_view();
+            let _ = view.draw_view(ui, client_frame);
         }
     }
 
@@ -584,11 +588,8 @@ impl Display {
             .unwrap_or("sshot.bmp")
             .to_string();
         fx.queue_screenshot(path);
-        crate::helpers::TheInGameUI::message(&format!(
-            "{} {}",
-            crate::game_text::GameText::fetch("GUI:ScreenCapture"),
-            leaf
-        ));
+        // The caller emits ScreenCapture feedback through its receiving UI
+        // after this display/FX loan ends; return the exact queued leaf.
         leaf
     }
 
@@ -891,8 +892,10 @@ impl Display {
         fx: &mut display_fx::DisplayFxState,
         renderer: Option<&mut crate::gui::ui_renderer::UIRenderer>,
         owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+        ui: Option<&crate::core::subsystems::InGameUISubsystem>,
+        client_frame: u32,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.draw_with_snow_state(Some(snow), fx, renderer, owner)
+        self.draw_with_snow_state(Some(snow), fx, renderer, owner, ui, client_frame)
     }
     fn draw_with_snow_state(
         &self,
@@ -900,6 +903,8 @@ impl Display {
         fx: &mut display_fx::DisplayFxState,
         mut renderer: Option<&mut crate::gui::ui_renderer::UIRenderer>,
         owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+        ui: Option<&crate::core::subsystems::InGameUISubsystem>,
+        client_frame: u32,
     ) -> Result<(), Box<dyn std::error::Error>> {
         crate::display::client_draw_schedule::run_dual_world_cpu_phases();
 
@@ -907,7 +912,7 @@ impl Display {
             .begin_frame()
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
-        self.draw_views();
+        self.draw_views(ui, client_frame);
 
         let mut encoder =
             self.graphics
@@ -1285,8 +1290,10 @@ impl DisplayInterface for Display {
         fx: &mut display_fx::DisplayFxState,
         renderer: Option<&mut crate::gui::ui_renderer::UIRenderer>,
         owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+        ui: Option<&crate::core::subsystems::InGameUISubsystem>,
+        client_frame: u32,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.draw_with_snow_state(None, fx, renderer, owner)
+        self.draw_with_snow_state(None, fx, renderer, owner, ui, client_frame)
     }
 
     fn preload_common_textures(&self) -> Result<(), Box<dyn std::error::Error>> {

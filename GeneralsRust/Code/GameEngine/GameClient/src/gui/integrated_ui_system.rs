@@ -208,9 +208,15 @@ impl IntegratedUISystem {
     }
 
     /// Update resources display
-    pub fn update_resources(&mut self, credits: i32, power_available: i32, power_used: i32) {
+    pub fn update_resources(
+        &mut self,
+        credits: i32,
+        power_available: i32,
+        power_used: i32,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) {
         self.ingame_ui
-            .update_resources(credits, power_available, power_used);
+            .update_resources(credits, power_available, power_used, ui);
     }
 
     /// Update minimap unit icons
@@ -252,21 +258,28 @@ impl IntegratedUISystem {
         footprint_x: f32,
         footprint_z: f32,
         input: &crate::gui::ingame_ui::InGameUiInputContext<'_>,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) {
         self.ingame_ui.start_building_placement(
             template_name,
             Vec2::new(footprint_x, footprint_z),
             input,
+            ui,
         );
     }
 
     /// Cancel building placement
-    pub fn cancel_building_placement(&mut self) {
-        self.ingame_ui.cancel_building_placement();
+    pub fn cancel_building_placement(&mut self, ui: &mut crate::message_stream::ReceivingUi<'_>) {
+        self.ingame_ui.cancel_building_placement(ui);
     }
 
     /// Handle input events
-    pub fn handle_input(&mut self, mouse: &MouseState, keyboard: &KeyboardState) -> Result<()> {
+    pub fn handle_input(
+        &mut self,
+        mouse: &MouseState,
+        keyboard: &KeyboardState,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> Result<()> {
         if !self.initialized {
             return Ok(());
         }
@@ -322,7 +335,7 @@ impl IntegratedUISystem {
         }
 
         // Handle selection and minimap input
-        self.ingame_ui.handle_mouse_input(mouse, keyboard)?;
+        self.ingame_ui.handle_mouse_input(mouse, keyboard, ui)?;
 
         Ok(())
     }
@@ -366,12 +379,13 @@ impl IntegratedUISystem {
         &mut self,
         delta_time: Duration,
         input: &crate::gui::ingame_ui::InGameUiInputContext<'_>,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Result<()> {
         if !self.initialized {
             return Ok(());
         }
 
-        self.ingame_ui.update(delta_time, input);
+        self.ingame_ui.update(delta_time, input, ui);
         self.command_panel.update(delta_time);
 
         Ok(())

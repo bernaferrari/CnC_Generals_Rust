@@ -99,21 +99,25 @@ impl ControlBar {
 
     /// Called when a drawable is selected. Cancels pending GUI commands.
     /// C++: ControlBar::onDrawableSelected() → TheInGameUI->setGUICommand(NULL)
-    pub fn on_drawable_selected(&mut self) {
+    pub fn on_drawable_selected(&mut self, ui: &mut crate::core::subsystems::InGameUISubsystem) {
         self.mark_ui_dirty();
-        TheInGameUI::clear_pending_command();
-        TheInGameUI::clear_pending_special_power();
+        ui.clear_pending_command();
+        ui.clear_pending_special_power();
     }
 
     /// Called when a drawable is deselected.
     /// C++: ControlBar::onDrawableDeselected()
-    pub fn on_drawable_deselected(&mut self, select_count: usize) {
+    pub fn on_drawable_deselected(
+        &mut self,
+        select_count: usize,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
+    ) {
         self.mark_ui_dirty();
         if select_count == 0 {
-            TheInGameUI::clear_pending_command();
-            TheInGameUI::clear_pending_special_power();
+            ui.clear_pending_command();
+            ui.clear_pending_special_power();
         }
-        TheInGameUI::place_build_available(None, None);
+        ui.place_build_available(None, None);
     }
 
     /// C++ InGameUI::areSelectedObjectsControllable residual from live host.
@@ -135,7 +139,13 @@ impl ControlBar {
     ) -> Result<(), Box<dyn std::error::Error>> {
         // ShowControlBar queues DEFAULT (ControlBarCallback.cpp:489) before this
         // live instance ticks. Apply it so CommandWindow HIDDEN is cleared InGame.
-        self.apply_pending_control_bar_stage(receiving_manager);
+        self.apply_pending_control_bar_stage(
+            receiving_manager,
+            effects
+                .standalone_view
+                .as_deref_mut()
+                .expect("standalone control bar requires receiving View"),
+        );
         self.apply_live_hook_events(true, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone, receiving_manager, effects);
         self.update_body(delta_time, true, None, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone, None, receiving_manager, effects)
     }
@@ -369,7 +379,9 @@ impl ControlBar {
                 self.update_context_command(receiving_manager, effects)?;
             }
             ControlBarState::StructureInventory => {
-                self.update_context_structure_inventory()?;
+                self.update_context_structure_inventory(
+                    effects.ui.as_deref_mut().expect("receiving UI"),
+                )?;
             }
             ControlBarState::Beacon => {
                 self.update_context_beacon(receiving_manager)?;
@@ -582,6 +594,7 @@ impl ControlBar {
         owner: &crate::gui::window_manager::WindowManagerOwner,
         messages: &mut Vec<crate::message_stream::game_message::GameMessage>,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
     ) {
         for click in std::mem::take(&mut self.pending_command_clicks) {
             super::with_host_control_bar_input_provenance(click.input_provenance, || {
@@ -590,6 +603,7 @@ impl ControlBar {
                     owner,
                     messages,
                     receiving_manager,
+                    ui,
                 )
             });
         }
@@ -638,7 +652,13 @@ impl ControlBar {
             self.animate_special_power_shortcut(enabled);
         }
         if standalone_viewport && events.toggle_control_bar_stage {
-            self.toggle_control_bar_stage(receiving_manager);
+            self.toggle_control_bar_stage(
+                receiving_manager,
+                effects
+                    .standalone_view
+                    .as_deref_mut()
+                    .expect("standalone control bar requires receiving View"),
+            );
         }
         if events.init_special_power_shortcut_for_player.is_some() {
             self.init_special_power_shortcut_bar(receiving_manager, effects);
@@ -655,6 +675,7 @@ impl ControlBar {
                         window_manager_owner,
                         effects.emitted_messages,
                         receiving_manager,
+                        effects.ui.as_deref_mut().expect("receiving UI"),
                     )
                 });
             }

@@ -2205,6 +2205,14 @@ impl GameLogic {
 
     /// Set the canonical building rally point at the receiving command phase.
     pub fn unit_command_set_rally_point(&mut self, id: ObjectId, location: glam::Vec3) -> bool {
+        self.unit_command_set_rally_point_with_effects(id, location, &mut Default::default())
+    }
+    pub(crate) fn unit_command_set_rally_point_with_effects(
+        &mut self,
+        id: ObjectId,
+        location: glam::Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let Some(obj) = self.objects.get(&id) else {
             return false;
         };
@@ -2223,8 +2231,9 @@ impl GameLogic {
             .grid
             .quick_path_exists(from, location)
         {
-            #[cfg(feature = "game_client")]
-            game_client::helpers::TheInGameUI::message("GUI:RallyPointNoPath");
+            if let Some(ui) = effects.ui.as_deref_mut() {
+                ui.hud_message("GUI:RallyPointNoPath", self.get_frame());
+            }
             self.play_ui_sound("UnableToSetRallyPoint");
             return false;
         }
@@ -2241,7 +2250,9 @@ impl GameLogic {
                 &game_client::game_text::GameText::fetch("GUI:RallyPointSet"),
                 &display_name,
             );
-            game_client::helpers::TheInGameUI::message(&formatted);
+            if let Some(ui) = effects.ui.as_deref_mut() {
+                ui.hud_message(&formatted, self.get_frame());
+            }
         }
         self.play_ui_sound("RallyPointSet");
         true

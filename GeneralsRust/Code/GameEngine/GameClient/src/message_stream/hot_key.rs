@@ -50,10 +50,20 @@ impl GameMessageTranslator for HotKeyTranslator {
     fn translate_game_message_with_context(
         &mut self,
         msg: &GameMessage,
-        _client: game_engine::common::message_stream::TranslatorClientObservation,
+        client: game_engine::common::message_stream::TranslatorClientObservation,
         dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
         emitted: &mut Vec<GameMessage>,
+        client_ui: &mut dyn std::any::Any,
     ) -> GameMessageDisposition {
+        let ui = &mut crate::message_stream::ReceivingUi::new(
+            client_ui
+                .downcast_mut::<crate::core::subsystems::InGameUISubsystem>()
+                .expect("message translator requires its receiving UI"),
+            client.logic_frame,
+            client.frame,
+        )
+        .with_emitter(emitted);
+
         let GameMessageType::RawKeyUp(key_code) = msg.get_type() else {
             return GameMessageDisposition::KeepMessage;
         };
@@ -76,11 +86,11 @@ impl GameMessageTranslator for HotKeyTranslator {
         let Some(key_char) = keycode_to_char(*key_code) else {
             return GameMessageDisposition::KeepMessage;
         };
-        if match dispatch(
+        if match ui.dispatch(
+            dispatch,
             game_engine::common::message_stream::WindowInputDispatch::Ui(
                 game_engine::common::message_stream::UiInputAction::ActivateHotKey(key_char as u32),
             ),
-            emitted,
         ) {
             Some(game_engine::common::message_stream::WindowInputDispatchResult::Ui(handled)) => {
                 handled

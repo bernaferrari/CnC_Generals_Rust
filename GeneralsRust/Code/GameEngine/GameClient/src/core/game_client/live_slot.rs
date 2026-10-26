@@ -722,6 +722,7 @@ impl GameClient {
         crate::gui::game_window::WindowEventEffects<'a>,
         &'a mut crate::message_stream::message_stream::MessageStream,
     ) {
+        let client_frame = self.frame;
         let identity = std::ptr::from_mut(self) as usize;
         self.script_display
             .bind(self.subsystem_manager.display.as_ref());
@@ -734,6 +735,10 @@ impl GameClient {
             self.drawables.borrow_native(),
             &mut self.command_hints,
             crate::gui::game_window::WindowEventEffects {
+                standalone_view: None,
+                client_frame: Some(client_frame),
+                logic_frame: None,
+                ui: self.subsystem_manager.in_game_ui.as_mut(),
                 payloads: Default::default(),
                 menus: Some(self.menu_manager.receiving_menus()),
                 manager: None,

@@ -17,21 +17,25 @@ pub(super) fn is_gui_command_hint_message(msg: &GameMessageType) -> bool {
     )
 }
 
-pub(super) fn apply_hint_visual(msg: &GameMessageType, hint: &HintVisual) {
-    TheInGameUI::set_hint_text(&hint.text);
-    TheInGameUI::set_cursor_by_name(hint.cursor);
+pub(super) fn apply_hint_visual(
+    msg: &GameMessageType,
+    hint: &HintVisual,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
+) {
+    ui.set_hint_text(&hint.text);
+    ui.set_cursor_by_name(hint.cursor);
     if hint.radius_cursor {
         if is_gui_command_hint_message(msg) {
-            if let Some(pending) = TheInGameUI::get_pending_command() {
-                TheInGameUI::set_radius_cursor_active_with_type(&pending.radius_cursor_type);
+            if let Some(pending) = ui.get_pending_command() {
+                ui.set_radius_cursor_active_with_type(&pending.radius_cursor_type);
             } else {
-                TheInGameUI::set_radius_cursor_active();
+                ui.set_radius_cursor_active();
             }
         } else {
-            TheInGameUI::set_radius_cursor_active();
+            ui.set_radius_cursor_active();
         }
     } else {
-        TheInGameUI::set_radius_cursor_none();
+        ui.set_radius_cursor_none();
     }
 }
 
@@ -40,14 +44,22 @@ impl HintSpy {
         Self { last_hint: None }
     }
 
-    pub(super) fn process_hint(&mut self, msg: &GameMessageType, hint: HintVisual) {
+    pub(super) fn process_hint(
+        &mut self,
+        msg: &GameMessageType,
+        hint: HintVisual,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) {
         debug!("Processing hint: {}", hint.text);
         self.last_hint = Some(hint.text.clone());
-        apply_hint_visual(msg, &hint);
+        apply_hint_visual(msg, &hint, ui);
     }
 }
 
-pub(super) fn hint_visual_for_message(msg: &GameMessageType) -> Option<HintVisual> {
+pub(super) fn hint_visual_for_message(
+    msg: &GameMessageType,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
+) -> Option<HintVisual> {
     use GameMessageType::*;
 
     pub(super) fn normalize_cursor_name(cursor_name: &str, fallback: &'static str) -> &'static str {
@@ -163,7 +175,10 @@ pub(super) fn hint_visual_for_message(msg: &GameMessageType) -> Option<HintVisua
         )
     }
 
-    pub(super) fn pending_command_radius_cursor_active(pending: &PendingCommand) -> bool {
+    pub(super) fn pending_command_radius_cursor_active(
+        pending: &PendingCommand,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> bool {
         let Some(radius_type) = normalize_radius_cursor_type(&pending.radius_cursor_type) else {
             return false;
         };
@@ -176,7 +191,7 @@ pub(super) fn hint_visual_for_message(msg: &GameMessageType) -> Option<HintVisua
         }
 
         if radius_cursor_requires_special_power_payload(radius_type) {
-            return TheInGameUI::get_pending_special_power().is_some();
+            return ui.get_pending_special_power().is_some();
         }
 
         true
@@ -213,10 +228,10 @@ pub(super) fn hint_visual_for_message(msg: &GameMessageType) -> Option<HintVisua
             radius_cursor: false,
         },
         ValidGUICommandHint => {
-            let pending = TheInGameUI::get_pending_command();
+            let pending = ui.get_pending_command();
             let radius_from_pending = pending
                 .as_ref()
-                .map(pending_command_radius_cursor_active)
+                .map(|pending| pending_command_radius_cursor_active(pending, ui))
                 .unwrap_or(false);
             HintVisual {
                 text: "Valid GUI command".to_string(),
@@ -228,10 +243,10 @@ pub(super) fn hint_visual_for_message(msg: &GameMessageType) -> Option<HintVisua
             }
         }
         InvalidGUICommandHint => {
-            let pending = TheInGameUI::get_pending_command();
+            let pending = ui.get_pending_command();
             let radius_from_pending = pending
                 .as_ref()
-                .map(pending_command_radius_cursor_active)
+                .map(|pending| pending_command_radius_cursor_active(pending, ui))
                 .unwrap_or(false);
             HintVisual {
                 text: "Invalid GUI command".to_string(),
@@ -390,7 +405,39 @@ impl Default for HintSpy {
 }
 
 impl GameMessageTranslator for HintSpy {
+    fn requires_receiving_window_context(&self) -> bool {
+        true
+    }
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+        log::error!("GUI message translator requires receiving UI context");
+        GameMessageDisposition::KeepMessage
+    }
+
+    fn translate_game_message_with_context(
+        &mut self,
+        msg: &GameMessage,
+        client: game_engine::common::message_stream::TranslatorClientObservation,
+        _dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
+        _emitted: &mut Vec<GameMessage>,
+        client_ui: &mut dyn std::any::Any,
+    ) -> GameMessageDisposition {
+        let ui = &mut crate::message_stream::ReceivingUi::new(
+            client_ui
+                .downcast_mut::<crate::core::subsystems::InGameUISubsystem>()
+                .expect("message translator requires its receiving UI"),
+            client.logic_frame,
+            client.frame,
+        )
+        .with_emitter(_emitted);
+        self.translate_receiving_ui(msg, ui)
+    }
+}
+impl HintSpy {
+    fn translate_receiving_ui(
+        &mut self,
+        msg: &GameMessage,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> GameMessageDisposition {
         // C++ HintSpy.cpp:91-96 — MSG_DO_MOVETO / ATTACKMOVETO / FORCEMOVETO /
         // ADD_WAYPOINT create a destination marker and keep the command.
         match msg.get_type() {
@@ -398,13 +445,13 @@ impl GameMessageTranslator for HintSpy {
             | GameMessageType::DoAttackMoveTo(pos)
             | GameMessageType::DoForceMoveTO(pos)
             | GameMessageType::AddWaypoint(pos) => {
-                TheInGameUI::create_move_hint(pos.clone(), pos.clone(), 0);
+                ui.create_move_hint(pos.clone(), pos.clone(), 0);
                 return GameMessageDisposition::KeepMessage;
             }
             _ => {}
         }
-        if let Some(hint) = hint_visual_for_message(msg.get_type()) {
-            self.process_hint(msg.get_type(), hint);
+        if let Some(hint) = hint_visual_for_message(msg.get_type(), ui) {
+            self.process_hint(msg.get_type(), hint, ui);
             GameMessageDisposition::DestroyMessage
         } else {
             GameMessageDisposition::KeepMessage

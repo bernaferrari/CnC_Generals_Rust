@@ -16,6 +16,9 @@ pub use game_engine::common::message_stream::ClientCampaignLaunch as HostCampaig
 /// Immutable facts borrowed from the driving native world for one UI operation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MenuWorldFacts {
+    pub game_mode: i32,
+    pub client_frame: u32,
+    pub logic_frame: u32,
     pub in_game: bool,
     pub in_shell_game: bool,
 }

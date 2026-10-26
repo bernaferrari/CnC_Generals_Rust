@@ -366,14 +366,6 @@ fn host_logic_frame(state: &ReplayPendingState) -> u32 {
     state.host_logic_frame.load(Ordering::Relaxed)
 }
 
-fn host_replay_mouse_snapshot() -> (i32, ICoord2D) {
-    #[cfg(feature = "game_client")]
-    let leftover_cursor = game_client::helpers::TheInGameUI::get_mouse_cursor() as i32;
-    #[cfg(not(feature = "game_client"))]
-    let leftover_cursor = 0;
-    (leftover_cursor, ICoord2D { x: 0, y: 0 })
-}
-
 fn cull_host_command_list() {
     #[cfg(feature = "game_client")]
     {
@@ -451,13 +443,8 @@ pub fn tap_host_new_game_for_recorder(mode: GameMode, selected_seed: u32) {
 
 /// C++ `LookAtXlat.cpp:459-469`: emit `MSG_SET_REPLAY_CAMERA` onto the list
 /// the recorder snapshots (loc, angle, pitch, zoom, cursor, pixel).
-pub fn tap_replay_camera_for_recorder(mut pose: ReplayCameraPose) {
+pub fn tap_replay_camera_for_recorder(pose: ReplayCameraPose) {
     install_host_replay_bridges();
-    if pose.pixel == (0, 0) && pose.cursor == 0 {
-        let (cursor, pixel) = host_replay_mouse_snapshot();
-        pose.cursor = cursor;
-        pose.pixel = (pixel.x, pixel.y);
-    }
     append_to_command_list(replay_camera_to_message(pose));
 }
 

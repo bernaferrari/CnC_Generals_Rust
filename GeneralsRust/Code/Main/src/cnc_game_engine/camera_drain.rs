@@ -1326,9 +1326,11 @@ impl CnCGameEngine {
                               display: &mut game_client::core::script_action_handler::ScriptDisplayReceiver,
                               videos: &mut game_client::gui::window_video_manager::ClientWindowVideos,
                               ime: &mut game_client::gui::ime_manager::ImeManager,
+                              ui: &mut game_client::core::subsystems::InGameUISubsystem,
                               request,
                               messages: &mut Vec<game_engine::common::message_stream::GameMessage>| {
                 let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            ui: Some(ui), logic_frame: Some(menu_world.logic_frame), client_frame: Some(menu_world.client_frame),
             menus: Some(menus.reborrow()),
             ime:Some(ime),
                     upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_observer),
@@ -1362,9 +1364,16 @@ impl CnCGameEngine {
         use game_engine::common::message_stream::PropagationProgress;
         let mut cursor = None;
         loop {
+            let facts = self.receiving_menu_world_facts();
             let (progress, steps) =
                 self.with_receiving_client_translation(|client, playback, driver, _manager| {
-                    client.take_message_stream_until_menu_host(playback, driver, cursor.take())
+                    client.take_message_stream_until_menu_host(
+                        playback,
+                        facts.logic_frame,
+                        facts.game_mode,
+                        driver,
+                        cursor.take(),
+                    )
                 });
             match progress.map_err(|error| error.to_string())? {
                 PropagationProgress::Complete(messages) => {
@@ -2340,7 +2349,7 @@ impl CnCGameEngine {
                     &[("player", player.name.as_str())],
                 );
                 info!("Player {} ({}) has been defeated", player.name, player_id);
-                self.game_hud_mut().push_info_message(&message);
+                self.host_push_info_message(&message);
                 // Wave 539: presentation freeze → HUD radar + audio (no GameLogic dual-write).
                 self.notify_presentation_ui_message(&message);
             } else if self.last_presentation_frame.is_some() {
@@ -2355,7 +2364,7 @@ impl CnCGameEngine {
                     &[("player", player.name.as_str())],
                 );
                 info!("Player {} ({}) has been defeated", player.name, player_id);
-                self.game_hud_mut().push_info_message(&message);
+                self.host_push_info_message(&message);
                 // Wave 566: boot residual via notify_boot_ui_message helper.
                 self.notify_boot_ui_message(&message, Some(player.team));
             } else {
@@ -2411,7 +2420,7 @@ impl CnCGameEngine {
             };
 
             let message = localization::localize(key, fallback);
-            self.game_hud_mut().push_info_message(&message);
+            self.host_push_info_message(&message);
             // Wave 538: when presentation freeze is installed, route radar/UI SFX
             // through HUD + audio subsystem (no GameLogic dual-write mid-frame).
             // Boot/menu residual still uses host queue/play_ui_sound.
@@ -2690,6 +2699,7 @@ impl CnCGameEngine {
             self.game_client.apply_presentation_military_caption(
                 pres.military_caption.as_deref(),
                 pres.military_caption_remaining_ms,
+                pres.frame.0,
             );
             // Wave 1060: floating cash/text residual → InGameUI (keep vanish phase).
             let floating: Vec<(String, [f32; 3], (u8, u8, u8, u8), u32, u32)> = pres
@@ -2933,6 +2943,7 @@ impl CnCGameEngine {
             logic_frame: self.game_logic.frame,
             client_frame: self.game_client.get_frame(),
         };
+        let native_mode = self.receiving_menu_world_facts().game_mode;
         let logic = &self.game_logic;
         let paused = self.game_paused;
         match self
@@ -2947,6 +2958,7 @@ impl CnCGameEngine {
                     native_visual_time::observe_receiving(logic, paused, None)
                         .map_err(game_client::core::GameClientError::InvalidOperation)
                 },
+                native_mode,
             ) {
             Ok(step) => {
                 if let Err(error) = self.native_display.queue_shell(

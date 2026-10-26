@@ -14,7 +14,6 @@ const COMMAND_OPTION_NEED_TARGET: u32 =
 /// C++ InGameUI::triggerDoubleClickAttackMoveGuardHint timer (InGameUI.cpp:1316).
 const DOUBLE_CLICK_ATTACK_MOVE_GUARD_HINT_FRAMES: u32 = 11;
 
-
 /// In-game UI errors
 #[derive(Error, Debug)]
 pub enum InGameUIError {
@@ -76,7 +75,6 @@ const MAX_UI_MESSAGES: usize = 6;
 
 /// C++: MAX_SUBTITLE_LINES = 4 (InGameUI.h:235)
 const MAX_SUBTITLE_LINES: usize = 4;
-
 
 /// C++: InGameUI::MilitarySubtitleData (InGameUI.h:624-637)
 /// Stores state for the military-style caption overlay.
@@ -572,7 +570,7 @@ impl SelectionBox {
         self.active = true;
     }
 
-    pub fn update(&mut self, pos: Vec2) {
+    pub fn update(&mut self, pos: Vec2, ui: &mut crate::message_stream::ReceivingUi<'_>) {
         self.current = pos;
     }
 
@@ -867,7 +865,13 @@ impl ResourceDisplay {
         }
     }
 
-    pub fn update(&mut self, credits: i32, power_available: i32, power_used: i32) {
+    pub fn update(
+        &mut self,
+        credits: i32,
+        power_available: i32,
+        power_used: i32,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) {
         self.credits = credits;
         self.power_available = power_available;
         self.power_used = power_used;
@@ -1034,7 +1038,6 @@ pub struct InGameUI {
     place_icons: Vec<PlaceIconGhost>,
     pending_place_icon_template: Option<String>,
     pending_place_icon_source: u32,
-
 
     /// Minimap
     minimap: Minimap,
@@ -1295,4 +1298,3 @@ pub enum CommandHintType {
     /// C++: MSG_INVALID_GUICOMMAND_HINT
     InvalidGuiCommand,
 }
-

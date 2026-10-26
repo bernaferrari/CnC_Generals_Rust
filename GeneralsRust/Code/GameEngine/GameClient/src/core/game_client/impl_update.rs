@@ -3,14 +3,34 @@
 // so this stays one logical `game_client` module (public API identical).
 
 impl GameClient {
+    /// Native Main supplies script output through its receiving driver. Only
+    /// the standalone Core path consumes the original Core script latch.
+    fn apply_core_script_display_state(&mut self) {
+        if self.input_authority == ClientInputAuthority::StandaloneCore {
+            if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+                apply_pending_script_display_state(ui);
+            }
+        }
+    }
+
     /// Updates the game client - main game loop entry point.
     ///
     /// C++ parity: frame sequence matches `GameClient::update()` (GameClient.cpp:489-752).
-    pub fn update(&mut self) -> GameClientResult<()> {
-        self.update_with_window_owner()
+    pub fn update(
+        &mut self,
+        logic_frame: u32,
+        game_mode: i32,
+        view: &mut crate::display::view::View,
+    ) -> GameClientResult<()> {
+        self.update_with_window_owner(logic_frame, game_mode, view)
     }
 
-    fn update_with_window_owner(&mut self) -> GameClientResult<()> {
+    fn update_with_window_owner(
+        &mut self,
+        logic_frame: u32,
+        game_mode: i32,
+        view: &mut crate::display::view::View,
+    ) -> GameClientResult<()> {
         if !self.initialized {
             return Err(GameClientError::InvalidOperation(
                 "GameClient not initialized".to_string(),
@@ -29,7 +49,7 @@ impl GameClient {
         // Classic Core entry only. Native Main supplies both owning clocks to
         // update_presentation_shell_with_particle_frames without this lookup.
         let frames = NativeParticleFrames {
-            logic_frame: TheGameLogic::get_frame(),
+            logic_frame,
             client_frame: self.frame,
         };
 
@@ -79,14 +99,14 @@ impl GameClient {
                 return Ok(());
             }
             self.update_effects(visual_delta)?;
-            apply_pending_script_display_state();
+            self.apply_core_script_display_state();
             self.update_display_only()?;
             self.update_native_draw_particle_phase(freeze_time, frames, true)?;
             // No draw_display — Main RenderPipeline is sole present path.
             self.draw_drawable_icon_ui();
             self.draw_presentation_selection_residual();
             // C++ TheInGameUI->update message/superweapon drains before postDraw.
-            self.drain_logic_hud_messages();
+            self.drain_logic_hud_messages(frames.logic_frame);
             self.apply_queued_weapon_recoils();
             for drawable in self.drawables.drawable_map.values_mut() {
                 if let Some(basic) = drawable
@@ -97,12 +117,12 @@ impl GameClient {
                 }
             }
             self.sync_superweapon_strip_from_logic();
-            let _ = self.draw_live_ingame_hud();
+            let _ = self.draw_live_ingame_hud(frames.logic_frame);
 
             self.update_display_string_manager()?;
             self.update_post_draw_ui(None)?;
-            self.process_beacon_notifications()?;
-            self.pump_message_stream()?;
+            self.process_beacon_notifications(frames.logic_frame)?;
+            self.pump_message_stream(frames.logic_frame, game_mode, Some(view))?;
             self.rendered_object_count = 0;
             self.finish_frame_timing(current_time);
             return Ok(());
@@ -123,7 +143,7 @@ impl GameClient {
 
         // C++ line 721: terrain visual, C++ line 726: display UPDATE
         self.update_effects(visual_delta)?;
-        apply_pending_script_display_state();
+        self.apply_core_script_display_state();
         self.update_display_only()?;
         self.update_native_draw_particle_phase(freeze_time, frames, false)?;
 
@@ -136,9 +156,9 @@ impl GameClient {
         self.draw_drawable_icon_ui();
         self.draw_presentation_selection_residual();
         // C++ TheInGameUI->update message/superweapon drains before postDraw.
-        self.drain_logic_hud_messages();
+        self.drain_logic_hud_messages(frames.logic_frame);
         self.sync_superweapon_strip_from_logic();
-        let _ = self.draw_live_ingame_hud();
+        let _ = self.draw_live_ingame_hud(frames.logic_frame);
 
         // C++ line 740: DisplayStringManager update
         self.update_display_string_manager()?;
@@ -146,8 +166,8 @@ impl GameClient {
         // C++ lines 744-751: Shell and InGameUI AFTER draw
         self.update_post_draw_ui(None)?;
 
-        self.process_beacon_notifications()?;
-        self.pump_message_stream()?;
+        self.process_beacon_notifications(frames.logic_frame)?;
+        self.pump_message_stream(frames.logic_frame, game_mode, Some(view))?;
 
         self.rendered_object_count = 0;
 
@@ -209,8 +229,13 @@ impl GameClient {
     }
 
     /// C++ GameClient.cpp:587-597 — follow first selected drawable or clear flag.
-    fn update_camera_tracking_drawable(&self) {
-        if !crate::helpers::TheInGameUI::is_camera_tracking_drawable() {
+    fn update_camera_tracking_drawable(&mut self) {
+        if !self
+            .subsystem_manager
+            .in_game_ui
+            .as_ref()
+            .is_some_and(|ui| ui.is_camera_tracking_drawable())
+        {
             return;
         }
         use crate::drawable::DrawableExt;
@@ -238,7 +263,9 @@ impl GameClient {
                 view.look_at(&crate::display::view::Point3::new(pos.x, pos.y, pos.z));
             });
         } else {
-            crate::helpers::TheInGameUI::set_camera_tracking_drawable(false);
+            if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+                ui.set_camera_tracking_drawable(false);
+            }
         }
     }
 
@@ -313,9 +340,10 @@ impl GameClient {
             NativeRenderReceiver::new(
                 state,
                 &mut self.native_particle_capability_gaps,
-                &self.subsystem_manager,
+                self.subsystem_manager.in_game_ui.as_mut(),
                 self.frame,
                 self.local_player_id,
+                self.input_authority,
             )
             .tick_mapped_drawables_with_particles(
                 frames,
@@ -1089,6 +1117,7 @@ impl GameClient {
         &mut self,
         caption: Option<&str>,
         remaining_ms: Option<i32>,
+        frame: u32,
     ) {
         let text = caption.filter(|t| !t.is_empty());
         let incoming_ms = remaining_ms.unwrap_or(-1);
@@ -1102,7 +1131,7 @@ impl GameClient {
                     .unwrap_or(-1)
             {
                 if let Some(text) = text {
-                    self.push_presentation_military_caption(text, remaining_ms);
+                    self.push_presentation_military_caption(text, remaining_ms, frame);
                 }
             }
             self.last_applied_military_caption_remaining_ms = remaining_ms;
@@ -1112,26 +1141,30 @@ impl GameClient {
         self.last_applied_military_caption_remaining_ms = remaining_ms;
         let Some(text) = text else {
             // C++ removeMilitarySubtitle deletes the subtitle — nothing remains.
-            if let Some(ui) = &self.subsystem_manager.in_game_ui {
-                if let Ok(mut ui) = ui.lock() {
+            if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+                {
+                    let ui = ui;
                     ui.clear_military_subtitles();
                 }
             }
             return;
         };
-        self.push_presentation_military_caption(text, remaining_ms);
+        self.push_presentation_military_caption(text, remaining_ms, frame);
     }
 
-    fn push_presentation_military_caption(&mut self, text: &str, remaining_ms: Option<i32>) {
-        let Some(ui) = &self.subsystem_manager.in_game_ui else {
+    fn push_presentation_military_caption(
+        &mut self,
+        text: &str,
+        remaining_ms: Option<i32>,
+        frame: u32,
+    ) {
+        let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() else {
             return;
         };
-        let Ok(mut ui) = ui.lock() else {
-            return;
-        };
+        let ui = ui;
         let ms = remaining_ms.unwrap_or(10_000).max(0);
         self.window_manager_owner
-            .with_manager(|manager| ui.push_military_subtitle(text, ms, manager));
+            .with_manager(|manager| ui.push_military_subtitle(text, ms, frame, manager));
     }
 
     /// Wave 1060: presentation floating cash/text residual → InGameUI subsystem residual.
@@ -1139,12 +1172,10 @@ impl GameClient {
         &mut self,
         entries: &[(String, [f32; 3], (u8, u8, u8, u8), u32, u32)],
     ) {
-        let Some(ui) = &self.subsystem_manager.in_game_ui else {
+        let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() else {
             return;
         };
-        let Ok(mut ui) = ui.lock() else {
-            return;
-        };
+        let ui = ui;
         ui.replace_floating_texts_from_presentation(entries);
     }
 
@@ -1158,23 +1189,19 @@ impl GameClient {
     ) {
         self.owned_world_animations
             .observe_owner(host_epoch, logic_frame, game_paused, entries);
-        let Some(ref ui) = self.subsystem_manager.in_game_ui else {
+        let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() else {
             return;
         };
-        let Ok(mut ui) = ui.lock() else {
-            return;
-        };
+        let ui = ui;
         ui.replace_world_anims_from_presentation(entries);
     }
 
     /// Presentation PublicTimer residual → InGameUI postDraw countdown strip.
     pub fn apply_presentation_superweapon_timers(&mut self, timers: &[(String, String, bool)]) {
-        let Some(ui) = &self.subsystem_manager.in_game_ui else {
+        let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() else {
             return;
         };
-        let Ok(mut ui) = ui.lock() else {
-            return;
-        };
+        let ui = ui;
         let packed: Vec<crate::core::subsystems::PresentationSuperweaponTimerResidual> = timers
             .iter()
             .map(|(name, countdown_text, ready)| {
@@ -1190,10 +1217,7 @@ impl GameClient {
 
     /// Host injection point for the InGameUI subsystem (creation order is
     /// host-owned; tests install a default subsystem to observe the HUD).
-    pub fn set_in_game_ui_subsystem(
-        &mut self,
-        ui: Arc<Mutex<crate::core::subsystems::InGameUISubsystem>>,
-    ) {
+    pub fn set_in_game_ui_subsystem(&mut self, ui: crate::core::subsystems::InGameUISubsystem) {
         self.subsystem_manager.in_game_ui = Some(ui);
     }
 
@@ -1202,11 +1226,14 @@ impl GameClient {
         self.subsystem_manager.input_mouse.clone()
     }
 
-    /// The installed InGameUI subsystem, if any.
-    pub fn in_game_ui_subsystem(
-        &self,
-    ) -> Option<Arc<Mutex<crate::core::subsystems::InGameUISubsystem>>> {
-        self.subsystem_manager.in_game_ui.clone()
+    /// Borrow this client's installed UI; no published or cloned mutable owner.
+    pub fn in_game_ui_subsystem(&self) -> Option<&crate::core::subsystems::InGameUISubsystem> {
+        self.subsystem_manager.in_game_ui.as_ref()
+    }
+    pub fn in_game_ui_subsystem_mut(
+        &mut self,
+    ) -> Option<&mut crate::core::subsystems::InGameUISubsystem> {
+        self.subsystem_manager.in_game_ui.as_mut()
     }
 
     /// C++ InGameUI::addSuperweapon bridge (InGameUI.cpp:548-580): drain
@@ -1216,16 +1243,21 @@ impl GameClient {
     /// build. Runs from the client frame tick (dual-world and presentation
     /// shell paths); C++ is same-process so this store did not exist there.
     pub fn sync_superweapon_strip_from_logic(&mut self) {
+        if self.input_authority == ClientInputAuthority::NativeHosted {
+            return;
+        }
         let entries = gamelogic::helpers::TheInGameUI::superweapon_entries();
-        crate::gui::ingame_ui::live_superweapon_strip_sync(&entries, self.frame);
-        let Some(ui) = self.subsystem_manager.in_game_ui.clone() else {
+        let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() else {
             return;
         };
-        let Ok(mut guard) = ui.lock() else {
-            return;
-        };
+        let guard = ui;
+        crate::gui::ingame_ui::live_superweapon_strip_sync(
+            &mut guard.superweapon_strip,
+            &entries,
+            self.frame,
+        );
         let packed: Vec<crate::core::subsystems::PresentationSuperweaponTimerResidual> =
-            crate::gui::ingame_ui::live_superweapon_draw_entries()
+            crate::gui::ingame_ui::live_superweapon_draw_entries(&mut guard.superweapon_strip)
                 .into_iter()
                 .map(|(name, countdown_text, ready)| {
                     crate::core::subsystems::PresentationSuperweaponTimerResidual {
@@ -1240,10 +1272,10 @@ impl GameClient {
 
     /// Display a message through this client's HUD with its logic frame.
     pub fn push_hud_message_at(&mut self, message: String, frame: u32) -> bool {
-        let Some(ui) = self.subsystem_manager.in_game_ui.as_ref() else {
+        let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() else {
             return false;
         };
-        let mut ui = ui.lock().unwrap_or_else(|poison| poison.into_inner());
+        let ui = ui;
         ui.push_hud_message_at(message, frame);
         true
     }
@@ -1254,20 +1286,21 @@ impl GameClient {
     /// `GUI:PlayerHasBeenDefeated` + player name; radar messages push
     /// `RADAR:*` labels). The first local defeat also forces the radar on
     /// and switches in-game chat to Everyone (VictoryConditions.cpp:200-215).
-    pub fn drain_logic_hud_messages(&mut self) {
+    pub fn drain_logic_hud_messages(&mut self, logic_frame: u32) {
+        if self.input_authority == ClientInputAuthority::NativeHosted {
+            return;
+        }
         let messages = gamelogic::helpers::TheInGameUI::drain_displayed_messages();
         if messages.is_empty() {
             return;
         }
-        let Some(ui) = self.subsystem_manager.in_game_ui.clone() else {
+        let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() else {
             return;
         };
-        let Ok(mut guard) = ui.lock() else {
-            return;
-        };
+        let guard = ui;
         for message in messages {
             let (display, defeat) = Self::localize_logic_hud_message(&message);
-            guard.push_hud_message(display);
+            guard.push_hud_message_at(display, logic_frame);
             if defeat && gamelogic::helpers::TheVictoryConditions::is_local_defeat() {
                 // C++ VictoryConditions.cpp:212-213 (one-shot latch on the
                 // local player's elimination).
@@ -1435,8 +1468,9 @@ impl GameClient {
         &mut self,
         units: Vec<crate::gui::ingame_ui::PresentationSelectedUnitResidual>,
     ) {
-        if let Some(ref ui) = self.subsystem_manager.in_game_ui {
-            if let Ok(mut guard) = ui.lock() {
+        if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+            {
+                let guard = ui;
                 guard.set_presentation_selection_residual(units);
             }
         }
@@ -1495,11 +1529,8 @@ impl GameClient {
                 },
             )
             .collect();
-        let local_team = if let Some(ref ui) = self.subsystem_manager.in_game_ui {
-            ui.lock()
-                .ok()
-                .map(|g| g.presentation_local_team_name().to_string())
-                .unwrap_or_default()
+        let local_team = if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+            ui.presentation_local_team_name().to_string()
         } else {
             String::new()
         };
@@ -1528,8 +1559,9 @@ impl GameClient {
             }
         }
 
-        if let Some(ref ui) = self.subsystem_manager.in_game_ui {
-            if let Ok(mut guard) = ui.lock() {
+        if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+            {
+                let guard = ui;
                 guard.set_presentation_unit_catalog(units);
             }
         }
@@ -1538,8 +1570,9 @@ impl GameClient {
     /// Wave 968: stamp local player team residual for host ownership queries.
     pub fn apply_presentation_local_team_name(&mut self, team_name: impl Into<String>) {
         let team_name = team_name.into();
-        if let Some(ref ui) = self.subsystem_manager.in_game_ui {
-            if let Ok(mut guard) = ui.lock() {
+        if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+            {
+                let guard = ui;
                 guard.set_presentation_local_team_name(team_name.clone());
                 // Wave 973: refresh translator residual local team, keep catalog.
                 let catalog: Vec<_> = guard
@@ -1601,10 +1634,16 @@ impl GameClient {
 
     /// C++ HintSpy.cpp:26-35 — live host has no MessageStream mouseover
     /// messages, so Main calls this from SelectionXlat-equivalent hover.
-    pub fn create_mouseover_hint(&mut self, drawable_id: Option<u32>, is_location_hint: bool) {
-        if let Some(ui) = &self.subsystem_manager.in_game_ui {
-            if let Ok(mut guard) = ui.lock() {
-                guard.create_mouseover_hint(drawable_id, is_location_hint);
+    pub fn create_mouseover_hint(
+        &mut self,
+        drawable_id: Option<u32>,
+        is_location_hint: bool,
+        logic_frame: u32,
+    ) {
+        if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+            {
+                let guard = ui;
+                guard.create_mouseover_hint(drawable_id, is_location_hint, logic_frame, self.frame);
             }
         }
     }
@@ -1613,8 +1652,9 @@ impl GameClient {
     /// `hasMouseMovedRecently`. Live host owns both signals and must stamp
     /// leftover InGameUI before `create_mouseover_hint`.
     pub fn feed_look_at_replay_hover_gate(&mut self, playback: bool, mouse_moved_recently: bool) {
-        if let Some(ui) = &self.subsystem_manager.in_game_ui {
-            if let Ok(mut guard) = ui.lock() {
+        if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+            {
+                let guard = ui;
                 guard.set_recorder_playback_active(playback);
                 guard.set_look_at_mouse_moved_recently(mouse_moved_recently);
             }
@@ -1630,11 +1670,16 @@ impl GameClient {
     /// Main still owns OS WindowEvent→commands, GameLogic audio event requests, and
     /// sole RenderPipeline 3D draw (`draw_display` stays off). Shroud still comes from
     /// PresentationFrame at render time — not live OBJECT_REGISTRY.
-    pub fn update_presentation_shell(&mut self, delta_time: f32) -> GameClientResult<()> {
+    pub fn update_presentation_shell(
+        &mut self,
+        delta_time: f32,
+        logic_frame: u32,
+        game_mode: i32,
+    ) -> GameClientResult<()> {
         // Compatibility entry for the classic Core driver. Native Main passes
         // both actual owners explicitly through the operation below.
         let frames = NativeParticleFrames {
-            logic_frame: TheGameLogic::get_frame(),
+            logic_frame,
             client_frame: self.frame,
         };
         self.update_presentation_shell_with_particle_policy(
@@ -1642,6 +1687,7 @@ impl GameClient {
             frames,
             OBJECT_REGISTRY.is_empty(),
             &[],
+            game_mode,
         )
     }
 
@@ -1649,8 +1695,15 @@ impl GameClient {
         &mut self,
         delta_time: f32,
         particle_frames: NativeParticleFrames,
+        game_mode: i32,
     ) -> GameClientResult<()> {
-        self.update_presentation_shell_with_particle_policy(delta_time, particle_frames, true, &[])
+        self.update_presentation_shell_with_particle_policy(
+            delta_time,
+            particle_frames,
+            true,
+            &[],
+            game_mode,
+        )
     }
 
     /// Native Main passes operation-scoped facts from its driving world.
@@ -1659,6 +1712,7 @@ impl GameClient {
         delta_time: f32,
         particle_frames: NativeParticleFrames,
         materials: &[NativeMaterialObservation],
+        game_mode: i32,
     ) -> GameClientResult<()> {
         self.validate_material_observations(materials)?;
         self.update_presentation_shell_with_particle_policy(
@@ -1666,6 +1720,7 @@ impl GameClient {
             particle_frames,
             true,
             materials,
+            game_mode,
         )
     }
 
@@ -1675,8 +1730,9 @@ impl GameClient {
         particle_frames: NativeParticleFrames,
         advance_particles: bool,
         materials: &[NativeMaterialObservation],
+        game_mode: i32,
     ) -> GameClientResult<()> {
-        let prepared = self.begin_presentation_shell(delta_time, particle_frames)?;
+        let prepared = self.begin_presentation_shell(delta_time, particle_frames, game_mode)?;
         if !prepared.skip_draw {
             self.update_native_draw_particle_phase_with_materials(
                 prepared.frozen,
@@ -1693,9 +1749,10 @@ impl GameClient {
         delta_time: f32,
         particle_frames: NativeParticleFrames,
         materials: &[NativeMaterialObservation],
+        game_mode: i32,
     ) -> GameClientResult<PreparedPresentationShell> {
         self.validate_material_observations(materials)?;
-        self.begin_presentation_shell(delta_time, particle_frames)
+        self.begin_presentation_shell(delta_time, particle_frames, game_mode)
     }
 
     pub fn begin_presentation_shell_with_owned_visual_time(
@@ -1704,12 +1761,14 @@ impl GameClient {
         particle_frames: NativeParticleFrames,
         materials: &[NativeMaterialObservation],
         observe: impl FnOnce() -> NativeVisualTime,
+        game_mode: i32,
     ) -> GameClientResult<PreparedPresentationShell> {
         self.try_begin_presentation_shell_with_owned_visual_time(
             delta_time,
             particle_frames,
             materials,
             || Ok(observe()),
+            game_mode,
         )
     }
     /// Same late source observation point, with explicit owner failure.
@@ -1719,19 +1778,24 @@ impl GameClient {
         particle_frames: NativeParticleFrames,
         materials: &[NativeMaterialObservation],
         observe: impl FnOnce() -> GameClientResult<NativeVisualTime>,
+        game_mode: i32,
     ) -> GameClientResult<PreparedPresentationShell> {
         self.validate_material_observations(materials)?;
-        self.begin_presentation_shell_observing(delta_time, particle_frames, observe)
+        self.begin_presentation_shell_observing(delta_time, particle_frames, observe, game_mode)
     }
 
     fn begin_presentation_shell(
         &mut self,
         delta_time: f32,
         particle_frames: NativeParticleFrames,
+        game_mode: i32,
     ) -> GameClientResult<PreparedPresentationShell> {
-        self.begin_presentation_shell_observing(delta_time, particle_frames, || {
-            Ok(legacy_visual_time_observation())
-        })
+        self.begin_presentation_shell_observing(
+            delta_time,
+            particle_frames,
+            || Ok(legacy_visual_time_observation()),
+            game_mode,
+        )
     }
 
     fn begin_presentation_shell_observing(
@@ -1739,6 +1803,7 @@ impl GameClient {
         delta_time: f32,
         particle_frames: NativeParticleFrames,
         observe: impl FnOnce() -> GameClientResult<NativeVisualTime>,
+        game_mode: i32,
     ) -> GameClientResult<PreparedPresentationShell> {
         if particle_frames.client_frame != self.frame {
             return Err(GameClientError::InvalidOperation(
@@ -1862,13 +1927,14 @@ impl GameClient {
                 owner: std::sync::Arc::clone(&self.presentation_shell_owner),
                 generation: self.presentation_shell_generation,
                 frames: particle_frames,
+                game_mode,
                 frozen: freeze_time,
                 skip_draw: true,
             });
         }
 
         self.update_native_effects(visual_delta)?;
-        apply_pending_script_display_state();
+        self.apply_core_script_display_state();
         // C++ GameClient.cpp:719-722 — TheTerrainVisual->UPDATE().
         self.update_terrain_visual();
         // C++ line 726: display UPDATE (not DRAW). Main RenderPipeline remains sole
@@ -1878,6 +1944,7 @@ impl GameClient {
             owner: std::sync::Arc::clone(&self.presentation_shell_owner),
             generation: self.presentation_shell_generation,
             frames: particle_frames,
+            game_mode,
             frozen: freeze_time,
             skip_draw: false,
         })
@@ -2026,20 +2093,25 @@ impl GameClient {
         // Wave 978/980: presentation selection residual HUD (host empty dual-world InGameUI).
         self.draw_presentation_selection_residual();
         // C++ TheInGameUI->update message/superweapon drains before postDraw.
-        self.drain_logic_hud_messages();
+        self.drain_logic_hud_messages(prepared.frames.logic_frame);
         self.sync_superweapon_strip_from_logic();
         // C++ InGameUI::preDraw/postDraw + Drawable::drawIconUI submit.
-        let _ = self.draw_live_ingame_hud();
+        let _ = self.draw_live_ingame_hud(prepared.frames.logic_frame);
 
         // C++ DisplayStringManager after drawable/effects residual.
         self.update_display_string_manager()?;
 
         self.update_post_draw_ui(None)?;
-        self.process_beacon_notifications()?;
+        self.process_beacon_notifications(prepared.frames.logic_frame)?;
         if let Some((recorder, receive)) = receive {
-            self.pump_message_stream_to_receiving_owner(recorder, receive)?;
+            self.pump_message_stream_to_receiving_owner(
+                recorder,
+                receive,
+                prepared.frames.logic_frame,
+                prepared.game_mode,
+            )?;
         } else {
-            self.pump_message_stream()?;
+            self.pump_message_stream(prepared.frames.logic_frame, prepared.game_mode, None)?;
         }
 
         self.rendered_object_count = 0;
@@ -2293,6 +2365,8 @@ impl GameClient {
                 self.script_display.fx_mut(),
                 self.ui_renderer.as_mut(),
                 Some(&self.window_manager_owner),
+                self.subsystem_manager.in_game_ui.as_ref(),
+                self.frame,
             )?;
             display.update_receiving(self.script_display.fx_mut())?;
         }
@@ -2356,6 +2430,8 @@ impl GameClient {
                 self.script_display.fx_mut(),
                 self.ui_renderer.as_mut(),
                 Some(&self.window_manager_owner),
+                self.subsystem_manager.in_game_ui.as_ref(),
+                self.frame,
             )?;
             thread::sleep(Duration::from_millis(100));
         }
@@ -2502,6 +2578,10 @@ impl GameClient {
             let mut shell = self.window_manager_owner.shell_handle();
             let mut messages = Vec::new();
             let mut effects = crate::gui::game_window::WindowEventEffects {
+                standalone_view: None,
+                client_frame: Some(self.frame),
+                logic_frame: menu_world.map(|facts| facts.logic_frame),
+                ui: self.subsystem_manager.in_game_ui.as_mut(),
                 payloads: Default::default(),
                 menus: Some(self.menu_manager.receiving_menus()),
                 ime: Some(&mut self.ime),
@@ -2526,13 +2606,10 @@ impl GameClient {
             }
         }
 
-        if let Some(ref ui) = self.subsystem_manager.in_game_ui {
+        if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
             self.window_videos.in_game.update_in_game_movies();
-            self.window_manager_owner.with_manager(|manager| {
-                ui.lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .update_receiving(manager)
-            })?;
+            self.window_manager_owner
+                .with_manager(|manager| ui.update_receiving(manager))?;
         }
 
         crate::eva::update_eva_system();
@@ -2545,77 +2622,22 @@ impl GameClient {
             .map_err(|err| GameClientError::SubsystemError(format!("{err}")))
     }
 
-    fn update_ui(&mut self) -> GameClientResult<()> {
-        {
-            let mut shell = self.window_manager_owner.shell_handle();
-            let mut messages = Vec::new();
-            let mut effects = crate::gui::game_window::WindowEventEffects {
-                payloads: Default::default(),
-                menus: Some(self.menu_manager.receiving_menus()),
-                ime: Some(&mut self.ime),
-                manager: None,
-                script_display: None,
-                window_videos: Some(&mut self.window_videos.challenge),
-                window_manager_owner: Some(&self.window_manager_owner),
-                selected_window: None,
-                emitted_messages: &mut messages,
-                pending_control_bar_clicks: None,
-                campaign_manager: Some(&mut self.campaign_manager),
-                main_menu: Some(&mut self.main_menu),
-                menu_world: None,
-                menu_host: Some(&mut self.menu_host),
-                pending_main_menu_actions: Vec::new(),
-            };
-            shell.update(&mut effects).map_err(|err| {
-                GameClientError::SubsystemError(format!("Shell update failed: {err}"))
-            })?;
-            for message in messages {
-                self.message_stream.append_message_value(message);
-            }
+    fn process_beacon_notifications(&mut self, logic_frame: u32) -> GameClientResult<()> {
+        // Native Main projects its own world beacon records in camera_drain.
+        // Its UI must never drain another standalone Core session's queue.
+        if self.input_authority == ClientInputAuthority::NativeHosted {
+            return Ok(());
         }
-
-        if let Some(ref ui) = self.subsystem_manager.in_game_ui {
-            self.window_videos.in_game.update_in_game_movies();
-            self.window_manager_owner.with_manager(|manager| {
-                ui.lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .update_receiving(manager)
-            })?;
-        }
-
-        if self.subsystem_manager.window_manager_initialized {
-            // C++ WindowManager::update retains its existing pre-video phase,
-            // with the same client's actual callback recipients.
-            self.with_window_event_effects(None, |effects| {
-                effects.with_manager(|manager, effects| manager.update(effects))
-            });
-        }
-
-        if let Some(ref video_player) = self.subsystem_manager.video_player {
-            video_player
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .update()?;
-        }
-
-        crate::eva::update_eva_system();
-
-        Ok(())
-    }
-
-    fn process_beacon_notifications(&self) -> GameClientResult<()> {
         let notifications = beacon_display::drain_notifications();
         if notifications.is_empty() {
             return Ok(());
         }
 
         for notification in notifications {
-            if let Some(ref ui) = self.subsystem_manager.in_game_ui {
-                let mut ui_guard = ui.lock().map_err(|_| {
-                    GameClientError::SubsystemError("In-game UI lock poisoned".to_string())
-                })?;
+            if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+                let ui_guard = ui;
                 ui_guard
-                    .handle_beacon_notification(&notification)
+                    .handle_beacon_notification(&notification, logic_frame)
                     .map_err(|err| {
                         GameClientError::SubsystemError(format!(
                             "Failed to handle beacon notification: {err}"
