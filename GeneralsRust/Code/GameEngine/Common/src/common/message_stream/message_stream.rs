@@ -1006,10 +1006,11 @@ mod tests {
         stream.append_message(GameMessageType::LogicCRC(7));
         let cursor = match stream
             .propagate_messages_until_host_boundary(
-                &mut |_, _| None,
+                &mut |_, _, _| None,
                 None,
                 &mut || true,
                 &mut || Some(TranslatorClientObservation::default()),
+                &mut (),
             )
             .unwrap()
         {
@@ -1024,10 +1025,11 @@ mod tests {
         stream.append_message(GameMessageType::ClearGameData);
         let complete = stream
             .propagate_messages_until_host_boundary(
-                &mut |_, _| None,
+                &mut |_, _, _| None,
                 Some(cursor.after_world_reset()),
                 &mut || false,
                 &mut || Some(TranslatorClientObservation::default()),
+                &mut (),
             )
             .unwrap();
         let PropagationProgress::Complete(messages) = complete else {

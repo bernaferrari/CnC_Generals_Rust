@@ -19,7 +19,6 @@ use crate::common::{
     thing::{
         module::{Drawable, Object},
         thing_template::ThingTemplate,
-        thing_template_locomotor::set_locomotor_overrides_allowed,
     },
 };
 
@@ -817,13 +816,11 @@ impl ThingFactory {
             let properties = consume_ini_properties(ini);
             // Use Arc::make_mut to get mutable access for parsing
             let tmpl = Arc::make_mut(&mut thing_template);
-            set_locomotor_overrides_allowed(ini.get_load_type() == IniLoadType::CreateOverrides);
             let parse_result = tmpl.parse_object_fields_for_load_with_factory(
                 &properties,
                 ini.get_load_type(),
                 module_factory.as_deref_mut(),
             );
-            set_locomotor_overrides_allowed(false);
             parse_result?;
 
             self.template_hash_map

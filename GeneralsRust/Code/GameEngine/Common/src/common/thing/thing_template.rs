@@ -2423,6 +2423,13 @@ impl ThingTemplate {
 
     /// C++ `AIUpdateModuleData::parseLocomotorSet` via ThingTemplate Locomotor field.
     pub fn parse_locomotor_field(&mut self, value: &str) -> Result<(), String> {
+        self.parse_locomotor_field_with_overrides(value, false)
+    }
+    fn parse_locomotor_field_with_overrides(
+        &mut self,
+        value: &str,
+        overrides_allowed: bool,
+    ) -> Result<(), String> {
         let mut tokens = value.split_whitespace();
         let set_name = tokens
             .next()
@@ -2432,15 +2439,13 @@ impl ThingTemplate {
             .map(AsciiString::from)
             .collect();
         if let Some(existing) = self.locomotor_sets.get(set_name) {
-            if !existing.is_empty()
-                && !crate::common::thing::thing_template_locomotor::locomotor_overrides_allowed()
-            {
+            if !existing.is_empty() && !overrides_allowed {
                 return Err("re-specifying a LocomotorSet is no longer allowed".to_string());
             }
         }
         self.locomotor_sets
             .insert(set_name.to_string(), names.clone());
-        self.write_locomotor_set_into_ai_module(set_name, &names)
+        self.write_locomotor_set_into_ai_module(set_name, &names, overrides_allowed)
     }
 
     /// C++ `ThingTemplate::friend_getAIModuleInfo`.
@@ -2459,6 +2464,7 @@ impl ThingTemplate {
         &mut self,
         set_name: &str,
         names: &[AsciiString],
+        overrides_allowed: bool,
     ) -> Result<(), String> {
         let Some(data) = self.friend_get_ai_module_info().cloned() else {
             // Transitional divergence tracked by hq-fgp6j: C++
@@ -2471,7 +2477,10 @@ impl ThingTemplate {
         };
         let updated =
             crate::common::thing::thing_template_locomotor::apply_locomotor_set_to_module_data(
-                data, set_name, names,
+                data,
+                set_name,
+                names,
+                overrides_allowed,
             )?;
         self.behavior_module_info
             .replace_first_ai_module_data(updated);
@@ -2483,20 +2492,15 @@ impl ThingTemplate {
         if self.locomotor_sets.is_empty() {
             return Ok(());
         }
-        crate::common::thing::thing_template_locomotor::set_locomotor_overrides_allowed(true);
         let sets: Vec<(String, Vec<AsciiString>)> = self
             .locomotor_sets
             .iter()
             .map(|(set, names)| (set.clone(), names.clone()))
             .collect();
-        let result = (|| {
-            for (set_name, names) in sets {
-                self.write_locomotor_set_into_ai_module(&set_name, &names)?;
-            }
-            Ok(())
-        })();
-        crate::common::thing::thing_template_locomotor::set_locomotor_overrides_allowed(false);
-        result
+        for (set_name, names) in sets {
+            self.write_locomotor_set_into_ai_module(&set_name, &names, true)?;
+        }
+        Ok(())
     }
 
     pub fn locomotor_sets(&self) -> &HashMap<String, Vec<AsciiString>> {
@@ -3534,7 +3538,10 @@ impl ThingTemplate {
                     }
                 }
                 "Locomotor" => {
-                    self.parse_locomotor_field(trimmed)?;
+                    self.parse_locomotor_field_with_overrides(
+                        trimmed,
+                        load_type == crate::common::ini::INILoadType::CreateOverrides,
+                    )?;
                 }
 
                 // --- WeaponSet / ArmorSet are handled separately ---
@@ -3711,3 +3718,60 @@ mod module_operation_order_tests;
 #[cfg(test)]
 #[path = "thing_template/frozen_override_tests.rs"]
 mod frozen_override_tests;
+
+#[cfg(test)]
+mod locomotor_parse_policy_owner_tests {
+    use super::*;
+    #[test]
+    fn actual_receiving_templates_keep_override_admission_local() {
+        let mut owner = ThingTemplate::new_receiving();
+        let mut peer = ThingTemplate::new_receiving();
+        owner
+            .parse_locomotor_field("SET_NORMAL OwnerGround")
+            .unwrap();
+        peer.parse_locomotor_field("SET_NORMAL PeerGround").unwrap();
+        owner
+            .parse_locomotor_field_with_overrides("SET_NORMAL OwnerOverride", true)
+            .unwrap();
+        // The next parse is a distinct admission, including on the same thread.
+        assert!(
+            peer.parse_locomotor_field("SET_NORMAL PeerUnexpectedOverride")
+                .is_err()
+        );
+        assert!(
+            owner
+                .parse_locomotor_field("SET_NORMAL OwnerUnexpectedOverride")
+                .is_err()
+        );
+        assert_eq!(
+            owner.locomotor_set_names("SET_NORMAL").unwrap(),
+            &["OwnerOverride".to_owned()]
+        );
+        assert_eq!(
+            peer.locomotor_set_names("SET_NORMAL").unwrap(),
+            &["PeerGround".to_owned()]
+        );
+    }
+    #[test]
+    fn actual_load_parser_passes_its_own_override_mode() {
+        use crate::common::ini::INILoadType;
+        let mut template = ThingTemplate::new_receiving();
+        let fields =
+            |name: &str| HashMap::from([("Locomotor".to_owned(), format!("SET_NORMAL {name}"))]);
+        template
+            .parse_object_fields_for_load(&fields("First"), INILoadType::Overwrite)
+            .unwrap();
+        template
+            .parse_object_fields_for_load(&fields("Override"), INILoadType::CreateOverrides)
+            .unwrap();
+        assert!(
+            template
+                .parse_object_fields_for_load(&fields("Rejected"), INILoadType::Overwrite)
+                .is_err()
+        );
+        assert_eq!(
+            template.locomotor_set_names("SET_NORMAL").unwrap(),
+            &["Override".to_owned()]
+        );
+    }
+}
