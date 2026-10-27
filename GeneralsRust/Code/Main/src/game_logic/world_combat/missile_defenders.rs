@@ -2401,7 +2401,6 @@ impl GameLogic {
 
         let mut kills = 0u32;
         let mut destroy_ids: Vec<ObjectId> = Vec::new();
-        let mut clear_players: Vec<u32> = Vec::new();
         let mut score_pairs: Vec<(ObjectId, ObjectId)> = Vec::new();
         for occ_id in to_kill {
             let Some(occ) = self.objects.get_mut(&occ_id) else {
@@ -2410,7 +2409,6 @@ impl GameLogic {
             if !occ.is_alive() {
                 continue;
             }
-            let owner_pid = occ.owner_player_id;
             let receiving_damage_id = occ.id;
             let receiving_damage_argument_1 =
                 BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0);
@@ -2444,18 +2442,27 @@ impl GameLogic {
                     presentation_effects,
                 );
             }
-            let occ = self
-                .objects
-                .get_mut(&occ_id)
-                .expect("bounded residual victim remains installed");
-            let dead = !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed;
+            let (dead, owner_pid) = {
+                let occ = self
+                    .objects
+                    .get(&occ_id)
+                    .expect("bounded residual victim remains installed");
+                (
+                    !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed,
+                    occ.owner_player_id,
+                )
+            };
             if !dead {
                 continue;
             }
             if let Some(pid) = owner_pid {
-                clear_players.push(pid);
+                if let Some(player) = self.players.get_mut(&pid) {
+                    player
+                        .academy_stats
+                        .record_cleared_garrisoned_building();
+                }
             }
-            let containment_actor_id = occ.id;
+            let containment_actor_id = occ_id;
             Self::set_owned_containment_in_parts(
                 &mut self.objects,
                 &mut self.partition_manager,
@@ -2485,13 +2492,6 @@ impl GameLogic {
                     &mut self.ownership_events,
                     &mut self.partition_manager,
                 );
-            }
-        }
-        for pid in clear_players {
-            if let Some(player) = self.players.get_mut(&pid) {
-                player
-                    .academy_stats
-                    .record_cleared_garrisoned_building();
             }
         }
         for (killer, victim) in score_pairs {
