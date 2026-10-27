@@ -26,7 +26,10 @@ use crate::game_logic::object::unit_ai_runtime::{WanderInPlace, WanderPath, Wand
 /// Leftover `AIWanderState::update_group_offset` / `AIPanicState::update_group_offset`.
 /// C++ `m_groupOffset = GameLogicRandomValue(-delta,delta)*PATHFIND_CELL_SIZE_F`
 /// with `delta = floor(WanderWidthFactor+0.5).max(1)` when factor > 0.
-fn leftover_wander_group_offset(wander_width_factor: f32) -> glam::Vec2 {
+fn leftover_wander_group_offset(
+    random: &game_engine::common::random_value::SessionRandom,
+    wander_width_factor: f32,
+) -> glam::Vec2 {
     if wander_width_factor <= 0.0 {
         return glam::Vec2::ZERO;
     }
@@ -34,10 +37,8 @@ fn leftover_wander_group_offset(wander_width_factor: f32) -> glam::Vec2 {
     if delta < 1 {
         delta = 1;
     }
-    let x = game_engine::common::random_value::get_game_logic_random_value(-delta, delta) as f32
-        * HOST_WANDER_CELL;
-    let y = game_engine::common::random_value::get_game_logic_random_value(-delta, delta) as f32
-        * HOST_WANDER_CELL;
+    let x = random.next_int(-delta, delta) as f32 * HOST_WANDER_CELL;
+    let y = random.next_int(-delta, delta) as f32 * HOST_WANDER_CELL;
     glam::Vec2::new(x, y)
 }
 
@@ -105,14 +106,13 @@ fn host_wander_about_point_delta(obj: &crate::game_logic::object::Object) -> i32
 }
 
 fn host_wander_choose_hop(
+    random: &game_engine::common::random_value::SessionRandom,
     obj: &crate::game_logic::object::Object,
     origin: glam::Vec3,
 ) -> glam::Vec3 {
     let delta = host_wander_about_point_delta(obj);
-    let ox = game_engine::common::random_value::get_game_logic_random_value(-delta, delta) as f32
-        * HOST_WANDER_CELL;
-    let oz = game_engine::common::random_value::get_game_logic_random_value(-delta, delta) as f32
-        * HOST_WANDER_CELL;
+    let ox = random.next_int(-delta, delta) as f32 * HOST_WANDER_CELL;
+    let oz = random.next_int(-delta, delta) as f32 * HOST_WANDER_CELL;
     glam::Vec3::new(origin.x + ox, origin.y, origin.z + oz)
 }
 
@@ -1258,7 +1258,7 @@ impl GameLogic {
         object.unit_ai_runtime.set_wander(None);
         let offset = self
             .host_object(id)
-            .map(|obj| leftover_wander_group_offset(obj.wander_width_factor))
+            .map(|obj| leftover_wander_group_offset(&self.logic_random, obj.wander_width_factor))
             .unwrap_or(glam::Vec2::ZERO);
         let offset_pts: Vec<glam::Vec3> = waypoints
             .iter()
@@ -1291,7 +1291,7 @@ impl GameLogic {
         let Some(object) = self.host_object(id) else {
             return;
         };
-        let dest = host_wander_choose_hop(object, origin);
+        let dest = host_wander_choose_hop(&self.logic_random, object, origin);
         if let Some(object) = self.host_object_mut(id) {
             object
                 .unit_ai_runtime
@@ -1465,7 +1465,7 @@ impl GameLogic {
                 reissue.push((
                     raw,
                     origin,
-                    host_wander_choose_hop(obj, origin),
+                    host_wander_choose_hop(&self.logic_random, obj, origin),
                     new_timer,
                     wait,
                 ));
@@ -2172,15 +2172,17 @@ mod tests {
 
     #[test]
     fn leftover_wander_group_offset_zero_when_factor_non_positive() {
-        assert_eq!(leftover_wander_group_offset(0.0), glam::Vec2::ZERO);
-        assert_eq!(leftover_wander_group_offset(-1.0), glam::Vec2::ZERO);
+        let random = game_engine::common::random_value::SessionRandom::default();
+        assert_eq!(leftover_wander_group_offset(&random, 0.0), glam::Vec2::ZERO);
+        assert_eq!(leftover_wander_group_offset(&random, -1.0), glam::Vec2::ZERO);
     }
 
     #[test]
     fn leftover_wander_group_offset_is_cell_multiples_within_delta() {
         let factor = 2.0_f32;
         let delta = (factor + 0.5).floor() as i32;
-        let offset = leftover_wander_group_offset(factor);
+        let random = game_engine::common::random_value::SessionRandom::default();
+        let offset = leftover_wander_group_offset(&random, factor);
         let cell = HOST_WANDER_CELL;
         for component in [offset.x, offset.y] {
             let cells = component / cell;
@@ -2193,6 +2195,30 @@ mod tests {
                 "offset {component} outside leftover delta {delta}"
             );
         }
+    }
+
+    #[test]
+    fn wander_offsets_consume_the_borrowed_session_stream_only() {
+        use game_engine::common::random_value::SessionRandom;
+
+        let first = SessionRandom::default();
+        let peer = SessionRandom::default();
+        let first_reference = SessionRandom::default();
+        let peer_reference = SessionRandom::default();
+        first.seed_random(117);
+        first_reference.seed_random(117);
+        peer.seed_random(901);
+        peer_reference.seed_random(901);
+
+        let expected_first = leftover_wander_group_offset(&first_reference, 4.0);
+        let expected_peer = leftover_wander_group_offset(&peer_reference, 4.0);
+        let expected_first_again = leftover_wander_group_offset(&first_reference, 4.0);
+
+        assert_eq!(leftover_wander_group_offset(&first, 4.0), expected_first);
+        assert_eq!(leftover_wander_group_offset(&peer, 4.0), expected_peer);
+        assert_eq!(leftover_wander_group_offset(&first, 4.0), expected_first_again);
+        assert_eq!(first.seed_words(), first_reference.seed_words());
+        assert_eq!(peer.seed_words(), peer_reference.seed_words());
     }
 
     #[test]
@@ -2231,9 +2257,9 @@ mod tests {
         if let Some(obj) = logic.host_object_mut(id) {
             obj.wander_width_factor = 2.0;
         }
-        let seed = game_engine::common::random_value::get_game_logic_random_seed_state();
-        let expected = leftover_wander_group_offset(2.0);
-        game_engine::common::random_value::set_game_logic_random_seed_state(seed);
+        let seed = logic.logic_random.seed_words();
+        let expected = leftover_wander_group_offset(&logic.logic_random, 2.0);
+        logic.logic_random.set_seed_words(seed);
         // C++ privateWander clears/re-enters the state for each order. Issue
         // this changed route in the same frame: a prior path timestamp must
         // not make the replacement reuse the zero-width route (hq-h4jfb).

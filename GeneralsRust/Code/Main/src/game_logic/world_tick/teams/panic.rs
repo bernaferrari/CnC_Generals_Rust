@@ -119,7 +119,7 @@ impl GameLogic {
         let offset = self
             .objects
             .get(&id)
-            .map(|unit| leftover_wander_group_offset(unit.wander_width_factor))
+            .map(|unit| leftover_wander_group_offset(&self.logic_random, unit.wander_width_factor))
             .unwrap_or(glam::Vec2::ZERO);
         let (goal, append_goal, goal_layer) = self.host_prepare_panic_goal(goal, offset);
         let actual_goal = goal;
@@ -430,7 +430,7 @@ impl GameLogic {
                     .objects
                     .get(&id)
                     .map_or(0.0, |unit| unit.wander_width_factor);
-                panic.group_offset = leftover_wander_group_offset(width);
+                panic.group_offset = leftover_wander_group_offset(&self.logic_random, width);
             }
             let (goal, append_goal, goal_layer) =
                 self.host_prepare_panic_goal(goal, panic.group_offset);
