@@ -577,6 +577,10 @@ impl AcademyStats {
         self.upgrades_purchased
     }
 
+    pub fn get_special_powers_used(&self) -> u32 {
+        self.special_powers_used
+    }
+
     /// Record that an upgrade was purchased
     /// Based on C++ AcademyStats.cpp:444-457
     ///

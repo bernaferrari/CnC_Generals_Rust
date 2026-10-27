@@ -406,7 +406,11 @@ impl GameLogic {
                     &definition,
                     receiving,
                 );
-                Self::apply_authored_hacker_disable_building_metadata(template, &definition);
+                Self::apply_authored_hacker_disable_building_metadata(
+                    template,
+                    &definition,
+                    receiving,
+                );
                 Self::apply_authored_charge_plant_metadata(template, &definition);
                 Self::apply_authored_leftover_sa_trigger_sound(template, &definition);
 
@@ -727,7 +731,7 @@ impl GameLogic {
         Self::apply_authored_rebuild_hole_expose_die_metadata(template, definition);
         Self::apply_authored_hack_internet_metadata(template, definition);
         Self::apply_authored_special_power_module_metadata(template, definition, receiving);
-        Self::apply_authored_hacker_disable_building_metadata(template, definition);
+        Self::apply_authored_hacker_disable_building_metadata(template, definition, receiving);
         Self::apply_authored_charge_plant_metadata(template, definition);
         Self::apply_authored_leftover_sa_trigger_sound(template, definition);
 

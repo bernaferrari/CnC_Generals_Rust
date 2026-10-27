@@ -63,7 +63,7 @@ fn selected_object_module_owns_special_power_initiate_sound() {
     map.close_data_chunk();
     let bytes = map.into_ckmp_bytes();
     let root = tempfile::tempdir().unwrap();
-    let make_map = |name: &str, module_sound: Option<&str>| {
+    let make_map = |name: &str, module_sound: Option<&str>, academy: &str| {
         let dir = root.path().join(name);
         std::fs::create_dir(&dir).unwrap();
         let path = dir.join("Owner.map");
@@ -72,17 +72,18 @@ fn selected_object_module_owns_special_power_initiate_sound() {
             .map(|sound| format!("InitiateSound = {sound}\n"))
             .unwrap_or_default();
         let definitions = format!(
-            "SpecialPower SpecialPowerSpySatellite\n Enum = SPECIAL_SPY_SATELLITE\n ReloadTime = 0\n InitiateSound = WrongTemplateSound\nEnd\n\
+            "SpecialPower SpecialPowerSpySatellite\n Enum = SPECIAL_SPY_SATELLITE\n ReloadTime = 0\n InitiateSound = WrongTemplateSound\n AcademyClassify = {academy}\nEnd\n\
              Object SharedCaster\n KindOf = STRUCTURE SELECTABLE\n\
              AddModule\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n End\n\
+             AddModule\n Behavior = AIUpdateInterface BrainTag\n End\n End\n\
              AddModule\n Behavior = OCLSpecialPower PowerTag\n SpecialPowerTemplate = SpecialPowerSpySatellite\n {module_sound}End\n End\nEnd\n"
         );
         std::fs::write(dir.join("Map.ini"), definitions).unwrap();
         path
     };
-    let first_map = make_map("first", Some("FirstModuleSound"));
-    let peer_map = make_map("peer", Some("PeerModuleSound"));
-    let silent_map = make_map("silent", None);
+    let first_map = make_map("first", Some("FirstModuleSound"), "ACT_SUPERPOWER");
+    let peer_map = make_map("peer", Some("PeerModuleSound"), "ACT_NONE");
+    let silent_map = make_map("silent", None, "ACT_NONE");
     let (mut first, first_id) = world(&first_map);
     let (mut peer, peer_id) = world(&peer_map);
     let (mut silent, silent_id) = world(&silent_map);
@@ -114,5 +115,77 @@ fn selected_object_module_owns_special_power_initiate_sound() {
             .iter()
             .any(|sound| sound == "WrongTemplateSound"),
         "{silent_sounds:?}"
+    );
+    // The old accounting bridge wrote to a same-ID process-global Core player.
+    // Install that foreign peer only as a negative control after both worlds exist.
+    use std::sync::{Arc, RwLock};
+    let mut foreign = gamelogic::player::Player::new(42);
+    foreign.set_display_name("Owner");
+    let foreign = Arc::new(RwLock::new(foreign));
+    let mut foreign_roster = gamelogic::player::PlayerList::new();
+    foreign_roster.add_player(Arc::clone(&foreign));
+    let old_roster = std::mem::replace(
+        &mut *gamelogic::player::player_list().write().unwrap(),
+        foreign_roster,
+    );
+    let first_before = first
+        .get_player(42)
+        .unwrap()
+        .academy_stats
+        .get_special_powers_used();
+    let peer_before = peer
+        .get_player(42)
+        .unwrap()
+        .academy_stats
+        .get_special_powers_used();
+    first.record_academy_special_power_used(first_id, &SpecialPowerType::SpySatellite);
+    peer.record_academy_special_power_used(peer_id, &SpecialPowerType::SpySatellite);
+    assert_eq!(
+        first
+            .get_player(42)
+            .unwrap()
+            .academy_stats
+            .get_special_powers_used(),
+        first_before + 1
+    );
+    assert_eq!(
+        peer.get_player(42)
+            .unwrap()
+            .academy_stats
+            .get_special_powers_used(),
+        peer_before
+    );
+    assert_eq!(
+        foreign
+            .read()
+            .unwrap()
+            .get_academy_stats()
+            .get_special_powers_used(),
+        0
+    );
+    *gamelogic::player::player_list().write().unwrap() = old_roster;
+
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&first).unwrap();
+    let (mut restored, _) = world(&first_map);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert_eq!(
+        restored
+            .get_player(42)
+            .unwrap()
+            .academy_stats
+            .get_special_powers_used(),
+        first_before + 1
+    );
+    restored.record_academy_special_power_used(first_id, &SpecialPowerType::SpySatellite);
+    assert_eq!(
+        restored
+            .get_player(42)
+            .unwrap()
+            .academy_stats
+            .get_special_powers_used(),
+        first_before + 2
     );
 }

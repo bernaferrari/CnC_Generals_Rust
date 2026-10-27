@@ -2119,6 +2119,9 @@ impl GameLogic {
     pub(super) fn apply_authored_hacker_disable_building_metadata(
         template: &mut ThingTemplate,
         definition: &ObjectDefinition,
+        receiving: Option<
+            &game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
+        >,
     ) {
         use crate::command_system::{
             SpecialPowerType as HostSpecialPowerType, special_power_type_from_template_name,
@@ -2164,7 +2167,13 @@ impl GameLogic {
         }
 
         template.hacker_disable_building = None;
-        let power_store = get_special_power_store();
+        let standalone;
+        let power_store = if let Some(content) = receiving {
+            &content.action_definitions().powers
+        } else {
+            standalone = get_special_power_store();
+            &standalone
+        };
         let abilities: Vec<_> = definition
             .behavior_modules
             .iter()
@@ -2218,9 +2227,15 @@ impl GameLogic {
         let required_science = if power.required_science == SCIENCE_INVALID {
             Some(None)
         } else {
-            get_science_store()
-                .get_internal_name_for_science(ScienceType(power.required_science))
-                .map(|science| Some(science.as_str().to_string()))
+            if let Some(content) = receiving {
+                content
+                    .science_name(power.required_science)
+                    .map(|name| Some(name.to_string()))
+            } else {
+                get_science_store()
+                    .get_internal_name_for_science(ScienceType(power.required_science))
+                    .map(|science| Some(science.as_str().to_string()))
+            }
         };
         let Some(required_science) = required_science else {
             return;

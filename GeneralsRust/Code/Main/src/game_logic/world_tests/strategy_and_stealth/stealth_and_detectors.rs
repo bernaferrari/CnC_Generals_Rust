@@ -1170,7 +1170,14 @@ fn live_special_power_fire_records_academy_special_powers_used() {
     if let Some(obj) = logic.host_object_mut(caster) {
         obj.owner_player_id = Some(0);
     }
-    assert_eq!(logic.get_player(0).expect("p0").special_powers_used, 0);
+    assert_eq!(
+        logic
+            .get_player(0)
+            .expect("p0")
+            .academy_stats
+            .get_special_powers_used(),
+        0
+    );
     logic
         .queue_special_power_strike(
             &SpecialPowerType::ParticleCannon,
@@ -1179,7 +1186,11 @@ fn live_special_power_fire_records_academy_special_powers_used() {
         )
         .expect("queued");
     assert_eq!(
-        logic.get_player(0).expect("p0").special_powers_used,
+        logic
+            .get_player(0)
+            .expect("p0")
+            .academy_stats
+            .get_special_powers_used(),
         1,
         "initiateIntent analog must record ACT_SUPERPOWER"
     );

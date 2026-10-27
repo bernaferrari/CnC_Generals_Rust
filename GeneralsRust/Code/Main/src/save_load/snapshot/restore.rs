@@ -1186,7 +1186,6 @@ impl SnapshotBuilder {
                     skill_points: 0,
                     science_purchase_points: 0,
                     skill_points_modifier: 1.0,
-                    special_powers_used: 0,
                     can_build_units: true,
                     can_build_base: true,
                     units_should_hunt: false,

@@ -1342,7 +1342,13 @@ impl CnCGameEngine {
                     // Boot admitted Roads.ini into the receiving session before
                     // this worker started; it must not republish another catalog.
 
-                    game_engine::common::ini::ini_special_power::initialize_special_power_store();
+                    let science_names = {
+                        let store = game_engine::common::rts::science::get_science_store()
+                            .ok_or("Receiving Object admission requires initialized application Science definitions")?;
+                        std::sync::Arc::new(game_engine::common::rts::science::ScienceNameFacts::from_store(&store))
+                    };
+                    let mut startup_actions =
+                        game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions::default();
 
                     // C++ parity: GameEngine.cpp:439 — load FXList.ini (Default + override)
                     {
@@ -1373,8 +1379,8 @@ impl CnCGameEngine {
                         }
                     }
 
-                    // C++ parity: GameEngine.cpp:443 — load SpecialPower.ini (Default + override)
-                    // into the global SpecialPowerStore via the general INI block parser.
+                    // C++ GameEngine.cpp:443 loads Default then retail SpecialPower.
+                    // Build this application's catalog before admitting Objects.
                     {
                         let mut loaded_any_special_power = false;
                         for sp_path in [
@@ -1382,10 +1388,11 @@ impl CnCGameEngine {
                             "Data/INI/SpecialPower.ini",
                         ] {
                             if let Some(content) = extract_ini_text_from_archives(sp_path)? {
-                                let mut ini = game_engine::common::ini::INI::new();
-                                match ini.with_inline_source(&content, |ini| {
-                                    ini.parse_current_file()
-                                }) {
+                                match startup_actions.apply_source_with_load_type(
+                                    &content,
+                                    &science_names,
+                                    game_engine::common::ini::INILoadType::Overwrite,
+                                ) {
                                     Ok(()) => {
                                         loaded_any_special_power = true;
                                     }
@@ -1519,11 +1526,6 @@ impl CnCGameEngine {
                         }
                     }
 
-                    let science_names = {
-                        let store = game_engine::common::rts::science::get_science_store()
-                            .ok_or("Receiving Object admission requires initialized application Science definitions")?;
-                        std::sync::Arc::new(game_engine::common::rts::science::ScienceNameFacts::from_store(&store))
-                    };
                     // C++ parity: GameEngine.cpp:480 — AIData.ini after Upgrade, before Crate.
                     let startup_ai_baseline = {
                         let mut draft = game_engine::common::ini::ini_ai_data::AIDataStore::default();
@@ -1594,11 +1596,7 @@ impl CnCGameEngine {
                     // System.ini is already in this list; no synthetic tracer replay.
                     // SpecialPower is admitted before Objects (GameEngine.cpp443),
                     // while command buttons/sets are admitted later below.
-                    let action_definitions=game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions {
-                        powers:game_engine::common::rts::special_power::get_special_power_store().clone(),
-                        ..Default::default()
-                    };
-                    let mut receiving_module_content=receiving_object_sources.admit_with_catalogs(science_names,std::sync::Arc::new(action_definitions))?;
+                    let mut receiving_module_content=receiving_object_sources.admit_with_catalogs(science_names,std::sync::Arc::new(startup_actions))?;
                     let total_loaded = receiving_module_content.module_content().admitted_templates().count();
                     let compatibility_view = receiving_module_content.module_content().compatibility_template_view();
                     info!("Bootstrapped {} receiving object templates from ordered archive sources", total_loaded);

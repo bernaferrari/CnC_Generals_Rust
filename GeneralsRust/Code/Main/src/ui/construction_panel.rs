@@ -334,41 +334,6 @@ pub struct RadiusCursorOverlay {
     pub is_legal: bool,
 }
 
-fn leftover_special_radius_cursor_radius(cursor_type: &str) -> Option<f32> {
-    let names: &[&str] = match cursor_type {
-        "DAISYCUTTER" => &["SuperweaponDaisyCutter"],
-        "A10STRIKE" => &["SuperweaponA10ThunderboltMissileStrike"],
-        "SCUDSTORM" => &["SuperweaponScudStorm"],
-        "PARTICLECANNON" => &["SuperweaponParticleUplinkCannon"],
-        "SPYSATELLITE" => &["SpecialPowerSpySatellite"],
-        "RADAR" => &["SpecialPowerRadarVanScan"],
-        "CARPETBOMB" => &["SuperweaponCarpetBomb"],
-        "CLUSTERMINES" => &["SuperweaponClusterMines"],
-        "PARADROP" => &["SuperweaponParadropAmerica"],
-        "SPYDRONE" => &["SpecialPowerSpyDrone"],
-        "NUCLEARMISSILE" => &["SuperweaponNeutronMissile", "SuperweaponNuclearMissile"],
-        "EMPPULSE" => &["SuperweaponEMPPulse"],
-        "ARTILLERYBARRAGE" => &["SuperweaponArtilleryBarrage"],
-        "NAPALMSTRIKE" => &["SuperweaponNapalmStrike"],
-        "SPECTREGUNSHIP" => &["SuperweaponSpectreGunship"],
-        "ANTHRAXBOMB" => &["SuperweaponAnthraxBomb"],
-        "AMBUSH" => &["SuperweaponRebelAmbush"],
-        "FRENZY" => &["SpecialPowerFrenzy"],
-        "EMERGENCY_REPAIR" => &["SpecialPowerEmergencyRepair"],
-        _ => return None,
-    };
-    let store = gamelogic::object::special_power_template::get_special_power_store()?;
-    for name in names {
-        if let Some(template) = store.find_special_power_template(name) {
-            let radius = template.get_radius_cursor_radius();
-            if radius > 0.0 {
-                return Some(radius);
-            }
-        }
-    }
-    None
-}
-
 impl RadiusCursorOverlay {
     pub fn new(cursor_type: &str, radius: f32) -> Self {
         Self {
@@ -385,11 +350,6 @@ impl RadiusCursorOverlay {
     /// supplies primary/scatter/continue/`AIGuardMachine` radii.
     /// `OFFENSIVE_SPECIALPOWER` is not a table radius (C++ uses specPowTempl).
     pub fn radius_for_type(cursor_type: &str) -> f32 {
-        if cursor_type != "OFFENSIVE_SPECIALPOWER" {
-            if let Some(radius) = leftover_special_radius_cursor_radius(cursor_type) {
-                return radius;
-            }
-        }
         match cursor_type {
             "ATTACK_DAMAGE_AREA"
             | "ATTACK_SCATTER_AREA"

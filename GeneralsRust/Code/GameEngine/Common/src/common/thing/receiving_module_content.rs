@@ -374,7 +374,21 @@ impl ReceivingActionDefinitions {
         source: &str,
         sciences: &crate::common::rts::science::ScienceNameFacts,
     ) -> Result<(), String> {
-        use crate::common::ini::{INI, INILoadType};
+        self.apply_source_with_load_type(
+            source,
+            sciences,
+            crate::common::ini::INILoadType::CreateOverrides,
+        )
+    }
+
+    /// Startup uses C++ overwrite rules; Map.ini and Solo.ini use overrides.
+    pub fn apply_source_with_load_type(
+        &mut self,
+        source: &str,
+        sciences: &crate::common::rts::science::ScienceNameFacts,
+        load_type: crate::common::ini::INILoadType,
+    ) -> Result<(), String> {
+        use crate::common::ini::INI;
         use crate::common::thing::thing_template::ObjectIniFields;
         let lines = source.lines().collect::<Vec<_>>();
         let mut index = 0;
@@ -402,7 +416,7 @@ impl ReceivingActionDefinitions {
                 }
                 let text = lines[index..next.min(lines.len())].join("\n");
                 let mut ini = INI::new();
-                ini.with_inline_source_and_load_type(&text, INILoadType::CreateOverrides, |ini| {
+                ini.with_inline_source_and_load_type(&text, load_type, |ini| {
                     ini.read_line()?;
                     let _ = ini.get_first_token();
                     if kind.eq_ignore_ascii_case("CommandButton") {
@@ -416,7 +430,7 @@ impl ReceivingActionDefinitions {
                             .parse_receiving_definition(
                                 name,
                                 &properties,
-                                INILoadType::CreateOverrides,
+                                load_type,
                                 sciences,
                             )
                             .map_err(|_| crate::common::ini::INIError::InvalidData)

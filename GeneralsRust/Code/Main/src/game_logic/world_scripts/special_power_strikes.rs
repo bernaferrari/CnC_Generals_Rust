@@ -432,7 +432,7 @@ impl GameLogic {
         source_object: ObjectId,
         power: &crate::command_system::SpecialPowerType,
     ) {
-        if !special_power_is_act_superpower(power) {
+        if !special_power_is_act_superpower(self, source_object, power) {
             return;
         }
         let owner_id = self
@@ -3263,7 +3263,26 @@ impl GameLogic {
 
 /// C++ AcademyStats::recordSpecialPowerUsed increments only when
 /// `getAcademyClassificationType() == ACT_SUPERPOWER`.
-fn special_power_is_act_superpower(power: &crate::command_system::SpecialPowerType) -> bool {
+fn special_power_is_act_superpower(
+    world: &GameLogic,
+    source: ObjectId,
+    power: &crate::command_system::SpecialPowerType,
+) -> bool {
+    if let Some(content) = world.receiving_module_content.as_ref() {
+        return world
+            .host_object(source)
+            .and_then(|object| object.thing().template.special_power_module_for_command(power))
+            .and_then(|module| {
+                content
+                    .action_definitions()
+                    .powers
+                    .find_template(&module.special_power_template)
+            })
+            .is_some_and(|template| {
+                template.get_academy_classification_type()
+                    == game_engine::common::rts::special_power::AcademyClassificationType::Superpower
+            });
+    }
     use crate::command_system::SpecialPowerType;
     use crate::game_logic::special_power_strikes::HostSuperweaponKind;
     if HostSuperweaponKind::from_command_power(power).is_some() {
@@ -3276,64 +3295,7 @@ fn special_power_is_act_superpower(power: &crate::command_system::SpecialPowerTy
     ) {
         return true;
     }
-    leftover_special_power_is_act_superpower(power)
-}
-
-fn leftover_special_power_is_act_superpower(
-    power: &crate::command_system::SpecialPowerType,
-) -> bool {
-    let Some(name) = leftover_academy_special_power_template_name(power) else {
-        return false;
-    };
-    let rts = game_engine::common::rts::special_power::get_special_power_store();
-    if let Some(template) = rts.find_template(name) {
-        return template.get_academy_classification_type()
-            == game_engine::common::rts::special_power::AcademyClassificationType::Superpower;
-    }
-    if let Some(store) = gamelogic::object::special_power_template::get_special_power_store() {
-        if let Some(template) = store.find_special_power_template(name) {
-            return matches!(
-                template.get_academy_classification_type(),
-                gamelogic::object::special_power_template::AcademyClassificationType::Superweapon
-            );
-        }
-    }
     false
-}
-
-fn leftover_academy_special_power_template_name(
-    power: &crate::command_system::SpecialPowerType,
-) -> Option<&'static str> {
-    use crate::command_system::SpecialPowerType;
-    Some(match power {
-        SpecialPowerType::CiaIntelligence => "SuperweaponCIAIntelligence",
-        SpecialPowerType::CommunicationsDownload => "SpecialPowerCommunicationsDownload",
-        SpecialPowerType::EmpPulse => "SuperweaponEMPPulse",
-        SpecialPowerType::Frenzy | SpecialPowerType::EarlyFrenzy => "SuperweaponFrenzy",
-        SpecialPowerType::GpsScrambler | SpecialPowerType::StealthGpsScrambler => {
-            "SuperweaponGPSScrambler"
-        }
-        SpecialPowerType::LeafletDrop | SpecialPowerType::EarlyLeafletDrop => {
-            "SuperweaponLeafletDrop"
-        }
-        SpecialPowerType::Paradrop | SpecialPowerType::InfantryParadrop => {
-            "SuperweaponParadropAmerica"
-        }
-        SpecialPowerType::TankParadrop => "Tank_SuperweaponTankParadrop",
-        SpecialPowerType::Ambush | SpecialPowerType::TerrorCell => "SuperweaponRebelAmbush",
-        SpecialPowerType::SneakAttack => "SuperweaponSneakAttack",
-        SpecialPowerType::ClusterMines | SpecialPowerType::NukeDrop => "SuperweaponClusterMines",
-        SpecialPowerType::EmergencyRepair | SpecialPowerType::EarlyEmergencyRepair => {
-            "SuperweaponEmergencyRepair"
-        }
-        SpecialPowerType::SpySatellite => "SpecialPowerSpySatellite",
-        SpecialPowerType::SpyDrone => "SpecialPowerSpyDrone",
-        SpecialPowerType::RadarScan => "SpecialPowerRadarVanScan",
-        SpecialPowerType::CrateDrop => "SuperweaponCrateDrop",
-        SpecialPowerType::CashHack => "SuperweaponCashHack",
-        SpecialPowerType::CleanupArea => "SpecialAbilityAmbulanceCleanupArea",
-        _ => return None,
-    })
 }
 
 #[cfg(all(test, feature = "game_client"))]

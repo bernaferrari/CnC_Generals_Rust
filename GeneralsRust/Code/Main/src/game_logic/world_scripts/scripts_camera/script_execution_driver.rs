@@ -1102,16 +1102,20 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         let Some(owner) = self.script_player_id(player, current_player) else {
             return ScriptOwnerQuery::Missing;
         };
-        let template_exists = self.world.templates.values().any(|template| {
-            template.special_power_modules.iter().any(|module| {
-                module
-                    .special_power_template
-                    .eq_ignore_ascii_case(power_name)
-            })
-        })
-            || game_engine::common::rts::special_power::get_special_power_store()
+        let template_exists = match self.world.receiving_module_content.as_ref() {
+            Some(content) => content
+                .action_definitions()
+                .powers
                 .find_template(power_name)
-                .is_some();
+                .is_some(),
+            None => self.world.templates.values().any(|template| {
+                template.special_power_modules.iter().any(|module| {
+                    module
+                        .special_power_template
+                        .eq_ignore_ascii_case(power_name)
+                })
+            }),
+        };
         let mut state = ScriptSpecialPowerReadiness {
             template_exists,
             ready: false,

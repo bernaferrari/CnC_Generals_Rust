@@ -118,22 +118,18 @@ fn resolve_voice_no_build(template_name: &str) -> Option<String> {
     }
 }
 
-/// Leftover SpecialPower.ini `RadiusCursorRadius` by template name.
-fn leftover_store_radius_cursor_radius(template_name: &str) -> f32 {
-    if let Some(store) = gamelogic::object::special_power_template::get_special_power_store() {
-        if let Some(template) = store.find_special_power_template(template_name) {
-            let radius = template.get_radius_cursor_radius();
-            if radius > 0.0 {
-                return radius;
-            }
-        }
-    }
-    crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::special_power_template_row_wave109(
-        template_name,
-    )
-    .map(|row| row.radius_cursor_radius)
-    .filter(|r| *r > 0.0)
-    .unwrap_or(0.0)
+/// SpecialPower.ini `RadiusCursorRadius` from the driving match's catalog.
+fn receiving_special_power_radius(
+    world: &crate::game_logic::GameLogic,
+    template_name: &str,
+) -> f32 {
+    world
+        .receiving_module_content
+        .as_ref()
+        .and_then(|content| content.action_definitions().powers.find_template(template_name))
+        .map(|template| template.radius_cursor_radius)
+        .filter(|radius| *radius > 0.0)
+        .unwrap_or(0.0)
 }
 
 fn leftover_special_templates_for_cursor(cursor_type: &str) -> &'static [&'static str] {
@@ -163,14 +159,18 @@ fn leftover_special_templates_for_cursor(cursor_type: &str) -> &'static [&'stati
     }
 }
 
-fn leftover_store_radius_cursor_for_type(cursor_type: &str) -> f32 {
-    for name in leftover_special_templates_for_cursor(cursor_type) {
-        let radius = leftover_store_radius_cursor_radius(name);
+fn receiving_special_radius_for_type(
+    world: &crate::game_logic::GameLogic,
+    cursor_type: &str,
+) -> f32 {
+    let names = leftover_special_templates_for_cursor(cursor_type);
+    for name in names {
+        let radius = receiving_special_power_radius(world, name);
         if radius > 0.0 {
             return radius;
         }
     }
-    if cursor_type == "OFFENSIVE_SPECIALPOWER" {
+    if !names.is_empty() || cursor_type == "OFFENSIVE_SPECIALPOWER" {
         return 0.0;
     }
     crate::ui::construction_panel::RadiusCursorOverlay::radius_for_type(cursor_type)
@@ -721,29 +721,26 @@ impl CnCGameEngine {
                 .expect("receiving InGameUI initialized")
                 .get_pending_special_power()
             {
-                if let Some(store) =
-                    gamelogic::object::special_power_template::get_special_power_store()
+                if let Some(radius) = self.game_logic.receiving_module_content.as_ref()
+                    .and_then(|content| {
+                        content.action_definitions().powers.find_template_by_id(pending.power_id)
+                    })
+                    .map(|template| template.radius_cursor_radius)
+                    .filter(|radius| *radius > 0.0)
                 {
-                    if let Some(template) =
-                        store.find_special_power_template_by_id(pending.power_id)
-                    {
-                        let radius = template.get_radius_cursor_radius();
-                        if radius > 0.0 {
-                            return radius;
-                        }
-                    }
+                    return radius;
                 }
             }
         }
         if let Some(PendingMapCommand::SpecialPower(power)) = self.pending_map_command.as_ref() {
             if let Some(name) = leftover_special_template_name_for_power(power) {
-                let radius = leftover_store_radius_cursor_radius(name);
+                let radius = receiving_special_power_radius(&self.game_logic, name);
                 if radius > 0.0 {
                     return radius;
                 }
             }
         }
-        leftover_store_radius_cursor_for_type(cursor_type)
+        receiving_special_radius_for_type(&self.game_logic, cursor_type)
     }
 
     pub(super) fn arm_radius_cursor_for_pending(&mut self, cursor_type: &str) {
@@ -3178,7 +3175,7 @@ mod tests {
     #[test]
     fn leftover_radius_cursor_attack_ground_is_not_table_zero() {
         assert_eq!(
-            leftover_store_radius_cursor_for_type("OFFENSIVE_SPECIALPOWER"),
+            receiving_special_radius_for_type(&crate::game_logic::GameLogic::new(), "OFFENSIVE_SPECIALPOWER"),
             0.0
         );
     }

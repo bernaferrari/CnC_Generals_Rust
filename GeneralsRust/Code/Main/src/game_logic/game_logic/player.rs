@@ -175,9 +175,6 @@ pub struct Player {
     pub science_purchase_points: i32,
     /// C++ Player::m_skillPointsModifier residual (default 1.0).
     pub skill_points_modifier: f32,
-    /// C++ AcademyStats::m_specialPowersUsed — ACT_SUPERPOWER fires this match.
-    pub special_powers_used: u32,
-
     /// C++ Player::m_canBuildUnits (Player.cpp:2301). Scripts flip this via
     /// PLAYER_DISABLE/ENABLE_UNIT_CONSTRUCTION.
     pub can_build_units: bool,
@@ -435,8 +432,6 @@ impl Player {
             skill_points: 0,
             science_purchase_points: 0,
             skill_points_modifier: 1.0,
-            special_powers_used: 0,
-
             can_build_units: true,
             can_build_base: true,
             units_should_hunt: false,
@@ -496,47 +491,7 @@ impl Player {
     /// C++ SpecialPowerModule::initiateIntentToDoSpecialPower →
     /// AcademyStats::recordSpecialPowerUsed (ACT_SUPERPOWER only).
     pub fn record_special_power_used(&mut self) {
-        self.special_powers_used = self.special_powers_used.saturating_add(1);
-        self.sync_leftover_academy_special_power_used();
-    }
-
-    fn sync_leftover_academy_special_power_used(&self) {
-        let named = format!("player{}", self.id);
-        let leftover = {
-            let Ok(list) = gamelogic::player::player_list().read() else {
-                return;
-            };
-            let by_name = [
-                self.name.as_str(),
-                self.map_side.map_player_name.as_str(),
-                named.as_str(),
-            ]
-            .into_iter()
-            .find_map(|n| {
-                if n.is_empty() {
-                    None
-                } else {
-                    list.find_player_by_name(n)
-                }
-            });
-            by_name
-                .or_else(|| list.get_player(self.id as i32).cloned())
-                .or_else(|| {
-                    list.iter().find_map(|arc| {
-                        arc.read()
-                            .ok()
-                            .is_some_and(|guard| guard.get_player_index() as u32 == self.id)
-                            .then(|| std::sync::Arc::clone(arc))
-                    })
-                })
-        };
-        let Some(arc) = leftover else {
-            return;
-        };
-        let Ok(mut guard) = arc.write() else {
-            return;
-        };
-        guard.get_academy_stats_mut().record_special_power_used(
+        self.academy_stats.record_special_power_used(
             game_engine::common::rts::academy_stats::AcademyClassificationType::Superpower,
         );
     }
