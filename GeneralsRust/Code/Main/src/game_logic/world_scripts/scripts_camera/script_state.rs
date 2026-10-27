@@ -73,36 +73,6 @@ impl GameLogic {
         );
     }
 
-    pub(crate) fn queue_resolved_per_unit_sound_named(
-        &mut self,
-        template_name: &str,
-        slot: &str,
-        object_id: Option<crate::game_logic::ObjectId>,
-        position: Option<glam::Vec3>,
-        player_index: Option<i32>,
-        priority: u8,
-    ) {
-        let event = match self.receiving_module_content.as_ref() {
-            Some(content) => content
-                .admitted_template(template_name)
-                .and_then(|template| {
-                    template
-                        .per_unit_sound_event(slot)
-                        .filter(|name| !name.is_empty())
-                        .map(str::to_owned)
-                }),
-            None => self.templates.get(template_name).and_then(|template| {
-                crate::game_logic::audio_dispatch_impl::resolve_receiving_per_unit_sound(
-                    template, slot,
-                )
-            }),
-        };
-        let Some(event) = event else {
-            return;
-        };
-        self.queue_per_unit_sound_event(&event, object_id, position, player_index, priority);
-    }
-
     fn queue_per_unit_sound_event(
         &mut self,
         event: &str,

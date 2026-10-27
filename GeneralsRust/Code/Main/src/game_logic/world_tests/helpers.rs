@@ -912,12 +912,11 @@ pub(super) fn author_eject_pilot_die_module(
     });
 }
 
-/// Register the two retail `ObjectCreationList.ini` EjectPilot blocks so the
-/// host death path can resolve them: this checkout ships no retail BIG data,
-/// so `ensure_default_object_creation_lists_loaded` finds no INIZH file.
+/// Admit the two retail `ObjectCreationList.ini` EjectPilot blocks into the
+/// fixture's own world.
 /// `InvulnerableTime` is authored in ms and parsed as frames at 30 FPS
 /// (2000 ms → 60f).  Idempotent: repeated loads write identical nuggets.
-pub(super) fn register_retail_eject_pilot_ocls() {
+pub(super) fn register_retail_eject_pilot_ocls(game_logic: &mut GameLogic) {
     const RETAIL_EJECT_PILOT_OCLS: &str = r#"
 ObjectCreationList OCL_EjectPilotOnGround
   CreateObject
@@ -954,9 +953,9 @@ ObjectCreationList OCL_EjectPilotViaParachute
   End
 End
 "#;
-    let _ = gamelogic::object_creation_list::store::load_object_creation_lists_from_str(
-        RETAIL_EJECT_PILOT_OCLS,
-    );
+    game_logic
+        .apply_receiving_ocl_overrides(&[RETAIL_EJECT_PILOT_OCLS.to_owned()])
+        .expect("receiving retail EjectPilot lists");
 }
 
 /// Ensure the shared ejection fixture: retail OCLs registered, the
@@ -964,7 +963,7 @@ End
 /// target), and a live owning USA player (C++ EjectPilotDie requires a live
 /// source controller, `RequiresLivePlayer = Yes`).
 pub(super) fn ensure_eject_pilot_residual_fixture(game_logic: &mut GameLogic) {
-    register_retail_eject_pilot_ocls();
+    register_retail_eject_pilot_ocls(game_logic);
     let eject_pilot_template = crate::game_logic::host_usa_pilot::EJECT_PILOT_TEMPLATE;
     if !game_logic.templates.contains_key(eject_pilot_template) {
         let mut pilot_tpl = ThingTemplate::new(eject_pilot_template);

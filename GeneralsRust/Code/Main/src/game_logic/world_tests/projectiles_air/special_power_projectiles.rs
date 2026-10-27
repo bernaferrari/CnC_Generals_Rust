@@ -2575,7 +2575,6 @@ fn retail_eject_pilot_metadata_drives_death_and_hijacker_interface() {
     // presence is the getEjectPilotDieInterface hijacker authority; the
     // module's own InvulnerableTime default stays 0 while OCL_EjectPilot*
     // carries the real 2000 ms grant) and the AmericaInfantryPilot Object.
-    register_retail_eject_pilot_ocls();
     let mut humvee_template = ThingTemplate::new("AmericaVehicleHumvee");
     humvee_template
         .add_kind_of(KindOf::Vehicle)
@@ -2624,6 +2623,7 @@ fn retail_eject_pilot_metadata_drives_death_and_hijacker_interface() {
     assert!(raptor_template.eject_pilot_die.is_some());
 
     let mut game_logic = GameLogic::new();
+    register_retail_eject_pilot_ocls(&mut game_logic);
     let mut source = String::new();
     for (name, kinds, health, eject) in [
         ("AmericaVehicleHumvee", "VEHICLE SELECTABLE", 200, true),
@@ -3561,10 +3561,12 @@ fn actual_eject_uses_receiving_per_unit_sounds_without_same_name_peer_or_silent_
             "the actual owned EjectPilotDie route must create its pilot, even for silent content"
         );
     }
-    register_retail_eject_pilot_ocls();
     let (mut owner, id) = world(Some("OwnerEject"), Vec3::new(50., 0., 50.));
     let (mut peer, peer_id) = world(Some("PeerEject"), Vec3::new(70., 0., 70.));
     let (mut silent, silent_id) = world(None, Vec3::new(90., 0., 90.));
+    for world in [&mut owner, &mut peer, &mut silent] {
+        register_retail_eject_pilot_ocls(world);
+    }
     assert_eq!(id, peer_id);
     assert_eq!(id, silent_id);
     eject(&mut owner, id);

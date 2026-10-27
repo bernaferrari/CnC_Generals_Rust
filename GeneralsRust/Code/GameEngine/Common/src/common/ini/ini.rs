@@ -112,8 +112,6 @@ pub struct BlockParse {
 static EXTRA_BLOCK_PARSERS: OnceLock<RwLock<Vec<BlockParse>>> = OnceLock::new();
 static ARMOR_DEFINITION_REGISTRY: OnceLock<RwLock<HashMap<String, HashMap<String, f32>>>> =
     OnceLock::new();
-static OBJECT_CREATION_LIST_REGISTRY: OnceLock<RwLock<HashMap<String, Vec<String>>>> =
-    OnceLock::new();
 
 /// C++ INIParticleSys.cpp overlays `TheParticleSystemManager`. Common's
 /// own registry is not the live GameClient manager; GameClient registers
@@ -366,10 +364,6 @@ fn armor_definition_registry() -> &'static RwLock<HashMap<String, HashMap<String
     ARMOR_DEFINITION_REGISTRY.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
-fn object_creation_list_registry() -> &'static RwLock<HashMap<String, Vec<String>>> {
-    OBJECT_CREATION_LIST_REGISTRY.get_or_init(|| RwLock::new(HashMap::new()))
-}
-
 fn consume_block_with_nesting(ini: &mut INI) -> INIResult<Vec<String>> {
     let mut nested_depth = 0usize;
     let mut lines = Vec::new();
@@ -493,11 +487,10 @@ fn parse_object_creation_list_block(ini: &mut INI) -> INIResult<()> {
         return Err(INIError::InvalidData);
     }
 
-    let lines = consume_block_with_nesting(ini)?;
-    let mut registry = object_creation_list_registry()
-        .write()
-        .expect("ObjectCreationList registry poisoned");
-    registry.insert(name, lines);
+    // Typed lists are admitted by the receiving GameLogic owner. This generic
+    // pass only needs to consume the nested block; its former raw registry had
+    // no readers and made parsing one map mutate process-wide state.
+    consume_block_with_nesting(ini)?;
     Ok(())
 }
 

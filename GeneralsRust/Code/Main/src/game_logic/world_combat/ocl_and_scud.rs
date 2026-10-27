@@ -52,8 +52,8 @@ impl GameLogic {
     /// `MissileAIUpdate.cpp:364-381`).  The host has no simulation `Object`
     /// for every visual projectile, so the caller supplies that object's
     /// frozen team/rank and its fire/impact origin.  References are resolved
-    /// only through the parsed global OCL store; unresolved lists and object
-    /// templates intentionally produce no guessed replacement.
+    /// only through the receiving session's admitted OCL and object content;
+    /// unresolved lists and templates do not select another world's assets.
     pub(crate) fn execute_parsed_weapon_ocl_at(
         &mut self,
         ocl_name: &str,
@@ -121,10 +121,7 @@ impl GameLogic {
             return Vec::new();
         }
 
-        let Some(ocl) = self.weapon_effect_definitions.ocl(ocl_name).or_else(|| {
-            gamelogic::helpers::TheObjectCreationListStore::lookup_object_creation_list(ocl_name)
-                .map(|ocl| (*ocl).clone())
-        }) else {
+        let Some(ocl) = self.object_creation_list_definition(ocl_name) else {
             return Vec::new();
         };
 
@@ -175,16 +172,11 @@ impl GameLogic {
                     continue;
                 }
 
-                // `GameLogic::create_object` has a map/decorative fallback
-                // path.  Weapon OCLs must not enter that path: first inject
-                // only a real parsed asset definition, then create through the
-                // normal world object lifecycle.
+                // The receiving session admitted its authored templates before
+                // the match. A missing name cannot be recovered from another
+                // application's asset manager or a decorative fallback.
                 if !self.templates.contains_key(template_name) {
-                    let Some(template) = Self::build_template_from_asset_definition(template_name)
-                    else {
-                        continue;
-                    };
-                    self.templates.insert(template_name.to_string(), template);
+                    continue;
                 }
 
                 // C++ `GenericObjectCreationNugget::doStuffToObj` transforms
@@ -2760,6 +2752,45 @@ impl GameLogic {
 mod tests {
     use super::*;
     use crate::game_logic::ThingTemplate;
+
+    #[test]
+    fn fire_ocl_never_uses_a_foreign_list_or_foreign_object_template() {
+        const NAME: &str = "OCL_WeaponOwnerNegativeControl";
+        let text = |child: &str| format!(
+            "ObjectCreationList {NAME}\n CreateObject\n ObjectNames = {child}\n Count = 1\n End\nEnd\n"
+        );
+        let foreign = gamelogic::object_creation_list::store::parse_object_creation_lists_from_ini(
+            &text("ForeignChild"),
+        )
+        .unwrap();
+        for (name, list) in foreign {
+            gamelogic::helpers::TheObjectCreationListStore::register_object_creation_list(
+                &name, list,
+            );
+        }
+        let mut first = GameLogic::new();
+        let mut peer = GameLogic::new();
+        for world in [&mut first, &mut peer] {
+            for name in ["SameSource", "OwnedChild", "ForeignChild"] {
+                world.templates.insert(name.into(), ThingTemplate::new(name));
+            }
+        }
+        peer.apply_receiving_ocl_overrides(&[text("OwnedChild")]).unwrap();
+        let first_id = first.create_object("SameSource", Team::USA, Vec3::ZERO).unwrap();
+        let peer_id = peer.create_object("SameSource", Team::USA, Vec3::ZERO).unwrap();
+        assert_eq!(first_id, peer_id);
+        let execute = |world: &mut GameLogic, id| {
+            world.execute_parsed_weapon_ocl_at(
+                NAME, Some(id), Team::USA, VeterancyLevel::Rookie, 0.0, Vec3::ZERO, Vec3::ZERO,
+            )
+        };
+        assert!(execute(&mut first, first_id).is_empty());
+        let children = execute(&mut peer, peer_id);
+        assert_eq!(children.len(), 1);
+        assert_eq!(peer.objects[&children[0]].template_name, "OwnedChild");
+        peer.templates.remove("OwnedChild");
+        assert!(execute(&mut peer, peer_id).is_empty());
+    }
 
     #[test]
     fn retail_fire_field_ocl_creates_the_authored_object_for_the_source_team() {

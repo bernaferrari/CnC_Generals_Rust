@@ -218,6 +218,7 @@ impl GameLogic {
     /// that distinction here so a module default of zero never becomes a
     /// fabricated 2000 ms grant.
     fn parsed_eject_pilot_ocl_plan(
+        &self,
         creation_list: crate::game_logic::EjectPilotCreationList,
     ) -> Option<(bool, u32)> {
         use crate::game_logic::host_usa_pilot::EJECT_PILOT_TEMPLATE;
@@ -241,8 +242,7 @@ impl GameLogic {
                     12.0,
                 ),
             };
-        let ocl =
-            gamelogic::helpers::TheObjectCreationListStore::lookup_object_creation_list(ocl_name)?;
+        let ocl = self.object_creation_list_definition(ocl_name)?;
         let [nugget] = ocl.nuggets() else {
             return None;
         };
@@ -308,7 +308,6 @@ impl GameLogic {
             veterancy,
             death_type,
             is_hijacked,
-            dying_template,
         ) = {
             let Some(obj) = self.objects.get(&id) else {
                 return;
@@ -330,7 +329,6 @@ impl GameLogic {
                 obj.experience.level,
                 obj.status.death_type,
                 obj.status.hijacked,
-                obj.thing().template.name.clone(),
             )
         };
 
@@ -407,7 +405,7 @@ impl GameLogic {
             return;
         };
         let Some((parachute_ocl, invulnerable_frames)) =
-            Self::parsed_eject_pilot_ocl_plan(creation_list)
+            self.parsed_eject_pilot_ocl_plan(creation_list)
         else {
             return;
         };
@@ -423,16 +421,8 @@ impl GameLogic {
             return;
         };
         if !self.templates.contains_key(EJECT_PILOT_TEMPLATE) {
-            // OCL_EjectPilot* names this exact retail object.  Do not inject
-            // a synthetic pilot when the authored template cannot be loaded:
-            // missing Object INI data must not turn a source name into a live
-            // ejection action.
-            let Some(pilot_tpl) = Self::build_template_from_asset_definition(EJECT_PILOT_TEMPLATE)
-            else {
-                return;
-            };
-            self.templates
-                .insert(EJECT_PILOT_TEMPLATE.to_string(), pilot_tpl);
+            // The selected Object belongs to this session's admitted content.
+            return;
         }
         // Offset slightly so pilot is not buried under death debris residual.
         // The chosen OCL (not vehicle kind/name) controls whether the live
@@ -481,19 +471,24 @@ impl GameLogic {
             }
             // C++ EjectPilotDie::ejectPilot playObjectSounds: VoiceEject (pos+player)
             // then SoundEject (pos). Resolve from the dying vehicle, not the slot key.
-            self.queue_resolved_per_unit_sound_named(
-                &dying_template,
+            let current_player = self
+                .objects
+                .get(&id)
+                .and_then(|object| object.owner_player_id)
+                .map(|player| player as i32);
+            self.queue_resolved_per_unit_sound(
+                id,
                 PILOT_EJECT_AUDIO,
-                None,
-                Some(death_pos),
-                Some(pilot_owner_player_id as i32),
+                false,
+                true,
+                current_player,
                 170,
             );
-            self.queue_resolved_per_unit_sound_named(
-                &dying_template,
+            self.queue_resolved_per_unit_sound(
+                id,
                 PILOT_SOUND_EJECT_AUDIO,
-                None,
-                Some(death_pos),
+                false,
+                true,
                 None,
                 170,
             );
