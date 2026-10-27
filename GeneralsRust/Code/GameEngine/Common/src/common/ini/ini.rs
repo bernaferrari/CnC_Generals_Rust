@@ -2059,50 +2059,30 @@ impl INI {
 
     /// Parse a color in R:100 G:114 B:245 format
     pub fn parse_rgb_color(tokens: &[&str]) -> INIResult<(f32, f32, f32)> {
-        let mut r = None;
-        let mut g = None;
-        let mut b = None;
-        let mut i = 0;
-
-        while i < tokens.len() {
-            let token = tokens[i];
+        let mut tokens = tokens.iter().copied();
+        let mut colors = [0.0; 3];
+        for (expected, color) in ["R", "G", "B"].into_iter().zip(&mut colors) {
+            let token = tokens.next().ok_or(INIError::InvalidData)?;
             let (key, value) = if let Some((left, right)) = token.split_once(':') {
                 if right.is_empty() {
-                    i += 1;
-                    if i >= tokens.len() {
-                        return Err(INIError::InvalidData);
-                    }
-                    (left, tokens[i])
+                    (left, tokens.next().ok_or(INIError::InvalidData)?)
                 } else {
                     (left, right)
                 }
             } else {
-                if i + 1 >= tokens.len() {
-                    return Err(INIError::InvalidData);
-                }
-                (token.trim_end_matches(':'), tokens[i + 1])
+                (token, tokens.next().ok_or(INIError::InvalidData)?)
             };
 
-            let value: i32 = value.parse().map_err(|_| INIError::InvalidData)?;
-            if value < 0 || value > 255 {
+            if !key.eq_ignore_ascii_case(expected) {
                 return Err(INIError::InvalidData);
             }
-
-            match key.to_ascii_uppercase().as_str() {
-                "R" => r = Some(value),
-                "G" => g = Some(value),
-                "B" => b = Some(value),
-                _ => {}
+            let value: i32 = value.parse().map_err(|_| INIError::InvalidData)?;
+            if !(0..=255).contains(&value) {
+                return Err(INIError::InvalidData);
             }
-
-            i += 1;
+            *color = value as f32 / 255.0;
         }
-
-        let r = r.ok_or(INIError::InvalidData)?;
-        let g = g.ok_or(INIError::InvalidData)?;
-        let b = b.ok_or(INIError::InvalidData)?;
-
-        Ok((r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0))
+        Ok((colors[0], colors[1], colors[2]))
     }
 
     /// Parse a 3D coordinate in X:400 Y:-214.3 Z:8.6 format
@@ -2668,6 +2648,31 @@ mod tests {
     use crate::common::rts::special_power::{
         SpecialPowerType, get_special_power_store, reset_special_power_store,
     };
+
+    #[test]
+    fn rgb_color_consumes_components_in_cpp_order() {
+        let expected = (64.0 / 255.0, 128.0 / 255.0, 1.0);
+        assert_eq!(
+            INI::parse_rgb_color(&["R:64", "g:128", "B:255"]).unwrap(),
+            expected
+        );
+        assert_eq!(
+            INI::parse_rgb_color(&["R:", "64", "G", "128", "B:", "255"]).unwrap(),
+            expected
+        );
+        assert_eq!(
+            INI::parse_rgb_color(&["R:64", "G:128", "B:255", "ignored"]).unwrap(),
+            expected
+        );
+        for tokens in [
+            &["G:128", "R:64", "B:255"][..],
+            &["R:64", "R:128", "G:128", "B:255"][..],
+            &["R:64", "G:128"][..],
+            &["R:256", "G:128", "B:255"][..],
+        ] {
+            assert!(INI::parse_rgb_color(tokens).is_err(), "accepted {tokens:?}");
+        }
+    }
 
     #[test]
     fn field_line_uses_equals_as_separator() {
