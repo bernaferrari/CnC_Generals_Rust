@@ -77,6 +77,7 @@ impl GameLogic {
             radar_map: Default::default(),
             weapon_definition_base: None,
             weapon_definitions: None,
+            solo_weapon_bonus_set: gamelogic::weapon::WeaponBonusSet::new(),
             projectile_definitions: Default::default(),
             body_damage_definitions: Default::default(),
             lighting_definitions: Default::default(),
@@ -826,6 +827,9 @@ impl GameLogic {
             self.combat_particles.can_clear(),
             "GameLogic reset requires its live receiving particle manager"
         );
+        // Snapshot immutable GlobalData weapon bonuses into this session.
+        // Missing GlobalData leaves the prior admitted owner set intact.
+        self.admit_current_global_weapon_bonus_snapshot();
         self.queued_audio_events.reset();
         self.session_view.world_animations.clear();
         self.session_view.border_shroud_level = None;

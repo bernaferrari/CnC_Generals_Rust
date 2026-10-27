@@ -487,6 +487,59 @@ fn crushing_point(
 }
 
 #[test]
+fn same_id_structure_topple_uses_each_receiving_solo_bonus_set() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "same_id_structure_topple_uses_each_receiving_solo_bonus_set",
+        || {
+            const WEAPON: &str = "OwnedSoloBonusToppleWeapon";
+            let effects = install_fx();
+            install_crushing_weapon(WEAPON, 10.0);
+            let (mut first, first_source) = world_with_crushing(0, 10.0, Some(WEAPON));
+            let (mut second, second_source) = world_with_crushing(7, 100.0, Some(WEAPON));
+            assert_eq!(first_source, second_source);
+            let entry = |value| game_engine::common::ini::ini_game_data::WeaponBonusEntry {
+                condition: "SOLO_HUMAN_EASY".into(),
+                field: "DAMAGE".into(),
+                value,
+            };
+            first.admit_global_weapon_bonus_entries(&[entry(1.5)]);
+            second.admit_global_weapon_bonus_entries(&[entry(2.0)]);
+            first.host_object_mut(first_source).unwrap().weapon_bonus_solo = 16;
+            second.host_object_mut(second_source).unwrap().weapon_bonus_solo = 16;
+            let position = glam::Vec3::new(20.0, 0.0, 12.0);
+            let first_victim = first
+                .create_object_for_player("OwnedCrushStructure", 0, position)
+                .unwrap();
+            let second_victim = second
+                .create_object_for_player("OwnedCrushStructure", 7, position)
+                .unwrap();
+            assert_eq!(first_victim, second_victim);
+            kill(&mut first, first_source);
+            kill(&mut second, second_source);
+            first.host_object_mut(first_source).unwrap().weapon_bonus_solo = 16;
+            second.host_object_mut(second_source).unwrap().weapon_bonus_solo = 16;
+            effects.try_iter().for_each(drop);
+            first
+                .apply_structure_topple_crush_samples(
+                    first_source,
+                    vec![crushing_point(position), crushing_point(position)],
+                )
+                .unwrap();
+            second
+                .apply_structure_topple_crush_samples(
+                    second_source,
+                    vec![crushing_point(position), crushing_point(position)],
+                )
+                .unwrap();
+            assert_eq!(first.host_object(first_victim).unwrap().health.current, 70.0);
+            assert_eq!(second.host_object(second_victim).unwrap().health.current, 60.0);
+            assert_eq!(effects.try_iter().filter(|effect| effect.name == "FX_OwnToppleCrush").count(), 4);
+        },
+    );
+}
+
+#[test]
 fn crushing_fires_each_authored_weapon_point_and_includes_structures() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),

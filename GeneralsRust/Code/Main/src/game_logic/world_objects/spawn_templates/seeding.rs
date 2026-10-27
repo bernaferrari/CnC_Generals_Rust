@@ -237,6 +237,9 @@ impl GameLogic {
             }
         }
         let profiles=crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(definitions.iter().map(|(name,row)|(name.as_str(),row)),self.physics_definitions.base.gravity)?;
+        // Freeze the GameData bonus rows at the same receiving weapon-content
+        // boundary; runtime Object readers never need to select a global set.
+        self.admit_current_global_weapon_bonus_snapshot();
         self.weapon_definition_base = Some(catalog.clone());
         self.weapon_definitions = Some(catalog);
         self.projectile_definitions = profiles;

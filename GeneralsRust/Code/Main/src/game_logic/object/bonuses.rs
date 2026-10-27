@@ -153,12 +153,12 @@ impl Object {
         let name = self
             .weapon_name_for_slot(self.active_weapon_slot)
             .or_else(|| self.primary_weapon_name());
-        self.weapon_bonus_fields_with_name(container, name)
+        self.weapon_bonus_fields_with_name(container, name, None)
     }
 
     /// Compute template extras for this concrete firing slot without changing selection.
     pub(crate) fn weapon_bonus_fields_for_slot(&self, slot: u8) -> (f32, f32, f32, f32, f32) {
-        self.weapon_bonus_fields_with_name(None, self.authored_weapon_name_for_slot(slot))
+        self.weapon_bonus_fields_with_name(None, self.authored_weapon_name_for_slot(slot), None)
     }
 
     /// Temporary weapons compute their own template extras, independently of
@@ -167,13 +167,25 @@ impl Object {
         &self,
         name: &str,
     ) -> (f32, f32, f32, f32, f32) {
-        self.weapon_bonus_fields_with_name(None, Some(name))
+        self.weapon_bonus_fields_with_name(None, Some(name), None)
+    }
+
+    /// Compute the named weapon's Object bonuses using the receiving session's
+    /// immutable SOLO set. The SOLO lookup never falls back to process globals;
+    /// the authored per-weapon extra set retains its existing separate route.
+    pub(crate) fn weapon_bonus_fields_for_named_weapon_with_solo_set(
+        &self,
+        name: &str,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> (f32, f32, f32, f32, f32) {
+        self.weapon_bonus_fields_with_name(None, Some(name), Some(solo_set))
     }
 
     fn weapon_bonus_fields_with_name(
         &self,
         container: Option<&Object>,
         weapon_name: Option<&str>,
+        session_solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
     ) -> (f32, f32, f32, f32, f32) {
         use crate::game_logic::VeterancyLevel;
         use crate::game_logic::host_propaganda::{
@@ -352,7 +364,11 @@ impl Object {
             let inherited = inherit.map(|c| c.weapon_bonus_solo).unwrap_or(0);
             if own != 0 { own } else { inherited }
         };
-        leftover_append_solo_weapon_bonus(&mut bonus, solo);
+        if let Some(set) = session_solo_set {
+            append_solo_bonus_from_set(&mut bonus, set, solo);
+        } else {
+            leftover_append_solo_weapon_bonus(&mut bonus, solo);
+        }
 
         // C++ Weapon::computeBonus (Weapon.cpp:1814-1816): template m_extraBonus.
         {
@@ -962,6 +978,28 @@ impl Object {
 
     pub fn is_attackable(&self) -> bool {
         self.is_alive() && self.is_kind_of(KindOf::Attackable)
+    }
+}
+
+/// Append the selected SOLO condition from an explicit receiving-session set.
+/// A missing condition leaves WeaponBonus's neutral 1.0 values untouched.
+fn append_solo_bonus_from_set(
+    bonus: &mut gamelogic::WeaponBonus,
+    set: &gamelogic::weapon::WeaponBonusSet,
+    disc: u8,
+) {
+    use gamelogic::weapon::WeaponBonusConditionType as C;
+    let condition = match disc {
+        16 => C::SoloHumanEasy,
+        17 => C::SoloHumanNormal,
+        18 => C::SoloHumanHard,
+        19 => C::SoloAiEasy,
+        20 => C::SoloAiNormal,
+        21 => C::SoloAiHard,
+        _ => return,
+    };
+    if let Some(other) = set.get_bonus(condition) {
+        bonus.append_bonuses(other);
     }
 }
 

@@ -1454,7 +1454,10 @@ impl GameLogic {
             };
             let team = source.team;
             let (damage_bonus, _, _, _, radius_bonus) =
-                source.weapon_bonus_fields_for_named_weapon(&weapon.name);
+                source.weapon_bonus_fields_for_named_weapon_with_solo_set(
+                    &weapon.name,
+                    &self.solo_weapon_bonus_set,
+                );
             let crushing_fx = source
                 .structure_topple_data
                 .as_ref()

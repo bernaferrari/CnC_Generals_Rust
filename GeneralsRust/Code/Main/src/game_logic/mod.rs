@@ -20,6 +20,7 @@ pub(crate) mod native_lifecycle_definition;
 pub(crate) mod physics_rules;
 pub(crate) use game_logic::kill_credit;
 pub(crate) mod production_energy;
+pub(crate) mod weapon_bonus_owner;
 mod script_ui;
 mod session_audio;
 pub use session_audio::SessionAudio;

@@ -36,6 +36,8 @@ pub struct GameLogic {
     /// None retains the explicitly unmigrated bootstrap route; Some(empty) never substitutes it.
     pub(crate) weapon_definition_base:
         Option<HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>>,
+    /// Immutable SOLO WeaponBonus rows admitted with this session's weapon content.
+    pub(crate) solo_weapon_bonus_set: gamelogic::weapon::WeaponBonusSet,
     pub(crate) weapon_definitions: Option<HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>>,
     pub(crate) projectile_definitions:
         crate::game_logic::projectile_definitions::ProjectileDefinitions,
