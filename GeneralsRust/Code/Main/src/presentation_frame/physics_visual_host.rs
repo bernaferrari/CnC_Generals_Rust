@@ -62,6 +62,14 @@ pub(crate) struct FrozenHostPhysicsObject {
     pub facts: HostPhysicsVisualFacts,
 }
 
+/// Borrowed-world observations gathered before the visual owner is mutated.
+pub(crate) struct HostPhysicsVisualCapture {
+    world_epoch: u64,
+    frozen: bool,
+    live_generations: HashMap<ObjectId, u64>,
+    objects: HashMap<ObjectId, FrozenHostPhysicsObject>,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct HostPhysicsVisualState {
     pub(super) origin: std::sync::Arc<()>,
@@ -73,17 +81,7 @@ pub(crate) struct HostPhysicsVisualState {
 }
 
 impl HostPhysicsVisualState {
-    pub(crate) fn freeze(&mut self, logic: &GameLogic) -> FrozenHostPhysicsVisuals {
-        self.next_ordinal = self
-            .next_ordinal
-            .checked_add(1)
-            .expect("host physics frame ordinal exhausted");
-        self.loco.retain(|id, (generation, _)| {
-            logic
-                .host_objects()
-                .lookup(id)
-                .is_some_and(|object| object.visual_object_generation == *generation)
-        });
+    pub(crate) fn capture(logic: &GameLogic) -> HostPhysicsVisualCapture {
         let script_frozen = logic.is_script_time_frozen();
         let camera_frozen = logic.is_script_camera_time_frozen();
         // Drawable::applyPhysicsXform gates each drawable on this global option.
@@ -91,11 +89,14 @@ impl HostPhysicsVisualState {
         // eligible object and reuse that value for the rest of the frame. Keep
         // this lazy: frames with no visible physics drawable do not read it.
         let mut show_client_physics = None;
-        FrozenHostPhysicsVisuals {
-            origin: std::sync::Arc::clone(&self.origin),
-            ordinal: self.next_ordinal,
+        HostPhysicsVisualCapture {
             world_epoch: logic.host_visual_world_epoch(),
             frozen: script_frozen || camera_frozen,
+            live_generations: logic
+                .host_objects()
+                .registered()
+                .map(|(id, object)| (*id, object.visual_object_generation))
+                .collect(),
             objects: logic
                 .host_objects()
                 .registered()
@@ -121,6 +122,22 @@ impl HostPhysicsVisualState {
                     ))
                 })
                 .collect(),
+        }
+    }
+
+    pub(crate) fn freeze(&mut self, capture: HostPhysicsVisualCapture) -> FrozenHostPhysicsVisuals {
+        self.next_ordinal = self
+            .next_ordinal
+            .checked_add(1)
+            .expect("host physics frame ordinal exhausted");
+        self.loco
+            .retain(|id, (generation, _)| capture.live_generations.get(id) == Some(generation));
+        FrozenHostPhysicsVisuals {
+            origin: std::sync::Arc::clone(&self.origin),
+            ordinal: self.next_ordinal,
+            world_epoch: capture.world_epoch,
+            frozen: capture.frozen,
+            objects: capture.objects,
         }
     }
 
@@ -272,13 +289,11 @@ fn map_appearance(appearance: LocomotorAppearance) -> PhysicsVisualAppearance {
 }
 
 fn params_for_object(obj: &Object) -> LocomotorVisualParams {
-    let Some(name) =
-        crate::game_logic::locomotor_bootstrap::locomotor_name_for_unit(&obj.template_name)
+    let Some(template) = obj
+        .selected_locomotor_definition
+        .as_ref()
+        .map(|binding| &binding.visual_physics)
     else {
-        return LocomotorVisualParams::default();
-    };
-    let store = game_engine::common::ini::ini_locomotor::get_locomotor_store();
-    let Some(template) = store.find_template(name) else {
         return LocomotorVisualParams::default();
     };
     LocomotorVisualParams {
@@ -309,19 +324,18 @@ fn params_for_object(obj: &Object) -> LocomotorVisualParams {
     }
 }
 
-/// Shared body sampling uses explicit immutable content lookup. Production
-/// supplies the current asset adapter; tests supply local authored definitions.
+/// Shared body sampling uses each actual Object's immutable content.
 pub(super) fn body_for_object(
     obj: &Object,
     objects: crate::game_logic::HostObjectRead<'_>,
     sample_height: impl Fn(glam::Vec3) -> Option<f32>,
-    definition: impl Fn(&str) -> ObjectVisualIni,
+    definition: impl Fn(&Object) -> ObjectVisualIni,
 ) -> PhysicsVisualBody {
     let pos = obj.get_position();
     let vel = obj.movement.velocity;
     let accel = obj.previous_acceleration();
     let dir = obj.unit_direction_vector_2d();
-    let self_ini = definition(&obj.template_name);
+    let self_ini = definition(obj);
     let (major_radius, minor_radius, bounding_circle_radius, _) =
         host_geometry_radii(obj, &self_ini);
     let height = pos.y - obj.ground_height;
@@ -332,7 +346,7 @@ pub(super) fn body_for_object(
         .and_then(|id| objects.lookup(&id))
         .map(|other| {
             let other_pos = other.get_position();
-            let other_ini = definition(&other.template_name);
+            let other_ini = definition(other);
             let (_, _, other_circle, other_height) = host_geometry_radii(other, &other_ini);
             OverlapVisualTarget {
                 is_shrubbery: host_kindof_token(&other_ini, "SHRUBBERY"),

@@ -221,8 +221,7 @@ mod tests {
                 let mut yaw_duration = 5.;
                 let mut position = Vec3::new(0., 400., -400.);
                 let mut view = Mat4::IDENTITY;
-                let (_, target, impulse, mut cancellation, _, _) =
-                    world.split_filter_camera_owner();
+                let (_, target, impulse, mut cancellation, _) = world.split_filter_camera_owner();
                 let mut native = crate::presentation_frame::camera::SessionCamera::default();
                 native.native_camera =
                     super::super::camera_height::CameraHeight::new(400., 45., 0.);
@@ -383,7 +382,7 @@ mod tests {
         let mut yaw_duration = 3.;
         let mut position = Vec3::new(0., 400., -400.);
         let mut view = Mat4::IDENTITY;
-        let (_, target, impulse, mut cancellation, _, _) = world.split_filter_camera_owner();
+        let (_, target, impulse, mut cancellation, _) = world.split_filter_camera_owner();
         let mut native = crate::presentation_frame::camera::SessionCamera::default();
         native.native_camera = super::super::camera_height::CameraHeight::new(400., 45., 0.);
         native.rotation_registers =

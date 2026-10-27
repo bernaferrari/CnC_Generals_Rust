@@ -89,10 +89,7 @@ impl NativeFrameRenderReceiver for NativeFrameReceiver<'_> {
         } else {
             None
         };
-        self.world
-            .host_physics_visuals
-            .borrow_mut()
-            .complete_input(input, frame);
+        self.world.host_physics_visuals.complete_input(input, frame);
         Ok(instance)
     }
     fn direct_scene_decisions(
@@ -169,8 +166,7 @@ impl NativeFrameRenderReceiver for NativeFrameReceiver<'_> {
         let terrain = terrain_owner
             .read()
             .map_err(|_| "receiving filter LookAt terrain poisoned".to_owned())?;
-        let (_, target, impulse, mut cancellation, _, native) =
-            self.world.split_filter_camera_owner();
+        let (_, target, impulse, mut cancellation, native) = self.world.split_filter_camera_owner();
         let mut camera = super::camera_filter::NativeFilterCameraContext {
             look_at_modes: self.look_at_modes,
             target,

@@ -77,7 +77,7 @@ pub struct GameLogic {
     /// Client tint history is scoped to this instance, including synthetic render IDs.
     #[cfg(feature = "game_client")]
     pub(crate) host_physics_visuals:
-        std::cell::RefCell<crate::presentation_frame::physics_visual_host::HostPhysicsVisualState>,
+        crate::presentation_frame::physics_visual_host::HostPhysicsVisualState,
     pub(crate) drawable_tint_envelopes: crate::game_logic::DrawableTintEnvelopes,
     /// Original Map.ini/Solo.ini source when geometry came from an embedded save.
     pub(crate) map_definition_source: Option<String>,

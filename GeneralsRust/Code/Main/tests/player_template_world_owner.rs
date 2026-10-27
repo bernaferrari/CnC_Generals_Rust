@@ -64,11 +64,12 @@ fn world(start_money: u32, map: &std::path::Path) -> GameLogic {
                  Object OwnedNest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = {}\n SpawnTemplateName = PeerSoldier\n End\nEnd\n\
                  Object FirstSoldier\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
                  Object PeerSoldier\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
-                 Object OwnedOverlordVisual\n KindOf = VEHICLE SELECTABLE\n Draw = {} DrawTag\n DefaultConditionState\n Model = NONE\n End\n End\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
+                 Object OwnedOverlordVisual\n KindOf = VEHICLE SELECTABLE\n Geometry = BOX\n GeometryMajorRadius = {}\n GeometryMinorRadius = 2\n GeometryHeight = 3\n Draw = {} DrawTag\n DefaultConditionState\n Model = NONE\n End\n End\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
                  Object PortableRider\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n",
                 if start_money == 1200 { "FirstCollector" } else { "PeerCollector" },
                 if start_money == 1200 { "" } else { "Object PeerOnlyCollector\n KindOf = VEHICLE SELECTABLE HARVESTER\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n" },
                 if start_money == 1200 { "FirstSoldier" } else { "PeerSoldier" },
+                if start_money == 1200 { 4 } else { 12 },
                 if start_money == 1200 { "W3DOverlordTankDraw" } else { "W3DModelDraw" },
             ),
         )])
@@ -673,17 +674,42 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
             .occupants
             .push(rider);
         world.host_object_mut(rider).unwrap().contained_by = Some(carrier);
-        rider
+        (carrier, rider)
     };
-    let rider = attach_rider(&mut visual_owner);
-    let peer_rider = attach_rider(&mut visual_peer);
+    let (carrier, rider) = attach_rider(&mut visual_owner);
+    let (peer_carrier, peer_rider) = attach_rider(&mut visual_peer);
+    assert_eq!(carrier, peer_carrier);
     assert_eq!(rider, peer_rider);
+    use generals_main::game_logic::locomotor_bootstrap::{
+        BASIC_HUMAN_LOCOMOTOR, apply_host_locomotor_binding, resolve_host_locomotor_binding,
+    };
+    let mut owner_locomotor = resolve_host_locomotor_binding(BASIC_HUMAN_LOCOMOTOR).unwrap();
+    owner_locomotor.appearance = generals_main::game_logic::LocomotorAppearance::Hover;
+    owner_locomotor.visual_physics.pitch_stiffness = 1.25;
+    let mut peer_locomotor = owner_locomotor;
+    peer_locomotor.visual_physics.pitch_stiffness = 9.5;
+    apply_host_locomotor_binding(
+        visual_owner.host_object_mut(carrier).unwrap(),
+        &owner_locomotor,
+    );
+    apply_host_locomotor_binding(
+        visual_peer.host_object_mut(peer_carrier).unwrap(),
+        &peer_locomotor,
+    );
     let visual_frame = generals_main::presentation_frame::PresentationFrame::build_from_logic(
         &mut visual_owner,
         1,
     );
     let peer_visual_frame =
         generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut visual_peer, 1);
+    let owner_physics = visual_frame.physics_visual_facts(carrier).unwrap();
+    let peer_physics = peer_visual_frame
+        .physics_visual_facts(peer_carrier)
+        .unwrap();
+    assert_eq!(owner_physics.params.pitch_stiffness, 1.25);
+    assert_eq!(peer_physics.params.pitch_stiffness, 9.5);
+    assert_eq!(owner_physics.body.major_radius, 4.0);
+    assert_eq!(peer_physics.body.major_radius, 12.0);
     assert!(
         visual_frame
             .unit_render_inputs()
@@ -720,6 +746,39 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
         }
         gamelogic::helpers::TheGameClient.destroy_drawable(foreign_drawable);
     });
+    owner_locomotor.visual_physics.pitch_stiffness = 3.75;
+    apply_host_locomotor_binding(
+        visual_owner.host_object_mut(carrier).unwrap(),
+        &owner_locomotor,
+    );
+    let switched_frame = generals_main::presentation_frame::PresentationFrame::build_from_logic(
+        &mut visual_owner,
+        1,
+    );
+    assert_eq!(
+        switched_frame
+            .physics_visual_facts(carrier)
+            .unwrap()
+            .params
+            .pitch_stiffness,
+        3.75
+    );
+    assert_eq!(
+        visual_frame
+            .physics_visual_facts(carrier)
+            .unwrap()
+            .params
+            .pitch_stiffness,
+        1.25
+    );
+    assert_eq!(
+        peer_visual_frame
+            .physics_visual_facts(peer_carrier)
+            .unwrap()
+            .params
+            .pitch_stiffness,
+        9.5
+    );
     visual_peer.reset();
     let after_peer_reset = generals_main::presentation_frame::PresentationFrame::build_from_logic(
         &mut visual_owner,

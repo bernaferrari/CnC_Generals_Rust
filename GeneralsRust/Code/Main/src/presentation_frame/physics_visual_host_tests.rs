@@ -76,20 +76,44 @@ fn physics_option_is_read_lazily_and_once_per_frozen_frame() {
     let mut object = test_object(1, "NonPhysics");
     object.loco_appearance = crate::game_logic::LocomotorAppearance::Other;
     let objects = registered_physics_objects([(object.id, object.clone())]);
-    assert!(collect_facts(
-        &object, objects.read(), false, false, &mut cached, || true, |_| None
-    )
-    .is_none());
+    assert!(
+        collect_facts(
+            &object,
+            objects.read(),
+            false,
+            false,
+            &mut cached,
+            || true,
+            |_| None
+        )
+        .is_none()
+    );
     assert_eq!(cached, None, "no eligible drawable means no option read");
 
     object.loco_appearance = crate::game_logic::LocomotorAppearance::Hover;
     let objects = registered_physics_objects([(object.id, object.clone())]);
-    let first =
-        collect_facts(&object, objects.read(), false, false, &mut cached, || true, |_| None).unwrap();
+    let first = collect_facts(
+        &object,
+        objects.read(),
+        false,
+        false,
+        &mut cached,
+        || true,
+        |_| None,
+    )
+    .unwrap();
     assert_eq!(cached, Some(first.show_client_physics));
 
-    let second =
-        collect_facts(&object, objects.read(), false, false, &mut cached, || true, |_| None).unwrap();
+    let second = collect_facts(
+        &object,
+        objects.read(),
+        false,
+        false,
+        &mut cached,
+        || true,
+        |_| None,
+    )
+    .unwrap();
     assert_eq!(second.show_client_physics, first.show_client_physics);
 
     let mut reads = 0;
@@ -247,7 +271,12 @@ fn treads_overlap_uses_ini_geometry_and_kindof_tokens() {
         &tank,
         objects.read(),
         |_| Some(0.0),
-        |name| definitions.get(name).cloned().unwrap_or_default(),
+        |object| {
+            definitions
+                .get(object.template_name.as_str())
+                .cloned()
+                .unwrap_or_default()
+        },
     );
     assert!((body.major_radius - 12.0).abs() < f32::EPSILON);
     assert!((body.minor_radius - 4.0).abs() < f32::EPSILON);
@@ -262,7 +291,12 @@ fn treads_overlap_uses_ini_geometry_and_kindof_tokens() {
         &tank,
         objects.read(),
         |_| Some(0.0),
-        |name| definitions.get(name).cloned().unwrap_or_default(),
+        |object| {
+            definitions
+                .get(object.template_name.as_str())
+                .cloned()
+                .unwrap_or_default()
+        },
     );
     let overlap = body.current_overlap.expect("curb overlap");
     assert!(!overlap.is_shrubbery);
@@ -274,7 +308,12 @@ fn treads_overlap_uses_ini_geometry_and_kindof_tokens() {
         &missing,
         crate::game_logic::HostObjectStore::new().read(),
         |_| None,
-        |name| definitions.get(name).cloned().unwrap_or_default(),
+        |object| {
+            definitions
+                .get(object.template_name.as_str())
+                .cloned()
+                .unwrap_or_default()
+        },
     );
     assert_eq!(body.terrain_normal_x, 0.0);
     assert_eq!(body.terrain_normal_y, 0.0);
@@ -333,7 +372,12 @@ fn same_name_local_definitions_remain_independent_in_shared_body_sampling() {
             &object,
             objects.read(),
             |_| Some(0.0),
-            |name| definitions.get(name).cloned().unwrap_or_default(),
+            |object| {
+                definitions
+                    .get(object.template_name.as_str())
+                    .cloned()
+                    .unwrap_or_default()
+            },
         )
     };
     let first = sample(&a);
@@ -407,18 +451,16 @@ fn completed_inputs_are_inert_and_actual_admission_restore_reset_reject_stale_fr
     );
     world
         .host_physics_visuals
-        .borrow_mut()
         .complete_input(&mut input, &frame);
     let matrix = input.world_matrix();
-    let first = world.host_physics_visuals.borrow().loco_state(id);
+    let first = world.host_physics_visuals.loco_state(id);
     let _candidate = GameLogic::new();
     world.host_object_mut(id).unwrap().physics_previous_accel = Vec3::splat(999.0);
     world
         .host_physics_visuals
-        .borrow_mut()
         .complete_input(&mut input, &frame);
     assert_eq!(input.world_matrix(), matrix);
-    assert_eq!(world.host_physics_visuals.borrow().loco_state(id), first);
+    assert_eq!(world.host_physics_visuals.loco_state(id), first);
     let mut moved = input.clone();
     moved.position.x += 50.0;
     assert_ne!(
@@ -426,7 +468,7 @@ fn completed_inputs_are_inert_and_actual_admission_restore_reset_reject_stale_fr
         matrix,
         "cache retains local transform, not old world position"
     );
-    assert_eq!(world.host_physics_visuals.borrow().loco_state(id), first);
+    assert_eq!(world.host_physics_visuals.loco_state(id), first);
     let cloned = world.host_object(id).unwrap().clone();
     assert!(world.try_add_object(cloned.clone()).is_err());
     assert_eq!(
@@ -454,10 +496,9 @@ fn completed_inputs_are_inert_and_actual_admission_restore_reset_reject_stale_fr
     );
     world
         .host_physics_visuals
-        .borrow_mut()
         .complete_input(&mut new_input, &replacement);
     assert_eq!(
-        world.host_physics_visuals.borrow().loco_state(id),
+        world.host_physics_visuals.loco_state(id),
         first,
         "replacement starts a fresh loco"
     );
@@ -472,17 +513,15 @@ fn completed_inputs_are_inert_and_actual_admission_restore_reset_reject_stale_fr
     let mut stale = new_input.clone();
     world
         .host_physics_visuals
-        .borrow_mut()
         .complete_input(&mut stale, &replacement);
     assert_eq!(stale.physics_visual_local, None);
     assert_eq!(
-        world.host_physics_visuals.borrow().loco_state(id),
+        world.host_physics_visuals.loco_state(id),
         PhysicsVisualLocoState::default()
     );
     world.reset();
     world
         .host_physics_visuals
-        .borrow_mut()
         .complete_input(&mut stale, &frame);
     assert_eq!(stale.physics_visual_local, None);
     assert_eq!(input.world_matrix(), matrix);
@@ -536,7 +575,7 @@ fn completion_order_repeat_freeze_and_generation_prune_preserve_rng() {
     assert_eq!(rng.draws, [0, 1]);
     assert_eq!(state.loco_state(ObjectId(2)), before);
     let empty_world = crate::game_logic::GameLogic::new();
-    let _ = state.freeze(&empty_world);
+    let _ = state.freeze(HostPhysicsVisualState::capture(&empty_world));
     assert_eq!(
         state.loco_state(ObjectId(2)),
         PhysicsVisualLocoState::default()

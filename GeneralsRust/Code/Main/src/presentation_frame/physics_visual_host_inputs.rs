@@ -60,21 +60,17 @@ where
     (nx / len, ny / len, nz / len)
 }
 
-pub fn object_visual_ini(template_name: &str) -> ObjectVisualIni {
-    object_visual_ini_from_asset_manager(template_name).unwrap_or_default()
-}
-
-fn object_visual_ini_from_asset_manager(template_name: &str) -> Option<ObjectVisualIni> {
-    let manager = crate::assets::get_asset_manager()?;
-    let guard = manager.lock().ok()?;
-    let definition = guard.get_object_definition(template_name)?;
+pub fn object_visual_ini(object: &Object) -> ObjectVisualIni {
+    let Some(definition) = object.get_template().receiving_object_definition.as_ref() else {
+        return ObjectVisualIni::default();
+    };
     let attr = |name: &str| {
         definition
             .attributes
             .iter()
             .find_map(|(key, value)| key.eq_ignore_ascii_case(name).then_some(value.as_str()))
     };
-    Some(ObjectVisualIni {
+    ObjectVisualIni {
         major_radius: attr("GeometryMajorRadius").and_then(|value| value.parse().ok()),
         minor_radius: attr("GeometryMinorRadius").and_then(|value| value.parse().ok()),
         height: attr("GeometryHeight").and_then(|value| value.parse().ok()),
@@ -82,7 +78,7 @@ fn object_visual_ini_from_asset_manager(template_name: &str) -> Option<ObjectVis
         kindof: attr("KindOf")
             .or_else(|| attr("kindof"))
             .map(str::to_string),
-    })
+    }
 }
 
 pub fn host_kindof_token(ini: &ObjectVisualIni, token: &str) -> bool {

@@ -12,6 +12,9 @@ pub(crate) mod host_draw_schedule;
 #[path = "physics_visual_host.rs"]
 pub(crate) mod physics_visual_host;
 
+#[cfg(feature = "game_client")]
+pub use physics_visual_host::HostPhysicsVisualFacts;
+
 #[cfg(all(test, feature = "game_client"))]
 #[path = "physics_visual_host_tests.rs"]
 mod physics_visual_host_tests;

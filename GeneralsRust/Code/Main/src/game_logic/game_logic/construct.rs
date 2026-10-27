@@ -917,7 +917,7 @@ impl GameLogic {
             .reset();
         #[cfg(feature = "game_client")]
         {
-            *self.host_physics_visuals.get_mut() = Default::default();
+            self.host_physics_visuals = Default::default();
         }
         self.drawable_tint_envelopes.clear();
         self.finish_all_building_sounds();

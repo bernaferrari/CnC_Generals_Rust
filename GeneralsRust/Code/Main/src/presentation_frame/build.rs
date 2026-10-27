@@ -1168,7 +1168,10 @@ impl PresentationFrame {
         }
         sync_live_terrain_decals(&objects, local_team);
         #[cfg(feature = "game_client")]
-        let host_physics_visuals = logic.host_physics_visuals.borrow_mut().freeze(logic);
+        let host_physics_visuals = {
+            let capture = super::physics_visual_host::HostPhysicsVisualState::capture(logic);
+            logic.host_physics_visuals.freeze(capture)
+        };
         // Stable presentation order for determinism (by ObjectId).
         objects.sort_by_key(|o| o.id.0);
         direct_host_drawables.sort_by_key(|drawable| drawable.object.id.0);

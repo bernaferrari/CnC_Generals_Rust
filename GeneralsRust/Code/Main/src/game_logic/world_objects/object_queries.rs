@@ -1417,7 +1417,7 @@ impl GameLogic {
         self.host_guard_area_occupancy.get_mut().clear();
         #[cfg(feature = "game_client")]
         {
-            *self.host_physics_visuals.get_mut() = Default::default();
+            self.host_physics_visuals = Default::default();
         }
         self.visual_world_epoch = self.visual_world_epoch.wrapping_add(1).max(1);
         self.finish_all_building_sounds();

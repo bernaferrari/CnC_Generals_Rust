@@ -6,6 +6,15 @@ fn template_uses_overlord_draw(template: &str) -> bool {
 }
 
 impl PresentationFrame {
+    /// Physics-visual inputs frozen from this session's current Object state.
+    #[cfg(feature = "game_client")]
+    pub fn physics_visual_facts(&self, id: ObjectId) -> Option<HostPhysicsVisualFacts> {
+        self.host_physics_visuals
+            .objects
+            .get(&id)
+            .map(|object| object.facts)
+    }
+
     /// C++ `ActionManager::canEnterObject(..., CHECK_CAPACITY)` expressed only
     /// through the immutable frame used by physical RMB input.
     ///

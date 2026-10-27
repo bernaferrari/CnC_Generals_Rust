@@ -675,7 +675,6 @@ impl GameLogic {
         &mut Vec3,
         Vec3,
         PlayerCameraLookAtCancellation<'_>,
-        &std::cell::RefCell<crate::presentation_frame::physics_visual_host::HostPhysicsVisualState>,
         &mut crate::presentation_frame::camera::SessionCamera,
     ) {
         (
@@ -693,7 +692,6 @@ impl GameLogic {
                     || self.session_view.camera.camera_pitch_target.is_some(),
                 hooks: &self.mission_scripts,
             },
-            &self.host_physics_visuals,
             &mut self.session_view.camera,
         )
     }
