@@ -103,6 +103,32 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
             .count_money(),
         9999
     );
+    // A lobby carries only indices. Pair each index with the name from its
+    // receiving application, even while another catalog is installed globally.
+    let mut info = game_engine::common::system::skirmish_game_info::SkirmishGameInfo::default();
+    info.slots[0].state = game_client::SlotState::Player as i32;
+    info.slots[0].player_template = 0;
+    info.slots[0].name = "Owner".into();
+    let launch = game_engine::common::message_stream::ClientSkirmishLaunch {
+        map: first_map.to_string_lossy().into_owned(),
+        game_info: info,
+        local_slot: 0,
+        old_factions_only: false,
+        fog_of_war: true,
+        game_mode_code: 2,
+        max_fps: 30,
+    };
+    let chosen =
+        generals_main::skirmish_config::config_from_skirmish_launch_in(&launch, &definitions(3700))
+            .unwrap();
+    assert!(matches!(&chosen.slots[0].player_template,
+        generals_main::skirmish_config::SkirmishPlayerTemplateSelection::Exact { template_name, template_index: 0 } if template_name == "FactionAmerica"));
+    let foreign = get_player_template_store_mut();
+    let other =
+        generals_main::skirmish_config::config_from_skirmish_launch_in(&launch, &foreign).unwrap();
+    assert!(matches!(&other.slots[0].player_template,
+        generals_main::skirmish_config::SkirmishPlayerTemplateSelection::Exact { template_name, template_index: 0 } if template_name == "Other"));
+    drop(foreign);
     peer.reset();
     assert_eq!(first.get_player(1).unwrap().resources.supplies, 1300);
     let builder = generals_main::save_load::SnapshotBuilder::new();
@@ -156,6 +182,32 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
     assert_eq!(skirmish.get_player(0).unwrap().resources.supplies, 3700);
     assert_eq!(
         skirmish.player_template_identity(0).unwrap().template_index,
+        Some(0)
+    );
+    assert!(skirmish.load_map(first_map.to_str().unwrap()));
+    let skirmish_cash = skirmish.get_player(0).unwrap().resources.supplies;
+    let skirmish_snapshot = builder.create_world_snapshot(&skirmish).unwrap();
+    let mut resumed_skirmish = GameLogic::new();
+    resumed_skirmish
+        .admit_object_ini_sources([("Empty.ini".into(), String::new())])
+        .unwrap();
+    resumed_skirmish
+        .admit_player_template_definitions(definitions(3700))
+        .unwrap();
+    apply_skirmish_config(&mut resumed_skirmish, &config).unwrap();
+    assert!(resumed_skirmish.load_map(first_map.to_str().unwrap()));
+    builder
+        .restore_from_snapshot(&skirmish_snapshot, &mut resumed_skirmish)
+        .unwrap();
+    assert_eq!(
+        resumed_skirmish.get_player(0).unwrap().resources.supplies,
+        skirmish_cash
+    );
+    assert_eq!(
+        resumed_skirmish
+            .player_template_identity(0)
+            .unwrap()
+            .template_index,
         Some(0)
     );
     *get_player_template_store_mut() = previous;

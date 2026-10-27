@@ -209,7 +209,12 @@ fn observer_original_capture_retains_raw_sentinel_and_rejects_unknown_negative_t
                 },
                 slots: vec![observer_slot(3)],
             };
-            let resolved = resolve_skirmish_slots(&config).unwrap();
+            let resolved = resolve_skirmish_slots_for_owner(
+                &config,
+                None,
+                &mut game_engine::common::random_value::RandomState::default(),
+            )
+            .unwrap();
             let captured =
                 SavedSkirmishAdmission::capture(&config, &config.slots, &resolved).unwrap();
             assert_eq!(captured.source, Some(original.clone()));
@@ -349,7 +354,7 @@ fn occupied_observer_random_color_survives_save_and_actual_rep_header_admission(
             let header = reader.get_game_info();
             assert_eq!(header.slots[3].color, selected);
             assert!(header.slots[3].is_observer);
-            let replay_config = replay_admission::config_from_recorded_info(header)
+            let replay_config = replay_admission::config_from_recorded_info(header, None)
                 .unwrap()
                 .unwrap();
             assert!(

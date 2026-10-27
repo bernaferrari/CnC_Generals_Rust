@@ -399,7 +399,11 @@ impl SavedSkirmishAdmission {
         definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
     ) -> Result<(), String> {
         self.validate()?;
-        let _ = resolve_skirmish_slots_for_owner(&self.config, definitions)?; // all Exact; consumes no random values
+        let _ = resolve_skirmish_slots_for_owner(
+            &self.config,
+            definitions,
+            &mut game_engine::common::random_value::RandomState::default(),
+        )?; // all Exact; consumes no random values
         if let Some(info) = &self.source {
             for slot in self.config.slots.iter().filter(|slot| slot.is_active) {
                 let color = info.slots[slot.slot_index].color;
@@ -442,6 +446,7 @@ impl SavedSkirmishAdmission {
         let mut resolved = resolve_skirmish_slots_for_owner(
             &self.config,
             world.player_template_definitions.as_ref(),
+            &mut game_engine::common::random_value::RandomState::default(),
         )?;
         // Saved current indices are admitted exactly, never randomized again.
         if let Some(source) = &self.source {

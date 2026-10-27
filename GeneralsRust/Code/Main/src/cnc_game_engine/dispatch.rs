@@ -623,9 +623,10 @@ impl CnCGameEngine {
             }
         }
         #[cfg(feature = "game_client")]
-        let campaign_launch_overrides = match Self::campaign_launch_start_overrides(
+        let campaign_launch_overrides = match Self::campaign_launch_start_overrides_in(
             dispatch.game_mode,
             campaign_launch,
+            self.game_logic.player_template_definitions.as_ref(),
         ) {
             Ok(overrides) => overrides,
             Err(reason) => {
@@ -684,7 +685,10 @@ impl CnCGameEngine {
         let skirmish = if matches!(mode, GameMode::Skirmish) {
             #[cfg(feature = "game_client")]
             {
-                crate::skirmish_config::config_from_client_skirmish_setup(Some(map.as_str()))
+                crate::skirmish_config::config_from_client_skirmish_setup_with_definitions(
+                    Some(map.as_str()),
+                    self.game_logic.player_template_definitions.as_ref(),
+                )
             }
             #[cfg(not(feature = "game_client"))]
             {
@@ -747,10 +751,11 @@ impl CnCGameEngine {
         }
         #[cfg(feature = "game_client")]
         {
-            let config = crate::skirmish_config::config_from_skirmish_launch(descriptor)
-                .ok_or_else(|| {
-                    "owned offline lobby contains no valid active players".to_string()
-                })?;
+            let config = crate::skirmish_config::config_from_skirmish_launch_with_definitions(
+                descriptor,
+                self.game_logic.player_template_definitions.as_ref(),
+            )
+            .ok_or_else(|| "owned offline lobby contains no valid active players".to_string())?;
             let faction = crate::skirmish_config::local_faction_from_config(&config);
             let skirmish = (dispatch.game_mode == GameMode::Skirmish).then_some(config);
             let mut request = HostStartRequest::without_player_template(
@@ -777,17 +782,35 @@ impl CnCGameEngine {
     /// compatibility base Team so the session can construct the same General
     /// C++ puts into `SidesList::playerFaction`.
     #[cfg(feature = "game_client")]
-    pub(super) fn campaign_launch_start_overrides(
+    pub(super) fn campaign_launch_start_overrides_in(
         mode: GameMode,
         descriptor: Option<
             &game_client::gui::campaign_launch_host_bridge::HostCampaignLaunchDescriptor,
         >,
+        definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
     ) -> std::result::Result<CampaignLaunchStartOverrides, &'static str> {
         let Some(descriptor) = descriptor.filter(|_| matches!(mode, GameMode::SinglePlayer)) else {
             return Ok(CampaignLaunchStartOverrides::default());
         };
 
         let map = (!descriptor.map_name.trim().is_empty()).then(|| descriptor.map_name.clone());
+        let from_name = |name: &str| match definitions {
+            Some(store) => PlayerTemplateIdentity::from_exact_name_in(name, store),
+            None => PlayerTemplateIdentity::from_exact_name(name),
+        };
+        let from_index = |name: &str, index: i32| match definitions {
+            Some(store) => PlayerTemplateIdentity::from_exact_indexed_name_in(name, index, store),
+            None => PlayerTemplateIdentity::from_exact_indexed_name(name, index),
+        };
+        let faction_for = |identity: &PlayerTemplateIdentity| {
+            let team = match definitions {
+                Some(store) => identity
+                    .resolve_in(store)
+                    .and_then(PlayerTemplateIdentity::team_for_template),
+                None => identity.base_team(),
+            };
+            team.map(|team| team.get_name().to_string())
+        };
 
         // Challenge C++ selection is an indexed PlayerTemplate.  Pairing the
         // index with its exact selected name protects the host from a stale
@@ -799,11 +822,9 @@ impl CnCGameEngine {
                 .player_template_name
                 .as_deref()
                 .zip(descriptor.player_template_index)
-                .and_then(|(name, index)| {
-                    PlayerTemplateIdentity::from_exact_indexed_name(name, index)
-                })
+                .and_then(|(name, index)| from_index(name, index))
                 .ok_or("the selected Challenge PlayerTemplate slot is missing or stale")?;
-            let faction = Self::base_faction_from_player_template_identity(&player_template)
+            let faction = faction_for(&player_template)
                 .ok_or("the selected Challenge PlayerTemplate has no supported Main base side")?;
             let map = map.ok_or("the selected Challenge map is empty")?;
             return Ok(CampaignLaunchStartOverrides {
@@ -826,13 +847,11 @@ impl CnCGameEngine {
         let player_template = descriptor
             .player_template_name
             .as_deref()
-            .and_then(PlayerTemplateIdentity::from_exact_name)
-            .or_else(|| {
-                PlayerTemplateIdentity::from_exact_name(descriptor.campaign_player_faction.as_str())
-            });
+            .and_then(from_name)
+            .or_else(|| from_name(descriptor.campaign_player_faction.as_str()));
         let faction = player_template
             .as_ref()
-            .and_then(Self::base_faction_from_player_template_identity)
+            .and_then(faction_for)
             .or_else(|| {
                 Self::base_faction_from_campaign_faction(
                     descriptor.campaign_player_faction.as_str(),
@@ -851,17 +870,14 @@ impl CnCGameEngine {
         })
     }
 
-    /// Resolve a Challenge PlayerTemplate only when the index retained by the
-    /// C++ shell still names precisely the same template.  Name-only lookup is
-    /// insufficient because challenge selection is position-sensitive.
-    #[cfg(feature = "game_client")]
-    pub(super) fn base_faction_from_indexed_player_template(
-        template_name: &str,
-        template_index: i32,
-    ) -> Option<String> {
-        PlayerTemplateIdentity::from_exact_indexed_name(template_name, template_index)
-            .as_ref()
-            .and_then(Self::base_faction_from_player_template_identity)
+    #[cfg(all(test, feature = "game_client"))]
+    pub(super) fn campaign_launch_start_overrides(
+        mode: GameMode,
+        descriptor: Option<
+            &game_client::gui::campaign_launch_host_bridge::HostCampaignLaunchDescriptor,
+        >,
+    ) -> std::result::Result<CampaignLaunchStartOverrides, &'static str> {
+        Self::campaign_launch_start_overrides_in(mode, descriptor, None)
     }
 
     /// Drop the map writes paired with a rejected typed campaign descriptor.
@@ -877,23 +893,6 @@ impl CnCGameEngine {
         if let Some(data) = game_engine::common::ini::get_global_data() {
             data.write().pending_file.clear();
         }
-    }
-
-    /// Convert a C++ PlayerTemplate `Side`/`BaseSide` identity to Main's
-    /// currently-supported base Team string.  This is intentionally exact and
-    /// fail-closed: a General template is not guessed from a display label.
-    pub(super) fn base_faction_from_player_template(template_name: &str) -> Option<String> {
-        PlayerTemplateIdentity::from_exact_name(template_name)
-            .as_ref()
-            .and_then(Self::base_faction_from_player_template_identity)
-    }
-
-    fn base_faction_from_player_template_identity(
-        player_template: &PlayerTemplateIdentity,
-    ) -> Option<String> {
-        player_template
-            .base_team()
-            .map(|team| team.get_name().to_string())
     }
 
     /// C++ Campaign `PlayerFaction` and PlayerTemplate base-side values use

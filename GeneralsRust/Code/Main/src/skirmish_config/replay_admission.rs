@@ -4,13 +4,28 @@ use game_engine::common::recorder::{ReplayGameInfo, ReplaySlot};
 
 pub(crate) fn config_from_recorded_info(
     info: &ReplayGameInfo,
+    definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
 ) -> Result<Option<SkirmishMatchConfig>, String> {
     let occupied = info.slots.iter().any(|slot| slot.is_occupied);
     if !occupied {
         return Ok(None);
     }
-    game_engine::common::ini::ensure_player_templates_loaded();
-    let store = game_engine::common::rts::player_template::get_player_template_store();
+    match definitions {
+        Some(store) => config_from_recorded_info_in(info, store),
+        None => {
+            game_engine::common::ini::ensure_player_templates_loaded();
+            config_from_recorded_info_in(
+                info,
+                &game_engine::common::rts::player_template::get_player_template_store(),
+            )
+        }
+    }
+}
+
+fn config_from_recorded_info_in(
+    info: &ReplayGameInfo,
+    store: &game_engine::common::rts::player_template::PlayerTemplateStore,
+) -> Result<Option<SkirmishMatchConfig>, String> {
     let mut slots = Vec::new();
     for (index, slot) in info.slots.iter().enumerate() {
         let active = slot.is_occupied;

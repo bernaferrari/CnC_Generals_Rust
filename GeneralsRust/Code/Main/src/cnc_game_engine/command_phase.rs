@@ -56,14 +56,16 @@ impl CnCGameEngine {
         }
         let info = recorder.get_game_info().clone();
         let original_mode = recorder.get_game_mode();
-        let config =
-            match crate::skirmish_config::replay_admission::config_from_recorded_info(&info) {
-                Ok(config) => config,
-                Err(error) => {
-                    warn!("Cannot admit recorded slots: {error}");
-                    return None;
-                }
-            };
+        let config = match crate::skirmish_config::replay_admission::config_from_recorded_info(
+            &info,
+            self.game_logic.player_template_definitions.as_ref(),
+        ) {
+            Ok(config) => config,
+            Err(error) => {
+                warn!("Cannot admit recorded slots: {error}");
+                return None;
+            }
+        };
         if config.is_none() && original_mode != 0 {
             warn!(
                 "Replay has no participant slots; authored-side-only replay admission remains unsupported (original mode {original_mode})"

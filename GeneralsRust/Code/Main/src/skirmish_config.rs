@@ -446,26 +446,27 @@ fn random_skirmish_template_candidates(
 fn resolve_random_skirmish_template(
     random_seed: u32,
     candidates: &[(PlayerTemplateIdentity, Team)],
+    random: &mut game_engine::common::random_value::RandomState,
 ) -> Result<(PlayerTemplateIdentity, Team), String> {
     if candidates.is_empty() {
         return Err("no eligible PlayerTemplate is available for Random Skirmish selection".into());
     }
 
-    use game_engine::common::random_value::get_game_logic_random_value;
-
     for _ in 0..(random_seed % 7) {
-        let _ = get_game_logic_random_value(0, 1);
+        let _ = random.next_int(0, 1);
     }
-    let candidate_index = (get_game_logic_random_value(0, 1000) as usize) % candidates.len();
+    let candidate_index = (random.next_int(0, 1000) as usize) % candidates.len();
     Ok(candidates[candidate_index].clone())
 }
 
 /// C++ `populateRandomStartPosition` (GameLogic.cpp:785-1048).
 /// Unassigned (`-1`) slots get unused map start spots; first pick is random,
 /// later picks prefer farthest empty spots (teammates stay close).
-pub fn populate_random_start_position(slots: &mut [SkirmishSlotConfig], map_name: &str) {
-    use game_engine::common::random_value::get_game_logic_random_value;
-
+pub fn populate_random_start_position(
+    slots: &mut [SkirmishSlotConfig],
+    map_name: &str,
+    random: &game_engine::common::random_value::SessionRandom,
+) {
     let starts = crate::game_logic::script_loader::parse_player_start_waypoints(map_name)
         .unwrap_or_default();
     let num_players = if starts.is_empty() {
@@ -552,7 +553,7 @@ pub fn populate_random_start_position(slots: &mut [SkirmishSlotConfig], map_name
         let assigned = if !has_start_spot_been_picked {
             let mut pick = -1;
             for _ in 0..(num_players * 4).max(8) {
-                let candidate = get_game_logic_random_value(0, num_players - 1);
+                let candidate = random.next_int(0, num_players - 1);
                 if !is_taken(candidate, &taken, slots) {
                     pick = candidate;
                     break;
@@ -643,6 +644,7 @@ fn skirmish_num_teams(slots: &[SkirmishSlotConfig]) -> i32 {
 fn resolve_skirmish_slots<'a>(
     config: &'a SkirmishMatchConfig,
     definitions: &game_engine::common::rts::player_template::PlayerTemplateStore,
+    random: &mut game_engine::common::random_value::RandomState,
 ) -> Result<Vec<ResolvedSkirmishSlot<'a>>, String> {
     let mut active_slots: Vec<&SkirmishSlotConfig> =
         config.slots.iter().filter(|slot| slot.is_active).collect();
@@ -743,6 +745,7 @@ fn resolve_skirmish_slots<'a>(
                     candidates
                         .as_deref()
                         .expect("random candidates validated above"),
+                    random,
                 )?,
             };
             // CPP populateRandomSideAndColor resolves color immediately after
@@ -750,9 +753,8 @@ fn resolve_skirmish_slots<'a>(
             let color = if let Some(colors) = colors.as_mut() {
                 let mut index = colors[slot.slot_index];
                 if index == -1 {
-                    use game_engine::common::random_value::get_game_logic_random_value;
                     loop {
-                        index = get_game_logic_random_value(0, palette.len() as i32 - 1);
+                        index = random.next_int(0, palette.len() as i32 - 1);
                         if !colors.contains(&index) {
                             break;
                         }
@@ -794,14 +796,16 @@ fn resolve_skirmish_slots<'a>(
 fn resolve_skirmish_slots_for_owner<'a>(
     config: &'a SkirmishMatchConfig,
     definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
+    random: &mut game_engine::common::random_value::RandomState,
 ) -> Result<Vec<ResolvedSkirmishSlot<'a>>, String> {
     match definitions {
-        Some(definitions) => resolve_skirmish_slots(config, definitions),
+        Some(definitions) => resolve_skirmish_slots(config, definitions, random),
         None => {
             game_engine::common::ini::ensure_player_templates_loaded();
             resolve_skirmish_slots(
                 config,
                 &game_engine::common::rts::player_template::get_player_template_store(),
+                random,
             )
         }
     }
@@ -826,12 +830,13 @@ pub(crate) fn apply_skirmish_config_for_mode(
 ) -> Result<(), String> {
     // Validate/resolve the candidate without changing an existing match on
     // error. Replay admission uses the same GameInfo seed in this config.
-    let selection = game_engine::common::random_value::SessionRandom::default();
+    let mut selection = game_engine::common::random_value::RandomState::default();
     selection.seed_random(config.random_seed);
-    let resolved_slots =
-        game_engine::common::random_value::with_session_random(&selection, || {
-            resolve_skirmish_slots_for_owner(config, logic.player_template_definitions.as_ref())
-        })?;
+    let resolved_slots = resolve_skirmish_slots_for_owner(
+        config,
+        logic.player_template_definitions.as_ref(),
+        &mut selection,
+    )?;
     // New admission metadata must reject before reset/seed side effects. This
     // scratch validation does not perform start selection or retain a second owner.
     saved_admission::SavedSkirmishAdmission::capture(config, &config.slots, &resolved_slots)?;
@@ -844,7 +849,7 @@ pub(crate) fn apply_skirmish_config_for_mode(
         logic.logic_random.set_seed_words(selection.seed_words());
 
         let mut assigned = config.slots.clone();
-        populate_random_start_position(&mut assigned, &config.map);
+        populate_random_start_position(&mut assigned, &config.map, &logic.logic_random);
 
         let admission =
             saved_admission::SavedSkirmishAdmission::capture(config, &assigned, &resolved_slots)?;
@@ -1005,6 +1010,14 @@ pub fn local_faction_from_config(config: &SkirmishMatchConfig) -> String {
 pub fn config_from_client_skirmish_setup(
     map_override: Option<&str>,
 ) -> Option<SkirmishMatchConfig> {
+    config_from_client_skirmish_setup_with_definitions(map_override, None)
+}
+
+#[cfg(feature = "game_client")]
+pub(crate) fn config_from_client_skirmish_setup_with_definitions(
+    map_override: Option<&str>,
+    definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
+) -> Option<SkirmishMatchConfig> {
     let (map, local_slot, old_factions_only) = {
         let setup = game_client::gui::get_skirmish_setup();
         let info = setup.game_info().game_info();
@@ -1033,26 +1046,47 @@ pub fn config_from_client_skirmish_setup(
         game_mode_code: 2,
         max_fps: 30,
     };
-    config_from_skirmish_launch(&descriptor)
+    config_from_skirmish_launch_with_definitions(&descriptor, definitions)
 }
 
 #[cfg(feature = "game_client")]
 pub fn config_from_skirmish_launch(
     descriptor: &game_engine::common::message_stream::ClientSkirmishLaunch,
 ) -> Option<SkirmishMatchConfig> {
+    config_from_skirmish_launch_with_definitions(descriptor, None)
+}
+
+#[cfg(feature = "game_client")]
+pub(crate) fn config_from_skirmish_launch_with_definitions(
+    descriptor: &game_engine::common::message_stream::ClientSkirmishLaunch,
+    definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
+) -> Option<SkirmishMatchConfig> {
+    match definitions {
+        Some(store) => config_from_skirmish_launch_in(descriptor, store),
+        None => {
+            game_engine::common::ini::ensure_player_templates_loaded();
+            config_from_skirmish_launch_in(
+                descriptor,
+                &game_engine::common::rts::player_template::get_player_template_store(),
+            )
+        }
+    }
+}
+
+/// Decode a lobby's positional choices against the application that supplied them.
+#[cfg(feature = "game_client")]
+pub fn config_from_skirmish_launch_in(
+    descriptor: &game_engine::common::message_stream::ClientSkirmishLaunch,
+    store: &game_engine::common::rts::player_template::PlayerTemplateStore,
+) -> Option<SkirmishMatchConfig> {
     use game_client::{MAX_SLOTS, PLAYERTEMPLATE_OBSERVER, PLAYERTEMPLATE_RANDOM, SlotState};
-    use game_engine::common::ini::ensure_player_templates_loaded;
-    use game_engine::common::rts::player_template::get_player_template_store;
     let info = &descriptor.game_info;
     let map = descriptor.map.trim();
     if map.is_empty() || map == "NOMAP" {
         return None;
     }
     let map = map.to_owned();
-    // GameClient stores only an index in GameInfo. Ensure the authoritative
-    // Common store is present before pairing it with its canonical name.
-    ensure_player_templates_loaded();
-    let store = get_player_template_store();
+    // GameClient stores only an index; pair it with this application's name.
     let mut slots = Vec::with_capacity(MAX_SLOTS);
     for i in 0..MAX_SLOTS {
         let Some(slot) = info.slots.get(i) else {
@@ -1931,7 +1965,11 @@ mod tests {
                 -1,
             ),
         ];
-        populate_random_start_position(&mut slots, "missing-map-forces-max-slots");
+        populate_random_start_position(
+            &mut slots,
+            "missing-map-forces-max-slots",
+            &game_engine::common::random_value::SessionRandom::default(),
+        );
         assert!(slots[0].start_position >= 0, "first slot must be assigned");
         assert!(slots[1].start_position >= 0, "second slot must be assigned");
         assert_ne!(
@@ -1946,7 +1984,11 @@ mod tests {
         let mut pinned = slots.clone();
         pinned[0].start_position = 3;
         pinned[1].start_position = -1;
-        populate_random_start_position(&mut pinned, "missing-map-forces-max-slots");
+        populate_random_start_position(
+            &mut pinned,
+            "missing-map-forces-max-slots",
+            &game_engine::common::random_value::SessionRandom::default(),
+        );
         assert_eq!(pinned[0].start_position, 3, "explicit pick is kept");
         assert_ne!(pinned[1].start_position, 3);
         assert!(pinned[1].start_position >= 0);

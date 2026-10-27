@@ -586,8 +586,11 @@ impl CnCGameEngine {
         let skirmish = if matches!(mode, GameMode::Skirmish) {
             #[cfg(feature = "game_client")]
             {
-                crate::skirmish_config::config_from_client_skirmish_setup(Some(map.as_str()))
-                    .or_else(|| Some(crate::skirmish_config::golden_skirmish_config(map.as_str())))
+                crate::skirmish_config::config_from_client_skirmish_setup_with_definitions(
+                    Some(map.as_str()),
+                    self.game_logic.player_template_definitions.as_ref(),
+                )
+                .or_else(|| Some(crate::skirmish_config::golden_skirmish_config(map.as_str())))
             }
             #[cfg(not(feature = "game_client"))]
             {

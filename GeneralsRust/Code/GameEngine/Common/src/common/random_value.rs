@@ -54,6 +54,11 @@ impl RandomState {
         self.rng.u32(..)
     }
 
+    /// Inclusive integer draw from this borrowed stream.
+    pub fn next_int(&mut self, lo: i32, hi: i32) -> i32 {
+        logic_integer_with_draw(lo, hi, || self.next_u32())
+    }
+
     /// The same range arithmetic as the existing real-value adapter, using
     /// this explicitly borrowed stream rather than selecting an active owner.
     pub fn next_real(&mut self, lo: f32, hi: f32) -> f32 {
