@@ -1287,9 +1287,7 @@ impl AIPlayer {
     }
 
     pub(super) fn purchase_skillset_science(world: &mut GameLogic, player: u32, name: &str) {
-        let purchased = world.get_player_mut(player).is_some_and(|owner| {
-            owner.is_capable_of_purchasing_science(name) && owner.attempt_to_purchase_science(name)
-        });
+        let purchased = world.attempt_player_science_purchase(player, name);
         // Player::addScience observes each successful purchase immediately.
         if purchased {
             world.on_special_power_science_creation(player, name);

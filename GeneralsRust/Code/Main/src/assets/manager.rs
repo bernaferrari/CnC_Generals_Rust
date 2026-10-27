@@ -48,6 +48,8 @@ pub struct AssetManager {
     weapon_definitions: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
     /// Effective upgrades and mask allocation from this application's archives.
     upgrade_definitions: Option<game_engine::common::system::upgrade::UpgradeCenter>,
+    /// Science identities and effective definitions from this application's archives.
+    science_definitions: Option<game_engine::common::rts::science::ScienceStore>,
     /// Cache of loaded models
     model_cache: HashMap<String, W3DModel>,
     /// C++ `WW3DAssetManager`-style source records for render-object names.
@@ -655,6 +657,7 @@ impl AssetManager {
             ww3d_manager: WW3DAssetManager::new(),
             weapon_definitions: Vec::new(),
             upgrade_definitions: None,
+            science_definitions: None,
             model_cache: HashMap::new(),
             w3d_render_object_prototypes: W3dRenderObjectPrototypeRegistry::default(),
             weapon_barrel_count_cache: HashMap::new(),
@@ -763,6 +766,7 @@ impl AssetManager {
             Ok(stats) => {
                 self.weapon_definitions = stats.weapon_definitions;
                 self.upgrade_definitions = stats.upgrade_definitions;
+                self.science_definitions = stats.science_definitions;
                 let elapsed = template_load_start.elapsed().unwrap_or_default();
                 info!(
                     "✅ INI templates loaded in {:.2}s: {} weapons, {} upgrades, {} sciences",
@@ -1644,6 +1648,15 @@ impl AssetManager {
         &self,
     ) -> Option<game_engine::common::system::upgrade::UpgradeCenter> {
         self.upgrade_definitions.clone()
+    }
+
+    /// Freeze only the sciences admitted by this application for a new session.
+    pub(crate) fn science_facts_snapshot(
+        &self,
+    ) -> Option<game_engine::common::rts::science::ScienceNameFacts> {
+        self.science_definitions
+            .as_ref()
+            .map(game_engine::common::rts::science::ScienceNameFacts::from_store)
     }
 
     pub fn object_definitions_snapshot(&self) -> Vec<(String, crate::assets::ObjectDefinition)> {

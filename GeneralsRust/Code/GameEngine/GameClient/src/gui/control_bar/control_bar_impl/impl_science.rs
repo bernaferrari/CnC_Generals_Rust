@@ -2511,6 +2511,9 @@ impl ControlBar {
         }
 
         let crate_has = |science: ScienceType| -> bool {
+            if let Some(ids) = &self.presentation_science_ids {
+                return ids.contains(&science);
+            }
             logic_player_list()
                 .read()
                 .ok()

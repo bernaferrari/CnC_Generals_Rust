@@ -1,7 +1,9 @@
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::system::upgrade::{UpgradeCenter, process_lifetime_upgrade_center};
 use generals_main::assets::archive::ArchiveFileSystem;
-use generals_main::assets::ini_template_loader::{load_upgrade_ini_text, load_upgrade_templates};
+use generals_main::assets::ini_template_loader::{
+    load_science_templates, load_upgrade_ini_text, load_upgrade_templates,
+};
 
 fn new_center() -> UpgradeCenter {
     let mut center = UpgradeCenter::new();
@@ -127,4 +129,62 @@ fn each_archive_loads_its_default_then_override_into_its_own_owner() {
     );
     assert_eq!(first_shared.get_mask().bits(), 1 << 3);
     assert_eq!(peer_shared.get_mask().bits(), 1 << 4);
+}
+
+#[test]
+fn each_archive_admits_its_own_science_definitions_and_prerequisites() {
+    let dir = tempfile::tempdir().unwrap();
+    let first_path = dir.path().join("science-first.big");
+    let peer_path = dir.path().join("science-peer.big");
+    write_big(
+        &first_path,
+        &[
+            (
+                "Data/INI/Science.ini",
+                "Science SCIENCE_Shared\n PrerequisiteSciences = SCIENCE_Root\n SciencePurchasePointCost = 1\nEnd\n",
+            ),
+            (
+                "Data/INI/Default/Science.ini",
+                "Science SCIENCE_Root\n SciencePurchasePointCost = 0\nEnd\n",
+            ),
+        ],
+    );
+    write_big(
+        &peer_path,
+        &[
+            (
+                "Data/INI/Science.ini",
+                "Science SCIENCE_Shared\n PrerequisiteSciences = SCIENCE_Root\n SciencePurchasePointCost = 3\nEnd\n",
+            ),
+            (
+                "Data/INI/Default/Science.ini",
+                "Science SCIENCE_Extra\n SciencePurchasePointCost = 1\nEnd\nScience SCIENCE_Root\n SciencePurchasePointCost = 0\nEnd\n",
+            ),
+        ],
+    );
+    let mut first_archive = ArchiveFileSystem::new();
+    let mut peer_archive = ArchiveFileSystem::new();
+    first_archive.set_local_search_roots(Vec::new());
+    peer_archive.set_local_search_roots(Vec::new());
+    futures::executor::block_on(first_archive.load_big_file(&first_path)).unwrap();
+    futures::executor::block_on(peer_archive.load_big_file(&peer_path)).unwrap();
+    let (_, first) =
+        futures::executor::block_on(load_science_templates(&mut first_archive)).unwrap();
+    let (_, peer) = futures::executor::block_on(load_science_templates(&mut peer_archive)).unwrap();
+    let first_shared = first.get_science_from_internal_name("SCIENCE_Shared");
+    let peer_shared = peer.get_science_from_internal_name("SCIENCE_Shared");
+    assert_ne!(first_shared, peer_shared);
+    assert_eq!(first.get_science_purchase_cost(first_shared), 1);
+    assert_eq!(peer.get_science_purchase_cost(peer_shared), 3);
+    assert_eq!(
+        first
+            .find_science_info(first_shared)
+            .unwrap()
+            .prereq_sciences,
+        vec![first.get_science_from_internal_name("SCIENCE_Root")]
+    );
+    assert_eq!(
+        peer.find_science_info(peer_shared).unwrap().prereq_sciences,
+        vec![peer.get_science_from_internal_name("SCIENCE_Root")]
+    );
 }

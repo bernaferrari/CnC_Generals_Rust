@@ -57,16 +57,17 @@ impl ReceivingObjectContent {
             projections,
         })
     }
-    pub(crate) fn admit_command_definitions(
-        &mut self,
-        buttons: game_engine::common::ini::ini_command_button::ControlBar,
-        sets: game_engine::common::ini::ini_command_set::CommandSetManager,
-    ) {
+    /// Extend this application's action catalog using its own science identities.
+    pub(crate) fn admit_command_source(&mut self, source: &str) -> Result<(), String> {
         let mut definitions = self.modules.action_definitions().clone();
-        definitions.buttons = buttons;
-        definitions.sets = sets;
+        definitions.apply_source_with_load_type(
+            source,
+            self.modules.science_facts_ref(),
+            game_engine::common::ini::INILoadType::Overwrite,
+        )?;
         self.modules
             .admit_action_definitions(std::sync::Arc::new(definitions));
+        Ok(())
     }
     pub(crate) fn module_content(&self) -> &ReceivingModuleContent {
         &self.modules

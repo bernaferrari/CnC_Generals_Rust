@@ -16,15 +16,7 @@ impl ControlBar {
             return false;
         }
 
-        let special_power_id = if button.special_power.is_empty() {
-            None
-        } else {
-            self.resolve_logic_button(button).and_then(|logic_button| {
-                logic_button
-                    .get_special_power_template()
-                    .map(|template| template.get_id())
-            })
-        };
+        let special_power_id = self.receiving_special_power_id(button);
         // Both C++ FIRE_WEAPON and SWITCH_WEAPON carry a concrete
         // WeaponSlotType in the CommandButton INI.  Do not fall back to a
         // default slot: Main must reject a missing/invalid payload rather
@@ -85,12 +77,8 @@ impl ControlBar {
             ui.place_build_available(Some(button.object.clone()), Some(source_id));
         }
 
-        if !button.special_power.is_empty() {
-            if let Some(logic_button) = self.resolve_logic_button(button) {
-                if let Some(sp_template) = logic_button.get_special_power_template() {
-                    ui.set_pending_special_power(sp_template.get_id(), button.options, source_id);
-                }
-            }
+        if let Some(power_id) = self.receiving_special_power_id(button) {
+            ui.set_pending_special_power(power_id, button.options, source_id);
         }
 
         let pending_payload = if button.command_type == CommandType::FireWeapon {
@@ -134,6 +122,23 @@ impl ControlBar {
         control_bar
             .find_command_button_by_name(&button.command_name)
             .cloned()
+    }
+
+    fn receiving_special_power_id(&self, button: &CommandButton) -> Option<u32> {
+        if button.special_power.is_empty() {
+            return None;
+        }
+        if let Some(actions) = &self.receiving_upgrade_actions {
+            return actions
+                .powers
+                .find_template(&button.special_power)
+                .map(|power| power.get_id());
+        }
+        self.resolve_logic_button(button).and_then(|logic_button| {
+            logic_button
+                .get_special_power_template()
+                .map(|power| power.get_id())
+        })
     }
 
     fn execute_purchase_science(

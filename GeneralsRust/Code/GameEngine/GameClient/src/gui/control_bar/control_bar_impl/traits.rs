@@ -80,6 +80,7 @@ impl ControlBar {
         self.presentation_power = (0, 0);
         self.presentation_can_make.clear();
         self.presentation_unlocked_sciences.clear();
+        self.presentation_science_ids = None;
         #[cfg(test)]
         {
             self.last_science_transition_group = None;

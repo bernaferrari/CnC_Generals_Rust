@@ -759,6 +759,7 @@ pub fn load_map_ini_ui_overrides_with_owned_upgrade_definitions(
     if object_definitions_admitted {
         ini.set_object_definitions_admitted();
         ini.set_action_definitions_admitted();
+        ini.set_science_definitions_admitted();
     }
     if let Some(target) = target.as_ref() {
         ini.set_owned_ai_data_store_target((**target).clone());

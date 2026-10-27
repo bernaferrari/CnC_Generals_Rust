@@ -48,6 +48,34 @@ impl NameKeyNamespace {
         }
     }
 
+    /// Look up a name without allocating a new identity.
+    pub fn key_for_name(&self, name: &str) -> Option<NameKeyType> {
+        let index = calc_hash(name, false);
+        self.buckets[index]
+            .iter()
+            .rev()
+            .find(|entry| entry.name == name)
+            .map(|entry| entry.key)
+    }
+
+    /// Admit an already assigned identity without reusing it for another name.
+    pub(crate) fn bind_existing_key(&mut self, name: &str, key: NameKeyType) -> bool {
+        if let Some(existing) = self.key_for_name(name) {
+            return existing == key;
+        }
+        if key == NAMEKEY_INVALID || key >= NAMEKEY_MAX || self.reverse_lookup.contains_key(&key) {
+            return false;
+        }
+        let index = calc_hash(name, false);
+        self.buckets[index].push(BucketEntry {
+            key,
+            name: name.to_string(),
+        });
+        self.reverse_lookup.insert(key, name.to_string());
+        self.next_id = self.next_id.max(key + 1);
+        true
+    }
+
     fn reset(&mut self) {
         for bucket in &mut self.buckets {
             bucket.clear();

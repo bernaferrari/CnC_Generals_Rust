@@ -296,6 +296,8 @@ pub struct ControlBar {
     presentation_can_make: Vec<(String, u32)>,
     /// Frozen science ownership used when the live host has no crate Player.
     presentation_unlocked_sciences: Vec<String>,
+    /// Native frame membership; Some(empty) is an authoritative empty set.
+    presentation_science_ids: Option<Box<[ScienceType]>>,
     #[cfg(test)]
     last_science_transition_group: Option<&'static str>,
     /// C++ ControlBar::init runs switchToContext(CB_CONTEXT_NONE) once

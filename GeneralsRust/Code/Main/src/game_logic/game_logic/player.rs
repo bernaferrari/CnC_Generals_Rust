@@ -365,6 +365,61 @@ impl PlayerTemplateIdentity {
     }
 }
 
+impl GameLogic {
+    /// Purchase through this session's science definitions and live player.
+    pub(crate) fn attempt_player_science_purchase(&mut self, id: u32, name: &str) -> bool {
+        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual;
+        let Some(content) = self.receiving_module_content.as_ref() else {
+            let canonical = normalize_science_name_residual(name);
+            return self
+                .players
+                .get_mut(&id)
+                .is_some_and(|player| player.attempt_to_purchase_science(&canonical));
+        };
+        let facts = content.science_facts_ref();
+        let canonical = if facts.science(name.trim()).is_some() {
+            name.trim().to_owned()
+        } else {
+            normalize_science_name_residual(name)
+        };
+        let Some(player) = self.players.get_mut(&id) else {
+            return false;
+        };
+        let Some(cost) = player.science_purchase_cost_with_facts(&canonical, facts) else {
+            return false;
+        };
+        player.science_purchase_points = player.science_purchase_points.wrapping_sub(cost);
+        player.unlock_science(&canonical)
+    }
+
+    /// Grant only a science marked grantable by this session's definitions.
+    pub(crate) fn grant_player_science(&mut self, id: u32, name: &str) -> bool {
+        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual;
+        let Some(content) = self.receiving_module_content.as_ref() else {
+            let canonical = normalize_science_name_residual(name);
+            return self
+                .players
+                .get_mut(&id)
+                .is_some_and(|player| player.grant_science(&canonical));
+        };
+        let facts = content.science_facts_ref();
+        let canonical = if facts.science(name.trim()).is_some() {
+            name.trim().to_owned()
+        } else {
+            normalize_science_name_residual(name)
+        };
+        if !facts
+            .science(&canonical)
+            .is_some_and(|science| facts.definitions().is_science_grantable(science))
+        {
+            return false;
+        }
+        self.players
+            .get_mut(&id)
+            .is_some_and(|player| player.unlock_science(&canonical))
+    }
+}
+
 impl Player {
     /// C&C Generals default starting money is $10,000 (Normal difficulty).
     /// Matches the `StartingMoney::Normal` variant from the LAN API game-info crate.
@@ -759,7 +814,6 @@ impl Player {
         use crate::game_logic::host_science_rank::retail_rank_for_level;
 
         let old_level = self.rank_level.max(1);
-        let old_skill = self.skill_points;
         let state = RankSkillStateResidual {
             rank_level: old_level,
             skill_points: self.skill_points,
@@ -779,9 +833,6 @@ impl Player {
                         .insert(row.science_granted.to_string());
                 }
             }
-        }
-        if self.skill_points != old_skill || self.rank_level != old_level {
-            self.sync_leftover_player_sciences_from_host();
         }
         level_gained
     }
@@ -822,8 +873,6 @@ impl Player {
             self.apply_faction_intrinsic_sciences();
         }
         self.science_purchase_points = reset.science_purchase_points;
-
-        self.sync_leftover_player_sciences_from_host();
     }
 
     /// Standalone player rank change with the C++ default match cap.
@@ -881,47 +930,7 @@ impl Player {
             }
         }
 
-        self.sync_leftover_player_sciences_from_host();
         true
-    }
-
-    /// C++ Player::addScience / addSciencePurchasePoints after rank-up.
-    /// Live host leftover PlayerList stays stale unless we write it here.
-    fn sync_leftover_player_sciences_from_host(&self) {
-        use game_engine::common::rts::science::{SCIENCE_INVALID, get_science_store};
-
-        let names = [self.name.as_str(), self.map_side.map_player_name.as_str()];
-        let leftover = {
-            let Ok(list) = gamelogic::player::player_list().read() else {
-                return;
-            };
-            names.iter().find_map(|n| {
-                if n.is_empty() {
-                    None
-                } else {
-                    list.find_player_by_name(n)
-                }
-            })
-        };
-        let Some(arc) = leftover else {
-            return;
-        };
-        let Ok(mut leftover) = arc.write() else {
-            return;
-        };
-        let current = leftover.get_science_purchase_points();
-        let delta = self.science_purchase_points - current;
-        if delta != 0 {
-            leftover.add_science_purchase_points(delta);
-        }
-        if let Some(store) = get_science_store() {
-            for name in &self.unlocked_sciences {
-                let science = store.get_science_from_internal_name(name);
-                if science != SCIENCE_INVALID {
-                    leftover.add_science(science);
-                }
-            }
-        }
     }
 
     /// Canonical cash visible to purchase gates.
@@ -1112,6 +1121,43 @@ impl Player {
             return false;
         }
         self.unlock_science(science_name)
+    }
+
+    fn science_purchase_cost_with_facts(
+        &self,
+        name: &str,
+        facts: &game_engine::common::rts::science::ScienceNameFacts,
+    ) -> Option<i32> {
+        use game_engine::common::rts::science::{ScienceAccess, ScienceType};
+
+        struct PlayerSciences<'a> {
+            player: &'a Player,
+            facts: &'a game_engine::common::rts::science::ScienceNameFacts,
+        }
+        impl ScienceAccess for PlayerSciences<'_> {
+            fn has_science(&self, science: ScienceType) -> bool {
+                self.facts
+                    .name(science)
+                    .is_some_and(|name| self.player.has_unlocked_science(name))
+            }
+        }
+
+        let science = facts.science(name)?;
+        if self.has_unlocked_science(name)
+            || self.is_science_disabled(name)
+            || self.is_science_hidden(name)
+            || !facts.definitions().player_has_prereqs_for_science(
+                &PlayerSciences {
+                    player: self,
+                    facts,
+                },
+                science,
+            )
+        {
+            return None;
+        }
+        let cost = facts.definitions().get_science_purchase_cost(science);
+        (cost != 0 && cost <= self.science_purchase_points).then_some(cost)
     }
 
     /// C++ Player::resetSciences / IntrinsicSciences + Rank1 residual at match start.

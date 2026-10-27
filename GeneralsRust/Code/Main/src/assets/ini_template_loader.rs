@@ -17,7 +17,7 @@
 //! 3. Science INIs from `Data/INI/Default/Science.ini` then `Data/INI/Science.ini`
 //!
 //! These templates are registered into the GameLogic WeaponStore, the
-//! application-owned UpgradeCenter, and the Common ScienceStore respectively.
+//! application-owned UpgradeCenter, and the application's ScienceStore respectively.
 
 use crate::assets::archive::ArchiveFileSystem;
 use log::{debug, info, warn};
@@ -36,6 +36,8 @@ pub struct IniTemplateLoadStats {
     pub(crate) weapon_definitions: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
     /// Upgrade mask allocation belongs to the application that loaded the INIs.
     pub(crate) upgrade_definitions: Option<game_engine::common::system::upgrade::UpgradeCenter>,
+    /// Effective science names, prerequisites and identities for this application.
+    pub(crate) science_definitions: Option<game_engine::common::rts::science::ScienceStore>,
 }
 
 /// Parse a block of INI text into section headers and their key=value properties.
@@ -533,14 +535,15 @@ pub fn load_upgrade_ini_text(
     result
 }
 
-/// Load science templates from BIG archives and register them in the Common ScienceStore.
+/// Load science templates from BIG archives in C++ source order.
 pub async fn load_science_templates(
     archive_system: &mut ArchiveFileSystem,
-) -> Result<usize, String> {
+) -> Result<(usize, game_engine::common::rts::science::ScienceStore), String> {
     let science_files = discover_science_ini_files(archive_system);
+    let mut definitions = game_engine::common::rts::science::ScienceStore::new_owned();
     if science_files.is_empty() {
         info!("No science INI files found in archives");
-        return Ok(0);
+        return Ok((0, definitions));
     }
 
     info!(
@@ -549,6 +552,7 @@ pub async fn load_science_templates(
     );
 
     let mut total_sciences = 0usize;
+    let mut source_bytes = Vec::new();
 
     for (idx, ini_file) in science_files.iter().enumerate() {
         debug!(
@@ -574,6 +578,11 @@ pub async fn load_science_templates(
             }
         };
 
+        let override_file = normalize_archive_path(ini_file)
+            .to_ascii_lowercase()
+            .ends_with("data/ini/science.ini");
+        source_bytes.push((ini_file.clone(), content.as_bytes().to_vec(), override_file));
+
         let sections = parse_ini_sections(&content);
         let mut file_science_count = 0usize;
 
@@ -592,8 +601,15 @@ pub async fn load_science_templates(
         );
     }
 
+    let sources = source_bytes
+        .iter()
+        .map(|(path, bytes, is_override)| (path.as_str(), bytes.as_slice(), *is_override))
+        .collect::<Vec<_>>();
+    definitions
+        .load_from_sources(&sources)
+        .map_err(|error| error.to_string())?;
     info!("Loaded {} science templates total", total_sciences);
-    Ok(total_sciences)
+    Ok((total_sciences, definitions))
 }
 
 /// Load all INI templates (weapons, upgrades, sciences) from BIG archives.
@@ -632,8 +648,9 @@ pub async fn load_all_ini_templates(
     // 3. Load sciences (foundational - should be loaded before upgrades ideally,
     //    but C++ loads them in a specific order and sciences are resolved later)
     match load_science_templates(archive_system).await {
-        Ok(count) => {
+        Ok((count, definitions)) => {
             stats.sciences_loaded = count;
+            stats.science_definitions = Some(definitions);
         }
         Err(e) => {
             warn!("Science template loading failed: {}", e);

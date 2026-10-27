@@ -219,6 +219,8 @@ pub struct INI {
     object_definitions_admitted: bool,
     // The receiving session already parsed CommandButton, CommandSet, and SpecialPower.
     action_definitions_admitted: bool,
+    // The receiving session already parsed Science and its own name identities.
+    science_definitions_admitted: bool,
     particle_definitions_admitted: bool,
     /// C++ INI.cpp:458-463 feeds the active load's CRC, in line order.
     /// This parser already has exclusive access through `&mut self`.
@@ -1259,6 +1261,10 @@ impl INI {
         self.action_definitions_admitted = true;
     }
 
+    pub fn set_science_definitions_admitted(&mut self) {
+        self.science_definitions_admitted = true;
+    }
+
     pub fn new() -> Self {
         Self {
             name_key_namespace: None,
@@ -1285,6 +1291,7 @@ impl INI {
             tolerant_blocks: false,
             object_definitions_admitted: false,
             action_definitions_admitted: false,
+            science_definitions_admitted: false,
             particle_definitions_admitted: false,
             xfer: None,
             script_template_definitions: Vec::new(),
@@ -1833,6 +1840,10 @@ impl INI {
                     "commandbutton" | "commandset" | "specialpower"
                 )
             {
+                consume_block_with_nesting(self)?;
+                continue;
+            }
+            if self.science_definitions_admitted && first_token.eq_ignore_ascii_case("Science") {
                 consume_block_with_nesting(self)?;
                 continue;
             }

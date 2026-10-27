@@ -25,6 +25,10 @@ impl ReceivingSciencePlayer {
             sciences: sciences.into_boxed_slice(),
         }
     }
+    /// Exact receiving-session identities frozen with this presentation frame.
+    pub fn science_ids(&self) -> &[ScienceType] {
+        &self.sciences
+    }
     /// W3DScienceModelDraw.cpp50-70: invalid always hides, inactive observers draw.
     pub fn should_hide(&self, required: ScienceType) -> bool {
         required == SCIENCE_INVALID

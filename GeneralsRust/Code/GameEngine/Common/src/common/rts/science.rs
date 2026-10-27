@@ -205,7 +205,7 @@ use log::{debug, trace, warn};
 use thiserror::Error;
 
 use crate::common::ini::{INI, INIError, INILoadType, INIResult};
-use crate::common::name_key_generator::NameKeyGenerator;
+use crate::common::name_key_generator::{NameKeyGenerator, NameKeyNamespace};
 use crate::common::system::snapshot::Snapshotable;
 use crate::common::system::subsystem_interface::{
     SubsystemDescriptor, SubsystemError, SubsystemInterface, SubsystemResult, SubsystemState,
@@ -335,18 +335,19 @@ impl ScienceInfo {
         self.next_override = None;
     }
 
-    fn apply_definition(&mut self, def: &mut ScienceDefinition) {
+    fn apply_definition(
+        &mut self,
+        def: &mut ScienceDefinition,
+        prereq_sciences: Option<Vec<ScienceType>>,
+    ) {
         if let Some(display_name) = def.display_name.take() {
             self.display_name = display_name;
         }
         if let Some(description) = def.description.take() {
             self.description = description;
         }
-        if let Some(prereq_names) = def.prereq_names.take() {
-            self.prereq_sciences = prereq_names
-                .into_iter()
-                .map(|name| NameKeyGenerator::name_to_key(&name) as ScienceType)
-                .collect();
+        if let Some(prereq_sciences) = prereq_sciences {
+            self.prereq_sciences = prereq_sciences;
         }
         if let Some(cost) = def.cost {
             self.science_purchase_point_cost = cost;
@@ -366,20 +367,34 @@ pub struct ScienceStore {
     science_order: Vec<ScienceType>,
     /// Internal-name key to science type mapping for quick lookups
     name_to_science: HashMap<NameKeyType, ScienceType>,
+    /// A native application's names travel with its definitions, including
+    /// names referenced before their Science block. Standalone compatibility
+    /// stores may still use the old thread-local name registry.
+    owned_names: Option<NameKeyNamespace>,
 }
 
 /// Frozen names from the application science owner, not the module namespace.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ScienceNameFacts {
     definitions: ScienceStore,
     by_name: HashMap<String, ScienceType>,
     by_id: HashMap<ScienceType, String>,
 }
+impl Default for ScienceNameFacts {
+    fn default() -> Self {
+        Self {
+            definitions: ScienceStore::new_owned(),
+            by_name: HashMap::new(),
+            by_id: HashMap::new(),
+        }
+    }
+}
 impl ScienceNameFacts {
     pub fn from_store(store: &ScienceStore) -> Self {
         let mut facts = Self {
             definitions: store.clone(),
-            ..Default::default()
+            by_name: HashMap::new(),
+            by_id: HashMap::new(),
         };
         for (&id, row) in store.iter() {
             facts.by_name.insert(row.name.clone(), id);
@@ -457,6 +472,23 @@ impl ScienceStore {
             sciences: HashMap::new(),
             science_order: Vec::new(),
             name_to_science: HashMap::new(),
+            owned_names: None,
+        }
+    }
+
+    /// Build identities in this store instead of publishing to a thread-local
+    /// name registry. Cloning retains the namespace for map overrides.
+    pub fn new_owned() -> Self {
+        Self {
+            owned_names: Some(NameKeyNamespace::new()),
+            ..Self::new()
+        }
+    }
+
+    fn intern_name(&mut self, name: &str) -> NameKeyType {
+        match &mut self.owned_names {
+            Some(names) => names.name_to_key(name),
+            None => NameKeyGenerator::name_to_key(name),
         }
     }
 
@@ -495,7 +527,13 @@ impl ScienceStore {
             return SCIENCE_INVALID;
         }
 
-        let key = NameKeyGenerator::name_to_key(name);
+        let key = match &self.owned_names {
+            Some(names) => match names.key_for_name(name) {
+                Some(key) => key,
+                None => return SCIENCE_INVALID,
+            },
+            None => NameKeyGenerator::name_to_key(name),
+        };
         self.name_to_science
             .get(&key)
             .copied()
@@ -527,7 +565,13 @@ impl ScienceStore {
     pub fn add_science(&mut self, mut info: ScienceInfo) {
         // Ensure internal identifier matches canonical hash if one was not provided
         if info.science == SCIENCE_INVALID {
-            info.science = NameKeyGenerator::name_to_key(&info.name) as ScienceType;
+            info.science = self.intern_name(&info.name) as ScienceType;
+        } else if let Some(names) = &mut self.owned_names {
+            // Explicit fixture/adapter identities cannot steal an identity that
+            // another admitted name already owns.
+            if !names.bind_existing_key(&info.name, info.science as NameKeyType) {
+                info.science = names.name_to_key(&info.name) as ScienceType;
+            }
         }
 
         // Calculate root sciences
@@ -536,7 +580,7 @@ impl ScienceStore {
         info.root_sciences = roots;
 
         // Add to mappings
-        let key = NameKeyGenerator::name_to_key(&info.name);
+        let key = self.intern_name(&info.name);
         self.name_to_science.insert(key, info.science);
         if !self.sciences.contains_key(&info.science) {
             self.science_order.push(info.science);
@@ -551,21 +595,27 @@ impl ScienceStore {
 
     /// Ingest a science definition, stacking a C++-style override when requested.
     pub fn ingest_definition_mode(&mut self, mut def: ScienceDefinition, is_override: bool) {
-        let science = NameKeyGenerator::name_to_key(&def.name) as ScienceType;
+        let science = self.intern_name(&def.name) as ScienceType;
+        let prereq_sciences = def.prereq_names.take().map(|names| {
+            names
+                .into_iter()
+                .map(|name| self.intern_name(&name) as ScienceType)
+                .collect()
+        });
 
         if is_override {
             if let Some(base) = self.sciences.get_mut(&science) {
                 let mut stacked = base.get_final_override().clone();
                 stacked.next_override = None;
-                stacked.apply_definition(&mut def);
+                stacked.apply_definition(&mut def, prereq_sciences);
                 stacked.mark_as_override();
                 base.get_final_override_mut().next_override = Some(Box::new(stacked));
             } else {
                 let mut info = ScienceInfo::new(science, def.name.clone());
-                info.apply_definition(&mut def);
+                info.apply_definition(&mut def, prereq_sciences);
                 info.mark_as_override();
-                self.name_to_science
-                    .insert(NameKeyGenerator::name_to_key(&info.name), science);
+                let key = self.intern_name(&info.name);
+                self.name_to_science.insert(key, science);
                 self.science_order.push(science);
                 self.sciences.insert(science, info);
             }
@@ -577,9 +627,9 @@ impl ScienceStore {
             .sciences
             .remove(&science)
             .unwrap_or_else(|| ScienceInfo::new(science, def.name.clone()));
-        info.apply_definition(&mut def);
-        self.name_to_science
-            .insert(NameKeyGenerator::name_to_key(&info.name), science);
+        info.apply_definition(&mut def, prereq_sciences);
+        let key = self.intern_name(&info.name);
+        self.name_to_science.insert(key, science);
         if is_new_science {
             self.science_order.push(science);
         }
@@ -614,7 +664,7 @@ impl ScienceStore {
     where
         P: AsRef<Path>,
     {
-        let mut definitions: HashMap<ScienceType, ScienceDefinition> = HashMap::new();
+        let mut definitions: HashMap<String, ScienceDefinition> = HashMap::new();
         let mut definition_order = Vec::new();
 
         for path in base_paths {
@@ -883,12 +933,7 @@ impl ScienceStore {
 
             match key.to_ascii_lowercase().as_str() {
                 "prerequisitesciences" => {
-                    let prereqs = value
-                        .split_whitespace()
-                        .filter(|token| !token.is_empty())
-                        .map(|token| token.to_string())
-                        .collect::<Vec<_>>();
-                    definition.prereq_names = Some(prereqs);
+                    definition.prereq_names = Some(parse_science_names(&value));
                 }
                 "sciencepurchasepointcost" => {
                     definition.cost =
@@ -929,8 +974,8 @@ pub fn parse_science_definition_block(ini: &mut INI) -> INIResult<()> {
 fn ingest_science_file(
     path: &Path,
     is_override: bool,
-    definitions: &mut HashMap<ScienceType, ScienceDefinition>,
-    definition_order: &mut Vec<ScienceType>,
+    definitions: &mut HashMap<String, ScienceDefinition>,
+    definition_order: &mut Vec<String>,
 ) -> Result<(), ScienceLoadError> {
     let file = match File::open(path) {
         Ok(file) => file,
@@ -962,8 +1007,8 @@ fn ingest_science_reader(
     path: &Path,
     mut reader: impl BufRead,
     is_override: bool,
-    definitions: &mut HashMap<ScienceType, ScienceDefinition>,
-    definition_order: &mut Vec<ScienceType>,
+    definitions: &mut HashMap<String, ScienceDefinition>,
+    definition_order: &mut Vec<String>,
 ) -> Result<(), ScienceLoadError> {
     trace!("ScienceStore: loading sciences from {:?}", path);
     let mut current: Option<ScienceDefinition> = None;
@@ -1042,12 +1087,7 @@ fn ingest_science_reader(
                 if let Some(def) = current.as_mut() {
                     match key.to_lowercase().as_str() {
                         "prerequisitesciences" => {
-                            let prereqs = value
-                                .split_whitespace()
-                                .filter(|token| !token.is_empty())
-                                .map(|token| token.to_string())
-                                .collect::<Vec<_>>();
-                            def.prereq_names = Some(prereqs);
+                            def.prereq_names = Some(parse_science_names(value));
                         }
                         "sciencepurchasepointcost" => match value.parse::<i32>() {
                             Ok(cost) => def.cost = Some(cost),
@@ -1108,8 +1148,8 @@ fn ingest_science_reader(
 fn merge_science_definition(
     path: &Path,
     mut definition: ScienceDefinition,
-    definitions: &mut HashMap<ScienceType, ScienceDefinition>,
-    definition_order: &mut Vec<ScienceType>,
+    definitions: &mut HashMap<String, ScienceDefinition>,
+    definition_order: &mut Vec<String>,
     is_override: bool,
 ) {
     // Ensure base definitions provide defaults when fields are omitted.
@@ -1122,9 +1162,7 @@ fn merge_science_definition(
     }
 
     let science_name = definition.name.clone();
-    let science = NameKeyGenerator::name_to_key(&definition.name) as ScienceType;
-
-    match definitions.entry(science) {
+    match definitions.entry(science_name.clone()) {
         Entry::Occupied(mut entry) => {
             let existing = entry.get_mut();
 
@@ -1149,7 +1187,7 @@ fn merge_science_definition(
             }
         }
         Entry::Vacant(entry) => {
-            definition_order.push(science);
+            definition_order.push(science_name.clone());
             entry.insert(definition);
         }
     }
@@ -1158,6 +1196,19 @@ fn merge_science_definition(
         "ScienceStore: merged science '{}' from {:?}",
         science_name, path
     );
+}
+
+/// C++ INI::parseScienceVector clears the entire vector on the `None` token.
+fn parse_science_names(value: &str) -> Vec<String> {
+    let tokens = value.split_whitespace().collect::<Vec<_>>();
+    if tokens
+        .iter()
+        .any(|token| token.eq_ignore_ascii_case("None"))
+    {
+        Vec::new()
+    } else {
+        tokens.into_iter().map(str::to_owned).collect()
+    }
 }
 
 fn strip_comments(line: &str) -> &str {

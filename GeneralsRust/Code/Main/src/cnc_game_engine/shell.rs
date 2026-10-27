@@ -1343,9 +1343,12 @@ impl CnCGameEngine {
                     // this worker started; it must not republish another catalog.
 
                     let science_names = {
-                        let store = game_engine::common::rts::science::get_science_store()
+                        let facts = application_assets
+                            .lock()
+                            .map_err(|_| "Cannot admit science definitions: asset manager poisoned")?
+                            .science_facts_snapshot()
                             .ok_or("Receiving Object admission requires initialized application Science definitions")?;
-                        std::sync::Arc::new(game_engine::common::rts::science::ScienceNameFacts::from_store(&store))
+                        std::sync::Arc::new(facts)
                     };
                     let mut startup_actions =
                         game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions::default();
@@ -1632,7 +1635,13 @@ impl CnCGameEngine {
                         "Data/INI/CommandButton.ini",
                     ] {
                         if let Some(content) = extract_ini_text_from_archives(button_path)? {
+                            if let Err(err) = receiving_module_content.admit_command_source(&content) {
+                                warn!("Failed admitting receiving CommandButton.ini '{}': {}", button_path, err);
+                                command_buttons_parsed = false;
+                                break;
+                            }
                             let mut ini = game_engine::common::ini::INI::new();
+                            ini.set_receiving_science_names(receiving_module_content.module_content().science_facts());
                             match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                 Ok(()) => {
                                     command_buttons_parsed = true;
@@ -1654,6 +1663,11 @@ impl CnCGameEngine {
                     if command_buttons_parsed {
                         for set_path in ["Data/INI/Default/CommandSet.ini", "Data/INI/CommandSet.ini"] {
                             if let Some(content) = extract_ini_text_from_archives(set_path)? {
+                                if let Err(err) = receiving_module_content.admit_command_source(&content) {
+                                    warn!("Failed admitting receiving CommandSet.ini '{}': {}", set_path, err);
+                                    command_sets_parsed = false;
+                                    break;
+                                }
                                 let mut ini = game_engine::common::ini::INI::new();
                                 match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                     Ok(()) => {
@@ -1673,16 +1687,8 @@ impl CnCGameEngine {
                         }
                     }
 
-                    receiving_module_content.admit_command_definitions(
-                        game_engine::common::ini::ini_command_button::get_control_bar().map(|value|value.clone()).unwrap_or_default(),
-                        game_engine::common::ini::ini_command_set::get_command_set_manager().map(|value|value.clone()).unwrap_or_default(),
-                    );
-                    let parsed_button_count = game_engine::common::ini::ini_command_button::get_control_bar()
-                        .map(|bar| bar.count())
-                        .unwrap_or(0);
-                    let parsed_set_count = game_engine::common::ini::ini_command_set::get_command_set_manager()
-                        .map(|sets| sets.count())
-                        .unwrap_or(0);
+                    let parsed_button_count = receiving_module_content.module_content().action_definitions().buttons.count();
+                    let parsed_set_count = receiving_module_content.module_content().action_definitions().sets.count();
                     if command_buttons_parsed
                         && command_sets_parsed
                         && parsed_button_count > 0

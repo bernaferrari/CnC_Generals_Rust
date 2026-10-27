@@ -787,22 +787,9 @@ impl GameLogic {
                 continue;
             };
             let applied = if grant {
-                if let Some(player) = self.players.get_mut(&pid) {
-                    let granted = player.grant_science(&science_name);
-                    if granted {
-                        crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::sync_host_science_to_crate_player(
-                            pid,
-                            &science_name,
-                        );
-                    }
-                    granted
-                } else {
-                    false
-                }
-            } else if let Some(player) = self.players.get_mut(&pid) {
-                player.attempt_to_purchase_science(&science_name)
+                self.grant_player_science(pid, &science_name)
             } else {
-                false
+                self.attempt_player_science_purchase(pid, &science_name)
             };
             // C++ Player::addScience walks owned SpecialPowerModules and
             // expresses sharedNSync ready-now. ControlBar purchase already

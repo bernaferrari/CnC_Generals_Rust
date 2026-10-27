@@ -48,12 +48,11 @@ impl ControlBar {
             // (Object.cpp:6084 → template friend_getCommandSetString). Host map
             // objects have no OBJECT_REGISTRY module, so resolve the selected
             // object's authored command set from its presentation catalog entry.
-            let catalog_cs = crate::presentation_translator_residual::translator_catalog_entry(first_id)
-                .map(|entry| {
-                    entry.command_set_name
-                })
-                .filter(|name| !name.is_empty())
-                .unwrap_or_else(|| self.presentation_primary_command_set.clone());
+            let catalog_cs =
+                crate::presentation_translator_residual::translator_catalog_entry(first_id)
+                    .map(|entry| entry.command_set_name)
+                    .filter(|name| !name.is_empty())
+                    .unwrap_or_else(|| self.presentation_primary_command_set.clone());
             catalog_cs
         };
         if command_set_name.is_empty() {
@@ -323,11 +322,50 @@ impl ControlBar {
         cmd
     }
 
+    /// Populate a native command directly from its receiving action catalog.
+    pub(super) fn command_from_receiving_slot(
+        &self,
+        actions: &game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions,
+        name: Option<&str>,
+    ) -> CommandButton {
+        let Some(definition) =
+            name.and_then(|name| actions.buttons.find_command_button_resolved(name))
+        else {
+            return Self::hidden_slot_button();
+        };
+        if (definition.options_bits & CommandOption::ScriptOnly as u32) != 0 {
+            return Self::hidden_slot_button();
+        }
+        let mut command = Self::command_from_definition(definition);
+        if (command.options & CommandOption::NeedSpecialPowerScience as u32) != 0
+            && !matches!(
+                command.command_type,
+                CommandType::PurchaseScience | CommandType::QueueUpgrade
+            )
+        {
+            let required = actions
+                .powers
+                .find_template(&command.special_power)
+                .map(|power| power.required_science)
+                .unwrap_or(SCIENCE_INVALID);
+            if Self::hide_need_special_power_science(
+                required,
+                self.presentation_player_has_required_science(required),
+            ) {
+                command.button_hidden = true;
+            }
+        }
+        command
+    }
+
     /// C++ `ControlBar::populateCommand` (`ControlBarCommand.cpp:329-343`):
     /// hide NEED_SPECIAL_POWER_SCIENCE only when
     /// `power->getRequiredScience() != SCIENCE_INVALID` and the local player
     /// does not own that science. ScienceVec is never a hide source.
-    fn hide_need_special_power_science(required_from_power: i32, player_has_required: bool) -> bool {
+    fn hide_need_special_power_science(
+        required_from_power: i32,
+        player_has_required: bool,
+    ) -> bool {
         required_from_power != SCIENCE_INVALID && !player_has_required
     }
 
@@ -335,6 +373,9 @@ impl ControlBar {
     fn presentation_player_has_required_science(&self, required: ScienceType) -> bool {
         if required == SCIENCE_INVALID {
             return true;
+        }
+        if let Some(ids) = &self.presentation_science_ids {
+            return ids.contains(&required);
         }
         let names = &self.presentation_unlocked_sciences;
         if let Some(store) = get_science_store() {
@@ -362,22 +403,31 @@ impl ControlBar {
         ) {
             return;
         }
-        let required = logic_button
-            .get_special_power_template()
-            .map(|sp| sp.get_required_science())
-            .unwrap_or(SCIENCE_INVALID);
-        let leftover_player = logic_player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_local_player().cloned());
-        let leftover_has = leftover_player.as_ref().and_then(|arc| {
-            arc.read()
+        let required = if let Some(actions) = &self.receiving_upgrade_actions {
+            actions
+                .powers
+                .find_template(&cmd.special_power)
+                .map(|power| power.required_science)
+                .unwrap_or(SCIENCE_INVALID)
+        } else {
+            logic_button
+                .get_special_power_template()
+                .map(|sp| sp.get_required_science())
+                .unwrap_or(SCIENCE_INVALID)
+        };
+        let leftover_player = if self.presentation_science_ids.is_some() {
+            None
+        } else {
+            logic_player_list()
+                .read()
                 .ok()
-                .map(|player| player.has_science(required))
-        });
-        let player_has = leftover_has.unwrap_or_else(|| {
-            self.presentation_player_has_required_science(required)
-        });
+                .and_then(|list| list.get_local_player().cloned())
+        };
+        let leftover_has = leftover_player
+            .as_ref()
+            .and_then(|arc| arc.read().ok().map(|player| player.has_science(required)));
+        let player_has =
+            leftover_has.unwrap_or_else(|| self.presentation_player_has_required_science(required));
         if Self::hide_need_special_power_science(required, player_has) {
             cmd.button_hidden = true;
             return;
@@ -410,9 +460,15 @@ impl ControlBar {
             return;
         };
         let names = [
-            template.get_purchase_science_command_set_rank1().to_string(),
-            template.get_purchase_science_command_set_rank3().to_string(),
-            template.get_purchase_science_command_set_rank8().to_string(),
+            template
+                .get_purchase_science_command_set_rank1()
+                .to_string(),
+            template
+                .get_purchase_science_command_set_rank3()
+                .to_string(),
+            template
+                .get_purchase_science_command_set_rank8()
+                .to_string(),
         ];
         if names.iter().any(|n| n.is_empty()) {
             return;
@@ -455,7 +511,6 @@ impl ControlBar {
             }
         }
     }
-
 
     pub(super) fn push_command_if_missing(context: &mut ControlBarContext, button: CommandButton) {
         if context.available_commands.iter().any(|existing| {

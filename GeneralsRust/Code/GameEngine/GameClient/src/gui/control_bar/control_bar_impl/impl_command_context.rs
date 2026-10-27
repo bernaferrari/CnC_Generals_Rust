@@ -1634,11 +1634,15 @@ fn leftover_presentation_queue_upgrade_availability(
         if *science == SCIENCE_INVALID {
             continue;
         }
-        let leftover_has = logic_player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_local_player().cloned())
-            .and_then(|arc| arc.read().ok().map(|player| player.has_science(*science)));
+        let leftover_has = if bar.presentation_science_ids.is_some() {
+            None
+        } else {
+            logic_player_list()
+                .read()
+                .ok()
+                .and_then(|list| list.get_local_player().cloned())
+                .and_then(|arc| arc.read().ok().map(|player| player.has_science(*science)))
+        };
         let has =
             leftover_has.unwrap_or_else(|| bar.presentation_player_has_required_science(*science));
         if !has {

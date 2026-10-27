@@ -1292,6 +1292,13 @@ impl PresentationFrame {
         } else {
             self.objects.iter().filter(usable_selected).count()
         };
+        control_bar.apply_presentation_science_hide_names(&self.local_unlocked_sciences);
+        control_bar.apply_presentation_science_ids(Some(
+            self.receiving_science_player
+                .as_deref()
+                .map(|player| player.science_ids())
+                .unwrap_or_default(),
+        ));
         if !controllable && !beacon {
             control_bar.sync_command_set_from_presentation(None);
         } else if selected_count > 1 {
@@ -1333,7 +1340,6 @@ impl PresentationFrame {
             controllable && panel.production_paused,
         );
         control_bar.sync_sciences_from_presentation(&self.local_unlocked_sciences, manager);
-        control_bar.apply_presentation_science_hide_names(&self.local_unlocked_sciences);
         control_bar.sync_rank_progress_from_presentation(
             self.local_rank_progress_percent,
             self.local_skill_points,

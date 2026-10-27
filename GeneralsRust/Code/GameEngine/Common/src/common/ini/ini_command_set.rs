@@ -392,12 +392,20 @@ impl CommandSetManager {
         name: &str,
         buttons: &super::ini_command_button::ControlBar,
     ) -> INIResult<()> {
+        let override_load = ini.get_load_type() == super::ini::INILoadType::CreateOverrides;
         let existing = self.find_command_set_resolved(name).cloned();
         let set = if let Some(base) = existing {
-            self.new_command_set_override(&base)
+            if override_load {
+                self.new_command_set_override(&base)
+            } else {
+                self.find_command_set_mut(name)
+                    .expect("existing command set")
+            }
         } else {
             let value = self.new_command_set(name.to_string());
-            value.mark_as_override();
+            if override_load {
+                value.mark_as_override();
+            }
             value
         };
         let names = std::sync::Arc::new(

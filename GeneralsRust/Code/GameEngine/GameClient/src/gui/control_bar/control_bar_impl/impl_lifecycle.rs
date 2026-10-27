@@ -69,6 +69,7 @@ impl ControlBar {
             last_displayed_money: -1,
             presentation_can_make: Vec::new(),
             presentation_unlocked_sciences: Vec::new(),
+            presentation_science_ids: None,
             #[cfg(test)]
             last_science_transition_group: None,
             ingame_entry_context_applied: false,
@@ -529,6 +530,11 @@ impl ControlBar {
     /// The live host supplies this game's local player sciences.
     pub fn apply_presentation_science_hide_names(&mut self, names: &[String]) {
         self.presentation_unlocked_sciences = names.to_vec();
+    }
+
+    /// Install the exact science identities supplied by this frame's owner.
+    pub fn apply_presentation_science_ids(&mut self, sciences: Option<&[ScienceType]>) {
+        self.presentation_science_ids = sciences.map(|ids| ids.into());
     }
 
     pub fn presentation_can_make(&self) -> &[(String, u32)] {

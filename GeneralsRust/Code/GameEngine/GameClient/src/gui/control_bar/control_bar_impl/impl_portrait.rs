@@ -608,6 +608,55 @@ impl ControlBar {
         };
         self.presentation_primary_command_set = name.to_string();
         self.presentation_command_set_names = vec![name.to_string()];
+        if let Some(actions) = self.receiving_upgrade_actions.clone() {
+            let Some(set) = actions.sets.find_command_set_resolved(name).or_else(|| {
+                actions
+                    .sets
+                    .find_command_set_resolved(&name.to_ascii_uppercase())
+            }) else {
+                self.context.available_commands.clear();
+                self.context.ui_dirty = true;
+                return;
+            };
+            let keep: Vec<CommandButton> = self
+                .context
+                .available_commands
+                .iter()
+                .filter(|button| {
+                    let name = button.command_name.to_ascii_lowercase();
+                    name.contains("evacuate")
+                        || name.contains("structureexit")
+                        || name.contains("cancelconstruction")
+                        || name.contains("stop")
+                })
+                .cloned()
+                .collect();
+            self.context.current_state = ControlBarState::Command;
+            self.context.available_commands = (0..14)
+                .map(|slot| {
+                    self.command_from_receiving_slot(
+                        &actions,
+                        set.get_button_at_position(slot).map(String::as_str),
+                    )
+                })
+                .collect();
+            for button in keep {
+                if let Some(existing) = self.context.available_commands.iter_mut().find(|entry| {
+                    entry
+                        .command_name
+                        .eq_ignore_ascii_case(&button.command_name)
+                }) {
+                    if existing.exit_object_id.is_none() {
+                        existing.exit_object_id = button.exit_object_id;
+                        existing.button_image = button.button_image;
+                        existing.overlay_image = button.overlay_image;
+                    }
+                }
+            }
+            self.context.ui_dirty = true;
+            self.mark_ui_dirty();
+            return;
+        }
         let Some(control_bar) = get_control_bar_bridge() else {
             return;
         };
@@ -675,6 +724,67 @@ impl ControlBar {
         self.presentation_command_set_names = command_set_names.to_vec();
         if let Some(first) = command_set_names.first() {
             self.presentation_primary_command_set = first.clone();
+        }
+        if let Some(actions) = self.receiving_upgrade_actions.clone() {
+            let mut common_slots =
+                vec![None::<String>; gamelogic::command_button::MAX_COMMANDS_PER_SET];
+            let mut saw_first = false;
+            for name in command_set_names {
+                let name = name.trim();
+                if name.is_empty() {
+                    continue;
+                }
+                let Some(set) = actions.sets.find_command_set_resolved(name).or_else(|| {
+                    actions
+                        .sets
+                        .find_command_set_resolved(&name.to_ascii_uppercase())
+                }) else {
+                    common_slots.fill(None);
+                    saw_first = true;
+                    break;
+                };
+                for (slot, common) in common_slots.iter_mut().enumerate() {
+                    let candidate = set.get_button_at_position(slot);
+                    let definition = candidate
+                        .and_then(|name| actions.buttons.find_command_button_resolved(name));
+                    if !saw_first {
+                        if definition.is_some_and(|button| {
+                            (button.options_bits & CommandOption::OkForMultiSelect as u32) != 0
+                        }) {
+                            *common = candidate.cloned();
+                        }
+                        continue;
+                    }
+                    let is_attack_move = |name: Option<&str>| {
+                        name.and_then(|name| actions.buttons.find_command_button_resolved(name))
+                            .is_some_and(|button| {
+                                map_gui_command_to_command_type(&button.command)
+                                    == CommandType::DoAttackMoveTo
+                            })
+                    };
+                    if is_attack_move(candidate.map(String::as_str))
+                        || is_attack_move(common.as_deref())
+                    {
+                        if common.is_none() {
+                            *common = candidate.cloned();
+                        }
+                    } else if candidate != common.as_ref() {
+                        *common = None;
+                    }
+                }
+                saw_first = true;
+            }
+            if saw_first {
+                self.context.current_state = ControlBarState::MultiSelect;
+                self.context.available_commands = common_slots
+                    .iter()
+                    .take(14)
+                    .map(|name| self.command_from_receiving_slot(&actions, name.as_deref()))
+                    .collect();
+                self.context.ui_dirty = true;
+                self.mark_ui_dirty();
+            }
+            return;
         }
         let Some(control_bar) = get_control_bar_bridge() else {
             return;

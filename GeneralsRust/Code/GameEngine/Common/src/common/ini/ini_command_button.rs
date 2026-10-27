@@ -475,31 +475,24 @@ impl ControlBar {
         name: &str,
         sciences: &crate::common::rts::science::ScienceNameFacts,
     ) -> INIResult<()> {
+        let override_load = ini.get_load_type() == INILoadType::CreateOverrides;
         let existing = self.find_command_button_resolved(name).cloned();
         let button = if let Some(base) = existing {
-            self.new_command_button_override(&base)
+            if override_load {
+                self.new_command_button_override(&base)
+            } else {
+                self.find_non_const_command_button(name)
+                    .expect("existing command button")
+            }
         } else {
             let value = self.new_command_button(name.to_string());
-            value.mark_as_override();
+            if override_load {
+                value.mark_as_override();
+            }
             value
         };
         ini.init_from_ini_with_fields(button, CommandButton::get_field_parse())?;
-        button.parsed_science_required.clear();
-        button.parsed_science_disabled.clear();
-        button.sciences_ids.clear();
-        for name in &button.science_required {
-            if let Some(id) = sciences.science(name) {
-                button.parsed_science_required.push(id);
-                if !button.sciences_ids.contains(&id) {
-                    button.sciences_ids.push(id);
-                }
-            }
-        }
-        for name in &button.science_disabled {
-            if let Some(id) = sciences.science(name) {
-                button.parsed_science_disabled.push(id);
-            }
-        }
+        resolve_sciences_from_facts(button, sciences);
         Ok(())
     }
     /// Parse command button definition from INI
@@ -542,7 +535,11 @@ impl ControlBar {
         // Parse the button fields
         ini.init_from_ini_with_fields(button, CommandButton::get_field_parse())?;
 
-        resolve_sciences(button);
+        if let Some(sciences) = ini.receiving_science_names() {
+            resolve_sciences_from_facts(button, sciences);
+        } else {
+            resolve_sciences(button);
+        }
         // C++ INICommandButton.cpp:54-66 is DEBUG_CRASH only. Release keeps
         // the button and continues the file. Retail SpecialPower buttons
         // without NEED_SPECIAL_POWER_SCIENCE (and the inverse) are legal.
@@ -613,6 +610,28 @@ fn resolve_sciences(button: &mut CommandButton) {
             if science != SCIENCE_INVALID {
                 button.parsed_science_disabled.push(science);
             }
+        }
+    }
+}
+
+fn resolve_sciences_from_facts(
+    button: &mut CommandButton,
+    sciences: &crate::common::rts::science::ScienceNameFacts,
+) {
+    button.parsed_science_required.clear();
+    button.parsed_science_disabled.clear();
+    button.sciences_ids.clear();
+    for name in &button.science_required {
+        if let Some(id) = sciences.science(name) {
+            button.parsed_science_required.push(id);
+            if !button.sciences_ids.contains(&id) {
+                button.sciences_ids.push(id);
+            }
+        }
+    }
+    for name in &button.science_disabled {
+        if let Some(id) = sciences.science(name) {
+            button.parsed_science_disabled.push(id);
         }
     }
 }

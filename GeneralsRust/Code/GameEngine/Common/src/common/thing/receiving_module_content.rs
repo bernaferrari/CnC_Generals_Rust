@@ -97,6 +97,10 @@ impl ReceivingModuleContent {
     pub fn science_facts(&self) -> Arc<crate::common::rts::science::ScienceNameFacts> {
         self.modules.receiving_science_facts()
     }
+    /// Borrow the definitions for the session currently executing this operation.
+    pub fn science_facts_ref(&self) -> &crate::common::rts::science::ScienceNameFacts {
+        self.modules.receiving_science_names()
+    }
     pub fn science_type(&self, name: &str) -> Option<crate::common::rts::ScienceType> {
         self.modules.receiving_science_names().science(name)
     }
@@ -427,12 +431,7 @@ impl ReceivingActionDefinitions {
                     } else {
                         let (_, properties) = ini.read_receiving_named_properties()?;
                         self.powers
-                            .parse_receiving_definition(
-                                name,
-                                &properties,
-                                load_type,
-                                sciences,
-                            )
+                            .parse_receiving_definition(name, &properties, load_type, sciences)
                             .map_err(|_| crate::common::ini::INIError::InvalidData)
                     }
                 })
