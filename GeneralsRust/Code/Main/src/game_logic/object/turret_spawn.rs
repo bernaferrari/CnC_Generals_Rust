@@ -104,11 +104,24 @@ fn turret_spawn_from_object_definition(template_name: &str) -> Option<TurretSpaw
     let definition = guard
         .get_object_definition(template_name)
         .or_else(|| guard.resolve_object_definition(template_name, None))?;
+    turret_spawn_from_definition(&definition)
+}
+
+fn turret_spawn_from_definition(
+    definition: &crate::assets::ObjectDefinition,
+) -> Option<TurretSpawnSpec> {
     let module = definition
         .behavior_modules
         .iter()
         .find(|module| module_has_turret_block(module))?;
     Some(parse_turret_module(module))
+}
+
+/// An admitted object definition is authoritative even when it has no turret.
+pub(super) fn turret_spawn_for_receiving_definition(
+    definition: &crate::assets::ObjectDefinition,
+) -> TurretSpawnSpec {
+    turret_spawn_from_definition(definition).unwrap_or_else(TurretSpawnSpec::absent)
 }
 
 fn module_has_turret_block(module: &BehaviorModuleDefinition) -> bool {
@@ -412,6 +425,38 @@ fn parse_sweep_speed_attr(module: &BehaviorModuleDefinition, name: &str) -> Opti
     let v: f32 = tokens.next()?.parse().ok()?;
     mods[slot] = v;
     Some(mods)
+}
+
+#[cfg(test)]
+mod receiving_definition_tests {
+    use super::*;
+
+    #[test]
+    fn same_named_definitions_resolve_independently() {
+        let definition = |rate: &str| {
+            let mut object = crate::assets::ObjectDefinition::new("SameUnit".into());
+            object.behavior_modules.push(BehaviorModuleDefinition {
+                class_name: "AIUpdateInterface".into(),
+                module_tag: None,
+                attributes: [("TurretTurnRate".into(), rate.into())].into(),
+            });
+            object
+        };
+        let first = definition("30");
+        let second = definition("90");
+        assert_eq!(
+            turret_spawn_for_receiving_definition(&first).turn_rate_rad,
+            turret_deg_per_sec_to_rad_per_frame(30.0)
+        );
+        assert_eq!(
+            turret_spawn_for_receiving_definition(&second).turn_rate_rad,
+            turret_deg_per_sec_to_rad_per_frame(90.0)
+        );
+        assert!(!turret_spawn_for_receiving_definition(
+            &crate::assets::ObjectDefinition::new("AmericaVehicleHumvee".into())
+        )
+        .has_turret);
+    }
 }
 
 fn weapon_slot_index(token: &str) -> Option<usize> {

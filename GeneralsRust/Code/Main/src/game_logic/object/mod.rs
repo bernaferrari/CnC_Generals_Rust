@@ -175,6 +175,7 @@ pub(crate) use turret_spawn::{
     TurretSpawnSpec, turret_deg_per_sec_to_rad_per_frame, turret_ms_to_frames,
     turret_spawn_for_template,
 };
+use turret_spawn::turret_spawn_for_receiving_definition;
 
 /// C++ default recenter wait residual (2 * LOGICFRAMES_PER_SECOND).
 pub(crate) fn default_turret_recenter_frames() -> u32 {

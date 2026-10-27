@@ -417,7 +417,11 @@ impl Object {
         let shroud_clearing_range = template.resolved_shroud_clearing_range().max(0.0);
         let locomotor_set_names = template.locomotor_set_names.clone();
         let locomotor_name = template.locomotor_name.clone();
-        let turret = turret_spawn_for_template(&template_name);
+        let turret = template
+            .receiving_object_definition
+            .as_deref()
+            .map(turret_spawn_for_receiving_definition)
+            .unwrap_or_else(|| turret_spawn_for_template(&template_name));
         let is_fs_fake = template.is_kind_of(crate::game_logic::KindOf::FSFake);
 
         let occlusion_delay_frames = template_occlusion_delay_frames(&template);
@@ -1328,7 +1332,11 @@ impl Object {
         let temporary_weapon_runtime = crate::game_logic::host_temporary_weapon_behavior::
             TemporaryWeaponRuntimeBundle::from_thing_template(&template, 0);
         let selection_radius = template.geometry_info.bounding_circle_radius();
-        let turret = turret_spawn_for_template(&template_name);
+        let turret = template
+            .receiving_object_definition
+            .as_deref()
+            .map(turret_spawn_for_receiving_definition)
+            .unwrap_or_else(|| turret_spawn_for_template(&template_name));
 
         let pitch_roll_yaw_factor =
             if template.pitch_roll_yaw_factor.is_finite() && template.pitch_roll_yaw_factor > 0.0 {
