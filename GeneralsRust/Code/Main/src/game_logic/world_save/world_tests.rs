@@ -430,7 +430,9 @@ mod landmark_bridge_and_new_map_tests {
             .add_kind_of(KindOf::LandmarkBridge)
             .add_kind_of(KindOf::Bridge)
             .set_health(400.0);
-        tmpl.geometry_info.authored = true;
+        // Bridge::Bridge reads the live geometry regardless of how it was seeded.
+        tmpl.geometry_info.authored = false;
+        tmpl.geometry_info.geom_type = crate::game_logic::HostGeometryType::Box;
         tmpl.geometry_info.major_radius = 6.0;
         tmpl.geometry_info.minor_radius = 2.0;
         logic.templates.insert("TsingMaLandmarkBridge".into(), tmpl);

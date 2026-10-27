@@ -30,7 +30,7 @@ impl GameLogic {
         for &(_, index) in spawned_object_ids {
             let object = &objects[index];
             let ground_height = self
-                .terrain_height_at(Vec3::new(object.position.x, 0.0, object.position.y))
+                .terrain_ground_height_at(Vec3::new(object.position.x, 0.0, object.position.y))
                 .unwrap_or(0.0);
             grounded_positions.push((
                 index,
@@ -747,7 +747,7 @@ impl GameLogic {
 
                             let mut spawn_position =
                                 Vec3::new(obj.position.x, obj.position.z, obj.position.y);
-                            if let Some(ground_height) = self.terrain_height_at(Vec3::new(
+                            if let Some(ground_height) = self.terrain_ground_height_at(Vec3::new(
                                 spawn_position.x,
                                 0.0,
                                 spawn_position.z,
@@ -1420,50 +1420,6 @@ impl GameLogic {
         self.map_loaded = false;
         Ok(None)
     }
-}
-
-pub(in super::super) fn leftover_template_is_landmark_bridge(template_name: &str) -> bool {
-    let n = template_name.to_ascii_lowercase();
-    if n.contains("landmarkbridge") || n.contains("landmark_bridge") {
-        return true;
-    }
-    let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() else {
-        return false;
-    };
-    let Some(factory) = guard.as_ref() else {
-        return false;
-    };
-    let Some(tmpl) = factory.find_template(template_name, false) else {
-        return false;
-    };
-    tmpl.is_bridge()
-        || tmpl.is_kind_of_mask(
-            game_engine::common::system::kind_of::KindOfMask::LANDMARK_BRIDGE.bits(),
-        )
-}
-
-pub(in super::super) fn landmark_bridge_half_sizes(
-    template_name: &str,
-    obj: &Object,
-) -> (f32, f32) {
-    if let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() {
-        if let Some(factory) = guard.as_ref() {
-            if let Some(tmpl) = factory.find_template(template_name, false) {
-                let geometry = tmpl.get_template_geometry_info();
-                let half_x = geometry.major_radius();
-                let half_y = geometry.minor_radius();
-                if half_x > 0.0 && half_y > 0.0 {
-                    return (half_x, half_y);
-                }
-            }
-        }
-    }
-    let geom = &(*obj.geometry_info());
-    if geom.authored && geom.major_radius > 0.0 && geom.minor_radius > 0.0 {
-        return (geom.major_radius, geom.minor_radius);
-    }
-    let radius = obj.selection_radius.max(20.0);
-    (radius, (radius * 0.25).max(8.0))
 }
 
 /// Presentation identity for C++ `W3DBridge::load` (`W3DBridgeBuffer.cpp:182-191`).

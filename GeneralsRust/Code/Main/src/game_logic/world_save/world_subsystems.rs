@@ -1399,6 +1399,9 @@ impl GameLogic {
     }
 
     pub(in super::super) fn host_object_is_landmark_bridge(obj: &super::Object) -> bool {
+        if let Some(is_bridge) = obj.get_template().receiving_bridge() {
+            return is_bridge;
+        }
         if obj.is_kind_of(KindOf::BridgeTower) {
             return false;
         }
@@ -1410,8 +1413,7 @@ impl GameLogic {
         {
             return false;
         }
-        leftover_template_is_landmark_bridge(&obj.template_name)
-            || obj.is_kind_of(KindOf::LandmarkBridge)
+        obj.is_kind_of(KindOf::LandmarkBridge)
             || obj.get_template().is_kind_of(KindOf::LandmarkBridge)
             || obj.is_kind_of(KindOf::Bridge)
             || n.contains("landmark")
@@ -1514,18 +1516,16 @@ impl GameLogic {
         template_name: &str,
         object_id: ObjectId,
     ) -> bool {
-        if leftover_template_is_landmark_bridge(template_name) {
-            return true;
+        if let Some(obj) = self.objects.get(&object_id) {
+            return Self::host_object_is_landmark_bridge(obj);
         }
         if let Some(tmpl) = self.templates.get(template_name) {
-            if tmpl.is_kind_of(KindOf::LandmarkBridge) {
-                return true;
+            if let Some(is_bridge) = tmpl.receiving_bridge() {
+                return is_bridge;
             }
+            return tmpl.is_kind_of(KindOf::LandmarkBridge) || tmpl.is_kind_of(KindOf::Bridge);
         }
-        self.objects.get(&object_id).is_some_and(|obj| {
-            obj.is_kind_of(KindOf::LandmarkBridge)
-                || obj.get_template().is_kind_of(KindOf::LandmarkBridge)
-        })
+        false
     }
 
     pub(in super::super) fn register_landmark_bridge_object(
@@ -1574,7 +1574,10 @@ impl GameLogic {
         };
         let pos = obj.get_position();
         let angle = obj.get_orientation();
-        let (half_x, half_y) = landmark_bridge_half_sizes(template_name, obj);
+        // C++ Bridge::Bridge(Object*) reads the live Object geometry, not
+        // the template catalogue (which can belong to another session).
+        let geometry = obj.geometry_info();
+        let (half_x, half_y) = (geometry.major_radius, geometry.minor_radius);
         let team = obj.team;
         let info = gamelogic::terrain::TerrainLogic::bridge_info_from_parts(
             gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y),
@@ -1685,19 +1688,14 @@ impl GameLogic {
             if name.is_empty() {
                 continue;
             }
-            let mut offset = gamelogic::path::PATHFIND_CELL_SIZE_F * 0.5;
-            if let Some(factory) =
-                game_engine::common::thing::thing_factory::try_get_thing_factory()
-            {
-                if let Some(factory) = factory.as_ref() {
-                    if let Some(tower_tmpl) = factory.find_template(name, false) {
-                        let radius = tower_tmpl.get_template_geometry_info().major_radius();
-                        if radius > 0.0 {
-                            offset = radius;
-                        }
-                    }
-                }
-            }
+            // Resolve the same receiving definition the object constructor
+            // will use. C++ takes the authored radius even when it is zero.
+            self.ensure_host_spawn_template(name);
+            let offset = self
+                .templates
+                .get(name)
+                .map(|template| template.geometry_info.major_radius)
+                .unwrap_or(gamelogic::path::PATHFIND_CELL_SIZE_F * 0.5);
             let sign = if index == 0 || index == 2 { 1.0 } else { -1.0 };
             let leftover_pos = gamelogic::common::Coord3D::new(
                 corner.x + width.x * offset * sign,

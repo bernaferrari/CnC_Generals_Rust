@@ -104,6 +104,10 @@ impl PartialEq for ReceivingClientTemplate {
 }
 
 impl ReceivingClientTemplate {
+    pub(crate) fn is_bridge(&self) -> bool {
+        self.0.is_bridge()
+    }
+
     pub(crate) fn behavior_modules(
         &self,
     ) -> &game_engine::common::thing::thing_template::ModuleInfo {
@@ -881,6 +885,25 @@ pub struct ThingTemplate {
 }
 
 impl ThingTemplate {
+    /// Whether the exact admitted source marks this template as a bridge.
+    pub(crate) fn receiving_bridge(&self) -> Option<bool> {
+        if let Some(typed) = &self.receiving_client_template {
+            return Some(typed.is_bridge());
+        }
+        self.receiving_object_definition.as_ref().map(|definition| {
+            definition
+                .attributes
+                .iter()
+                .find_map(|(key, value)| key.eq_ignore_ascii_case("IsBridge").then_some(value))
+                .is_some_and(|value| {
+                    matches!(
+                        value.trim().to_ascii_lowercase().as_str(),
+                        "yes" | "true" | "1"
+                    )
+                })
+        })
+    }
+
     pub(crate) fn authored_ai_update_interface(&self) -> Option<bool> {
         self.authored_ai_update_interface
     }

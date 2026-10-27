@@ -161,6 +161,10 @@ impl AdmittedReceivingTemplate {
     pub fn name(&self) -> &str {
         self.template.get_name().as_str()
     }
+    /// C++ GameLogic tests the admitted template's `IsBridge` flag.
+    pub fn is_bridge(&self) -> bool {
+        self.template.is_bridge()
+    }
     pub fn command_set_name(&self) -> &str {
         self.template.get_command_set_string().as_str()
     }

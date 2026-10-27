@@ -40,7 +40,7 @@ pub(super) use world_load::apply_cpp_heightmap_xy_and_border;
 pub(crate) use world_load::encode_authored_bridge_visual;
 pub(super) use world_load::{
     apply_logic_player_list_relationships, clear_live_campaign_victorious_for_new_game,
-    landmark_bridge_half_sizes, leftover_template_is_landmark_bridge, load_multiplayer_scripts_scb,
+    load_multiplayer_scripts_scb,
 };
 
 #[cfg(test)]
