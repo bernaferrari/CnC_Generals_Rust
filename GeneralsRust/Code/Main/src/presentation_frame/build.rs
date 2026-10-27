@@ -385,11 +385,10 @@ impl PresentationFrame {
             // Freeze this session's script override beside its own FOW grid.
             // No published display or peer session supplies presentation state.
             let border_alpha_override = logic.session_view.border_shroud_level;
-            let global = game_engine::common::global_data::read();
             ProjectedShroudSnapshot::from_grid(
                 &fow_grid,
-                ProjectedShroudMetadata::from_global_data_with_border_override(
-                    &global,
+                ProjectedShroudMetadata::from_lighting_rules(
+                    logic.lighting_rules_baseline(),
                     border_alpha_override,
                 ),
             )

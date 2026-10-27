@@ -16,6 +16,9 @@ pub struct LightingContentRules {
     /// Shroud clear/fog alpha inputs used by the receiving presentation frame.
     pub clear_alpha: u8,
     pub fog_alpha: u8,
+    /// W3D shroud tint and hidden-cell floor, frozen for this session.
+    pub shroud_color: [f32; 3],
+    pub shroud_alpha: u8,
     /// GameData water extent used by legacy version-1 PolygonTriggers.
     pub water_extent_x: f32,
     pub water_extent_y: f32,
@@ -40,6 +43,8 @@ impl LightingContentRules {
             show_client_physics: data.show_client_physics,
             clear_alpha: data.clear_alpha,
             fog_alpha: data.fog_alpha,
+            shroud_color: [data.shroud_color.r, data.shroud_color.g, data.shroud_color.b],
+            shroud_alpha: data.shroud_alpha,
             water_extent_x: data.water_extent_x,
             water_extent_y: data.water_extent_y,
         }
@@ -59,6 +64,12 @@ impl LightingContentRules {
         draft.show_client_physics = self.show_client_physics;
         draft.clear_alpha = self.clear_alpha;
         draft.fog_alpha = self.fog_alpha;
+        draft.shroud_color = super::RGBColor::new(
+            self.shroud_color[0],
+            self.shroud_color[1],
+            self.shroud_color[2],
+        );
+        draft.shroud_alpha = self.shroud_alpha;
         draft.water_extent_x = self.water_extent_x;
         draft.water_extent_y = self.water_extent_y;
         let mut ini = INI::new();
@@ -118,5 +129,24 @@ mod show_client_physics_tests {
         assert_eq!((overlay.clear_alpha, overlay.fog_alpha), (211, 92));
         let defaults = LightingContentRules::default();
         assert_eq!((defaults.clear_alpha, defaults.fog_alpha), (255, 127));
+    }
+
+    #[test]
+    fn projected_shroud_inputs_follow_ordered_game_data_overlays() {
+        let base = LightingContentRules::default()
+            .overlay_ini_text(
+                "GameData\n ShroudColor = R:64 G:128 B:192\n ShroudAlpha = 33\nEnd\n",
+            )
+            .unwrap();
+        let overlay = base
+            .overlay_ini_text("GameData\n ShroudAlpha = 41\nEnd\n")
+            .unwrap();
+
+        assert_eq!(base.shroud_color, [64.0 / 255.0, 128.0 / 255.0, 192.0 / 255.0]);
+        assert_eq!(base.shroud_alpha, 33);
+        assert_eq!(overlay.shroud_color, base.shroud_color);
+        assert_eq!(overlay.shroud_alpha, 41);
+        assert_eq!(LightingContentRules::default().shroud_color, [1.0; 3]);
+        assert_eq!(LightingContentRules::default().shroud_alpha, 0);
     }
 }

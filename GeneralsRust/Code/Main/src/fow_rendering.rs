@@ -325,6 +325,22 @@ impl Default for ProjectedShroudMetadata {
 }
 
 impl ProjectedShroudMetadata {
+    /// Freeze one receiving world's admitted GameData shroud fields.
+    pub fn from_lighting_rules(
+        rules: &game_engine::common::ini::ini_game_data::LightingContentRules,
+        border_alpha_override: Option<u8>,
+    ) -> Self {
+        Self {
+            shroud_color_rgb: rules.shroud_color.map(Self::color_channel_to_u8),
+            clear_alpha: rules.clear_alpha,
+            fog_alpha: rules.fog_alpha,
+            shroud_alpha: rules.shroud_alpha,
+            // C++ initializes the border to ShroudAlpha and changes it only
+            // through `setBorderShroudLevel` script actions.
+            border_alpha: border_alpha_override.unwrap_or(rules.shroud_alpha),
+        }
+    }
+
     /// Freeze configured source shroud settings while the presentation frame is
     /// built.  This accepts Common's immutable read value; WGPU never reads it.
     pub fn from_global_data(global: &game_engine::common::global_data::GlobalData) -> Self {
@@ -1247,6 +1263,39 @@ mod tests {
             ProjectedShroudSnapshot::validated_texture_extent_for_grid(2047, 1),
             None
         );
+    }
+
+    #[test]
+    fn projected_shroud_metadata_uses_the_receiving_rules_owner() {
+        use game_engine::common::ini::ini_game_data::LightingContentRules;
+
+        let mut first = LightingContentRules::default();
+        first.shroud_color = [0.5, 0.0, 1.0];
+        first.clear_alpha = 211;
+        first.fog_alpha = 64;
+        first.shroud_alpha = 32;
+        let first_metadata = ProjectedShroudMetadata::from_lighting_rules(&first, Some(255));
+
+        let mut second = LightingContentRules::default();
+        second.shroud_color = [0.0, 1.0, 0.25];
+        second.clear_alpha = 173;
+        second.fog_alpha = 17;
+        second.shroud_alpha = 9;
+        let second_metadata = ProjectedShroudMetadata::from_lighting_rules(&second, None);
+
+        assert_eq!(first_metadata.shroud_color_rgb, [128, 0, 255]);
+        assert_eq!(
+            (first_metadata.clear_alpha, first_metadata.fog_alpha, first_metadata.shroud_alpha),
+            (211, 64, 32),
+        );
+        assert_eq!(first_metadata.border_alpha, 255);
+        assert_eq!(second_metadata.shroud_color_rgb, [0, 255, 64]);
+        assert_eq!(
+            (second_metadata.clear_alpha, second_metadata.fog_alpha, second_metadata.shroud_alpha),
+            (173, 17, 9),
+        );
+        assert_eq!(second_metadata.border_alpha, 9);
+        assert_eq!(first.shroud_color, [0.5, 0.0, 1.0]);
     }
 
     #[test]
