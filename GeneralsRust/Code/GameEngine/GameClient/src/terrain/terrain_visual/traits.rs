@@ -27,6 +27,7 @@ impl SubsystemInterface for TerrainVisualImpl {
 
         self.filename.clear();
         self.skybox_enabled = false;
+        self.dynamic_lights.clear();
         self.loaded_terrain_sources.clear();
         self.height_map = None;
         self.source_tile_classes.clear();
@@ -263,7 +264,9 @@ impl TerrainVisualImpl {
         });
         // Visibility must see this frame's view/proj. Subsystem update() ran
         // earlier with a stale/identity frustum and left visible_chunks=0.
-        let _ = self.chunk_manager.update();
+        let _ = self
+            .chunk_manager
+            .update_with_dynamic_lights(&self.dynamic_lights);
 
         // Update uniforms
         if let (Some(queue), Some(uniform_buffer)) = (self.queue.as_ref(), &self.uniform_buffer) {
@@ -534,7 +537,8 @@ impl TerrainVisualImpl {
         let road_meshes_elapsed = road_meshes_started.elapsed();
 
         let chunk_manager_started = std::time::Instant::now();
-        self.chunk_manager.update()?;
+        self.chunk_manager
+            .update_with_dynamic_lights(&self.dynamic_lights)?;
         let chunk_manager_elapsed = chunk_manager_started.elapsed();
 
         let chunk_meshes_started = std::time::Instant::now();

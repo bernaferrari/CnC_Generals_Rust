@@ -93,6 +93,8 @@ pub struct TerrainVisualImpl {
     sun_color: [f32; 3],
     /// Ambient lighting color
     ambient_color: [f32; 3],
+    /// Completed light observations from the client driving this terrain.
+    dynamic_lights: Vec<DisplayDynamicLight>,
     /// Fog color
     fog_color: [f32; 3],
     /// Fog start distance

@@ -156,7 +156,7 @@ impl TerrainVisualImpl {
         let select_slots_elapsed = select_slots_started.elapsed();
 
         let texture_slots_changed = refresh_texture_slots;
-        let scene_lights = scene_dynamic_lights();
+        let scene_lights = self.dynamic_lights.clone();
         let lights_active = scene_lights.iter().any(|light| light.enabled);
         // C++ HeightMap::doTheDynamicLight rebakes every VB fill. Live GPU
         // meshes only remesh on revision/texture change, so force one rebuild
@@ -758,6 +758,7 @@ impl TerrainVisualImpl {
         let lighting = self.chunk_manager.static_lighting().clone();
         let global_lights = &lighting.lights;
         let ambient_color = lighting.ambient;
+        let dynamic_lights = self.dynamic_lights.clone();
 
         self.road_system
             .for_each_visible_overlay_source(|road, segment| {
@@ -839,6 +840,7 @@ impl TerrainVisualImpl {
                                 height_map,
                                 global_lights,
                                 ambient_color,
+                                &dynamic_lights,
                             );
                             let gpu_indices: Vec<u32> =
                                 indices.iter().map(|index| *index as u32).collect();
@@ -887,6 +889,7 @@ impl TerrainVisualImpl {
                     height_map,
                     global_lights,
                     ambient_color,
+                    &dynamic_lights,
                 );
                 if let Some(mut mesh) = Self::upload_overlay_mesh(
                     &device,
@@ -988,6 +991,7 @@ impl TerrainVisualImpl {
         height_map: Option<&HeightMap>,
         global_lights: &[(Vec3, [f32; 3])],
         ambient_color: [f32; 3],
+        dynamic_lights: &[DisplayDynamicLight],
     ) {
         const COLOR_FLOOR: f32 = 0.35;
         for vertex in vertices {
@@ -1004,7 +1008,13 @@ impl TerrainVisualImpl {
             let r = (vertex.color[0] * 255.0).round() as u32;
             let g = (vertex.color[1] * 255.0).round() as u32;
             let b = (vertex.color[2] * 255.0).round() as u32;
-            vertex.diffuse = 0xFF00_0000 | (r << 16) | (g << 8) | b;
+            let base = 0xFF00_0000 | (r << 16) | (g << 8) | b;
+            vertex.diffuse = super::w3d_overlay_mesh::do_road_dynamic_light(
+                [vertex.position[0], vertex.position[2], vertex.position[1]],
+                base,
+                dynamic_lights,
+            );
+            vertex.color = super::w3d_overlay_mesh::unpack_bgra_rgb(vertex.diffuse);
         }
     }
 
@@ -2315,8 +2325,15 @@ impl TerrainVisualImpl {
             .map(|s| pack_water_rgba_int(s.transparent_diffuse_color))
             .unwrap_or(0xffff_ffff);
 
-        let (mut patch_vertices, list_indices) =
-            bake_water_tiles_world(min_x, min_z, max_x, max_z, water_y, packed);
+        let (mut patch_vertices, list_indices) = bake_water_tiles_world_with_lights(
+            min_x,
+            min_z,
+            max_x,
+            max_z,
+            water_y,
+            packed,
+            &self.dynamic_lights,
+        );
         if patch_vertices.is_empty() || list_indices.is_empty() {
             self.water_plane = None;
             return Ok(());
@@ -2396,7 +2413,7 @@ impl TerrainVisualImpl {
                     vertex.position,
                     [normal.x, normal.y, normal.z],
                     color,
-                    &scene_dynamic_lights(),
+                    &self.dynamic_lights,
                 );
                 TerrainVertex {
                     position: vertex.position,

@@ -37,11 +37,14 @@ use super::tree_buffer::{
 };
 use super::w3d_overlay_mesh::{
     BRIDGE_FLOAT_AMT, DEFAULT_ROAD_SCALE, OverlayGpuVertex, ROAD_FLOAT_AMOUNT, WaterGpuVertex,
-    WaterTerrainLight, bake_bridge_span, bake_straight_road_segment, bake_water_tiles_world,
-    compute_standing_water_diffuse, default_sectional_bridge_model,
-    fill_bridge_gpu_upload_vertices, fill_road_gpu_upload_vertices, fill_water_gpu_upload_vertices,
+    WaterTerrainLight, bake_bridge_span, bake_straight_road_segment,
+    bake_water_tiles_world_with_lights, compute_standing_water_diffuse,
+    default_sectional_bridge_model, fill_bridge_gpu_upload_vertices, fill_road_gpu_upload_vertices,
+    fill_water_gpu_upload_vertices,
 };
-use crate::fx_list::{DisplayDynamicLight, do_the_dynamic_light, scene_dynamic_lights};
+#[cfg(test)]
+use crate::fx_list::scene_dynamic_lights;
+use crate::fx_list::{DisplayDynamicLight, do_the_dynamic_light};
 
 use super::{
     ExtraBlendDrawMesh, HeightMap, RoadSystem, TerrainConfig, TerrainError, TerrainLOD,

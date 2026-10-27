@@ -10,9 +10,7 @@
 //!
 //! These bakes feed the shipped wgpu TerrainVisual overlay pipelines (TriangleList).
 
-use crate::fx_list::{
-    DisplayDynamicLight, do_the_dynamic_light, far_atten_factor, scene_dynamic_lights,
-};
+use crate::fx_list::{DisplayDynamicLight, do_the_dynamic_light, far_atten_factor};
 use gamelogic::common::types::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
 
 /// C++ `PATCH_SIZE` — vertices on one water-patch edge.
@@ -206,6 +204,26 @@ pub fn bake_water_patch_world(
     water_y: f32,
     transparent_water_diffuse: u32,
 ) -> (Vec<SeaPatchVertex>, Vec<u16>, Vec<u32>) {
+    bake_water_patch_world_with_lights(
+        min_x,
+        min_z,
+        max_x,
+        max_z,
+        water_y,
+        transparent_water_diffuse,
+        &[],
+    )
+}
+
+pub fn bake_water_patch_world_with_lights(
+    min_x: f32,
+    min_z: f32,
+    max_x: f32,
+    max_z: f32,
+    water_y: f32,
+    transparent_water_diffuse: u32,
+    lights: &[DisplayDynamicLight],
+) -> (Vec<SeaPatchVertex>, Vec<u16>, Vec<u32>) {
     let local =
         generate_water_vertex_buffer(PATCH_SIZE, PATCH_SIZE, water_y, transparent_water_diffuse);
     let strip = generate_water_index_buffer(PATCH_SIZE, PATCH_SIZE);
@@ -223,7 +241,7 @@ pub fn bake_water_patch_world(
             tv: v.tv,
         })
         .collect();
-    apply_water_point_lights(&mut world);
+    apply_water_point_lights(&mut world, lights);
     (world, strip, list)
 }
 
@@ -237,6 +255,26 @@ pub fn bake_water_tiles_world(
     max_z: f32,
     water_y: f32,
     transparent_water_diffuse: u32,
+) -> (Vec<SeaPatchVertex>, Vec<u32>) {
+    bake_water_tiles_world_with_lights(
+        min_x,
+        min_z,
+        max_x,
+        max_z,
+        water_y,
+        transparent_water_diffuse,
+        &[],
+    )
+}
+
+pub fn bake_water_tiles_world_with_lights(
+    min_x: f32,
+    min_z: f32,
+    max_x: f32,
+    max_z: f32,
+    water_y: f32,
+    transparent_water_diffuse: u32,
+    lights: &[DisplayDynamicLight],
 ) -> (Vec<SeaPatchVertex>, Vec<u32>) {
     const MAX_TILES_PER_AXIS: usize = 24;
     let span_x = (max_x - min_x).max(0.0);
@@ -265,8 +303,15 @@ pub fn bake_water_tiles_world(
             } else {
                 z0 + step_z
             };
-            let (patch, _strip, list) =
-                bake_water_patch_world(x0, z0, x1, z1, water_y, transparent_water_diffuse);
+            let (patch, _strip, list) = bake_water_patch_world_with_lights(
+                x0,
+                z0,
+                x1,
+                z1,
+                water_y,
+                transparent_water_diffuse,
+                lights,
+            );
             let base = verts.len() as u32;
             indices.extend(list.into_iter().map(|i| i + base));
             verts.extend(patch);
@@ -330,8 +375,7 @@ pub fn compute_standing_water_diffuse(
 }
 
 /// Apply live `createLightPulse` POINT lights to a Y-up water patch (HeightMap formula).
-pub fn apply_water_point_lights(vertices: &mut [SeaPatchVertex]) {
-    let lights = scene_dynamic_lights();
+pub fn apply_water_point_lights(vertices: &mut [SeaPatchVertex], lights: &[DisplayDynamicLight]) {
     if lights.is_empty() {
         return;
     }
@@ -339,7 +383,7 @@ pub fn apply_water_point_lights(vertices: &mut [SeaPatchVertex]) {
         // Water patch is Y-up; C++ map XYZ is Z-up.
         let xyz = [vertex.x, vertex.z, vertex.y];
         let normal = [0.0, 0.0, 1.0];
-        vertex.c = do_the_dynamic_light(xyz, normal, vertex.c, &lights);
+        vertex.c = do_the_dynamic_light(xyz, normal, vertex.c, lights);
     }
 }
 
@@ -370,6 +414,31 @@ impl Default for RoadColumn {
 /// `TheTerrainRenderObject->getMaxCellHeight`.
 pub fn load_float_4pt_section(
     loc: [f32; 2],
+    road_normal: [f32; 2],
+    road_vector: [f32; 2],
+    corners: [[f32; 2]; 4],
+    u_offset: f32,
+    v_offset: f32,
+    u_scale: f32,
+    v_scale: f32,
+    sample_max_cell_height: impl Fn(f32, f32) -> f32,
+) -> (Vec<RoadSegVertex>, Vec<u16>) {
+    load_float_4pt_section_with_lights(
+        loc,
+        road_normal,
+        road_vector,
+        corners,
+        u_offset,
+        v_offset,
+        u_scale,
+        v_scale,
+        sample_max_cell_height,
+        &[],
+    )
+}
+
+pub fn load_float_4pt_section_with_lights(
+    loc: [f32; 2],
     mut road_normal: [f32; 2],
     mut road_vector: [f32; 2],
     corners: [[f32; 2]; 4],
@@ -378,6 +447,7 @@ pub fn load_float_4pt_section(
     u_scale: f32,
     v_scale: f32,
     sample_max_cell_height: impl Fn(f32, f32) -> f32,
+    lights: &[DisplayDynamicLight],
 ) -> (Vec<RoadSegVertex>, Vec<u16>) {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
@@ -575,7 +645,7 @@ pub fn load_float_4pt_section(
     }
 
     // C++ W3DRoadBuffer::loadFloat4PtSection: static diffuse then POINT lights.
-    light_road_seg_vertices(&mut vertices, 0xFFFF_FFFF);
+    light_road_seg_vertices(&mut vertices, 0xFFFF_FFFF, lights);
     (vertices, indices)
 }
 
@@ -637,15 +707,18 @@ pub fn do_road_dynamic_light(
 }
 
 /// Bake live `createLightPulse` POINT lights into C++ road VB diffuse.
-pub fn light_road_seg_vertices(vertices: &mut [RoadSegVertex], static_diffuse: u32) {
-    let lights = scene_dynamic_lights();
+pub fn light_road_seg_vertices(
+    vertices: &mut [RoadSegVertex],
+    static_diffuse: u32,
+    lights: &[DisplayDynamicLight],
+) {
     for vertex in vertices {
         let base = if vertex.diffuse == 0 {
             static_diffuse
         } else {
             vertex.diffuse
         };
-        vertex.diffuse = do_road_dynamic_light([vertex.x, vertex.y, vertex.z], base, &lights);
+        vertex.diffuse = do_road_dynamic_light([vertex.x, vertex.y, vertex.z], base, lights);
     }
 }
 
@@ -660,6 +733,30 @@ pub fn bake_straight_road_segment(
     v_offset: f32,
     scale: f32,
     sample_max_cell_height: impl Fn(f32, f32) -> f32,
+) -> Option<(Vec<RoadSegVertex>, Vec<u16>)> {
+    bake_straight_road_segment_with_lights(
+        start,
+        end,
+        width,
+        width_in_texture,
+        u_offset,
+        v_offset,
+        scale,
+        sample_max_cell_height,
+        &[],
+    )
+}
+
+pub fn bake_straight_road_segment_with_lights(
+    start: [f32; 2],
+    end: [f32; 2],
+    width: f32,
+    width_in_texture: f32,
+    u_offset: f32,
+    v_offset: f32,
+    scale: f32,
+    sample_max_cell_height: impl Fn(f32, f32) -> f32,
+    lights: &[DisplayDynamicLight],
 ) -> Option<(Vec<RoadSegVertex>, Vec<u16>)> {
     let road_vector = [end[0] - start[0], end[1] - start[1]];
     if road_vector[0].abs() < MIN_ROAD_SEGMENT && road_vector[1].abs() < MIN_ROAD_SEGMENT {
@@ -684,7 +781,7 @@ pub fn bake_straight_road_segment(
     let top_left = [start[0] + road_normal[0], start[1] + road_normal[1]];
     let bottom_right = [end[0] - road_normal[0], end[1] - road_normal[1]];
     let top_right = [end[0] + road_normal[0], end[1] + road_normal[1]];
-    Some(load_float_4pt_section(
+    Some(load_float_4pt_section_with_lights(
         start,
         road_normal,
         road_vector,
@@ -694,6 +791,7 @@ pub fn bake_straight_road_segment(
         scale.max(0.1),
         scale.max(0.1),
         sample_max_cell_height,
+        lights,
     ))
 }
 
@@ -1228,14 +1326,9 @@ mod tests {
 
     #[test]
     fn bake_water_patch_world_applies_point_lights_like_heightmap() {
-        use crate::fx_list::{
-            DisplayLightPulse, clear_scene_dynamic_lights, create_display_light_pulse,
-            do_the_dynamic_light, drain_display_light_pulses, scene_dynamic_lights,
-        };
-
-        let _ = drain_display_light_pulses();
-        clear_scene_dynamic_lights();
-        assert!(create_display_light_pulse(DisplayLightPulse {
+        use crate::fx_list::{DisplayLightPulse, DisplayLightScene, do_the_dynamic_light};
+        let mut scene = DisplayLightScene::default();
+        assert!(scene.create_pulse(DisplayLightPulse {
             pos: [0.0, 0.0, 3.0],
             color: [1.0, 0.0, 0.0],
             inner_radius: 10.0,
@@ -1243,9 +1336,10 @@ mod tests {
             increase_frames: 0,
             decay_frames: 0,
         }));
-        let (verts, _, _) = bake_water_patch_world(-20.0, -20.0, 20.0, 20.0, 3.0, 0x8033_3333);
+        let lights = scene.lights();
+        let (verts, _, _) =
+            bake_water_patch_world_with_lights(-20.0, -20.0, 20.0, 20.0, 3.0, 0x8033_3333, lights);
         assert!(!verts.is_empty());
-        let lights = scene_dynamic_lights();
         let v = verts[0];
         let expected = do_the_dynamic_light([v.x, v.z, v.y], [0.0, 0.0, 1.0], 0x8033_3333, &lights);
         assert_eq!(v.c, expected);
@@ -1278,7 +1372,6 @@ mod tests {
             !shader.contains("shallow = vec3<f32>(0.05, 0.16, 0.22)"),
             "water FS must not ignore HeightMap POINT/global light bake"
         );
-        clear_scene_dynamic_lights();
     }
 
     #[test]
@@ -1428,14 +1521,9 @@ mod tests {
 
     #[test]
     fn load_float_4pt_section_bakes_cpp_road_point_lights() {
-        use crate::fx_list::{
-            DisplayLightPulse, clear_scene_dynamic_lights, create_display_light_pulse,
-            drain_display_light_pulses, scene_dynamic_lights,
-        };
-
-        let _ = drain_display_light_pulses();
-        clear_scene_dynamic_lights();
-        assert!(create_display_light_pulse(DisplayLightPulse {
+        use crate::fx_list::{DisplayLightPulse, DisplayLightScene};
+        let mut scene = DisplayLightScene::default();
+        assert!(scene.create_pulse(DisplayLightPulse {
             pos: [10.0, 0.0, 0.0],
             color: [1.0, 0.0, 0.0],
             inner_radius: 10.0,
@@ -1444,7 +1532,8 @@ mod tests {
             decay_frames: 0,
         }));
 
-        let (verts, _) = load_float_4pt_section(
+        let lights = scene.lights();
+        let (verts, _) = load_float_4pt_section_with_lights(
             [0.0, 0.0],
             [0.0, 5.0],
             [20.0, 0.0],
@@ -1454,9 +1543,9 @@ mod tests {
             8.0,
             8.0,
             |_, _| 0.0,
+            lights,
         );
         assert!(!verts.is_empty());
-        let lights = scene_dynamic_lights();
         let v = verts[0];
         let expected = do_road_dynamic_light([v.x, v.y, v.z], 0xFFFF_FFFF, &lights);
         assert_eq!(v.diffuse, expected);
@@ -1466,7 +1555,7 @@ mod tests {
         for vertex in &mut relit {
             vertex.diffuse = 0xFF33_3333;
         }
-        light_road_seg_vertices(&mut relit, 0xFF33_3333);
+        light_road_seg_vertices(&mut relit, 0xFF33_3333, lights);
         let expected_gray =
             do_road_dynamic_light([relit[0].x, relit[0].y, relit[0].z], 0xFF33_3333, &lights);
         assert_eq!(relit[0].diffuse, expected_gray);
@@ -1477,7 +1566,6 @@ mod tests {
             "red pulse must raise R vs G, packed={:#010x}",
             relit[0].diffuse
         );
-        clear_scene_dynamic_lights();
     }
 
     #[test]
@@ -1518,14 +1606,9 @@ mod tests {
 
     #[test]
     fn road_gpu_upload_keeps_do_road_dynamic_light_diffuse() {
-        use crate::fx_list::{
-            DisplayLightPulse, clear_scene_dynamic_lights, create_display_light_pulse,
-            drain_display_light_pulses, scene_dynamic_lights,
-        };
-
-        let _ = drain_display_light_pulses();
-        clear_scene_dynamic_lights();
-        assert!(create_display_light_pulse(DisplayLightPulse {
+        use crate::fx_list::{DisplayLightPulse, DisplayLightScene};
+        let mut scene = DisplayLightScene::default();
+        assert!(scene.create_pulse(DisplayLightPulse {
             pos: [10.0, 0.0, 0.0],
             color: [1.0, 0.0, 0.0],
             inner_radius: 10.0,
@@ -1534,7 +1617,8 @@ mod tests {
             decay_frames: 0,
         }));
 
-        let (verts, indices) = load_float_4pt_section(
+        let lights = scene.lights();
+        let (verts, indices) = load_float_4pt_section_with_lights(
             [0.0, 0.0],
             [0.0, 5.0],
             [20.0, 0.0],
@@ -1544,10 +1628,10 @@ mod tests {
             8.0,
             8.0,
             |_, _| 0.0,
+            lights,
         );
         assert!(!verts.is_empty());
         assert!(!indices.is_empty());
-        let lights = scene_dynamic_lights();
         let gpu = fill_road_gpu_upload_vertices(&verts);
         assert_eq!(gpu.len(), verts.len());
         for (cpu, uploaded) in verts.iter().zip(gpu.iter()) {
@@ -1561,7 +1645,6 @@ mod tests {
             assert_eq!(uploaded.color, unpack_bgra_rgb(expected));
             assert_eq!(uploaded.tex_coords, [cpu.u1, cpu.v1]);
         }
-        clear_scene_dynamic_lights();
     }
 
     #[test]

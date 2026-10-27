@@ -1,4 +1,5 @@
 use game_client_rust::display::display::DisplayLightingState;
+use game_client_rust::fx_list::{DisplayLightPulse, DisplayLightScene};
 use game_client_rust::system::SubsystemInterface;
 use game_client_rust::terrain::HeightMap;
 use game_client_rust::terrain::chunk::TerrainStaticLighting;
@@ -31,6 +32,14 @@ fn first_color(visual: &TerrainVisualImpl) -> [f32; 4] {
         .chunk_manager()
         .iter_chunks()
         .find_map(|chunk| chunk.base_colors.first().copied())
+        .expect("terrain update must bake a chunk")
+}
+
+fn first_render_color(visual: &TerrainVisualImpl) -> [f32; 4] {
+    visual
+        .chunk_manager()
+        .iter_chunks()
+        .find_map(|chunk| chunk.vertices.first().map(|vertex| vertex.color))
         .expect("terrain update must bake a chunk")
 }
 
@@ -77,4 +86,50 @@ fn client_display_lighting_and_skybox_use_the_receiving_owner() {
     first_terrain.reset().unwrap();
     assert!(!first_terrain.skybox_enabled());
     assert!(peer_terrain.skybox_enabled());
+}
+
+#[test]
+fn dynamic_light_and_expiry_are_isolated_between_terrain_owners() {
+    use game_client_rust::terrain::w3d_overlay_mesh::{
+        bake_straight_road_segment, bake_water_patch_world_with_lights, light_road_seg_vertices,
+    };
+    let mut first = visual(lighting([0.4; 3]));
+    let mut peer = visual(lighting([0.4; 3]));
+    let peer_before = first_render_color(&peer);
+    let mut scene = DisplayLightScene::default();
+    assert!(scene.create_pulse(DisplayLightPulse {
+        pos: [0.0, 0.0, 10.0],
+        color: [0.5, 0.0, 0.0],
+        inner_radius: 10.0,
+        outer_radius: 100.0,
+        increase_frames: 0,
+        decay_frames: 0,
+    }));
+    first.admit_dynamic_lights(scene.lights());
+    first.update().unwrap();
+    peer.update().unwrap();
+    assert!(first_render_color(&first)[0] > peer_before[0]);
+    assert_eq!(first_render_color(&peer), peer_before);
+
+    let (lit_water, _, _) =
+        bake_water_patch_world_with_lights(0.0, 0.0, 20.0, 20.0, 0.0, 0xff33_3333, scene.lights());
+    let (peer_water, _, _) =
+        bake_water_patch_world_with_lights(0.0, 0.0, 20.0, 20.0, 0.0, 0xff33_3333, &[]);
+    assert!(lit_water[0].c > peer_water[0].c);
+    let (mut road, _) =
+        bake_straight_road_segment([0.0, 0.0], [30.0, 0.0], 10.0, 1.0, 0.0, 0.0, 1.0, |_, _| {
+            0.0
+        })
+        .unwrap();
+    for vertex in &mut road {
+        vertex.diffuse = 0xff33_3333;
+    }
+    light_road_seg_vertices(&mut road, 0xff33_3333, scene.lights());
+    assert!(road[0].diffuse > 0xff33_3333);
+
+    scene.clear_lights();
+    first.admit_dynamic_lights(scene.lights());
+    first.update().unwrap();
+    assert_eq!(first_render_color(&first), peer_before);
+    assert_eq!(first_render_color(&peer), peer_before);
 }

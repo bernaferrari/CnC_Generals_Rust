@@ -84,6 +84,14 @@ impl RenderPipeline {
                 terrain.admit_static_lighting(lighting);
             }
         }
+        #[cfg(feature = "game_client")]
+        if let Some(terrain) = self.native_terrain.as_mut() {
+            let lights = self
+                .presentation_frame
+                .as_ref()
+                .map_or(&[][..], |frame| frame.dynamic_lights.as_slice());
+            terrain.admit_dynamic_lights(lights);
+        }
         trace!("RenderPipeline::execute frame {}", self.frame_number + 1);
         if (self.frame_number + 1).is_multiple_of(300) {
             debug!(

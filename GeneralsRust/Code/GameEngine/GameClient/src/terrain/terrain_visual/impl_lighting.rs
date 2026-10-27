@@ -1,6 +1,18 @@
 // Split from `terrain/terrain_visual.rs` dump. Included by `terrain_visual/mod.rs`.
 
 impl TerrainVisualImpl {
+    /// Admit the driving client's current lights at the presentation boundary.
+    pub fn admit_dynamic_lights(&mut self, lights: &[DisplayDynamicLight]) {
+        if self.dynamic_lights != lights {
+            self.dynamic_lights.clear();
+            self.dynamic_lights.extend_from_slice(lights);
+            self.overlay_gpu_meshes_dirty = true;
+            if self.height_map.is_some() {
+                self.upload_extra_blend_overlay();
+            }
+        }
+    }
+
     /// Admit the active C++ terrain lights for this visual's world. Existing
     /// baked vertices must be regenerated when their source lighting changes.
     pub fn admit_static_lighting(&mut self, lighting: super::chunk::TerrainStaticLighting) -> bool {
