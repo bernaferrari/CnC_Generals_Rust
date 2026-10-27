@@ -265,28 +265,18 @@ pub fn set_test_initiate_sound(power_key: &str, event_name: impl Into<String>) {
 
 /// C++ `spmInterface->getInitiateSound()` (CommandXlat.cpp:637-651).
 pub fn resolve_special_power_initiate_sound(
-    power_key: &str,
-    module_template: Option<&str>,
-    retail_fallback: Option<&str>,
+    _power_key: &str,
+    module_sound: Option<&str>,
 ) -> Option<String> {
     #[cfg(test)]
-    if let Some(over) = INITIATE_SOUND_OVERRIDE.with(|m| m.borrow().get(power_key).cloned()) {
+    if let Some(over) = INITIATE_SOUND_OVERRIDE.with(|m| m.borrow().get(_power_key).cloned()) {
         if over.is_empty() {
             return None;
         }
         return Some(over);
     }
-    if let Some(name) = module_template {
-        let store = game_engine::common::rts::special_power::get_special_power_store();
-        if let Some(tmpl) = store.find_template(name) {
-            if !tmpl.initiate_sound.is_empty() {
-                return Some(tmpl.initiate_sound.clone());
-            }
-        }
-    }
-    retail_fallback
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
+    let name = module_sound?.split_whitespace().next()?.trim_matches('"');
+    (!name.is_empty() && !name.eq_ignore_ascii_case("None")).then(|| name.to_owned())
 }
 
 #[cfg(test)]
@@ -1003,7 +993,7 @@ mod tests {
             Some("BuildingConstructionLoop")
         );
         assert_eq!(
-            resolve_special_power_initiate_sound("SpySatellite", None, None).as_deref(),
+            resolve_special_power_initiate_sound("SpySatellite", None).as_deref(),
             Some("TestSpySatInitiate")
         );
         clear_test_template_voices();

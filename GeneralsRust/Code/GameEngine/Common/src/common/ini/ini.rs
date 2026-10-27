@@ -110,8 +110,6 @@ pub struct BlockParse {
 }
 
 static EXTRA_BLOCK_PARSERS: OnceLock<RwLock<Vec<BlockParse>>> = OnceLock::new();
-static ARMOR_DEFINITION_REGISTRY: OnceLock<RwLock<HashMap<String, HashMap<String, f32>>>> =
-    OnceLock::new();
 
 /// C++ INIParticleSys.cpp overlays `TheParticleSystemManager`. Common's
 /// own registry is not the live GameClient manager; GameClient registers
@@ -219,6 +217,8 @@ pub struct INI {
     tolerant_blocks: bool,
     // This operation receives Object definitions already admitted by its owner.
     object_definitions_admitted: bool,
+    // The receiving session already parsed CommandButton, CommandSet, and SpecialPower.
+    action_definitions_admitted: bool,
     particle_definitions_admitted: bool,
     /// C++ INI.cpp:458-463 feeds the active load's CRC, in line order.
     /// This parser already has exclusive access through `&mut self`.
@@ -360,10 +360,6 @@ fn parse_science_block(ini: &mut INI) -> INIResult<()> {
     crate::common::rts::science::parse_science_definition_block(ini)
 }
 
-fn armor_definition_registry() -> &'static RwLock<HashMap<String, HashMap<String, f32>>> {
-    ARMOR_DEFINITION_REGISTRY.get_or_init(|| RwLock::new(HashMap::new()))
-}
-
 fn consume_block_with_nesting(ini: &mut INI) -> INIResult<Vec<String>> {
     let mut nested_depth = 0usize;
     let mut lines = Vec::new();
@@ -423,7 +419,6 @@ fn parse_armor_block(ini: &mut INI) -> INIResult<()> {
         return Err(INIError::InvalidData);
     }
 
-    let mut entries = HashMap::new();
     let mut ordered_rows = Vec::new();
     loop {
         let ended = read_block_line(ini)?;
@@ -439,45 +434,12 @@ fn parse_armor_block(ini: &mut INI) -> INIResult<()> {
             let row = armor_definitions::parse_coefficient_row(&ini.buffer)
                 .map_err(|_| INIError::InvalidData)?;
             ordered_rows.push(row);
-            continue;
-        }
-        let tokens = ini.get_line_tokens();
-        let Some(first) = tokens.first() else {
-            continue;
-        };
-
-        if first.eq_ignore_ascii_case("End") {
-            break;
-        }
-
-        if !first.eq_ignore_ascii_case("Armor") {
-            continue;
-        }
-
-        let values: Vec<&str> = tokens
-            .iter()
-            .copied()
-            .skip(1)
-            .filter(|token| *token != "=")
-            .collect();
-        if values.len() < 2 {
-            continue;
-        }
-
-        if let Ok(percent) = values[1].trim_end_matches('%').parse::<f32>() {
-            entries.insert(values[0].to_string(), percent / 100.0);
         }
     }
 
     if let Some(target) = ini.armor_definitions_target.as_mut() {
         target.register_definition(&name, ordered_rows);
-        return Ok(());
     }
-    let mut registry = armor_definition_registry()
-        .write()
-        .expect("Armor definition registry poisoned");
-    registry.insert(name, entries);
-
     Ok(())
 }
 
@@ -1293,6 +1255,10 @@ impl INI {
         self.object_definitions_admitted = true;
     }
 
+    pub fn set_action_definitions_admitted(&mut self) {
+        self.action_definitions_admitted = true;
+    }
+
     pub fn new() -> Self {
         Self {
             name_key_namespace: None,
@@ -1318,6 +1284,7 @@ impl INI {
             eof_pending: false,
             tolerant_blocks: false,
             object_definitions_admitted: false,
+            action_definitions_admitted: false,
             particle_definitions_admitted: false,
             xfer: None,
             script_template_definitions: Vec::new(),
@@ -1858,6 +1825,15 @@ impl INI {
                 )
             {
                 let _ = crate::common::thing::thing_factory::consume_ini_properties(self);
+                continue;
+            }
+            if self.action_definitions_admitted
+                && matches!(
+                    first_token.to_ascii_lowercase().as_str(),
+                    "commandbutton" | "commandset" | "specialpower"
+                )
+            {
+                consume_block_with_nesting(self)?;
                 continue;
             }
 

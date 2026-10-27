@@ -988,6 +988,22 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
     sat.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Selectable)
         .set_health(1000.0);
+    sat.special_power_modules.push(crate::game_logic::SpecialPowerModuleMetadata {
+        source_index: 0,
+        module_tag: Some("SpecialPowerTag".into()),
+        module_kind: crate::game_logic::SpecialPowerModuleKind::OclSpecialPower,
+        special_power_template: "SpecialPowerSpySatellite".into(),
+        special_power_template_id: 1,
+        command_power: Some(SpecialPowerType::SpySatellite),
+        reload_time_frames: 0,
+        required_science: None,
+        public_timer: false,
+        shared_n_sync: false,
+        shortcut_power: false,
+        update_module_starts_attack: false,
+        starts_paused: false,
+        scripted_special_power_only: false,
+    });
     logic.templates.insert("VR_SAT".into(), sat);
 
     let dozer = logic

@@ -1070,36 +1070,41 @@ impl<'a> CommandExecutor<'a> {
         power_type: &SpecialPowerType,
     ) {
         let power_key = format!("{power_type:?}");
-        let retail =
-            crate::game_logic::special_power_strikes::HostSuperweaponKind::from_command_power(
-                power_type,
-            )
-            .map(|kind| kind.retail_initiate_sound());
         for &id in casters {
             let Some(obj) = self.game_logic.host_object(id) else {
                 continue;
             };
-            let module_name = obj
+            let Some(module) = obj
                 .thing()
                 .template
                 .special_power_module_for_command(power_type)
-                .map(|m| m.special_power_template.clone());
-            let pos = obj.get_position();
-            let Some(event) =
-                crate::game_logic::audio_dispatch_impl::resolve_special_power_initiate_sound(
-                    &power_key,
-                    module_name.as_deref(),
-                    retail,
-                )
             else {
                 continue;
             };
-            self.game_logic.queue_audio_event(
-                AudioEventRequest::new(&event)
-                    .with_object(id)
-                    .with_position(pos)
-                    .with_priority(100),
-            );
+            // CPP SpecialPowerModule::getInitiateSound returns the selected
+            // Object module's field, not the SpecialPowerTemplate's field.
+            let authored_sound = obj
+                .get_template()
+                .receiving_object_definition
+                .as_ref()
+                .and_then(|definition| definition.behavior_modules.get(module.source_index as usize))
+                .and_then(|definition| definition.attribute("InitiateSound"));
+            let pos = obj.get_position();
+            if let Some(event) =
+                crate::game_logic::audio_dispatch_impl::resolve_special_power_initiate_sound(
+                    &power_key,
+                    authored_sound,
+                )
+            {
+                self.game_logic.queue_audio_event(
+                    AudioEventRequest::new(&event)
+                        .with_object(id)
+                        .with_position(pos)
+                        .with_priority(100),
+                );
+            }
+            // CommandXlat stops on the first matching module even if its
+            // authored response is silent.
             return;
         }
     }
