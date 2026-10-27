@@ -210,7 +210,12 @@ impl GameLogic {
             return (0u8..8)
                 .filter_map(|slot| {
                     obj.weapon_slot(slot).map(|weapon| {
-                        (obj.effective_weapon_range_for_slot(slot, weapon.range) - under).max(0.0)
+                        (obj.effective_weapon_range_for_slot_with_solo_set(
+                            slot,
+                            weapon.range,
+                            &self.solo_weapon_bonus_set,
+                        ) - under)
+                            .max(0.0)
                     })
                 })
                 .fold(-1.0_f32, f32::max);
@@ -2174,7 +2179,10 @@ mod tests {
     fn leftover_wander_group_offset_zero_when_factor_non_positive() {
         let random = game_engine::common::random_value::SessionRandom::default();
         assert_eq!(leftover_wander_group_offset(&random, 0.0), glam::Vec2::ZERO);
-        assert_eq!(leftover_wander_group_offset(&random, -1.0), glam::Vec2::ZERO);
+        assert_eq!(
+            leftover_wander_group_offset(&random, -1.0),
+            glam::Vec2::ZERO
+        );
     }
 
     #[test]
@@ -2216,7 +2224,10 @@ mod tests {
 
         assert_eq!(leftover_wander_group_offset(&first, 4.0), expected_first);
         assert_eq!(leftover_wander_group_offset(&peer, 4.0), expected_peer);
-        assert_eq!(leftover_wander_group_offset(&first, 4.0), expected_first_again);
+        assert_eq!(
+            leftover_wander_group_offset(&first, 4.0),
+            expected_first_again
+        );
         assert_eq!(first.seed_words(), first_reference.seed_words());
         assert_eq!(peer.seed_words(), peer_reference.seed_words());
     }
