@@ -320,7 +320,7 @@ impl MouseState {
             double_click_time: Duration::from_millis(500),
             double_click_distance: 5.0,
             captured: false,
-            cursor_visible: true,
+            cursor_visible: false,
         }
     }
 
@@ -1250,6 +1250,23 @@ impl SubsystemInterface for Mouse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_mouse_visibility_matches_cpp_constructor_and_reset() {
+        let mut mouse = Mouse::new();
+        assert!(!mouse.get_visibility(), "C++ Mouse constructor starts hidden");
+
+        <Mouse as SubsystemInterface>::reset(&mut mouse).unwrap();
+        assert!(!mouse.get_visibility(), "C++ reset leaves visibility unchanged");
+
+        mouse.set_visibility(true);
+        <Mouse as SubsystemInterface>::reset(&mut mouse).unwrap();
+        assert!(mouse.get_visibility(), "reset preserves an explicit menu show");
+
+        mouse.set_visibility(false);
+        <Mouse as SubsystemInterface>::reset(&mut mouse).unwrap();
+        assert!(!mouse.get_visibility(), "reset preserves an explicit menu hide");
+    }
 
     #[test]
     fn retail_mouse_ini_settings_widen_and_shrink_tooltip_text() {
