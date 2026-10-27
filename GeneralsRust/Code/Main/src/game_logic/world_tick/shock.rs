@@ -722,7 +722,23 @@ impl GameLogic {
         let radius_mult = self
             .objects
             .lookup(&attacker_id)
-            .map(|source| source.weapon_bonus_radius())
+            .map(|source| {
+                weapon_name.map_or_else(
+                    || {
+                        source
+                            .weapon_bonus_fields_with_solo_set(&self.solo_weapon_bonus_set)
+                            .4
+                    },
+                    |name| {
+                        source
+                            .weapon_bonus_fields_for_named_weapon_with_solo_set(
+                                name,
+                                &self.solo_weapon_bonus_set,
+                            )
+                            .4
+                    },
+                )
+            })
             .unwrap_or(1.0);
         let (primary_r, secondary_r, primary_dmg, secondary_dmg) =
             if let Some(rule) = native_rule.as_ref() {
@@ -735,11 +751,6 @@ impl GameLogic {
             } else {
                 match weapon_name {
                     Some(n) => {
-                        let radius_mult = self
-                            .objects
-                            .lookup(&attacker_id)
-                            .map(|a| a.weapon_bonus_radius())
-                            .unwrap_or(1.0);
                         let pr = host_primary_damage_radius_for_weapon_name(n) * radius_mult;
                         let sr = host_secondary_damage_radius_for_weapon_name(n) * radius_mult;
                         let sd = host_secondary_damage_for_weapon_name(n);

@@ -1795,7 +1795,11 @@ impl GameLogic {
                                         a.weapon_slot(slot)
                                             .map(|w| w.splash_radius.max(0.0))
                                             .unwrap_or(0.0),
-                                        a.weapon_bonus_radius(),
+                                        a.weapon_bonus_fields_for_slot_with_solo_set(
+                                            slot,
+                                            &self.solo_weapon_bonus_set,
+                                        )
+                                        .4,
                                     )
                                 })
                                 .unwrap_or((0.0, 1.0));

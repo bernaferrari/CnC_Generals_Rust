@@ -57,7 +57,9 @@ impl GameLogic {
                 target.is_kind_of(KindOf::Infantry),
                 hit_r,
                 splash,
-                attacker.weapon_bonus_radius(),
+                attacker
+                    .weapon_bonus_fields_for_slot_with_solo_set(slot, &self.solo_weapon_bonus_set)
+                    .4,
             )
         };
         let splash_r = {
