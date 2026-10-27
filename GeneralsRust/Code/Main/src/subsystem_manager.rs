@@ -561,6 +561,19 @@ impl AudioManagerSubsystem {
         );
         self.common_audio_device = Some(device);
     }
+    /// Clone one event's immutable metadata from the receiving device. The
+    /// mutex guard ends here, before any locality or shroud callback runs.
+    pub(crate) fn receiving_audio_event_info(
+        &self,
+        event_name: &str,
+    ) -> Option<game_engine::common::audio::AudioEventInfo> {
+        let device = self.common_audio_device.as_ref()?;
+        let audio = device.lock().ok()?;
+        audio
+            .find_audio_event_info(event_name)
+            .map(|info| (*info).clone())
+    }
+
     pub(crate) fn receiving_audio_parts(
         &mut self,
     ) -> Option<(

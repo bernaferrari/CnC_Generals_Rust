@@ -53,6 +53,11 @@ impl Object {
         envelope: &EntityLifecycleEnvelope,
     ) -> Result<Option<crate::game_logic::host_railroad::HostRailroadCar>, EntityLifecycleCodecError>
     {
+        if envelope.entity_id != self.id.0 {
+            return Err(EntityLifecycleCodecError::InvalidOwnerComponent {
+                component: "entity identity",
+            });
+        }
         let railroad = apply_module_states(self, &envelope.module_states)?;
         self.status.destroyed = envelope.destroyed;
         Ok(railroad)
@@ -228,6 +233,28 @@ mod tests {
             dst.lifetime_update.as_ref().map(|l| l.expire_at_frame),
             Some(90)
         );
+    }
+
+    #[test]
+    fn mismatched_entity_envelope_is_rejected_before_owner_mutation() {
+        let mut source = test_object();
+        source.status.destroyed = true;
+        source.lifetime_update = Some(HostLifetimeUpdateData {
+            expire_at_frame: 77,
+            active: true,
+        });
+        let mut envelope = source.entity_lifecycle_envelope().expect("capture");
+        envelope.entity_id = 8;
+
+        let mut receiving = test_object();
+        let before = receiving.entity_lifecycle_envelope().expect("before");
+        assert!(matches!(
+            receiving.entity_apply_lifecycle_envelope(&envelope),
+            Err(EntityLifecycleCodecError::InvalidOwnerComponent {
+                component: "entity identity"
+            })
+        ));
+        assert_eq!(receiving.entity_lifecycle_envelope().expect("after"), before);
     }
 
     #[test]

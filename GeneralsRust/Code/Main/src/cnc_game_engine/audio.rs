@@ -33,16 +33,19 @@ impl CnCGameEngine {
         mut event: crate::game_logic::AudioEventRequest,
     ) {
         event.script_audio_policy = Some(self.game_logic.queued_audio_events.policy().clone());
-        let locality = self
-            .game_logic
-            .receiving_audio_locality(self.receiving_audio_observer_target());
-        let admitted = crate::game_logic::audio_dispatch_impl::admit_audio_request(
+        let observer = self.receiving_audio_observer_target();
+        let locality = self.game_logic.receiving_audio_locality(observer);
+        let audio_owner = self
+            .subsystem_manager
+            .get::<crate::subsystem_manager::AudioManagerSubsystem>();
+        let logic = &mut self.game_logic;
+        let admitted = crate::game_logic::audio_dispatch_impl::admit_audio_request_with_info_lookup(
             event,
             locality.as_ref(),
             &mut |player, position| {
-                self.game_logic
-                    .receiving_audio_cell_shroud_clear(player, position)
+                logic.receiving_audio_cell_shroud_clear(player, position)
             },
+            |name| audio_owner.and_then(|owner| owner.receiving_audio_event_info(name)),
         );
         if let (Some(event), Some(audio)) = (
             admitted,

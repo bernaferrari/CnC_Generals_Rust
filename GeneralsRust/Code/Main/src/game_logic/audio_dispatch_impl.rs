@@ -681,10 +681,23 @@ pub fn owning_player_for_audio_object(
 
 /// True when this request may enter the live SFX drain.
 pub(crate) fn admit_audio_request(
-    mut event: crate::game_logic::AudioEventRequest,
+    event: crate::game_logic::AudioEventRequest,
     locality: Option<&LiveAudioLocality>,
     cell_shroud_clear: &mut dyn FnMut(i32, glam::Vec3) -> bool,
 ) -> Option<AdmittedAudioRequest> {
+    admit_audio_request_with_info_lookup(event, locality, cell_shroud_clear, lookup_audio_event_info)
+}
+
+/// Admit through an explicit receiver-owned metadata lookup. The lookup must
+/// return an owned copy, so any service lock is released before locality and
+/// shroud callbacks run.
+pub(crate) fn admit_audio_request_with_info_lookup(
+    event: crate::game_logic::AudioEventRequest,
+    locality: Option<&LiveAudioLocality>,
+    cell_shroud_clear: &mut dyn FnMut(i32, glam::Vec3) -> bool,
+    lookup: impl FnOnce(&str) -> Option<AudioEventInfo>,
+) -> Option<AdmittedAudioRequest> {
+    let mut event = event;
     let owner = event
         .player_index
         .or_else(|| owning_player_for_audio_object(event.object_id, locality));
@@ -698,16 +711,26 @@ pub(crate) fn admit_audio_request(
             event.event_type.as_str(),
             "MusicEnable" | "MusicDisable" | "WeaponFireLoopStop" | "AfterburnerStop"
         );
-    if !removal
-        && !should_dispatch_live_audio(
+    if !removal {
+        if is_invented_unit_voice_name(event.event_type.as_str())
+            || is_generic_eva_sfx_name(event.event_type.as_str())
+        {
+            return None;
+        }
+        // Lookup returns an owned metadata value. In the receiving path this
+        // drops the subsystem's mutex guard before shouldPlayLocally queries
+        // the world/shroud callback below.
+        let info = lookup(event.event_type.as_str());
+        if !should_dispatch_live_audio_with_info(
             event.event_type.as_str(),
             owner,
             event.position,
+            info.as_ref(),
             locality,
             cell_shroud_clear,
-        )
-    {
-        return None;
+        ) {
+            return None;
+        }
     }
     let captured = game_engine::common::audio::AudioSubmissionLocality::from_resolver(
         owner.unwrap_or(-1),
