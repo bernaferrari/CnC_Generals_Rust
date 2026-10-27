@@ -80,11 +80,11 @@ pub(super) fn freeze(logic: &GameLogic, player_id: u32) -> [Vec<ScienceButtonSta
     let freeze_set = |set: &game_engine::common::ini::ini_command_set::CommandSet, limit: usize| {
         (0..limit)
             .map(|slot| {
-                let Some(button) = set
-                    .buttons
-                    .get(slot)
-                    .and_then(Option::as_ref)
-                    .and_then(|name| actions.buttons.find_command_button_resolved(name))
+                let name = logic
+                    .find_control_bar_override(&set.name, slot as i32)
+                    .unwrap_or_else(|| set.get_button_at_position(slot).map(String::as_str));
+                let Some(button) =
+                    name.and_then(|name| actions.buttons.find_command_button_resolved(name))
                 else {
                     return hidden_button();
                 };

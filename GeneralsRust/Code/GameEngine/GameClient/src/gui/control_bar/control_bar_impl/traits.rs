@@ -81,6 +81,7 @@ impl ControlBar {
         self.presentation_power = (0, 0);
         self.presentation_can_make.clear();
         self.presentation_buildable_hidden.clear();
+        self.presentation_command_overrides.clear();
         self.presentation_unlocked_sciences.clear();
         self.presentation_science_ids = None;
         self.presentation_selected_player = None;

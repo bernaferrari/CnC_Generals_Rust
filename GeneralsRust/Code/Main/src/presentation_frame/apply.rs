@@ -1192,6 +1192,7 @@ impl PresentationFrame {
             panel.unit_infos.iter().map(|u| u.object_id.0).collect()
         };
         control_bar.apply_presentation_money(self.local_supplies as i32);
+        control_bar.apply_presentation_command_overrides(&self.control_bar_overrides);
         control_bar.apply_presentation_power(self.local_power_produced, self.local_power_consumed);
         control_bar.apply_presentation_can_make(
             &self

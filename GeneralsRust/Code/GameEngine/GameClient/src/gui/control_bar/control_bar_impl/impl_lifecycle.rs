@@ -54,6 +54,7 @@ impl ControlBar {
             presentation_radar_disabled: false,
             presentation_queued_upgrades: Vec::new(),
             presentation_primary_command_set: String::new(),
+            presentation_command_overrides: HashMap::new(),
             presentation_command_set_names: Vec::new(),
             presentation_max_garrison: 0,
             presentation_garrisoned_count: 0,
@@ -548,6 +549,14 @@ impl ControlBar {
 
     pub fn apply_presentation_buildable_hidden(&mut self, names: Vec<String>) {
         self.presentation_buildable_hidden = names;
+    }
+
+    /// C++ CommandSet::getCommandButton applies the owning world's slot override.
+    pub fn apply_presentation_command_overrides(
+        &mut self,
+        overrides: &HashMap<String, Option<String>>,
+    ) {
+        self.presentation_command_overrides = overrides.clone();
     }
 
     /// The live host supplies this game's local player sciences.

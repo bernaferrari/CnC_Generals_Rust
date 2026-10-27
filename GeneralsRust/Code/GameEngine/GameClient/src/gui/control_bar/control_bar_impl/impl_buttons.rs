@@ -34,7 +34,7 @@ impl ControlBar {
                     .map(|slot| {
                         self.command_from_receiving_slot(
                             actions,
-                            set.get_button_at_position(slot).map(String::as_str),
+                            self.receiving_command_slot(set, slot),
                         )
                     })
                     .collect();
@@ -218,14 +218,14 @@ impl ControlBar {
                 break;
             };
             for (slot, shared) in common.iter_mut().enumerate() {
-                let candidate = set.get_button_at_position(slot);
+                let candidate = self.receiving_command_slot(set, slot);
                 let definition =
                     candidate.and_then(|name| actions.buttons.find_command_button_resolved(name));
                 if !saw_first {
                     if definition.is_some_and(|button| {
                         (button.options_bits & CommandOption::OkForMultiSelect as u32) != 0
                     }) {
-                        *shared = candidate.cloned();
+                        *shared = candidate.map(str::to_owned);
                     }
                     continue;
                 }
@@ -236,13 +236,11 @@ impl ControlBar {
                                 == CommandType::DoAttackMoveTo
                         })
                 };
-                if is_attack_move(candidate.map(String::as_str))
-                    || is_attack_move(shared.as_deref())
-                {
+                if is_attack_move(candidate) || is_attack_move(shared.as_deref()) {
                     if shared.is_none() {
-                        *shared = candidate.cloned();
+                        *shared = candidate.map(str::to_owned);
                     }
-                } else if candidate != shared.as_ref() {
+                } else if candidate != shared.as_deref() {
                     *shared = None;
                 }
             }
@@ -257,6 +255,22 @@ impl ControlBar {
         } else {
             Vec::new()
         })
+    }
+
+    fn receiving_command_slot<'a>(
+        &'a self,
+        set: &'a game_engine::common::ini::ini_command_set::CommandSet,
+        slot: usize,
+    ) -> Option<&'a str> {
+        let key = format!(
+            "{}{}",
+            char::from_u32('0' as u32 + u32::try_from(slot).ok()?)?,
+            set.name
+        );
+        match self.presentation_command_overrides.get(&key) {
+            Some(override_button) => override_button.as_deref(),
+            None => set.get_button_at_position(slot).map(String::as_str),
+        }
     }
 
     fn add_observer_commands(
@@ -599,7 +613,7 @@ impl ControlBar {
             MAX_PURCHASE_SCIENCE_RANK_3,
             MAX_PURCHASE_SCIENCE_RANK_8,
         ]) {
-            for name in set.buttons.iter().take(limit).flatten() {
+            for name in (0..limit).filter_map(|slot| self.receiving_command_slot(set, slot)) {
                 let Some(purchase) = actions.buttons.find_command_button_resolved(name) else {
                     continue;
                 };

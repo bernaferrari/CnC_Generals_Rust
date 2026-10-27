@@ -299,6 +299,7 @@ pub struct ControlBar {
     presentation_queued_upgrades: Vec<String>,
     /// Primary selection command-set name residual from PresentationFrame.
     presentation_primary_command_set: String,
+    presentation_command_overrides: HashMap<String, Option<String>>,
     /// Multi-select command-set names residual from PresentationFrame (ordered).
     presentation_command_set_names: Vec<String>,
     /// Structure inventory residual from PresentationFrame.

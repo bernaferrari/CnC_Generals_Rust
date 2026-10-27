@@ -636,7 +636,7 @@ impl ControlBar {
                 .map(|slot| {
                     self.command_from_receiving_slot(
                         &actions,
-                        set.get_button_at_position(slot).map(String::as_str),
+                        self.receiving_command_slot(set, slot),
                     )
                 })
                 .collect();

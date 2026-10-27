@@ -49,7 +49,10 @@ fn world(start_money: u32, map: &std::path::Path) -> GameLogic {
     world
         .admit_object_ini_sources([(
             "Selected.ini".into(),
-            "Object SelectedObject\n KindOf = SELECTABLE VEHICLE\n CommandSet = SharedSet\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
+            "Object SelectedObject\n KindOf = SELECTABLE VEHICLE\n CommandSet = SharedSet\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
+             Object OwnedBuilder\n KindOf = SELECTABLE VEHICLE DOZER\n CommandSet = SharedBuilderSet\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = DozerAIUpdate BuilderAI\n End\nEnd\n\
+             Object OwnedSite\n KindOf = STRUCTURE SELECTABLE IMMOBILE\n BuildCost = 300\n BuildTime = 1\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\n\
+             Object PeerSite\n KindOf = STRUCTURE SELECTABLE IMMOBILE\n BuildCost = 300\n BuildTime = 1\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\n".into(),
         )])
         .unwrap();
     world
@@ -117,10 +120,13 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
                  CommandButton UseShared\n Command = SPECIAL_POWER\n SpecialPower = SharedPower\n Science = SCIENCE_Shared\n Options = NEED_SPECIAL_POWER_SCIENCE OK_FOR_MULTI_SELECT\n TextLabel = BasePower\nEnd\n\
                  CommandButton StopSelected\n Command = STOP\n Options = OK_FOR_MULTI_SELECT\nEnd\n\
                  CommandButton AttackMoveSelected\n Command = ATTACK_MOVE\n Options = OK_FOR_MULTI_SELECT\nEnd\n\
+                 CommandButton SharedBuild\n Command = DOZER_CONSTRUCT\n Object = {}\nEnd\n\
                  CommandSet Rank1\n 1 = BuyShared\nEnd\nCommandSet Rank3\nEnd\nCommandSet Rank8\nEnd\n\
                  CommandSet SharedSet\n 1 = UseShared\n 2 = StopSelected\n 3 = AttackMoveSelected\nEnd\n\
+                 CommandSet SharedBuilderSet\n 1 = SharedBuild\nEnd\n\
                  PlayerTemplate FactionAmerica\n StartMoney = {money}\n IntrinsicSciences = SCIENCE_Root\n PurchaseScienceCommandSetRank1 = Rank1\n PurchaseScienceCommandSetRank3 = Rank3\n PurchaseScienceCommandSetRank8 = Rank8\nEnd\n",
-                if money == 1300 { 1 } else { 5 }
+                if money == 1300 { 1 } else { 5 },
+                if money == 1300 { "OwnedSite" } else { "PeerSite" },
             ),
         )
         .unwrap();
@@ -255,6 +261,27 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
     assert!(!selected_command.button_hidden);
     assert_eq!(selected_command.button_image, "SharedRankImage");
     assert_eq!(selected_command.text_label, "SharedRankLabel");
+
+    // CommandSet::getCommandButton observes this world's script overrides
+    // for both the selected object's commands and purchase/rank artwork.
+    first.set_control_bar_override("SharedSet", 1, None);
+    first.set_control_bar_override("Rank1", 0, None);
+    let overridden_frame =
+        generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut first, 1);
+    first_client.with_window_event_effects(None, |effects| {
+        effects.with_manager(|manager, effects| {
+            overridden_frame.apply_to_control_bar(&mut first_bar, manager, effects)
+        });
+    });
+    assert!(first_bar.get_context().available_commands[1].button_hidden);
+    assert!(first_bar.get_science_state().rank1_buttons[0].is_hidden);
+    assert_eq!(
+        first_bar.get_context().available_commands[0].text_label,
+        "BasePower"
+    );
+    assert!(!peer_bar.get_science_state().rank1_buttons[0].is_hidden);
+    first.set_control_bar_override("SharedSet", 1, Some("StopSelected"));
+    first.set_control_bar_override("Rank1", 0, Some("BuyShared"));
 
     let second = first
         .create_object_for_player("SelectedObject", 1, glam::Vec3::ZERO)
@@ -421,6 +448,84 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
             .unwrap()
             .template_index,
         Some(0)
+    );
+
+    // Same builder/set/button names, but each Map.ini authorizes a different
+    // structure. The actual DozerConstruct command must use the recipient.
+    let mut build_owner = world(1200, &first_map);
+    let mut build_peer = world(2200, &peer_map);
+    build_owner.set_skirmish_rules(false, false, false, true, 1.0);
+    build_peer.set_skirmish_rules(false, false, false, true, 1.0);
+    let position = glam::Vec3::new(45.0, 0.0, 45.0);
+    let owner_builder = build_owner
+        .create_object_for_player("OwnedBuilder", 1, position)
+        .unwrap();
+    let peer_builder = build_peer
+        .create_object_for_player("OwnedBuilder", 1, position)
+        .unwrap();
+    assert_eq!(owner_builder, peer_builder);
+    assert!(
+        build_owner
+            .host_object(owner_builder)
+            .unwrap()
+            .can_construct()
+    );
+    let construct = |world: &mut GameLogic, selected| {
+        generals_main::command_executor::CommandExecutor::new(world, 1)
+            .execute_command(generals_main::command_system::GameCommand {
+                command_type: generals_main::command_system::CommandType::DozerConstruct {
+                    template_name: "OwnedSite".into(),
+                    location: glam::Vec3::new(80.0, 0.0, 80.0),
+                    orientation: 0.0,
+                },
+                player_id: 1,
+                command_id: 10,
+                timestamp: std::time::UNIX_EPOCH,
+                selected_units: vec![selected],
+                modifier_keys: generals_main::command_system::ModifierKeys::default(),
+            })
+            .unwrap()
+    };
+    assert_eq!(
+        construct(&mut build_peer, peer_builder),
+        generals_main::command_system::CommandResult::InvalidCommand
+    );
+    assert_eq!(build_peer.get_player(1).unwrap().resources.supplies, 2400);
+    let placement = build_owner.legal_build_code_at_for_builder_ex(
+        build_owner.get_player(1).unwrap().team,
+        glam::Vec3::new(80.0, 0.0, 80.0),
+        "OwnedSite",
+        Some(owner_builder),
+        0,
+    );
+    assert_eq!(
+        placement,
+        0,
+        "placement code {placement}, bounds {:?}",
+        build_owner.world_bounds()
+    );
+    assert_eq!(
+        construct(&mut build_owner, owner_builder),
+        generals_main::command_system::CommandResult::Success
+    );
+    assert_eq!(build_owner.get_player(1).unwrap().resources.supplies, 1000);
+    assert_eq!(build_peer.get_player(1).unwrap().resources.supplies, 2400);
+    assert!(
+        build_owner
+            .host_objects()
+            .registered_values()
+            .any(|object| {
+                object.template_name == "OwnedSite"
+                    && object.owner_player_id == Some(1)
+                    && object.builder_id == Some(owner_builder)
+                    && object.status.under_construction
+            })
+    );
+    assert!(
+        !build_peer
+            .host_objects()
+            .registered_values()
+            .any(|object| object.template_name == "OwnedSite")
     );
     *get_player_template_store_mut() = previous;
 }
