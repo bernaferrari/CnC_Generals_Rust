@@ -126,7 +126,12 @@ fn receiving_special_power_radius(
     world
         .receiving_module_content
         .as_ref()
-        .and_then(|content| content.action_definitions().powers.find_template(template_name))
+        .and_then(|content| {
+            content
+                .action_definitions()
+                .powers
+                .find_template(template_name)
+        })
         .map(|template| template.radius_cursor_radius)
         .filter(|radius| *radius > 0.0)
         .unwrap_or(0.0)
@@ -328,8 +333,24 @@ impl CnCGameEngine {
             return;
         };
         let player_id = self.current_player_id;
-        // Wave 219: selection via presentation-first ui_selected_ids.
-        let selected = self.ui_selected_ids(player_id);
+        // C++ resolves shortcut sources again when a target is chosen. This
+        // is independent of the UI selection and rejects a vanished source.
+        let selected = if let PendingMapCommand::ShortcutSpecialPower {
+            command_name,
+            power_name,
+            ..
+        } = &kind
+        {
+            match self
+                .game_logic
+                .shortcut_command_source(player_id, command_name, power_name)
+            {
+                Ok(Some(source)) => vec![source],
+                Ok(None) | Err(_) => return,
+            }
+        } else {
+            self.ui_selected_ids(player_id)
+        };
         let allows_empty = matches!(kind, PendingMapCommand::PlaceBeacon);
         if selected.is_empty() && !allows_empty {
             return;
@@ -379,7 +400,8 @@ impl CnCGameEngine {
                 };
                 command
             }
-            PendingMapCommand::SpecialPower(power_type) => {
+            PendingMapCommand::SpecialPower(power_type)
+            | PendingMapCommand::ShortcutSpecialPower { power_type, .. } => {
                 let target = if let Some(tid) = filtered_target {
                     crate::command_system::PowerTarget::Object(tid)
                 } else {
@@ -549,7 +571,9 @@ impl CnCGameEngine {
         let needs_pos = options & Self::NEED_TARGET_POS != 0;
         match kind {
             PendingMapCommand::UnitAbility(_) => filtered_target.is_some(),
-            PendingMapCommand::SpecialPower(_) | PendingMapCommand::Weapon(_) => {
+            PendingMapCommand::SpecialPower(_)
+            | PendingMapCommand::ShortcutSpecialPower { .. }
+            | PendingMapCommand::Weapon(_) => {
                 if needs_object && !needs_pos {
                     filtered_target.is_some()
                 } else {
@@ -721,9 +745,15 @@ impl CnCGameEngine {
                 .expect("receiving InGameUI initialized")
                 .get_pending_special_power()
             {
-                if let Some(radius) = self.game_logic.receiving_module_content.as_ref()
+                if let Some(radius) = self
+                    .game_logic
+                    .receiving_module_content
+                    .as_ref()
                     .and_then(|content| {
-                        content.action_definitions().powers.find_template_by_id(pending.power_id)
+                        content
+                            .action_definitions()
+                            .powers
+                            .find_template_by_id(pending.power_id)
                     })
                     .map(|template| template.radius_cursor_radius)
                     .filter(|radius| *radius > 0.0)
@@ -732,7 +762,13 @@ impl CnCGameEngine {
                 }
             }
         }
-        if let Some(PendingMapCommand::SpecialPower(power)) = self.pending_map_command.as_ref() {
+        if let Some(
+            PendingMapCommand::SpecialPower(power)
+            | PendingMapCommand::ShortcutSpecialPower {
+                power_type: power, ..
+            },
+        ) = self.pending_map_command.as_ref()
+        {
             if let Some(name) = leftover_special_template_name_for_power(power) {
                 let radius = receiving_special_power_radius(&self.game_logic, name);
                 if radius > 0.0 {
@@ -774,7 +810,10 @@ impl CnCGameEngine {
             PendingMapCommand::SetRallyPoint => "FRIENDLY_SPECIALPOWER",
             PendingMapCommand::CombatDrop(_) => "COMBATDROP",
             PendingMapCommand::PlaceBeacon => "RADAR",
-            PendingMapCommand::SpecialPower(ref p) => Self::radius_cursor_type_for_special_power(p),
+            PendingMapCommand::SpecialPower(ref p)
+            | PendingMapCommand::ShortcutSpecialPower {
+                power_type: ref p, ..
+            } => Self::radius_cursor_type_for_special_power(p),
             PendingMapCommand::Weapon(ref weapon) if weapon.uses_mine_clearing_weapon_set() => {
                 "CLEARMINES"
             }
@@ -3175,7 +3214,10 @@ mod tests {
     #[test]
     fn leftover_radius_cursor_attack_ground_is_not_table_zero() {
         assert_eq!(
-            receiving_special_radius_for_type(&crate::game_logic::GameLogic::new(), "OFFENSIVE_SPECIALPOWER"),
+            receiving_special_radius_for_type(
+                &crate::game_logic::GameLogic::new(),
+                "OFFENSIVE_SPECIALPOWER"
+            ),
             0.0
         );
     }

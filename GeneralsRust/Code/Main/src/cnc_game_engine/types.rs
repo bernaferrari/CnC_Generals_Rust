@@ -785,6 +785,14 @@ pub(super) enum PendingMapCommand {
     CombatDrop(PendingCombatDropCommand),
     /// Armed superweapon / special power residual awaiting map click.
     SpecialPower(crate::command_system::SpecialPowerType),
+    /// An authored shortcut resolves its source from this session when the
+    /// target is chosen; it must not replace the player's current selection.
+    ShortcutSpecialPower {
+        power_type: crate::command_system::SpecialPowerType,
+        command_name: String,
+        power_name: String,
+        options: u32,
+    },
     /// A `FIRE_WEAPON` CommandButton retains its exact slot, shot limit, and
     /// target-selection options until the player chooses an object or map
     /// position.
@@ -802,6 +810,7 @@ impl PendingMapCommand {
         match self {
             Self::Weapon(weapon) => Some(weapon.options),
             Self::CombatDrop(combat_drop) => Some(combat_drop.options),
+            Self::ShortcutSpecialPower { options, .. } => Some(*options),
             _ => None,
         }
     }

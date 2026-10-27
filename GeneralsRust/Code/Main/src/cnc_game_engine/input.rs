@@ -3330,7 +3330,10 @@ impl CnCGameEngine {
                             .clear_structure_placement();
                         if matches!(
                             self.pending_map_command,
-                            Some(PendingMapCommand::SpecialPower(_))
+                            Some(
+                                PendingMapCommand::SpecialPower(_)
+                                    | PendingMapCommand::ShortcutSpecialPower { .. }
+                            )
                         ) {
                             self.pending_map_command = None;
                             self.clear_radius_cursor_overlays();

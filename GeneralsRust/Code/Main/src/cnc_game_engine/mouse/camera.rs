@@ -595,7 +595,10 @@ impl CnCGameEngine {
                 PendingMapCommand::SetRallyPoint => ("SetRallyPoint", CursorIcon::Cell),
                 PendingMapCommand::CombatDrop(_) => ("CombatDrop", CursorIcon::Move),
                 PendingMapCommand::PlaceBeacon => ("PlaceBeacon", CursorIcon::Cell),
-                PendingMapCommand::SpecialPower(_) => ("Target", CursorIcon::Crosshair),
+                PendingMapCommand::SpecialPower(_)
+                | PendingMapCommand::ShortcutSpecialPower { .. } => {
+                    ("Target", CursorIcon::Crosshair)
+                }
                 PendingMapCommand::Weapon(_) => ("Target", CursorIcon::Crosshair),
                 PendingMapCommand::UnitAbility(_) => ("Target", CursorIcon::Crosshair),
             };

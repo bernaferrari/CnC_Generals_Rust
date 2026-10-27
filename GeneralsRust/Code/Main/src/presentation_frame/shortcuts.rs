@@ -97,72 +97,14 @@ pub(super) fn freeze(logic: &GameLogic, player_id: u32) -> ReceivingShortcutSnap
             if power.required_science != SCIENCE_INVALID && !has_science(power.required_science) {
                 continue;
             }
-            let mut best: Option<(u32, bool, bool, Option<f32>)> = None;
-            let mut ready_count = 0;
-            for object in &objects {
-                let Some(module) =
-                    object
-                        .thing()
-                        .template
-                        .special_power_modules
-                        .iter()
-                        .find(|module| {
-                            !module.scripted_special_power_only
-                                && actions
-                                    .powers
-                                    .find_template(&module.special_power_template)
-                                    .is_some_and(|candidate| {
-                                        candidate.power_type == power.power_type
-                                    })
-                        })
-                else {
-                    continue;
-                };
-                let remaining = module
-                    .command_power
-                    .as_ref()
-                    .map(|kind| {
-                        if module.shared_n_sync {
-                            player.shared_special_power_remaining(kind)
-                        } else {
-                            object.special_power_countdown_seconds(kind)
-                        }
-                    })
-                    .filter(|seconds| seconds.is_finite());
-                let paused = module
-                    .command_power
-                    .as_ref()
-                    .is_some_and(|kind| object.is_special_power_countdown_paused(kind));
-                let disabled = object.is_disabled();
-                if !disabled && !paused && remaining.is_some_and(|seconds| seconds <= 0.0) {
-                    if !module.shared_n_sync || ready_count == 0 {
-                        ready_count += 1;
-                    }
-                }
-                let rank = |disabled: bool, remaining: Option<f32>| {
-                    if disabled {
-                        f32::INFINITY
-                    } else {
-                        remaining.unwrap_or(f32::INFINITY)
-                    }
-                };
-                if best
-                    .as_ref()
-                    .is_none_or(|(_, old_disabled, _, old_remaining)| {
-                        rank(disabled, remaining) < rank(*old_disabled, *old_remaining)
-                    })
-                {
-                    best = Some((object.id.0, disabled, paused, remaining));
-                }
-            }
-            let Some((id, disabled, paused, remaining)) = best else {
+            let Some(source) = logic.shortcut_power_source(player_id, power.power_type) else {
                 continue;
             };
-            entry.source_object_id = Some(id);
-            entry.ready_count = ready_count.max(1);
-            entry.availability = if disabled || remaining.is_none() {
+            entry.source_object_id = Some(source.id.0);
+            entry.ready_count = source.ready_count;
+            entry.availability = if source.disabled || source.remaining.is_none() {
                 CommandAvailability::Restricted
-            } else if paused || remaining.is_some_and(|seconds| seconds > 0.0) {
+            } else if source.paused || source.remaining.is_some_and(|seconds| seconds > 0.0) {
                 CommandAvailability::NotReady
             } else {
                 CommandAvailability::Available

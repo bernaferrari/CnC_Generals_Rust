@@ -52,7 +52,8 @@ fn world(start_money: u32, map: &std::path::Path) -> GameLogic {
             "Object SelectedObject\n KindOf = SELECTABLE VEHICLE\n CommandSet = SharedSet\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
              Object OwnedBuilder\n KindOf = SELECTABLE VEHICLE DOZER\n CommandSet = SharedBuilderSet\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = DozerAIUpdate BuilderAI\n End\nEnd\n\
              Object OwnedSite\n KindOf = STRUCTURE SELECTABLE IMMOBILE\n BuildCost = 300\n BuildTime = 1\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\n\
-             Object PeerSite\n KindOf = STRUCTURE SELECTABLE IMMOBILE\n BuildCost = 300\n BuildTime = 1\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\n".into(),
+             Object PeerSite\n KindOf = STRUCTURE SELECTABLE IMMOBILE\n BuildCost = 300\n BuildTime = 1\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\n\
+             Object ShortcutOwner\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SpecialAbility SourcePower\n SpecialPowerTemplate = SpecialPowerSpySatellite\n End\nEnd\n".into(),
         )])
         .unwrap();
     world
@@ -116,6 +117,9 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
                 "Science SCIENCE_Root\n IsGrantable = Yes\nEnd\n\
                  Science SCIENCE_Shared\n PrerequisiteSciences = SCIENCE_Root\n SciencePurchasePointCost = {}\nEnd\n\
                  SpecialPower SharedPower\n Enum = SPECIAL_SPY_SATELLITE\n RequiredScience = SCIENCE_Shared\nEnd\n\
+                 SpecialPower SpecialPowerSpySatellite\n Enum = SPECIAL_SPY_SATELLITE\n ShortcutPower = Yes\nEnd\n\
+                 CommandButton OwnerShortcut\n Command = SPECIAL_POWER_FROM_SHORTCUT\n SpecialPower = SpecialPowerSpySatellite\nEnd\n\
+                 CommandButton OrdinaryPower\n Command = SPECIAL_POWER\n SpecialPower = SpecialPowerSpySatellite\nEnd\n\
                  CommandButton BuyShared\n Command = PURCHASE_SCIENCE\n Science = SCIENCE_Shared\n ButtonImage = SharedRankImage\n TextLabel = SharedRankLabel\nEnd\n\
                  CommandButton UseShared\n Command = SPECIAL_POWER\n SpecialPower = SharedPower\n Science = SCIENCE_Shared\n Options = NEED_SPECIAL_POWER_SCIENCE OK_FOR_MULTI_SELECT\n TextLabel = BasePower\nEnd\n\
                  CommandButton StopSelected\n Command = STOP\n Options = OK_FOR_MULTI_SELECT\nEnd\n\
@@ -290,6 +294,63 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
     assert!(!peer_bar.get_science_state().rank1_buttons[0].is_hidden);
     first.set_control_bar_override("SharedSet", 1, Some("StopSelected"));
     first.set_control_bar_override("Rank1", 0, Some("BuyShared"));
+
+    // Shortcut source selection is a live, per-world operation. It is not
+    // the selected object, and another world's matching IDs cannot supply it.
+    let peer_selected = peer
+        .create_object_for_player("SelectedObject", 1, glam::Vec3::ZERO)
+        .unwrap();
+    assert_eq!(selected, peer_selected);
+    let source = first
+        .create_object_for_player("ShortcutOwner", 1, glam::Vec3::ZERO)
+        .unwrap();
+    let peer_source = peer
+        .create_object_for_player("ShortcutOwner", 1, glam::Vec3::ZERO)
+        .unwrap();
+    assert_eq!(source, peer_source);
+    let power = generals_main::command_system::SpecialPowerType::SpySatellite;
+    first
+        .host_object_mut(source)
+        .unwrap()
+        .set_special_power_ready_seconds(&power, 10.0);
+    assert!(
+        first
+            .shortcut_command_source(1, "OwnerShortcut", "SpecialPowerSpySatellite")
+            .is_err()
+    );
+    assert_eq!(
+        peer.shortcut_command_source(1, "OwnerShortcut", "SpecialPowerSpySatellite"),
+        Ok(Some(peer_source))
+    );
+    first
+        .host_object_mut(source)
+        .unwrap()
+        .set_special_power_ready_seconds(&power, 0.0);
+    assert_eq!(
+        first.shortcut_command_source(1, "OwnerShortcut", "SpecialPowerSpySatellite"),
+        Ok(Some(source))
+    );
+    first.host_object_mut(source).unwrap().status.sold = true;
+    assert!(
+        first
+            .shortcut_command_source(1, "OwnerShortcut", "SpecialPowerSpySatellite")
+            .is_err()
+    );
+    first.host_object_mut(source).unwrap().status.sold = false;
+    assert_eq!(
+        first.shortcut_command_source(1, "OrdinaryPower", "SpecialPowerSpySatellite"),
+        Ok(None)
+    );
+    assert!(
+        first
+            .shortcut_command_source(1, "OwnerShortcut", "WrongPower")
+            .is_err()
+    );
+    assert_eq!(
+        first.get_player(1).unwrap().selected_objects,
+        vec![selected]
+    );
+    assert!(peer.get_player(1).unwrap().selected_objects.is_empty());
 
     let second = first
         .create_object_for_player("SelectedObject", 1, glam::Vec3::ZERO)

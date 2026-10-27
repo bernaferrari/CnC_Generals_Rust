@@ -29,6 +29,7 @@ mod ready_completions;
 pub(in crate::game_logic) use ready_completions::allocate_live_object_id;
 mod resources_income;
 mod selection_owner;
+pub(crate) mod shortcut_power;
 mod spawn_templates;
 mod support_states;
 mod team_transfer;

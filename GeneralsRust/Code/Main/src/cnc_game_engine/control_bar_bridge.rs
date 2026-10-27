@@ -440,14 +440,6 @@ impl CnCGameEngine {
             return;
         }
 
-        self.host_mark_single_use_command_if_needed(
-            options,
-            selected_object_ids
-                .iter()
-                .copied()
-                .map(crate::game_logic::ObjectId),
-        );
-
         if command_type == LegacyCommandType::PurchaseScience {
             let Some(science_name) = science_names.iter().find(|name| {
                 !name.trim().is_empty()
@@ -505,7 +497,24 @@ impl CnCGameEngine {
             return;
         }
 
-        let selected = self.host_control_bar_local_selection(player_id, selected_object_ids);
+        let shortcut_source = if let Some(power_name) = special_power_name {
+            match self
+                .game_logic
+                .shortcut_command_source(player_id, command_name, power_name)
+            {
+                Ok(source) => source,
+                Err(reason) => {
+                    self.host_reject_control_bar_request(reason);
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+        let selected = shortcut_source.map_or_else(
+            || self.host_control_bar_local_selection(player_id, selected_object_ids),
+            |source| vec![source],
+        );
         if selected.is_empty()
             && !self.host_control_bar_command_allows_empty_selection(command_type)
         {
@@ -514,7 +523,10 @@ impl CnCGameEngine {
             );
             return;
         }
-        if !selected.is_empty() {
+        if shortcut_source.is_none() {
+            self.host_mark_single_use_command_if_needed(options, selected.iter().copied());
+        }
+        if shortcut_source.is_none() && !selected.is_empty() {
             self.host_set_selection(player_id, selected.clone());
         }
 
@@ -676,6 +688,9 @@ impl CnCGameEngine {
         target: HostControlBarTarget,
         physical_os_input: bool,
     ) {
+        if !self.host_control_bar_is_local_player(player_id) {
+            return;
+        }
         let generic_action = match &target {
             HostControlBarTarget::Generic => {
                 match host_control_bar_generic_target_action(
@@ -695,7 +710,28 @@ impl CnCGameEngine {
             HostControlBarTarget::DozerConstruct { .. }
             | HostControlBarTarget::SpecialPower { .. } => None,
         };
-        let selected = self.host_control_bar_local_selection(player_id, selected_object_ids);
+        let shortcut_source = if let HostControlBarTarget::SpecialPower {
+            special_power_name, ..
+        } = &target
+        {
+            match self.game_logic.shortcut_command_source(
+                player_id,
+                command_name,
+                special_power_name,
+            ) {
+                Ok(source) => source,
+                Err(reason) => {
+                    self.host_reject_control_bar_request(reason);
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+        let selected = shortcut_source.map_or_else(
+            || self.host_control_bar_local_selection(player_id, selected_object_ids),
+            |source| vec![source],
+        );
         let generic_allows_empty_selection = matches!(
             generic_action.as_ref(),
             Some(HostControlBarGenericTargetAction::PlaceBeacon)
@@ -706,9 +742,11 @@ impl CnCGameEngine {
             );
             return;
         }
-        self.host_mark_single_use_command_if_needed(options, selected.iter().copied());
+        if shortcut_source.is_none() {
+            self.host_mark_single_use_command_if_needed(options, selected.iter().copied());
+        }
         let selected_has_dozer = selected.iter().any(|id| self.ui_object_is_dozer(*id));
-        if !selected.is_empty() {
+        if shortcut_source.is_none() && !selected.is_empty() {
             // The frozen HDB readiness gate below must inspect the exact same
             // vetted selection after this UI-side selection update.  Preserve
             // the small object-id vector rather than recomputing it from live
@@ -759,7 +797,16 @@ impl CnCGameEngine {
                     return;
                 }
                 let cursor = Self::radius_cursor_type_for_special_power(&power_type);
-                self.pending_map_command = Some(PendingMapCommand::SpecialPower(power_type));
+                self.pending_map_command = Some(if shortcut_source.is_some() {
+                    PendingMapCommand::ShortcutSpecialPower {
+                        power_type,
+                        command_name: command_name.to_owned(),
+                        power_name: special_power_name,
+                        options,
+                    }
+                } else {
+                    PendingMapCommand::SpecialPower(power_type)
+                });
                 self.pending_structure_placement = None;
                 self.arm_radius_cursor_for_pending(cursor);
             }
