@@ -240,6 +240,7 @@ impl GameLogic {
         // Freeze the GameData bonus rows at the same receiving weapon-content
         // boundary; runtime Object readers never need to select a global set.
         self.admit_current_global_weapon_bonus_snapshot();
+        self.admit_current_veterancy_health_bonus_table();
         self.weapon_definition_base = Some(catalog.clone());
         self.weapon_definitions = Some(catalog);
         self.projectile_definitions = profiles;

@@ -1349,8 +1349,14 @@ impl GameLogic {
         } else {
             (recipient_id, amount)
         };
+        let health_bonus = self.veterancy_health_bonus;
         self.with_object_veterancy_feedback(dest_id, |object, audio, feedback| {
-            object.gain_experience(forwarded, audio, feedback);
+            object.gain_experience_with_health_bonus_table(
+                forwarded,
+                &health_bonus,
+                audio,
+                feedback,
+            );
         });
     }
 

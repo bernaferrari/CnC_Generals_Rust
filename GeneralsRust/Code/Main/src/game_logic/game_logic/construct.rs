@@ -79,6 +79,7 @@ impl GameLogic {
             weapon_definitions: None,
             solo_weapon_bonus_set: gamelogic::weapon::WeaponBonusSet::new(),
             solo_player_health_bonus_for_difficulty: None,
+            veterancy_health_bonus: [1.0; game_engine::common::global_data::LEVEL_COUNT],
             projectile_definitions: Default::default(),
             body_damage_definitions: Default::default(),
             lighting_definitions: Default::default(),
@@ -764,11 +765,20 @@ impl GameLogic {
         instance.refresh_pathfinding_ai_definitions();
         instance.rebuild_objective_lookup();
         instance.admit_current_global_solo_player_health_bonus_snapshot();
+        instance.admit_current_veterancy_health_bonus_table();
         // C++ GameLogic::GameLogic only initializes fields. Constructing a
         // candidate must not publish its authority, store bundle, or override
         // callback while another world is live. WorldServices constructs a
         // fresh shroud; it never copies a previous match's mutable state.
         instance
+    }
+
+    /// Snapshot the effective engine veterancy health table for this session.
+    /// Missing GlobalData preserves the prior admitted table.
+    pub(crate) fn admit_current_veterancy_health_bonus_table(&mut self) {
+        if let Some(data) = game_engine::common::ini::get_global_data() {
+            self.veterancy_health_bonus = data.read().health_bonus;
+        }
     }
 
     /// World bounds used for minimap/FOW projections.
@@ -832,6 +842,7 @@ impl GameLogic {
         // Snapshot immutable GlobalData weapon bonuses into this session.
         // Missing GlobalData leaves the prior admitted owner set intact.
         self.admit_current_global_weapon_bonus_snapshot();
+        self.admit_current_veterancy_health_bonus_table();
         self.queued_audio_events.reset();
         self.session_view.world_animations.clear();
         self.session_view.border_shroud_level = None;

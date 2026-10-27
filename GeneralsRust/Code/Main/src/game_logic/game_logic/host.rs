@@ -43,6 +43,8 @@ pub struct GameLogic {
         [[f32; game_engine::common::global_data::DIFFICULTY_COUNT];
             game_engine::common::global_data::PLAYERTYPE_COUNT],
     >,
+    /// Global veterancy health factors admitted with this receiving session.
+    pub(crate) veterancy_health_bonus: [f32; game_engine::common::global_data::LEVEL_COUNT],
     pub(crate) weapon_definitions: Option<HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>>,
     pub(crate) projectile_definitions:
         crate::game_logic::projectile_definitions::ProjectileDefinitions,

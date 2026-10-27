@@ -997,6 +997,26 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
     ) {
+        self.gain_experience_inner(amount, None, audio, feedback);
+    }
+
+    pub(crate) fn gain_experience_with_health_bonus_table(
+        &mut self,
+        amount: f32,
+        health_bonus: &[f32; game_engine::common::global_data::LEVEL_COUNT],
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+    ) {
+        self.gain_experience_inner(amount, Some(health_bonus), audio, feedback);
+    }
+
+    fn gain_experience_inner(
+        &mut self,
+        amount: f32,
+        health_bonus: Option<&[f32; game_engine::common::global_data::LEVEL_COUNT]>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+    ) {
         // C++ addExperiencePoints: untrainable objects keep no XP (sink
         // forwarding is handled by GameLogic::award_experience).
         if !self.is_trainable() {
@@ -1036,7 +1056,17 @@ impl Object {
         if new_level != previous_level {
             self.experience.level = new_level;
             // Apply veterancy bonuses
-            self.apply_veterancy_bonuses(previous_level, new_level, audio, feedback);
+            if let Some(table) = health_bonus {
+                self.apply_veterancy_bonuses_with_health_table(
+                    previous_level,
+                    new_level,
+                    table,
+                    audio,
+                    feedback,
+                );
+            } else {
+                self.apply_veterancy_bonuses(previous_level, new_level, audio, feedback);
+            }
         }
     }
 
@@ -1097,16 +1127,43 @@ impl Object {
         crate::game_logic::host_unit_training::veterancy_health_scale(previous_level, new_level)
     }
 
+    fn veterancy_health_bonus_scale_from_table(
+        table: &[f32; game_engine::common::global_data::LEVEL_COUNT],
+        previous_level: VeterancyLevel,
+        new_level: VeterancyLevel,
+    ) -> f32 {
+        let idx = |level: VeterancyLevel| match level {
+            VeterancyLevel::Rookie => 0usize,
+            VeterancyLevel::Veteran => 1,
+            VeterancyLevel::Elite => 2,
+            VeterancyLevel::Heroic => 3,
+        };
+        let old = table[idx(previous_level)];
+        let new = table[idx(new_level)];
+        if old > 0.0
+            && new > 0.0
+            && ((old - 1.0).abs() > f32::EPSILON || (new - 1.0).abs() > f32::EPSILON)
+        {
+            new / old
+        } else {
+            crate::game_logic::host_unit_training::veterancy_health_scale(previous_level, new_level)
+        }
+    }
+
     /// C++ ActiveBody::onVeterancyLevelChanged → setMaxHealth(..., PRESERVE_RATIO).
     fn apply_veterancy_max_health_scale(
         &mut self,
         previous_level: VeterancyLevel,
         new_level: VeterancyLevel,
+        health_bonus: Option<&[f32; game_engine::common::global_data::LEVEL_COUNT]>,
     ) {
         if previous_level == new_level {
             return;
         }
-        let scale = Self::veterancy_health_bonus_scale(previous_level, new_level);
+        let scale = health_bonus.map_or_else(
+            || Self::veterancy_health_bonus_scale(previous_level, new_level),
+            |table| Self::veterancy_health_bonus_scale_from_table(table, previous_level, new_level),
+        );
         let old_max = if self.health.maximum > 0.0 {
             self.health.maximum
         } else {
@@ -1123,7 +1180,7 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
     ) {
-        self.apply_veterancy_bonuses_impl(previous_level, new_level, Some((audio, feedback)));
+        self.apply_veterancy_bonuses_impl(previous_level, new_level, None, Some((audio, feedback)));
     }
 
     /// Rider/hijack transfers retain all Body/weapon state changes without
@@ -1133,13 +1190,30 @@ impl Object {
         previous_level: VeterancyLevel,
         new_level: VeterancyLevel,
     ) {
-        self.apply_veterancy_bonuses_impl(previous_level, new_level, None);
+        self.apply_veterancy_bonuses_impl(previous_level, new_level, None, None);
+    }
+
+    fn apply_veterancy_bonuses_with_health_table(
+        &mut self,
+        previous_level: VeterancyLevel,
+        new_level: VeterancyLevel,
+        health_bonus: &[f32; game_engine::common::global_data::LEVEL_COUNT],
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+    ) {
+        self.apply_veterancy_bonuses_impl(
+            previous_level,
+            new_level,
+            Some(health_bonus),
+            Some((audio, feedback)),
+        );
     }
 
     fn apply_veterancy_bonuses_impl(
         &mut self,
         previous_level: VeterancyLevel,
         new_level: VeterancyLevel,
+        health_bonus: Option<&[f32; game_engine::common::global_data::LEVEL_COUNT]>,
         mut outputs: Option<(
             &mut crate::game_logic::ObjectAudio<'_>,
             &mut crate::game_logic::VeterancyFeedback<'_>,
@@ -1163,7 +1237,7 @@ impl Object {
 
         // C++ ActiveBody::setMaxHealth(m_maxHealth * (newBonus/oldBonus), PRESERVE_RATIO).
         // Scale the *current* body max so Composite Armor / difficulty HP survive rank-up.
-        self.apply_veterancy_max_health_scale(previous_level, new_level);
+        self.apply_veterancy_max_health_scale(previous_level, new_level, health_bonus);
 
         self.set_body_max_health(self.health.maximum.max(1.0));
         self.set_veterancy_armor_set_flags(new_level);
@@ -1238,6 +1312,26 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
     ) -> bool {
+        self.set_min_veterancy_level_inner(level, None, audio, feedback)
+    }
+
+    pub(crate) fn set_min_veterancy_level_with_health_bonus_table(
+        &mut self,
+        level: VeterancyLevel,
+        health_bonus: &[f32; game_engine::common::global_data::LEVEL_COUNT],
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+    ) -> bool {
+        self.set_min_veterancy_level_inner(level, Some(health_bonus), audio, feedback)
+    }
+
+    fn set_min_veterancy_level_inner(
+        &mut self,
+        level: VeterancyLevel,
+        health_bonus: Option<&[f32; game_engine::common::global_data::LEVEL_COUNT]>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+    ) -> bool {
         fn rank(level: VeterancyLevel) -> u8 {
             match level {
                 VeterancyLevel::Rookie => 0,
@@ -1268,7 +1362,11 @@ impl Object {
         self.experience.level = level;
         let seed = xp_seed(level, thresholds);
         self.experience.current = self.experience.current.max(seed);
-        self.apply_veterancy_bonuses(previous, level, audio, feedback);
+        if let Some(table) = health_bonus {
+            self.apply_veterancy_bonuses_with_health_table(previous, level, table, audio, feedback);
+        } else {
+            self.apply_veterancy_bonuses(previous, level, audio, feedback);
+        }
         true
     }
 
