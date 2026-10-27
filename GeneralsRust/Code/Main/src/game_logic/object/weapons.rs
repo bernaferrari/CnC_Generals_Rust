@@ -411,10 +411,21 @@ impl Object {
     /// elapses so `ammo == 0` can still mark `RELOADING_CLIP`. Completing here
     /// matches leftover `Weapon::update` late refill + C++ `getStatus` READY.
     fn complete_elapsed_auto_reload_clips(&mut self, current_time: f32) -> bool {
+        self.complete_elapsed_auto_reload_clips_with_optional_solo_set(current_time, None)
+    }
+
+    fn complete_elapsed_auto_reload_clips_with_optional_solo_set(
+        &mut self,
+        current_time: f32,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) -> bool {
         use crate::game_logic::weapon_bootstrap::{
             HostReloadType, host_reload_type_for_weapon_name,
         };
-        let rof = self.weapon_bonus_fields().2;
+        let rof = solo_set.map_or_else(
+            || self.weapon_bonus_fields().2,
+            |set| self.weapon_bonus_fields_with_solo_set(set).2,
+        );
         let mut completed = false;
         for slot in [0u8, 1, 2] {
             let name = self.weapon_name_for_slot(slot).map(str::to_owned);
@@ -479,8 +490,24 @@ impl Object {
 
     /// C++ Weapon::getStatus residual refresh for the active/primary slot.
     pub fn refresh_weapon_fire_status(&mut self, current_time: f32) {
-        self.apply_weapon_bonus_rof_restart(current_time);
-        self.complete_elapsed_auto_reload_clips(current_time);
+        self.refresh_weapon_fire_status_with_optional_solo_set(current_time, None);
+    }
+
+    pub(crate) fn refresh_weapon_fire_status_with_solo_set(
+        &mut self,
+        current_time: f32,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) {
+        self.refresh_weapon_fire_status_with_optional_solo_set(current_time, Some(solo_set));
+    }
+
+    fn refresh_weapon_fire_status_with_optional_solo_set(
+        &mut self,
+        current_time: f32,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) {
+        self.apply_weapon_bonus_rof_restart_with_optional_solo_set(current_time, solo_set);
+        self.complete_elapsed_auto_reload_clips_with_optional_solo_set(current_time, solo_set);
         // Pre-attack wind-up wins while armed.
         if self.pre_attack_ready_at > current_time + 1e-6 {
             self.weapon_fire_status = WeaponFireStatus::PreAttack;
@@ -494,7 +521,14 @@ impl Object {
             return;
         };
         let name = self.weapon_name_for_slot(slot);
-        let reload = self.live_reload_interval(weapon, name, self.weapon_bonus_fields().2);
+        let reload = self.live_reload_interval(
+            weapon,
+            name,
+            solo_set.map_or_else(
+                || self.weapon_bonus_fields().2,
+                |set| self.weapon_bonus_fields_with_solo_set(set).2,
+            ),
+        );
         if !self.selected_slot_has_ammo_for_shot(slot, weapon) {
             self.weapon_fire_status = WeaponFireStatus::OutOfAmmo;
             self.sync_weapon_model_conditions_from_status();
@@ -514,6 +548,22 @@ impl Object {
     }
 
     pub fn can_fire(&self, current_time: f32) -> bool {
+        self.can_fire_with_optional_solo_set(current_time, None)
+    }
+
+    pub(crate) fn can_fire_with_solo_set(
+        &self,
+        current_time: f32,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> bool {
+        self.can_fire_with_optional_solo_set(current_time, Some(solo_set))
+    }
+
+    fn can_fire_with_optional_solo_set(
+        &self,
+        current_time: f32,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) -> bool {
         // C++ Object::canFireWeapon: DISABLED_SUBDUED / weapons_jammed residual.
         // Shock stun residual blocks weapon fire while flailing/stunned.
         // C++ Object::isAbleToAttack: UNDER_CONSTRUCTION / SOLD cannot fire.
@@ -528,7 +578,10 @@ impl Object {
         let primary_name = self.primary_weapon_name().map(str::to_owned);
         let secondary_name = self.thing.template.secondary_weapon_name.clone();
         let tertiary_name = self.thing.template.tertiary_weapon_name.clone();
-        let rof = self.weapon_bonus_fields().2;
+        let rof = solo_set.map_or_else(
+            || self.weapon_bonus_fields().2,
+            |set| self.weapon_bonus_fields_with_solo_set(set).2,
+        );
         if let Some(weapon) = self.weapon_slot(0) {
             let reload = self.live_reload_interval(weapon, primary_name.as_deref(), rof);
             if Self::weapon_ready_named(weapon, current_time, primary_name.as_deref(), reload) {
@@ -1029,10 +1082,27 @@ impl Object {
     /// interval, so `last_fire` is back-computed to become ready at that
     /// shared frame.
     pub fn sync_shared_weapon_reload(&mut self) {
+        self.sync_shared_weapon_reload_with_optional_solo_set(None);
+    }
+
+    pub(crate) fn sync_shared_weapon_reload_with_solo_set(
+        &mut self,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) {
+        self.sync_shared_weapon_reload_with_optional_solo_set(Some(solo_set));
+    }
+
+    fn sync_shared_weapon_reload_with_optional_solo_set(
+        &mut self,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) {
         if !self.thing.template.share_weapon_reload_time {
             return;
         }
-        let rof = self.weapon_bonus_fields().2;
+        let rof = solo_set.map_or_else(
+            || self.weapon_bonus_fields().2,
+            |set| self.weapon_bonus_fields_with_solo_set(set).2,
+        );
         let mut latest = f32::NEG_INFINITY;
         let mut firing_slot = 0u8;
         for slot in [0u8, 1, 2] {
@@ -1097,7 +1167,26 @@ impl Object {
         &mut self,
         current_time: f32,
     ) {
-        let rof = self.weapon_bonus_fields().2;
+        self.apply_weapon_bonus_rof_restart_with_optional_solo_set(current_time, None);
+    }
+
+    pub(crate) fn apply_weapon_bonus_rof_restart_with_solo_set(
+        &mut self,
+        current_time: f32,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) {
+        self.apply_weapon_bonus_rof_restart_with_optional_solo_set(current_time, Some(solo_set));
+    }
+
+    pub(crate) fn apply_weapon_bonus_rof_restart_with_optional_solo_set(
+        &mut self,
+        current_time: f32,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) {
+        let rof = solo_set.map_or_else(
+            || self.weapon_bonus_fields().2,
+            |set| self.weapon_bonus_fields_with_solo_set(set).2,
+        );
         let mut restart_slots = [false; 3];
         let mut any_restart = false;
         for slot in [0u8, 1, 2] {
@@ -1386,12 +1475,45 @@ impl Object {
         frame: u32,
         target_has_faerie_fire: bool,
     ) -> u32 {
+        self.possible_next_shot_frame_for_slot_with_optional_solo_set(
+            slot,
+            frame,
+            target_has_faerie_fire,
+            None,
+        )
+    }
+
+    pub(crate) fn possible_next_shot_frame_for_slot_with_solo_set(
+        &self,
+        slot: u8,
+        frame: u32,
+        target_has_faerie_fire: bool,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> u32 {
+        self.possible_next_shot_frame_for_slot_with_optional_solo_set(
+            slot,
+            frame,
+            target_has_faerie_fire,
+            Some(solo_set),
+        )
+    }
+
+    pub(super) fn possible_next_shot_frame_for_slot_with_optional_solo_set(
+        &self,
+        slot: u8,
+        frame: u32,
+        target_has_faerie_fire: bool,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) -> u32 {
         let delay = self.weapon_slot(slot).map_or(0.0, |weapon| {
             crate::game_logic::host_avenger::effective_reload_vs_target(
                 self.live_reload_interval(
                     weapon,
                     self.weapon_name_for_slot(slot),
-                    self.weapon_bonus_fields().2,
+                    solo_set.map_or_else(
+                        || self.weapon_bonus_fields().2,
+                        |set| self.weapon_bonus_fields_with_solo_set(set).2,
+                    ),
                 ),
                 target_has_faerie_fire,
             )
@@ -1414,10 +1536,41 @@ impl Object {
         logic_frame: u32,
         possible_next_shot_frame: u32,
     ) {
+        self.record_shot_at_target_with_optional_solo_set(
+            target_id,
+            logic_frame,
+            possible_next_shot_frame,
+            None,
+        );
+    }
+
+    pub(crate) fn record_shot_at_target_with_solo_set(
+        &mut self,
+        target_id: Option<ObjectId>,
+        logic_frame: u32,
+        possible_next_shot_frame: u32,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) {
+        self.record_shot_at_target_with_optional_solo_set(
+            target_id,
+            logic_frame,
+            possible_next_shot_frame,
+            Some(solo_set),
+        );
+    }
+
+    fn record_shot_at_target_with_optional_solo_set(
+        &mut self,
+        target_id: Option<ObjectId>,
+        logic_frame: u32,
+        possible_next_shot_frame: u32,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) {
         self.record_shot_engagement_bookkeeping(
             target_id,
             logic_frame,
             self.continuous_fire_coast_until_frame,
+            solo_set,
         );
         self.stamp_continuous_fire_coast(possible_next_shot_frame);
         self.update_continuous_fire_after_shot();
@@ -1429,11 +1582,28 @@ impl Object {
         self.finish_shot_engagement();
     }
 
+    fn finish_shot_engagement(&mut self) {
+        self.finish_shot_engagement_with_optional_solo_set(None);
+    }
+
+    fn finish_shot_engagement_with_optional_solo_set(
+        &mut self,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) {
+        self.pre_attack_ready_at = 0.0;
+        if let Some(set) = solo_set {
+            self.sync_shared_weapon_reload_with_solo_set(set);
+        } else {
+            self.sync_shared_weapon_reload();
+        }
+    }
+
     fn record_shot_engagement_bookkeeping(
         &mut self,
         target_id: Option<ObjectId>,
         now: u32,
         pre_shot_coast_until_frame: u32,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
     ) {
         // C++ FiringTracker.cpp:83-99: same victim, or a target switch inside
         // the coast window (pre-shot deadline, strict), keeps the count.
@@ -1445,13 +1615,7 @@ impl Object {
             self.consecutive_shot_target = target_id;
             self.consecutive_shots_at_target = 1;
         }
-        self.finish_shot_engagement();
-    }
-
-    fn finish_shot_engagement(&mut self) {
-        // PER_SHOT: force the next admitted shot to re-arm its delay.
-        self.pre_attack_ready_at = 0.0;
-        self.sync_shared_weapon_reload();
+        self.finish_shot_engagement_with_optional_solo_set(solo_set);
     }
 
     /// C++ FiringTracker continuous-fire MEAN/FAST residual (non-gattling path).

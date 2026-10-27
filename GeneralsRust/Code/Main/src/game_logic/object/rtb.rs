@@ -483,12 +483,34 @@ impl Object {
 
     /// C++ Weapon::isWithinAttackRange after FROM_BOUNDINGSPHERE_2D distance.
     pub fn is_within_attack_range_at_distance(&self, slot: u8, dist: f32) -> bool {
+        self.is_within_attack_range_at_distance_with_optional_solo_set(slot, dist, None)
+    }
+
+    pub(crate) fn is_within_attack_range_at_distance_with_solo_set(
+        &self,
+        slot: u8,
+        dist: f32,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> bool {
+        self.is_within_attack_range_at_distance_with_optional_solo_set(slot, dist, Some(solo_set))
+    }
+
+    fn is_within_attack_range_at_distance_with_optional_solo_set(
+        &self,
+        slot: u8,
+        dist: f32,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) -> bool {
         let Some(weapon) = self.weapon_slot(slot) else {
             return false;
         };
         let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
         let min_r = (weapon.min_range - under).max(0.0);
-        let max_r = (self.effective_weapon_range(weapon.range) - under).max(0.0);
+        let max_r = solo_set.map_or_else(
+            || self.effective_weapon_range(weapon.range),
+            |set| self.effective_weapon_range_for_slot_with_solo_set(slot, weapon.range, set),
+        );
+        let max_r = (max_r - under).max(0.0);
         if min_r > 0.0 && dist + 1e-4 < min_r {
             return false;
         }
@@ -514,10 +536,34 @@ impl Object {
     /// Contact vs `KINDOF_STRUCTURE`: numeric range then geometry overlap
     /// (`iteratePotentialCollisions`).
     pub fn is_within_attack_range_for_slot(&self, slot: u8, other: &Object) -> bool {
+        self.is_within_attack_range_for_slot_with_optional_solo_set(slot, other, None)
+    }
+
+    pub(crate) fn is_within_attack_range_for_slot_with_solo_set(
+        &self,
+        slot: u8,
+        other: &Object,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> bool {
+        self.is_within_attack_range_for_slot_with_optional_solo_set(slot, other, Some(solo_set))
+    }
+
+    fn is_within_attack_range_for_slot_with_optional_solo_set(
+        &self,
+        slot: u8,
+        other: &Object,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) -> bool {
         if other.is_kind_of(KindOf::Bridge) {
-            return self.is_within_attack_range_for_slot_bridge(slot, other);
+            return self.is_within_attack_range_for_slot_bridge_with_optional_solo_set(
+                slot, other, solo_set,
+            );
         }
-        if !self.is_within_attack_range_at_distance(slot, self.distance_to_object(other)) {
+        if !self.is_within_attack_range_at_distance_with_optional_solo_set(
+            slot,
+            self.distance_to_object(other),
+            solo_set,
+        ) {
             return false;
         }
         if other.is_kind_of(KindOf::Structure) && self.slot_is_contact_weapon(slot) {
@@ -573,6 +619,15 @@ impl Object {
 
     /// C++ Weapon.cpp:2161-2171 — try abutment 1, then 2 if out of max range.
     fn is_within_attack_range_for_slot_bridge(&self, slot: u8, other: &Object) -> bool {
+        self.is_within_attack_range_for_slot_bridge_with_optional_solo_set(slot, other, None)
+    }
+
+    fn is_within_attack_range_for_slot_bridge_with_optional_solo_set(
+        &self,
+        slot: u8,
+        other: &Object,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) -> bool {
         let Some(weapon) = self.weapon_slot(slot) else {
             return false;
         };
@@ -580,7 +635,11 @@ impl Object {
         let max_range = if self.leech_range_active_for_slot(slot) {
             f32::MAX
         } else {
-            (self.effective_weapon_range(weapon.range) - under).max(0.0) + 1e-3
+            let range = solo_set.map_or_else(
+                || self.effective_weapon_range(weapon.range),
+                |set| self.effective_weapon_range_for_slot_with_solo_set(slot, weapon.range, set),
+            );
+            (range - under).max(0.0) + 1e-3
         };
         let pos = other.get_position();
         let half = other.selection_radius.max(20.0);

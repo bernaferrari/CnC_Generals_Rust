@@ -161,6 +161,41 @@ impl Object {
         self.weapon_bonus_fields_with_name(None, self.authored_weapon_name_for_slot(slot), None)
     }
 
+    /// Active-slot Object bonuses using the receiving session's admitted SOLO set.
+    pub(crate) fn weapon_bonus_fields_with_optional_solo_set(
+        &self,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) -> (f32, f32, f32, f32, f32) {
+        if let Some(set) = solo_set {
+            self.weapon_bonus_fields_with_solo_set(set)
+        } else {
+            self.weapon_bonus_fields()
+        }
+    }
+
+    pub(crate) fn weapon_bonus_fields_with_solo_set(
+        &self,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> (f32, f32, f32, f32, f32) {
+        let name = self
+            .weapon_name_for_slot(self.active_weapon_slot)
+            .or_else(|| self.primary_weapon_name());
+        self.weapon_bonus_fields_with_name(None, name, Some(solo_set))
+    }
+
+    /// Concrete-slot Object bonuses using the receiving session's admitted SOLO set.
+    pub(crate) fn weapon_bonus_fields_for_slot_with_solo_set(
+        &self,
+        slot: u8,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> (f32, f32, f32, f32, f32) {
+        self.weapon_bonus_fields_with_name(
+            None,
+            self.authored_weapon_name_for_slot(slot),
+            Some(solo_set),
+        )
+    }
+
     /// Temporary weapons compute their own template extras, independently of
     /// the Object's currently selected WeaponSet slot (CPP Weapon.cpp1814).
     pub(crate) fn weapon_bonus_fields_for_named_weapon(
@@ -486,9 +521,30 @@ impl Object {
         base_range * self.weapon_bonus_fields_for_slot(slot).1
     }
 
+    /// Concrete-slot effective range using the receiving session's SOLO set.
+    pub(crate) fn effective_weapon_range_for_slot_with_solo_set(
+        &self,
+        slot: u8,
+        base_range: f32,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> f32 {
+        base_range
+            * self
+                .weapon_bonus_fields_for_slot_with_solo_set(slot, solo_set)
+                .1
+    }
+
     /// Effective weapon damage with WeaponBonus DAMAGE field.
     pub fn effective_weapon_damage(&self, base_damage: f32) -> f32 {
         base_damage * self.weapon_bonus_fields().0
+    }
+
+    pub(crate) fn effective_weapon_damage_with_solo_set(
+        &self,
+        base_damage: f32,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> f32 {
+        base_damage * self.weapon_bonus_fields_with_solo_set(solo_set).0
     }
 
     /// C++ WeaponBonus::RADIUS (Weapon.cpp:515-527).

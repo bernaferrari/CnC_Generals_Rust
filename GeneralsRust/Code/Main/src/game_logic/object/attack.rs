@@ -162,6 +162,7 @@ impl Object {
             audio,
             operation_frame,
             operation_effects,
+            None,
         )
     }
 
@@ -219,9 +220,44 @@ impl Object {
             audio,
             operation_frame,
             operation_effects,
+            None,
         )
     }
 
+    /// Autonomous AttackStateMachine shot using its receiving GameLogic owner's
+    /// immutable SOLO WeaponBonusSet. The borrow is observed at every existing
+    /// bonus read point in the unchanged shot operation order.
+    pub(crate) fn prepare_autonomous_weapon_shot_with_operation_and_solo_set(
+        &mut self,
+        target: ObjectId,
+        time: f32,
+        infantry: bool,
+        faerie: bool,
+        frame: u32,
+        sound: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
+        attacks: &mut crate::game_logic::host_attack_log::AttackEvents,
+        content: Option<&crate::game_logic::projectile_definitions::ProjectileDefinitions>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> Option<(u8, super::combat::PendingProjectile)> {
+        self.prepare_weapon_shot_with_operation(
+            WeaponShotRoute::Autonomous,
+            target,
+            time,
+            infantry,
+            faerie,
+            frame,
+            sound,
+            attacks,
+            content,
+            audio,
+            operation_frame,
+            operation_effects,
+            Some(solo_set),
+        )
+    }
     /// The receiving content catalogue cannot silently substitute a process
     /// bootstrap profile for an unimplemented authored projectile family.
     pub(in crate::game_logic) fn selected_projectile_is_admitted(
@@ -275,6 +311,7 @@ impl Object {
             audio,
             0,
             &mut Default::default(),
+            None,
         )
     }
 
@@ -292,6 +329,7 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         operation_frame: u32,
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         let autonomous = matches!(route, WeaponShotRoute::Autonomous);
         // C++ Weapon::getMaxShotCount residual — AI burst / scatter limits.
@@ -311,7 +349,7 @@ impl Object {
         // C++ setWeaponBonusCondition → onWeaponBonusChange: restart an
         // in-progress wait with the new RATE_OF_FIRE delay before the ready
         // check so mid-reload bonuses cannot fire sooner than C++.
-        self.apply_weapon_bonus_rof_restart(current_time);
+        self.apply_weapon_bonus_rof_restart_with_optional_solo_set(current_time, solo_set);
 
         // Prefer an explicit locked/active slot when ready.  The normal
         // fallback remains PRIMARY then SECONDARY; TERTIARY is deliberately
@@ -320,7 +358,10 @@ impl Object {
         let slot = if let WeaponShotRoute::Passive { slot, .. } = route {
             let weapon = self.weapon_slot(slot)?;
             let name = self.weapon_name_for_slot(slot);
-            let mut rof = self.weapon_bonus_fields().2;
+            let mut rof = solo_set.map_or_else(
+                || self.weapon_bonus_fields().2,
+                |set| self.weapon_bonus_fields_with_solo_set(set).2,
+            );
             if target_has_faerie_fire {
                 rof *= crate::game_logic::host_avenger::FAERIE_FIRE_ROF_MULTIPLIER;
             }
@@ -336,7 +377,10 @@ impl Object {
             }
             slot
         } else {
-            let mut rof = self.weapon_bonus_fields().2;
+            let mut rof = solo_set.map_or_else(
+                || self.weapon_bonus_fields().2,
+                |set| self.weapon_bonus_fields_with_solo_set(set).2,
+            );
             if target_has_faerie_fire {
                 rof *= crate::game_logic::host_avenger::FAERIE_FIRE_ROF_MULTIPLIER;
             }
@@ -414,7 +458,10 @@ impl Object {
                 .weapon_slot(slot)
                 .map(|w| w.pre_attack_delay.max(0.0))
                 .unwrap_or(0.0);
-            base * self.weapon_bonus_fields().3
+            base * solo_set.map_or_else(
+                || self.weapon_bonus_fields().3,
+                |set| self.weapon_bonus_fields_with_solo_set(set).3,
+            )
         };
         let prefire = {
             let name = self.weapon_name_for_slot(slot);
@@ -491,8 +538,13 @@ impl Object {
         }
         {}
 
-        let possible_next_shot_frame =
-            self.possible_next_shot_frame_for_slot(slot, logic_frame, target_has_faerie_fire);
+        let possible_next_shot_frame = self
+            .possible_next_shot_frame_for_slot_with_optional_solo_set(
+                slot,
+                logic_frame,
+                target_has_faerie_fire,
+                solo_set,
+            );
         let fire_weapon_name = self.weapon_name_for_slot(slot).map(str::to_owned);
         let name = fire_weapon_name.as_deref();
         // C++ WeaponTemplate keeps each of these references per veterancy
@@ -516,7 +568,10 @@ impl Object {
                 )
                 .unwrap_or(fallback_damage)
             });
-        let weapon_damage = self.effective_weapon_damage(template_damage);
+        let weapon_damage = solo_set.map_or_else(
+            || self.effective_weapon_damage(template_damage),
+            |set| self.effective_weapon_damage_with_solo_set(template_damage, set),
+        );
 
         // Resolve immutable Weapon.ini peels before borrowing the live slot.
         // Keeping the selected slot's name here prevents tertiary fire from
@@ -593,8 +648,9 @@ impl Object {
             })
             .unwrap_or_default());
         // C++ getSecondaryDamage(bonus) — WeaponBonus::DAMAGE at fire time.
-        let secondary_damage = self.effective_weapon_damage(
-            native_rule
+        let secondary_damage = solo_set.map_or_else(
+            || self.effective_weapon_damage(
+                native_rule
                 .as_ref()
                 .map(|rule| rule.secondary_damage)
                 .unwrap_or_else(|| {
@@ -603,6 +659,21 @@ impl Object {
                     )
                     .unwrap_or(0.0)
                 }),
+            ),
+            |set| {
+                self.effective_weapon_damage_with_solo_set(
+                    native_rule
+                        .as_ref()
+                        .map(|rule| rule.secondary_damage)
+                        .unwrap_or_else(|| {
+                            name.map(
+                                crate::game_logic::weapon_bootstrap::host_secondary_damage_for_weapon_name,
+                            )
+                            .unwrap_or(0.0)
+                        }),
+                    set,
+                )
+            },
         );
         let secondary_damage_radius = native_rule.as_ref().map(|rule| rule.secondary_damage_radius).unwrap_or_else(||
             name.map(crate::game_logic::weapon_bootstrap::host_secondary_damage_radius_for_weapon_name).unwrap_or(0.0));
@@ -748,7 +819,10 @@ impl Object {
                 weapon.reloading_clip = false;
             }
             if let Some(weapon_name) = name {
-                let rof = self.weapon_bonus_fields().2;
+                let rof = solo_set.map_or_else(
+                    || self.weapon_bonus_fields().2,
+                    |set| self.weapon_bonus_fields_with_solo_set(set).2,
+                );
                 let rolled = native_rule
                     .as_ref()
                     .map(|rule| {
@@ -889,10 +963,23 @@ impl Object {
 
         // C++ fireWeaponTemplate LeechRange activate residual.
         self.activate_leech_range_for_slot(slot);
-        self.record_shot_at_target(Some(target_id), logic_frame, possible_next_shot_frame);
+        if let Some(set) = solo_set {
+            self.record_shot_at_target_with_solo_set(
+                Some(target_id),
+                logic_frame,
+                possible_next_shot_frame,
+                set,
+            );
+        } else {
+            self.record_shot_at_target(Some(target_id), logic_frame, possible_next_shot_frame);
+        }
         // C++ --m_maxShotCount residual.
         self.consume_max_shot_count();
-        self.refresh_weapon_fire_status(current_time);
+        if let Some(set) = solo_set {
+            self.refresh_weapon_fire_status_with_solo_set(current_time, set);
+        } else {
+            self.refresh_weapon_fire_status(current_time);
+        }
         // C++ Object::fireCurrentWeapon releases a temporary lock only when
         // the *locked* weapon completed an auto-reloading clip.  A temporary
         // third-slot command must not be unlocked by a primary fallback shot

@@ -2102,11 +2102,15 @@ impl GameLogic {
             }
             let pre_continue = atk.pre_attack_target == Some(victim_id)
                 && atk.pre_attack_ready_at > current_time + 1e-6;
-            let can = atk.can_fire(current_time);
+            let can = atk.can_fire_with_solo_set(current_time, &self.solo_weapon_bonus_set);
             let Some(slot) = atk.selected_weapon_slot() else {
                 return AttackFireResult::Failure;
             };
-            let range_ok = atk.is_within_attack_range_for_slot(slot, vic);
+            let range_ok = atk.is_within_attack_range_for_slot_with_solo_set(
+                slot,
+                vic,
+                &self.solo_weapon_bonus_set,
+            );
             (true, can, pre_continue, range_ok)
         };
         let _ = alive;
@@ -2167,7 +2171,7 @@ impl GameLogic {
             u.set_status_attacking(true);
             {}
             // TARGET_FAERIE_FIRE ROF residual when victim is painted.
-            u.prepare_autonomous_weapon_shot_with_operation(
+            u.prepare_autonomous_weapon_shot_with_operation_and_solo_set(
                 victim_id,
                 current_time,
                 victim_infantry,
@@ -2181,6 +2185,7 @@ impl GameLogic {
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.solo_weapon_bonus_set,
             )
         };
 
