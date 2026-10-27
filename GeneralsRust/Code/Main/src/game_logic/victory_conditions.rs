@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use bitflags::bitflags;
+use game_engine::common::rts::player_template::PlayerTemplateStore;
 use log::{debug, warn};
 use std::sync::OnceLock;
 
@@ -171,13 +172,14 @@ fn unique_faction_owner(
     players: &HashMap<u32, Player>,
     team: Team,
     identities: &HashMap<u32, PlayerTemplateIdentity>,
+    definitions: Option<&PlayerTemplateStore>,
 ) -> Option<u32> {
     if team == Team::Neutral {
         return None;
     }
     let mut found = None;
     for player in players.values() {
-        if player.team != team || !is_playable_victory_player(player, identities) {
+        if player.team != team || !is_playable_victory_player(player, identities, definitions) {
             continue;
         }
         if found.is_some() {
@@ -201,20 +203,21 @@ fn object_belongs_to_player(obj: &Object, player: &Player, unique_team_owner: Op
 fn is_playable_victory_player(
     player: &Player,
     identities: &HashMap<u32, PlayerTemplateIdentity>,
+    definitions: Option<&PlayerTemplateStore>,
 ) -> bool {
     if player.team == Team::Neutral || player.is_observer {
         return false;
     }
     if let Some(ident) = identities.get(&player.id) {
-        match ident.resolve() {
-            Some(template) => {
-                if template.is_observer()
-                    || template.get_name().eq_ignore_ascii_case("FactionCivilian")
-                {
-                    return false;
-                }
-            }
-            None => return false,
+        let playable = |template: &game_engine::common::rts::player_template::PlayerTemplate| {
+            !template.is_observer() && !template.get_name().eq_ignore_ascii_case("FactionCivilian")
+        };
+        let valid = match definitions {
+            Some(store) => ident.resolve_in(store).is_some_and(playable),
+            None => ident.resolve().as_ref().is_some_and(playable),
+        };
+        if !valid {
+            return false;
         }
     }
     true
@@ -364,7 +367,7 @@ impl VictoryConditions {
         identities: &HashMap<u32, PlayerTemplateIdentity>,
     ) -> Option<VictoryCondition> {
         self.evaluate_with_templates_and_factory(
-            players, objects, frame, game_mode, identities, None,
+            players, objects, frame, game_mode, identities, None, None,
         )
     }
 
@@ -375,6 +378,7 @@ impl VictoryConditions {
         frame: u32,
         game_mode: GameMode,
         identities: &HashMap<u32, PlayerTemplateIdentity>,
+        definitions: Option<&PlayerTemplateStore>,
         team_factory: &gamelogic::team::TeamFactoryHandle,
     ) -> Option<VictoryCondition> {
         self.evaluate_with_templates_and_factory(
@@ -383,6 +387,7 @@ impl VictoryConditions {
             frame,
             game_mode,
             identities,
+            definitions,
             Some(team_factory),
         )
     }
@@ -394,6 +399,7 @@ impl VictoryConditions {
         frame: u32,
         game_mode: GameMode,
         identities: &HashMap<u32, PlayerTemplateIdentity>,
+        definitions: Option<&PlayerTemplateStore>,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) -> Option<VictoryCondition> {
         self.player_templates.clear();
@@ -410,7 +416,7 @@ impl VictoryConditions {
         let mut living_players = Vec::new();
 
         for (&player_id, player) in players {
-            if !is_playable_victory_player(player, &self.player_templates) {
+            if !is_playable_victory_player(player, &self.player_templates, definitions) {
                 continue;
             }
 
@@ -418,7 +424,8 @@ impl VictoryConditions {
                 continue;
             }
 
-            let unique_owner = unique_faction_owner(players, player.team, &self.player_templates);
+            let unique_owner =
+                unique_faction_owner(players, player.team, &self.player_templates, definitions);
             let state = PlayerArmyState::from_objects(objects, player, unique_owner);
             if self.is_defeated(state) {
                 if self.defeated_players.insert(player_id) {
@@ -443,7 +450,7 @@ impl VictoryConditions {
         if living_players.is_empty() {
             self.end_frame.get_or_insert(frame);
             self.winning_alliance = None;
-            self.refresh_alliance_states(players);
+            self.refresh_alliance_states(players, definitions);
 
             return Some(VictoryCondition::Draw);
         }
@@ -466,7 +473,7 @@ impl VictoryConditions {
             // C++ sets m_endFrame with m_singleAllianceRemaining before scripts read it.
             self.end_frame.get_or_insert(frame);
         }
-        self.refresh_alliance_states(players);
+        self.refresh_alliance_states(players, definitions);
 
         if single_alliance {
             return Some(VictoryCondition::Winner(living_players[0]));
@@ -479,12 +486,20 @@ impl VictoryConditions {
     /// `m_singleAllianceRemaining` + local player still allied with a living
     /// member. Leftover MultiplayerScripts.scb reads a single atomic.
     pub fn is_local_allied_victory(&self, players: &HashMap<u32, Player>) -> bool {
+        self.is_local_allied_victory_owned(players, None)
+    }
+
+    pub(crate) fn is_local_allied_victory_owned(
+        &self,
+        players: &HashMap<u32, Player>,
+        definitions: Option<&PlayerTemplateStore>,
+    ) -> bool {
         let Some(key) = self.winning_alliance else {
             return false;
         };
         players.values().any(|player| {
             player.is_local
-                && is_playable_victory_player(player, &self.player_templates)
+                && is_playable_victory_player(player, &self.player_templates, definitions)
                 && player_shares_winning_alliance(players, player, key, None)
         })
     }
@@ -496,13 +511,21 @@ impl VictoryConditions {
 
     /// C++ `VictoryConditions::isLocalAlliedDefeat`.
     pub fn is_local_allied_defeat(&self, players: &HashMap<u32, Player>) -> bool {
+        self.is_local_allied_defeat_owned(players, None)
+    }
+
+    pub(crate) fn is_local_allied_defeat_owned(
+        &self,
+        players: &HashMap<u32, Player>,
+        definitions: Option<&PlayerTemplateStore>,
+    ) -> bool {
         if !self.is_single_alliance_remaining() {
             return false;
         }
         // CPP observers return m_singleAllianceRemaining. The owning census
         // already excludes observers from is_local_allied_victory, so this
         // also covers an uncached local slot without another roster lookup.
-        !self.is_local_allied_victory(players)
+        !self.is_local_allied_victory_owned(players, definitions)
     }
 
     /// Receiving VictoryConditions is the sole defeat-status owner.
@@ -521,8 +544,9 @@ impl VictoryConditions {
         player: &Player,
         players: &HashMap<u32, Player>,
         objects: crate::game_logic::HostObjectRead<'_>,
+        definitions: Option<&PlayerTemplateStore>,
     ) -> bool {
-        let owner = unique_faction_owner(players, player.team, &self.player_templates);
+        let owner = unique_faction_owner(players, player.team, &self.player_templates, definitions);
         self.is_defeated(PlayerArmyState::from_objects(objects, player, owner))
     }
 
@@ -558,9 +582,13 @@ impl VictoryConditions {
         std::mem::take(&mut self.alliance_events)
     }
 
-    fn refresh_alliance_states(&mut self, players: &HashMap<u32, Player>) {
+    fn refresh_alliance_states(
+        &mut self,
+        players: &HashMap<u32, Player>,
+        definitions: Option<&PlayerTemplateStore>,
+    ) {
         for (&player_id, player) in players {
-            if !is_playable_victory_player(player, &self.player_templates) {
+            if !is_playable_victory_player(player, &self.player_templates, definitions) {
                 continue;
             }
             let new_state = if self.defeated_players.contains(&player_id) {

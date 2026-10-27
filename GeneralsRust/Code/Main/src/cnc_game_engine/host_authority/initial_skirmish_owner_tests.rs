@@ -403,7 +403,9 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
             let original = initial.source.clone().unwrap();
             let mut mismatched = initial.as_ref().clone();
             mismatched.config.slots[0].color_rgb.0 ^= 1;
-            let error = mismatched.validate_definitions().unwrap_err();
+            let error = mismatched
+                .validate_definitions(source.player_template_definitions.as_ref())
+                .unwrap_err();
             assert!(
                 error.contains("receiving palette/RGB disagreement"),
                 "{error}"

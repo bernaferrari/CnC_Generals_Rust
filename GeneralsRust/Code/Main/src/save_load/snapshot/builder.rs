@@ -1256,38 +1256,39 @@ impl SnapshotBuilder {
     ) -> SaveLoadResult<Vec<PlayerTemplateBindingSnapshot>> {
         let mut bindings = Vec::new();
         for (player_id, identity) in game_logic.player_template_identities_for_snapshot() {
-            let template = identity.resolve().ok_or_else(|| {
-                SaveLoadError::Corrupted(format!(
-                    "Player {} has an invalid PlayerTemplate identity while saving",
-                    player_id
-                ))
-            })?;
-            game_engine::common::ini::ensure_player_templates_loaded();
-            let store = game_engine::common::rts::player_template::get_player_template_store();
-            let template_index = identity.template_index.or_else(|| {
-                store
-                    .find_template_index(template.get_name())
-                    .map(|index| index as i32)
-            });
-            let Some(template_index) = template_index else {
-                return Err(SaveLoadError::Corrupted(format!(
-                    "Player {} PlayerTemplate '{}' has no store index while saving",
-                    player_id,
-                    template.get_name()
-                )));
+            let validate =
+                |store: &game_engine::common::rts::player_template::PlayerTemplateStore| {
+                    let template = identity.resolve_in(store).ok_or_else(|| {
+                        SaveLoadError::Corrupted(format!(
+                            "Player {player_id} has an invalid PlayerTemplate identity while saving"
+                        ))
+                    })?;
+                    let index = identity.template_index.or_else(|| store.find_template_index(template.get_name()).map(|index| index as i32))
+                    .ok_or_else(|| SaveLoadError::Corrupted(format!("Player {player_id} PlayerTemplate '{}' has no store index while saving", template.get_name())))?;
+                    if store
+                        .get_nth_player_template_signed(index)
+                        .map(|candidate| candidate.get_name())
+                        != Some(template.get_name())
+                    {
+                        return Err(SaveLoadError::Corrupted(format!(
+                            "Player {player_id} PlayerTemplate '{}' no longer matches store index {index} while saving",
+                            template.get_name()
+                        )));
+                    }
+                    Ok((template.get_name().to_string(), index))
+                };
+            let (template_name, template_index) = match &game_logic.player_template_definitions {
+                Some(store) => validate(store)?,
+                None => {
+                    game_engine::common::ini::ensure_player_templates_loaded();
+                    validate(
+                        &game_engine::common::rts::player_template::get_player_template_store(),
+                    )?
+                }
             };
-            let indexed = store.get_nth_player_template_signed(template_index);
-            if indexed.map(|candidate| candidate.get_name()) != Some(template.get_name()) {
-                return Err(SaveLoadError::Corrupted(format!(
-                    "Player {} PlayerTemplate '{}' no longer matches store index {} while saving",
-                    player_id,
-                    template.get_name(),
-                    template_index
-                )));
-            }
             bindings.push(PlayerTemplateBindingSnapshot {
                 player_id,
-                template_name: template.get_name().to_string(),
+                template_name,
                 template_index,
             });
         }
@@ -1311,10 +1312,17 @@ impl SnapshotBuilder {
                     binding.player_id
                 )));
             }
-            let identity = PlayerTemplateIdentity::from_exact_indexed_name(
-                &binding.template_name,
-                binding.template_index,
-            )
+            let identity = match &game_logic.player_template_definitions {
+                Some(store) => PlayerTemplateIdentity::from_exact_indexed_name_in(
+                    &binding.template_name,
+                    binding.template_index,
+                    store,
+                ),
+                None => PlayerTemplateIdentity::from_exact_indexed_name(
+                    &binding.template_name,
+                    binding.template_index,
+                ),
+            }
             .ok_or_else(|| {
                 SaveLoadError::Corrupted(format!(
                     "Player {} has stale PlayerTemplate name/index ('{}', {})",
@@ -1327,7 +1335,11 @@ impl SnapshotBuilder {
                     binding.player_id
                 )));
             };
-            if identity.base_team() != Some(player.team) {
+            let team = game_logic
+                .resolve_player_template_identity(&identity)
+                .as_ref()
+                .and_then(PlayerTemplateIdentity::team_for_template);
+            if team != Some(player.team) {
                 return Err(SaveLoadError::Corrupted(format!(
                     "PlayerTemplate binding for player {} does not match restored team",
                     binding.player_id

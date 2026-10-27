@@ -9,7 +9,9 @@
 //! accessors used after parse.
 
 use crate::common::game_common::VeterancyLevel;
-use crate::common::name_key_generator::{NAMEKEY_INVALID, NameKeyGenerator, NameKeyType};
+use crate::common::name_key_generator::{
+    NAMEKEY_INVALID, NameKeyGenerator, NameKeyNamespace, NameKeyType,
+};
 use crate::common::rts::Money;
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
@@ -83,6 +85,10 @@ impl PlayerTemplate {
         } else {
             NameKeyGenerator::name_to_key(&name)
         };
+        Self::new_with_name_key(name, name_key)
+    }
+
+    pub(crate) fn new_with_name_key(name: String, name_key: NameKeyType) -> Self {
         Self {
             name_key,
             name,
@@ -411,15 +417,103 @@ fn remap_legacy_faction_namekey(namekey: NameKeyType) -> NameKeyType {
 }
 
 /// Player template store (`class PlayerTemplateStore`).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PlayerTemplateStore {
     templates: Vec<PlayerTemplate>,
+    owned_names: Option<NameKeyNamespace>,
 }
 
 impl PlayerTemplateStore {
     pub fn new() -> Self {
         Self {
             templates: Vec::new(),
+            owned_names: None,
+        }
+    }
+
+    /// Create an application catalog with its own stable name identities.
+    pub fn new_owned() -> Self {
+        Self {
+            owned_names: Some(NameKeyNamespace::new()),
+            ..Self::new()
+        }
+    }
+
+    /// Parse one ordered source into a detached owned catalog.
+    pub fn apply_source(
+        &mut self,
+        source: &str,
+        load_type: crate::common::ini::INILoadType,
+    ) -> crate::common::ini::INIResult<()> {
+        let mut ini = crate::common::ini::INI::new();
+        if let Some(names) = self.owned_names.take() {
+            let (names, result) = ini.with_name_key_namespace(names, |ini| {
+                ini.with_inline_source_and_load_type(source, load_type, |ini| {
+                    ini.parse_current_file_into_player_templates(self)
+                })
+            });
+            self.owned_names = Some(names);
+            result
+        } else {
+            ini.with_inline_source_and_load_type(source, load_type, |ini| {
+                ini.parse_current_file_into_player_templates(self)
+            })
+        }
+    }
+
+    /// Apply PlayerTemplate blocks from a mixed Map.ini or Solo.ini without
+    /// dispatching unrelated blocks through ambient managers.
+    pub fn apply_companion_source(&mut self, source: &str) -> crate::common::ini::INIResult<()> {
+        let mut candidate = self.clone();
+        let mut ini = crate::common::ini::INI::new();
+        let parse = |ini: &mut crate::common::ini::INI, store: &mut Self| {
+            ini.with_inline_source_and_load_type(
+                source,
+                crate::common::ini::INILoadType::CreateOverrides,
+                |ini| {
+                    loop {
+                        ini.read_line()?;
+                        if ini.is_eof() {
+                            break;
+                        }
+                        let tokens = ini.get_line_tokens();
+                        if tokens.first().is_some_and(|token| token.eq_ignore_ascii_case("PlayerTemplate"))
+                            && tokens.get(1) != Some(&"=")
+                        {
+                            crate::common::ini::ini_player_template::parse_player_template_definition_into(ini, store)?;
+                        } else if tokens.first().is_some_and(|token| {
+                            ["Object", "ObjectReskin", "ChildObject"]
+                                .iter().any(|kind| token.eq_ignore_ascii_case(kind))
+                        }) {
+                            // Object modules open with `Behavior = ...` and
+                            // nested `End` tokens, so use the Object grammar.
+                            let _ = crate::common::thing::thing_factory::consume_ini_properties(ini);
+                        } else if !tokens.is_empty() {
+                            crate::common::ini::ini::consume_block_with_nesting(ini)?;
+                        }
+                    }
+                    Ok(())
+                },
+            )
+        };
+        let result = if let Some(names) = candidate.owned_names.take() {
+            let (names, result) =
+                ini.with_name_key_namespace(names, |ini| parse(ini, &mut candidate));
+            candidate.owned_names = Some(names);
+            result
+        } else {
+            parse(&mut ini, &mut candidate)
+        };
+        result?;
+        *self = candidate;
+        Ok(())
+    }
+
+    /// Resolve a name through this catalog's namespace when supplied.
+    pub fn name_to_key(&mut self, name: &str) -> NameKeyType {
+        match &mut self.owned_names {
+            Some(names) => names.name_to_key(name),
+            None => NameKeyGenerator::name_to_key(name),
         }
     }
 
@@ -443,6 +537,25 @@ impl PlayerTemplateStore {
 
     /// C++ `findPlayerTemplate(NameKeyType)` including old-map faction remapping.
     pub fn find_player_template(&self, namekey: NameKeyType) -> Option<&PlayerTemplate> {
+        if let Some(names) = &self.owned_names {
+            let name = names.key_to_name(namekey)?;
+            let canonical = match name.as_str() {
+                "FactionAmericaChooseAGeneral"
+                | "FactionAmericaTankCommand"
+                | "FactionAmericaSpecialForces"
+                | "FactionAmericaAirForce" => "FactionAmerica",
+                "FactionChinaChooseAGeneral"
+                | "FactionChinaRedArmy"
+                | "FactionChinaSpecialWeapons"
+                | "FactionChinaSecretPolice" => "FactionChina",
+                "FactionGLAChooseAGeneral"
+                | "FactionGLATerrorCell"
+                | "FactionGLABiowarCommand"
+                | "FactionGLAWarlordCommand" => "FactionGLA",
+                _ => name.as_str(),
+            };
+            return self.find_template(canonical);
+        }
         let namekey = remap_legacy_faction_namekey(namekey);
         self.templates.iter().find(|t| t.name_key == namekey)
     }

@@ -2,6 +2,7 @@
 
 use crate::common::game_common::{VETERANCY_NAMES, VeterancyLevel};
 use crate::common::ini::ini::{FieldParse, INI, INIError, INIResult};
+#[cfg(test)]
 use crate::common::name_key_generator::NameKeyGenerator;
 use crate::common::rts::money::Money;
 use crate::common::rts::player_template::{
@@ -437,7 +438,7 @@ fn parse_medallion_select(
 }
 
 fn parse_production_cost_change(
-    _ini: &mut INI,
+    ini: &mut INI,
     template: &mut PlayerTemplate,
     tokens: &[&str],
 ) -> INIResult<()> {
@@ -446,7 +447,7 @@ fn parse_production_cost_change(
     let change = INI::parse_percent_to_real(percent)?;
     // Preserve parse-time namespace allocation for unmigrated definition consumers.
     // Production lookups retain the authored name across startup worker handoff.
-    let _ = NameKeyGenerator::name_to_key(name);
+    let _ = ini.name_to_key(name);
     template
         .production_cost_changes
         .insert((*name).to_string(), change);
@@ -454,14 +455,14 @@ fn parse_production_cost_change(
 }
 
 fn parse_production_time_change(
-    _ini: &mut INI,
+    ini: &mut INI,
     template: &mut PlayerTemplate,
     tokens: &[&str],
 ) -> INIResult<()> {
     let name = tokens.get(0).ok_or(INIError::InvalidData)?;
     let percent = tokens.get(1).ok_or(INIError::InvalidData)?;
     let change = INI::parse_percent_to_real(percent)?;
-    let _ = NameKeyGenerator::name_to_key(name);
+    let _ = ini.name_to_key(name);
     template
         .production_time_changes
         .insert((*name).to_string(), change);
@@ -469,13 +470,13 @@ fn parse_production_time_change(
 }
 
 fn parse_production_veterancy_level(
-    _ini: &mut INI,
+    ini: &mut INI,
     template: &mut PlayerTemplate,
     tokens: &[&str],
 ) -> INIResult<()> {
     let name = tokens.get(0).ok_or(INIError::InvalidData)?;
     let level = tokens.get(1).ok_or(INIError::InvalidData)?;
-    let _ = NameKeyGenerator::name_to_key(name);
+    let _ = ini.name_to_key(name);
     let vet = parse_veterancy_level(level)?;
     template
         .production_veterancy_levels
@@ -682,12 +683,16 @@ pub(crate) fn parse_player_template_definition_into(
         .iter()
         .skip(1)
         .find(|token| **token != "=")
-        .ok_or(INIError::InvalidData)?;
+        .ok_or(INIError::InvalidData)?
+        .to_string();
 
-    let template_index = store.find_template_index(name).unwrap_or_else(|| {
-        store.add_template(PlayerTemplate::new((*name).to_string()));
+    let template_index = if let Some(index) = store.find_template_index(&name) {
+        index
+    } else {
+        let key = ini.name_to_key(&name);
+        store.add_template(PlayerTemplate::new_with_name_key(name, key));
         store.len().saturating_sub(1)
-    });
+    };
 
     if let Some(template) = store.get_nth_player_template_mut(template_index) {
         ini.init_from_ini_with_fields(template, PLAYER_TEMPLATE_FIELDS)?;

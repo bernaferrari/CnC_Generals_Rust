@@ -136,6 +136,7 @@ fn staged_restore_rejects_unavailable_map_before_snapshot_restore() {
                 RestoreTemplateCatalog {
                     templates: &catalog,
                     modules: &source.receiving_module_content,
+                    player_templates: &source.player_template_definitions,
                     object_definitions: &source.receiving_object_definitions,
                     baseline: &source.receiving_template_baseline,
                     lighting_baseline: source.lighting_rules_baseline(),
@@ -197,6 +198,7 @@ fn malformed_client_chunk_rejects_candidate_before_touching_live_client() {
                 RestoreTemplateCatalog {
                     templates: &catalog,
                     modules: &logic.receiving_module_content,
+                    player_templates: &logic.player_template_definitions,
                     object_definitions: &logic.receiving_object_definitions,
                     baseline: &logic.receiving_template_baseline,
                     lighting_baseline: logic.lighting_rules_baseline(),
@@ -313,6 +315,7 @@ fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
                 RestoreTemplateCatalog {
                     templates: &catalog,
                     modules: &source.receiving_module_content,
+                    player_templates: &source.player_template_definitions,
                     object_definitions: &source.receiving_object_definitions,
                     baseline: &source.receiving_template_baseline,
                     lighting_baseline: source.lighting_rules_baseline(),
@@ -597,6 +600,7 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
                 RestoreTemplateCatalog {
                     templates: &catalog,
                     modules: &source.receiving_module_content,
+                    player_templates: &source.player_template_definitions,
                     object_definitions: &source.receiving_object_definitions,
                     baseline: &source.receiving_template_baseline,
                     lighting_baseline: source.lighting_rules_baseline(),
@@ -934,6 +938,7 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
                         RestoreTemplateCatalog {
                             templates: &catalog,
                             modules: &source.receiving_module_content,
+                            player_templates: &source.player_template_definitions,
                             object_definitions: &source.receiving_object_definitions,
                             baseline: &source.receiving_template_baseline,
                             lighting_baseline: source.lighting_rules_baseline(),
@@ -1158,6 +1163,7 @@ fn staged_restore_continues_logic_rng_stream_from_save_point() {
                 RestoreTemplateCatalog {
                     templates: &catalog,
                     modules: &source.receiving_module_content,
+                    player_templates: &source.player_template_definitions,
                     object_definitions: &source.receiving_object_definitions,
                     baseline: &source.receiving_template_baseline,
                     lighting_baseline: source.lighting_rules_baseline(),
@@ -1751,6 +1757,7 @@ End
                     RestoreTemplateCatalog {
                         templates: &catalog,
                         modules: &source.receiving_module_content,
+                        player_templates: &source.player_template_definitions,
                         object_definitions: &source.receiving_object_definitions,
                         baseline: &source.receiving_template_baseline,
                         lighting_baseline: source.lighting_rules_baseline(),
@@ -1874,6 +1881,7 @@ End
                     RestoreTemplateCatalog {
                         templates: &catalog,
                         modules: &source.receiving_module_content,
+                        player_templates: &source.player_template_definitions,
                         object_definitions: &source.receiving_object_definitions,
                         baseline: &source.receiving_template_baseline,
                         lighting_baseline: source.lighting_rules_baseline(),

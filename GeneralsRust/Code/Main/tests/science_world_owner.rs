@@ -93,6 +93,8 @@ fn science_purchase_uses_the_receiving_match_not_foreign_catalog_or_player() {
             .get_science_purchase_cost(foreign_id),
         99
     );
+    assert!(first.player_can_purchase_science(42, "SCIENCE_Shared"));
+    assert!(!peer.player_can_purchase_science(42, "SCIENCE_Shared"));
 
     purchase(&mut first);
     purchase(&mut peer);

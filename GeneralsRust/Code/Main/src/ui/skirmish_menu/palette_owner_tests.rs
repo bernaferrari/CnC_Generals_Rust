@@ -74,9 +74,10 @@ End
                 .unwrap();
             let encoded = bincode_legacy::serialize(&snapshot).unwrap();
             let decoded = crate::save_load::decode_bincode_world_snapshot(&encoded).unwrap();
-            let saved = crate::save_load::snapshot::initial_skirmish::read_for_restore(&decoded)
-                .unwrap()
-                .unwrap();
+            let saved =
+                crate::save_load::snapshot::initial_skirmish::read_for_restore(&decoded, None)
+                    .unwrap()
+                    .unwrap();
             assert_eq!(saved.source.as_ref().unwrap().slots[0].color, first + 1);
             assert_eq!(saved.source.as_ref().unwrap().slots[1].color, first);
             let mut restored = crate::game_logic::GameLogic::new();

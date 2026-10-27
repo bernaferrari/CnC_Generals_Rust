@@ -147,6 +147,7 @@ pub(super) struct RestoreTemplateCatalog<'a> {
     roads_baseline: &'a game_engine::common::ini::ini_road::TerrainRoadCollection,
     combat_bonus_baseline: &'a game_engine::common::ini::ini_game_data::CombatBonusRules,
     templates: &'a std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
+    player_templates: &'a Option<game_engine::common::rts::player_template::PlayerTemplateStore>,
     modules:
         &'a Option<game_engine::common::thing::receiving_module_content::ReceivingModuleContent>,
     object_definitions: &'a Option<crate::assets::ReceivingObjectDefinitions>,
@@ -158,6 +159,7 @@ impl<'a> RestoreTemplateCatalog<'a> {
         Self {
             templates: &world.templates,
             modules: &world.receiving_module_content,
+            player_templates: &world.player_template_definitions,
             object_definitions: &world.receiving_object_definitions,
             baseline: &world.receiving_template_baseline,
             lighting_baseline: world.lighting_rules_baseline(),
@@ -2288,6 +2290,7 @@ impl CnCGameEngine {
             RestoreTemplateCatalog {
                 templates: &live.templates,
                 modules: &live.receiving_module_content,
+                player_templates: &live.player_template_definitions,
                 object_definitions: &live.receiving_object_definitions,
                 baseline: &live.receiving_template_baseline,
                 lighting_baseline: live.lighting_rules_baseline(),
@@ -2426,6 +2429,9 @@ impl CnCGameEngine {
             // Clone the value-owned catalog before admitting that runtime state.
             candidate.upgrade_definitions = live.upgrade_definitions.clone();
             candidate.upgrade_definition_base = live.upgrade_definition_base.clone();
+            if let Some(definitions) = &live.player_template_definitions {
+                candidate.admit_player_template_definitions(definitions.clone())?;
+            }
             candidate.receiving_module_content = live.receiving_module_content.clone();
             candidate.receiving_object_definitions = live.receiving_object_definitions.clone();
             candidate.receiving_template_baseline = live.receiving_template_baseline.clone();
@@ -2653,12 +2659,14 @@ impl CnCGameEngine {
         {
             return Err("initial Skirmish admission supplied for another game mode".into());
         }
-        let initial_skirmish =
-            crate::save_load::snapshot::initial_skirmish::read_for_restore(snapshot)
-                .map_err(|error| error.to_string())?;
+        let initial_skirmish = crate::save_load::snapshot::initial_skirmish::read_for_restore(
+            snapshot,
+            template_catalog.player_templates.as_ref(),
+        )
+        .map_err(|error| error.to_string())?;
         if mode == crate::game_logic::GameMode::Skirmish {
             let initial = initial_skirmish.as_ref().ok_or("Missing saved initial SkirmishGameInfo and native resolved admission; cannot reconstruct participant definitions")?;
-            initial.validate_definitions()?;
+            initial.validate_definitions(template_catalog.player_templates.as_ref())?;
         } else if initial_skirmish.is_some() {
             return Err("initial Skirmish admission supplied for another game mode".into());
         }
@@ -2713,6 +2721,9 @@ impl CnCGameEngine {
         let runtime_stage =
             gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(live_services);
         let mut staged = crate::game_logic::GameLogic::new();
+        if let Some(definitions) = template_catalog.player_templates {
+            staged.admit_player_template_definitions(definitions.clone())?;
+        }
         staged.seed_ocl_application_definitions(Arc::clone(ocl_application_base));
         staged.set_ai_definition_base(ai_definition_base.clone());
         staged.admit_production_energy_base(production_energy_base);
@@ -2974,6 +2985,7 @@ impl CnCGameEngine {
                 RestoreTemplateCatalog {
                     templates: &template_catalog,
                     modules: &self.game_logic.receiving_module_content,
+                    player_templates: &self.game_logic.player_template_definitions,
                     object_definitions: &self.game_logic.receiving_object_definitions,
                     baseline: &self.game_logic.receiving_template_baseline,
                     lighting_baseline: self.game_logic.lighting_rules_baseline(),
@@ -3017,6 +3029,7 @@ impl CnCGameEngine {
             RestoreTemplateCatalog {
                 templates: &template_catalog,
                 modules: &self.game_logic.receiving_module_content,
+                player_templates: &self.game_logic.player_template_definitions,
                 object_definitions: &self.game_logic.receiving_object_definitions,
                 baseline: &self.game_logic.receiving_template_baseline,
                 lighting_baseline: self.game_logic.lighting_rules_baseline(),

@@ -68,8 +68,7 @@ impl GameLogic {
         let world_services = gamelogic::system::engine_stores::new_world_services();
         // The original UpgradeCenter::init reserves these three mask bits
         // before authored content. A constructor never samples another world.
-        let mut upgrade_definitions =
-            game_engine::common::system::upgrade::UpgradeCenter::new();
+        let mut upgrade_definitions = game_engine::common::system::upgrade::UpgradeCenter::new();
         upgrade_definitions.init();
         let mut instance = Self {
             w3d_ghosts: Default::default(),
@@ -136,6 +135,7 @@ impl GameLogic {
             buildable_status_overrides: HashMap::new(),
             control_bar_overrides: HashMap::new(),
             player_template_bindings: HashMap::new(),
+            player_template_definitions: None,
             initial_skirmish_admission: None,
             next_object_id: ObjectId(1), // Start at 1, 0 is invalid
             next_formation_id: 1,

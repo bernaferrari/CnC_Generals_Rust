@@ -147,7 +147,7 @@ fn original_minus_two_observer_survives_native_initial_capsule_and_reconstructio
             let decoded = SkirmishGameInfo::decode(&bytes).unwrap();
             assert_eq!(decoded, original);
             let admission = SavedSkirmishAdmission::from_original(decoded).unwrap();
-            admission.validate_definitions().unwrap();
+            admission.validate_definitions(None).unwrap();
             let slot = admission
                 .config
                 .slots
@@ -173,7 +173,7 @@ fn original_minus_two_observer_survives_native_initial_capsule_and_reconstructio
             )
             .unwrap();
             let receiving =
-                crate::save_load::snapshot::initial_skirmish::read_for_restore(&snapshot)
+                crate::save_load::snapshot::initial_skirmish::read_for_restore(&snapshot, None)
                     .unwrap()
                     .unwrap();
             assert_eq!(*receiving, admission);
@@ -295,9 +295,10 @@ fn occupied_observer_random_color_survives_save_and_actual_rep_header_admission(
                 admission,
             )
             .unwrap();
-            let saved = crate::save_load::snapshot::initial_skirmish::read_for_restore(&snapshot)
-                .unwrap()
-                .unwrap();
+            let saved =
+                crate::save_load::snapshot::initial_skirmish::read_for_restore(&snapshot, None)
+                    .unwrap()
+                    .unwrap();
             let mut restored = GameLogic::new();
             saved.admit(&mut restored).unwrap();
             assert_eq!(

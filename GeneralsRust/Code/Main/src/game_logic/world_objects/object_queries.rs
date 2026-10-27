@@ -1564,6 +1564,38 @@ impl GameLogic {
         self.players.get(&player_id)
     }
 
+    /// Install application definitions before binding any player to a template.
+    pub fn admit_player_template_definitions(
+        &mut self,
+        definitions: game_engine::common::rts::player_template::PlayerTemplateStore,
+    ) -> Result<(), String> {
+        if !self.player_template_bindings.is_empty() {
+            return Err("cannot replace PlayerTemplate definitions while players are bound".into());
+        }
+        self.player_template_definitions = Some(definitions);
+        Ok(())
+    }
+
+    pub(crate) fn player_template_identity_from_name(
+        &self,
+        name: &str,
+    ) -> Option<PlayerTemplateIdentity> {
+        match &self.player_template_definitions {
+            Some(store) => PlayerTemplateIdentity::from_exact_name_in(name, store),
+            None => PlayerTemplateIdentity::from_exact_name(name),
+        }
+    }
+
+    pub(crate) fn resolve_player_template_identity(
+        &self,
+        identity: &PlayerTemplateIdentity,
+    ) -> Option<game_engine::common::rts::player_template::PlayerTemplate> {
+        match &self.player_template_definitions {
+            Some(store) => identity.resolve_in(store).cloned(),
+            None => identity.resolve(),
+        }
+    }
+
     /// Exact C++ PlayerTemplate selection retained for this host session.
     pub fn player_template_identity(&self, player_id: u32) -> Option<&PlayerTemplateIdentity> {
         self.player_template_bindings.get(&player_id)
@@ -1594,7 +1626,7 @@ impl GameLogic {
         player_id: u32,
         player_template: PlayerTemplateIdentity,
     ) -> bool {
-        let Some(template) = player_template.resolve() else {
+        let Some(template) = self.resolve_player_template_identity(&player_template) else {
             return false;
         };
         let Some(template_team) = PlayerTemplateIdentity::team_for_template(&template) else {
@@ -1620,7 +1652,7 @@ impl GameLogic {
         player_id: u32,
     ) -> Option<game_engine::common::rts::player_template::PlayerTemplate> {
         self.player_template_identity(player_id)
-            .and_then(PlayerTemplateIdentity::resolve)
+            .and_then(|identity| self.resolve_player_template_identity(identity))
     }
 
     /// Exact `PlayerTemplate::ProductionCostChange` factor for one player and
@@ -1711,10 +1743,21 @@ impl GameLogic {
     /// Wave 238: science purchase capability without exposing `&Player`.
     #[inline]
     pub fn player_can_purchase_science(&self, id: u32, science_name: &str) -> bool {
-        self.players
-            .get(&id)
-            .map(|p| p.is_capable_of_purchasing_science(science_name))
-            .unwrap_or(false)
+        let Some(player) = self.players.get(&id) else {
+            return false;
+        };
+        let Some(content) = &self.receiving_module_content else {
+            return player.is_capable_of_purchasing_science(science_name);
+        };
+        let facts = content.science_facts_ref();
+        let canonical = if facts.science(science_name.trim()).is_some() {
+            science_name.trim().to_owned()
+        } else {
+            crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual(science_name)
+        };
+        player
+            .science_purchase_cost_with_facts(&canonical, facts)
+            .is_some()
     }
 
     /// Wave 239: team probe without exposing `&Player`.
@@ -2779,7 +2822,7 @@ impl GameLogic {
         player_id: u32,
         player_template: PlayerTemplateIdentity,
     ) -> bool {
-        let Some(template) = player_template.resolve() else {
+        let Some(template) = self.resolve_player_template_identity(&player_template) else {
             return false;
         };
         let Some(team) = PlayerTemplateIdentity::team_for_template(&template) else {

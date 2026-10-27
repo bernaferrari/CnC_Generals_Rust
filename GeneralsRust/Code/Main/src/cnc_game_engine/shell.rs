@@ -1350,6 +1350,20 @@ impl CnCGameEngine {
                             .ok_or("Receiving Object admission requires initialized application Science definitions")?;
                         std::sync::Arc::new(facts)
                     };
+                    // C++ GameEngine.cpp:428 loads Default then retail PlayerTemplate.
+                    // The catalog and its name identities belong to this startup.
+                    let mut player_templates = game_engine::common::rts::player_template::PlayerTemplateStore::new_owned();
+                    let mut loaded_player_templates = false;
+                    for path in ["Data/INI/Default/PlayerTemplate.ini", "Data/INI/PlayerTemplate.ini"] {
+                        if let Some(content) = extract_ini_text_from_archives(path)? {
+                            player_templates.apply_source(&content, game_engine::common::ini::INILoadType::Overwrite)
+                                .map_err(|error| format!("Cannot admit PlayerTemplate definitions from {path}: {error}"))?;
+                            loaded_player_templates = true;
+                        }
+                    }
+                    if loaded_player_templates {
+                        simulation_rules.admit_player_template_definitions(player_templates);
+                    }
                     let mut startup_actions =
                         game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions::default();
 

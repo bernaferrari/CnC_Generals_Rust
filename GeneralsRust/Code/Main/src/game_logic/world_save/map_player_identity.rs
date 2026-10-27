@@ -64,11 +64,15 @@ impl GameLogic {
                 return Err(invalid("authored map exceeds original PlayerList capacity"));
             }
             let faction = row.get_ascii_string(key_player_faction());
-            let identity = PlayerTemplateIdentity::from_exact_name(&faction).ok_or_else(|| {
-                invalid("authored map PlayerFaction has no exact receiving PlayerTemplate")
-            })?;
-            let team = identity
-                .base_team()
+            let identity = self
+                .player_template_identity_from_name(&faction)
+                .ok_or_else(|| {
+                    invalid("authored map PlayerFaction has no exact receiving PlayerTemplate")
+                })?;
+            let team = self
+                .resolve_player_template_identity(&identity)
+                .as_ref()
+                .and_then(PlayerTemplateIdentity::team_for_template)
                 .ok_or_else(|| invalid("authored map PlayerTemplate has no supported base side"))?;
             let controller = match self.prepared_player_controllers.for_side(&name) {
                 Some(controller) => controller,

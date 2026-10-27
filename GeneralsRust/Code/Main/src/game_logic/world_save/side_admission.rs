@@ -67,7 +67,7 @@ impl GameLogic {
         player.apply_map_side_identity_from_dict(dict);
         self.add_player(player);
         if let Some(identity) =
-            PlayerTemplateIdentity::from_exact_name(&dict.get_ascii_string(key_player_faction()))
+            self.player_template_identity_from_name(&dict.get_ascii_string(key_player_faction()))
         {
             let _ = self.bind_player_template_identity(id, identity);
         }

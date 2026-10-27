@@ -83,22 +83,25 @@ impl GameLogic {
         side_builds: &[super::script_loader::SideBuildEntry],
         script_lists: &[ScriptList],
     ) -> Vec<Dict> {
-        // Capture one immutable catalog view at the actual definition-input
-        // boundary. Player and AI queries never rediscover this process store.
-        let catalog = {
-            let templates = get_player_template_store();
-            (0..templates.get_player_template_count())
-                .filter_map(|index| {
-                    templates
-                        .get_nth_player_template_signed(index)
-                        .map(|template| {
-                            (
-                                template.get_name().to_string(),
-                                template.get_side().to_string(),
-                            )
-                        })
-                })
-                .collect::<HashMap<_, _>>()
+        // The prepared controller sides must come from this world's definitions.
+        let collect =
+            |templates: &game_engine::common::rts::player_template::PlayerTemplateStore| {
+                (0..templates.get_player_template_count())
+                    .filter_map(|index| {
+                        templates
+                            .get_nth_player_template_signed(index)
+                            .map(|template| {
+                                (
+                                    template.get_name().to_string(),
+                                    template.get_side().to_string(),
+                                )
+                            })
+                    })
+                    .collect::<HashMap<_, _>>()
+            };
+        let catalog = match &self.player_template_definitions {
+            Some(templates) => collect(templates),
+            None => collect(&get_player_template_store()),
         };
         self.sync_legacy_sides_list_from_dicts_with_controller_catalog(
             side_dicts,

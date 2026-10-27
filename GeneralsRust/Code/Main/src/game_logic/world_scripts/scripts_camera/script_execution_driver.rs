@@ -415,8 +415,14 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         let victory = &self.world.victory_conditions;
         let players = &self.world.players;
         gamelogic::scripting::engine::ScriptOwnerQuery::Present((
-            victory.is_local_allied_victory(players),
-            victory.is_local_allied_defeat(players),
+            victory.is_local_allied_victory_owned(
+                players,
+                self.world.player_template_definitions.as_ref(),
+            ),
+            victory.is_local_allied_defeat_owned(
+                players,
+                self.world.player_template_definitions.as_ref(),
+            ),
             victory.local_player_defeated(players),
         ))
     }

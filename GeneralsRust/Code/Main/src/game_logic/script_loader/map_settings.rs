@@ -107,7 +107,7 @@ pub fn parse_map_settings(map_name: &str) -> LoaderResult<MapMetadata> {
     let Some(chunky) = load_chunky_map(map_name)? else {
         return Ok(meta);
     };
-    parse_map_settings_from_loaded_chunky(map_name, &chunky, meta, None, None, None)
+    parse_map_settings_from_loaded_chunky(map_name, &chunky, meta, None, None, None, false)
 }
 
 /// C++ `WorldHeightMap::ParseLightingDataChunk` (WorldHeightMap.cpp:758-829).
@@ -348,6 +348,7 @@ pub fn parse_map_settings_from_chunky(chunky: &ChunkyMap) -> LoaderResult<MapMet
         None,
         None,
         None,
+        false,
     )
 }
 
@@ -462,6 +463,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_terrain_definitions(
         Some(draft),
         None,
         None,
+        false,
     )
 }
 
@@ -480,6 +482,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_definition_catalogs(
     admitted_object_sources: Option<&[(PathBuf, String)]>,
     upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
     science_facts: std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>,
+    player_templates_admitted: bool,
 ) -> LoaderResult<MapMetadata> {
     parse_map_settings_from_loaded_chunky(
         definition_source,
@@ -499,6 +502,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_definition_catalogs(
         Some(draft),
         Some(science_facts),
         admitted_object_sources,
+        player_templates_admitted,
     )
 }
 
@@ -509,6 +513,7 @@ fn parse_map_settings_from_loaded_chunky(
     mut ai_data_target: Option<&mut game_engine::common::ini::ini_ai_data::AIDataStore>,
     science_facts: Option<std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>>,
     admitted_object_sources: Option<&[(PathBuf, String)]>,
+    player_templates_admitted: bool,
 ) -> LoaderResult<MapMetadata> {
     let mut terrain_definitions = meta
         .terrain_definitions
@@ -649,6 +654,7 @@ fn parse_map_settings_from_loaded_chunky(
                         road_definitions,
                         armor_definitions.to_parsed(),
                         admitted_object_sources.is_some(),
+                        player_templates_admitted,
                         upgrade_definitions,
                     )
                     .map_err(GameLogicError::Configuration)?;
@@ -752,6 +758,7 @@ fn parse_map_settings_from_loaded_chunky(
                         road_definitions,
                         armor_definitions.to_parsed(),
                         admitted_object_sources.is_some(),
+                        player_templates_admitted,
                         upgrade_definitions,
                     )
                     .map_err(GameLogicError::Configuration)?;

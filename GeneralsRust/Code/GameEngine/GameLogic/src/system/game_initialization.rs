@@ -742,6 +742,7 @@ pub fn load_map_ini_ui_overrides_with_owned_upgrade_definitions(
     roads: game_engine::common::ini::ini_road::TerrainRoadCollection,
     armor: game_engine::common::ini::ini::armor_definitions::ArmorDefinitions,
     object_definitions_admitted: bool,
+    player_templates_admitted: bool,
     upgrades: game_engine::common::system::upgrade::UpgradeCenter,
 ) -> Result<
     (
@@ -760,6 +761,9 @@ pub fn load_map_ini_ui_overrides_with_owned_upgrade_definitions(
         ini.set_object_definitions_admitted();
         ini.set_action_definitions_admitted();
         ini.set_science_definitions_admitted();
+    }
+    if player_templates_admitted {
+        ini.set_player_templates_admitted();
     }
     if let Some(target) = target.as_ref() {
         ini.set_owned_ai_data_store_target((**target).clone());

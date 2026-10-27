@@ -232,6 +232,41 @@ pub struct PlayerTemplateIdentity {
 }
 
 impl PlayerTemplateIdentity {
+    pub fn from_exact_name_in(
+        template_name: &str,
+        store: &game_engine::common::rts::player_template::PlayerTemplateStore,
+    ) -> Option<Self> {
+        let template = store.find_template(template_name.trim())?;
+        Some(Self {
+            template_name: template.get_name().to_string(),
+            template_index: None,
+        })
+    }
+
+    pub fn from_exact_indexed_name_in(
+        template_name: &str,
+        template_index: i32,
+        store: &game_engine::common::rts::player_template::PlayerTemplateStore,
+    ) -> Option<Self> {
+        let template = store.get_nth_player_template_signed(template_index)?;
+        (template.get_name() == template_name.trim()).then(|| Self {
+            template_name: template.get_name().to_string(),
+            template_index: Some(template_index),
+        })
+    }
+
+    pub fn resolve_in<'a>(
+        &self,
+        store: &'a game_engine::common::rts::player_template::PlayerTemplateStore,
+    ) -> Option<&'a game_engine::common::rts::player_template::PlayerTemplate> {
+        match self.template_index {
+            Some(index) => store
+                .get_nth_player_template_signed(index)
+                .filter(|template| template.get_name() == self.template_name),
+            None => store.find_template(&self.template_name),
+        }
+    }
+
     /// Resolve an ordinary Campaign `PlayerFaction` only when it names an
     /// exact PlayerTemplate.  A bare base-side label that is not a template is
     /// deliberately not guessed into a selected General.
@@ -243,11 +278,7 @@ impl PlayerTemplateIdentity {
 
         game_engine::common::ini::ensure_player_templates_loaded();
         let store = game_engine::common::rts::player_template::get_player_template_store();
-        let template = store.find_template(template_name)?;
-        Some(Self {
-            template_name: template.get_name().to_string(),
-            template_index: None,
-        })
+        Self::from_exact_name_in(template_name, &store)
     }
 
     /// Resolve a Challenge selection only when its retained slot still names
@@ -261,11 +292,7 @@ impl PlayerTemplateIdentity {
 
         game_engine::common::ini::ensure_player_templates_loaded();
         let store = game_engine::common::rts::player_template::get_player_template_store();
-        let template = store.get_nth_player_template_signed(template_index)?;
-        (template.get_name() == template_name).then(|| Self {
-            template_name: template.get_name().to_string(),
-            template_index: Some(template_index),
-        })
+        Self::from_exact_indexed_name_in(template_name, template_index, &store)
     }
 
     /// Re-resolve the immutable Common store record at the GameLogic authority
@@ -274,13 +301,7 @@ impl PlayerTemplateIdentity {
     pub fn resolve(&self) -> Option<game_engine::common::rts::player_template::PlayerTemplate> {
         game_engine::common::ini::ensure_player_templates_loaded();
         let store = game_engine::common::rts::player_template::get_player_template_store();
-        match self.template_index {
-            Some(index) => store
-                .get_nth_player_template_signed(index)
-                .filter(|template| template.get_name() == self.template_name)
-                .cloned(),
-            None => store.find_template(&self.template_name).cloned(),
-        }
+        self.resolve_in(&store).cloned()
     }
 
     /// C++ `PlayerTemplate::getSide()` for this identity — the `Side` token
@@ -291,12 +312,7 @@ impl PlayerTemplateIdentity {
     pub fn side_token(&self) -> Option<String> {
         game_engine::common::ini::ensure_player_templates_loaded();
         let store = game_engine::common::rts::player_template::get_player_template_store();
-        let template = match self.template_index {
-            Some(index) => store
-                .get_nth_player_template_signed(index)
-                .filter(|template| template.get_name() == self.template_name)?,
-            None => store.find_template(&self.template_name)?,
-        };
+        let template = self.resolve_in(&store)?;
         Some(template.get_side().to_string())
     }
 
@@ -1123,7 +1139,7 @@ impl Player {
         self.unlock_science(science_name)
     }
 
-    fn science_purchase_cost_with_facts(
+    pub(crate) fn science_purchase_cost_with_facts(
         &self,
         name: &str,
         facts: &game_engine::common::rts::science::ScienceNameFacts,

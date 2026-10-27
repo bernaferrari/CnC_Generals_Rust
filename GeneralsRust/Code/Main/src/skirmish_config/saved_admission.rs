@@ -159,9 +159,10 @@ impl SavedSkirmishAdmission {
 
     /// Import only facts present in a genuine original v4 stream. Original
     /// GameLogic wire remains a separate capability of the save reader.
-    pub(crate) fn from_original(info: SkirmishGameInfo) -> Result<Self, String> {
-        game_engine::common::ini::ensure_player_templates_loaded();
-        let store = game_engine::common::rts::player_template::get_player_template_store();
+    pub(crate) fn from_original_in(
+        info: SkirmishGameInfo,
+        store: &game_engine::common::rts::player_template::PlayerTemplateStore,
+    ) -> Result<Self, String> {
         let mut slots = Vec::with_capacity(SKIRMISH_MAX_SLOTS);
         for (index, source) in info.slots.iter().enumerate() {
             if !(0..=5).contains(&source.state) {
@@ -238,7 +239,6 @@ impl SavedSkirmishAdmission {
                 },
             });
         }
-        drop(store);
         // Offline original import can prove one local human. Multiple humans
         // need the deferred network/local-IP ownership path, never a guessed ID.
         let humans: Vec<_> = slots
@@ -269,8 +269,17 @@ impl SavedSkirmishAdmission {
             local_slot: humans.first().copied(),
             local_slot_from_client: true,
         };
-        result.validate_definitions()?;
+        result.validate_definitions(Some(store))?;
         Ok(result)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_original(info: SkirmishGameInfo) -> Result<Self, String> {
+        game_engine::common::ini::ensure_player_templates_loaded();
+        Self::from_original_in(
+            info,
+            &game_engine::common::rts::player_template::get_player_template_store(),
+        )
     }
 
     pub(crate) fn validate(&self) -> Result<(), String> {
@@ -385,9 +394,12 @@ impl SavedSkirmishAdmission {
     }
 
     /// Validate actual receiving definitions before any candidate reset/map IO.
-    pub(crate) fn validate_definitions(&self) -> Result<(), String> {
+    pub(crate) fn validate_definitions(
+        &self,
+        definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
+    ) -> Result<(), String> {
         self.validate()?;
-        let _ = resolve_skirmish_slots(&self.config)?; // all Exact; consumes no random values
+        let _ = resolve_skirmish_slots_for_owner(&self.config, definitions)?; // all Exact; consumes no random values
         if let Some(info) = &self.source {
             for slot in self.config.slots.iter().filter(|slot| slot.is_active) {
                 let color = info.slots[slot.slot_index].color;
@@ -426,8 +438,11 @@ impl SavedSkirmishAdmission {
 
     /// Install the same player admission kernel without reroll/reset/recorder.
     pub(crate) fn admit(&self, world: &mut GameLogic) -> Result<(), String> {
-        self.validate_definitions()?;
-        let mut resolved = resolve_skirmish_slots(&self.config)?;
+        self.validate_definitions(world.player_template_definitions.as_ref())?;
+        let mut resolved = resolve_skirmish_slots_for_owner(
+            &self.config,
+            world.player_template_definitions.as_ref(),
+        )?;
         // Saved current indices are admitted exactly, never randomized again.
         if let Some(source) = &self.source {
             let palette =

@@ -363,6 +363,7 @@ impl GameLogic {
                             player,
                             &self.players,
                             self.objects.read(),
+                            self.player_template_definitions.as_ref(),
                         )
             });
         if !allowed {

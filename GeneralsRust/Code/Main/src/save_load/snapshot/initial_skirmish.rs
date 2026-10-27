@@ -78,13 +78,22 @@ pub(crate) fn read(world: &WorldSnapshot) -> SaveLoadResult<Option<Box<SavedSkir
 /// The actual receiving admission boundary, never called by archive decoding.
 pub(crate) fn read_for_restore(
     world: &WorldSnapshot,
+    definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
 ) -> SaveLoadResult<Option<Box<SavedSkirmishAdmission>>> {
     match split(&world.lifecycle_tail)?.1 {
         Some(InitialAdmissionRecord::Native(value)) => Ok(Some(Box::new(value))),
         Some(InitialAdmissionRecord::Original(source)) => {
-            SavedSkirmishAdmission::from_original(source)
-                .map(|v| Some(Box::new(v)))
-                .map_err(invalid)
+            let admission = match definitions {
+                Some(store) => SavedSkirmishAdmission::from_original_in(source, store),
+                None => {
+                    game_engine::common::ini::ensure_player_templates_loaded();
+                    SavedSkirmishAdmission::from_original_in(
+                        source,
+                        &game_engine::common::rts::player_template::get_player_template_store(),
+                    )
+                }
+            };
+            admission.map(|v| Some(Box::new(v))).map_err(invalid)
         }
         None => Ok(None),
     }

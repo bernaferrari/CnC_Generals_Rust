@@ -418,7 +418,7 @@ impl GameLogic {
         observer.color_night_rgb = night;
 
         self.add_player(observer);
-        if let Some(identity) = PlayerTemplateIdentity::from_exact_name("FactionObserver") {
+        if let Some(identity) = self.player_template_identity_from_name("FactionObserver") {
             let _ = self.bind_player_template_identity(id, identity);
             if let Some(player) = self.players.get_mut(&id) {
                 player.is_alive = false;
@@ -505,12 +505,18 @@ impl GameLogic {
             logic_player.set_base_side("Observer");
             logic_player.set_observer(true);
             logic_player.set_player_type(LogicPlayerType::Observer, false);
-            game_engine::common::ini::ensure_player_templates_loaded();
-            let observer_template = {
-                let templates = get_player_template_store();
-                templates
-                    .find_template("FactionObserver")
-                    .map(|common| std::sync::Arc::new(LogicPlayerTemplate::from_common(common)))
+            let from_store =
+                |templates: &game_engine::common::rts::player_template::PlayerTemplateStore| {
+                    templates
+                        .find_template("FactionObserver")
+                        .map(|common| std::sync::Arc::new(LogicPlayerTemplate::from_common(common)))
+                };
+            let observer_template = match &self.player_template_definitions {
+                Some(templates) => from_store(templates),
+                None => {
+                    game_engine::common::ini::ensure_player_templates_loaded();
+                    from_store(&get_player_template_store())
+                }
             };
             if let Some(template) = observer_template {
                 logic_player.init(template);
@@ -1656,7 +1662,10 @@ impl GameLogic {
         let Some(bridge_tmpl) = self
             .objects
             .get(&bridge_id)
-            .and_then(|obj| self.effective_terrain_roads().find_bridge(&obj.template_name))
+            .and_then(|obj| {
+                self.effective_terrain_roads()
+                    .find_bridge(&obj.template_name)
+            })
             .cloned()
         else {
             return Ok(());

@@ -221,6 +221,8 @@ pub struct INI {
     action_definitions_admitted: bool,
     // The receiving session already parsed Science and its own name identities.
     science_definitions_admitted: bool,
+    // The receiving session has already admitted PlayerTemplate blocks.
+    player_templates_admitted: bool,
     particle_definitions_admitted: bool,
     /// C++ INI.cpp:458-463 feeds the active load's CRC, in line order.
     /// This parser already has exclusive access through `&mut self`.
@@ -362,7 +364,7 @@ fn parse_science_block(ini: &mut INI) -> INIResult<()> {
     crate::common::rts::science::parse_science_definition_block(ini)
 }
 
-fn consume_block_with_nesting(ini: &mut INI) -> INIResult<Vec<String>> {
+pub(crate) fn consume_block_with_nesting(ini: &mut INI) -> INIResult<Vec<String>> {
     let mut nested_depth = 0usize;
     let mut lines = Vec::new();
 
@@ -1265,6 +1267,10 @@ impl INI {
         self.science_definitions_admitted = true;
     }
 
+    pub fn set_player_templates_admitted(&mut self) {
+        self.player_templates_admitted = true;
+    }
+
     pub fn new() -> Self {
         Self {
             name_key_namespace: None,
@@ -1292,6 +1298,7 @@ impl INI {
             object_definitions_admitted: false,
             action_definitions_admitted: false,
             science_definitions_admitted: false,
+            player_templates_admitted: false,
             particle_definitions_admitted: false,
             xfer: None,
             script_template_definitions: Vec::new(),
@@ -1367,9 +1374,7 @@ impl INI {
     pub fn set_terrain_roads_target(&mut self, target: super::ini_road::TerrainRoadCollection) {
         self.terrain_roads_target = Some(target);
     }
-    pub fn take_terrain_roads_target(
-        &mut self,
-    ) -> Option<super::ini_road::TerrainRoadCollection> {
+    pub fn take_terrain_roads_target(&mut self) -> Option<super::ini_road::TerrainRoadCollection> {
         self.terrain_roads_target.take()
     }
 
@@ -1847,6 +1852,11 @@ impl INI {
                 consume_block_with_nesting(self)?;
                 continue;
             }
+            if self.player_templates_admitted && first_token.eq_ignore_ascii_case("PlayerTemplate")
+            {
+                consume_block_with_nesting(self)?;
+                continue;
+            }
 
             // Look up the block parser for this token type
             if let Some(parser) = self.find_block_parser(&first_token) {
@@ -2080,9 +2090,9 @@ impl INI {
 
     pub fn parse_ascii_string(token: &str) -> INIResult<String> {
         // C++ removes the opening quote even when no closing quote follows.
-        let value = token.strip_prefix('"').map_or(token, |quoted| {
-            quoted.strip_suffix('"').unwrap_or(quoted)
-        });
+        let value = token
+            .strip_prefix('"')
+            .map_or(token, |quoted| quoted.strip_suffix('"').unwrap_or(quoted));
         Ok(value.to_owned())
     }
 
@@ -2658,7 +2668,10 @@ mod tests {
         assert_eq!(INI::parse_ascii_string("\"").unwrap(), "");
         assert_eq!(INI::parse_ascii_string("\"\"").unwrap(), "");
         assert_eq!(INI::parse_ascii_string("\"héllo\"").unwrap(), "héllo");
-        assert_eq!(INI::parse_ascii_string("\"unfinished").unwrap(), "unfinished");
+        assert_eq!(
+            INI::parse_ascii_string("\"unfinished").unwrap(),
+            "unfinished"
+        );
         assert_eq!(INI::parse_ascii_string("\"two words").unwrap(), "two words");
         assert_eq!(INI::parse_ascii_string("plain").unwrap(), "plain");
     }

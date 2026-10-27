@@ -237,7 +237,7 @@ fn prepared_admission_roles_survive_encoded_snapshot_restore() {
             foreign.reset();
             let mut restored = GameLogic::new();
             restored.start_new_game_for_restore(GameMode::Skirmish);
-            crate::save_load::snapshot::initial_skirmish::read_for_restore(&decoded)
+            crate::save_load::snapshot::initial_skirmish::read_for_restore(&decoded, None)
                 .unwrap()
                 .expect("resolved initial admission")
                 .admit(&mut restored)
@@ -406,7 +406,7 @@ fn receiving_prepared_sides_survive_peer_reset_restore_and_busy_global_adapter()
             let decoded = decode_bincode_world_snapshot(&encoded).unwrap();
             let mut restored = GameLogic::new();
             restored.start_new_game_for_restore(GameMode::Skirmish);
-            crate::save_load::snapshot::initial_skirmish::read_for_restore(&decoded)
+            crate::save_load::snapshot::initial_skirmish::read_for_restore(&decoded, None)
                 .unwrap()
                 .expect("resolved initial admission")
                 .admit(&mut restored)

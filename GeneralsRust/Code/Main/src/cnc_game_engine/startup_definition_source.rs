@@ -37,6 +37,7 @@ pub(super) struct StartupSimulationRules {
     sell_percentage: f32,
     combat_bonus: game_engine::common::ini::ini_game_data::CombatBonusRules,
     upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
+    player_templates: Option<game_engine::common::rts::player_template::PlayerTemplateStore>,
 }
 impl StartupSimulationRules {
     pub(super) fn capture(world: &crate::game_logic::GameLogic) -> Self {
@@ -50,6 +51,7 @@ impl StartupSimulationRules {
             sell_percentage: world.session_sell_percentage,
             combat_bonus: world.combat_bonus_baseline().clone(),
             upgrade_definitions: world.upgrade_definitions.clone(),
+            player_templates: world.player_template_definitions.clone(),
         }
     }
     pub(super) fn upgrade_definitions(&self) -> &gamelogic::upgrade::center::UpgradeCenter {
@@ -61,6 +63,12 @@ impl StartupSimulationRules {
         definitions: gamelogic::upgrade::center::UpgradeCenter,
     ) {
         self.upgrade_definitions = definitions;
+    }
+    pub(super) fn admit_player_template_definitions(
+        &mut self,
+        definitions: game_engine::common::rts::player_template::PlayerTemplateStore,
+    ) {
+        self.player_templates = Some(definitions);
     }
     /// Parse fallback text into this owned recipient using the same Common INI
     /// Upgrade block handler and order, without selecting Core AI.
@@ -81,6 +89,9 @@ impl StartupSimulationRules {
         world.admit_combat_bonus_baseline(self.combat_bonus);
         world.upgrade_definition_base = self.upgrade_definitions.clone();
         world.upgrade_definitions = self.upgrade_definitions;
+        if let Some(definitions) = self.player_templates {
+            world.admit_player_template_definitions(definitions)?;
+        }
         Ok(())
     }
 }

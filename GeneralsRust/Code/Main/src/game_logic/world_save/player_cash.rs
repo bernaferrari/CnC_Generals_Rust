@@ -44,12 +44,16 @@ impl GameLogic {
             } else {
                 cash
             };
-            if let Some(template) = self
-                .player_template_bindings
-                .get(&id)
-                .and_then(|identity| identity.resolve())
-            {
-                let template_cash = template.get_money().count_money();
+            if let Some(identity) = self.player_template_bindings.get(&id) {
+                let template_cash = match &self.player_template_definitions {
+                    Some(store) => identity
+                        .resolve_in(store)
+                        .map(|template| template.get_money().count_money()),
+                    None => identity
+                        .resolve()
+                        .map(|template| template.get_money().count_money()),
+                }
+                .unwrap_or(0);
                 if template_cash != 0 {
                     player.resources.supplies = template_cash;
                 }

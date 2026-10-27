@@ -261,21 +261,20 @@ impl GameLogic {
             0.435,
             "Fast sync roads",
         )?;
-        self.runtime_road_segments =
-            match super::script_loader::parse_runtime_roads_from_chunky(
-                chunky,
-                self.effective_terrain_roads(),
-            ) {
-                Ok(value) => value,
-                Err(err) => {
-                    log::warn!(
-                        "Fast legacy runtime sync road parse failed for '{}': {}",
-                        map_path.display(),
-                        err
-                    );
-                    Vec::new()
-                }
-            };
+        self.runtime_road_segments = match super::script_loader::parse_runtime_roads_from_chunky(
+            chunky,
+            self.effective_terrain_roads(),
+        ) {
+            Ok(value) => value,
+            Err(err) => {
+                log::warn!(
+                    "Fast legacy runtime sync road parse failed for '{}': {}",
+                    map_path.display(),
+                    err
+                );
+                Vec::new()
+            }
+        };
         self.runtime_terrain_texture_classes.clear();
         report_progress(
             &mut self.session_view.audio_random,
@@ -494,13 +493,18 @@ impl GameLogic {
                 |player| player.is_human,
             );
 
-            // Keep player-template store locking narrow so Player::init can lazily hydrate
-            // templates without deadlocking on the same global RwLock.
-            let template_from_store = try_get_player_template_store().and_then(|store| {
-                store
+            // The temporary Core adapter gets facts from the receiving world.
+            // Retain the old nonblocking lookup only for unconverted callers.
+            let template_from_store = match &self.player_template_definitions {
+                Some(store) => store
                     .find_template(&faction)
-                    .map(LogicPlayerTemplate::from_common)
-            });
+                    .map(LogicPlayerTemplate::from_common),
+                None => try_get_player_template_store().and_then(|store| {
+                    store
+                        .find_template(&faction)
+                        .map(LogicPlayerTemplate::from_common)
+                }),
+            };
             let template = template_from_store.unwrap_or_else(|| {
                 let mut template = LogicPlayerTemplate::new(player_name.clone());
                 template.side = faction.clone();

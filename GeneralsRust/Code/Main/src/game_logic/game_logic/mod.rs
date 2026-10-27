@@ -143,6 +143,7 @@ impl GameLogic {
             self.frame,
             self.game_mode,
             &self.player_template_bindings,
+            self.player_template_definitions.as_ref(),
             &self.team_factory,
         );
         // C++ VictoryConditions.cpp:196 p->killPlayer() on first defeat frame.

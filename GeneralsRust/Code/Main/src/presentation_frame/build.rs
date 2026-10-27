@@ -1886,8 +1886,8 @@ impl PresentationFrame {
             frame: logic.frame,
             local_player: logic.get_player(local_player_id).map(|player| {
                 let side = logic
-                    .player_template_identity(player.id)
-                    .and_then(crate::game_logic::PlayerTemplateIdentity::side_token)
+                    .resolved_player_template(player.id)
+                    .map(|template| template.get_side().to_string())
                     .filter(|side| !side.is_empty())
                     .unwrap_or_else(|| match player.team {
                         crate::game_logic::Team::USA => "America".into(),

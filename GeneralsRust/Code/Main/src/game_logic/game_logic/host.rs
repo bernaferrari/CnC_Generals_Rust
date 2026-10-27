@@ -41,9 +41,9 @@ pub struct GameLogic {
     /// Original application GameData values; map overrides are derived from this owner.
     pub(crate) combat_bonus_base: game_engine::common::ini::ini_game_data::CombatBonusRules,
     /// GameData SOLO health factors admitted with this receiving session.
-    pub(crate) solo_player_health_bonus_for_difficulty:
-        [[f32; game_engine::common::global_data::DIFFICULTY_COUNT];
-            game_engine::common::global_data::PLAYERTYPE_COUNT],
+    pub(crate) solo_player_health_bonus_for_difficulty: [[f32;
+        game_engine::common::global_data::DIFFICULTY_COUNT];
+        game_engine::common::global_data::PLAYERTYPE_COUNT],
     /// Global veterancy health factors admitted with this receiving session.
     pub(crate) veterancy_health_bonus: [f32; game_engine::common::global_data::LEVEL_COUNT],
     /// Effective ordered GameData SellPercentage admitted with this session.
@@ -155,6 +155,9 @@ pub struct GameLogic {
     /// reset with a match, survives the existing SP/skirmish map-load preserve
     /// path, and never mutates GameNetwork.
     pub(super) player_template_bindings: HashMap<u32, PlayerTemplateIdentity>,
+    /// Immutable PlayerTemplate definitions loaded for this application/session.
+    pub(crate) player_template_definitions:
+        Option<game_engine::common::rts::player_template::PlayerTemplateStore>,
     /// Immutable once-resolved initial admission, distinct from current players.
     pub(crate) initial_skirmish_admission:
         Option<Box<crate::skirmish_config::saved_admission::SavedSkirmishAdmission>>,
@@ -1175,7 +1178,8 @@ pub struct GameLogic {
         Option<game_engine::common::thing::receiving_module_content::ReceivingModuleContent>,
     /// Explicit immutable action catalog for worlds without full Object content.
     /// Production sessions read actions from receiving_module_content.
-    pub(crate) command_action_definitions: Option<game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions>,
+    pub(crate) command_action_definitions:
+        Option<game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions>,
     /// Immutable host projections travel with the originating typed content.
     pub(crate) receiving_object_definitions: Option<crate::assets::ReceivingObjectDefinitions>,
 

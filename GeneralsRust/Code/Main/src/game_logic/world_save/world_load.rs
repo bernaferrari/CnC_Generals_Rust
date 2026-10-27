@@ -420,6 +420,16 @@ impl GameLogic {
                     .iter()
                     .map(|(_, text)| text.clone())
                     .collect();
+                if let Some(base) = self.player_template_definitions.as_ref() {
+                    let mut candidate = base.clone();
+                    for source in &weapon_overrides {
+                        if let Err(error) = candidate.apply_companion_source(source) {
+                            log::error!("Cannot admit receiving map PlayerTemplate rules: {error}");
+                            return Ok(false);
+                        }
+                    }
+                    self.player_template_definitions = Some(candidate);
+                }
                 if let Err(error) = self.admit_body_damage_companion_sources(&weapon_overrides) {
                     log::error!("Cannot admit receiving map Body rules: {error}");
                     return Ok(false);
@@ -502,6 +512,7 @@ impl GameLogic {
                             .as_ref()
                             .map(|content| content.science_facts())
                             .unwrap_or_default(),
+                        self.player_template_definitions.is_some(),
                     );
                 let parsed_settings = match parsed {
                     Ok(meta) => match self.admit_ai_map_overrides(ai_draft) {

@@ -265,6 +265,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                     RestoreTemplateCatalog {
                         templates: &source.templates,
                         modules: &source.receiving_module_content,
+                        player_templates: &source.player_template_definitions,
                         object_definitions: &source.receiving_object_definitions,
                         baseline: &source.receiving_template_baseline,
                         lighting_baseline: source.lighting_rules_baseline(),
@@ -335,6 +336,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                         RestoreTemplateCatalog {
                             templates: &source.templates,
                             modules: &source.receiving_module_content,
+                            player_templates: &source.player_template_definitions,
                             object_definitions: &source.receiving_object_definitions,
                             baseline: &source.receiving_template_baseline,
                             lighting_baseline: source.lighting_rules_baseline(),
@@ -411,6 +413,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                         RestoreTemplateCatalog {
                             templates: &source.templates,
                             modules: &source.receiving_module_content,
+                            player_templates: &source.player_template_definitions,
                             object_definitions: &source.receiving_object_definitions,
                             baseline: &source.receiving_template_baseline,
                             lighting_baseline: source.lighting_rules_baseline(),

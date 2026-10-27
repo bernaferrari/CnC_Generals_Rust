@@ -347,46 +347,65 @@ fn validate_skirmish_template(
     })
 }
 
-fn resolve_exact_skirmish_template(
+fn resolve_exact_skirmish_template_in(
     template_name: &str,
     template_index: i32,
+    store: &game_engine::common::rts::player_template::PlayerTemplateStore,
 ) -> Result<(PlayerTemplateIdentity, Team), String> {
-    let identity = PlayerTemplateIdentity::from_exact_indexed_name(template_name, template_index)
-        .ok_or_else(|| {
+    let identity = PlayerTemplateIdentity::from_exact_indexed_name_in(
+        template_name,
+        template_index,
+        store,
+    )
+    .ok_or_else(|| {
         format!(
             "selected Skirmish PlayerTemplate name/index pair is stale or missing: '{}' at {}",
             template_name, template_index
         )
     })?;
-    let template = identity.resolve().ok_or_else(|| {
+    let template = identity.resolve_in(store).ok_or_else(|| {
         format!(
             "selected Skirmish PlayerTemplate '{}' disappeared during validation",
             identity.template_name
         )
     })?;
-    let team = validate_skirmish_template(&template)?;
+    let team = validate_skirmish_template(template)?;
     Ok((identity, team))
 }
 
-fn resolve_observer_skirmish_template() -> Result<(PlayerTemplateIdentity, Team), String> {
-    let identity = PlayerTemplateIdentity::from_exact_name("FactionObserver")
+#[cfg(test)]
+fn resolve_exact_skirmish_template(
+    template_name: &str,
+    template_index: i32,
+) -> Result<(PlayerTemplateIdentity, Team), String> {
+    game_engine::common::ini::ensure_player_templates_loaded();
+    resolve_exact_skirmish_template_in(
+        template_name,
+        template_index,
+        &game_engine::common::rts::player_template::get_player_template_store(),
+    )
+}
+
+fn resolve_observer_skirmish_template(
+    store: &game_engine::common::rts::player_template::PlayerTemplateStore,
+) -> Result<(PlayerTemplateIdentity, Team), String> {
+    let identity = PlayerTemplateIdentity::from_exact_name_in("FactionObserver", store)
         .ok_or("occupied observer requires receiving FactionObserver definition")?;
     let template = identity
-        .resolve()
+        .resolve_in(store)
         .ok_or("receiving FactionObserver disappeared")?;
     if !template.is_observer()
-        || PlayerTemplateIdentity::team_for_template(&template) != Some(Team::Neutral)
+        || PlayerTemplateIdentity::team_for_template(template) != Some(Team::Neutral)
     {
         return Err("receiving FactionObserver is not a neutral observer template".into());
     }
     Ok((identity, Team::Neutral))
 }
 
-fn random_skirmish_template_candidates(
+fn random_skirmish_template_candidates_in(
     old_factions_only: bool,
+    store: &game_engine::common::rts::player_template::PlayerTemplateStore,
 ) -> Vec<(PlayerTemplateIdentity, Team)> {
-    game_engine::common::ini::ensure_player_templates_loaded();
-    let store = game_engine::common::rts::player_template::get_player_template_store();
     store
         .iter()
         .enumerate()
@@ -408,6 +427,17 @@ fn random_skirmish_template_candidates(
             ))
         })
         .collect()
+}
+
+#[cfg(test)]
+fn random_skirmish_template_candidates(
+    old_factions_only: bool,
+) -> Vec<(PlayerTemplateIdentity, Team)> {
+    game_engine::common::ini::ensure_player_templates_loaded();
+    random_skirmish_template_candidates_in(
+        old_factions_only,
+        &game_engine::common::rts::player_template::get_player_template_store(),
+    )
 }
 
 /// Resolve one C++ `PLAYERTEMPLATE_RANDOM` slot against the *already seeded*
@@ -610,9 +640,10 @@ fn skirmish_num_teams(slots: &[SkirmishSlotConfig]) -> i32 {
     num_teams
 }
 
-fn resolve_skirmish_slots(
-    config: &SkirmishMatchConfig,
-) -> Result<Vec<ResolvedSkirmishSlot<'_>>, String> {
+fn resolve_skirmish_slots<'a>(
+    config: &'a SkirmishMatchConfig,
+    definitions: &game_engine::common::rts::player_template::PlayerTemplateStore,
+) -> Result<Vec<ResolvedSkirmishSlot<'a>>, String> {
     let mut active_slots: Vec<&SkirmishSlotConfig> =
         config.slots.iter().filter(|slot| slot.is_active).collect();
     if active_slots.is_empty() {
@@ -648,12 +679,13 @@ fn resolve_skirmish_slots(
             SkirmishPlayerTemplateSelection::Exact {
                 template_name,
                 template_index,
-            } => exact.push(Some(resolve_exact_skirmish_template(
+            } => exact.push(Some(resolve_exact_skirmish_template_in(
                 template_name,
                 *template_index,
+                definitions,
             )?)),
             SkirmishPlayerTemplateSelection::Observer => {
-                exact.push(Some(resolve_observer_skirmish_template()?));
+                exact.push(Some(resolve_observer_skirmish_template(definitions)?));
             }
             SkirmishPlayerTemplateSelection::Random => {
                 needs_random = true;
@@ -662,8 +694,8 @@ fn resolve_skirmish_slots(
         }
     }
 
-    let candidates =
-        needs_random.then(|| random_skirmish_template_candidates(config.old_factions_only));
+    let candidates = needs_random
+        .then(|| random_skirmish_template_candidates_in(config.old_factions_only, definitions));
     if needs_random && candidates.as_ref().is_some_and(Vec::is_empty) {
         return Err("no eligible PlayerTemplate is available for Random Skirmish selection".into());
     }
@@ -759,6 +791,22 @@ fn resolve_skirmish_slots(
         .collect()
 }
 
+fn resolve_skirmish_slots_for_owner<'a>(
+    config: &'a SkirmishMatchConfig,
+    definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
+) -> Result<Vec<ResolvedSkirmishSlot<'a>>, String> {
+    match definitions {
+        Some(definitions) => resolve_skirmish_slots(config, definitions),
+        None => {
+            game_engine::common::ini::ensure_player_templates_loaded();
+            resolve_skirmish_slots(
+                config,
+                &game_engine::common::rts::player_template::get_player_template_store(),
+            )
+        }
+    }
+}
+
 /// Apply full skirmish configuration to the authoritative Main GameLogic.
 ///
 /// This is the shipped offline match-start path for C++ GameInfo slots. Every
@@ -782,7 +830,7 @@ pub(crate) fn apply_skirmish_config_for_mode(
     selection.seed_random(config.random_seed);
     let resolved_slots =
         game_engine::common::random_value::with_session_random(&selection, || {
-            resolve_skirmish_slots(config)
+            resolve_skirmish_slots_for_owner(config, logic.player_template_definitions.as_ref())
         })?;
     // New admission metadata must reject before reset/seed side effects. This
     // scratch validation does not perform start selection or retain a second owner.
