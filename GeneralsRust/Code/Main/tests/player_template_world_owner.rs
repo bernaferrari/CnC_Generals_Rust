@@ -54,6 +54,16 @@ fn world(start_money: u32, map: &std::path::Path) -> GameLogic {
              Object OwnedSite\n KindOf = STRUCTURE SELECTABLE IMMOBILE\n BuildCost = 300\n BuildTime = 1\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\n\
              Object PeerSite\n KindOf = STRUCTURE SELECTABLE IMMOBILE\n BuildCost = 300\n BuildTime = 1\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\n\
              Object ShortcutOwner\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SpecialAbility SourcePower\n SpecialPowerTemplate = SpecialPowerSpySatellite\n End\nEnd\n".into(),
+        ), (
+            "SupplyOwner.ini".into(),
+            format!(
+                "Object OwnedSupply\n KindOf = STRUCTURE SELECTABLE FS_SUPPLY_CENTER\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = {}\n End\nEnd\n\
+                 Object FirstCollector\n KindOf = VEHICLE SELECTABLE HARVESTER\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
+                 Object PeerCollector\n KindOf = VEHICLE SELECTABLE HARVESTER\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
+                 Object MissingSupply\n KindOf = STRUCTURE SELECTABLE FS_SUPPLY_CENTER\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = PeerOnlyCollector\n End\nEnd\n{}",
+                if start_money == 1200 { "FirstCollector" } else { "PeerCollector" },
+                if start_money == 1200 { "" } else { "Object PeerOnlyCollector\n KindOf = VEHICLE SELECTABLE HARVESTER\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n" },
+            ),
         )])
         .unwrap();
     world
@@ -596,5 +606,40 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
             .registered_values()
             .any(|object| object.template_name == "OwnedSite")
     );
+
+    // The same supply-center identity carries different typed SpawnBehavior
+    // definitions in two sessions; creating it must use its own first entry.
+    let mut supply_owner = world(1200, &first_map);
+    let mut supply_peer = world(2200, &peer_map);
+    let center = supply_owner
+        .create_object_for_player("OwnedSupply", 1, position)
+        .unwrap();
+    let peer_center = supply_peer
+        .create_object_for_player("OwnedSupply", 1, position)
+        .unwrap();
+    assert_eq!(center, peer_center);
+    let children = |world: &GameLogic, producer| {
+        world
+            .host_objects()
+            .registered_values()
+            .filter(|object| object.producer_id == Some(producer))
+            .map(|object| object.template_name.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(children(&supply_owner, center), ["FirstCollector"]);
+    assert_eq!(children(&supply_peer, peer_center), ["PeerCollector"]);
+    let missing_center = supply_owner
+        .create_object_for_player("MissingSupply", 1, position)
+        .unwrap();
+    let matching_center = supply_peer
+        .create_object_for_player("MissingSupply", 1, position)
+        .unwrap();
+    assert!(children(&supply_owner, missing_center).is_empty());
+    assert_eq!(
+        children(&supply_peer, matching_center),
+        ["PeerOnlyCollector"]
+    );
+    supply_peer.reset();
+    assert_eq!(children(&supply_owner, center), ["FirstCollector"]);
     *get_player_template_store_mut() = previous;
 }

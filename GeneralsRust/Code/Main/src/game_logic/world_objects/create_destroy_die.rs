@@ -58,40 +58,38 @@ fn spawn_point_rotate_yaw_host(origin: Vec3, yaw: f32, local: Vec3) -> Vec3 {
     )
 }
 
-/// C++ `SpawnPointProductionExitUpdateModuleData::m_spawnPointBoneNameData`.
-/// Retail Stinger / Tunnel author `SpawnPointBoneName = SpawnPoint`.
-fn authored_spawn_point_bone_name(template_name: &str) -> String {
-    let Some(manager_arc) = get_asset_manager() else {
-        return "SpawnPoint".to_string();
-    };
-    let Ok(manager) = manager_arc.lock() else {
-        return "SpawnPoint".to_string();
-    };
-    let Some(definition) = manager.resolve_object_definition(template_name, None) else {
-        return "SpawnPoint".to_string();
-    };
-    for module in &definition.behavior_modules {
-        if !module
-            .class_name
-            .eq_ignore_ascii_case("SpawnPointProductionExitUpdate")
-        {
-            continue;
-        }
-        if let Some(value) = module.attribute("SpawnPointBoneName") {
-            let name = value.trim().to_string();
-            if !name.is_empty() {
-                return name;
-            }
-        }
+/// The actual Object's admitted `SpawnPointProductionExitUpdate` data.
+fn authored_spawn_point_bone_name(parent: &Object) -> Option<String> {
+    use gamelogic::object::behavior::spawn_point_production_exit_behavior::SpawnPointProductionExitModuleData;
+
+    let template = parent.get_template();
+    if let Some(receiving) = &template.receiving_client_template {
+        let module = receiving.behavior_modules().iter().find(|entry| {
+            entry
+                .name
+                .as_str()
+                .eq_ignore_ascii_case("SpawnPointProductionExitUpdate")
+        })?;
+        let data = module
+            .data
+            .as_any()
+            .downcast_ref::<SpawnPointProductionExitModuleData>()?;
+        return Some(data.spawn_point_bone_name.as_str().to_owned());
     }
-    "SpawnPoint".to_string()
+    if template.receiving_object_definition.is_some() {
+        return None;
+    }
+    // Programmatic fixtures have no admitted module data.
+    Some("SpawnPoint".to_owned())
 }
 
 /// C++ `initializeBonePositions` (`SpawnPointProductionExitUpdate.cpp:118-149`):
 /// `getPristineBonePositions(name, 1, …)` then `convertBonePosToWorldPos` +
 /// `Get_Z_Rotation`. World Z is left 0 and snapped at exit time.
 fn collect_world_spawn_point_bones(parent: &Object) -> Vec<(Vec3, f32)> {
-    let prefix = authored_spawn_point_bone_name(&parent.template_name);
+    let Some(prefix) = authored_spawn_point_bone_name(parent) else {
+        return Vec::new();
+    };
     let model = &parent
         .thing()
         .template
@@ -212,30 +210,35 @@ impl GameLogic {
     /// own collector (for example Air Force Chinooks) instead of being
     /// rewritten to a base-faction name.
     ///
-    /// The exact three base-game pairs are retained for headless/test worlds
-    /// that intentionally do not initialize an AssetManager.  This is not a
-    /// name-derived fallback: these are the literal `SpawnBehavior ModuleTag_12`
-    /// entries in FactionBuilding.ini.
-    fn authored_supply_center_one_shot_template(template_name: &str) -> Option<String> {
-        let parsed = get_asset_manager().and_then(|manager| {
-            let manager = manager.lock().ok()?;
-            let definition = manager.resolve_object_definition(template_name, None)?;
-            let one_shot = Self::object_definition_attr(definition, "OneShot")
-                .is_some_and(|value| value.eq_ignore_ascii_case("yes"));
-            let spawn_count = Self::object_definition_attr(definition, "SpawnNumber")
-                .and_then(|value| value.trim().parse::<u32>().ok());
-            let spawn_template = Self::object_definition_attr(definition, "SpawnTemplateName")?;
-            (one_shot && spawn_count == Some(1))
-                .then_some(spawn_template.trim().to_string())
-                .filter(|name| !name.is_empty())
-        });
+    /// Programmatic fixtures without admitted modules retain the base-game pairs.
+    fn authored_supply_center_one_shot_template(center: &Object) -> Option<String> {
+        use gamelogic::object::behavior::spawn_behavior::SpawnBehaviorModuleData;
 
-        parsed.or_else(|| match template_name {
+        let template = center.get_template();
+        if let Some(receiving) = &template.receiving_client_template {
+            let module = receiving
+                .behavior_modules()
+                .iter()
+                .find(|entry| entry.name.as_str().eq_ignore_ascii_case("SpawnBehavior"))?;
+            let data = module
+                .data
+                .as_any()
+                .downcast_ref::<SpawnBehaviorModuleData>()?;
+            return (data.is_one_shot_data && data.spawn_number_data == 1)
+                .then(|| data.spawn_template_name_data.first())
+                .flatten()
+                .map(|name| name.as_str().to_owned())
+                .filter(|name| !name.is_empty());
+        }
+        if template.receiving_object_definition.is_some() {
+            return None;
+        }
+        match center.template_name.as_str() {
             "AmericaSupplyCenter" => Some("AmericaVehicleChinook".to_string()),
             "ChinaSupplyCenter" => Some("ChinaVehicleSupplyTruck".to_string()),
             "GLASupplyStash" => Some("GLAInfantryWorker".to_string()),
             _ => None,
-        })
+        }
     }
 
     /// Return the authored starter-collector template for a concrete supply
@@ -249,7 +252,7 @@ impl GameLogic {
         if !center.is_kind_of(KindOf::SupplyCenter) && !center.is_kind_of(KindOf::FSSupplyCenter) {
             return None;
         }
-        Self::authored_supply_center_one_shot_template(&center.template_name)
+        Self::authored_supply_center_one_shot_template(center)
     }
 
     /// C++ `SpawnBehavior::createSpawn` slice for the SupplyCenter/Stash
@@ -393,6 +396,9 @@ impl GameLogic {
         // make a typed template here; otherwise the authored behavior simply
         // waits for a valid template rather than inventing a unit.
         if !self.templates.contains_key(&spawn_template) {
+            if self.receiving_module_content.is_some() {
+                return Ok(None);
+            }
             let Some(template) = Self::build_template_from_asset_definition(&spawn_template) else {
                 return Ok(None);
             };
