@@ -30,8 +30,6 @@ pub mod message_serialization;
 pub mod message_stream;
 #[path = "meta_event_impl/mod.rs"]
 pub mod meta_event;
-pub use meta_event::take_host_drawable_tod_residual;
-pub use meta_event::take_host_model_condition_weather_residual;
 pub mod place_event_confirm;
 pub mod place_event_translator;
 pub use place_event_confirm::*;

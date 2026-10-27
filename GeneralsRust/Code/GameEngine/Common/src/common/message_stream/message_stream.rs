@@ -174,6 +174,12 @@ pub struct TranslatorClientObservation {
     pub logic_frame: u32,
     pub game_mode: i32,
     pub shell_active: bool,
+    /// Session lighting values supplied by the receiving client owner.
+    /// Integer encoding is the Common INI TimeOfDay discriminant.
+    pub time_of_day: i32,
+    pub weather_is_snowy: bool,
+    pub force_models_to_follow_time_of_day: bool,
+    pub force_models_to_follow_weather: bool,
 }
 
 /// Trait for game message translators

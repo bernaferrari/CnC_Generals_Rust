@@ -1855,9 +1855,13 @@ impl GameClient {
         publish_live_game_client_frame(self);
 
         self.create_frame_tick_message()?;
-        // Wave 981: drain meta TOD residual onto host presentation drawables.
-        if let Some(ini_tod) = crate::message_stream::meta_event::take_host_drawable_tod_residual()
-        {
+        // Meta TOD changes are queued on this receiving client's UI owner.
+        let pending_tod = self
+            .subsystem_manager
+            .in_game_ui
+            .as_mut()
+            .and_then(|ui| ui.pending_drawable_time_of_day.take());
+        if let Some(ini_tod) = pending_tod {
             let client_tod = match ini_tod {
                 game_engine::common::ini::TimeOfDay::Morning => TimeOfDay::Morning,
                 game_engine::common::ini::TimeOfDay::Afternoon => TimeOfDay::Afternoon,
@@ -1868,22 +1872,25 @@ impl GameClient {
             let _ = self.set_time_of_day(client_tod);
         }
 
-        // Wave 988: drain NIGHT/SNOW model-condition residual onto presentation drawables.
-        if let Some((is_night, is_snow)) =
-            crate::message_stream::meta_event::take_host_model_condition_weather_residual()
-        {
+        // Weather/time model flags are drained from this receiving client's owner.
+        let pending_model_conditions = self
+            .subsystem_manager
+            .in_game_ui
+            .as_mut()
+            .and_then(|ui| ui.pending_model_condition_weather.take());
+        if let Some((is_night, is_snow)) = pending_model_conditions {
             use game_engine::common::bit_flags::{
                 ModelConditionFlags, create_model_condition_flags,
             };
             let mut clear = create_model_condition_flags();
             let mut set = create_model_condition_flags();
-            clear.set(ModelConditionFlags::NIGHT, true);
-            clear.set(ModelConditionFlags::SNOW, true);
-            if is_night {
-                set.set(ModelConditionFlags::NIGHT, true);
+            if let Some(is_night) = is_night {
+                clear.set(ModelConditionFlags::NIGHT, true);
+                set.set(ModelConditionFlags::NIGHT, is_night);
             }
-            if is_snow {
-                set.set(ModelConditionFlags::SNOW, true);
+            if let Some(is_snow) = is_snow {
+                clear.set(ModelConditionFlags::SNOW, true);
+                set.set(ModelConditionFlags::SNOW, is_snow);
             }
             for drawable in self.drawables.drawable_map.values_mut() {
                 use crate::drawable::drawable::DrawableExt;

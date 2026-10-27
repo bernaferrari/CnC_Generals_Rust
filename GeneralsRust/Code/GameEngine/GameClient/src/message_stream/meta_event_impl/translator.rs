@@ -54,6 +54,17 @@ impl MetaEventTranslator {
 
         ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> GameMessageDisposition {
+        let time_of_day = ui
+            .state
+            .requested_session_time_of_day
+            .map(|requested| requested as i32)
+            .unwrap_or(client.time_of_day);
+        ui.state.session_model_environment = Some((
+            time_of_day,
+            client.weather_is_snowy,
+            client.force_models_to_follow_time_of_day,
+            client.force_models_to_follow_weather,
+        ));
         let mut disp = GameMessageDisposition::KeepMessage;
         let msg_type = msg.get_type();
 

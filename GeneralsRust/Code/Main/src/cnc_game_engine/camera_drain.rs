@@ -1462,8 +1462,22 @@ impl CnCGameEngine {
         let snow_dt = self.snow_anim2d_dt_for_present();
         let post_draw_menu_world = self.receiving_menu_world_facts();
         let shell_menu_world = self.receiving_menu_world_facts();
+        let lighting = self.game_logic.lighting_rules();
+        let weather_is_snowy = self
+            .game_logic
+            .weather_state()
+            .current_weather
+            .to_ascii_lowercase()
+            .contains("snow");
+        let requested_time_of_day;
         {
             let gc = &mut self.game_client;
+            gc.set_session_model_environment(
+                lighting.time_of_day as i32,
+                weather_is_snowy,
+                lighting.force_models_to_follow_time_of_day,
+                lighting.force_models_to_follow_weather,
+            );
             if early_menu_frame {
                 debug!(
                     "Menu update_internal: calling gc.ensure_shell_visible (menu_frame={})",
@@ -1478,6 +1492,7 @@ impl CnCGameEngine {
             }
             // Wave 587/588: device bookkeeping on Main-injected state (not dual OS poll).
             let _ = gc.update_input();
+            requested_time_of_day = gc.take_requested_session_time_of_day();
             // C++ GameClient.cpp:560-565 — snow + Anim2D at execute cadence.
             gc.update_cpp_snow_and_anim2d(snow_dt);
             let t2 = std::time::Instant::now();
@@ -1494,6 +1509,9 @@ impl CnCGameEngine {
             }
             let _ = gc.update_post_draw_ui(Some(post_draw_menu_world));
             let _ = (t1, t2, t3);
+        }
+        if let Some(time_of_day) = requested_time_of_day {
+            self.game_logic.set_receiving_time_of_day(time_of_day);
         }
 
         self.complete_receiving_menu_host_requests()?;
@@ -2630,6 +2648,19 @@ impl CnCGameEngine {
         }
         self.game_client
             .admit_draw_icon_ui(self.game_logic.get_draw_icon_ui());
+        let lighting = self.game_logic.lighting_rules();
+        let weather_is_snowy = self
+            .game_logic
+            .weather_state()
+            .current_weather
+            .to_ascii_lowercase()
+            .contains("snow");
+        self.game_client.set_session_model_environment(
+            lighting.time_of_day as i32,
+            weather_is_snowy,
+            lighting.force_models_to_follow_time_of_day,
+            lighting.force_models_to_follow_weather,
+        );
         // C++ GameLogic::update setFrame(TheGameLogic->getFrame()) before client update.
         // Extra presents with the same host frame freeze drawable/FX time.
         // The actual client frame is admitted before each logic step, including catch-up.
@@ -2639,6 +2670,9 @@ impl CnCGameEngine {
         // update_input only runs Keyboard/Mouse::update bookkeeping (no second OS poll).
         if let Err(err) = self.game_client.update_input() {
             log::trace!("GameClient input update failed: {err}");
+        }
+        if let Some(time_of_day) = self.game_client.take_requested_session_time_of_day() {
+            self.game_logic.set_receiving_time_of_day(time_of_day);
         }
         // Camera/script actions may have changed since the last frozen frame.
         // The receiving session owns this gate; a snapshot cannot override it.

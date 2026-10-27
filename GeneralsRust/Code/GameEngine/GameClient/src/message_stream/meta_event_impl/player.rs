@@ -340,62 +340,10 @@ fn cycle_music_track(next: bool) -> Option<String> {
     Some(next_track)
 }
 
-fn map_meta_time_of_day_to_logic_time_of_day(time_of_day: TimeOfDay) -> LogicTimeOfDay {
-    match time_of_day {
-        TimeOfDay::Morning => LogicTimeOfDay::Morning,
-        TimeOfDay::Afternoon => LogicTimeOfDay::Day,
-        TimeOfDay::Evening => LogicTimeOfDay::Evening,
-        TimeOfDay::Night => LogicTimeOfDay::Night,
-        TimeOfDay::Invalid => LogicTimeOfDay::Day,
-    }
-}
-
-fn refresh_drawable_time_of_day(time_of_day: TimeOfDay) {
-    let mapped = map_meta_time_of_day_to_logic_time_of_day(time_of_day);
-    let mut applied = 0usize;
-    // Wave 981: empty dual-world → host presentation drawable TOD residual.
-    if dual_world_registry_unavailable() {
-        queue_host_drawable_tod_residual(time_of_day);
-        let _ = (mapped, applied);
-        return;
-    }
-    for object in OBJECT_REGISTRY.get_all_objects() {
-        let drawable = object.read().ok().and_then(|guard| guard.get_drawable());
-        let Some(drawable) = drawable else {
-            continue;
-        };
-        let mut drawable_guard = match drawable.write() {
-            Ok(guard) => guard,
-            Err(_) => continue,
-        };
-        let _ = drawable_guard.set_time_of_day(mapped);
-        applied += 1;
-    }
-    // Host residual: registry empty is fine — Main presentation shell owns drawable TOD.
-    let _ = applied;
-}
-
-fn refresh_drawable_model_conditions() {
-    let clear = ModelConditionFlags::empty();
-    let set = ModelConditionFlags::empty();
-    // Wave 988: empty dual-world → queue NIGHT/SNOW residual for presentation shell.
-    // C++ forceModelsToFollowTimeOfDay/Weather residual on TOD demo cycle.
-    if dual_world_registry_unavailable() {
-        let (is_night, is_snow) = if let Some(global_data) = get_global_data() {
-            let g = global_data.read();
-            let night = matches!(g.time_of_day, TimeOfDay::Night);
-            let snow = matches!(g.weather, game_engine::common::ini::Weather::Snowy);
-            (night, snow)
-        } else {
-            (false, false)
-        };
-        queue_host_model_condition_weather_residual(is_night, is_snow);
-        let _ = (clear, set);
-        return;
-    }
-    for object in OBJECT_REGISTRY.get_all_objects() {
-        if let Ok(mut object_guard) = object.write() {
-            let _ = object_guard.clear_and_set_model_condition_flags(clear, set);
-        }
-    }
+fn refresh_drawable_model_conditions(
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
+    is_night: Option<bool>,
+    is_snow: Option<bool>,
+) {
+    ui.state.pending_model_condition_weather = Some((is_night, is_snow));
 }

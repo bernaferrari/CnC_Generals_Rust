@@ -107,6 +107,10 @@ fn application_and_companion_time_of_day_are_explicit_ordered_and_reset_owned() 
 #[test]
 fn versioned_lighting_continuation_preserves_effective_scene_and_rejects_before_mutation() {
     let mut source = GameLogic::new();
+    let mut force_rules = LightingContentRules::default();
+    force_rules.force_models_to_follow_time_of_day = false;
+    force_rules.force_models_to_follow_weather = true;
+    source.admit_lighting_rules_base(force_rules);
     source.apply_map_lighting(parsed(3, 4, 0.1).lighting.as_ref().unwrap());
     let bytes = bincode_legacy::serialize(&source.capture_lighting_continuation()).unwrap();
     let saved = bincode_legacy::deserialize::<
@@ -115,6 +119,8 @@ fn versioned_lighting_continuation_preserves_effective_scene_and_rejects_before_
     .unwrap();
     let mut restored = GameLogic::new();
     restored.restore_lighting_continuation(&saved).unwrap();
+    assert!(!restored.lighting_rules().force_models_to_follow_time_of_day);
+    assert!(restored.lighting_rules().force_models_to_follow_weather);
     assert_eq!(restored.lighting_rules().time_of_day, TimeOfDay::Night);
     assert_eq!(
         restored.lighting_rules().objects[4][0].ambient.r,

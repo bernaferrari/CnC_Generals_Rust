@@ -47,16 +47,6 @@ impl GameLogic {
         let duration_remaining = self.weather_state.duration_remaining;
         let next_change_time = self.weather_state.next_change_time;
         self.set_weather_state(name, intensity, duration_remaining, next_change_time);
-        if let Some(global) = game_engine::common::ini::get_global_data() {
-            global.write().weather = if snowy {
-                game_engine::common::ini::Weather::Snowy
-            } else {
-                game_engine::common::ini::Weather::Normal
-            };
-        }
-        if let Ok(mut runtime) = game_engine::common::global_data::write_safe() {
-            runtime.weather = if snowy { 1 } else { 0 };
-        }
     }
 
     pub(in super::super) fn apply_spawned_object_weather(

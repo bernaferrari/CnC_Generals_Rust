@@ -8,6 +8,7 @@ pub struct LightingContentRules {
     pub num_global_lights: i32,
     pub infantry_light_scale: [f32; TIME_OF_DAY_COUNT],
     pub infantry_override: f32,
+    pub force_models_to_follow_time_of_day: bool,
     pub force_models_to_follow_weather: bool,
     pub use_draw_module_lod: bool,
     pub use_tree_sway: bool,
@@ -37,13 +38,18 @@ impl LightingContentRules {
             num_global_lights: data.num_global_lights,
             infantry_light_scale: data.infantry_light_scale,
             infantry_override: data.script_override_infantry_light_scale,
+            force_models_to_follow_time_of_day: data.force_models_to_follow_time_of_day,
             force_models_to_follow_weather: data.force_models_to_follow_weather,
             use_draw_module_lod: data.use_draw_module_lod,
             use_tree_sway: data.use_tree_sway,
             show_client_physics: data.show_client_physics,
             clear_alpha: data.clear_alpha,
             fog_alpha: data.fog_alpha,
-            shroud_color: [data.shroud_color.r, data.shroud_color.g, data.shroud_color.b],
+            shroud_color: [
+                data.shroud_color.r,
+                data.shroud_color.g,
+                data.shroud_color.b,
+            ],
             shroud_alpha: data.shroud_alpha,
             water_extent_x: data.water_extent_x,
             water_extent_y: data.water_extent_y,
@@ -58,6 +64,7 @@ impl LightingContentRules {
         draft.num_global_lights = self.num_global_lights;
         draft.infantry_light_scale = self.infantry_light_scale;
         draft.script_override_infantry_light_scale = self.infantry_override;
+        draft.force_models_to_follow_time_of_day = self.force_models_to_follow_time_of_day;
         draft.force_models_to_follow_weather = self.force_models_to_follow_weather;
         draft.use_draw_module_lod = self.use_draw_module_lod;
         draft.use_tree_sway = self.use_tree_sway;
@@ -117,6 +124,20 @@ mod show_client_physics_tests {
     }
 
     #[test]
+    fn force_time_follow_survives_later_ordered_game_data_overlays() {
+        let base = LightingContentRules::default()
+            .overlay_ini_text("GameData\n ForceModelsToFollowTimeOfDay = No\nEnd\n")
+            .unwrap();
+        let later = base
+            .overlay_ini_text("GameData\n FogAlpha = 91\nEnd\n")
+            .unwrap();
+
+        assert!(!base.force_models_to_follow_time_of_day);
+        assert!(!later.force_models_to_follow_time_of_day);
+        assert_eq!(later.fog_alpha, 91);
+    }
+
+    #[test]
     fn shroud_alphas_follow_ordered_game_data_overlays() {
         let base = LightingContentRules::default()
             .overlay_ini_text("GameData\n ClearAlpha = 211\n FogAlpha = 63\nEnd\n")
@@ -134,15 +155,16 @@ mod show_client_physics_tests {
     #[test]
     fn projected_shroud_inputs_follow_ordered_game_data_overlays() {
         let base = LightingContentRules::default()
-            .overlay_ini_text(
-                "GameData\n ShroudColor = R:64 G:128 B:192\n ShroudAlpha = 33\nEnd\n",
-            )
+            .overlay_ini_text("GameData\n ShroudColor = R:64 G:128 B:192\n ShroudAlpha = 33\nEnd\n")
             .unwrap();
         let overlay = base
             .overlay_ini_text("GameData\n ShroudAlpha = 41\nEnd\n")
             .unwrap();
 
-        assert_eq!(base.shroud_color, [64.0 / 255.0, 128.0 / 255.0, 192.0 / 255.0]);
+        assert_eq!(
+            base.shroud_color,
+            [64.0 / 255.0, 128.0 / 255.0, 192.0 / 255.0]
+        );
         assert_eq!(base.shroud_alpha, 33);
         assert_eq!(overlay.shroud_color, base.shroud_color);
         assert_eq!(overlay.shroud_alpha, 41);

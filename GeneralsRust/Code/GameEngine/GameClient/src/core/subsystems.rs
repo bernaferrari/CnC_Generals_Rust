@@ -1235,6 +1235,14 @@ pub struct InGameUISubsystem {
         Vec<game_engine::common::world_animation::WorldAnimationPresentation>,
     /// Presentation PublicTimer residual (name + READY/mm:ss).
     pub(crate) presentation_superweapon_timers: Vec<PresentationSuperweaponTimerResidual>,
+    /// Per-receiving-client weather/time model-condition update from meta events.
+    pub(crate) pending_model_condition_weather: Option<(Option<bool>, Option<bool>)>,
+    /// Session model environment supplied by the Main instance driving this client.
+    pub(crate) session_model_environment: Option<(i32, bool, bool, bool)>,
+    /// Per-client TOD update requested by the demo meta event.
+    pub(crate) pending_drawable_time_of_day: Option<game_engine::common::ini::TimeOfDay>,
+    /// TOD command returned to the GameLogic owner after message processing.
+    pub(crate) requested_session_time_of_day: Option<game_engine::common::ini::TimeOfDay>,
     pub(crate) tooltips_disabled_until: u32,
     pub(crate) radar_pings: VecDeque<RadarPingEvent>,
     pub(crate) pending_place_template: Option<String>,
@@ -1869,6 +1877,10 @@ impl InGameUISubsystem {
         self.presentation_floating_texts.clear();
         self.presentation_world_anims.clear();
         self.presentation_superweapon_timers.clear();
+        self.pending_model_condition_weather = None;
+        self.session_model_environment = None;
+        self.pending_drawable_time_of_day = None;
+        self.requested_session_time_of_day = None;
         self.radar_pings.clear();
         self.pending_place_template = None;
         self.pending_place_source_object_id = 0;

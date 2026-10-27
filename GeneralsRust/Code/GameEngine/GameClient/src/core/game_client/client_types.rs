@@ -60,6 +60,11 @@ pub struct GameClient {
     load_screen_runtime: crate::gui::load_screen::LoadScreenRuntime,
     load_screen_messages: Vec<crate::message_stream::game_message::GameMessage>,
     frame: u32,
+    /// Current lighting facts copied from the GameLogic that drives this client.
+    pub(crate) session_time_of_day: i32,
+    pub(crate) session_weather_is_snowy: bool,
+    pub(crate) session_force_models_to_follow_time_of_day: bool,
+    pub(crate) session_force_models_to_follow_weather: bool,
     command_hints: crate::gui::command_hints::CommandHintState,
     owned_world_animations: OwnedWorldAnimations,
     /// DrawIconUI admitted from the driving Main session before native draw.

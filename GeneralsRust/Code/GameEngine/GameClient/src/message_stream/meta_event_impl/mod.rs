@@ -4,7 +4,6 @@ use std::collections::HashSet;
 use std::fs;
 use std::hint::black_box;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{OnceLock, RwLock};
 use std::time::Instant;
 
@@ -43,8 +42,6 @@ use crate::presentation_translator_residual::{
 use crate::system::DebugDisplay;
 use gamelogic::commands::command::CommandType;
 use gamelogic::commands::get_selection_manager;
-use gamelogic::common::ModelConditionFlags;
-use gamelogic::common::audio::TimeOfDay as LogicTimeOfDay;
 use gamelogic::common::types::{GeometryExtentModType, GeometryInfo, KindOf};
 use gamelogic::helpers::{
     TheAudio, TheGameClient, TheGameLogic, TheThingFactory, TheVictoryConditions,

@@ -228,8 +228,9 @@ mod sides_host_apply_tests {
     }
 
     #[test]
-    fn world_info_weather_snowy_sets_runtime_weather_state() {
+    fn world_info_weather_is_owned_by_each_runtime_session() {
         let mut logic = GameLogic::new();
+        let mut peer = GameLogic::new();
         assert!(
             !logic
                 .weather_state()
@@ -238,6 +239,10 @@ mod sides_host_apply_tests {
                 .contains("snow")
         );
         logic.apply_world_info_weather(Some(1));
+        assert_eq!(logic.weather_state().current_weather, "snowy");
+        assert_eq!(peer.weather_state().current_weather, "normal");
+        peer.apply_world_info_weather(Some(0));
+        assert_eq!(peer.weather_state().current_weather, "normal");
         assert_eq!(logic.weather_state().current_weather, "snowy");
         logic.apply_world_info_weather(Some(0));
         assert_eq!(logic.weather_state().current_weather, "normal");

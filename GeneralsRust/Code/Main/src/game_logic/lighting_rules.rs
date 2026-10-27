@@ -85,6 +85,8 @@ pub(crate) struct LightingContinuationV1 {
     num_global_lights: i32,
     infantry_light_scale: [f32; 5],
     infantry_override: f32,
+    #[serde(default)]
+    force_models_to_follow_time_of_day: Option<bool>,
     force_models_to_follow_weather: bool,
     use_draw_module_lod: bool,
     use_tree_sway: bool,
@@ -117,6 +119,7 @@ impl super::GameLogic {
             num_global_lights: rules.num_global_lights,
             infantry_light_scale: rules.infantry_light_scale,
             infantry_override: rules.infantry_override,
+            force_models_to_follow_time_of_day: Some(rules.force_models_to_follow_time_of_day),
             force_models_to_follow_weather: rules.force_models_to_follow_weather,
             use_draw_module_lod: rules.use_draw_module_lod,
             use_tree_sway: rules.use_tree_sway,
@@ -158,6 +161,9 @@ impl super::GameLogic {
         rules.num_global_lights = saved.num_global_lights;
         rules.infantry_light_scale = saved.infantry_light_scale;
         rules.infantry_override = saved.infantry_override;
+        rules.force_models_to_follow_time_of_day = saved
+            .force_models_to_follow_time_of_day
+            .unwrap_or(rules.force_models_to_follow_time_of_day);
         rules.force_models_to_follow_weather = saved.force_models_to_follow_weather;
         rules.use_draw_module_lod = saved.use_draw_module_lod;
         rules.use_tree_sway = saved.use_tree_sway;

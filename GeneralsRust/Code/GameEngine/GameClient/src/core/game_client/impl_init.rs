@@ -92,6 +92,10 @@ impl GameClient {
             load_screen_runtime: crate::gui::load_screen::LoadScreenRuntime::default(),
             load_screen_messages: Vec::new(),
             frame: 0,
+            session_time_of_day: 2,
+            session_weather_is_snowy: false,
+            session_force_models_to_follow_time_of_day: false,
+            session_force_models_to_follow_weather: true,
             command_hints: Default::default(),
             owned_world_animations: OwnedWorldAnimations::default(),
             receiving_draw_icon_ui: true,
@@ -1051,6 +1055,31 @@ impl GameClient {
         Ok(())
     }
 
+    /// Supply lighting facts from the GameLogic instance that drives this client.
+    /// This keeps message callbacks from consulting process-wide weather state.
+    pub fn set_session_model_environment(
+        &mut self,
+        time_of_day: i32,
+        weather_is_snowy: bool,
+        force_models_to_follow_time_of_day: bool,
+        force_models_to_follow_weather: bool,
+    ) {
+        self.session_time_of_day = time_of_day;
+        self.session_weather_is_snowy = weather_is_snowy;
+        self.session_force_models_to_follow_time_of_day = force_models_to_follow_time_of_day;
+        self.session_force_models_to_follow_weather = force_models_to_follow_weather;
+    }
+
+    /// Transfer a local demo TOD input to the GameLogic instance driving this client.
+    pub fn take_requested_session_time_of_day(
+        &mut self,
+    ) -> Option<game_engine::common::ini::TimeOfDay> {
+        self.subsystem_manager
+            .in_game_ui
+            .as_mut()
+            .and_then(|ui| ui.requested_session_time_of_day.take())
+    }
+
     pub fn window_owner_campaign_menu_and_host_mut(
         &mut self,
     ) -> (
@@ -1520,6 +1549,10 @@ impl GameClient {
         use game_engine::common::message_stream::PropagationProgress;
         let yielded = std::cell::Cell::new(false);
         let frame = self.frame;
+        let time_of_day = self.session_time_of_day;
+        let weather_is_snowy = self.session_weather_is_snowy;
+        let force_models_to_follow_time_of_day = self.session_force_models_to_follow_time_of_day;
+        let force_models_to_follow_weather = self.session_force_models_to_follow_weather;
         let owner = &self.window_manager_owner;
         let campaign = &mut self.campaign_manager;
         let menu = &mut self.main_menu;
@@ -1585,6 +1618,10 @@ impl GameClient {
                             logic_frame,
                             game_mode,
                             shell_active,
+                            time_of_day,
+                            weather_is_snowy,
+                            force_models_to_follow_time_of_day,
+                            force_models_to_follow_weather,
                         }
                     })
                 },

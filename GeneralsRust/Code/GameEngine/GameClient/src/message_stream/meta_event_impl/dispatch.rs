@@ -522,23 +522,25 @@ fn dispatch_map_entry(
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TIME_OF_DAY") {
-        if let Some(global_data) = get_global_data() {
-            let (next_time_of_day, changed_time_of_day, force_model_refresh) = {
-                let mut global = global_data.write();
-                let tod = match global.time_of_day {
-                    TimeOfDay::Morning => TimeOfDay::Afternoon,
-                    TimeOfDay::Afternoon => TimeOfDay::Evening,
-                    TimeOfDay::Evening => TimeOfDay::Night,
-                    TimeOfDay::Night | TimeOfDay::Invalid => TimeOfDay::Morning,
-                };
-                let changed = global.set_time_of_day(tod);
-                (tod, changed, global.force_models_to_follow_time_of_day)
+        if let Some((time_of_day, is_snow, force_time, force_weather)) =
+            ui.state.session_model_environment
+        {
+            let next_time_of_day = match time_of_day {
+                1 => TimeOfDay::Afternoon,
+                2 => TimeOfDay::Evening,
+                3 => TimeOfDay::Night,
+                _ => TimeOfDay::Morning,
             };
-            if changed_time_of_day {
-                refresh_drawable_time_of_day(next_time_of_day);
-                if force_model_refresh {
-                    refresh_drawable_model_conditions();
-                }
+            ui.state.session_model_environment =
+                Some((next_time_of_day as i32, is_snow, force_time, force_weather));
+            ui.state.pending_drawable_time_of_day = Some(next_time_of_day);
+            ui.state.requested_session_time_of_day = Some(next_time_of_day);
+            if force_time {
+                refresh_drawable_model_conditions(
+                    ui,
+                    force_time.then_some(next_time_of_day == TimeOfDay::Night),
+                    None,
+                );
             }
         }
         return Some(GameMessageDisposition::DestroyMessage);
