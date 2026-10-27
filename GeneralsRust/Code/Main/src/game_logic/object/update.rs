@@ -1193,6 +1193,15 @@ impl Object {
         self.apply_veterancy_bonuses_impl(previous_level, new_level, None, None);
     }
 
+    pub(crate) fn apply_veterancy_bonuses_quiet_with_health_table(
+        &mut self,
+        previous_level: VeterancyLevel,
+        new_level: VeterancyLevel,
+        health_bonus: &[f32; game_engine::common::global_data::LEVEL_COUNT],
+    ) {
+        self.apply_veterancy_bonuses_impl(previous_level, new_level, Some(health_bonus), None);
+    }
+
     fn apply_veterancy_bonuses_with_health_table(
         &mut self,
         previous_level: VeterancyLevel,
@@ -1376,6 +1385,22 @@ impl Object {
     /// so this assigns the exact level and resets XP to this template's level
     /// threshold rather than carrying arbitrary source XP across templates.
     pub(crate) fn set_rider_change_veterancy_level(&mut self, level: VeterancyLevel) {
+        self.set_rider_change_veterancy_level_inner(level, None);
+    }
+
+    pub(crate) fn set_rider_change_veterancy_level_with_health_bonus_table(
+        &mut self,
+        level: VeterancyLevel,
+        health_bonus: &[f32; game_engine::common::global_data::LEVEL_COUNT],
+    ) {
+        self.set_rider_change_veterancy_level_inner(level, Some(health_bonus));
+    }
+
+    fn set_rider_change_veterancy_level_inner(
+        &mut self,
+        level: VeterancyLevel,
+        health_bonus: Option<&[f32; game_engine::common::global_data::LEVEL_COUNT]>,
+    ) {
         let threshold = match level {
             VeterancyLevel::Rookie => 0.0,
             VeterancyLevel::Veteran => self.thing.template.veterancy_xp_thresholds[0],
@@ -1386,7 +1411,11 @@ impl Object {
         self.experience.level = level;
         self.experience.current = threshold.max(0.0);
         if previous != level {
-            self.apply_veterancy_bonuses_quiet(previous, level);
+            if let Some(table) = health_bonus {
+                self.apply_veterancy_bonuses_quiet_with_health_table(previous, level, table);
+            } else {
+                self.apply_veterancy_bonuses_quiet(previous, level);
+            }
         } else {
         }
     }

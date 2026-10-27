@@ -2262,6 +2262,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
         let tree_move_frame = self.frame;
+        let veterancy_health_bonus = self.veterancy_health_bonus;
         let Some(plan) = self.rider_change_enter_plan(rider_id, container_id) else {
             return Ok(false);
         };
@@ -2461,14 +2462,20 @@ impl GameLogic {
                 previous.set_status_attacking(false);
                 previous.deselect();
                 if previous_has_controller {
-                    previous.set_rider_change_veterancy_level(bike_veterancy);
+                    previous.set_rider_change_veterancy_level_with_health_bonus_table(
+                        bike_veterancy,
+                        &veterancy_health_bonus,
+                    );
                 }
             }
             self.admit_object_drawable_deselection(previous_rider_id);
             if let Some(container) = self.objects.get_mut(&container_id) {
                 clear_rider_change_runtime_state(container, Some(&previous_metadata));
                 if previous_has_controller {
-                    container.set_rider_change_veterancy_level(VeterancyLevel::Rookie);
+                    container.set_rider_change_veterancy_level_with_health_bonus_table(
+                        VeterancyLevel::Rookie,
+                        &veterancy_health_bonus,
+                    );
                 }
             }
         } else if let Some(container) = self.objects.get_mut(&container_id) {
@@ -2545,7 +2552,10 @@ impl GameLogic {
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             rider.set_status_moving(false);
-            rider.set_rider_change_veterancy_level(VeterancyLevel::Rookie);
+            rider.set_rider_change_veterancy_level_with_health_bonus_table(
+                VeterancyLevel::Rookie,
+                &veterancy_health_bonus,
+            );
             rider.deselect();
         }
 
@@ -2562,7 +2572,10 @@ impl GameLogic {
             "RiderChange preflight must make weapon bridge infallible"
         );
         if let Some(container) = self.objects.get_mut(&container_id) {
-            container.set_rider_change_veterancy_level(plan.incoming_veterancy);
+            container.set_rider_change_veterancy_level_with_health_bonus_table(
+                plan.incoming_veterancy,
+                &veterancy_health_bonus,
+            );
             if plan.incoming_was_selected && !container.selected {
                 container.select();
             }
@@ -2608,6 +2621,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         let tree_move_frame = self.frame;
+        let veterancy_health_bonus = self.veterancy_health_bonus;
         let Some((
             rider_metadata,
             position,
@@ -2714,13 +2728,19 @@ impl GameLogic {
             // CPP RiderChangeContain::onRemoving does not issue an AI order.
             // AIExitState and the exit interface own the rider's continuation.
             if rider_has_controller {
-                rider.set_rider_change_veterancy_level(bike_veterancy);
+                rider.set_rider_change_veterancy_level_with_health_bonus_table(
+                    bike_veterancy,
+                    &veterancy_health_bonus,
+                );
             }
         }
         if let Some(container) = self.objects.get_mut(&container_id) {
             clear_rider_change_runtime_state(container, Some(&rider_metadata));
             if rider_has_controller {
-                container.set_rider_change_veterancy_level(VeterancyLevel::Rookie);
+                container.set_rider_change_veterancy_level_with_health_bonus_table(
+                    VeterancyLevel::Rookie,
+                    &veterancy_health_bonus,
+                );
             }
             container.rider_change_scuttled_on_frame = self.frame.max(1);
             container.set_status_unselectable(true);
