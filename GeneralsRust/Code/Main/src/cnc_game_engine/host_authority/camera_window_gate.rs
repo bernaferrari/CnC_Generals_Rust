@@ -117,6 +117,7 @@ impl CnCGameEngine {
                 modules: &self.game_logic.receiving_module_content,
                 player_templates: &self.game_logic.player_template_definitions,
                 object_definitions: &self.game_logic.receiving_object_definitions,
+                locomotors: &self.game_logic.locomotor_definition_base,
                 baseline: &self.game_logic.receiving_template_baseline,
                 lighting_baseline: self.game_logic.lighting_rules_baseline(),
                 roads_baseline: self.game_logic.terrain_road_baseline(),

@@ -403,6 +403,7 @@ impl LocomotorTemplate {
 /// Names select definitions; legacy numeric keys only preserve traversal order.
 /// The admission ordinal distinguishes keys allocated in separate calling-thread
 /// namespaces without duplicating or replacing an unrelated template.
+#[derive(Debug, Clone)]
 pub struct LocomotorStore {
     templates: BTreeMap<(NameKeyType, u64), LocomotorTemplate>,
     template_order_by_name: HashMap<String, (NameKeyType, u64)>,
@@ -467,6 +468,57 @@ impl LocomotorStore {
             .map(|template| &template.name)
             .collect()
     }
+
+    /// Apply one authored definition to this catalog. C++ starts an override
+    /// from the existing template, so omitted fields retain their prior value.
+    pub(crate) fn apply_definition(
+        &mut self,
+        name: &str,
+        properties: &HashMap<String, String>,
+    ) -> LocomotorResult<()> {
+        let mut template = self
+            .find_template(name)
+            .cloned()
+            .unwrap_or_else(|| LocomotorTemplate::new(AsciiString::from(name)));
+        apply_locomotor_template_properties(&mut template, properties)?;
+        self.add_template(template)
+    }
+
+    /// Parse a mixed INI source into this owner without dispatching unrelated
+    /// definitions through ambient stores. Parsing is atomic on failure.
+    pub fn apply_source(&mut self, source: &str) -> crate::common::ini::INIResult<usize> {
+        use crate::common::ini::{INI, INILoadType};
+
+        let mut candidate = self.clone();
+        let mut ini = INI::new();
+        let count = ini.with_inline_source_and_load_type(source, INILoadType::Overwrite, |ini| {
+            let mut count = 0;
+            loop {
+                ini.read_line()?;
+                if ini.is_eof() {
+                    break;
+                }
+                let tokens = ini.get_line_tokens();
+                if tokens.first().is_some_and(|token| token.eq_ignore_ascii_case("Locomotor"))
+                    && tokens.get(1) != Some(&"=")
+                {
+                    super::ini::parse_locomotor_block_into(ini, &mut candidate)?;
+                    count += 1;
+                } else if tokens.first().is_some_and(|token| {
+                    ["Object", "ObjectReskin", "ChildObject"]
+                        .iter()
+                        .any(|kind| token.eq_ignore_ascii_case(kind))
+                }) {
+                    let _ = crate::common::thing::thing_factory::consume_ini_properties(ini);
+                } else if !tokens.is_empty() {
+                    super::ini::consume_block_with_nesting(ini)?;
+                }
+            }
+            Ok(count)
+        })?;
+        *self = candidate;
+        Ok(count)
+    }
 }
 
 impl Default for LocomotorStore {
@@ -512,6 +564,14 @@ pub fn parse_locomotor_template_definition(
     properties: &HashMap<String, String>,
 ) -> LocomotorResult<LocomotorTemplate> {
     let mut template = LocomotorTemplate::new(AsciiString::from(name));
+    apply_locomotor_template_properties(&mut template, properties)?;
+    Ok(template)
+}
+
+fn apply_locomotor_template_properties(
+    template: &mut LocomotorTemplate,
+    properties: &HashMap<String, String>,
+) -> LocomotorResult<()> {
 
     // Parse all fields from the properties map
     // Matches field parse table from Locomotor.cpp lines 419-485
@@ -793,22 +853,45 @@ pub fn parse_locomotor_template_definition(
                 })?
             }
             "Surfaces" => {
-                for part in value.split(|ch: char| ch == '|' || ch.is_ascii_whitespace()) {
-                    match part.trim().to_uppercase().as_str() {
-                        "GROUND" => template
-                            .surfaces
-                            .add_surface(LocomotorSurfaceTypeMask::GROUND),
-                        "WATER" => template
-                            .surfaces
-                            .add_surface(LocomotorSurfaceTypeMask::WATER),
-                        "CLIFF" => template
-                            .surfaces
-                            .add_surface(LocomotorSurfaceTypeMask::CLIFF),
-                        "AIR" => template.surfaces.add_surface(LocomotorSurfaceTypeMask::AIR),
-                        "RUBBLE" => template
-                            .surfaces
-                            .add_surface(LocomotorSurfaceTypeMask::RUBBLE),
-                        _ => {}
+                // INI::parseBitString32 replaces an ordinary list, while
+                // +FLAG/-FLAG modifies the inherited mask on an override.
+                let mut signed = None;
+                for part in value
+                    .split(|ch: char| ch == '|' || ch.is_ascii_whitespace())
+                    .filter(|part| !part.is_empty())
+                {
+                    if part.eq_ignore_ascii_case("NONE") {
+                        if signed.is_some() {
+                            return Err(LocomotorError::ParseError("mixed Surfaces operations".into()));
+                        }
+                        template.surfaces = LocomotorSurfaceTypeMask::new();
+                        break;
+                    }
+                    let (operation, name) = match part.as_bytes()[0] {
+                        b'+' => (Some(true), &part[1..]),
+                        b'-' => (Some(false), &part[1..]),
+                        _ => (None, part),
+                    };
+                    let is_signed = operation.is_some();
+                    if signed.is_some_and(|previous| previous != is_signed) {
+                        return Err(LocomotorError::ParseError("mixed Surfaces operations".into()));
+                    }
+                    if signed.is_none() && !is_signed {
+                        template.surfaces = LocomotorSurfaceTypeMask::new();
+                    }
+                    signed = Some(is_signed);
+                    let bit = match name.to_ascii_uppercase().as_str() {
+                        "GROUND" => LocomotorSurfaceTypeMask::GROUND,
+                        "WATER" => LocomotorSurfaceTypeMask::WATER,
+                        "CLIFF" => LocomotorSurfaceTypeMask::CLIFF,
+                        "AIR" => LocomotorSurfaceTypeMask::AIR,
+                        "RUBBLE" => LocomotorSurfaceTypeMask::RUBBLE,
+                        _ => return Err(LocomotorError::ParseError(format!("unknown Surface: {name}"))),
+                    };
+                    if operation == Some(false) {
+                        template.surfaces.0 &= !bit;
+                    } else {
+                        template.surfaces.add_surface(bit);
                     }
                 }
             }
@@ -843,7 +926,7 @@ pub fn parse_locomotor_template_definition(
     // Validate the template
     template.validate()?;
 
-    Ok(template)
+    Ok(())
 }
 
 /// Error type for bulk locomotor INI loading.

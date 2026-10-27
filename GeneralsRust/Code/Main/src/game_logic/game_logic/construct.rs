@@ -77,6 +77,8 @@ impl GameLogic {
             radar_map: Default::default(),
             weapon_definition_base: None,
             weapon_definitions: None,
+            locomotor_definition_base: None,
+            locomotor_definitions: None,
             solo_weapon_bonus_set: gamelogic::weapon::WeaponBonusSet::new(),
             combat_bonus_base: Default::default(),
             solo_player_health_bonus_for_difficulty: [[1.0;
@@ -862,6 +864,7 @@ impl GameLogic {
         self.native_hulk_max_lifetime_override = -1;
         self.draw_icon_ui = true;
         self.weapon_definitions = self.weapon_definition_base.clone();
+        self.locomotor_definitions = self.locomotor_definition_base.clone();
         if let Some(baseline) = &self.receiving_template_baseline {
             self.templates = baseline.clone();
         }

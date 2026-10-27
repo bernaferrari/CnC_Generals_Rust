@@ -29,6 +29,7 @@ fn stage_decoded(
             modules: &source.receiving_module_content,
             player_templates: &source.player_template_definitions,
             object_definitions: &source.receiving_object_definitions,
+            locomotors: &source.locomotor_definition_base,
             baseline: &source.receiving_template_baseline,
             lighting_baseline: source.lighting_rules_baseline(),
             roads_baseline: source.terrain_road_baseline(),

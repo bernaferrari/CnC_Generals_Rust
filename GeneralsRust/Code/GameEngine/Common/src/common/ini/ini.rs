@@ -694,12 +694,17 @@ fn parse_fx_list_block(ini: &mut INI) -> INIResult<()> {
 }
 
 fn parse_locomotor_block(ini: &mut INI) -> INIResult<()> {
-    let (name, properties) = parse_named_property_block(ini)?;
-    let template = super::ini_locomotor::parse_locomotor_template_definition(&name, &properties)
-        .map_err(|_| INIError::InvalidData)?;
     let mut store = super::ini_locomotor::get_locomotor_store_mut();
+    parse_locomotor_block_into(ini, &mut store)
+}
+
+pub(crate) fn parse_locomotor_block_into(
+    ini: &mut INI,
+    store: &mut super::ini_locomotor::LocomotorStore,
+) -> INIResult<()> {
+    let (name, properties) = parse_named_property_block(ini)?;
     store
-        .add_template(template)
+        .apply_definition(&name, &properties)
         .map_err(|_| INIError::InvalidData)?;
     Ok(())
 }

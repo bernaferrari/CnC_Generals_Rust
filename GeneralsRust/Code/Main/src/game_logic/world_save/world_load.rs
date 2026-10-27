@@ -334,6 +334,7 @@ impl GameLogic {
         }
         self.refresh_receiving_client_templates();
         self.physics_definitions.effective = self.physics_definitions.base;
+        self.locomotor_definitions = self.locomotor_definition_base.clone();
         if let Err(error) = self.restore_projectile_definition_base() {
             log::error!("Cannot restore receiving projectile base: {error}");
             return Ok(false);
@@ -420,6 +421,10 @@ impl GameLogic {
                     .iter()
                     .map(|(_, text)| text.clone())
                     .collect();
+                if let Err(error) = self.admit_locomotor_companion_sources(&weapon_overrides) {
+                    log::error!("Cannot admit receiving map locomotors: {error}");
+                    return Ok(false);
+                }
                 if let Some(base) = self.player_template_definitions.as_ref() {
                     let mut candidate = base.clone();
                     for source in &weapon_overrides {

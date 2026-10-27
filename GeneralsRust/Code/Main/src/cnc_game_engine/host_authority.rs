@@ -151,6 +151,7 @@ pub(super) struct RestoreTemplateCatalog<'a> {
     modules:
         &'a Option<game_engine::common::thing::receiving_module_content::ReceivingModuleContent>,
     object_definitions: &'a Option<crate::assets::ReceivingObjectDefinitions>,
+    locomotors: &'a Option<game_engine::common::ini::ini_locomotor::LocomotorStore>,
     baseline: &'a Option<std::collections::HashMap<String, crate::game_logic::ThingTemplate>>,
 }
 
@@ -161,6 +162,7 @@ impl<'a> RestoreTemplateCatalog<'a> {
             modules: &world.receiving_module_content,
             player_templates: &world.player_template_definitions,
             object_definitions: &world.receiving_object_definitions,
+            locomotors: &world.locomotor_definition_base,
             baseline: &world.receiving_template_baseline,
             lighting_baseline: world.lighting_rules_baseline(),
             roads_baseline: world.terrain_road_baseline(),
@@ -2292,6 +2294,7 @@ impl CnCGameEngine {
                 modules: &live.receiving_module_content,
                 player_templates: &live.player_template_definitions,
                 object_definitions: &live.receiving_object_definitions,
+                locomotors: &live.locomotor_definition_base,
                 baseline: &live.receiving_template_baseline,
                 lighting_baseline: live.lighting_rules_baseline(),
                 roads_baseline: live.terrain_road_baseline(),
@@ -2434,6 +2437,8 @@ impl CnCGameEngine {
             }
             candidate.receiving_module_content = live.receiving_module_content.clone();
             candidate.receiving_object_definitions = live.receiving_object_definitions.clone();
+            candidate.locomotor_definition_base = live.locomotor_definition_base.clone();
+            candidate.locomotor_definitions = live.locomotor_definitions.clone();
             candidate.receiving_template_baseline = live.receiving_template_baseline.clone();
             candidate.templates.extend(live.templates.clone());
             candidate.weapon_definition_base = live.weapon_definition_base.clone();
@@ -2721,6 +2726,9 @@ impl CnCGameEngine {
         let runtime_stage =
             gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(live_services);
         let mut staged = crate::game_logic::GameLogic::new();
+        if let Some(definitions) = template_catalog.locomotors {
+            staged.admit_locomotor_definitions(definitions.clone());
+        }
         if let Some(definitions) = template_catalog.player_templates {
             staged.admit_player_template_definitions(definitions.clone())?;
         }
@@ -2987,6 +2995,7 @@ impl CnCGameEngine {
                     modules: &self.game_logic.receiving_module_content,
                     player_templates: &self.game_logic.player_template_definitions,
                     object_definitions: &self.game_logic.receiving_object_definitions,
+                    locomotors: &self.game_logic.locomotor_definition_base,
                     baseline: &self.game_logic.receiving_template_baseline,
                     lighting_baseline: self.game_logic.lighting_rules_baseline(),
                     roads_baseline: self.game_logic.terrain_road_baseline(),
@@ -3031,6 +3040,7 @@ impl CnCGameEngine {
                 modules: &self.game_logic.receiving_module_content,
                 player_templates: &self.game_logic.player_template_definitions,
                 object_definitions: &self.game_logic.receiving_object_definitions,
+                locomotors: &self.game_logic.locomotor_definition_base,
                 baseline: &self.game_logic.receiving_template_baseline,
                 lighting_baseline: self.game_logic.lighting_rules_baseline(),
                 roads_baseline: self.game_logic.terrain_road_baseline(),

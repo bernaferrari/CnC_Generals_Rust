@@ -49,6 +49,12 @@ pub struct GameLogic {
     /// Effective ordered GameData SellPercentage admitted with this session.
     pub(crate) session_sell_percentage: f32,
     pub(crate) weapon_definitions: Option<HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>>,
+    /// Application and effective map locomotor definitions belong to this match.
+    /// None denotes the remaining compatibility path for unadmitted fixtures.
+    pub(crate) locomotor_definition_base:
+        Option<game_engine::common::ini::ini_locomotor::LocomotorStore>,
+    pub(crate) locomotor_definitions:
+        Option<game_engine::common::ini::ini_locomotor::LocomotorStore>,
     pub(crate) projectile_definitions:
         crate::game_logic::projectile_definitions::ProjectileDefinitions,
     pub(crate) terrain_definitions:

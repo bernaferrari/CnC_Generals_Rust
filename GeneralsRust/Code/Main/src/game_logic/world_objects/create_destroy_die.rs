@@ -2037,11 +2037,14 @@ impl GameLogic {
                     template.bind_selected_weapon_sets(row.clone());
                     row
                 };
-            let movement_stats = template.resolve_movement();
+            let movement_stats = template
+                .locomotor_name
+                .as_deref()
+                .and_then(|name| self.resolve_receiving_movement(name));
             let loco_binding = template
                 .locomotor_name
                 .as_deref()
-                .and_then(crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding);
+                .and_then(|name| self.resolve_receiving_locomotor(name));
             // Sentry residual: detect explicit template primary before move.
             let sentry_had_explicit_primary =
                 template.primary_weapon.is_some() || template.primary_weapon_name.is_some();
@@ -2216,10 +2219,9 @@ impl GameLogic {
                 let need_loco = object.movement.max_speed
                     < crate::game_logic::host_angry_mob::ANGRY_MOB_LOCOMOTOR_SPEED - 0.01;
                 if need_loco {
-                    if let Some(binding) =
-                        crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(
-                            crate::game_logic::locomotor_bootstrap::ANGRY_MOB_NEXUS_LOCOMOTOR,
-                        )
+                    if let Some(binding) = self.resolve_receiving_locomotor(
+                        crate::game_logic::locomotor_bootstrap::ANGRY_MOB_NEXUS_LOCOMOTOR,
+                    )
                     {
                         crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(
                             &mut object,

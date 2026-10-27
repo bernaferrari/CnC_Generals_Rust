@@ -1496,12 +1496,13 @@ impl CnCGameEngine {
                     // Default/Locomotor.ini then Locomotor.ini from archives.
                     {
                         let mut loaded_any_locomotor = false;
+                        let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new();
                         for loco_path in [
                             "Data/INI/Default/Locomotor.ini",
                             "Data/INI/Locomotor.ini",
                         ] {
                             if let Some(content) = extract_ini_text_from_archives(loco_path)? {
-                                match game_engine::common::ini::ini_locomotor::load_locomotors_from_str(&content) {
+                                match locomotors.apply_source(&content) {
                                     Ok(count) => {
                                         loaded_any_locomotor |= count > 0;
                                     }
@@ -1516,7 +1517,11 @@ impl CnCGameEngine {
                         }
                         if !loaded_any_locomotor {
                             warn!("Locomotor bootstrap loaded 0 templates from archives — relying on hardcoded defaults");
+                            locomotors = crate::game_logic::locomotor_bootstrap::default_host_locomotor_store();
+                        } else {
+                            crate::game_logic::locomotor_bootstrap::seed_missing_host_locomotors(&mut locomotors);
                         }
+                        simulation_rules.admit_locomotor_definitions(locomotors);
                     }
 
                     // C++ GameEngine.cpp:468 reserves the three veterancy bits,

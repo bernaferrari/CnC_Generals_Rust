@@ -21,8 +21,8 @@
 
 use game_engine::common::ini::ini_locomotor::{
     LocomotorAppearance as SourceLocomotorAppearance,
-    LocomotorBehaviorZ as SourceLocomotorBehaviorZ, LocomotorTemplate, get_locomotor_store,
-    get_locomotor_store_mut, load_locomotors_from_str, parse_locomotor_template_definition,
+    LocomotorBehaviorZ as SourceLocomotorBehaviorZ, LocomotorStore, LocomotorTemplate, get_locomotor_store,
+    get_locomotor_store_mut, parse_locomotor_template_definition,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -313,30 +313,35 @@ pub struct HostCompleteLocomotorSet {
 ///
 /// Returns how many templates were added by this call (seed + filesystem load).
 pub fn ensure_host_locomotor_store() -> usize {
-    let mut added = 0usize;
+    let mut added = 0;
     HOST_DEFAULT_LOCOMOTORS.call_once(|| {
-        // Preserve disk definitions before exact and generic fallback rows.
-        added += try_load_locomotor_ini_from_disk();
-
-        // RiderChange must validate the complete SET_NORMAL / SET_SLUGGISH
-        // surface rows even in headless tests where the extracted Locomotor.ini
-        // is unavailable.  Seed both retail Combat Bike members with every
-        // currently-live physics field before the older speed-only generic
-        // table fills the ground member.
-        added += seed_exact_combat_bike_normal_locomotors();
-        added += seed_exact_combat_bike_sluggish_locomotors();
-        added += seed_exact_aircraft_set_switch_locomotors();
-        added += seed_exact_human_cliff_locomotor();
-        added += seed_exact_spy_drone_locomotor();
-
-        // Always fill missing golden / Wave 81 common-unit locomotors.
-        // (INI load may have BasicHuman but omit some residual names.)
-        added += seed_known_host_locomotors();
-        // Retail Chinook/Helix author SlideIntoPlaceTime=100 even when the
-        // extracted Locomotor.ini is missing. Patch after generic seed so a
-        // prior speed-only insert still gets the leftover duration.
-        added += ensure_chinook_helix_slide_into_place();
+        let mut store = get_locomotor_store_mut();
+        added += try_load_locomotor_ini_from_disk(&mut store);
+        added += seed_missing_host_locomotors(&mut store);
+        added += ensure_chinook_helix_slide_into_place(&mut store);
     });
+    added
+}
+
+/// Construct fallback content locally when an application has no archive data.
+/// It never reads or publishes the process-wide compatibility store.
+pub fn default_host_locomotor_store() -> LocomotorStore {
+    let mut store = LocomotorStore::new();
+    try_load_locomotor_ini_from_disk(&mut store);
+    seed_missing_host_locomotors(&mut store);
+    ensure_chinook_helix_slide_into_place(&mut store);
+    store
+}
+
+/// Add the existing headless fallback definitions only where content is absent.
+pub fn seed_missing_host_locomotors(store: &mut LocomotorStore) -> usize {
+    let mut added = 0;
+    added += seed_exact_combat_bike_normal_locomotors(store);
+    added += seed_exact_combat_bike_sluggish_locomotors(store);
+    added += seed_exact_aircraft_set_switch_locomotors(store);
+    added += seed_exact_human_cliff_locomotor(store);
+    added += seed_exact_spy_drone_locomotor(store);
+    added += seed_known_host_locomotors(store);
     added
 }
 
@@ -639,14 +644,64 @@ pub fn resolve_host_movement(locomotor_name: &str) -> Option<HostMovementStats> 
 pub fn resolve_host_locomotor_binding(locomotor_name: &str) -> Option<HostLocomotorBinding> {
     let _ = ensure_host_locomotor_store();
     if locomotor_name == CHINOOK_LOCOMOTOR || locomotor_name == HELIX_LOCOMOTOR {
-        let _ = ensure_chinook_helix_slide_into_place();
+        let _ = ensure_chinook_helix_slide_into_place(&mut get_locomotor_store_mut());
     }
     let store = get_locomotor_store();
+    resolve_host_locomotor_binding_from_store(&store, locomotor_name)
+}
+
+/// Resolve a definition from the catalog admitted by the receiving session.
+pub fn resolve_host_locomotor_binding_from_store(
+    store: &LocomotorStore,
+    locomotor_name: &str,
+) -> Option<HostLocomotorBinding> {
     let template = store.find_template(locomotor_name)?;
     if !template.max_speed.is_finite() || template.max_speed < 0.0 {
         return None;
     }
     host_locomotor_binding_from_template(template)
+}
+
+impl crate::game_logic::GameLogic {
+    /// Admit an application-owned immutable baseline before constructing units.
+    pub fn admit_locomotor_definitions(&mut self, definitions: LocomotorStore) {
+        self.locomotor_definition_base = Some(definitions.clone());
+        self.locomotor_definitions = Some(definitions);
+    }
+
+    /// Apply ordered map companions to a detached copy of the application
+    /// baseline. A failed parse cannot alter the running catalog.
+    pub fn admit_locomotor_companion_sources(&mut self, sources: &[String]) -> Result<(), String> {
+        let Some(mut candidate) = self.locomotor_definition_base.clone() else {
+            return Ok(());
+        };
+        for source in sources {
+            candidate.apply_source(source).map_err(|error| error.to_string())?;
+        }
+        self.locomotor_definitions = Some(candidate);
+        Ok(())
+    }
+
+    pub(crate) fn resolve_receiving_locomotor(
+        &self,
+        name: &str,
+    ) -> Option<HostLocomotorBinding> {
+        match &self.locomotor_definitions {
+            Some(store) => resolve_host_locomotor_binding_from_store(store, name),
+            None => resolve_host_locomotor_binding(name),
+        }
+    }
+
+    pub(crate) fn resolve_receiving_movement(&self, name: &str) -> Option<HostMovementStats> {
+        match &self.locomotor_definitions {
+            Some(store) => {
+                let template = store.find_template(name)?;
+                (template.max_speed.is_finite() && template.max_speed >= 0.0)
+                    .then(|| host_stats_from_template(template))
+            }
+            None => resolve_host_movement(name),
+        }
+    }
 }
 
 /// Resolve a C++ `Locomotor = SET_* ...` row as a complete authored set:
@@ -1051,14 +1106,14 @@ fn store_has(name: &str) -> bool {
     get_locomotor_store().find_template(name).is_some()
 }
 
-fn try_load_locomotor_ini_from_disk() -> usize {
+fn try_load_locomotor_ini_from_disk(store: &mut LocomotorStore) -> usize {
     let mut total = 0usize;
     for path in locomotor_ini_candidate_paths() {
         if !path.is_file() {
             continue;
         }
         match std::fs::read_to_string(&path) {
-            Ok(content) => match load_locomotors_from_str(&content) {
+            Ok(content) => match store.apply_source(&content) {
                 Ok(n) if n > 0 => {
                     log::info!(
                         "Host LocomotorStore: loaded {} locomotor templates from {}",
@@ -1120,10 +1175,10 @@ fn locomotor_ini_candidate_paths() -> Vec<PathBuf> {
 ///
 /// Values match retail Locomotor.ini Speed / Acceleration / TurnRate (dist/sec).
 /// Wave 81: uses [`HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE`] (golden + common deepen).
-fn seed_known_host_locomotors() -> usize {
+fn seed_known_host_locomotors(store: &mut LocomotorStore) -> usize {
     let mut added = 0usize;
     for &(name, speed, accel, turn_deg) in HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE {
-        if store_has(name) {
+        if store.find_template(name).is_some() {
             continue;
         }
         let mut props = HashMap::new();
@@ -1172,7 +1227,7 @@ fn seed_known_host_locomotors() -> usize {
         }
 
         match parse_locomotor_template_definition(name, &props) {
-            Ok(template) => match get_locomotor_store_mut().add_template(template) {
+            Ok(template) => match store.add_template(template) {
                 Ok(()) => {
                     log::debug!("Host LocomotorStore: seeded locomotor {}", name);
                     added += 1;
@@ -1197,11 +1252,11 @@ fn seed_known_host_locomotors() -> usize {
 
 /// C++ ChinookLocomotor / HelixLocomotor `SlideIntoPlaceTime = 100` (msec).
 /// Common stores raw msec; leftover `parse_duration_real` → 3 frames.
-fn ensure_chinook_helix_slide_into_place() -> usize {
+fn ensure_chinook_helix_slide_into_place(store: &mut LocomotorStore) -> usize {
     const RETAIL_SLIDE_MSEC: f32 = 100.0;
     let mut patched = 0usize;
     for name in [CHINOOK_LOCOMOTOR, HELIX_LOCOMOTOR] {
-        if !store_has(name) {
+        if !store.find_template(name).is_some() {
             let (speed, accel, turn) = match name {
                 CHINOOK_LOCOMOTOR => (150.0, 60.0, 180.0),
                 _ => (75.0, 60.0, 180.0),
@@ -1217,7 +1272,7 @@ fn ensure_chinook_helix_slide_into_place() -> usize {
                 format!("{}", RETAIL_SLIDE_MSEC),
             );
             match parse_locomotor_template_definition(name, &props) {
-                Ok(template) => match get_locomotor_store_mut().add_template(template) {
+                Ok(template) => match store.add_template(template) {
                     Ok(()) => patched += 1,
                     Err(e) => log::warn!(
                         "Host LocomotorStore: cannot seed {name} SlideIntoPlaceTime: {e}"
@@ -1229,7 +1284,7 @@ fn ensure_chinook_helix_slide_into_place() -> usize {
             }
             continue;
         }
-        if let Some(template) = get_locomotor_store_mut().find_template_mut(name) {
+        if let Some(template) = store.find_template_mut(name) {
             let mut changed = false;
             if template.ultra_accurate_slide_into_place_factor <= 0.0 {
                 template.ultra_accurate_slide_into_place_factor = RETAIL_SLIDE_MSEC;
@@ -1247,13 +1302,13 @@ fn ensure_chinook_helix_slide_into_place() -> usize {
     patched
 }
 
-fn seed_exact_combat_bike_normal_locomotors() -> usize {
+fn seed_exact_combat_bike_normal_locomotors(store: &mut LocomotorStore) -> usize {
     let mut added = 0usize;
     for (name, surfaces) in [
         (COMBAT_BIKE_GROUND_LOCOMOTOR, "GROUND RUBBLE"),
         (COMBAT_BIKE_CLIFF_LOCOMOTOR, "CLIFF"),
     ] {
-        if store_has(name) {
+        if store.find_template(name).is_some() {
             continue;
         }
         let mut props = HashMap::new();
@@ -1273,7 +1328,7 @@ fn seed_exact_combat_bike_normal_locomotors() -> usize {
         props.insert("CanMoveBackwards".to_string(), "No".to_string());
         props.insert("HasSuspension".to_string(), "Yes".to_string());
         match parse_locomotor_template_definition(name, &props) {
-            Ok(template) => match get_locomotor_store_mut().add_template(template) {
+            Ok(template) => match store.add_template(template) {
                 Ok(()) => added += 1,
                 Err(error) => log::warn!(
                     "Host LocomotorStore: cannot seed Combat Bike locomotor {name}: {error}"
@@ -1287,8 +1342,8 @@ fn seed_exact_combat_bike_normal_locomotors() -> usize {
     added
 }
 
-fn seed_exact_human_cliff_locomotor() -> usize {
-    if store_has(HUMAN_CLIFF_LOCOMOTOR) {
+fn seed_exact_human_cliff_locomotor(store: &mut LocomotorStore) -> usize {
+    if store.find_template(HUMAN_CLIFF_LOCOMOTOR).is_some() {
         return 0;
     }
     let mut props = HashMap::new();
@@ -1303,7 +1358,7 @@ fn seed_exact_human_cliff_locomotor() -> usize {
     props.insert("ZAxisBehavior".to_string(), "NO_Z_MOTIVE_FORCE".to_string());
     props.insert("Appearance".to_string(), "CLIMBER".to_string());
     match parse_locomotor_template_definition(HUMAN_CLIFF_LOCOMOTOR, &props) {
-        Ok(template) => match get_locomotor_store_mut().add_template(template) {
+        Ok(template) => match store.add_template(template) {
             Ok(()) => 1,
             Err(error) => {
                 log::warn!("Host LocomotorStore: cannot seed {HUMAN_CLIFF_LOCOMOTOR}: {error}");
@@ -1317,7 +1372,7 @@ fn seed_exact_human_cliff_locomotor() -> usize {
     }
 }
 
-fn seed_exact_combat_bike_sluggish_locomotors() -> usize {
+fn seed_exact_combat_bike_sluggish_locomotors(store: &mut LocomotorStore) -> usize {
     let mut added = 0usize;
     // Retail INIZH Locomotor.ini values.  SET_SLUGGISH is heterogeneous:
     // ground ";25% slower" Speed 90 vs cliff Speed 60.
@@ -1339,7 +1394,7 @@ fn seed_exact_combat_bike_sluggish_locomotors() -> usize {
             "40",
         ),
     ] {
-        if store_has(name) {
+        if store.find_template(name).is_some() {
             continue;
         }
         let mut props = HashMap::new();
@@ -1359,7 +1414,7 @@ fn seed_exact_combat_bike_sluggish_locomotors() -> usize {
         props.insert("CanMoveBackwards".to_string(), "No".to_string());
         props.insert("HasSuspension".to_string(), "Yes".to_string());
         match parse_locomotor_template_definition(name, &props) {
-            Ok(template) => match get_locomotor_store_mut().add_template(template) {
+            Ok(template) => match store.add_template(template) {
                 Ok(()) => added += 1,
                 Err(error) => log::warn!(
                     "Host LocomotorStore: cannot seed sluggish Combat Bike locomotor {name}: {error}"
@@ -1373,7 +1428,7 @@ fn seed_exact_combat_bike_sluggish_locomotors() -> usize {
     added
 }
 
-fn seed_exact_aircraft_set_switch_locomotors() -> usize {
+fn seed_exact_aircraft_set_switch_locomotors(store: &mut LocomotorStore) -> usize {
     let mut added = 0usize;
     for (name, surfaces, appearance, speed, accel, turn, braking) in [
         (
@@ -1395,7 +1450,7 @@ fn seed_exact_aircraft_set_switch_locomotors() -> usize {
             Some("50"),
         ),
     ] {
-        if store_has(name) {
+        if store.find_template(name).is_some() {
             continue;
         }
         let mut props = HashMap::new();
@@ -1423,7 +1478,7 @@ fn seed_exact_aircraft_set_switch_locomotors() -> usize {
             props.insert("AllowAirborneMotiveForce".to_string(), "Yes".to_string());
         }
         match parse_locomotor_template_definition(name, &props) {
-            Ok(template) => match get_locomotor_store_mut().add_template(template) {
+            Ok(template) => match store.add_template(template) {
                 Ok(()) => added += 1,
                 Err(error) => log::warn!(
                     "Host LocomotorStore: cannot seed aircraft set locomotor {name}: {error}"
@@ -1434,12 +1489,12 @@ fn seed_exact_aircraft_set_switch_locomotors() -> usize {
             ),
         }
     }
-    added + seed_aurora_flight_locomotors()
+    added + seed_aurora_flight_locomotors(store)
 }
 
 /// Authored Aurora flight definitions share their physical/presentation fields.
 /// Source: retail Locomotor.ini AuroraJet{Sluggish,Supersonic}Locomotor.
-fn seed_aurora_flight_locomotors() -> usize {
+fn seed_aurora_flight_locomotors(store: &mut LocomotorStore) -> usize {
     let mut added = 0;
     for (
         name,
@@ -1490,7 +1545,7 @@ fn seed_aurora_flight_locomotors() -> usize {
             "180",
         ),
     ] {
-        if store_has(name) {
+        if store.find_template(name).is_some() {
             continue;
         }
         let props: HashMap<String, String> = [
@@ -1526,7 +1581,7 @@ fn seed_aurora_flight_locomotors() -> usize {
         .map(|(key, value)| (key.to_string(), value.to_string()))
         .collect();
         match parse_locomotor_template_definition(name, &props) {
-            Ok(template) => match get_locomotor_store_mut().add_template(template) {
+            Ok(template) => match store.add_template(template) {
                 Ok(()) => added += 1,
                 Err(error) => log::warn!("Cannot seed Aurora locomotor {name}: {error}"),
             },
@@ -1539,11 +1594,11 @@ fn seed_aurora_flight_locomotors() -> usize {
 /// Seed SpyDroneLocomotor even after the generic store bootstrap completed.
 pub fn ensure_spy_drone_locomotor() -> usize {
     let _ = ensure_host_locomotor_store();
-    seed_exact_spy_drone_locomotor()
+    seed_exact_spy_drone_locomotor(&mut get_locomotor_store_mut())
 }
 
-fn seed_exact_spy_drone_locomotor() -> usize {
-    if store_has(SPY_DRONE_LOCOMOTOR) {
+fn seed_exact_spy_drone_locomotor(store: &mut LocomotorStore) -> usize {
+    if store.find_template(SPY_DRONE_LOCOMOTOR).is_some() {
         return 0;
     }
     let mut props = HashMap::new();
@@ -1566,7 +1621,7 @@ fn seed_exact_spy_drone_locomotor() -> usize {
     props.insert("AllowAirborneMotiveForce".to_string(), "Yes".to_string());
     props.insert("StickToGround".to_string(), "No".to_string());
     match parse_locomotor_template_definition(SPY_DRONE_LOCOMOTOR, &props) {
-        Ok(template) => match get_locomotor_store_mut().add_template(template) {
+        Ok(template) => match store.add_template(template) {
             Ok(()) => 1,
             Err(error) => {
                 log::warn!("Host LocomotorStore: cannot seed SpyDroneLocomotor: {error}");
@@ -2008,7 +2063,7 @@ mod tests {
 
     #[test]
     fn chinook_helix_seed_binds_slide_into_place_time() {
-        let _ = ensure_chinook_helix_slide_into_place();
+        let _ = ensure_chinook_helix_slide_into_place(&mut get_locomotor_store_mut());
         for name in [CHINOOK_LOCOMOTOR, HELIX_LOCOMOTOR] {
             let binding = resolve_host_locomotor_binding(name)
                 .unwrap_or_else(|| panic!("{name} must resolve"));

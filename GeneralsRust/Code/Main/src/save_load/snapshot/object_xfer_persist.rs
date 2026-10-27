@@ -1928,6 +1928,20 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             "incomplete saved body damage-info owners".into(),
         ));
     }
+    if game_logic.locomotor_definitions.is_some() {
+        for entry in &payload.objects {
+            if entry.has_locomotor_template {
+                if let Some(name) = entry.cur_locomotor_name.as_deref() {
+                    if game_logic.resolve_receiving_locomotor(name).is_none() {
+                        return Err(SaveLoadError::Corrupted(format!(
+                            "saved object {} references an unavailable receiving locomotor {name}",
+                            entry.object_id
+                        )));
+                    }
+                }
+            }
+        }
+    }
     // Decode the complete suffix before changing the receiving objects. A bad
     // record must not reset their existing clocks or script state.
     reset_object_xfer(game_logic);
@@ -2212,6 +2226,11 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
     }
     for entry in payload.objects {
         let id = ObjectId(entry.object_id);
+        let selected_locomotor = entry
+            .has_locomotor_template
+            .then(|| entry.cur_locomotor_name.as_deref())
+            .flatten()
+            .and_then(|name| game_logic.resolve_receiving_locomotor(name));
         if let Some(object) = game_logic.host_objects_mut().get_mut(&id) {
             object.status.disabled_held = entry.disabled_held;
             object.single_use_command_used = entry.single_use_command_used;
@@ -2263,12 +2282,9 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
             if entry.has_locomotor_template {
                 object.selected_locomotor_definition = None;
                 object.cur_locomotor_name = entry.cur_locomotor_name;
-                // Reuse the existing application catalog seam once. Facts are
-                // inert; transferred motion/arrival/pose below remain owners.
-                // This ambient catalog is tracked in hq-0hukx, not isolated.
-                if let Some(binding) = object.cur_locomotor_name.as_deref().and_then(
-                    crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding,
-                ) {
+                // Definition facts come from the receiving world; transferred
+                // motion, arrival, and pose remain runtime state below.
+                if let Some(binding) = selected_locomotor {
                     // Older guard/panic module capsules already restored their
                     // explicit width projection. Keep it through this definition
                     // reconstruction; v11 later restores the canonical row.
