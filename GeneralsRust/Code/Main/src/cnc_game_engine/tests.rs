@@ -1033,14 +1033,14 @@ fn startup_water_weather_preload_paths_match_cpp_order() {
 }
 
 #[test]
-fn preload_startup_water_weather_inis_returns() {
+fn preload_startup_weather_inis_returns() {
     // Shipped boot path: must return (fail-open on missing files). A hang here
     // is the observed Loading stall at "Preloading water and weather settings".
     let start = std::time::Instant::now();
-    CnCGameEngine::preload_startup_water_weather_inis();
+    CnCGameEngine::preload_startup_weather_inis();
     assert!(
         start.elapsed() < std::time::Duration::from_secs(15),
-        "preload_startup_water_weather_inis must return quickly, elapsed {:?}",
+        "preload_startup_weather_inis must return quickly, elapsed {:?}",
         start.elapsed()
     );
 }

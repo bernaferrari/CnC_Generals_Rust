@@ -86,6 +86,8 @@ pub struct LightingContentRules {
     pub feather_water: i32,
     /// Receiving GameData track definitions, including subsequent INI overlays.
     pub terrain_tracks: TerrainTrackRules,
+    /// Application Water.ini and the receiving map's transparency overrides.
+    pub water_definitions: crate::common::ini::ini_water::WaterDefinitions,
 }
 impl Default for LightingContentRules {
     fn default() -> Self {
@@ -125,6 +127,7 @@ impl LightingContentRules {
             show_soft_water_edge: data.show_soft_water_edge,
             feather_water: data.feather_water,
             terrain_tracks: TerrainTrackRules::from_global_data(data),
+            water_definitions: Default::default(),
         }
     }
     pub fn terrain_water_rules(&self) -> TerrainWaterRules {
@@ -189,7 +192,9 @@ impl LightingContentRules {
             Ok(())
         })
         .map_err(|error| error.to_string())?;
-        Ok(Self::from_global_data(&draft))
+        let mut result = Self::from_global_data(&draft);
+        result.water_definitions = self.water_definitions.clone();
+        Ok(result)
     }
 }
 

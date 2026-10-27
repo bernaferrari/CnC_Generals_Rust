@@ -230,6 +230,55 @@ fn terrain_water_plane_and_settings_follow_the_receiving_world() {
 }
 
 #[test]
+fn water_transparency_and_skybox_follow_the_receiving_visual() {
+    use game_engine::common::ini::INILoadType;
+    use game_engine::common::ini::ini_water::WaterDefinitions;
+
+    let base = WaterDefinitions::default()
+        .overlay_ini_text(
+            "WaterTransparency\nTransparentWaterDepth = 3\nSkyboxTextureN = BaseN.tga\nEnd\n",
+            INILoadType::Overwrite,
+        )
+        .unwrap();
+    let first_rules = base
+        .overlay_ini_text(
+            "WaterTransparency\nTransparentWaterDepth = 7\nSkyboxTextureN = FirstN.tga\nEnd\n",
+            INILoadType::CreateOverrides,
+        )
+        .unwrap();
+    let peer_rules = base
+        .overlay_ini_text(
+            "WaterTransparency\nTransparentWaterDepth = 11\nSkyboxTextureN = PeerN.tga\nEnd\n",
+            INILoadType::CreateOverrides,
+        )
+        .unwrap();
+    let mut first = TerrainVisualImpl::new();
+    let mut peer = TerrainVisualImpl::new();
+    first
+        .admit_water_presentation(&first_rules.presentation())
+        .unwrap();
+    peer.admit_water_presentation(&peer_rules.presentation())
+        .unwrap();
+    assert_eq!(first.water_presentation().transparent_water_depth, 7.0);
+    assert_eq!(peer.water_presentation().transparent_water_depth, 11.0);
+    assert_eq!(
+        first.current_skybox_texture_names()[0].as_deref(),
+        Some("FirstN.tga")
+    );
+    assert_eq!(
+        peer.current_skybox_texture_names()[0].as_deref(),
+        Some("PeerN.tga")
+    );
+    peer.reset().unwrap();
+    drop(peer);
+    assert_eq!(
+        first.current_skybox_texture_names()[0].as_deref(),
+        Some("FirstN.tga")
+    );
+    assert_eq!(first.water_presentation().transparent_water_depth, 7.0);
+}
+
+#[test]
 fn terrain_skybox_uses_the_receiving_view() {
     let mut first = TerrainVisualImpl::new();
     let mut peer = TerrainVisualImpl::new();

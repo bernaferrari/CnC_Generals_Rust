@@ -1257,9 +1257,9 @@ impl CnCGameEngine {
                     Self::emit_startup_load_progress(
                         &sender,
                         0.145,
-                        "Preloading water and weather settings",
+                        "Preloading weather settings",
                     );
-                    Self::preload_startup_water_weather_inis();
+                    Self::preload_startup_weather_inis();
                     Self::emit_startup_load_progress(
                         &sender,
                         0.15,

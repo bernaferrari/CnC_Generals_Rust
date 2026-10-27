@@ -1792,37 +1792,9 @@ impl TerrainVisualImpl {
         self.bound_standing_water_texture = source_name;
     }
 
-    /// C++ `replaceSkyboxTextures` + `WaterRenderObjClass::updateMapOverrides`.
+    /// C++ `WaterRenderObjClass::updateMapOverrides` for this visual's owner.
     fn apply_water_transparency_map_overrides(&mut self, device: &wgpu::Device) {
-        if let Some((old, new)) = game_engine::common::ini::ini_water::take_pending_skybox_replace()
-        {
-            let old_refs = [
-                old[0].as_str(),
-                old[1].as_str(),
-                old[2].as_str(),
-                old[3].as_str(),
-                old[4].as_str(),
-            ];
-            let new_refs = [
-                new[0].as_str(),
-                new[1].as_str(),
-                new[2].as_str(),
-                new[3].as_str(),
-                new[4].as_str(),
-            ];
-            if let Err(err) = self.replace_skybox_textures(&old_refs, &new_refs) {
-                warn!("WaterTransparency skybox replace failed: {err}");
-            }
-        }
-
-        game_engine::common::ini::ini_water::initialize_water_settings();
-        let wanted = game_engine::common::ini::ini_water::get_water_transparency()
-            .and_then(|lock| {
-                lock.read()
-                    .ok()
-                    .map(|g| g.get_final_override().standing_water_texture.to_string())
-            })
-            .unwrap_or_default();
+        let wanted = self.water_presentation.standing_water_texture.clone();
         // C++ applies the INI standing-water override when the map/Water.ini
         // changes it, not per frame. Rebind only when the requested name
         // differs from the last attempt: the loaded texture path (e.g.
@@ -1875,20 +1847,13 @@ impl TerrainVisualImpl {
         };
 
         // C++ Water.h / Water.ini StandingWaterTexture default, then WaterSet WaterTexture.
-        game_engine::common::ini::ini_water::initialize_water_settings();
-        if let Some(lock) = game_engine::common::ini::ini_water::get_water_transparency() {
-            if let Ok(guard) = lock.read() {
-                push_name(guard.get_final_override().standing_water_texture.as_str());
-            }
-        }
-        let tod = game_engine::common::ini::ini_water::TimeOfDay::from_index(
-            self.water_rules.time_of_day as usize,
+        push_name(&self.water_presentation.standing_water_texture);
+        push_name(
+            &self
+                .water_presentation
+                .setting_at(self.water_rules.time_of_day)
+                .texture_name,
         );
-        if let Some(lock) = game_engine::common::ini::ini_water::get_water_setting(tod) {
-            if let Ok(guard) = lock.read() {
-                push_name(guard.texture_name.as_str());
-            }
-        }
         for name in [
             "TWWater01.tga",
             "TWWater01.dds",
@@ -2278,38 +2243,17 @@ impl TerrainVisualImpl {
         // (waterPositionX, waterPositionY, waterPositionZ). Not centered
         // [-extent/2, +extent/2] — Alpine camera x=1362 must sit over the plane.
         // Tile 15×15 patches across GlobalData extents (do not stretch one sheet).
-        let (_standing_color, additive, standing_tex) = {
-            game_engine::common::ini::ini_water::initialize_water_settings();
-            game_engine::common::ini::ini_water::get_water_transparency()
-                .and_then(|lock| {
-                    lock.read().ok().map(|g| {
-                        let final_s = g.get_final_override();
-                        (
-                            [
-                                final_s.standing_water_color.0,
-                                final_s.standing_water_color.1,
-                                final_s.standing_water_color.2,
-                            ],
-                            final_s.additive_blending,
-                            final_s.standing_water_texture.to_string(),
-                        )
-                    })
-                })
-                .unwrap_or(([1.0, 1.0, 1.0], false, String::new()))
-        };
+        let additive = self.water_presentation.additive_blending;
+        let standing_tex = self.water_presentation.standing_water_texture.clone();
         self.water_additive_blend = additive;
 
-        let tod = game_engine::common::ini::ini_water::TimeOfDay::from_index(
-            self.water_rules.time_of_day as usize,
-        );
-        let water_set = game_engine::common::ini::ini_water::get_water_setting(tod)
-            .and_then(|lock| lock.read().ok().map(|g| g.clone()));
         // C++ type-2 sea vertices use the ini TransparentDiffuseColor directly
         // (generateVertexBuffer, W3DWater.cpp:667), not the standing-light blend.
-        let packed = water_set
-            .as_ref()
-            .map(|s| pack_water_rgba_int(s.transparent_diffuse_color))
-            .unwrap_or(0xffff_ffff);
+        let packed = pack_water_rgba_int(
+            self.water_presentation
+                .setting_at(self.water_rules.time_of_day)
+                .transparent_diffuse_color,
+        );
 
         let (mut patch_vertices, list_indices) = bake_water_tiles_world_with_lights(
             min_x,

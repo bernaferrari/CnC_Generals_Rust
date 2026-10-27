@@ -34,6 +34,9 @@ impl RenderPipeline {
                 &env.terrain_track_rules,
             );
         visual.admit_water_rules(env.terrain_water_rules);
+        visual
+            .admit_water_presentation(&env.terrain_water)
+            .map_err(|error| anyhow::anyhow!("Terrain water admission failed: {error}"))?;
         visual.set_skybox_enabled(env.skybox_enabled);
         if let Some(lighting) = Self::static_terrain_lighting(env) {
             visual.admit_static_lighting(lighting);
@@ -89,7 +92,8 @@ impl RenderPipeline {
                     },
                 )
                 .collect();
-        let skybox = self.skybox_enabled.then(|| self.resolved_skybox_hint());
+        let skybox = (self.skybox_enabled && self.has_explicit_skybox_hint())
+            .then(|| self.resolved_skybox_hint());
         let explicit_skybox = self.has_explicit_skybox_hint();
         let lighting = self
             .cached_terrain_lighting

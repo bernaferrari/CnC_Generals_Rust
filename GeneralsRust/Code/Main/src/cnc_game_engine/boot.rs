@@ -68,6 +68,15 @@ impl CnCGameEngine {
                 .overlay_ini_text(&text)
                 .map_err(|error| format!("{path}: {error}"))?;
         }
+        for (path, text) in
+            Self::load_startup_ini_texts(&["Data/INI/Default/Water.ini", "Data/INI/Water.ini"])
+                .await?
+        {
+            rules.water_definitions = rules
+                .water_definitions
+                .overlay_ini_text(&text, game_engine::common::ini::INILoadType::Overwrite)
+                .map_err(|error| format!("{path}: {error}"))?;
+        }
         let mut cli = game_engine::common::command_line::WritableGlobalData::default();
         Self::apply_ordered_startup_overrides_from_raw_args(
             raw_args,
@@ -1344,8 +1353,10 @@ impl CnCGameEngine {
         std::fs::read_to_string(candidate).ok()
     }
 
-    pub(super) fn preload_startup_water_weather_inis() {
-        for path in Self::startup_water_weather_ini_paths() {
+    pub(super) fn preload_startup_weather_inis() {
+        // Water definitions were already parsed into the receiving application
+        // baseline. Do not republish them through the compatibility singleton.
+        for path in Self::startup_water_weather_ini_paths().into_iter().skip(2) {
             // Disk first (extracted INIZH). Archive `INI::load` can block on
             // FileSystem/asset locks held by the main thread during Loading.
             if let Some(text) = Self::read_startup_ini_from_disk(path) {

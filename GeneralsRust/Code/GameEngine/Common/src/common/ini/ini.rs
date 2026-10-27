@@ -1637,6 +1637,34 @@ impl INI {
         self.parse_file()
     }
 
+    /// Read water definitions into the receiving content owner without
+    /// dispatching other blocks or publishing compatibility globals.
+    pub fn parse_water_definitions_into(
+        &mut self,
+        target: &mut super::ini_water::WaterDefinitions,
+    ) -> INIResult<()> {
+        while !self.is_eof() {
+            self.read_line()?;
+            let Some(token) = self.get_first_token() else {
+                continue;
+            };
+            if token.eq_ignore_ascii_case("WaterSet") {
+                let (name, properties) = parse_named_property_block(self)?;
+                target
+                    .apply_setting(&name, properties)
+                    .map_err(|_| INIError::InvalidData)?;
+            } else if token.eq_ignore_ascii_case("WaterTransparency")
+                && self.buffer.split_whitespace().count() == 1
+            {
+                let properties = parse_unnamed_property_block(self)?;
+                target
+                    .apply_transparency(self.get_load_type(), properties)
+                    .map_err(|_| INIError::InvalidData)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Parse PlayerTemplate blocks into the catalog owned by this load.
     /// Other registered blocks retain their ordinary dispatch behavior.
     pub(crate) fn parse_current_file_into_player_templates(

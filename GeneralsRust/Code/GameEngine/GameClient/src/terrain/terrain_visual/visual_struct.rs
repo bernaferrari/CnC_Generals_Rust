@@ -82,6 +82,8 @@ pub struct TerrainVisualImpl {
     water_system: WaterSystem,
     /// Water GameData supplied by this visual's world.
     water_rules: game_engine::common::ini::ini_game_data::TerrainWaterRules,
+    /// Effective Water.ini values supplied by the same receiving world.
+    water_presentation: game_engine::common::ini::ini_water::WaterPresentation,
 
     /// Road rendering system
     road_system: RoadSystem,

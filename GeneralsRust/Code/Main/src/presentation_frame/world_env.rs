@@ -555,6 +555,9 @@ pub struct PresentationWorldEnv {
     /// Water plane and shoreline inputs from the receiving world's GameData.
     #[serde(default)]
     pub terrain_water_rules: game_engine::common::ini::ini_game_data::TerrainWaterRules,
+    /// Effective Water.ini content for this receiving presentation.
+    #[serde(default)]
+    pub terrain_water: game_engine::common::ini::ini_water::WaterPresentation,
     /// C++ `m_scriptOverrideInfantryLightScale` or `m_infantryLightScale[tod]`.
     #[serde(default)]
     pub infantry_light_scale: Option<f32>,
@@ -769,6 +772,7 @@ impl PresentationWorldEnv {
             terrain_global_lights,
             terrain_track_rules: logic.lighting_rules().terrain_tracks,
             terrain_water_rules: logic.lighting_rules().terrain_water_rules(),
+            terrain_water: logic.lighting_rules().water_definitions.presentation(),
             infantry_light_scale,
             map_object_count: meta.as_ref().map(|m| m.objects.len() as u32).unwrap_or(0),
             has_map_metadata: meta.is_some(),

@@ -56,6 +56,9 @@ impl super::GameLogic {
         let mut rules = self.lighting_definitions.base.clone();
         for text in texts {
             rules = rules.overlay_ini_text(text)?;
+            rules.water_definitions = rules
+                .water_definitions
+                .overlay_ini_text(text, game_engine::common::ini::INILoadType::CreateOverrides)?;
         }
         self.lighting_definitions.effective = rules;
         Ok(())

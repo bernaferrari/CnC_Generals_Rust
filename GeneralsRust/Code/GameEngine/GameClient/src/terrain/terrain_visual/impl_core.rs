@@ -60,6 +60,41 @@ impl TerrainVisualImpl {
         self.water_rules
     }
 
+    /// Apply this world's effective Water.ini without selecting a global owner.
+    pub fn admit_water_presentation(
+        &mut self,
+        water: &game_engine::common::ini::ini_water::WaterPresentation,
+    ) -> TerrainResult<()> {
+        if &self.water_presentation == water {
+            return Ok(());
+        }
+        if self.water_presentation.skybox_textures != water.skybox_textures
+            || self.water_presentation.original_skybox_textures != water.original_skybox_textures
+        {
+            let original = water
+                .original_skybox_textures
+                .each_ref()
+                .map(String::as_str);
+            let effective = water.skybox_textures.each_ref().map(String::as_str);
+            self.replace_skybox_textures(&original, &effective)?;
+        }
+        self.water_presentation = water.clone();
+        self.water_plane = None;
+        self.overlay.water_grid_dirty = true;
+        self.overlay.overlays_dirty = true;
+        self.water_texture_bind_group = None;
+        self.water_texture_is_fallback = true;
+        self.water_texture_search_exhausted = false;
+        if self.height_map.is_some() {
+            self.rebuild_shoreline();
+        }
+        Ok(())
+    }
+
+    pub fn water_presentation(&self) -> &game_engine::common::ini::ini_water::WaterPresentation {
+        &self.water_presentation
+    }
+
     pub fn new() -> Self {
         Self::new_with_track_rules(
             &game_engine::common::ini::ini_game_data::TerrainTrackRules::default(),
@@ -95,6 +130,7 @@ impl TerrainVisualImpl {
 
             water_system: WaterSystem::new(),
             water_rules: Default::default(),
+            water_presentation: Default::default(),
             road_system: RoadSystem::new(),
             terrain_tracks: TerrainTracksRenderObjClassSystem::new(
                 TerrainTracksConfig::from_rules(rules),
@@ -646,13 +682,7 @@ impl TerrainVisualImpl {
             }
         }
         let show_soft = self.water_rules.show_soft_water_edge;
-        let transparent_depth = get_water_transparency()
-            .and_then(|t| {
-                t.read()
-                    .ok()
-                    .map(|s| s.get_final_override().transparent_water_depth)
-            })
-            .unwrap_or(1.0);
+        let transparent_depth = self.water_presentation.transparent_water_depth;
         self.water_tracks
             .set_render_enabled(show_soft, transparent_depth);
         let water_y = self.water_rules.position[2];

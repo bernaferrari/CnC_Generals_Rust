@@ -88,6 +88,7 @@ impl RenderPipeline {
         if let Some(terrain) = self.native_terrain.as_mut() {
             if let Some(frame) = self.presentation_frame.as_ref() {
                 terrain.admit_water_rules(frame.world_env.terrain_water_rules);
+                terrain.admit_water_presentation(&frame.world_env.terrain_water)?;
             }
             let lights = self
                 .presentation_frame

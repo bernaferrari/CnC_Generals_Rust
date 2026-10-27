@@ -501,6 +501,7 @@ fn prepare_native_map_visual(
         terrain_global_lights: crate::presentation_frame::freeze_receiving_terrain_lights(world),
         terrain_track_rules: world.lighting_rules().terrain_tracks,
         terrain_water_rules: world.lighting_rules().terrain_water_rules(),
+        terrain_water: world.lighting_rules().water_definitions.presentation(),
         skybox_enabled: world.is_skybox_enabled(),
         world_min: min.to_array(),
         world_max: max.to_array(),

@@ -6,7 +6,6 @@ use super::water_tracks::{decode_wak_records, water_track_wak_path};
 use super::*;
 
 use crate::system::smudge::get_smudge_manager;
-use game_engine::common::ini::ini_water::get_water_transparency;
 use game_engine::map_object::MAP_XY_FACTOR as MAP_XY;
 
 const NUM_BUMP_FRAMES: i32 = 32;
@@ -29,18 +28,9 @@ impl TerrainVisualImpl {
             self.shoreline_meshes.clear();
             return;
         };
-        let (show_soft, transparent) = {
-            let show = self.water_rules.show_soft_water_edge;
-            let (depth, opacity) = get_water_transparency()
-                .and_then(|t| {
-                    t.read().ok().map(|s| {
-                        let s = s.get_final_override();
-                        (s.transparent_water_depth, s.min_water_opacity)
-                    })
-                })
-                .unwrap_or((3.0, 1.0));
-            (show, depth.max(0.0) * opacity.max(0.01))
-        };
+        let show_soft = self.water_rules.show_soft_water_edge;
+        let transparent = self.water_presentation.transparent_water_depth.max(0.0)
+            * self.water_presentation.min_water_opacity.max(0.01);
         let water_y = self.water_rules.position[2];
         let tiles = height_map.rebuild_shoreline_tiles(
             |x, z| self.sample_water_height(x, z).unwrap_or(water_y),
@@ -390,20 +380,11 @@ impl TerrainVisualImpl {
         // C++ renderWaterMesh (W3DWater.cpp:2242-2343): repeat-scaled UVs,
         // sine-wobbled V scrolled by riverVOrigin, waterDiffuse color with
         // alpha reduced by 0x20 for the wave mesh.
-        game_engine::common::ini::ini_water::initialize_water_settings();
-        let tod = self.water_rules.time_of_day as usize;
-        let setting = game_engine::common::ini::ini_water::get_water_setting(
-            game_engine::common::ini::ini_water::TimeOfDay::from_index(tod),
-        )
-        .and_then(|lock| lock.read().ok().map(|g| g.clone()));
-        let water_diffuse = setting
-            .as_ref()
-            .map(|s| pack_water_setting_diffuse(s.surface_color))
-            .unwrap_or(0xffff_ffff);
-        let repeat = setting
-            .as_ref()
-            .map(|s| s.water_repeat_count.max(0) as f32)
-            .unwrap_or(6.0);
+        let setting = self
+            .water_presentation
+            .setting_at(self.water_rules.time_of_day);
+        let water_diffuse = pack_water_setting_diffuse(setting.surface_color);
+        let repeat = setting.water_repeat_count.max(0) as f32;
         let grid_diffuse = {
             let rgb = water_diffuse & 0x00ff_ffff;
             let alpha = (water_diffuse >> 24).wrapping_sub(0x20) & 0xff;
@@ -499,28 +480,13 @@ impl TerrainVisualImpl {
     }
 
     fn standing_water_diffuse_packed(&self) -> u32 {
-        game_engine::common::ini::ini_water::initialize_water_settings();
-        let standing_color = get_water_transparency()
-            .and_then(|lock| {
-                lock.read().ok().map(|g| {
-                    let s = g.get_final_override();
-                    [
-                        s.standing_water_color.0,
-                        s.standing_water_color.1,
-                        s.standing_water_color.2,
-                    ]
-                })
-            })
-            .unwrap_or([1.0, 1.0, 1.0]);
-        let tod = self.water_rules.time_of_day as usize;
-        let water_set = game_engine::common::ini::ini_water::get_water_setting(
-            game_engine::common::ini::ini_water::TimeOfDay::from_index(tod),
-        )
-        .and_then(|lock| lock.read().ok().map(|g| g.clone()));
-        let water_diffuse = water_set
-            .as_ref()
-            .map(|s| pack_water_setting_diffuse(s.surface_color))
-            .unwrap_or(0xffff_ffff);
+        let (r, g, b) = self.water_presentation.standing_water_color;
+        let standing_color = [r, g, b];
+        let water_diffuse = pack_water_setting_diffuse(
+            self.water_presentation
+                .setting_at(self.water_rules.time_of_day)
+                .surface_color,
+        );
         compute_standing_water_diffuse(
             standing_color,
             water_diffuse,

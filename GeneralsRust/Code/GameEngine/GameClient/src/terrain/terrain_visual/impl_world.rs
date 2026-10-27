@@ -1080,7 +1080,7 @@ impl TerrainVisualImpl {
             return;
         }
 
-        let water_names = water_ini_or_default_skybox_names();
+        let water_names = self.water_presentation.skybox_textures.clone();
         let mut replacements = Vec::new();
         for i in 0..5 {
             let name = self
@@ -1454,33 +1454,6 @@ const FOG_FALLBACK_BIND: &str = "fog-fallback";
 
 fn is_synthetic_skybox_bind(name: &str) -> bool {
     name.eq_ignore_ascii_case(HORIZON_GRADIENT_BIND) || name.eq_ignore_ascii_case(FOG_FALLBACK_BIND)
-}
-
-fn water_ini_or_default_skybox_names() -> [String; 5] {
-    const DEFAULT: [&str; 5] = [
-        "TSMorningN.tga",
-        "TSMorningE.tga",
-        "TSMorningS.tga",
-        "TSMorningW.tga",
-        "TSMorningT.tga",
-    ];
-    game_engine::common::ini::ini_water::initialize_water_settings();
-    if let Some(lock) = game_engine::common::ini::ini_water::get_water_transparency() {
-        if let Ok(guard) = lock.read() {
-            let setting = guard.get_final_override();
-            let names = [
-                setting.skybox_texture_n.as_str().to_string(),
-                setting.skybox_texture_e.as_str().to_string(),
-                setting.skybox_texture_s.as_str().to_string(),
-                setting.skybox_texture_w.as_str().to_string(),
-                setting.skybox_texture_t.as_str().to_string(),
-            ];
-            if names.iter().any(|name| !name.is_empty()) {
-                return names;
-            }
-        }
-    }
-    DEFAULT.map(str::to_string)
 }
 
 fn horizon_sky_color(t: f32) -> [f32; 3] {

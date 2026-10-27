@@ -13,6 +13,10 @@ use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+#[path = "ini_water/owned.rs"]
+mod owned;
+pub use owned::{WaterDefinitions, WaterPresentation, WaterPresentationSetting};
+
 const CPP_WATER_SETTING_FIELDS: &[&str] = &[
     "SkyTexture",
     "WaterTexture",
@@ -170,7 +174,8 @@ impl WaterSetting {
         Self {
             time_of_day,
             sky_texture_name: AsciiString::from(""),
-            surface_color: (0.2, 0.4, 0.8, 0.8),
+            // WaterSetting::WaterSetting in Water.cpp zeroes m_waterDiffuseColor.
+            surface_color: (0.0, 0.0, 0.0, 0.0),
             depth_color: (0.0, 0.2, 0.4, 1.0),
             reflection_color: (0.8, 0.8, 1.0, 0.5),
             vertex00_color: (0.0, 0.0, 0.0, 0.0),
@@ -410,20 +415,6 @@ pub fn clear_water_transparency_overrides() {
     }
 }
 
-static PENDING_SKYBOX_REPLACE: std::sync::Mutex<Option<([String; 5], [String; 5])>> =
-    std::sync::Mutex::new(None);
-
-/// C++ `TheTerrainVisual->replaceSkyboxTextures` queued from WaterTransparency overrides.
-pub fn take_pending_skybox_replace() -> Option<([String; 5], [String; 5])> {
-    PENDING_SKYBOX_REPLACE.lock().ok()?.take()
-}
-
-fn queue_skybox_replace(old: [String; 5], new: [String; 5]) {
-    if let Ok(mut guard) = PENDING_SKYBOX_REPLACE.lock() {
-        *guard = Some((old, new));
-    }
-}
-
 fn skybox_names(setting: &WaterTransparencySetting) -> [String; 5] {
     [
         setting.skybox_texture_n.to_string(),
@@ -495,20 +486,17 @@ pub fn apply_parsed_water_transparency(
     let mut transparency = lock.write().expect("WaterTransparency poisoned");
 
     if load_type == INILoadType::CreateOverrides {
-        let old = skybox_names(&transparency);
         let mut override_setting = transparency.clone();
         override_setting.next_override = None;
         override_setting.is_override = false;
         apply_transparency_properties(&mut override_setting, &properties)?;
         override_setting.mark_as_override();
-        let new = skybox_names(&override_setting);
         if let Some(next) = transparency.next_override.as_mut() {
             next.get_final_override_mut()
                 .set_next_override(override_setting);
         } else {
             transparency.set_next_override(override_setting);
         }
-        queue_skybox_replace(old, new);
         return Ok(());
     }
 
@@ -1113,9 +1101,6 @@ mod tests {
         assert_eq!(r#override.transparent_water_depth, 3.0);
         assert_eq!(r#override.standing_water_color, (1.0, 1.0, 1.0));
         assert_eq!(r#override.skybox_texture_n.as_str(), "TSMorningN.tga");
-        let pending = take_pending_skybox_replace().expect("skybox replace queued");
-        assert_eq!(pending.0[0], "TSMorningN.tga");
-        assert_eq!(pending.1[0], "TSMorningN.tga");
     }
 
     #[test]

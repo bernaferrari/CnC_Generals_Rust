@@ -189,6 +189,7 @@ impl RenderPipeline {
                     );
                 if let Some(frame) = self.presentation_frame.as_ref() {
                     candidate.admit_water_rules(frame.world_env.terrain_water_rules);
+                    candidate.admit_water_presentation(&frame.world_env.terrain_water)?;
                 }
                 candidate.set_skybox_enabled(self.skybox_enabled);
                 if let Some(lighting) = self
@@ -216,7 +217,7 @@ impl RenderPipeline {
                     self.heightmap_world_size = Some(visual.world_size());
 
                     // Apply skybox textures if provided.
-                    if self.skybox_enabled {
+                    if self.skybox_enabled && self.has_explicit_skybox_hint() {
                         let textures = self.resolved_skybox_hint();
                         let borrowed: [&str; 5] = [
                             textures[0].as_str(),

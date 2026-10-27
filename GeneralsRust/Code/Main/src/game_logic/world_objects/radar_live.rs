@@ -49,22 +49,12 @@ impl HostRadarMapState {
     }
 
     /// Immutable effective content is admitted once, never selected by a refresh.
-    fn admit_effective_definitions(&mut self) {
-        self.water_color = game_engine::common::ini::ini_water::get_water_transparency()
-            .and_then(|definition| {
-                definition
-                    .read()
-                    .ok()
-                    .map(|definition| definition.radar_water_color)
-            })
-            .map(|(r, g, b)| {
-                if r > 1.0 || g > 1.0 || b > 1.0 {
-                    [r / 255.0, g / 255.0, b / 255.0]
-                } else {
-                    [r, g, b]
-                }
-            })
-            .unwrap_or(self.water_color);
+    fn admit_effective_definitions(&mut self, (r, g, b): (f32, f32, f32)) {
+        self.water_color = if r > 1.0 || g > 1.0 || b > 1.0 {
+            [r / 255.0, g / 255.0, b / 255.0]
+        } else {
+            [r, g, b]
+        };
         self.bridge_colors = game_engine::common::ini::try_get_terrain_roads()
             .map(|roads| {
                 roads
@@ -109,9 +99,7 @@ impl HostRadarMapState {
 
 impl Default for HostRadarMapState {
     fn default() -> Self {
-        let mut state = Self::empty();
-        state.admit_effective_definitions();
-        state
+        Self::empty()
     }
 }
 
@@ -474,7 +462,12 @@ impl GameLogic {
         self.rebuild_host_radar_provider_admission();
         self.radar_map.colors.clear();
         self.radar_map.bridges.clear();
-        self.radar_map.admit_effective_definitions();
+        let water_color = self
+            .lighting_rules()
+            .water_definitions
+            .transparency()
+            .radar_water_color;
+        self.radar_map.admit_effective_definitions(water_color);
         let Some((lo, hi)) =
             store_radar_map_extent(&mut self.radar_map, self.world_min, self.world_max)
         else {
