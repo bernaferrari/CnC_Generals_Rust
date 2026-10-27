@@ -88,16 +88,16 @@ impl GameLogic {
         id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        let Some((data, mut state)) = self
-            .objects
-            .get(&id)
-            .filter(|o| o.is_alive() && o.selected_locomotor_definition.is_some())
-            .and_then(|o| {
-                Some((
-                    o.thing().template.slaved_update_metadata.clone()?,
-                    o.slaved_update.clone()?,
-                ))
-            })
+        let Some((data, mut state)) =
+            self.objects
+                .get(&id)
+                .filter(|o| o.is_alive())
+                .and_then(|o| {
+                    Some((
+                        o.thing().template.slaved_update_metadata.clone()?,
+                        o.slaved_update.clone()?,
+                    ))
+                })
         else {
             return Ok(());
         };
@@ -115,6 +115,16 @@ impl GameLogic {
             self.store_slave_state(id, state);
             return Ok(());
         };
+        // Source SlavedUpdate.cpp ages the module before testing AI/current
+        // locomotor. Persist the countdown even while no member is selected.
+        if !self
+            .objects
+            .get(&id)
+            .is_some_and(|o| o.selected_locomotor_definition.is_some())
+        {
+            self.store_slave_state(id, state);
+            return Ok(());
+        }
         let Some(master) = self
             .objects
             .get(&master_id)
