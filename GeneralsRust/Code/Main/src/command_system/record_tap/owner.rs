@@ -274,3 +274,21 @@ impl ReplayPendingState {
 #[cfg(test)]
 #[path = "owner_tests.rs"]
 mod tests;
+
+impl ReplayPendingState {
+    /// Source GameLogic.cpp2010 initializes controls after a real World exists,
+    /// not while opening the high-level replay directory. Retain its existing
+    /// typed owner effect for the actual UI receiver, without a process hook.
+    pub(crate) fn initialize_admitted_replay_controls_owned(&mut self) {
+        self.recorder.init_controls();
+    }
+    /// Preserve the existing high-level playback source order: CRC using the
+    /// previous Recorder frame, then set frame, then synchronous update.
+    pub(crate) fn update_high_level_playback_recorder_owned(&mut self, crc: u32, frame: u32) {
+        self.recorder.notify_logic_crc(crc, 0);
+        self.recorder.set_current_frame(frame);
+        self.recorder.update();
+        let output = self.recorder.drain_pending_commands();
+        apply_replay_messages(self, &output, false);
+    }
+}

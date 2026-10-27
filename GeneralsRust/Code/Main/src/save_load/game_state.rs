@@ -80,6 +80,13 @@ impl GameStateManager {
         ai_system: AIManager,
     ) {
         self.game_logic = Some(game_logic);
+        // A real session is admitted now. Directory initialization above had
+        // no recipient and must not select another world's Recorder/UI.
+        self.game_logic
+            .as_mut()
+            .expect("just admitted real Logic")
+            .replay_pending
+            .initialize_admitted_replay_controls_owned();
         self.command_system = Some(command_system);
         self.ai_system = Some(ai_system);
     }
@@ -229,6 +236,11 @@ impl GameStateManager {
         players: &[ReplayPlayerInfo],
         teams: &[ReplayTeamInfo],
     ) -> SaveLoadResult<()> {
+        let game_logic = self.game_logic.as_mut().ok_or_else(|| {
+            SaveLoadError::Unknown(
+                "replay recording requires registered receiving GameLogic".into(),
+            )
+        })?;
         let replay_manager = &mut self.replay_manager;
         let replay_game_mode = match game_mode {
             crate::game_logic::GameMode::Skirmish => crate::save_load::replay::GameMode::Skirmish,
@@ -240,7 +252,14 @@ impl GameStateManager {
             }
             _ => crate::save_load::replay::GameMode::Skirmish, // Default to Skirmish
         };
-        replay_manager.start_recording(map_name, replay_game_mode, difficulty, players, teams)
+        replay_manager.start_recording(
+            map_name,
+            replay_game_mode,
+            difficulty,
+            players,
+            teams,
+            &mut game_logic.replay_pending,
+        )
     }
 
     /// Stop recording replay
@@ -557,4 +576,50 @@ pub fn record_replay_command(command: &GameCommand) -> SaveLoadResult<()> {
 pub fn update_replay_system() -> SaveLoadResult<()> {
     let mut manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
     manager.update_replay()
+}
+
+#[cfg(test)]
+mod receiving_replay_owner_tests {
+    use super::*;
+    #[test]
+    fn missing_world_rejects_recording_before_any_record_file_or_mode_change() {
+        let root = tempfile::tempdir().unwrap();
+        let mut manager = GameStateManager::with_user_data_root(Some(root.path()));
+        let result = manager.start_replay_recording(
+            "map",
+            crate::game_logic::GameMode::Skirmish,
+            GameDifficulty::Medium,
+            &[],
+            &[],
+        );
+        assert!(
+            matches!(result,Err(SaveLoadError::Unknown(ref message)) if message.contains("registered receiving GameLogic"))
+        );
+        assert_eq!(
+            manager.replay_manager.get_mode(),
+            crate::save_load::replay::RecorderMode::None
+        );
+        assert!(!root.path().join("Save/Replays").exists());
+    }
+    #[test]
+    fn registered_world_gets_controls_effect_without_touching_peer() {
+        let root = tempfile::tempdir().unwrap();
+        let mut manager = GameStateManager::with_user_data_root(Some(root.path()));
+        let mut peer = GameLogic::new();
+        manager.register_systems(GameLogic::new(), CommandSystem::new(), AIManager::new());
+        let world = manager.game_logic.as_mut().unwrap();
+        assert_eq!(
+            world
+                .replay_pending
+                .take_recorder_effects_owned()
+                .controls_hidden,
+            Some(true)
+        );
+        assert_eq!(
+            peer.replay_pending
+                .take_recorder_effects_owned()
+                .controls_hidden,
+            None
+        );
+    }
 }
