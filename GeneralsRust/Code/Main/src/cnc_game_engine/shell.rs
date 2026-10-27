@@ -1495,21 +1495,19 @@ impl CnCGameEngine {
                         }
                     }
 
-                    // C++ parity: GameEngine.cpp:468 — TheUpgradeCenter (init: veterancy
-                    // bits 0..2, then Default/Upgrade.ini, then Upgrade.ini) is loaded once
-                    // into the engine-lifetime center, before any GameLogic world exists:
-                    // the asset manager does it at engine setup
-                    // (`ini_template_loader::load_upgrade_templates`). Only when that found
-                    // no upgrade INIs (extracted-INI runs) load them here, through the same
-                    // canonical `Upgrade` block path. Never parse twice: re-parsing a
-                    // different copy could allocate mask bits in a different order.
-                    game_engine::common::system::upgrade::initialize_upgrade_center();
-                    simulation_rules.refresh_upgrade_definitions_from_engine_lifetime();
-                    let upgrade_ini_loaded = game_engine::common::system::upgrade::process_lifetime_upgrade_center()
-                        .read()
-                        // More than the three init() veterancy templates.
-                        .map(|center| center.count() > 3)
-                        .unwrap_or(true);
+                    // C++ GameEngine.cpp:468 reserves the three veterancy bits,
+                    // then parses Default/Upgrade.ini followed by Upgrade.ini.
+                    // Admit exactly the catalog loaded by this application. If
+                    // no archive supplied definitions, use its extracted sources
+                    // in the same order without reparsing an already loaded set.
+                    let upgrades = application_assets
+                        .lock()
+                        .map_err(|_| "Cannot admit upgrade definitions: asset manager poisoned")?
+                        .upgrade_definitions_snapshot();
+                    if let Some(upgrades) = upgrades {
+                        simulation_rules.admit_upgrade_definitions(upgrades);
+                    }
+                    let upgrade_ini_loaded = simulation_rules.upgrade_definitions().count() > 3;
                     if !upgrade_ini_loaded {
                         for upgrade_path in ["Data/INI/Default/Upgrade.ini", "Data/INI/Upgrade.ini"] {
                             if let Some(content) = extract_ini_text_from_archives(upgrade_path)? {
@@ -1519,9 +1517,6 @@ impl CnCGameEngine {
                                 }
                             }
                         }
-                        // Publish a clone of the parsed recipient for legacy Common
-                        // readers; definitions were parsed only once, into the owner.
-                        simulation_rules.publish_upgrade_definitions_to_engine_lifetime();
                     }
 
                     let science_names = {

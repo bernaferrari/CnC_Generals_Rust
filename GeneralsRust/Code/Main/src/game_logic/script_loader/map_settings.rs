@@ -517,10 +517,9 @@ fn parse_map_settings_from_loaded_chunky(
         .unwrap_or_else(game_engine::common::ini::ini_terrain::TerrainTypes::new);
     let mut road_definitions = meta.road_definitions.take().unwrap_or_default();
     let mut upgrade_definitions = meta.upgrade_definitions.take().unwrap_or_else(|| {
-        game_engine::common::system::upgrade::process_lifetime_upgrade_center()
-            .read()
-            .unwrap_or_else(|error| error.into_inner())
-            .clone()
+        let mut definitions = game_engine::common::system::upgrade::UpgradeCenter::new();
+        definitions.init();
+        definitions
     });
     let mut armor_definitions = meta
         .armor_definitions

@@ -55,34 +55,20 @@ impl StartupSimulationRules {
     pub(super) fn upgrade_definitions(&self) -> &gamelogic::upgrade::center::UpgradeCenter {
         &self.upgrade_definitions
     }
-    /// Seed this startup recipient from the canonical engine-content center
-    /// after its init/default upgrades have been installed.
-    pub(super) fn refresh_upgrade_definitions_from_engine_lifetime(&mut self) {
-        let center = game_engine::common::system::upgrade::process_lifetime_upgrade_center();
-        self.upgrade_definitions = center
-            .read()
-            .unwrap_or_else(|error| error.into_inner())
-            .clone();
+    /// Use the catalog loaded by the application that owns this startup.
+    pub(super) fn admit_upgrade_definitions(
+        &mut self,
+        definitions: gamelogic::upgrade::center::UpgradeCenter,
+    ) {
+        self.upgrade_definitions = definitions;
     }
     /// Parse fallback text into this owned recipient using the same Common INI
     /// Upgrade block handler and order, without selecting Core AI.
     pub(super) fn admit_upgrade_ini_text(&mut self, text: &str) -> Result<(), String> {
-        let mut ini = game_engine::common::ini::INI::new();
-        ini.set_owned_upgrade_center_target(self.upgrade_definitions.clone());
-        let result = ini
-            .with_inline_source(text, |ini| ini.parse_current_file())
-            .map_err(|error| error.to_string());
-        if let Some(center) = ini.take_owned_upgrade_center_target() {
-            self.upgrade_definitions = center;
-        }
-        result
-    }
-    /// Keep Common's engine-lifetime compatibility owner equal to the one
-    /// parsed recipient. This is a clone, not a second INI parse.
-    pub(super) fn publish_upgrade_definitions_to_engine_lifetime(&self) {
-        let center = game_engine::common::system::upgrade::process_lifetime_upgrade_center();
-        *center.write().unwrap_or_else(|error| error.into_inner()) =
-            self.upgrade_definitions.clone();
+        crate::assets::ini_template_loader::load_upgrade_ini_text(
+            &mut self.upgrade_definitions,
+            text,
+        )
     }
     pub(super) fn admit(self, world: &mut crate::game_logic::GameLogic) -> Result<(), String> {
         world.admit_body_damage_baseline(self.body);
