@@ -50,6 +50,7 @@ impl ControlBar {
             radar_glow_window_enabled: true,
             special_power_shortcuts: Vec::new(),
             special_power_shortcut_count: 0,
+            receiving_shortcuts: None,
             presentation_radar_count: 0,
             presentation_radar_disabled: false,
             presentation_queued_upgrades: Vec::new(),

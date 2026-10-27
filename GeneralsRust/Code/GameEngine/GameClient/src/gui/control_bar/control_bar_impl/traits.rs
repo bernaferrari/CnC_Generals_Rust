@@ -71,6 +71,7 @@ impl ControlBar {
         self.special_power_shortcut_layout.clear();
         self.special_power_shortcuts.clear();
         self.special_power_shortcut_count = 0;
+        self.receiving_shortcuts = None;
         // C++ resetControlBar re-runs switchToContext(CB_CONTEXT_NONE)
         // (ControlBar.cpp:1304), so re-arm the one-shot entry evaluation.
         self.ingame_entry_context_applied = false;

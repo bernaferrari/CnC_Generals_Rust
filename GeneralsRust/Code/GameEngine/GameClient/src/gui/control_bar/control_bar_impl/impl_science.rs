@@ -1730,27 +1730,35 @@ impl ControlBar {
         self.special_power_shortcut_count = 0;
         self.special_power_shortcut_layout.clear();
 
-        let player_arc = logic_player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_local_player().cloned());
-        let Some(player_arc) = player_arc else { return };
-        let Ok(player) = player_arc.read() else {
-            return;
+        let (button_count, win_name) = if let Some(snapshot) = &self.receiving_shortcuts {
+            if !snapshot.player_active {
+                return;
+            }
+            (snapshot.button_count, snapshot.layout.clone())
+        } else {
+            let player_arc = logic_player_list()
+                .read()
+                .ok()
+                .and_then(|list| list.get_local_player().cloned());
+            let Some(player_arc) = player_arc else { return };
+            let Ok(player) = player_arc.read() else {
+                return;
+            };
+            if !player.is_player_active() {
+                return;
+            }
+            let Some(template) = player.get_player_template() else {
+                return;
+            };
+            (
+                template.get_special_power_shortcut_button_count().max(0) as usize,
+                template.get_special_power_shortcut_win_name().to_string(),
+            )
         };
-        if !player.is_player_active() {
+        if button_count == 0 || win_name.is_empty() {
             return;
         }
-        let Some(template) = player.get_player_template() else {
-            return;
-        };
-        let button_count = template.get_special_power_shortcut_button_count();
-        let win_name = template.get_special_power_shortcut_win_name().to_string();
-        if button_count <= 0 || win_name.is_empty() {
-            return;
-        }
-        self.special_power_shortcut_count =
-            (button_count as usize).min(MAX_SPECIAL_POWER_SHORTCUTS);
+        self.special_power_shortcut_count = button_count.min(MAX_SPECIAL_POWER_SHORTCUTS);
         self.special_power_shortcut_layout = win_name.clone();
 
         (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
@@ -1785,6 +1793,104 @@ impl ControlBar {
             leftover_hide_window(
                 &self.leftover_shortcut_parent_name(i),
                 true,
+                receiving_manager,
+            );
+        }
+    }
+
+    pub fn apply_receiving_shortcuts(
+        &mut self,
+        snapshot: ReceivingShortcutSnapshot,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) {
+        let layout_changed = self.receiving_shortcuts.as_ref().is_none_or(|old| {
+            old.layout != snapshot.layout
+                || old.button_count != snapshot.button_count
+                || old.player_active != snapshot.player_active
+        });
+        if layout_changed {
+            self.hide_special_power_shortcut(receiving_manager);
+            self.special_power_shortcuts.clear();
+            self.special_power_shortcut_count = 0;
+            self.special_power_shortcut_layout.clear();
+        }
+        self.receiving_shortcuts = Some(snapshot);
+        if layout_changed {
+            self.init_special_power_shortcut_bar(receiving_manager, effects);
+        }
+        self.mark_ui_dirty();
+    }
+
+    fn populate_receiving_shortcuts(
+        &mut self,
+        snapshot: &ReceivingShortcutSnapshot,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        let actions = self.receiving_upgrade_actions.clone();
+        for i in 0..self.special_power_shortcuts.len() {
+            let Some(entry) = snapshot.entries.get(i).filter(|_| snapshot.player_active) else {
+                self.special_power_shortcuts[i].command_name.clear();
+                self.special_power_shortcuts[i].is_hidden = true;
+                self.leftover_apply_shortcut_window(
+                    i,
+                    true,
+                    CommandAvailability::Hidden,
+                    1,
+                    receiving_manager,
+                );
+                continue;
+            };
+            let Some(definition) = actions.as_deref().and_then(|actions| {
+                actions
+                    .buttons
+                    .find_command_button_resolved(&entry.command_name)
+            }) else {
+                self.special_power_shortcuts[i].command_name.clear();
+                self.special_power_shortcuts[i].is_hidden = true;
+                self.leftover_apply_shortcut_window(
+                    i,
+                    true,
+                    CommandAvailability::Hidden,
+                    1,
+                    receiving_manager,
+                );
+                continue;
+            };
+            let mut command = Self::command_from_definition(definition);
+            if let Some(purchase) = entry.ranked_purchase_command.as_deref().and_then(|name| {
+                actions
+                    .as_deref()?
+                    .buttons
+                    .find_command_button_resolved(name)
+            }) {
+                command.button_image.clone_from(&purchase.button_image);
+                if !purchase.conflicting_label.is_empty() {
+                    command.text_label.clone_from(&purchase.conflicting_label);
+                }
+                if !purchase.descriptive_text.is_empty() {
+                    command
+                        .descriptive_text
+                        .clone_from(&purchase.descriptive_text);
+                }
+            }
+            self.special_power_shortcuts[i]
+                .command_name
+                .clone_from(&entry.command_name);
+            self.special_power_shortcuts[i].availability = entry.availability;
+            self.special_power_shortcuts[i].multiplier_count = entry.ready_count;
+            self.special_power_shortcuts[i].is_hidden =
+                entry.availability == CommandAvailability::Hidden;
+            if let Some(win) =
+                leftover_find_window(&self.leftover_shortcut_button_name(i), receiving_manager)
+            {
+                self.set_control_command(&win, &command, receiving_manager);
+            }
+            self.leftover_apply_shortcut_window(
+                i,
+                self.special_power_shortcuts[i].is_hidden,
+                entry.availability,
+                entry.ready_count,
                 receiving_manager,
             );
         }
@@ -1947,6 +2053,10 @@ impl ControlBar {
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if self.special_power_shortcut_count == 0 {
+            return Ok(());
+        }
+        if self.receiving_shortcuts.is_some() {
+            self.update_special_power_shortcut_availability(receiving_manager);
             return Ok(());
         }
 
@@ -2140,6 +2250,31 @@ impl ControlBar {
         if self.special_power_shortcut_count == 0 || self.special_power_shortcuts.is_empty() {
             return;
         }
+        if let Some(snapshot) = self.receiving_shortcuts.clone() {
+            if !snapshot.player_active {
+                self.hide_special_power_shortcut(receiving_manager);
+                return;
+            }
+            self.populate_receiving_shortcuts(&snapshot, receiving_manager);
+            let has_selection = self.has_any_shortcut_selection();
+            let parent_name = self.leftover_shortcut_bar_parent_name();
+            let master_visible = leftover_find_window(CONTROL_BAR_PARENT, receiving_manager)
+                .map(|window| !window.borrow().is_hidden())
+                .unwrap_or(true);
+            if (has_selection || snapshot.has_any_power)
+                && leftover_window_is_hidden(&parent_name, receiving_manager)
+                && master_visible
+            {
+                leftover_hide_window(&parent_name, false, receiving_manager);
+                self.animate_special_power_shortcut(true);
+            } else if !has_selection
+                && !snapshot.has_any_power
+                && !leftover_window_is_hidden(&parent_name, receiving_manager)
+            {
+                self.animate_special_power_shortcut(false);
+            }
+            return;
+        }
 
         let player_arc = logic_player_list()
             .read()
@@ -2306,18 +2441,22 @@ impl ControlBar {
         // populated shortcut selection button the GenPowersShortcutBar column
         // stays hidden (retail keeps the tray closed until a general's power
         // is purchased). The old port revealed the parent unconditionally.
-        let has_power = logic_player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_local_player().cloned())
-            .map(|player_arc| {
-                player_arc
-                    .read()
-                    .ok()
-                    .map(|player| Self::leftover_has_any_shortcut_special_power(&player))
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false);
+        let has_power = if let Some(snapshot) = &self.receiving_shortcuts {
+            snapshot.has_any_power
+        } else {
+            logic_player_list()
+                .read()
+                .ok()
+                .and_then(|list| list.get_local_player().cloned())
+                .map(|player_arc| {
+                    player_arc
+                        .read()
+                        .ok()
+                        .map(|player| Self::leftover_has_any_shortcut_special_power(&player))
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false)
+        };
         if !self.has_any_shortcut_selection() && !has_power {
             return;
         }
@@ -2358,6 +2497,15 @@ impl ControlBar {
     /// shortcut buttons do not count — those gate on
     /// `Player::hasAnyShortcutSpecialPower` instead.
     pub fn has_any_shortcut_selection(&self) -> bool {
+        if let Some(snapshot) = &self.receiving_shortcuts {
+            return snapshot.entries.iter().enumerate().any(|(index, entry)| {
+                entry.selects_objects
+                    && self
+                        .special_power_shortcuts
+                        .get(index)
+                        .is_some_and(|shortcut| !shortcut.is_hidden)
+            });
+        }
         self.special_power_shortcuts
             .iter()
             .filter(|s| !s.is_hidden && !s.command_name.is_empty())
@@ -2395,7 +2543,10 @@ impl ControlBar {
         self.presentation_queued_upgrades = queued;
 
         // Seed shortcuts from presentation-ready special powers when empty.
-        if self.special_power_shortcuts.is_empty() && !ready_special_power_templates.is_empty() {
+        if self.receiving_shortcuts.is_none()
+            && self.special_power_shortcuts.is_empty()
+            && !ready_special_power_templates.is_empty()
+        {
             let mut names = ready_special_power_templates.to_vec();
             names.sort();
             names.dedup();
@@ -2410,7 +2561,7 @@ impl ControlBar {
                 })
                 .collect();
             self.special_power_shortcut_count = self.special_power_shortcuts.len();
-        } else if !ready_special_power_templates.is_empty() {
+        } else if self.receiving_shortcuts.is_none() && !ready_special_power_templates.is_empty() {
             // Mark matching shortcuts available.
             for sc in self.special_power_shortcuts.iter_mut() {
                 if ready_special_power_templates.iter().any(|n| {

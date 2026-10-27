@@ -210,6 +210,26 @@ pub struct SpecialPowerShortcutState {
     pub is_hidden: bool,
 }
 
+/// Shortcut data captured from one session's local player and object roster.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReceivingShortcutSnapshot {
+    pub layout: String,
+    pub button_count: usize,
+    pub player_active: bool,
+    pub has_any_power: bool,
+    pub entries: Vec<ReceivingShortcutEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReceivingShortcutEntry {
+    pub command_name: String,
+    pub availability: CommandAvailability,
+    pub ready_count: i32,
+    pub ranked_purchase_command: Option<String>,
+    pub selects_objects: bool,
+    pub source_object_id: Option<u32>,
+}
+
 impl Default for SciencePurchaseState {
     fn default() -> Self {
         Self {
@@ -291,6 +311,7 @@ pub struct ControlBar {
     radar_glow_window_enabled: bool,
     special_power_shortcuts: Vec<SpecialPowerShortcutState>,
     special_power_shortcut_count: usize,
+    receiving_shortcuts: Option<ReceivingShortcutSnapshot>,
     /// Radar provider count residual from PresentationFrame.
     presentation_radar_count: i32,
     /// Radar disabled residual from PresentationFrame.

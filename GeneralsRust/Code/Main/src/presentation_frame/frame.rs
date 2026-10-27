@@ -100,6 +100,9 @@ pub struct PresentationFrame {
         u32,
         game_client::gui::control_bar::control_bar::SelectedPlayerFacts,
     >,
+    #[cfg(feature = "game_client")]
+    #[serde(skip)]
+    pub(crate) receiving_shortcuts: game_client::gui::control_bar::ReceivingShortcutSnapshot,
     /// Inventory portraits include hidden passengers, owned by this frame.
     #[cfg(feature = "game_client")]
     #[serde(skip)]

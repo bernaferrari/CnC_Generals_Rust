@@ -1936,6 +1936,8 @@ impl PresentationFrame {
         #[cfg(feature = "game_client")]
         let selected_players = super::science_purchase::freeze_selected_owners(logic);
         #[cfg(feature = "game_client")]
+        let receiving_shortcuts = super::shortcuts::freeze(logic, local_player_id);
+        #[cfg(feature = "game_client")]
         let inventory_occupants = logic
             .host_objects()
             .registered_values()
@@ -2030,6 +2032,8 @@ impl PresentationFrame {
             purchase_science,
             #[cfg(feature = "game_client")]
             selected_players,
+            #[cfg(feature = "game_client")]
+            receiving_shortcuts,
             #[cfg(feature = "game_client")]
             inventory_occupants,
             #[cfg(feature = "game_client")]

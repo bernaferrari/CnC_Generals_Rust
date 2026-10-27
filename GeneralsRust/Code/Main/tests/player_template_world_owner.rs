@@ -120,11 +120,13 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
                  CommandButton UseShared\n Command = SPECIAL_POWER\n SpecialPower = SharedPower\n Science = SCIENCE_Shared\n Options = NEED_SPECIAL_POWER_SCIENCE OK_FOR_MULTI_SELECT\n TextLabel = BasePower\nEnd\n\
                  CommandButton StopSelected\n Command = STOP\n Options = OK_FOR_MULTI_SELECT\nEnd\n\
                  CommandButton AttackMoveSelected\n Command = ATTACK_MOVE\n Options = OK_FOR_MULTI_SELECT\nEnd\n\
+                 CommandButton SelectOwned\n Command = SELECT_ALL_UNITS_OF_TYPE\n Object = SelectedObject\nEnd\n\
                  CommandButton SharedBuild\n Command = DOZER_CONSTRUCT\n Object = {}\nEnd\n\
                  CommandSet Rank1\n 1 = BuyShared\nEnd\nCommandSet Rank3\nEnd\nCommandSet Rank8\nEnd\n\
                  CommandSet SharedSet\n 1 = UseShared\n 2 = StopSelected\n 3 = AttackMoveSelected\nEnd\n\
                  CommandSet SharedBuilderSet\n 1 = SharedBuild\nEnd\n\
-                 PlayerTemplate FactionAmerica\n StartMoney = {money}\n IntrinsicSciences = SCIENCE_Root\n PurchaseScienceCommandSetRank1 = Rank1\n PurchaseScienceCommandSetRank3 = Rank3\n PurchaseScienceCommandSetRank8 = Rank8\nEnd\n",
+                 CommandSet ShortcutSet\n 1 = SelectOwned\nEnd\n\
+                 PlayerTemplate FactionAmerica\n StartMoney = {money}\n IntrinsicSciences = SCIENCE_Root\n PurchaseScienceCommandSetRank1 = Rank1\n PurchaseScienceCommandSetRank3 = Rank3\n PurchaseScienceCommandSetRank8 = Rank8\n SpecialPowerShortcutCommandSet = ShortcutSet\n SpecialPowerShortcutWinName = OwnerShortcut.wnd\n SpecialPowerShortcutButtonCount = 1\nEnd\n",
                 if money == 1300 { 1 } else { 5 },
                 if money == 1300 { "OwnedSite" } else { "PeerSite" },
             ),
@@ -215,6 +217,12 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
     assert_eq!(peer_button.command_name, "BuyShared");
     assert!(first_button.is_enabled && !first_button.is_hidden);
     assert!(!peer_button.is_enabled && !peer_button.is_hidden);
+    assert_eq!(
+        first_bar.get_special_power_shortcuts()[0].command_name,
+        "SelectOwned"
+    );
+    assert!(!first_bar.get_special_power_shortcuts()[0].is_hidden);
+    assert!(peer_bar.get_special_power_shortcuts()[0].is_hidden);
     assert_eq!(
         first_bar.command_availability("StopSelected"),
         Some(game_client::gui::control_bar::CommandAvailability::Available),
