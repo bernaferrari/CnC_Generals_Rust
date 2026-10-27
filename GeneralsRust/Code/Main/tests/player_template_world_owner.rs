@@ -696,6 +696,30 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
             .iter()
             .any(|input| input.id == peer_rider)
     );
+    // A foreign Core client may use the same numeric IDs. Native presentation
+    // must not import its lock-on cursor; the receiving native Drawable roster
+    // supplies the actual auxiliary independently.
+    let foreign_services =
+        std::sync::Arc::new(gamelogic::system::engine_stores::WorldServices::new_for_world());
+    gamelogic::system::engine_stores::with_world_services(&foreign_services, || {
+        let template = gamelogic::common::DefaultThingTemplate::new("LockonCursor".into());
+        let foreign_drawable = gamelogic::helpers::TheGameClient.create_drawable(&template);
+        assert_ne!(foreign_drawable, 0);
+        assert!(
+            !gamelogic::helpers::TheGameClient
+                .leftover_drawables_named("LockonCursor")
+                .is_empty()
+        );
+        for frame in [&visual_frame, &peer_visual_frame] {
+            assert!(
+                !frame
+                    .unit_render_inputs()
+                    .iter()
+                    .any(|input| input.template_name == "LockonCursor")
+            );
+        }
+        gamelogic::helpers::TheGameClient.destroy_drawable(foreign_drawable);
+    });
     visual_peer.reset();
     let after_peer_reset = generals_main::presentation_frame::PresentationFrame::build_from_logic(
         &mut visual_owner,
