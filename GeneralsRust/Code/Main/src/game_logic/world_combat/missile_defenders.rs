@@ -1759,7 +1759,12 @@ impl GameLogic {
 
         let team = attacker.team;
         let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
-        let range = (attacker.effective_weapon_range_for_slot(0, weapon.range) - under).max(0.0);
+        let range = (attacker.effective_weapon_range_for_slot_with_solo_set(
+            0,
+            weapon.range,
+            &self.solo_weapon_bonus_set,
+        ) - under)
+            .max(0.0);
         let fire_pos = attacker.get_position();
 
         // Pure residual acquire query (fire decision choice phase).
