@@ -2017,6 +2017,11 @@ impl INI {
     }
 
     pub fn parse_ascii_string(token: &str) -> INIResult<String> {
+        // C++ getNextAsciiString leaves an empty value when a lone opening
+        // quote has no following token.
+        if token == "\"" {
+            return Ok(String::new());
+        }
         // Handle quoted strings
         if token.starts_with('"') && token.ends_with('"') {
             Ok(token[1..token.len() - 1].to_string())
@@ -2648,6 +2653,14 @@ mod tests {
     use crate::common::rts::special_power::{
         SpecialPowerType, get_special_power_store, reset_special_power_store,
     };
+
+    #[test]
+    fn ascii_string_lone_quote_is_empty_without_panicking() {
+        assert_eq!(INI::parse_ascii_string("\"").unwrap(), "");
+        assert_eq!(INI::parse_ascii_string("\"\"").unwrap(), "");
+        assert_eq!(INI::parse_ascii_string("\"héllo\"").unwrap(), "héllo");
+        assert_eq!(INI::parse_ascii_string("plain").unwrap(), "plain");
+    }
 
     #[test]
     fn rgb_color_consumes_components_in_cpp_order() {
