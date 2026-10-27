@@ -158,6 +158,14 @@ fn freeze_receiving_lighting(logic: &GameLogic) -> Option<FrozenGlobalLights> {
     })
 }
 
+/// Terrain lighting for a detached map candidate, taken from its own world.
+pub(crate) fn freeze_receiving_terrain_lights(
+    logic: &GameLogic,
+) -> [Option<PresentationPrimaryGlobalLight>; MAX_GLOBAL_LIGHTS] {
+    let frozen = freeze_receiving_lighting(logic);
+    std::array::from_fn(|index| frozen.as_ref().map(|lights| lights.terrain[index]))
+}
+
 fn light_from_map_channels(
     ambient: Option<[f32; 3]>,
     diffuse: Option<[f32; 3]>,
@@ -1069,7 +1077,10 @@ mod lighting_parity_tests {
         let first_frame = PresentationWorldEnv::from_logic(&first);
         let second_frame = PresentationWorldEnv::from_logic(&second);
         assert_eq!((first_frame.clear_alpha, first_frame.fog_alpha), (201, 44));
-        assert_eq!((second_frame.clear_alpha, second_frame.fog_alpha), (123, 17));
+        assert_eq!(
+            (second_frame.clear_alpha, second_frame.fog_alpha),
+            (123, 17)
+        );
     }
 }
 

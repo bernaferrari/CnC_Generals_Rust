@@ -1,6 +1,20 @@
 // Split from `terrain/terrain_visual.rs` dump. Included by `terrain_visual/mod.rs`.
 
 impl TerrainVisualImpl {
+    /// Admit the active C++ terrain lights for this visual's world. Existing
+    /// baked vertices must be regenerated when their source lighting changes.
+    pub fn admit_static_lighting(&mut self, lighting: super::chunk::TerrainStaticLighting) -> bool {
+        if !self.chunk_manager.admit_static_lighting(lighting) {
+            return false;
+        }
+        self.static_lighting_changed();
+        self.overlay_gpu_meshes_dirty = true;
+        if self.height_map.is_some() {
+            self.upload_extra_blend_overlay();
+        }
+        true
+    }
+
     pub fn oversize_terrain(&mut self, amount: i32) {
         let Some((map_width, map_height)) = self.map_sample_dimensions() else {
             return;
@@ -94,7 +108,7 @@ impl TerrainVisualImpl {
     /// C++ `doTheLight` vertex bake (`BaseHeightMap.cpp:491-566`): ambient
     /// comes from light 0 only; every global light then adds
     /// `clamp(N·L, 0, 1) * diffuse`. `lights` holds (Y-up-converted light
-    /// position, diffuse) pairs — see `chunk::current_global_terrain_lights`.
+    /// position, diffuse) pairs admitted by the receiving terrain owner.
     pub(crate) fn terrain_static_diffuse_from_normal(
         normal: Vec3,
         lights: &[(Vec3, [f32; 3])],

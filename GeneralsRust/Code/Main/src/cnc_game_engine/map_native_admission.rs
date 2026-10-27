@@ -498,6 +498,7 @@ fn prepare_native_map_visual(
     };
     let env = crate::presentation_frame::PresentationWorldEnv {
         terrain_definitions: Some(std::sync::Arc::clone(world.effective_terrain_definitions())),
+        terrain_global_lights: crate::presentation_frame::freeze_receiving_terrain_lights(world),
         world_min: min.to_array(),
         world_max: max.to_array(),
         runtime_heightmap: frozen.map(|map| {

@@ -175,6 +175,13 @@ impl RenderPipeline {
         {
             {
                 let mut candidate = game_client::terrain::terrain_visual::TerrainVisualImpl::new();
+                if let Some(lighting) = self
+                    .presentation_frame
+                    .as_ref()
+                    .and_then(|frame| Self::static_terrain_lighting(&frame.world_env))
+                {
+                    candidate.admit_static_lighting(lighting);
+                }
                 {
                     let visual = &mut candidate;
                     let explicit_world_size = world_bounds.map(|bounds| {

@@ -754,9 +754,10 @@ impl TerrainVisualImpl {
                 .map(|height_map| height_map.get_max_cell_height(x, y))
                 .unwrap_or(0.0)
         };
-        // C++ updateSegLighting/getStaticDiffuse read TheGlobalData live and
-        // shade with every global light (doTheLight), not just light 0.
-        let (global_lights, ambient_color) = super::chunk::current_global_terrain_lights();
+        // C++ updateSegLighting shades with all lights admitted by this world.
+        let lighting = self.chunk_manager.static_lighting().clone();
+        let global_lights = &lighting.lights;
+        let ambient_color = lighting.ambient;
 
         self.road_system
             .for_each_visible_overlay_source(|road, segment| {
@@ -836,7 +837,7 @@ impl TerrainVisualImpl {
                             Self::apply_road_vertex_static_diffuse(
                                 &mut gpu_vertices,
                                 height_map,
-                                &global_lights,
+                                global_lights,
                                 ambient_color,
                             );
                             let gpu_indices: Vec<u32> =
@@ -884,7 +885,7 @@ impl TerrainVisualImpl {
                 Self::apply_road_vertex_static_diffuse(
                     &mut gpu_vertices,
                     height_map,
-                    &global_lights,
+                    global_lights,
                     ambient_color,
                 );
                 if let Some(mut mesh) = Self::upload_overlay_mesh(
@@ -2375,7 +2376,7 @@ impl TerrainVisualImpl {
     ) -> Vec<TerrainVertex> {
         // C++ extra-blend tiles bake through getStaticDiffuse (doTheLight):
         // every global light contributes clamped N·L diffuse.
-        let (global_lights, ambient_color) = super::chunk::current_global_terrain_lights();
+        let lighting = self.chunk_manager.static_lighting();
         mesh.vertices
             .iter()
             .map(|vertex| {
@@ -2385,8 +2386,11 @@ impl TerrainVisualImpl {
                     .as_ref()
                     .map(|height_map| height_map.get_normal_at(position.x, position.z))
                     .unwrap_or(Vec3::Y);
-                let mut color =
-                    Self::terrain_static_diffuse_from_normal(normal, &global_lights, ambient_color);
+                let mut color = Self::terrain_static_diffuse_from_normal(
+                    normal,
+                    &lighting.lights,
+                    lighting.ambient,
+                );
                 color[3] = vertex.color[3];
                 color = Self::bake_terrain_vertex_dynamic_light(
                     vertex.position,

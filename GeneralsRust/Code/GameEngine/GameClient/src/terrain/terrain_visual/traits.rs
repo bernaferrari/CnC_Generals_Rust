@@ -493,7 +493,7 @@ impl TerrainVisualImpl {
         self.road_system.update()?;
         if let Some(height_map) = self.height_map.as_ref() {
             if self.road_system.needs_terrain_normal_reprojection() {
-                let (global_lights, ambient_color) = super::chunk::current_global_terrain_lights();
+                let lighting = self.chunk_manager.static_lighting();
                 self.road_system.apply_terrain_heights_normals_and_diffuse(
                     |pos| height_map.get_height_at(pos.x, pos.z),
                     |pos| height_map.get_normal_at(pos.x, pos.z),
@@ -501,8 +501,8 @@ impl TerrainVisualImpl {
                         let normal = height_map.get_normal_at(pos.x, pos.z);
                         Self::terrain_static_diffuse_from_normal(
                             normal,
-                            &global_lights,
-                            ambient_color,
+                            &lighting.lights,
+                            lighting.ambient,
                         )
                     },
                 );

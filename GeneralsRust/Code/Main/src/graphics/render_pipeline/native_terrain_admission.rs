@@ -1,6 +1,22 @@
 //! Detached receiving-map preparation, followed by same-owner GPU hydration.
 use super::*;
 impl RenderPipeline {
+    /// Convert the receiving presentation's C++ terrain-light records to the
+    /// Y-up values used by terrain geometry, retaining the original light order.
+    pub(crate) fn static_terrain_lighting(
+        env: &crate::presentation_frame::PresentationWorldEnv,
+    ) -> Option<game_client::terrain::chunk::TerrainStaticLighting> {
+        let ambient = env.terrain_global_lights[0]?.ambient;
+        let lights = env
+            .terrain_global_lights
+            .iter()
+            .flatten()
+            .filter(|light| light.object_light_active)
+            .map(|light| (Vec3::from_array(light.render_light_pos()), light.diffuse))
+            .collect();
+        Some(game_client::terrain::chunk::TerrainStaticLighting { lights, ambient })
+    }
+
     pub(crate) fn prepare_native_terrain_cpu(
         env: &crate::presentation_frame::PresentationWorldEnv,
     ) -> Result<Option<game_client::terrain::terrain_visual::TerrainVisualImpl>> {
@@ -14,6 +30,9 @@ impl RenderPipeline {
         );
         let hint = env.heightmap_hint.as_deref().map(std::path::Path::new);
         let mut visual = game_client::terrain::terrain_visual::TerrainVisualImpl::new();
+        if let Some(lighting) = Self::static_terrain_lighting(env) {
+            visual.admit_static_lighting(lighting);
+        }
         visual.admit_terrain_definitions(
             env.terrain_definitions
                 .as_ref()

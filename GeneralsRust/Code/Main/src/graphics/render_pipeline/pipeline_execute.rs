@@ -74,6 +74,16 @@ impl RenderPipeline {
         let native_terrain_clear_color = self.terrain_clear_color();
 
         let execute_started = std::time::Instant::now();
+        #[cfg(feature = "game_client")]
+        if let Some(lighting) = self
+            .presentation_frame
+            .as_ref()
+            .and_then(|frame| Self::static_terrain_lighting(&frame.world_env))
+        {
+            if let Some(terrain) = self.native_terrain.as_mut() {
+                terrain.admit_static_lighting(lighting);
+            }
+        }
         trace!("RenderPipeline::execute frame {}", self.frame_number + 1);
         if (self.frame_number + 1).is_multiple_of(300) {
             debug!(

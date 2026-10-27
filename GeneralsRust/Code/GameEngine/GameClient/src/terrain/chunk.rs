@@ -47,59 +47,44 @@ fn falloff_weight(distance: f32, radius: f32, falloff: f32) -> f32 {
     }
 }
 
-/// C++ `BaseHeightMapRenderObjClass::doTheLight` light inputs: the active
-/// global terrain lights (`TheGlobalData->m_terrainLightPos/Diffuse[i]` for
-/// `i < m_numGlobalLights`, `BaseHeightMap.cpp:556-566`) converted from C++
-/// Z-up to wgpu Y-up, plus the ambient of light 0 (`m_terrainAmbient[0]` —
-/// only the first terrain light contributes ambient, `BaseHeightMap.cpp:493`).
-pub(crate) fn current_global_terrain_lights() -> (Vec<(Vec3, [f32; 3])>, [f32; 3]) {
-    const MAX_LIGHTS: usize = 3; // C++ MAX_GLOBAL_LIGHTS
-    if let Some(global) = game_engine::common::ini::get_global_data() {
-        let data = global.read();
-        let count = data.num_global_lights.clamp(0, MAX_LIGHTS as i32) as usize;
+/// Lighting admitted by the terrain's owning session. Positions use the
+/// renderer's Y-up basis; the first source light supplies ambient in C++.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TerrainStaticLighting {
+    pub lights: Vec<(Vec3, [f32; 3])>,
+    pub ambient: [f32; 3],
+}
+
+impl Default for TerrainStaticLighting {
+    fn default() -> Self {
+        // Construct defaults locally: creating a terrain must not select or
+        // publish another world's GameData.
+        let data = game_engine::common::ini::ini_game_data::GlobalData::new();
+        let count = data.num_global_lights.clamp(0, 3) as usize;
         let lights = (0..count)
             .map(|i| {
                 let pos = data.terrain_light_pos[i];
-                (
-                    Vec3::new(pos.x, pos.z, pos.y),
-                    [
-                        data.terrain_diffuse[i].r,
-                        data.terrain_diffuse[i].g,
-                        data.terrain_diffuse[i].b,
-                    ],
-                )
+                let color = data.terrain_diffuse[i];
+                (Vec3::new(pos.x, pos.z, pos.y), [color.r, color.g, color.b])
             })
             .collect();
         let ambient = data.terrain_ambient[0];
-        return (lights, [ambient.r, ambient.g, ambient.b]);
+        Self {
+            lights,
+            ambient: [ambient.r, ambient.g, ambient.b],
+        }
     }
-    let data = game_engine::common::global_data::read();
-    let count = data.num_global_lights.clamp(0, MAX_LIGHTS as i32) as usize;
-    let lights = (0..count)
-        .map(|i| {
-            (
-                Vec3::new(
-                    data.terrain_light_pos[i][0],
-                    data.terrain_light_pos[i][2],
-                    data.terrain_light_pos[i][1],
-                ),
-                data.terrain_diffuse[i],
-            )
-        })
-        .collect();
-    (lights, data.terrain_ambient[0])
 }
 
 /// C++ `BaseHeightMapRenderObjClass::getStaticDiffuse` analog.
 /// Sums clamped N·L diffuse over all global lights like `doTheLight`
 /// (`BaseHeightMap.cpp:491-566`), plus a Rust-only 0.35 floor.
-fn static_diffuse_from_normal(normal: Vec3) -> [f32; 4] {
+fn static_diffuse_from_normal(normal: Vec3, lighting: &TerrainStaticLighting) -> [f32; 4] {
     const COLOR_FLOOR: f32 = 0.35;
-    let (lights, ambient_color) = current_global_terrain_lights();
     let mut color = super::terrain_visual::TerrainVisualImpl::terrain_static_diffuse_from_normal(
         normal,
-        &lights,
-        ambient_color,
+        &lighting.lights,
+        lighting.ambient,
     );
     color[0] = color[0].max(COLOR_FLOOR);
     color[1] = color[1].max(COLOR_FLOOR);
@@ -212,6 +197,9 @@ pub struct ChunkManager {
     /// Configuration for chunk management
     config: TerrainConfig,
 
+    /// Immutable input to this manager's terrain mesh bakes.
+    static_lighting: TerrainStaticLighting,
+
     /// Next available chunk ID
     next_chunk_id: ChunkId,
 
@@ -283,14 +271,24 @@ impl TerrainChunk {
 
     /// Generate geometry for this chunk based on heightmap
     pub fn generate_geometry(&mut self, resolution: u32) -> TerrainResult<()> {
+        self.generate_geometry_with_static_lighting(resolution, &TerrainStaticLighting::default())
+    }
+
+    /// Bake this chunk using the definitions admitted by its terrain owner.
+    pub fn generate_geometry_with_static_lighting(
+        &mut self,
+        resolution: u32,
+        static_lighting: &TerrainStaticLighting,
+    ) -> TerrainResult<()> {
         let lights = scene_dynamic_lights();
-        self.generate_geometry_with_lights(resolution, &lights)
+        self.generate_geometry_with_lights(resolution, &lights, static_lighting)
     }
 
     fn generate_geometry_with_lights(
         &mut self,
         resolution: u32,
         lights: &[DisplayDynamicLight],
+        static_lighting: &TerrainStaticLighting,
     ) -> TerrainResult<()> {
         if self.heights.is_empty() {
             return Err(TerrainError::InvalidData(
@@ -321,7 +319,7 @@ impl TerrainChunk {
                 let normal = self.compute_normal(tex_u, tex_v);
 
                 // C++ HeightMap.cpp: vb->diffuse = getStaticDiffuse(x,y) then doTheDynamicLight.
-                let base_color = static_diffuse_from_normal(normal);
+                let base_color = static_diffuse_from_normal(normal, static_lighting);
                 self.base_colors.push(base_color);
                 self.vertices.push(TerrainVertex::from_components(
                     Vec3::new(world_x, height, world_z),
@@ -901,6 +899,7 @@ impl ChunkManager {
             spatial_grid: HashMap::new(),
             grid_origin: Vec2::ZERO,
             config,
+            static_lighting: TerrainStaticLighting::default(),
             next_chunk_id: 1,
             camera_position: Vec3::new(0.0, 0.0, 0.0),
             view_frustum: ViewFrustum {
@@ -920,6 +919,21 @@ impl ChunkManager {
     /// Access the current configuration.
     pub fn config(&self) -> &TerrainConfig {
         &self.config
+    }
+
+    pub(crate) fn static_lighting(&self) -> &TerrainStaticLighting {
+        &self.static_lighting
+    }
+
+    pub(crate) fn admit_static_lighting(&mut self, lighting: TerrainStaticLighting) -> bool {
+        if self.static_lighting == lighting {
+            return false;
+        }
+        self.static_lighting = lighting;
+        for chunk in self.chunks.values_mut() {
+            chunk.dirty = true;
+        }
+        true
     }
 
     /// Initialise the manager. Creates a default chunk grid if none exists.
@@ -1538,7 +1552,11 @@ impl ChunkManager {
                     _ => 5,
                 };
 
-                if let Err(e) = chunk.generate_geometry_with_lights(resolution, &scene_lights) {
+                if let Err(e) = chunk.generate_geometry_with_lights(
+                    resolution,
+                    &scene_lights,
+                    &self.static_lighting,
+                ) {
                     log::warn!("Failed to generate geometry for chunk {}: {}", chunk.id, e);
                 } else {
                     self.stats.geometry_updates += 1;
