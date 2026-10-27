@@ -468,12 +468,8 @@ impl Object {
         }
         let rubble_h = if self.thing.template.structure_rubble_height > 0 {
             self.thing.template.structure_rubble_height as f32
-        } else if self.thing.template.receiving_client_template.is_some()
-            || self.thing.template.receiving_object_definition.is_some()
-        {
-            self.physics_rules.default_structure_rubble_height
         } else {
-            host_structure_rubble_height(&self.template_name)
+            self.physics_rules.default_structure_rubble_height
         };
         // Object::setGeometryInfoZ changes the canonical live shape and cached
         // bounds but deliberately does not unregister/re-dirty PartitionData.
@@ -1370,27 +1366,4 @@ impl Object {
             dispatch,
         )
     }
-}
-
-/// C++ `ThingTemplate::getStructureRubbleHeight` then
-/// `TheGlobalData->m_defaultStructureRubbleHeight` (ActiveBody.cpp:191-194).
-fn host_structure_rubble_height(template_name: &str) -> f32 {
-    if let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() {
-        if let Some(factory) = guard.as_ref() {
-            if let Some(tmpl) = factory.find_template(template_name, false) {
-                if let Some(h) = tmpl.structure_rubble_height() {
-                    if h > 0 {
-                        return h as f32;
-                    }
-                }
-            }
-        }
-    }
-    game_engine::common::global_data::read_safe()
-        .ok()
-        .map(|g| g.default_structure_rubble_height)
-        .filter(|h| *h > 0.0)
-        .unwrap_or(
-            crate::game_logic::host_gamedata_lobby_residual::DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
-        )
 }

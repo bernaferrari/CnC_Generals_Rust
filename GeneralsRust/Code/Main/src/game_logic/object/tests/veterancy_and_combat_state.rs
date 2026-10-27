@@ -1769,6 +1769,37 @@ fn structure_rubble_collapses_geometry_z_and_stamps_no_collisions() {
 }
 
 #[test]
+fn structure_rubble_uses_the_objects_own_physics_rules() {
+    use crate::game_logic::{HostGeometryInfo, HostGeometryType, KindOf, Team, ThingTemplate};
+
+    let mut template = ThingTemplate::new("SameStructure");
+    template.add_kind_of(KindOf::Structure);
+    template.geometry_info = HostGeometryInfo {
+        geom_type: HostGeometryType::Box,
+        is_small: false,
+        height: 40.0,
+        major_radius: 30.0,
+        minor_radius: 25.0,
+        authored: true,
+    };
+    let mut first = Object::new(template.clone(), ObjectId(11), Team::USA);
+    let mut second = Object::new(template, ObjectId(11), Team::USA);
+    let mut first_rules = crate::game_logic::physics_rules::default_host_physics_rules();
+    first_rules.default_structure_rubble_height = 4.0;
+    let mut second_rules = first_rules;
+    second_rules.default_structure_rubble_height = 9.0;
+    first.bind_physics_rules(first_rules, first_rules.gravity);
+    second.bind_physics_rules(second_rules, second_rules.gravity);
+
+    first.apply_structure_rubble_collision_effects();
+    assert_eq!(first.geometry_info().height, 4.0);
+    assert_eq!(second.geometry_info().height, 40.0);
+    second.apply_structure_rubble_collision_effects();
+    assert_eq!(second.geometry_info().height, 9.0);
+    assert_eq!(first.geometry_info().height, 4.0);
+}
+
+#[test]
 fn ground_or_structure_height_uses_bounding_circle_not_major() {
     // C++ PartitionManager.cpp:4686-4687 FROM_BOUNDINGSPHERE_2D subtracts
     // bounding-circle (sqrt(major^2+minor^2)), so rooftop corners stay in range.
