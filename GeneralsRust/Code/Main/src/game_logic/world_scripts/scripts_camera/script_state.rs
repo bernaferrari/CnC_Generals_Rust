@@ -56,11 +56,16 @@ impl GameLogic {
         let Some(obj) = self.objects.get(&object_id) else {
             return;
         };
-        let template = obj.thing().template.name.clone();
         let pos = obj.get_position();
-        self.queue_resolved_per_unit_sound_named(
-            &template,
+        let event = crate::game_logic::audio_dispatch_impl::resolve_receiving_per_unit_sound(
+            obj.get_template(),
             slot,
+        );
+        let Some(event) = event else {
+            return;
+        };
+        self.queue_per_unit_sound_event(
+            &event,
             attach_object.then_some(object_id),
             attach_position.then_some(pos),
             player_index,
@@ -86,16 +91,27 @@ impl GameLogic {
                         .filter(|name| !name.is_empty())
                         .map(str::to_owned)
                 }),
-            // Explicit unmigrated programmatic-template adapter. Admitted
-            // content never falls through on a missing name or silent slot.
-            None => {
-                crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(template_name, slot)
-            }
+            None => self.templates.get(template_name).and_then(|template| {
+                crate::game_logic::audio_dispatch_impl::resolve_receiving_per_unit_sound(
+                    template, slot,
+                )
+            }),
         };
         let Some(event) = event else {
             return;
         };
-        let mut req = AudioEventRequest::new(&event).with_priority(priority);
+        self.queue_per_unit_sound_event(&event, object_id, position, player_index, priority);
+    }
+
+    fn queue_per_unit_sound_event(
+        &mut self,
+        event: &str,
+        object_id: Option<crate::game_logic::ObjectId>,
+        position: Option<glam::Vec3>,
+        player_index: Option<i32>,
+        priority: u8,
+    ) {
+        let mut req = AudioEventRequest::new(event).with_priority(priority);
         if let Some(id) = object_id {
             req = req.with_object(id);
         }

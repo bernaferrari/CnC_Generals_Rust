@@ -477,8 +477,8 @@ impl<'a> CommandExecutor<'a> {
             // MSG_DO_WEAPON_AT_LOCATION / AttackPosition also start from VoiceAttack.
             let bombard = units.iter().any(|&id| {
                 self.game_logic.host_object(id).is_some_and(|o| {
-                    crate::game_logic::audio_dispatch_impl::resolve_unit_voice_event(
-                        &o.template_name,
+                    crate::game_logic::audio_dispatch_impl::resolve_receiving_unit_voice(
+                        o.get_template(),
                         crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Bombard,
                     )
                     .is_some()

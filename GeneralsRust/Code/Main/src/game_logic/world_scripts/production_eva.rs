@@ -1356,7 +1356,7 @@ impl GameLogic {
     pub(crate) fn notify_unit_production_presentation(
         &mut self,
         unit_id: ObjectId,
-        template_name: &str,
+        _template_name: &str,
     ) {
         let Some(unit) = self.objects.get(&unit_id) else {
             return;
@@ -1368,8 +1368,8 @@ impl GameLogic {
             .values()
             .any(|p| p.is_local && p.is_alive && p.team == team);
         // C++ getVoiceCreated() — authored Voice.ini name, not the slot token.
-        if let Some(event) = crate::game_logic::audio_dispatch_impl::resolve_unit_voice_event(
-            template_name,
+        if let Some(event) = crate::game_logic::audio_dispatch_impl::resolve_receiving_unit_voice(
+            unit.get_template(),
             crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Created,
         ) {
             self.queue_audio_event(

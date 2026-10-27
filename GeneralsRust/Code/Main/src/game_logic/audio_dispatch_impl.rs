@@ -139,6 +139,63 @@ fn nonempty_event_name(event: &game_engine::common::audio::AudioEventRts) -> Opt
     }
 }
 
+/// Resolve an Object's own immutable UnitSpecificSounds rather than selecting
+/// a process-wide factory by its template name.
+pub(crate) fn resolve_receiving_per_unit_sound(
+    template: &crate::game_logic::ThingTemplate,
+    key: &str,
+) -> Option<String> {
+    if let Some(receiving) = &template.receiving_client_template {
+        return receiving
+            .per_unit_sound_event(key)
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned);
+    }
+    #[cfg(test)]
+    {
+        return resolve_per_unit_sound(&template.name, key);
+    }
+    #[cfg(not(test))]
+    None
+}
+
+/// C++ pickAndPlayUnitVoiceResponse checks the per-unit slot first, then the
+/// fixed ThingTemplate voice slot. Both come from this Object's own template.
+pub(crate) fn resolve_receiving_unit_voice(
+    template: &crate::game_logic::ThingTemplate,
+    slot: UnitVoiceSlot,
+) -> Option<String> {
+    use game_engine::common::thing::thing_template::ThingTemplateAudioType as Audio;
+
+    if let Some(receiving) = &template.receiving_client_template {
+        if let Some(name) = receiving
+            .per_unit_sound_event(slot.ini_key())
+            .filter(|name| !name.is_empty())
+        {
+            return Some(name.to_owned());
+        }
+        let field = match slot {
+            UnitVoiceSlot::Select => Audio::VoiceSelect,
+            UnitVoiceSlot::Move => Audio::VoiceMove,
+            UnitVoiceSlot::Attack => Audio::VoiceAttack,
+            UnitVoiceSlot::AttackAir => Audio::VoiceAttackAir,
+            UnitVoiceSlot::Guard => Audio::VoiceGuard,
+            UnitVoiceSlot::Enter | UnitVoiceSlot::EnterHostile => Audio::VoiceEnter,
+            UnitVoiceSlot::Garrison => Audio::VoiceGarrison,
+            UnitVoiceSlot::Created => Audio::VoiceCreated,
+            UnitVoiceSlot::TaskComplete => Audio::VoiceTaskComplete,
+            _ => return None,
+        };
+        return receiving.audio_event(field).and_then(nonempty_event_name);
+    }
+    #[cfg(test)]
+    {
+        return resolve_unit_voice_event(&template.name, slot);
+    }
+    #[cfg(not(test))]
+    None
+}
+
 /// Test hook: bind a ThingTemplate INI event without loading Object.ini.
 #[cfg(test)]
 pub fn set_test_template_voice(
@@ -171,6 +228,7 @@ pub fn set_test_per_unit_sound(template_name: &str, key: &str, event_name: impl 
 }
 
 /// C++ `ThingTemplate::getPerUnitSound(key)` — building UnderConstruction, etc.
+#[cfg(test)]
 pub fn resolve_per_unit_sound(template_name: &str, key: &str) -> Option<String> {
     #[cfg(test)]
     if let Some(over) = PER_UNIT_SOUND_OVERRIDE.with(|m| {
@@ -231,6 +289,7 @@ pub fn resolve_special_power_initiate_sound(
         .map(str::to_string)
 }
 
+#[cfg(test)]
 fn named_template_voice(
     tmpl: &game_engine::common::thing::thing_template::ThingTemplate,
     slot: UnitVoiceSlot,
@@ -255,6 +314,7 @@ fn named_template_voice(
 ///
 /// C++ `ThingTemplate::getVoice*` / `getPerUnitSound` — never `{template}Voice*`
 /// and never invented `UnitVoiceSelect|Move|Attack`.
+#[cfg(test)]
 pub fn resolve_unit_voice_event(template_name: &str, slot: UnitVoiceSlot) -> Option<String> {
     #[cfg(test)]
     if let Some(over) = TEMPLATE_VOICE_OVERRIDE

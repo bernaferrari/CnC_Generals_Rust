@@ -416,7 +416,7 @@ impl<'a> CommandExecutor<'a> {
 
     /// C++ `CommandXlat.cpp:423-443`: VoiceSalvage then VoiceMoveUpgraded overwrite.
     fn play_salvage_or_move_voice(&mut self, units: &[ObjectId]) {
-        use crate::game_logic::audio_dispatch_impl::{UnitVoiceSlot, resolve_unit_voice_event};
+        use crate::game_logic::audio_dispatch_impl::{UnitVoiceSlot, resolve_receiving_unit_voice};
         if self.game_logic.try_queue_picked_voice_move_upgraded(units) {
             return;
         }
@@ -424,7 +424,7 @@ impl<'a> CommandExecutor<'a> {
             self.game_logic
                 .host_object(id)
                 .and_then(|obj| {
-                    resolve_unit_voice_event(&obj.template_name, UnitVoiceSlot::Salvage)
+                    resolve_receiving_unit_voice(obj.get_template(), UnitVoiceSlot::Salvage)
                 })
                 .is_some()
         });

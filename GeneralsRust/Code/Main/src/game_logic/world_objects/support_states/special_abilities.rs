@@ -654,37 +654,20 @@ impl GameLogic {
         object_id: ObjectId,
         power: crate::game_logic::CapturePowerKind,
     ) {
-        let Some(template_name) = self
-            .objects
-            .get(&object_id)
-            .map(|object| object.thing().template.name.clone())
-        else {
+        let Some(object) = self.objects.get(&object_id) else {
             return;
         };
         let event = match power {
             crate::game_logic::CapturePowerKind::BlackLotus => {
-                crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
-                    &template_name,
+                crate::game_logic::audio_dispatch_impl::resolve_receiving_per_unit_sound(
+                    object.get_template(),
                     "VoiceCaptureBuildingComplete",
                 )
             }
-            _ => crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
-                &template_name,
-                "VoiceTaskComplete",
-            )
-            .or_else(|| {
-                let factory = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
-                let factory = factory.as_ref()?;
-                let tmpl = factory.find_template(&template_name, false)?;
-                tmpl.get_voice_task_complete().and_then(|event| {
-                    let name = event.get_event_name();
-                    if name.is_empty() {
-                        None
-                    } else {
-                        Some(name.to_string())
-                    }
-                })
-            }),
+            _ => crate::game_logic::audio_dispatch_impl::resolve_receiving_unit_voice(
+                object.get_template(),
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::TaskComplete,
+            ),
         };
         let Some(event) = event else {
             return;
@@ -2015,14 +1998,14 @@ impl GameLogic {
             };
             let complete_event = per_unit_key
                 .and_then(|key| {
-                    crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
-                        &obj.template_name,
+                    crate::game_logic::audio_dispatch_impl::resolve_receiving_per_unit_sound(
+                        obj.get_template(),
                         key,
                     )
                 })
                 .or_else(|| {
-                    crate::game_logic::audio_dispatch_impl::resolve_unit_voice_event(
-                        &obj.template_name,
+                    crate::game_logic::audio_dispatch_impl::resolve_receiving_unit_voice(
+                        obj.get_template(),
                         crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::TaskComplete,
                     )
                 });

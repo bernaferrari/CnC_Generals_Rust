@@ -291,29 +291,27 @@ impl GameLogic {
     pub(crate) fn queue_afterburner_per_unit_sound(
         &mut self,
         object_id: ObjectId,
-        template_name: &str,
+        _template_name: &str,
         pos: glam::Vec3,
         on: bool,
     ) {
         // CPP JetAIUpdate1696 captures the actual Object's immutable template,
         // not whichever same-name template is globally published later.
-        let receiving = self
-            .objects
-            .get(&object_id)
-            .and_then(|object| object.thing().template.receiving_client_template.as_ref());
-        let event = match receiving {
-            Some(template) => template
-                .per_unit_sound_event(crate::game_logic::object::JET_AFTERBURNER_SOUND)
-                .and_then(crate::game_logic::host_move_ambient_audio::nonempty_audio_event_name),
-            None => crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
-                template_name,
-                crate::game_logic::object::JET_AFTERBURNER_SOUND,
-            ),
+        let Some(object) = self.objects.get(&object_id) else {
+            return;
         };
+        let receiving = object.get_template().receiving_client_template.is_some();
+        let event = crate::game_logic::audio_dispatch_impl::resolve_receiving_per_unit_sound(
+            object.get_template(),
+            crate::game_logic::object::JET_AFTERBURNER_SOUND,
+        )
+        .and_then(|name| {
+            crate::game_logic::host_move_ambient_audio::nonempty_audio_event_name(&name)
+        });
         // Missing receiving slots are authoritative silence on start AND stop.
         // Keep the old token only for the unmigrated programmatic adapter.
         let Some(event) = event.or_else(|| {
-            (!on && receiving.is_none())
+            (!on && !receiving)
                 .then(|| crate::game_logic::object::JET_AFTERBURNER_SOUND_STOP.to_string())
         }) else {
             return;
@@ -621,9 +619,8 @@ impl GameLogic {
             // an invented `{template}VoiceLowFuel` concat.
             if let Some(jet) = self.objects.get(&jet_id) {
                 let pos = jet.get_position();
-                let template_name = jet.template_name.clone();
-                if let Some(event) = crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
-                    &template_name,
+                if let Some(event) = crate::game_logic::audio_dispatch_impl::resolve_receiving_per_unit_sound(
+                    jet.get_template(),
                     "VoiceLowFuel",
                 ) {
                     self.queue_audio_event(

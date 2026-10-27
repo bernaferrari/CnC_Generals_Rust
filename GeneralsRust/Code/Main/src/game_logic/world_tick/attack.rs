@@ -1008,7 +1008,7 @@ impl GameLogic {
         prev_angle_deg: f32,
         presentation_effects: &mut ScriptPresentationEffects<'_>,
     ) {
-        let (rotating, angle_deg, pitch_sound, pos, occupants, keep_loop, template_name) = {
+        let (rotating, angle_deg, pitch_sound, pos, occupants, keep_loop) = {
             let Some(u) = self.objects.get(&unit_id) else {
                 return;
             };
@@ -1023,7 +1023,6 @@ impl GameLogic {
                 u.get_position(),
                 u.contained_units(),
                 keep_loop,
-                u.template_name.clone(),
             )
         };
         {
@@ -1043,10 +1042,12 @@ impl GameLogic {
             }
         }
         // C++ TurretAI ctor: getPerUnitSound("TurretMoveLoop") — INI value, not slot key.
-        let authored = crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
-            &template_name,
-            "TurretMoveLoop",
-        );
+        let authored = self.objects.get(&unit_id).and_then(|unit| {
+            crate::game_logic::audio_dispatch_impl::resolve_receiving_per_unit_sound(
+                unit.get_template(),
+                "TurretMoveLoop",
+            )
+        });
         let want_play = rotating || pitch_sound || keep_loop;
         let play = want_play && authored.is_some();
         let (started, stopped) = {

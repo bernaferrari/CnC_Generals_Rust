@@ -122,11 +122,13 @@ impl GameLogic {
     /// C++ `DozerAIUpdate::startBuildingSound` / Worker twin.
     /// Plays the building's PerUnitSound "UnderConstruction" on the site.
 
-    pub fn start_building_sound(&mut self, site_id: ObjectId, template_name: &str, pos: Vec3) {
-        let Some(event) = crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
-            template_name,
-            "UnderConstruction",
-        ) else {
+    pub fn start_building_sound(&mut self, site_id: ObjectId, _template_name: &str, pos: Vec3) {
+        let Some(event) = self.objects.get(&site_id).and_then(|site| {
+            crate::game_logic::audio_dispatch_impl::resolve_receiving_per_unit_sound(
+                site.get_template(),
+                "UnderConstruction",
+            )
+        }) else {
             return;
         };
         if self
@@ -1608,8 +1610,8 @@ impl GameLogic {
             if voice_create_played.insert(producer_id) {
                 if let Some(unit) = self.objects.get(&new_id) {
                     if let Some(event) =
-                        crate::game_logic::audio_dispatch_impl::resolve_unit_voice_event(
-                            &unit.template_name,
+                        crate::game_logic::audio_dispatch_impl::resolve_receiving_unit_voice(
+                            unit.get_template(),
                             crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Create,
                         )
                     {

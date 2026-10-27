@@ -1579,7 +1579,7 @@ impl GameLogic {
     /// C++ `CommandXlat.cpp:433-443` — first matching worker wins (`skip=true`).
     /// Always plays the PerUnitSound key; C++ does not `isValidAudioEvent` this line.
     pub fn try_queue_picked_voice_move_upgraded(&mut self, unit_ids: &[ObjectId]) -> bool {
-        use crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound;
+        use crate::game_logic::audio_dispatch_impl::resolve_receiving_per_unit_sound;
         use crate::game_logic::host_gla_worker::{
             UPGRADE_GLA_WORKER_SHOES, WORKER_VOICE_MOVE_UPGRADED,
             is_worker_for_voice_move_upgraded, worker_shoes_voice_upgrade_complete,
@@ -1621,7 +1621,7 @@ impl GameLogic {
             if !object_has_shoes && !player_has_shoes {
                 continue;
             }
-            let event = resolve_per_unit_sound(&obj.template_name, WORKER_VOICE_MOVE_UPGRADED)
+            let event = resolve_receiving_per_unit_sound(obj.get_template(), WORKER_VOICE_MOVE_UPGRADED)
                 .unwrap_or_else(|| WORKER_VOICE_MOVE_UPGRADED.to_string());
             let pos = obj.get_position();
             self.queue_audio_event(
@@ -1642,7 +1642,7 @@ impl GameLogic {
         slot: crate::game_logic::audio_dispatch_impl::UnitVoiceSlot,
     ) {
         use crate::game_logic::audio_dispatch_impl::{
-            resolve_terrorist_in_car_voice, resolve_unit_voice_event,
+            resolve_receiving_unit_voice, resolve_terrorist_in_car_voice,
         };
         let mut chosen: Option<(String, ObjectId, glam::Vec3, bool)> = None;
         for &id in unit_ids {
@@ -1652,7 +1652,7 @@ impl GameLogic {
             if obj.is_kind_of(KindOf::IgnoredInGui) {
                 continue;
             }
-            let Some(event) = resolve_unit_voice_event(&obj.template_name, slot) else {
+            let Some(event) = resolve_receiving_unit_voice(obj.get_template(), slot) else {
                 continue;
             };
             chosen = Some((event, id, obj.get_position(), obj.status.is_carbomb));
