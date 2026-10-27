@@ -491,31 +491,34 @@ impl LocomotorStore {
 
         let mut candidate = self.clone();
         let mut ini = INI::new();
-        let count = ini.with_inline_source_and_load_type(source, INILoadType::Overwrite, |ini| {
-            let mut count = 0;
-            loop {
-                ini.read_line()?;
-                if ini.is_eof() {
-                    break;
+        let count =
+            ini.with_inline_source_and_load_type(source, INILoadType::Overwrite, |ini| {
+                let mut count = 0;
+                loop {
+                    ini.read_line()?;
+                    if ini.is_eof() {
+                        break;
+                    }
+                    let tokens = ini.get_line_tokens();
+                    if tokens
+                        .first()
+                        .is_some_and(|token| token.eq_ignore_ascii_case("Locomotor"))
+                        && tokens.get(1) != Some(&"=")
+                    {
+                        super::ini::parse_locomotor_block_into(ini, &mut candidate)?;
+                        count += 1;
+                    } else if tokens.first().is_some_and(|token| {
+                        ["Object", "ObjectReskin", "ChildObject"]
+                            .iter()
+                            .any(|kind| token.eq_ignore_ascii_case(kind))
+                    }) {
+                        let _ = crate::common::thing::thing_factory::consume_ini_properties(ini);
+                    } else if !tokens.is_empty() {
+                        super::ini::consume_block_with_nesting(ini)?;
+                    }
                 }
-                let tokens = ini.get_line_tokens();
-                if tokens.first().is_some_and(|token| token.eq_ignore_ascii_case("Locomotor"))
-                    && tokens.get(1) != Some(&"=")
-                {
-                    super::ini::parse_locomotor_block_into(ini, &mut candidate)?;
-                    count += 1;
-                } else if tokens.first().is_some_and(|token| {
-                    ["Object", "ObjectReskin", "ChildObject"]
-                        .iter()
-                        .any(|kind| token.eq_ignore_ascii_case(kind))
-                }) {
-                    let _ = crate::common::thing::thing_factory::consume_ini_properties(ini);
-                } else if !tokens.is_empty() {
-                    super::ini::consume_block_with_nesting(ini)?;
-                }
-            }
-            Ok(count)
-        })?;
+                Ok(count)
+            })?;
         *self = candidate;
         Ok(count)
     }
@@ -572,7 +575,6 @@ fn apply_locomotor_template_properties(
     template: &mut LocomotorTemplate,
     properties: &HashMap<String, String>,
 ) -> LocomotorResult<()> {
-
     // Parse all fields from the properties map
     // Matches field parse table from Locomotor.cpp lines 419-485
 
@@ -862,7 +864,9 @@ fn apply_locomotor_template_properties(
                 {
                     if part.eq_ignore_ascii_case("NONE") {
                         if signed.is_some() {
-                            return Err(LocomotorError::ParseError("mixed Surfaces operations".into()));
+                            return Err(LocomotorError::ParseError(
+                                "mixed Surfaces operations".into(),
+                            ));
                         }
                         template.surfaces = LocomotorSurfaceTypeMask::new();
                         break;
@@ -874,7 +878,9 @@ fn apply_locomotor_template_properties(
                     };
                     let is_signed = operation.is_some();
                     if signed.is_some_and(|previous| previous != is_signed) {
-                        return Err(LocomotorError::ParseError("mixed Surfaces operations".into()));
+                        return Err(LocomotorError::ParseError(
+                            "mixed Surfaces operations".into(),
+                        ));
                     }
                     if signed.is_none() && !is_signed {
                         template.surfaces = LocomotorSurfaceTypeMask::new();
@@ -886,7 +892,11 @@ fn apply_locomotor_template_properties(
                         "CLIFF" => LocomotorSurfaceTypeMask::CLIFF,
                         "AIR" => LocomotorSurfaceTypeMask::AIR,
                         "RUBBLE" => LocomotorSurfaceTypeMask::RUBBLE,
-                        _ => return Err(LocomotorError::ParseError(format!("unknown Surface: {name}"))),
+                        _ => {
+                            return Err(LocomotorError::ParseError(format!(
+                                "unknown Surface: {name}"
+                            )));
+                        }
                     };
                     if operation == Some(false) {
                         template.surfaces.0 &= !bit;

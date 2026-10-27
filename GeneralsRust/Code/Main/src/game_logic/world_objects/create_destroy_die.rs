@@ -2221,8 +2221,7 @@ impl GameLogic {
                 if need_loco {
                     if let Some(binding) = self.resolve_receiving_locomotor(
                         crate::game_logic::locomotor_bootstrap::ANGRY_MOB_NEXUS_LOCOMOTOR,
-                    )
-                    {
+                    ) {
                         crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(
                             &mut object,
                             &binding,

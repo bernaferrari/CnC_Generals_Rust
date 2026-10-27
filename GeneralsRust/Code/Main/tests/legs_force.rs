@@ -133,7 +133,7 @@ fn run_case(name: &str, assert_original_force: bool) {
         .add_kind_of(KindOf::Worker)
         .set_locomotor_name(&loco);
     game.templates.insert(unit.clone(), template);
-    let id = game.create_object(&unit, Team::USA, Vec3::ZERO).unwrap();
+    let id = game.create_object(&unit, Team::USA, START).unwrap();
     let initial = host_vector(&row, 2);
     let goal = scalar(row[6]);
     let target = Vec3::new(
@@ -141,6 +141,7 @@ fn run_case(name: &str, assert_original_force: bool) {
         0.0,
         START.z - goal.sin() * 1000.0,
     );
+    assert!(game.unit_command_set_orientation(id, scalar(row[5])));
     {
         let object = game.host_object_mut(id).unwrap();
         assert_eq!(object.movement.velocity, Vec3::ZERO);
@@ -149,8 +150,6 @@ fn run_case(name: &str, assert_original_force: bool) {
         assert_eq!(object.movement.acceleration, binding.movement.acceleration);
         assert_eq!(object.braking, binding.braking);
         assert_eq!(object.movement.turn_rate, binding.movement.turn_rate);
-        object.set_position(START);
-        object.set_orientation(scalar(row[5]));
         object.add_velocity(-object.movement.velocity);
         assert_eq!(object.movement.velocity, Vec3::ZERO);
         object.add_velocity(initial);

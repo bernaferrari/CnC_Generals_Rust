@@ -21,8 +21,8 @@
 
 use game_engine::common::ini::ini_locomotor::{
     LocomotorAppearance as SourceLocomotorAppearance,
-    LocomotorBehaviorZ as SourceLocomotorBehaviorZ, LocomotorStore, LocomotorTemplate, get_locomotor_store,
-    get_locomotor_store_mut, parse_locomotor_template_definition,
+    LocomotorBehaviorZ as SourceLocomotorBehaviorZ, LocomotorStore, LocomotorTemplate,
+    get_locomotor_store, get_locomotor_store_mut, parse_locomotor_template_definition,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -676,16 +676,15 @@ impl crate::game_logic::GameLogic {
             return Ok(());
         };
         for source in sources {
-            candidate.apply_source(source).map_err(|error| error.to_string())?;
+            candidate
+                .apply_source(source)
+                .map_err(|error| error.to_string())?;
         }
         self.locomotor_definitions = Some(candidate);
         Ok(())
     }
 
-    pub(crate) fn resolve_receiving_locomotor(
-        &self,
-        name: &str,
-    ) -> Option<HostLocomotorBinding> {
+    pub(crate) fn resolve_receiving_locomotor(&self, name: &str) -> Option<HostLocomotorBinding> {
         match &self.locomotor_definitions {
             Some(store) => resolve_host_locomotor_binding_from_store(store, name),
             None => resolve_host_locomotor_binding(name),
