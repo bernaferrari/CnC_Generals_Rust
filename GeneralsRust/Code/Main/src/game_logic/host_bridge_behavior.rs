@@ -742,24 +742,6 @@ fn leftover_is_condition_worse(old_state: u8, new_state: u8) -> bool {
     old_state > new_state
 }
 
-fn leftover_bridge_template_name(object_id: u32, pos: Vec3) -> Option<String> {
-    let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
-    let terrain = terrain_owner_handle.read().ok()?;
-    let mut found = None;
-    terrain.for_each_bridge(|bridge| {
-        if found.is_none() && bridge.get_bridge_info().bridge_object_id == object_id {
-            found = Some(bridge.get_bridge_template_name().as_str().to_string());
-        }
-    });
-    if found.is_some() {
-        return found;
-    }
-    let loc = gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y);
-    terrain
-        .find_bridge_at(&loc)
-        .map(|b| b.get_bridge_template_name().as_str().to_string())
-}
-
 fn leftover_road_for_template(
     name: &str,
 ) -> Option<game_engine::common::ini::ini_terrain_bridge::TerrainRoadType> {
@@ -831,25 +813,6 @@ fn body_transition_cues_for(old_state: u8, new_state: u8) -> HostBridgeBodyFxCue
         });
     }
     cue
-}
-
-/// Bind leftover terrain object id and write mid-damage / rubble state.
-pub fn sync_leftover_bridge_body_state(
-    object_id: u32,
-    pos: Vec3,
-    state: gamelogic::common::BodyDamageType,
-) {
-    let loc = gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y);
-    if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
-        let from_left = terrain
-            .find_bridge_at(&loc)
-            .map(|b| b.get_bridge_info().from_left);
-        if let Some(fl) = from_left {
-            terrain.bind_bridge_object_id_at(fl, object_id);
-        }
-        terrain.set_bridge_damage_state_for_object(object_id, state);
-    }
-    let _ = leftover_bridge_template_name(object_id, pos);
 }
 
 pub fn is_bridge_or_tower_template(name: &str) -> bool {

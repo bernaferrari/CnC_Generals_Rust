@@ -893,12 +893,9 @@ impl GameLogic {
         self.apply_aidata_enable_repulsors();
         self.refresh_pathfinding_ai_definitions();
         Self::register_leftover_object_create_overrides_overlay();
-        // start_new_game boundary (world_runtime.rs) routes through here: a
-        // world starting a game becomes the ambient store context. Staged
-        // candidates install at this same boundary — after the stage's
-        // `begin` took the live contents out, one step later than the
-        // constructor used to install them, still before any map/snapshot
-        // work reads the legacy funnels.
+        // Temporary publication for remaining singleton-era consumers. A
+        // constructor never selects a world; the operation scopes are tracked
+        // separately until all consumers take their receiving services.
         self.install_as_active_stores();
         // Per-world shroud teardown — start_new_game /
         // clearGameData route through here (C++ GameLogic.cpp newGame calls
@@ -1532,7 +1529,8 @@ mod ownership_tests {
 
     #[test]
     fn constructing_candidate_does_not_publish_it() {
-        let mut live = GameLogic::initialize();
+        let live = GameLogic::initialize();
+        live.install_as_active_stores();
 
         let live_stores = Arc::clone(&live.world_services);
 
@@ -1563,7 +1561,7 @@ mod ownership_tests {
         let initialized = GameLogic::initialize();
         assert!(Arc::ptr_eq(
             &gamelogic::system::engine_stores::active_services(),
-            &initialized.world_services
+            &live_stores
         ));
 
         drop(initialized);

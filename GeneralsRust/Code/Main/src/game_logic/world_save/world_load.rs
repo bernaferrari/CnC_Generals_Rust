@@ -1466,32 +1466,6 @@ pub(in super::super) fn landmark_bridge_half_sizes(
     (radius, (radius * 0.25).max(8.0))
 }
 
-pub(in super::super) fn leftover_bridge_info_for_object(
-    object_id: u32,
-) -> Option<gamelogic::terrain::BridgeInfo> {
-    let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
-    let terrain = terrain_owner_handle.read().ok()?;
-    let mut found = None;
-    terrain.for_each_bridge(|bridge| {
-        if bridge.get_bridge_info().bridge_object_id == object_id {
-            found = Some(bridge.get_bridge_info().clone());
-        }
-    });
-    found
-}
-
-pub(in super::super) fn leftover_bridge_template_name(object_id: u32) -> Option<String> {
-    let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
-    let terrain = terrain_owner_handle.read().ok()?;
-    let mut found = None;
-    terrain.for_each_bridge(|bridge| {
-        if bridge.get_bridge_info().bridge_object_id == object_id {
-            found = Some(bridge.get_bridge_template_name().as_str().to_string());
-        }
-    });
-    found
-}
-
 /// Presentation identity for C++ `W3DBridge::load` (`W3DBridgeBuffer.cpp:182-191`).
 /// Unit-separated so map template names stay unambiguous.
 pub(crate) fn encode_authored_bridge_visual(

@@ -261,15 +261,8 @@ impl GameLogic {
 
     /// Initialize a GameLogic world for engine use.
     pub fn initialize() -> GameLogic {
-        // C++ GameLogic construction is field initialization; engine init is
-        // the explicit point at which this world becomes visible to its
-        // singleton-era consumers. Staged candidates install at reset below.
-        let logic = GameLogic::new();
-        if !gamelogic::runtime_world_transaction::world_runtime_staging_active() {
-            logic.install_as_active_stores();
-            GameLogic::register_leftover_object_create_overrides_overlay();
-        }
-        logic
+        // A candidate must not select or mutate any other session's services.
+        GameLogic::new()
     }
 
     /// Start a new game with specified mode
