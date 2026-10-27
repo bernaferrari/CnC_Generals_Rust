@@ -64,9 +64,7 @@ impl GameLogic {
         id: ObjectId,
         object_weather: i32,
     ) {
-        let follow = game_engine::common::ini::get_global_data()
-            .map(|global| global.read().force_models_to_follow_weather)
-            .unwrap_or(true);
+        let follow = self.lighting_rules().force_models_to_follow_weather;
         let world_is_snow = follow
             && self
                 .weather_state

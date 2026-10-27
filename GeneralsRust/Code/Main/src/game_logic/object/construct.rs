@@ -316,18 +316,7 @@ impl Object {
 
         // C++ Object copies ThingTemplate::m_geometryInfo; pick radius is the
         // bounding circle (`Geometry.cpp:468-495`), not a KindOf table.
-        let selection_radius = if template.geometry_info.authored {
-            template.geometry_info.bounding_circle_radius()
-        } else {
-            match object_type {
-                ObjectType::Infantry => 8.0,
-                ObjectType::Vehicle => 15.0,
-                ObjectType::Aircraft => 20.0,
-                ObjectType::Building => 25.0,
-                ObjectType::Neutral => 10.0,
-                _ => 10.0,
-            }
-        };
+        let selection_radius = template.geometry_info.bounding_circle_radius();
 
         let mut building_data = if object_type == ObjectType::Building {
             let building_type = BuildingType::from_template_name(&template_name);
@@ -1338,18 +1327,7 @@ impl Object {
         let locomotor_name = template.locomotor_name.clone();
         let temporary_weapon_runtime = crate::game_logic::host_temporary_weapon_behavior::
             TemporaryWeaponRuntimeBundle::from_thing_template(&template, 0);
-        let selection_radius = if template.geometry_info.authored {
-            template.geometry_info.bounding_circle_radius()
-        } else {
-            match object_type {
-                ObjectType::Infantry => 8.0,
-                ObjectType::Vehicle => 15.0,
-                ObjectType::Aircraft => 20.0,
-                ObjectType::Building => 25.0,
-                ObjectType::Neutral => 10.0,
-                _ => 10.0,
-            }
-        };
+        let selection_radius = template.geometry_info.bounding_circle_radius();
         let turret = turret_spawn_for_template(&template_name);
 
         let pitch_roll_yaw_factor =
