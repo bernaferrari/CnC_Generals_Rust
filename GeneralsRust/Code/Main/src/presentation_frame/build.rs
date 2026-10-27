@@ -1933,6 +1933,58 @@ impl PresentationFrame {
         }).collect();
         #[cfg(feature = "game_client")]
         let purchase_science = super::science_purchase::freeze(logic, local_player_id);
+        #[cfg(feature = "game_client")]
+        let selected_players = super::science_purchase::freeze_selected_owners(logic);
+        #[cfg(feature = "game_client")]
+        let inventory_occupants = logic
+            .host_objects()
+            .registered_values()
+            .map(|object| {
+                let button_image = logic
+                    .receiving_module_content
+                    .as_ref()
+                    .and_then(|content| content.admitted_template(&object.template_name))
+                    .map(|template| template.button_image_name().to_owned())
+                    .unwrap_or_default();
+                (
+                    object.id.0,
+                    game_client::gui::control_bar::StructureInventoryOccupant {
+                        object_id: object.id.0,
+                        button_image,
+                        overlay_image: PresentationVeterancy::from_host(object.experience.level)
+                            .chevron_overlay()
+                            .map(str::to_owned),
+                    },
+                )
+            })
+            .collect();
+        #[cfg(feature = "game_client")]
+        let disabled_only_underpowered = logic
+            .host_objects()
+            .registered_values()
+            .filter(|object| {
+                let status = &object.status;
+                status.disabled_underpowered
+                    && ![
+                        status.under_construction,
+                        status.disabled_unmanned,
+                        status.disabled_hacked,
+                        status.disabled_emp,
+                        status.disabled_paralyzed,
+                        status.disabled_subdued,
+                        status.disabled_freefall,
+                        status.disabled_default,
+                        status.disabled_script_disabled,
+                        status.disabled_script_underpowered,
+                        status.disabled_held,
+                        status.disabled_awestruck,
+                        status.disabled_brainwashed,
+                    ]
+                    .into_iter()
+                    .any(|disabled| disabled)
+            })
+            .map(|object| object.id.0)
+            .collect();
         let mut frame = Self {
             frame: LogicFrame(logic.get_frame()),
             money_audio_receipts: logic.economy_events.take_money_audio(),
@@ -1976,6 +2028,12 @@ impl PresentationFrame {
             local_unlocked_sciences,
             #[cfg(feature = "game_client")]
             purchase_science,
+            #[cfg(feature = "game_client")]
+            selected_players,
+            #[cfg(feature = "game_client")]
+            inventory_occupants,
+            #[cfg(feature = "game_client")]
+            disabled_only_underpowered,
             receiving_science_player,
             superweapon_timers,
             can_make_cameos,

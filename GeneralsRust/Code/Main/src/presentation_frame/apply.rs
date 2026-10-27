@@ -1120,6 +1120,65 @@ impl PresentationFrame {
         ui.can_make_producer_id = self.can_make_producer_id;
     }
 
+    fn control_bar_object_availability(
+        &self,
+        object: Option<&RenderableObject>,
+    ) -> game_client::gui::control_bar::PresentationAvailabilityResidual {
+        let applied = object
+            .map(|object| object.applied_upgrades.as_slice())
+            .unwrap_or_default();
+        let mut completed_upgrades = applied.to_vec();
+        for name in &self.local_unlocked_sciences {
+            if !completed_upgrades
+                .iter()
+                .any(|owned| owned.eq_ignore_ascii_case(name))
+            {
+                completed_upgrades.push(name.clone());
+            }
+        }
+        let mut residual = game_client::gui::control_bar::PresentationAvailabilityResidual {
+            completed_upgrades,
+            object_applied_upgrades: applied.to_vec(),
+            player_completed_upgrades: self.local_completed_upgrades.clone(),
+            object_unaffected_upgrades:
+                crate::game_logic::host_slave_drones::slave_drone_unaffected_upgrade_names(
+                    applied.iter().map(String::as_str),
+                )
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+            ..Default::default()
+        };
+        if let Some(ro) = object {
+            residual.moving = ro.moving;
+            residual.has_production = !ro.production_queue.is_empty();
+            residual.occupant_count = ro.occupant_count as usize;
+            residual.hacking_packing_or_unpacking = ro.hacking_packing_or_unpacking;
+            residual.overcharge_active = ro.overcharge_enabled;
+            residual.special_power_in_use = ro.using_ability;
+            residual.weapon_reload_time = ro.weapon_reload_time;
+            residual.weapon_fire_status = ro.weapon_fire_status;
+            residual.has_primary_weapon = ro.has_weapon;
+            residual.has_secondary_weapon = ro.has_secondary_weapon;
+            residual.has_tertiary_weapon =
+                ro.projectile_clip_statuses[2].is_some() || ro.active_weapon_slot == 2;
+            residual.active_weapon_slot = ro.active_weapon_slot;
+            residual.battle_plan_bombardment = ro.weapon_bonus_battle_plan_bombardment;
+            residual.battle_plan_hold_the_line = ro.weapon_bonus_battle_plan_hold_the_line;
+            residual.battle_plan_search_and_destroy =
+                ro.weapon_bonus_battle_plan_search_and_destroy;
+            residual.script_disabled = ro.disabled_script_disabled;
+            residual.script_unpowered = ro.disabled_script_underpowered;
+            residual.unmanned = ro.disabled_unmanned;
+            residual.is_dozer_task_pending = ro.is_dozer_task_pending;
+            residual.script_unsellable = ro.script_unsellable;
+            residual.disabled_subdued = ro.disabled_subdued;
+            residual.single_use_used = ro.single_use_command_used;
+        }
+        self.stamp_host_restrict_a_availability(&mut residual, object);
+        residual
+    }
+
     pub fn apply_to_control_bar(
         &self,
         control_bar: &mut game_client::gui::control_bar::ControlBar,
@@ -1141,6 +1200,13 @@ impl PresentationFrame {
                 .map(|c| (c.template_name.clone(), c.can_make))
                 .collect::<Vec<_>>(),
         );
+        control_bar.apply_presentation_buildable_hidden(
+            self.can_make_cameos
+                .iter()
+                .filter(|cameo| cameo.buildable_hidden)
+                .map(|cameo| cameo.template_name.clone())
+                .collect(),
+        );
 
         let primary = self.objects.iter().find(|o| {
             Some(o.id) == panel.primary_object_id
@@ -1151,6 +1217,21 @@ impl PresentationFrame {
         });
         let controllable = primary.is_some_and(|o| self.is_owned_by_local(o));
         control_bar.sync_selection_controllable_from_presentation(controllable);
+        let selected_player = primary.map(|object| {
+            let id = object.owner_player_id.or_else(|| {
+                self.is_owned_by_local(object)
+                    .then_some(self.local_player_id)
+            });
+            id.and_then(|id| self.selected_players.get(&id))
+                .cloned()
+                .unwrap_or_default()
+        });
+        let beacon = primary
+            .zip(selected_player.as_ref())
+            .is_some_and(|(object, player)| {
+                !player.beacon_template.is_empty() && object.template_name == player.beacon_template
+            });
+        control_bar.apply_presentation_selected_player(selected_player);
         let empty_queue: Vec<(String, f32, bool)> = Vec::new();
         control_bar.sync_selection_display_from_presentation(
             panel.visible.then_some(panel.primary_name.as_str()),
@@ -1175,10 +1256,27 @@ impl PresentationFrame {
             },
             controllable && panel.production_paused,
         );
-        let beacon =
-            primary.is_some_and(|o| o.template_name.to_ascii_lowercase().contains("beacon"));
-        let neutral_garrison = primary
-            .is_some_and(|o| o.team == crate::game_logic::Team::Neutral && o.max_garrison > 0);
+        let garrisonable = primary.is_some_and(|o| o.capture_garrisonable && o.max_garrison > 0);
+        let neutral_garrison =
+            primary.is_some_and(|o| o.team == crate::game_logic::Team::Neutral && garrisonable);
+        let ocl_timer_kind = primary.map(|object| {
+            game_client::gui::control_bar::control_bar_ocl_timer::ocl_timer_button_kind(
+                Self::object_has_kind(object, crate::game_logic::KindOf::TechBuilding),
+                Self::object_has_kind(object, crate::game_logic::KindOf::AutoRallypoint),
+            )
+        });
+        control_bar.apply_presentation_selected_context(
+            game_client::gui::control_bar::SelectedContextFacts {
+                controllable,
+                beacon,
+                neutral_garrison,
+                garrisonable,
+                ocl_timer_kind,
+                disabled: primary.is_some_and(|object| object.disabled),
+                disabled_only_underpowered: primary
+                    .is_some_and(|object| self.disabled_only_underpowered.contains(&object.id.0)),
+            },
+        );
         let garrison_max = if controllable || neutral_garrison {
             panel.max_garrison
         } else {
@@ -1227,52 +1325,31 @@ impl PresentationFrame {
                 completed_upgrades.push(name.clone());
             }
         }
-        {
-            let mut residual = game_client::gui::control_bar::PresentationAvailabilityResidual {
-                completed_upgrades: completed_upgrades.clone(),
-                object_applied_upgrades: panel.applied_upgrades.clone(),
-                player_completed_upgrades: self.local_completed_upgrades.clone(),
-                object_unaffected_upgrades:
-                    crate::game_logic::host_slave_drones::slave_drone_unaffected_upgrade_names(
-                        panel.applied_upgrades.iter().map(String::as_str),
-                    )
-                    .into_iter()
-                    .map(str::to_string)
-                    .collect(),
-                ..Default::default()
-            };
-            if let Some(ro) = primary.filter(|_| controllable) {
-                residual.moving = ro.moving;
-                residual.has_production = !ro.production_queue.is_empty();
-                residual.occupant_count = ro.occupant_count as usize;
-                residual.hacking_packing_or_unpacking = ro.hacking_packing_or_unpacking;
-                residual.overcharge_active = ro.overcharge_enabled;
-                residual.special_power_in_use = ro.using_ability;
-                residual.weapon_reload_time = ro.weapon_reload_time;
-                residual.weapon_fire_status = ro.weapon_fire_status;
-                residual.has_primary_weapon = ro.has_weapon;
-                residual.has_secondary_weapon = ro.has_secondary_weapon;
-                residual.has_tertiary_weapon =
-                    ro.projectile_clip_statuses[2].is_some() || ro.active_weapon_slot == 2;
-                residual.active_weapon_slot = ro.active_weapon_slot;
-                residual.battle_plan_bombardment = ro.weapon_bonus_battle_plan_bombardment;
-                residual.battle_plan_hold_the_line = ro.weapon_bonus_battle_plan_hold_the_line;
-                residual.battle_plan_search_and_destroy =
-                    ro.weapon_bonus_battle_plan_search_and_destroy;
-                residual.script_disabled = ro.disabled_script_disabled;
-                residual.script_unpowered = ro.disabled_script_underpowered;
-                residual.unmanned = ro.disabled_unmanned;
-                residual.is_dozer_task_pending = ro.is_dozer_task_pending;
-                residual.script_unsellable = ro.script_unsellable;
-                residual.disabled_subdued = ro.disabled_subdued;
-                residual.single_use_used = ro.single_use_command_used;
-            }
-            self.stamp_host_restrict_a_availability(
-                &mut residual,
-                primary.filter(|_| controllable),
-            );
-            control_bar.apply_presentation_availability(residual);
-        }
+        control_bar.apply_presentation_availability(
+            self.control_bar_object_availability(primary.filter(|_| controllable)),
+        );
+        let selected_object_facts = ids
+            .iter()
+            .filter_map(|id| {
+                let object = self.objects.iter().find(|object| object.id.0 == *id)?;
+                Some(game_client::gui::control_bar::SelectedObjectCommandFacts {
+                    object_id: *id,
+                    context: game_client::gui::control_bar::SelectedContextFacts {
+                        controllable: self.is_owned_by_local(object),
+                        disabled: object.disabled,
+                        disabled_only_underpowered: self.disabled_only_underpowered.contains(id),
+                        ..Default::default()
+                    },
+                    availability: self.control_bar_object_availability(Some(object)),
+                    special_power_ready: object.special_power_ready,
+                    ignored_in_gui: Self::object_has_kind(
+                        object,
+                        crate::game_logic::KindOf::IgnoredInGui,
+                    ),
+                })
+            })
+            .collect();
+        control_bar.apply_presentation_selected_objects(selected_object_facts);
 
         // Wave 1110: multi-select count residual excludes sold/unusable.
         // Disabled completed structures still own their command set

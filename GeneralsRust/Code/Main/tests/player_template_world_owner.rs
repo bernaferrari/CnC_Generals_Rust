@@ -9,6 +9,28 @@ use game_engine::common::well_known_keys::{
 };
 use generals_main::game_logic::{GameLogic, GameMode, PlayerTemplateIdentity};
 
+struct ForeignRegistryEntry {
+    id: u32,
+    installed: gamelogic::object::registry::SharedObjectHandle,
+    previous: Option<gamelogic::object::registry::SharedObjectHandle>,
+}
+
+impl Drop for ForeignRegistryEntry {
+    fn drop(&mut self) {
+        use gamelogic::object::registry::OBJECT_REGISTRY;
+        if OBJECT_REGISTRY
+            .get_object(self.id)
+            .is_some_and(|current| std::sync::Arc::ptr_eq(&current, &self.installed))
+        {
+            if let Some(previous) = &self.previous {
+                OBJECT_REGISTRY.register_object(self.id, previous);
+            } else {
+                OBJECT_REGISTRY.unregister_object(self.id);
+            }
+        }
+    }
+}
+
 fn definitions(money: u32) -> PlayerTemplateStore {
     let mut store = PlayerTemplateStore::new_owned();
     store
@@ -25,7 +47,10 @@ fn definitions(money: u32) -> PlayerTemplateStore {
 fn world(start_money: u32, map: &std::path::Path) -> GameLogic {
     let mut world = GameLogic::new();
     world
-        .admit_object_ini_sources([("Empty.ini".into(), String::new())])
+        .admit_object_ini_sources([(
+            "Selected.ini".into(),
+            "Object SelectedObject\n KindOf = SELECTABLE VEHICLE\n CommandSet = SharedSet\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
+        )])
         .unwrap();
     world
         .admit_player_template_definitions(definitions(start_money))
@@ -87,8 +112,13 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
             format!(
                 "Science SCIENCE_Root\n IsGrantable = Yes\nEnd\n\
                  Science SCIENCE_Shared\n PrerequisiteSciences = SCIENCE_Root\n SciencePurchasePointCost = {}\nEnd\n\
-                 CommandButton BuyShared\n Command = PURCHASE_SCIENCE\n Science = SCIENCE_Shared\nEnd\n\
+                 SpecialPower SharedPower\n Enum = SPECIAL_SPY_SATELLITE\n RequiredScience = SCIENCE_Shared\nEnd\n\
+                 CommandButton BuyShared\n Command = PURCHASE_SCIENCE\n Science = SCIENCE_Shared\n ButtonImage = SharedRankImage\n TextLabel = SharedRankLabel\nEnd\n\
+                 CommandButton UseShared\n Command = SPECIAL_POWER\n SpecialPower = SharedPower\n Science = SCIENCE_Shared\n Options = NEED_SPECIAL_POWER_SCIENCE OK_FOR_MULTI_SELECT\n TextLabel = BasePower\nEnd\n\
+                 CommandButton StopSelected\n Command = STOP\n Options = OK_FOR_MULTI_SELECT\nEnd\n\
+                 CommandButton AttackMoveSelected\n Command = ATTACK_MOVE\n Options = OK_FOR_MULTI_SELECT\nEnd\n\
                  CommandSet Rank1\n 1 = BuyShared\nEnd\nCommandSet Rank3\nEnd\nCommandSet Rank8\nEnd\n\
+                 CommandSet SharedSet\n 1 = UseShared\n 2 = StopSelected\n 3 = AttackMoveSelected\nEnd\n\
                  PlayerTemplate FactionAmerica\n StartMoney = {money}\n IntrinsicSciences = SCIENCE_Root\n PurchaseScienceCommandSetRank1 = Rank1\n PurchaseScienceCommandSetRank3 = Rank3\n PurchaseScienceCommandSetRank8 = Rank8\nEnd\n",
                 if money == 1300 { 1 } else { 5 }
             ),
@@ -102,12 +132,61 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
     let mut peer = world(2200, &peer_map);
     assert_eq!(first.get_player(1).unwrap().resources.supplies, 1300);
     assert_eq!(peer.get_player(1).unwrap().resources.supplies, 2400);
+    let selected = first
+        .create_object_for_player("SelectedObject", 1, glam::Vec3::ZERO)
+        .unwrap();
+    first
+        .get_player_mut(1)
+        .unwrap()
+        .selected_objects
+        .push(selected);
+    let object = first.host_object_mut(selected).unwrap();
+    object.selected = true;
+    object.status.selected = true;
     let first_frame =
         generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut first, 1);
+    assert_eq!(first_frame.selected_command_set_name(), Some("SharedSet"));
     let peer_frame =
         generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut peer, 1);
+    // A foreign Core object under the same numeric registry key must not
+    // decide this host object's selection or command set.
+    let foreign_object = gamelogic::object::Object::new(
+        std::sync::Arc::new(gamelogic::common::DefaultThingTemplate::new(
+            "Foreign".into(),
+        )),
+        gamelogic::common::types::ObjectStatusMaskType::empty(),
+        None,
+    )
+    .unwrap();
+    assert!(!foreign_object.read().unwrap().is_locally_controlled());
+    foreign_object.write().unwrap().set_script_status(
+        gamelogic::object::ObjectScriptStatusBit::ScriptDisabled,
+        true,
+    );
+    let foreign_entry = ForeignRegistryEntry {
+        id: selected.0,
+        previous: gamelogic::object::registry::OBJECT_REGISTRY.get_object(selected.0),
+        installed: foreign_object,
+    };
+    gamelogic::object::registry::OBJECT_REGISTRY
+        .register_object(selected.0, &foreign_entry.installed);
     let mut first_bar = game_client::gui::control_bar::ControlBar::new();
     let mut peer_bar = game_client::gui::control_bar::ControlBar::new();
+    let actions = |path: &std::path::Path| {
+        use game_engine::common::rts::science::{ScienceNameFacts, ScienceStore};
+        use game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions;
+        let source = std::fs::read_to_string(path.parent().unwrap().join("Map.ini")).unwrap();
+        let mut sciences = ScienceStore::new_owned();
+        sciences.apply_override_text(&source).unwrap();
+        let mut actions = ReceivingActionDefinitions::default();
+        actions
+            .apply_source(&source, &ScienceNameFacts::from_store(&sciences))
+            .unwrap();
+        std::sync::Arc::new(actions)
+    };
+    let upgrades = gamelogic::upgrade::center::UpgradeCenter::new();
+    first_bar.set_receiving_upgrade_definitions(&upgrades, Some(actions(&first_map)));
+    peer_bar.set_receiving_upgrade_definitions(&upgrades, Some(actions(&peer_map)));
     let mut first_client = game_client::core::GameClient::new().unwrap();
     let mut peer_client = game_client::core::GameClient::new().unwrap();
     first_client
@@ -130,6 +209,17 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
     assert_eq!(peer_button.command_name, "BuyShared");
     assert!(first_button.is_enabled && !first_button.is_hidden);
     assert!(!peer_button.is_enabled && !peer_button.is_hidden);
+    assert_eq!(
+        first_bar.command_availability("StopSelected"),
+        Some(game_client::gui::control_bar::CommandAvailability::Available),
+    );
+    let selected_command = first_bar
+        .get_context()
+        .available_commands
+        .iter()
+        .find(|command| command.command_name == "UseShared")
+        .unwrap();
+    assert!(selected_command.button_hidden);
     first.queue_command(generals_main::command_system::GameCommand {
         command_type: generals_main::command_system::CommandType::PurchaseScience {
             science_name: "SCIENCE_Shared".into(),
@@ -156,6 +246,67 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
     });
     assert!(first_bar.get_science_state().rank1_buttons[0].is_purchased);
     assert!(!peer_bar.get_science_state().rank1_buttons[0].is_purchased);
+    let selected_command = first_bar
+        .get_context()
+        .available_commands
+        .iter()
+        .find(|command| command.command_name == "UseShared")
+        .unwrap();
+    assert!(!selected_command.button_hidden);
+    assert_eq!(selected_command.button_image, "SharedRankImage");
+    assert_eq!(selected_command.text_label, "SharedRankLabel");
+
+    let second = first
+        .create_object_for_player("SelectedObject", 1, glam::Vec3::ZERO)
+        .unwrap();
+    first
+        .get_player_mut(1)
+        .unwrap()
+        .selected_objects
+        .push(second);
+    let second_object = first.host_object_mut(second).unwrap();
+    second_object.selected = true;
+    second_object.status.selected = true;
+    first
+        .host_object_mut(selected)
+        .unwrap()
+        .status
+        .disabled_paralyzed = true;
+    let multi_frame =
+        generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut first, 1);
+    first_client.with_window_event_effects(None, |effects| {
+        effects.with_manager(|manager, effects| {
+            multi_frame.apply_to_control_bar(&mut first_bar, manager, effects)
+        });
+    });
+    assert!(
+        first_bar
+            .get_context()
+            .available_commands
+            .iter()
+            .any(|command| { command.command_name == "UseShared" && !command.button_hidden })
+    );
+    assert_eq!(
+        first_bar.command_availability("AttackMoveSelected"),
+        Some(game_client::gui::control_bar::CommandAvailability::Available),
+        "the healthy second selected object can still receive the command",
+    );
+    first.host_object_mut(second).unwrap().command_set_override = Some("MissingSet".into());
+    let missing_frame =
+        generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut first, 1);
+    first_client.with_window_event_effects(None, |effects| {
+        effects.with_manager(|manager, effects| {
+            missing_frame.apply_to_control_bar(&mut first_bar, manager, effects)
+        });
+    });
+    assert!(
+        first_bar
+            .get_context()
+            .available_commands
+            .iter()
+            .all(|command| command.button_hidden)
+    );
+    drop(foreign_entry);
     assert_eq!(
         get_player_template_store_mut()
             .find_template("FactionAmerica")

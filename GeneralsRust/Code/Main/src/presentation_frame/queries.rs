@@ -781,14 +781,11 @@ impl PresentationFrame {
         }
     }
 
-    /// Command-set names for current multi-selection (override or ThingFactory template).
-    /// Empty entries omitted; used to populate ControlBar without OBJECT_REGISTRY.
+    /// Each selected object's frozen command set, including empty sets.
+    /// A missing set must clear the multi-selection intersection.
     pub fn selected_command_set_names(&self) -> Vec<String> {
-        // Wave 1105: multi-select command-set residual fail-closed on sold/
-        // unselectable/masked/disabled (not only destroyed).
-        let usable = |o: &&RenderableObject| {
-            !o.destroyed && !o.sold && !o.unselectable && !o.masked && !o.disabled
-        };
+        let usable =
+            |o: &&RenderableObject| !o.destroyed && !o.sold && !o.unselectable && !o.masked;
         let ids: Vec<ObjectId> = if !self.selected.is_empty() {
             self.selected.clone()
         } else {
@@ -803,22 +800,11 @@ impl PresentationFrame {
             let Some(ro) = self.objects.iter().find(|o| o.id == id && usable(&o)) else {
                 continue;
             };
-            // Prefer freeze from build_from_logic; resolve only if older frames lack it.
-            if !ro.command_set_name.is_empty() {
-                names.push(ro.command_set_name.clone());
-                continue;
-            }
-            let override_name = ro.command_set_override.as_str();
-            if let Some(cs) = crate::ui::construction_panel::resolve_command_set_name(
-                &ro.template_name,
-                if override_name.is_empty() {
-                    None
-                } else {
-                    Some(override_name)
-                },
-            ) {
-                names.push(cs);
-            }
+            names.push(if ro.command_set_name.is_empty() {
+                ro.command_set_override.clone()
+            } else {
+                ro.command_set_name.clone()
+            });
         }
         names
     }

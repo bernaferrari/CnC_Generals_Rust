@@ -93,6 +93,21 @@ pub struct PresentationFrame {
     #[serde(skip)]
     pub(crate) purchase_science:
         [Vec<game_client::gui::control_bar::control_bar::ScienceButtonState>; 3],
+    /// Science facts of each possible selected-object controller in this frame.
+    #[cfg(feature = "game_client")]
+    #[serde(skip)]
+    pub(crate) selected_players: std::collections::HashMap<
+        u32,
+        game_client::gui::control_bar::control_bar::SelectedPlayerFacts,
+    >,
+    /// Inventory portraits include hidden passengers, owned by this frame.
+    #[cfg(feature = "game_client")]
+    #[serde(skip)]
+    pub(crate) inventory_occupants:
+        std::collections::HashMap<u32, game_client::gui::control_bar::StructureInventoryOccupant>,
+    #[cfg(feature = "game_client")]
+    #[serde(skip)]
+    pub(crate) disabled_only_underpowered: std::collections::HashSet<u32>,
     /// InGameUI PublicTimer superweapon countdown residual (local player).
     /// Fail-closed: not full font flash / multi-CC SW map / script hide.
     pub superweapon_timers: Vec<PresentationSuperweaponTimer>,

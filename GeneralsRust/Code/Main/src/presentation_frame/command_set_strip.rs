@@ -498,19 +498,7 @@ impl PresentationFrame {
         }
         contained
             .iter()
-            .map(
-                |id| match self.objects.iter().find(|o| o.id == *id && !o.destroyed) {
-                    Some(occ) => game_client::gui::control_bar::occupant_from_presentation(
-                        occ.id.0,
-                        &occ.template_name,
-                        presentation_veterancy_overlay(occ.veterancy),
-                    ),
-                    None => game_client::gui::control_bar::StructureInventoryOccupant {
-                        object_id: id.0,
-                        ..Default::default()
-                    },
-                },
-            )
+            .filter_map(|id| self.inventory_occupants.get(&id.0).cloned())
             .collect()
     }
 
@@ -518,21 +506,10 @@ impl PresentationFrame {
     fn populate_ocl_timer_strip(&self, ro: &RenderableObject) -> Vec<UnitCommandButton> {
         use game_client::gui::control_bar::control_bar_ocl_timer::{
             OclTimerButtonKind, format_ocl_timer_display, ocl_timer_button_kind,
-            ocl_timer_kind_for_object,
         };
-        let leftover_kind = ocl_timer_kind_for_object(ro.id.0);
-        let kind = if leftover_kind != OclTimerButtonKind::Hidden {
-            leftover_kind
-        } else {
-            let is_tech = Self::object_has_kind(ro, crate::game_logic::KindOf::TechBuilding);
-            let is_rally = Self::object_has_kind(ro, crate::game_logic::KindOf::AutoRallypoint);
-            if is_tech || is_rally {
-                ocl_timer_button_kind(is_tech, is_rally)
-            } else {
-                // Unknown leftover + no presentation tech bits: supply-drop Sell.
-                OclTimerButtonKind::Sell
-            }
-        };
+        let is_tech = Self::object_has_kind(ro, crate::game_logic::KindOf::TechBuilding);
+        let is_rally = Self::object_has_kind(ro, crate::game_logic::KindOf::AutoRallypoint);
+        let kind = ocl_timer_button_kind(is_tech, is_rally);
         let (text, _) = format_ocl_timer_display(ro.ocl_timer_seconds, 0.0);
         let mut cmds = vec![UnitCommandButton {
             command_name: String::new(),
@@ -773,7 +750,7 @@ fn intersect_command_set_slots(
     for name in set_names {
         let name = name.trim();
         if name.is_empty() {
-            continue;
+            return vec![None; 14];
         }
         let Some(slots) = command_set_slots_for(name, name, overrides) else {
             // C++ clears the shared set when a selected object has no CommandSet.

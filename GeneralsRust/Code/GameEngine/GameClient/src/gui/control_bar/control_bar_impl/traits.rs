@@ -80,8 +80,12 @@ impl ControlBar {
         self.presentation_money = None;
         self.presentation_power = (0, 0);
         self.presentation_can_make.clear();
+        self.presentation_buildable_hidden.clear();
         self.presentation_unlocked_sciences.clear();
         self.presentation_science_ids = None;
+        self.presentation_selected_player = None;
+        self.presentation_selected_context = None;
+        self.presentation_selected_objects.clear();
         #[cfg(test)]
         {
             self.last_science_transition_group = None;

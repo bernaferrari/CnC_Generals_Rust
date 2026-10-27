@@ -172,6 +172,36 @@ pub struct ScienceButtonState {
     pub is_purchased: bool,
 }
 
+/// Immutable facts for the selected object's controlling player.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SelectedPlayerFacts {
+    pub science_ids: Vec<ScienceType>,
+    pub purchase_command_sets: [String; 3],
+    pub beacon_template: String,
+}
+
+/// Facts owned by the frame for its first selected object.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SelectedContextFacts {
+    pub controllable: bool,
+    pub beacon: bool,
+    pub neutral_garrison: bool,
+    pub garrisonable: bool,
+    pub ocl_timer_kind: Option<super::control_bar_ocl_timer::OclTimerButtonKind>,
+    pub disabled: bool,
+    pub disabled_only_underpowered: bool,
+}
+
+/// Per-object inputs to the common-command availability pass.
+#[derive(Debug, Clone)]
+pub struct SelectedObjectCommandFacts {
+    pub object_id: u32,
+    pub context: SelectedContextFacts,
+    pub availability: PresentationAvailabilityResidual,
+    pub special_power_ready: bool,
+    pub ignored_in_gui: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct SpecialPowerShortcutState {
     pub command_name: String,
@@ -282,6 +312,8 @@ pub struct ControlBar {
     presentation_sold: bool,
     /// C++ areSelectedObjectsControllable residual from PresentationFrame.
     presentation_selection_controllable: bool,
+    presentation_selected_context: Option<SelectedContextFacts>,
+    presentation_selected_objects: HashMap<u32, SelectedObjectCommandFacts>,
     /// Construction percent residual from PresentationFrame (0..1).
     presentation_construction_percent: f32,
     /// OCL timer seconds residual from PresentationFrame.
@@ -296,10 +328,12 @@ pub struct ControlBar {
     last_displayed_money: i32,
     /// Presentation CanMake residual (template → CANMAKE_* ordinal).
     presentation_can_make: Vec<(String, u32)>,
+    presentation_buildable_hidden: Vec<String>,
     /// Frozen science ownership used when the live host has no crate Player.
     presentation_unlocked_sciences: Vec<String>,
     /// Native frame membership; Some(empty) is an authoritative empty set.
     presentation_science_ids: Option<Box<[ScienceType]>>,
+    presentation_selected_player: Option<SelectedPlayerFacts>,
     #[cfg(test)]
     last_science_transition_group: Option<&'static str>,
     /// C++ ControlBar::init runs switchToContext(CB_CONTEXT_NONE) once

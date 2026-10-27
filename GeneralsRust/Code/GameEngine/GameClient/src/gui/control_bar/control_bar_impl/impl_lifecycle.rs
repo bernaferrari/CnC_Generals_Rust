@@ -61,6 +61,8 @@ impl ControlBar {
             presentation_under_construction: false,
             presentation_sold: false,
             presentation_selection_controllable: true,
+            presentation_selected_context: None,
+            presentation_selected_objects: HashMap::new(),
             presentation_construction_percent: 0.0,
             presentation_ocl_timer_seconds: 0,
             displayed_construct_percent: -1.0,
@@ -69,8 +71,10 @@ impl ControlBar {
             presentation_power: (0, 0),
             last_displayed_money: -1,
             presentation_can_make: Vec::new(),
+            presentation_buildable_hidden: Vec::new(),
             presentation_unlocked_sciences: Vec::new(),
             presentation_science_ids: None,
+            presentation_selected_player: None,
             #[cfg(test)]
             last_science_transition_group: None,
             ingame_entry_context_applied: false,
@@ -125,6 +129,18 @@ impl ControlBar {
     /// C++ InGameUI::areSelectedObjectsControllable residual from live host.
     pub fn sync_selection_controllable_from_presentation(&mut self, controllable: bool) {
         self.presentation_selection_controllable = controllable;
+    }
+
+    /// Bind selection facts to this bar's receiving presentation frame.
+    pub fn apply_presentation_selected_context(&mut self, facts: SelectedContextFacts) {
+        self.presentation_selected_context = Some(facts);
+    }
+
+    pub fn apply_presentation_selected_objects(&mut self, facts: Vec<SelectedObjectCommandFacts>) {
+        self.presentation_selected_objects = facts
+            .into_iter()
+            .map(|facts| (facts.object_id, facts))
+            .collect();
     }
 
     // ---------------------------------------------------------------------------
@@ -337,18 +353,20 @@ impl ControlBar {
         // Host/presentation path: Main feeds selection via
         // sync_selection_display_from_presentation (no OBJECT_REGISTRY).
         // Dual-world registry is opt-in; do not wipe context when registry empty.
-        let registry_exists = OBJECT_REGISTRY
-            .get_object(first_id)
-            .map(|arc| arc.read().is_ok())
-            .unwrap_or(false);
+        let receiving_frame = self.presentation_selected_context.is_some();
+        let registry_exists = !receiving_frame
+            && OBJECT_REGISTRY
+                .get_object(first_id)
+                .map(|arc| arc.read().is_ok())
+                .unwrap_or(false);
         let presentation_selection_active =
             self.portrait_state.is_visible && self.portrait_state.selected_count > 0;
-        if !registry_exists && !presentation_selection_active {
+        if !receiving_frame && !registry_exists && !presentation_selection_active {
             self.switch_to_context(ControlBarState::None, None, receiving_manager, effects)?;
             return Ok(());
         }
         // Host/presentation still runs command/queue/inventory updates.
-        if !registry_exists {
+        if !receiving_frame && !registry_exists {
             match current_state {
                 ControlBarState::Command => {
                     self.update_context_command(receiving_manager, effects)?;
@@ -528,6 +546,10 @@ impl ControlBar {
         self.presentation_can_make = cameos.to_vec();
     }
 
+    pub fn apply_presentation_buildable_hidden(&mut self, names: Vec<String>) {
+        self.presentation_buildable_hidden = names;
+    }
+
     /// The live host supplies this game's local player sciences.
     pub fn apply_presentation_science_hide_names(&mut self, names: &[String]) {
         self.presentation_unlocked_sciences = names.to_vec();
@@ -536,6 +558,11 @@ impl ControlBar {
     /// Install the exact science identities supplied by this frame's owner.
     pub fn apply_presentation_science_ids(&mut self, sciences: Option<&[ScienceType]>) {
         self.presentation_science_ids = sciences.map(|ids| ids.into());
+    }
+
+    /// Install the controlling player of this frame's selected object.
+    pub fn apply_presentation_selected_player(&mut self, owner: Option<SelectedPlayerFacts>) {
+        self.presentation_selected_player = owner;
     }
 
     pub fn presentation_can_make(&self) -> &[(String, u32)] {
@@ -679,6 +706,9 @@ impl ControlBar {
 
     /// C++ InGameUI.cpp:4116 — first selected drawable's isLocallyControlled.
     fn first_selected_is_controllable(&self, obj_id: u32) -> bool {
+        if let Some(facts) = self.presentation_selected_context {
+            return facts.controllable;
+        }
         if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
             if let Ok(obj) = obj_arc.read() {
                 return obj.is_locally_controlled();
@@ -688,6 +718,9 @@ impl ControlBar {
     }
 
     fn first_selected_is_beacon(&self, obj_id: u32) -> bool {
+        if let Some(facts) = self.presentation_selected_context {
+            return facts.beacon;
+        }
         if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
             if let Ok(obj) = obj_arc.read() {
                 if Self::presentation_name_is_beacon(obj.get_template_name())
@@ -712,6 +745,9 @@ impl ControlBar {
 
     /// C++ evaluateContextUI: only NEUTRAL garrisonable containers peek past NONE.
     fn non_controllable_neutral_garrison_peek(&self, obj_id: u32) -> bool {
+        if let Some(facts) = self.presentation_selected_context {
+            return facts.neutral_garrison;
+        }
         if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
             if let Ok(obj) = obj_arc.read() {
                 let Some(contain) = obj.get_contain() else {
@@ -845,6 +881,35 @@ impl ControlBar {
             self.context = context;
             return Ok(());
         };
+
+        if let Some(facts) = self.presentation_selected_context {
+            // The frozen frame belongs to this session. A same-ID Core object
+            // or translator entry may belong to another session.
+            context.current_state = if self.presentation_under_construction {
+                ControlBarState::UnderConstruction
+            } else if facts.garrisonable && self.presentation_primary_command_set.is_empty() {
+                ControlBarState::StructureInventory
+            } else if self.presentation_ocl_timer_seconds > 0 {
+                ControlBarState::OclTimer
+            } else if !self.presentation_primary_command_set.is_empty() {
+                ControlBarState::Command
+            } else if facts.beacon {
+                ControlBarState::Beacon
+            } else {
+                ControlBarState::None
+            };
+            if matches!(
+                context.current_state,
+                ControlBarState::Command | ControlBarState::StructureInventory
+            ) {
+                reveal_ingame_command_window(receiving_manager);
+            }
+            if context.current_state != ControlBarState::None {
+                self.rebuild_command_buttons(&mut context, receiving_manager)?;
+            }
+            self.context = context;
+            return Ok(());
+        }
 
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
             // Presentation-only selection residual (host path, no dual-world registry).

@@ -725,65 +725,11 @@ impl ControlBar {
         if let Some(first) = command_set_names.first() {
             self.presentation_primary_command_set = first.clone();
         }
-        if let Some(actions) = self.receiving_upgrade_actions.clone() {
-            let mut common_slots =
-                vec![None::<String>; gamelogic::command_button::MAX_COMMANDS_PER_SET];
-            let mut saw_first = false;
-            for name in command_set_names {
-                let name = name.trim();
-                if name.is_empty() {
-                    continue;
-                }
-                let Some(set) = actions.sets.find_command_set_resolved(name).or_else(|| {
-                    actions
-                        .sets
-                        .find_command_set_resolved(&name.to_ascii_uppercase())
-                }) else {
-                    common_slots.fill(None);
-                    saw_first = true;
-                    break;
-                };
-                for (slot, common) in common_slots.iter_mut().enumerate() {
-                    let candidate = set.get_button_at_position(slot);
-                    let definition = candidate
-                        .and_then(|name| actions.buttons.find_command_button_resolved(name));
-                    if !saw_first {
-                        if definition.is_some_and(|button| {
-                            (button.options_bits & CommandOption::OkForMultiSelect as u32) != 0
-                        }) {
-                            *common = candidate.cloned();
-                        }
-                        continue;
-                    }
-                    let is_attack_move = |name: Option<&str>| {
-                        name.and_then(|name| actions.buttons.find_command_button_resolved(name))
-                            .is_some_and(|button| {
-                                map_gui_command_to_command_type(&button.command)
-                                    == CommandType::DoAttackMoveTo
-                            })
-                    };
-                    if is_attack_move(candidate.map(String::as_str))
-                        || is_attack_move(common.as_deref())
-                    {
-                        if common.is_none() {
-                            *common = candidate.cloned();
-                        }
-                    } else if candidate != common.as_ref() {
-                        *common = None;
-                    }
-                }
-                saw_first = true;
-            }
-            if saw_first {
-                self.context.current_state = ControlBarState::MultiSelect;
-                self.context.available_commands = common_slots
-                    .iter()
-                    .take(14)
-                    .map(|name| self.command_from_receiving_slot(&actions, name.as_deref()))
-                    .collect();
-                self.context.ui_dirty = true;
-                self.mark_ui_dirty();
-            }
+        if let Some(commands) = self.receiving_multi_selection_commands(command_set_names) {
+            self.context.current_state = ControlBarState::MultiSelect;
+            self.context.available_commands = commands;
+            self.context.ui_dirty = true;
+            self.mark_ui_dirty();
             return;
         }
         let Some(control_bar) = get_control_bar_bridge() else {
@@ -904,6 +850,12 @@ impl ControlBar {
         if under_construction {
             self.displayed_construct_percent = self.presentation_construction_percent;
         }
+        if self.presentation_selected_context.is_some() {
+            self.context.last_recorded_inventory_count = garrisoned_count as u32;
+            self.context.ui_dirty = true;
+            self.mark_ui_dirty();
+            return;
+        }
         let mut inventory_synced = false;
         {
             let mut context = &mut self.context;
@@ -928,6 +880,8 @@ impl ControlBar {
                         max_garrison,
                         garrisoned_count,
                         &self.presentation_occupants,
+                        None,
+                        false,
                     );
                 } else {
                     let _ = super::control_bar_structure_inventory::do_transport_inventory_ui(
@@ -935,6 +889,7 @@ impl ControlBar {
                         max_garrison,
                         garrisoned_count,
                         &self.presentation_occupants,
+                        None,
                     );
                 }
                 context.ui_dirty = true;
@@ -968,14 +923,28 @@ impl ControlBar {
             // rewrites the countdown text. The host presentation path feeds
             // seconds here, so the window must reveal from this sync too —
             // the registry-empty update lane cannot be the only writer.
-            let obj_id = self.context.selected_objects.first().copied();
-            if let Some(obj_id) = obj_id {
+            let kind = self
+                .presentation_selected_context
+                .and_then(|facts| facts.ocl_timer_kind)
+                .or_else(|| {
+                    self.presentation_selected_context
+                        .is_none()
+                        .then(|| {
+                            self.context
+                                .selected_objects
+                                .first()
+                                .copied()
+                                .map(super::control_bar_ocl_timer::ocl_timer_kind_for_object)
+                        })
+                        .flatten()
+                });
+            if let Some(kind) = kind {
                 let (text, progress) =
                     super::control_bar_ocl_timer::format_ocl_timer_display(seconds, 0.0);
                 super::control_bar_ocl_timer::apply_ocl_timer_windows(
                     &text,
                     progress,
-                    super::control_bar_ocl_timer::ocl_timer_kind_for_object(obj_id),
+                    kind,
                     receiving_manager,
                 );
             }

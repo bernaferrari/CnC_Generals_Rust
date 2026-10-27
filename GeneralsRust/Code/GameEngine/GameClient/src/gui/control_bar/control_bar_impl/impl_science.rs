@@ -2624,6 +2624,12 @@ impl ControlBar {
         self.button_states.get(command_name)
     }
 
+    pub fn command_availability(&self, command_name: &str) -> Option<CommandAvailability> {
+        self.button_states
+            .get(command_name)
+            .map(|state| state.availability)
+    }
+
     pub fn is_ui_dirty(&self) -> bool {
         self.ui_dirty
     }

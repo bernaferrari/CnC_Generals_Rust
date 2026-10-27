@@ -40,33 +40,60 @@ impl ControlBar {
 
         let mut objects_that_can: Vec<u32> = vec![0; buttons.len()];
         for obj_id in &selected {
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) {
-                if let Ok(obj) = obj_arc.read() {
-                    if obj.is_kind_of(KindOf::IgnoredInGui) {
-                        continue;
+            let saved = if self.presentation_selected_context.is_some() {
+                let Some(facts) = self.presentation_selected_objects.get(obj_id).cloned() else {
+                    continue;
+                };
+                if facts.ignored_in_gui {
+                    continue;
+                }
+                let old_context = self.presentation_selected_context.replace(facts.context);
+                let old_availability =
+                    std::mem::replace(&mut self.presentation_availability, facts.availability);
+                let old_ready = std::mem::replace(
+                    &mut self.portrait_state.special_power_ready,
+                    facts.special_power_ready,
+                );
+                Some((old_context, old_availability, old_ready))
+            } else {
+                if let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) {
+                    if let Ok(obj) = obj_arc.read() {
+                        if obj.is_kind_of(KindOf::IgnoredInGui) {
+                            continue;
+                        }
                     }
                 }
+                None
+            };
+            let result = (|| -> Result<(), Box<dyn std::error::Error>> {
+                for (i, button) in buttons.iter().enumerate() {
+                    if button.button_hidden || button.command_name.is_empty() {
+                        continue;
+                    }
+                    if !self.button_states[&button.command_name].visible {
+                        continue;
+                    }
+                    let window_name = format!("ControlBar.wnd:ButtonCommand{:02}", i + 1);
+                    let availability = self.get_command_availability(button, *obj_id, player_id)?;
+                    if self.record_multi_select_button_availability(button, availability) {
+                        objects_that_can[i] += 1;
+                    }
+                    if availability == CommandAvailability::Hidden {
+                        (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
+                            if let Some(win) = receiving_manager.find_window_by_name(&window_name) {
+                                let _ = win.borrow_mut().hide(true, receiving_manager);
+                            }
+                        })(receiving_manager);
+                    }
+                }
+                Ok(())
+            })();
+            if let Some((context, availability, ready)) = saved {
+                self.presentation_selected_context = context;
+                self.presentation_availability = availability;
+                self.portrait_state.special_power_ready = ready;
             }
-            for (i, button) in buttons.iter().enumerate() {
-                if button.button_hidden || button.command_name.is_empty() {
-                    continue;
-                }
-                if !self.button_states[&button.command_name].visible {
-                    continue;
-                }
-                let window_name = format!("ControlBar.wnd:ButtonCommand{:02}", i + 1);
-                let availability = self.get_command_availability(button, *obj_id, player_id)?;
-                if self.record_multi_select_button_availability(button, availability) {
-                    objects_that_can[i] += 1;
-                }
-                if availability == CommandAvailability::Hidden {
-                    (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
-                        if let Some(win) = receiving_manager.find_window_by_name(&window_name) {
-                            let _ = win.borrow_mut().hide(true, receiving_manager);
-                        }
-                    })(receiving_manager);
-                }
-            }
+            result?;
         }
 
         for (i, button) in buttons.iter().enumerate() {
@@ -242,6 +269,10 @@ impl ControlBar {
         let Some(object_id) = selected_object else {
             return Ok(());
         };
+        if self.presentation_selected_context.is_some() {
+            self.context.last_recorded_inventory_count = self.presentation_garrisoned_count as u32;
+            return Ok(());
+        }
         // Wave 1027: host empty dual-world peels presentation garrison residual count.
         // Wave 1077: catalog occupant residual when freeze count unset; clear on unusable.
         if Self::dual_world_registry_unavailable() {
@@ -327,6 +358,14 @@ impl ControlBar {
             self.populate_beacon_windows(false, "", receiving_manager)?;
             return Ok(());
         };
+        if let Some(facts) = self.presentation_selected_context {
+            self.populate_beacon_windows(
+                facts.controllable && facts.beacon,
+                "",
+                receiving_manager,
+            )?;
+            return Ok(());
+        }
         let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
             // Host presentation residual: beacon UI when command-set freeze says BEACON.
             // Wave 1030: peel translator catalog template/command-set residual too.
@@ -512,7 +551,7 @@ impl ControlBar {
         // get_construct_percent() can overlay later when OBJECT_REGISTRY modules exist.
         // Wave 1029: catalog under_construction residual keeps dual-world UC context live.
         let selected_id = self.context.selected_objects.first().copied().unwrap_or(0);
-        if !self.presentation_under_construction {
+        if self.presentation_selected_context.is_none() && !self.presentation_under_construction {
             if let Some(entry) =
                 crate::presentation_translator_residual::translator_catalog_entry(selected_id)
             {
@@ -524,7 +563,8 @@ impl ControlBar {
         }
         if !(self.presentation_under_construction
             || self.portrait_state.is_visible
-            || OBJECT_REGISTRY.get_object(selected_id).is_some())
+            || (self.presentation_selected_context.is_none()
+                && OBJECT_REGISTRY.get_object(selected_id).is_some()))
         {
             return Ok(());
         }
@@ -580,15 +620,17 @@ impl ControlBar {
         // C++ ControlBarOCLTimer.cpp:116-130: remaining frames + countdown percent.
         let mut remaining_frames: Option<u32> = None;
         let mut countdown_percent: Option<f32> = None;
-        if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
-            if let Ok(obj) = obj_arc.read() {
-                if let Some(handle) = obj.find_update_module("OCLUpdate") {
-                    handle.with_module(|module| {
-                        if let Some(ocl) = module.get_ocl_update_control_interface() {
-                            remaining_frames = Some(ocl.remaining_frames());
-                            countdown_percent = Some(ocl.countdown_percent());
-                        }
-                    });
+        if self.presentation_selected_context.is_none() {
+            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
+                if let Ok(obj) = obj_arc.read() {
+                    if let Some(handle) = obj.find_update_module("OCLUpdate") {
+                        handle.with_module(|module| {
+                            if let Some(ocl) = module.get_ocl_update_control_interface() {
+                                remaining_frames = Some(ocl.remaining_frames());
+                                countdown_percent = Some(ocl.countdown_percent());
+                            }
+                        });
+                    }
                 }
             }
         }
@@ -603,7 +645,16 @@ impl ControlBar {
                 (self.presentation_ocl_timer_seconds, 0.0)
             };
 
-        let button_kind = super::control_bar_ocl_timer::ocl_timer_kind_for_object(obj_id);
+        let button_kind = self
+            .presentation_selected_context
+            .and_then(|facts| facts.ocl_timer_kind)
+            .unwrap_or_else(|| {
+                if self.presentation_selected_context.is_some() {
+                    super::control_bar_ocl_timer::OclTimerButtonKind::Hidden
+                } else {
+                    super::control_bar_ocl_timer::ocl_timer_kind_for_object(obj_id)
+                }
+            });
         if seconds != self.displayed_ocl_timer_seconds {
             self.displayed_ocl_timer_seconds = seconds;
             let (text, progress) =

@@ -171,10 +171,21 @@ impl AdmittedReceivingTemplate {
             self.template.get_sound_on_damaged(),
             self.template.get_sound_on_really_damaged(),
         ]
-        .map(|event| event.map(|event| event.get_event_name()).filter(|name| !name.is_empty()))
+        .map(|event| {
+            event
+                .map(|event| event.get_event_name())
+                .filter(|name| !name.is_empty())
+        })
     }
     pub fn command_set_name(&self) -> &str {
         self.template.get_command_set_string().as_str()
+    }
+    /// Authored image identity, before a presentation owner resolves its pixels.
+    pub fn button_image_name(&self) -> &str {
+        self.template
+            .get_button_image()
+            .map(|image| image.name.as_str())
+            .unwrap_or_else(|| self.template.button_image_name.as_str())
     }
     pub fn buildable_status(&self) -> u32 {
         self.template.get_buildable() as u32

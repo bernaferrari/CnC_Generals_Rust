@@ -129,3 +129,48 @@ pub(super) fn freeze(logic: &GameLogic, player_id: u32) -> [Vec<ScienceButtonSta
         freeze_set(rank8, MAX_PURCHASE_SCIENCE_RANK_8),
     ]
 }
+
+/// Capture each player's science membership and template facts once; the
+/// selected object later identifies which record the command bar observes.
+pub(super) fn freeze_selected_owners(
+    logic: &GameLogic,
+) -> std::collections::HashMap<u32, game_client::gui::control_bar::control_bar::SelectedPlayerFacts>
+{
+    let content = logic.receiving_module_content.as_ref();
+    logic
+        .get_players()
+        .iter()
+        .map(|(&id, player)| {
+            let mut science_ids = player
+                .unlocked_sciences
+                .iter()
+                .filter_map(|name| content.and_then(|content| content.science_type(name)))
+                .collect::<Vec<_>>();
+            science_ids.sort_unstable();
+            science_ids.dedup();
+            let template = logic
+                .player_template_definitions
+                .as_ref()
+                .and_then(|store| logic.player_template_identity(id)?.resolve_in(store));
+            let purchase_command_sets = template
+                .map(|template| {
+                    [
+                        template.get_purchase_science_command_set_rank1().to_owned(),
+                        template.get_purchase_science_command_set_rank3().to_owned(),
+                        template.get_purchase_science_command_set_rank8().to_owned(),
+                    ]
+                })
+                .unwrap_or_default();
+            (
+                id,
+                game_client::gui::control_bar::control_bar::SelectedPlayerFacts {
+                    science_ids,
+                    purchase_command_sets,
+                    beacon_template: template
+                        .map(|template| template.get_beacon_template().to_owned())
+                        .unwrap_or_default(),
+                },
+            )
+        })
+        .collect()
+}

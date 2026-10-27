@@ -21,6 +21,37 @@ impl ControlBar {
             return Ok(());
         }
 
+        if let Some(actions) = self.receiving_upgrade_actions.as_deref() {
+            let name = self.presentation_primary_command_set.trim();
+            if let Some(set) = actions.sets.find_command_set_resolved(name).or_else(|| {
+                actions
+                    .sets
+                    .find_command_set_resolved(&name.to_ascii_uppercase())
+            }) {
+                context.contain_data.clear();
+                context.contain_data.resize(14, None);
+                context.available_commands = (0..14)
+                    .map(|slot| {
+                        self.command_from_receiving_slot(
+                            actions,
+                            set.get_button_at_position(slot).map(String::as_str),
+                        )
+                    })
+                    .collect();
+                super::control_bar_structure_inventory::do_transport_inventory_ui(
+                    context,
+                    self.presentation_max_garrison,
+                    self.presentation_garrisoned_count,
+                    &self.presentation_occupants,
+                    Some(self.presentation_availability.unmanned),
+                )?;
+            }
+            return Ok(());
+        }
+        if self.presentation_selected_context.is_some() {
+            return Ok(());
+        }
+
         let Some(control_bar) = get_control_bar_bridge() else {
             return Ok(());
         };
@@ -96,6 +127,7 @@ impl ControlBar {
             self.presentation_max_garrison,
             self.presentation_garrisoned_count,
             &self.presentation_occupants,
+            None,
         )?;
         super::control_bar_beacon::append_beacon_commands_with_presentation(
             context,
@@ -108,6 +140,15 @@ impl ControlBar {
         &self,
         context: &mut ControlBarContext,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(commands) =
+            self.receiving_multi_selection_commands(&self.presentation_command_set_names)
+        {
+            context.available_commands = commands;
+            return Ok(());
+        }
+        if self.presentation_selected_context.is_some() {
+            return Ok(());
+        }
         // Presentation residual first (host path has no dual-world registry).
         let mut presentation_names = self.presentation_command_set_names.clone();
         // Wave 1017: dual-world multi-select seeds command-set names from translator catalog.
@@ -155,6 +196,69 @@ impl ControlBar {
         Ok(())
     }
 
+    /// Intersect the selected objects' sets using this bar's definition owner.
+    fn receiving_multi_selection_commands(&self, names: &[String]) -> Option<Vec<CommandButton>> {
+        let actions = self.receiving_upgrade_actions.as_deref()?;
+        let mut common = vec![None::<String>; gamelogic::command_button::MAX_COMMANDS_PER_SET];
+        let mut saw_first = false;
+        for name in names {
+            let name = name.trim();
+            let set = (!name.is_empty())
+                .then(|| {
+                    actions.sets.find_command_set_resolved(name).or_else(|| {
+                        actions
+                            .sets
+                            .find_command_set_resolved(&name.to_ascii_uppercase())
+                    })
+                })
+                .flatten();
+            let Some(set) = set else {
+                common.fill(None);
+                saw_first = true;
+                break;
+            };
+            for (slot, shared) in common.iter_mut().enumerate() {
+                let candidate = set.get_button_at_position(slot);
+                let definition =
+                    candidate.and_then(|name| actions.buttons.find_command_button_resolved(name));
+                if !saw_first {
+                    if definition.is_some_and(|button| {
+                        (button.options_bits & CommandOption::OkForMultiSelect as u32) != 0
+                    }) {
+                        *shared = candidate.cloned();
+                    }
+                    continue;
+                }
+                let is_attack_move = |name: Option<&str>| {
+                    name.and_then(|name| actions.buttons.find_command_button_resolved(name))
+                        .is_some_and(|button| {
+                            map_gui_command_to_command_type(&button.command)
+                                == CommandType::DoAttackMoveTo
+                        })
+                };
+                if is_attack_move(candidate.map(String::as_str))
+                    || is_attack_move(shared.as_deref())
+                {
+                    if shared.is_none() {
+                        *shared = candidate.cloned();
+                    }
+                } else if candidate != shared.as_ref() {
+                    *shared = None;
+                }
+            }
+            saw_first = true;
+        }
+        Some(if saw_first {
+            common
+                .iter()
+                .take(14)
+                .map(|name| self.command_from_receiving_slot(actions, name.as_deref()))
+                .collect()
+        } else {
+            Vec::new()
+        })
+    }
+
     fn add_observer_commands(
         &self,
         context: &mut ControlBarContext,
@@ -167,7 +271,21 @@ impl ControlBar {
         &self,
         context: &mut ControlBarContext,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        super::control_bar_under_construction::populate_under_construction_commands(context)?;
+        if self.presentation_selected_context.is_some() {
+            if let Some(definition) =
+                self.receiving_upgrade_actions
+                    .as_deref()
+                    .and_then(|actions| {
+                        actions
+                            .buttons
+                            .find_command_button_resolved("Command_CancelConstruction")
+                    })
+            {
+                Self::push_command_if_missing(context, Self::command_from_definition(definition));
+            }
+        } else {
+            super::control_bar_under_construction::populate_under_construction_commands(context)?;
+        }
         Ok(())
     }
 
@@ -180,6 +298,8 @@ impl ControlBar {
             self.presentation_max_garrison,
             self.presentation_garrisoned_count,
             &self.presentation_occupants,
+            self.receiving_upgrade_actions.as_deref(),
+            self.presentation_selected_context.is_some(),
         )?;
         Ok(())
     }
@@ -188,6 +308,25 @@ impl ControlBar {
         &self,
         context: &mut ControlBarContext,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(facts) = self.presentation_selected_context {
+            if facts.controllable && facts.beacon {
+                if let Some(definition) =
+                    self.receiving_upgrade_actions
+                        .as_deref()
+                        .and_then(|actions| {
+                            actions
+                                .buttons
+                                .find_command_button_resolved("Command_BeaconDelete")
+                        })
+                {
+                    Self::push_command_if_missing(
+                        context,
+                        Self::command_from_definition(definition),
+                    );
+                }
+            }
+            return Ok(());
+        }
         super::control_bar_beacon::append_beacon_commands_with_presentation(
             context,
             &self.presentation_primary_command_set,
@@ -199,6 +338,23 @@ impl ControlBar {
         &self,
         context: &mut ControlBarContext,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(facts) = self.presentation_selected_context {
+            let name = match facts.ocl_timer_kind {
+                Some(super::control_bar_ocl_timer::OclTimerButtonKind::Sell) => "Command_Sell",
+                Some(super::control_bar_ocl_timer::OclTimerButtonKind::RallyPoint) => {
+                    "Command_SetRallyPoint"
+                }
+                _ => return Ok(()),
+            };
+            if let Some(definition) = self
+                .receiving_upgrade_actions
+                .as_deref()
+                .and_then(|actions| actions.buttons.find_command_button_resolved(name))
+            {
+                Self::push_command_if_missing(context, Self::command_from_definition(definition));
+            }
+            return Ok(());
+        }
         // C++ ControlBarOCLTimer.cpp:55 populateOCLTimer:
         // Adds Command_Sell for non-tech buildings, Command_SetRallyPoint for
         // tech buildings with AUTO_RALLYPOINT, or hides the button.
@@ -337,30 +493,13 @@ impl ControlBar {
             return Self::hidden_slot_button();
         }
         let mut command = Self::command_from_definition(definition);
-        if (command.options & CommandOption::NeedSpecialPowerScience as u32) != 0
-            && !matches!(
-                command.command_type,
-                CommandType::PurchaseScience | CommandType::QueueUpgrade
-            )
-        {
-            let required = actions
-                .powers
-                .find_template(&command.special_power)
-                .map(|power| power.required_science)
-                .unwrap_or(SCIENCE_INVALID);
-            if Self::hide_need_special_power_science(
-                required,
-                self.presentation_player_has_required_science(required),
-            ) {
-                command.button_hidden = true;
-            }
-        }
+        self.apply_receiving_special_power_science(&mut command, actions);
         command
     }
 
     /// C++ `ControlBar::populateCommand` (`ControlBarCommand.cpp:329-343`):
     /// hide NEED_SPECIAL_POWER_SCIENCE only when
-    /// `power->getRequiredScience() != SCIENCE_INVALID` and the local player
+    /// `power->getRequiredScience() != SCIENCE_INVALID` and the controlling player
     /// does not own that science. ScienceVec is never a hide source.
     fn hide_need_special_power_science(
         required_from_power: i32,
@@ -388,12 +527,112 @@ impl ControlBar {
         false
     }
 
+    fn selected_player_has_required_science(&self, required: ScienceType) -> bool {
+        self.presentation_selected_player.as_ref().map_or_else(
+            || self.presentation_player_has_required_science(required),
+            |owner| required == SCIENCE_INVALID || owner.science_ids.contains(&required),
+        )
+    }
+
+    /// PopulateCommand uses the selected object's controller for both the
+    /// RequiredScience gate and its best contiguous purchased-rank art.
+    fn apply_receiving_special_power_science(
+        &self,
+        command: &mut CommandButton,
+        actions: &game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions,
+    ) {
+        if command.options & CommandOption::NeedSpecialPowerScience as u32 == 0
+            || matches!(
+                command.command_type,
+                CommandType::PurchaseScience | CommandType::QueueUpgrade
+            )
+        {
+            return;
+        }
+        let required = actions
+            .powers
+            .find_template(&command.special_power)
+            .map(|power| power.required_science)
+            .unwrap_or(SCIENCE_INVALID);
+        if required == SCIENCE_INVALID {
+            return;
+        }
+        if Self::hide_need_special_power_science(
+            required,
+            self.selected_player_has_required_science(required),
+        ) {
+            command.button_hidden = true;
+            return;
+        }
+        let Some(owner) = &self.presentation_selected_player else {
+            return;
+        };
+        let Some(science) = command
+            .sciences_ids
+            .iter()
+            .copied()
+            .take_while(|science| owner.science_ids.contains(science))
+            .last()
+        else {
+            return;
+        };
+        let names = &owner.purchase_command_sets;
+        if names.iter().any(String::is_empty) {
+            return;
+        }
+        let find_set = |name: &str| {
+            actions.sets.find_command_set_resolved(name).or_else(|| {
+                actions
+                    .sets
+                    .find_command_set_resolved(&name.to_ascii_uppercase())
+            })
+        };
+        let (Some(rank1), Some(rank3), Some(rank8)) = (
+            find_set(&names[0]),
+            find_set(&names[1]),
+            find_set(&names[2]),
+        ) else {
+            return;
+        };
+        for (set, limit) in [rank1, rank3, rank8].into_iter().zip([
+            MAX_PURCHASE_SCIENCE_RANK_1,
+            MAX_PURCHASE_SCIENCE_RANK_3,
+            MAX_PURCHASE_SCIENCE_RANK_8,
+        ]) {
+            for name in set.buttons.iter().take(limit).flatten() {
+                let Some(purchase) = actions.buttons.find_command_button_resolved(name) else {
+                    continue;
+                };
+                if map_gui_command_to_command_type(&purchase.command)
+                    != CommandType::PurchaseScience
+                    || purchase.parsed_science_required.first().copied() != Some(science)
+                {
+                    continue;
+                }
+                command.button_image.clone_from(&purchase.button_image);
+                if !purchase.text_label.is_empty() {
+                    command.text_label.clone_from(&purchase.text_label);
+                }
+                if !purchase.descriptive_text.is_empty() {
+                    command
+                        .descriptive_text
+                        .clone_from(&purchase.descriptive_text);
+                }
+                return;
+            }
+        }
+    }
+
     /// C++ populateCommand NEED_SPECIAL_POWER_SCIENCE hide + copyImagesFrom rank 1/3/8.
     fn apply_need_special_power_science(
         &self,
         cmd: &mut CommandButton,
         logic_button: &gamelogic::command_button::CommandButton,
     ) {
+        if let Some(actions) = &self.receiving_upgrade_actions {
+            self.apply_receiving_special_power_science(cmd, actions);
+            return;
+        }
         if (cmd.options & CommandOption::NeedSpecialPowerScience as u32) == 0 {
             return;
         }
@@ -403,19 +642,13 @@ impl ControlBar {
         ) {
             return;
         }
-        let required = if let Some(actions) = &self.receiving_upgrade_actions {
-            actions
-                .powers
-                .find_template(&cmd.special_power)
-                .map(|power| power.required_science)
-                .unwrap_or(SCIENCE_INVALID)
-        } else {
-            logic_button
-                .get_special_power_template()
-                .map(|sp| sp.get_required_science())
-                .unwrap_or(SCIENCE_INVALID)
-        };
-        let leftover_player = if self.presentation_science_ids.is_some() {
+        let required = logic_button
+            .get_special_power_template()
+            .map(|sp| sp.get_required_science())
+            .unwrap_or(SCIENCE_INVALID);
+        let leftover_player = if self.presentation_selected_player.is_some()
+            || self.presentation_science_ids.is_some()
+        {
             None
         } else {
             logic_player_list()
@@ -427,7 +660,7 @@ impl ControlBar {
             .as_ref()
             .and_then(|arc| arc.read().ok().map(|player| player.has_science(required)));
         let player_has =
-            leftover_has.unwrap_or_else(|| self.presentation_player_has_required_science(required));
+            leftover_has.unwrap_or_else(|| self.selected_player_has_required_science(required));
         if Self::hide_need_special_power_science(required, player_has) {
             cmd.button_hidden = true;
             return;

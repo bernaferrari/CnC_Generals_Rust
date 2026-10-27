@@ -17,7 +17,7 @@ pub const STRUCTURE_INVENTORY_STOP_ID: usize = 10;
 pub const STRUCTURE_INVENTORY_EVACUATE_ID: usize = 11;
 
 /// Occupant portrait assigned to an inventory exit slot.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StructureInventoryOccupant {
     pub object_id: u32,
     pub button_image: String,
@@ -59,6 +59,7 @@ pub(super) fn do_transport_inventory_ui(
     presentation_max_garrison: usize,
     presentation_garrisoned_count: usize,
     presentation_occupants: &[StructureInventoryOccupant],
+    receiving_unmanned: Option<bool>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if context.selected_objects.len() != 1 {
         return Ok(());
@@ -68,32 +69,34 @@ pub(super) fn do_transport_inventory_ui(
     let mut extra_slots = 0usize;
     let mut occupants: Vec<StructureInventoryOccupant> = Vec::new();
     let mut used_registry = false;
-    let mut unmanned = false;
+    let mut unmanned = receiving_unmanned.unwrap_or(false);
 
-    if let Some(object_arc) = OBJECT_REGISTRY.get_object(context.selected_objects[0]) {
-        if let Ok(object) = object_arc.read() {
-            unmanned = object.is_disabled_by_type(DisabledType::DisabledUnmanned);
-            if let Some(contain) = object.get_contain() {
-                if let Ok(contain_guard) = contain.lock() {
-                    if !contain_guard.is_displayed_on_control_bar()
-                        || contain_guard.get_max_capacity() == 0
-                    {
-                        return Ok(());
+    if receiving_unmanned.is_none() {
+        if let Some(object_arc) = OBJECT_REGISTRY.get_object(context.selected_objects[0]) {
+            if let Ok(object) = object_arc.read() {
+                unmanned = object.is_disabled_by_type(DisabledType::DisabledUnmanned);
+                if let Some(contain) = object.get_contain() {
+                    if let Ok(contain_guard) = contain.lock() {
+                        if !contain_guard.is_displayed_on_control_bar()
+                            || contain_guard.get_max_capacity() == 0
+                        {
+                            return Ok(());
+                        }
+                        max_capacity = contain_guard.get_max_capacity();
+                        let contained = contain_guard.get_contained_objects();
+                        let (pip_max, pip_full, _) = contain_guard.get_container_pips_to_show();
+                        extra_slots = (pip_full as usize).saturating_sub(contained.len());
+                        if pip_max > 0 {
+                            max_capacity = pip_max as usize;
+                        }
+                        for &occupant_id in contained.iter() {
+                            occupants.push(occupant_from_registry(occupant_id));
+                        }
+                        used_registry = true;
                     }
-                    max_capacity = contain_guard.get_max_capacity();
-                    let contained = contain_guard.get_contained_objects();
-                    let (pip_max, pip_full, _) = contain_guard.get_container_pips_to_show();
-                    extra_slots = (pip_full as usize).saturating_sub(contained.len());
-                    if pip_max > 0 {
-                        max_capacity = pip_max as usize;
-                    }
-                    for &occupant_id in contained.iter() {
-                        occupants.push(occupant_from_registry(occupant_id));
-                    }
-                    used_registry = true;
+                } else {
+                    return Ok(());
                 }
-            } else {
-                return Ok(());
             }
         }
     }
@@ -181,12 +184,14 @@ pub(super) fn do_transport_inventory_ui(
     }
 
     context.last_recorded_inventory_count = occupants.len() as u32;
-    RESIDUAL_SI_MAX.store(max_capacity, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_SI_COUNT.store(occupants.len(), std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_SI_EXIT.store(first_exit.is_some(), std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_SI_EVACUATE.store(occupants.len() > 0, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_SI_STOP.store(occupants.len() > 0, std::sync::atomic::Ordering::Relaxed);
-    residual_si_action_store(ResidualStructureInventoryAction::Populate);
+    if receiving_unmanned.is_none() {
+        RESIDUAL_SI_MAX.store(max_capacity, std::sync::atomic::Ordering::Relaxed);
+        RESIDUAL_SI_COUNT.store(occupants.len(), std::sync::atomic::Ordering::Relaxed);
+        RESIDUAL_SI_EXIT.store(first_exit.is_some(), std::sync::atomic::Ordering::Relaxed);
+        RESIDUAL_SI_EVACUATE.store(!occupants.is_empty(), std::sync::atomic::Ordering::Relaxed);
+        RESIDUAL_SI_STOP.store(!occupants.is_empty(), std::sync::atomic::Ordering::Relaxed);
+        residual_si_action_store(ResidualStructureInventoryAction::Populate);
+    }
     Ok(())
 }
 
@@ -201,6 +206,10 @@ pub(super) fn append_structure_inventory_commands_with_presentation(
     presentation_max_garrison: usize,
     presentation_garrisoned_count: usize,
     presentation_occupants: &[StructureInventoryOccupant],
+    receiving_actions: Option<
+        &game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions,
+    >,
+    receiving_frame: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if context.selected_objects.len() != 1 {
         return Ok(());
@@ -210,20 +219,22 @@ pub(super) fn append_structure_inventory_commands_with_presentation(
     let mut occupants: Vec<StructureInventoryOccupant> = Vec::new();
     let mut used_registry = false;
 
-    if let Some(object_arc) = OBJECT_REGISTRY.get_object(context.selected_objects[0]) {
-        if let Ok(object) = object_arc.read() {
-            if let Some(contain) = object.get_contain() {
-                if let Ok(contain_guard) = contain.lock() {
-                    if contain_guard.is_displayed_on_control_bar()
-                        && contain_guard.get_max_capacity() > 0
-                    {
-                        max_capacity = contain_guard.get_max_capacity();
-                        for &occupant_id in contain_guard.get_contained_objects().iter() {
-                            occupants.push(occupant_from_registry(occupant_id));
+    if !receiving_frame {
+        if let Some(object_arc) = OBJECT_REGISTRY.get_object(context.selected_objects[0]) {
+            if let Ok(object) = object_arc.read() {
+                if let Some(contain) = object.get_contain() {
+                    if let Ok(contain_guard) = contain.lock() {
+                        if contain_guard.is_displayed_on_control_bar()
+                            && contain_guard.get_max_capacity() > 0
+                        {
+                            max_capacity = contain_guard.get_max_capacity();
+                            for &occupant_id in contain_guard.get_contained_objects().iter() {
+                                occupants.push(occupant_from_registry(occupant_id));
+                            }
+                            used_registry = true;
+                        } else {
+                            return Ok(());
                         }
-                        used_registry = true;
-                    } else {
-                        return Ok(());
                     }
                 }
             }
@@ -253,13 +264,22 @@ pub(super) fn append_structure_inventory_commands_with_presentation(
         return Ok(());
     }
 
-    let Some(common_bar) = get_ini_control_bar() else {
-        return Ok(());
+    let common_bar = if receiving_frame {
+        None
+    } else {
+        get_ini_control_bar()
     };
-
-    let exit_def = common_bar.find_command_button_resolved("Command_StructureExit");
-    let evacuate_def = common_bar.find_command_button_resolved("Command_Evacuate");
-    let stop_def = common_bar.find_command_button_resolved("Command_Stop");
+    let find_button = |name: &str| {
+        receiving_actions
+            .and_then(|actions| actions.buttons.find_command_button_resolved(name))
+            .or_else(|| common_bar.as_ref()?.find_command_button_resolved(name))
+    };
+    let exit_def = find_button("Command_StructureExit");
+    let evacuate_def = find_button("Command_Evacuate");
+    let stop_def = find_button("Command_Stop");
+    if receiving_frame && (exit_def.is_none() || evacuate_def.is_none() || stop_def.is_none()) {
+        return Ok(());
+    }
     let exit_image = exit_def
         .map(|button| button.button_image.clone())
         .unwrap_or_default();
@@ -336,12 +356,14 @@ pub(super) fn append_structure_inventory_commands_with_presentation(
     }
 
     context.last_recorded_inventory_count = contained_count as u32;
-    RESIDUAL_SI_MAX.store(max_capacity, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_SI_COUNT.store(contained_count, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_SI_EXIT.store(true, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_SI_EVACUATE.store(contained_count > 0, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_SI_STOP.store(contained_count > 0, std::sync::atomic::Ordering::Relaxed);
-    residual_si_action_store(ResidualStructureInventoryAction::Populate);
+    if !receiving_frame {
+        RESIDUAL_SI_MAX.store(max_capacity, std::sync::atomic::Ordering::Relaxed);
+        RESIDUAL_SI_COUNT.store(contained_count, std::sync::atomic::Ordering::Relaxed);
+        RESIDUAL_SI_EXIT.store(true, std::sync::atomic::Ordering::Relaxed);
+        RESIDUAL_SI_EVACUATE.store(contained_count > 0, std::sync::atomic::Ordering::Relaxed);
+        RESIDUAL_SI_STOP.store(contained_count > 0, std::sync::atomic::Ordering::Relaxed);
+        residual_si_action_store(ResidualStructureInventoryAction::Populate);
+    }
 
     Ok(())
 }

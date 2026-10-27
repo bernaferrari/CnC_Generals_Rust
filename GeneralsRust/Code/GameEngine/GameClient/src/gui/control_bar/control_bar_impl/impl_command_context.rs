@@ -15,19 +15,22 @@ impl ControlBar {
             return Ok(());
         };
 
-        if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
-            if let Ok(obj) = obj_arc.read() {
-                if let Some(contain) = obj.get_contain() {
-                    if let Ok(contain_guard) = contain.lock() {
-                        if contain_guard.get_max_capacity() > 0 {
-                            let count = contain_guard.get_contain_count();
-                            let last = self.context.last_recorded_inventory_count;
-                            if last != count {
-                                {
-                                    let mut ctx = &mut self.context;
-                                    ctx.last_recorded_inventory_count = count;
+        let receiving_frame = self.presentation_selected_context.is_some();
+        if !receiving_frame {
+            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
+                if let Ok(obj) = obj_arc.read() {
+                    if let Some(contain) = obj.get_contain() {
+                        if let Ok(contain_guard) = contain.lock() {
+                            if contain_guard.get_max_capacity() > 0 {
+                                let count = contain_guard.get_contain_count();
+                                let last = self.context.last_recorded_inventory_count;
+                                if last != count {
+                                    {
+                                        let mut ctx = &mut self.context;
+                                        ctx.last_recorded_inventory_count = count;
+                                    }
+                                    self.evaluate_context_ui(receiving_manager, effects)?;
                                 }
-                                self.evaluate_context_ui(receiving_manager, effects)?;
                             }
                         }
                     }
@@ -35,14 +38,17 @@ impl ControlBar {
             }
         }
 
-        let has_production = self.get_object_has_production(obj_id);
-        let registry_producer = OBJECT_REGISTRY.get_object(obj_id).is_some();
+        let has_production = if receiving_frame {
+            self.presentation_availability.has_production
+                || !self.context.construction_queue.is_empty()
+        } else {
+            self.get_object_has_production(obj_id)
+        };
 
-        if has_production {
+        if has_production && !receiving_frame {
             // Wave 1026: dual-world peels populate_build_queue from presentation/catalog
             // even when OBJECT_REGISTRY has no producer Arc.
             // Dual-world residual: live production modules own queue when registry is bound.
-            let _ = registry_producer;
             let mut context = std::mem::take(&mut self.context);
             self.populate_build_queue(&mut context, obj_id, receiving_manager, effects)?;
             self.context = context;
@@ -59,7 +65,11 @@ impl ControlBar {
         }
         // else: presentation-fed queue residual stays (host path).
 
-        let first_progress = self.get_first_production_progress(obj_id);
+        let first_progress = if receiving_frame {
+            self.portrait_state.production_progress
+        } else {
+            self.get_first_production_progress(obj_id)
+        };
 
         if let Some(percent) = first_progress {
             {
@@ -73,7 +83,9 @@ impl ControlBar {
         // C++ updateContextCommand: CP_BUILD_QUEUE vs setPortraitByObject.
         let queue_visible = has_production || !self.build_queue_data.is_empty();
         if queue_visible {
-            self.set_portrait_by_object_id(None);
+            if !receiving_frame {
+                self.set_portrait_by_object_id(None);
+            }
             (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
                 // C++ ControlBar.cpp:1076-1077 — CP_BUILD_QUEUE parent is
                 // "ControlBar.wnd:ProductionQueueWindow"; ControlBarCommand.cpp
@@ -113,7 +125,9 @@ impl ControlBar {
                     let _ = win.borrow_mut().hide(true, receiving_manager);
                 }
             })(receiving_manager);
-            self.set_portrait_by_object_id(Some(obj_id));
+            if !receiving_frame {
+                self.set_portrait_by_object_id(Some(obj_id));
+            }
         }
 
         let context = &self.context;
@@ -203,6 +217,51 @@ impl ControlBar {
         obj_id: u32,
         player_id: u32,
     ) -> Result<CommandAvailability, Box<dyn std::error::Error>> {
+        if let Some(facts) = self.presentation_selected_context {
+            if command.button_hidden || leftover_presentation_command_set_hidden(self) {
+                return Ok(CommandAvailability::Hidden);
+            }
+            if matches!(
+                command.command_type,
+                CommandType::DozerConstruct | CommandType::QueueUnitCreate
+            ) && self
+                .presentation_buildable_hidden
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case(&command.object))
+            {
+                return Ok(CommandAvailability::Hidden);
+            }
+            if let Some(avail) = leftover_presentation_sell_or_subdued(self, command) {
+                return Ok(avail);
+            }
+            let ignores_underpowered = facts.disabled_only_underpowered
+                && command.options & CommandOption::IgnoresUnderpowered as u32 != 0;
+            if facts.disabled
+                && !ignores_underpowered
+                && !command_evaluable_when_disabled(command.command_type)
+            {
+                return Ok(CommandAvailability::Restricted);
+            }
+            if leftover_presentation_common_restricted(self, command, None)
+                || leftover_presentation_queue_or_drop_restricted(self, command, None)
+            {
+                return Ok(CommandAvailability::Restricted);
+            }
+            if let Some(avail) = leftover_presentation_queue_upgrade_availability(self, command) {
+                return Ok(avail);
+            }
+            if leftover_presentation_can_make_restricted(self, command) {
+                return Ok(CommandAvailability::Restricted);
+            }
+            if let Some(avail) = leftover_presentation_stop_or_rail(self, command) {
+                return Ok(avail);
+            }
+            return Ok(if Self::command_uses_ready_clock(command) {
+                self.presentation_typed_availability(command, None)
+            } else {
+                CommandAvailability::Available
+            });
+        }
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
             // Host/presentation path: Main already filtered unit_command_buttons.
             // Wave 1025: dual-world peels catalog/command-set residual when portrait
@@ -654,13 +713,17 @@ impl ControlBar {
     }
 
     fn command_not_ready_clock(&self, command: &CommandButton, obj_id: u32) -> Option<u8> {
-        if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
-            if let Ok(obj) = obj_arc.read() {
-                return match command.command_type {
-                    CommandType::FireWeapon => self.fire_weapon_availability(&obj, command).1,
-                    CommandType::DoSpecialPower => self.special_power_availability(&obj, command).1,
-                    _ => None,
-                };
+        if self.presentation_selected_context.is_none() {
+            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
+                if let Ok(obj) = obj_arc.read() {
+                    return match command.command_type {
+                        CommandType::FireWeapon => self.fire_weapon_availability(&obj, command).1,
+                        CommandType::DoSpecialPower => {
+                            self.special_power_availability(&obj, command).1
+                        }
+                        _ => None,
+                    };
+                }
             }
         }
         // Live host: OBJECT_REGISTRY is empty. C++ ControlBarCommand.cpp:1404-1407
@@ -1618,7 +1681,12 @@ fn leftover_presentation_queue_upgrade_availability(
     let key = leftover_presentation_upgrade_key(command);
     let residual = &bar.presentation_availability;
     let queued = leftover_presentation_upgrade_matches(&bar.presentation_queued_upgrades, &key);
-    if leftover_is_object_upgrade_command(command) {
+    let object_upgrade = if bar.presentation_selected_context.is_some() {
+        command.gui_command.eq_ignore_ascii_case("OBJECT_UPGRADE")
+    } else {
+        leftover_is_object_upgrade_command(command)
+    };
+    if object_upgrade {
         let has = leftover_presentation_upgrade_matches(&residual.object_applied_upgrades, &key);
         let unaffected =
             leftover_presentation_upgrade_matches(&residual.object_unaffected_upgrades, &key);
@@ -1669,7 +1737,10 @@ fn leftover_presentation_queue_or_drop_restricted(
     if matches!(
         command.command_type,
         CommandType::CombatDropAtLocation | CommandType::CombatDropAtObject
-    ) && entry.is_some_and(|e| e.occupant_count == 0)
+    ) && entry
+        .map(|e| e.occupant_count as usize)
+        .unwrap_or(bar.presentation_availability.occupant_count)
+        == 0
     {
         return true;
     }
@@ -1733,7 +1804,10 @@ fn leftover_presentation_money_restricted(bar: &ControlBar, command: &CommandBut
             return true;
         }
     }
-    if command.purchase_cost.is_empty() && !command.object.is_empty() {
+    if bar.presentation_selected_context.is_none()
+        && command.purchase_cost.is_empty()
+        && !command.object.is_empty()
+    {
         if let Some(template) = TheThingFactory::find_template(command.object.as_str()) {
             let cost = template.get_build_cost() as i32;
             if cost > 0 && money < cost {
