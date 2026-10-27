@@ -484,7 +484,13 @@ fn leftover_structure_collapse_module_peel(
     let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
     let factory = guard.as_ref()?;
     let tmpl = factory.find_template(template_name, false)?;
-    for entry in tmpl.get_behavior_module_info().iter() {
+    collapse_ini_from_modules(tmpl.get_behavior_module_info())
+}
+
+fn collapse_ini_from_modules(
+    modules: &game_engine::common::thing::thing_template::ModuleInfo,
+) -> Option<HostStructureCollapseIni> {
+    for entry in modules.iter() {
         if !entry
             .name
             .as_str()
@@ -549,6 +555,12 @@ fn asset_manager_collapse_ini(name: &str) -> Option<HostStructureCollapseIni> {
     let manager = crate::assets::get_asset_manager()?;
     let manager = manager.lock().ok()?;
     let definition = manager.get_object_definition(name)?;
+    collapse_ini_from_definition(&definition)
+}
+
+fn collapse_ini_from_definition(
+    definition: &crate::assets::ObjectDefinition,
+) -> Option<HostStructureCollapseIni> {
     for module in &definition.behavior_modules {
         if !module
             .class_name
@@ -569,6 +581,13 @@ fn asset_manager_collapse_ini(name: &str) -> Option<HostStructureCollapseIni> {
 fn authored_collapse_ini(name: &str) -> Option<HostStructureCollapseIni> {
     let leftover = leftover_structure_collapse_module_peel(name);
     let assets = asset_manager_collapse_ini(name);
+    merge_collapse_ini(leftover, assets)
+}
+
+fn merge_collapse_ini(
+    leftover: Option<HostStructureCollapseIni>,
+    assets: Option<HostStructureCollapseIni>,
+) -> Option<HostStructureCollapseIni> {
     match (leftover, assets) {
         (Some(mut ini), Some(am)) => {
             if !ini.has_authored_phase_fx() {
@@ -583,6 +602,17 @@ fn authored_collapse_ini(name: &str) -> Option<HostStructureCollapseIni> {
         (None, Some(am)) => Some(am),
         (None, None) => None,
     }
+}
+
+/// Resolve only definitions admitted by the object's receiving session.
+pub(crate) fn receiving_collapse_ini(
+    template: &crate::game_logic::thing::ReceivingClientTemplate,
+    definition: Option<&crate::assets::ObjectDefinition>,
+) -> Option<HostStructureCollapseIni> {
+    merge_collapse_ini(
+        collapse_ini_from_modules(template.behavior_modules()),
+        definition.and_then(collapse_ini_from_definition),
+    )
 }
 
 /// Test helper: treat `template_name` as authoring StructureCollapseUpdate FX.
@@ -619,6 +649,36 @@ pub fn collapse_ini_for_template(name: &str) -> Option<HostStructureCollapseIni>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn collapse_module_data_is_read_from_its_own_template() {
+        use game_engine::common::ascii_string::AsciiString;
+        use game_engine::common::thing::thing_template::ModuleInfo;
+        use gamelogic::object::behavior::StructureCollapseUpdateModuleData;
+        use std::sync::Arc;
+
+        let modules = |delay| {
+            let data = StructureCollapseUpdateModuleData {
+                min_burst_delay: delay,
+                ..Default::default()
+            };
+            let mut modules = ModuleInfo::new();
+            modules.add_module_info(
+                AsciiString::from("StructureCollapseUpdate"),
+                AsciiString::from("Collapse"),
+                Arc::new(data),
+                0,
+                false,
+                false,
+            );
+            modules
+        };
+        let first = modules(7);
+        let second = modules(19);
+        assert_eq!(collapse_ini_from_modules(&first).unwrap().min_burst_delay, 7);
+        assert_eq!(collapse_ini_from_modules(&second).unwrap().min_burst_delay, 19);
+        assert_eq!(collapse_ini_from_modules(&first).unwrap().min_burst_delay, 7);
+    }
 
     #[test]
     fn structure_collapse_sinks_and_completes() {

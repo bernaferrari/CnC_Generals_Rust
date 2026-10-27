@@ -104,6 +104,12 @@ impl PartialEq for ReceivingClientTemplate {
 }
 
 impl ReceivingClientTemplate {
+    pub(crate) fn behavior_modules(
+        &self,
+    ) -> &game_engine::common::thing::thing_template::ModuleInfo {
+        self.0.behavior_modules()
+    }
+
     pub(crate) fn has_behavior_module(&self, name: &str) -> bool {
         self.0
             .behavior_modules()
