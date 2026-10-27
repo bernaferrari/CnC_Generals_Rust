@@ -245,6 +245,12 @@ fn install_templates(logic: &mut GameLogic) {
             0.1,
         ),
     ];
+    // The retail AmericaVehicleDozer authors both sight and shroud clearing at 200.
+    if let Some(dozer) = templates.iter_mut().find(|template| template.name == "GoldenDozer") {
+        dozer.sight_range = 200.0;
+        dozer.shroud_clearing_range = 200.0;
+    }
+
     // Explicit template weapon for production rangers (host primary_weapon path).
     if let Some(ranger) = templates.iter_mut().find(|t| t.name == "GoldenRanger") {
         ranger.set_primary_weapon(Weapon {
