@@ -59,14 +59,22 @@ impl CnCGameEngine {
         }
         Ok(BodyDamagePolicy::Receiving(rules))
     }
-    pub(super) async fn load_lighting_rules_baseline()
-    -> Result<game_engine::common::ini::ini_game_data::LightingContentRules, String> {
+    pub(super) async fn load_lighting_rules_baseline(
+        raw_args: &[String],
+    ) -> Result<game_engine::common::ini::ini_game_data::LightingContentRules, String> {
         let mut rules = game_engine::common::ini::ini_game_data::LightingContentRules::default();
         for (path, text) in Self::load_startup_game_data_texts().await? {
             rules = rules
                 .overlay_ini_text(&text)
                 .map_err(|error| format!("{path}: {error}"))?;
         }
+        let mut cli = game_engine::common::command_line::WritableGlobalData::default();
+        Self::apply_ordered_startup_overrides_from_raw_args(
+            raw_args,
+            &mut cli,
+            Self::allow_debug_startup_flags(),
+        );
+        rules.show_client_physics &= cli.show_client_physics;
         Ok(rules)
     }
 
@@ -518,7 +526,7 @@ impl CnCGameEngine {
                 .map_err(anyhow::Error::msg)?,
         );
         game_logic.admit_lighting_rules_base(
-            Self::load_lighting_rules_baseline()
+            Self::load_lighting_rules_baseline(&command_line.raw_args)
                 .await
                 .map_err(anyhow::Error::msg)?,
         );
@@ -1644,6 +1652,9 @@ impl CnCGameEngine {
                 }
                 "novideo" => {
                     writable.video_on = false;
+                }
+                "noshowclientphysics" => {
+                    writable.show_client_physics = false;
                 }
                 "scriptdebug" => {
                     writable.script_debug = true;

@@ -15,7 +15,6 @@ use game_client::physics_visual::{
     PhysicsVisualAppearance, PhysicsVisualBody, PhysicsVisualInput, PhysicsVisualLocoState,
     calc_physics_visual_xform, glam_yup_physics_visual_local,
 };
-use game_engine::common::ini::get_global_data;
 use glam::Mat4;
 use std::collections::HashMap;
 
@@ -110,6 +109,7 @@ impl HostPhysicsVisualState {
                         script_frozen,
                         camera_frozen,
                         &mut show_client_physics,
+                        || logic.lighting_rules_baseline().show_client_physics,
                         |pos| logic.terrain_height_at(pos),
                     )?;
                     Some((
@@ -226,6 +226,7 @@ pub(super) fn collect_facts(
     script_time_frozen: bool,
     script_camera_time_frozen: bool,
     show_client_physics: &mut Option<bool>,
+    read_show_client_physics: impl FnOnce() -> bool,
     sample_height: impl Fn(glam::Vec3) -> Option<f32>,
 ) -> Option<HostPhysicsVisualFacts> {
     let appearance = map_appearance(obj.loco_appearance);
@@ -234,11 +235,8 @@ pub(super) fn collect_facts(
     }
     let params = params_for_object(obj);
     let body = body_for_object(obj, objects, sample_height, object_visual_ini);
-    let show_client_physics = cached_show_client_physics(show_client_physics, || {
-        get_global_data()
-            .map(|data| data.read().show_client_physics)
-            .unwrap_or(true)
-    });
+    let show_client_physics =
+        cached_show_client_physics(show_client_physics, read_show_client_physics);
     Some(HostPhysicsVisualFacts {
         appearance,
         params,

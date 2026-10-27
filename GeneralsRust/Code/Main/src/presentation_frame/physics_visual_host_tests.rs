@@ -76,17 +76,20 @@ fn physics_option_is_read_lazily_and_once_per_frozen_frame() {
     let mut object = test_object(1, "NonPhysics");
     object.loco_appearance = crate::game_logic::LocomotorAppearance::Other;
     let objects = registered_physics_objects([(object.id, object.clone())]);
-    assert!(collect_facts(&object, objects.read(), false, false, &mut cached, |_| None).is_none());
+    assert!(collect_facts(
+        &object, objects.read(), false, false, &mut cached, || true, |_| None
+    )
+    .is_none());
     assert_eq!(cached, None, "no eligible drawable means no option read");
 
     object.loco_appearance = crate::game_logic::LocomotorAppearance::Hover;
     let objects = registered_physics_objects([(object.id, object.clone())]);
     let first =
-        collect_facts(&object, objects.read(), false, false, &mut cached, |_| None).unwrap();
+        collect_facts(&object, objects.read(), false, false, &mut cached, || true, |_| None).unwrap();
     assert_eq!(cached, Some(first.show_client_physics));
 
     let second =
-        collect_facts(&object, objects.read(), false, false, &mut cached, |_| None).unwrap();
+        collect_facts(&object, objects.read(), false, false, &mut cached, || true, |_| None).unwrap();
     assert_eq!(second.show_client_physics, first.show_client_physics);
 
     let mut reads = 0;
@@ -98,6 +101,22 @@ fn physics_option_is_read_lazily_and_once_per_frozen_frame() {
         first.show_client_physics
     );
     assert_eq!(reads, 0, "later objects reuse the first sampled option");
+
+    let mut receiving_cache = None;
+    let disabled = collect_facts(
+        &object,
+        objects.read(),
+        false,
+        false,
+        &mut receiving_cache,
+        || false,
+        |_| None,
+    )
+    .unwrap();
+    assert!(
+        !disabled.show_client_physics,
+        "frozen facts use their receiving owner's value"
+    );
 }
 
 #[test]

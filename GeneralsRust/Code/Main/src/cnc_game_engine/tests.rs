@@ -862,6 +862,19 @@ fn iconic_minimized_mode_keeps_network_sessions_running() {
 }
 
 #[test]
+fn command_line_no_show_client_physics_is_projected_to_receiving_rules() {
+    let args = vec!["generals".to_string(), "-noShowClientPhysics".to_string()];
+    let mut writable = game_engine::common::command_line::WritableGlobalData::default();
+    CnCGameEngine::apply_ordered_startup_overrides_from_raw_args(&args, &mut writable, false);
+    assert!(!writable.show_client_physics);
+
+    let args = vec!["generals".to_string()];
+    let mut writable = game_engine::common::command_line::WritableGlobalData::default();
+    CnCGameEngine::apply_ordered_startup_overrides_from_raw_args(&args, &mut writable, false);
+    assert!(writable.show_client_physics);
+}
+
+#[test]
 fn command_line_fps_order_matches_cpp_fps_then_nofpslimit() {
     let args = vec![
         "generals".to_string(),

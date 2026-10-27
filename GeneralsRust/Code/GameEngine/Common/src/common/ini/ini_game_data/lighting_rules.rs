@@ -11,6 +11,8 @@ pub struct LightingContentRules {
     pub force_models_to_follow_weather: bool,
     pub use_draw_module_lod: bool,
     pub use_tree_sway: bool,
+    /// Per-session presentation gate for physics drawable transforms.
+    pub show_client_physics: bool,
     /// GameData water extent used by legacy version-1 PolygonTriggers.
     pub water_extent_x: f32,
     pub water_extent_y: f32,
@@ -32,6 +34,7 @@ impl LightingContentRules {
             force_models_to_follow_weather: data.force_models_to_follow_weather,
             use_draw_module_lod: data.use_draw_module_lod,
             use_tree_sway: data.use_tree_sway,
+            show_client_physics: data.show_client_physics,
             water_extent_x: data.water_extent_x,
             water_extent_y: data.water_extent_y,
         }
@@ -48,6 +51,7 @@ impl LightingContentRules {
         draft.force_models_to_follow_weather = self.force_models_to_follow_weather;
         draft.use_draw_module_lod = self.use_draw_module_lod;
         draft.use_tree_sway = self.use_tree_sway;
+        draft.show_client_physics = self.show_client_physics;
         draft.water_extent_x = self.water_extent_x;
         draft.water_extent_y = self.water_extent_y;
         let mut ini = INI::new();
@@ -68,5 +72,29 @@ impl LightingContentRules {
         })
         .map_err(|error| error.to_string())?;
         Ok(Self::from_global_data(&draft))
+    }
+}
+
+#[cfg(test)]
+mod show_client_physics_tests {
+    use super::LightingContentRules;
+
+    #[test]
+    fn show_client_physics_is_admitted_per_session_and_overlaid_in_order() {
+        let enabled = LightingContentRules::default();
+        let disabled = enabled
+            .overlay_ini_text("GameData\n ShowClientPhysics = No\nEnd\n")
+            .unwrap();
+        let reenabled = disabled
+            .overlay_ini_text("GameData\n ShowClientPhysics = Yes\nEnd\n")
+            .unwrap();
+
+        assert!(enabled.show_client_physics);
+        assert!(!disabled.show_client_physics);
+        assert!(reenabled.show_client_physics);
+        assert!(
+            enabled.show_client_physics,
+            "another session's parse must not mutate this owner"
+        );
     }
 }
