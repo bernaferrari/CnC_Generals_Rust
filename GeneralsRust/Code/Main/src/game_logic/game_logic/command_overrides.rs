@@ -15,6 +15,26 @@ pub(crate) fn control_bar_override_key(set: &str, slot: i32) -> Option<String> {
 }
 
 impl GameLogic {
+    /// Extend the owning action catalog with source-authored fixture definitions.
+    pub(crate) fn admit_fixture_command_action_source(&mut self, source: &str) -> Result<(), String> {
+        if let Some(content) = self.receiving_module_content.as_mut() {
+            return content.admit_action_overrides(&[source.to_string()]);
+        }
+        let mut definitions = self.command_action_definitions.clone().unwrap_or_default();
+        definitions.apply_source(source, &game_engine::common::rts::science::ScienceNameFacts::default())?;
+        self.command_action_definitions = Some(definitions);
+        Ok(())
+    }
+
+    pub(crate) fn build_eligibility_action_definitions(
+        &self,
+    ) -> Option<&game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions> {
+        self.receiving_module_content
+            .as_ref()
+            .map(|content| content.action_definitions())
+            .or(self.command_action_definitions.as_ref())
+    }
+
     pub fn set_buildable_status_override(&mut self, template: &str, status: i32) {
         self.buildable_status_overrides
             .insert(template.to_string(), status);

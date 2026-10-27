@@ -588,6 +588,7 @@ impl GameLogic {
             accumulated_time: 0.0,
             last_fixed_step_diagnostics: FixedStepDiagnostics::default(),
             receiving_module_content: None,
+            command_action_definitions: None,
             receiving_object_definitions: None,
             receiving_template_baseline: None,
             templates: HashMap::new(),

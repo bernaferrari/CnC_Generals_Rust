@@ -1,5 +1,15 @@
 use super::dispatch_test_command;
 
+fn admit_test_build_action(logic: &mut crate::game_logic::GameLogic, id: crate::game_logic::ObjectId, target: &str, suffix: &str) {
+    let set = format!("FixtureDozerBuildSet{suffix}");
+    let button = format!("FixtureDozerBuildButton{suffix}");
+    logic.admit_fixture_command_action_source(&format!(
+        "CommandButton {button}\n Command = DOZER_CONSTRUCT\n Object = {target}\nEnd\nCommandSet {set}\n 1 = {button}\nEnd\n"
+    )).expect("admit local dozer command catalog");
+    logic.host_object_mut(id).expect("fixture dozer").command_set_override = Some(set);
+}
+
+
 #[test]
 fn switch_weapons_locks_button_slot_not_cycle() {
     // C++ GameLogicDispatch.cpp:583-590 MSG_SWITCH_WEAPONS locks the
@@ -259,6 +269,7 @@ fn execute_build_clears_removable_and_map_trees() {
     dozer.set_position(Vec3::new(40.0, 0.0, 80.0));
     dozer.owner_player_id = Some(0);
     logic.objects.insert(ObjectId(9101), dozer);
+    admit_test_build_action(&mut logic, ObjectId(9101), "TestClearFootprintBarracks", "ClearFootprint");
 
     let mut shrub_t = ThingTemplate::new("TreeOakShrub");
     shrub_t.set_health(10.0);
@@ -344,6 +355,7 @@ fn execute_build_clears_kindof_not_name_substrings() {
     dozer.set_position(Vec3::new(40.0, 0.0, 80.0));
     dozer.owner_player_id = Some(0);
     logic.objects.insert(ObjectId(9201), dozer);
+    admit_test_build_action(&mut logic, ObjectId(9201), "TestKindOfClearBarracks", "KindOfClear");
 
     let mut cleared_t = ThingTemplate::new("NoTokenProp");
     cleared_t
@@ -422,6 +434,7 @@ fn execute_build_refuses_human_on_unmovables() {
     dozer.set_position(Vec3::new(40.0, 0.0, 80.0));
     dozer.owner_player_id = Some(0);
     logic.objects.insert(ObjectId(9301), dozer);
+    admit_test_build_action(&mut logic, ObjectId(9301), "TestUnmovableBarracks", "Unmovable");
 
     // Neutral, no AI / not mobile — leftover moveObjects returns FALSE.
     let mut crate_t = ThingTemplate::new("UnmovableCrate");
@@ -494,6 +507,7 @@ fn execute_build_no_money_queues_insufficient_funds_eva_and_refuses() {
     dozer.set_position(Vec3::new(40.0, 0.0, 80.0));
     dozer.owner_player_id = Some(0);
     logic.objects.insert(ObjectId(9311), dozer);
+    admit_test_build_action(&mut logic, ObjectId(9311), "TestPoorBarracks", "Poor");
 
     let site = Vec3::new(80.0, 0.0, 80.0);
     let result = {
@@ -562,6 +576,7 @@ fn dozer_place_and_cancel_use_calc_cost_to_build_handicap() {
     dozer.set_position(Vec3::new(0.0, 0.0, 0.0));
     dozer.owner_player_id = Some(0);
     logic.objects.insert(ObjectId(9201), dozer);
+    admit_test_build_action(&mut logic, ObjectId(9201), "TestHandicapBarracks", "Handicap");
 
     assert_eq!(
         logic.modified_build_cost_supplies(0, "TestHandicapBarracks", 1_000),

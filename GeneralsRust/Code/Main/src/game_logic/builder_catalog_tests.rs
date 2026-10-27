@@ -60,6 +60,10 @@ fn assert_constructor_admission(world: &mut GameLogic, name: &str) {
         world.unit_owner_if_can_construct(builder),
         Some((0, object.team))
     );
+    world.admit_fixture_command_action_source(
+        "CommandButton CatalogScaffoldBuildButton\n Command = DOZER_CONSTRUCT\n Object = CatalogScaffold\nEnd\nCommandSet CatalogScaffoldBuildSet\n 1 = CatalogScaffoldBuildButton\nEnd\n",
+    ).unwrap();
+    world.host_object_mut(builder).unwrap().command_set_override = Some("CatalogScaffoldBuildSet".into());
     let cash = world.get_player(0).unwrap().effective_supplies();
     assert_eq!(
         construct(world, builder),
@@ -156,6 +160,11 @@ fn same_id_constructor_admission_preserves_peer_cash_and_task() {
     let peer_id = peer
         .create_object_for_player("AmericaVehicleDozer", 0, Vec3::new(55.0, 0.0, 55.0))
         .unwrap();
+    let fixture_actions = "CommandButton CatalogScaffoldBuildButton\n Command = DOZER_CONSTRUCT\n Object = CatalogScaffold\nEnd\nCommandSet CatalogScaffoldBuildSet\n 1 = CatalogScaffoldBuildButton\nEnd\n";
+    owner.admit_fixture_command_action_source(fixture_actions).unwrap();
+    peer.admit_fixture_command_action_source(fixture_actions).unwrap();
+    owner.host_object_mut(id).unwrap().command_set_override = Some("CatalogScaffoldBuildSet".into());
+    peer.host_object_mut(peer_id).unwrap().command_set_override = Some("CatalogScaffoldBuildSet".into());
     assert_eq!(id, peer_id);
     let peer_count = peer.host_objects().registered_len();
     assert_eq!(construct(&mut owner, id), CommandResult::Success);

@@ -1645,6 +1645,10 @@ fn run_synthetic_host_skirmish(
         logic.update();
         logic.headless_camera_view_offer(33)?;
     }
+    if logic.receiving_module_content.is_none() {
+        admit_golden_dozer_target(logic, dozer, "Barracks")
+            .map_err(gamelogic::GameLogicError::Configuration)?;
+    }
     logic.queue_command(command(
         2,
         0,
@@ -2036,6 +2040,10 @@ fn run_map_world_skirmish(
         let _ = march_unit_near(logic, dozer, barracks_pos + Vec3::new(-5.0, 0.0, 0.0), 240)?;
         logic.update();
         logic.headless_camera_view_offer(33)?;
+        if logic.receiving_module_content.is_none() {
+            admit_golden_dozer_target(logic, dozer, bname)
+                .map_err(gamelogic::GameLogicError::Configuration)?;
+        }
         logic.queue_command(command(
             2 + attempt as u32,
             0,
@@ -2531,6 +2539,13 @@ fn run_map_world_skirmish(
         combat_realistic_speed_ok,
         combat_store_damage_ok,
     })
+}
+
+fn admit_golden_dozer_target(logic: &mut GameLogic, dozer: ObjectId, target: &str) -> Result<(), String> {
+    let source = format!("CommandButton GoldenExplicitDozerBuildButton\n Command = DOZER_CONSTRUCT\n Object = {target}\nEnd\nCommandSet GoldenExplicitDozerBuildSet\n 1 = GoldenExplicitDozerBuildButton\nEnd\n");
+    logic.admit_fixture_command_action_source(&source)?;
+    logic.host_object_mut(dozer).ok_or_else(|| "Golden fixture dozer disappeared".to_string())?.command_set_override = Some("GoldenExplicitDozerBuildSet".into());
+    Ok(())
 }
 
 /// Production-linked golden skirmish scenario.

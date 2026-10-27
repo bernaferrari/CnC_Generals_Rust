@@ -1169,6 +1169,9 @@ pub struct GameLogic {
     /// Startup moves the actual producer here before admitting host templates.
     pub(crate) receiving_module_content:
         Option<game_engine::common::thing::receiving_module_content::ReceivingModuleContent>,
+    /// Explicit immutable action catalog for worlds without full Object content.
+    /// Production sessions read actions from receiving_module_content.
+    pub(crate) command_action_definitions: Option<game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions>,
     /// Immutable host projections travel with the originating typed content.
     pub(crate) receiving_object_definitions: Option<crate::assets::ReceivingObjectDefinitions>,
 

@@ -100,6 +100,10 @@ fn america_vehicle_dozer_is_retail_starting_builder() {
         .find(|o| o.team == Team::USA && o.can_construct())
         .unwrap()
         .id;
+    logic.admit_fixture_command_action_source(
+        "CommandButton SpawnedBuilderBuildButton\n Command = DOZER_CONSTRUCT\n Object = SpawnedBuilderScaffold\nEnd\nCommandSet SpawnedBuilderBuildSet\n 1 = SpawnedBuilderBuildButton\nEnd\n",
+    ).unwrap();
+    logic.host_object_mut(builder).unwrap().command_set_override = Some("SpawnedBuilderBuildSet".into());
     logic.get_player_mut(0).unwrap().resources.supplies = 1000;
     let mut scaffold = ThingTemplate::new("SpawnedBuilderScaffold");
     scaffold

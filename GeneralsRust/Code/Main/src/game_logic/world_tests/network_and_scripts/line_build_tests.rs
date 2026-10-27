@@ -22,6 +22,7 @@ pub(super) fn admit_constructor_commands(
     let mut ini = game_engine::common::ini::INI::new();
     ini.with_inline_source(&text, |ini| ini.parse_current_file())
         .unwrap();
+    world.admit_fixture_command_action_source(&text).expect("admit same local button/set source to this world");
     world
         .objects
         .get_mut(&builder)

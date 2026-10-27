@@ -116,6 +116,10 @@ fn authored_world(cash: u32) -> (GameLogic, ObjectId) {
     let dozer = world
         .create_object_for_player("ConnectedDozer", 0, Vec3::new(55.0, 0.0, 55.0))
         .unwrap();
+    world.admit_fixture_command_action_source(
+        "CommandButton ConnectedBarracksBuildButton\n Command = DOZER_CONSTRUCT\n Object = AmericaBarracks\nEnd\nCommandSet ConnectedBarracksBuildSet\n 1 = ConnectedBarracksBuildButton\nEnd\n",
+    ).unwrap();
+    world.host_object_mut(dozer).unwrap().command_set_override = Some("ConnectedBarracksBuildSet".into());
     (world, dozer)
 }
 

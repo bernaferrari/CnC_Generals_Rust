@@ -26,16 +26,26 @@ impl GameLogic {
         let Some(set_name) = set_name else {
             return false;
         };
-        // Resolve through this GameLogic's admitted command definitions and
-        // per-world slot overrides. Helpers clone entries and release any
-        // catalog guard before the next lookup.
-        let Some(button_names) = self.effective_command_slots(&set_name) else {
+        // Build eligibility is a receiving-world query. Generic standalone
+        // helpers can consult process-wide registries, so this query requires
+        // an action catalog owned by this GameLogic or its ReceivingModuleContent.
+        let Some(definitions) = self.build_eligibility_action_definitions() else {
             return false;
         };
+        let Some(command_set) = definitions.sets.find_command_set_resolved(&set_name) else {
+            return false;
+        };
+        let button_names = (0..gamelogic::command_button::MAX_COMMANDS_PER_SET)
+            .map(|slot| {
+                self.find_control_bar_override(&set_name, slot as i32)
+                    .map(|value| value.map(str::to_string))
+                    .unwrap_or_else(|| command_set.get_button_at_position(slot).cloned())
+            })
+            .collect::<Vec<_>>();
         let buildable = button_names
             .into_iter()
             .flatten()
-            .filter_map(|name| self.admitted_command_button(&name))
+            .filter_map(|name| definitions.buttons.find_command_button_resolved(&name).cloned())
             .filter(|button| {
                 matches!(button.command.as_str(), "UNIT_BUILD" | "DOZER_CONSTRUCT")
             })
