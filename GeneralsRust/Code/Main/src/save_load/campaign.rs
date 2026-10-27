@@ -1099,18 +1099,6 @@ impl Default for CampaignManager {
     }
 }
 
-// Global campaign manager instance
-lazy_static::lazy_static! {
-    pub static ref CAMPAIGN_MANAGER: std::sync::Mutex<CampaignManager> =
-        std::sync::Mutex::new(CampaignManager::new());
-}
-
-/// Initialize the global campaign system
-pub fn init_campaign_system() -> SaveLoadResult<()> {
-    let mut manager = CAMPAIGN_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
-    manager.init()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

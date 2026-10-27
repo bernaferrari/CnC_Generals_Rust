@@ -975,18 +975,6 @@ impl Default for ReplayManager {
     }
 }
 
-// Global replay manager instance
-lazy_static::lazy_static! {
-    pub static ref REPLAY_MANAGER: std::sync::Mutex<ReplayManager> =
-        std::sync::Mutex::new(ReplayManager::new());
-}
-
-/// Initialize the global replay system
-pub fn init_replay_system() -> SaveLoadResult<()> {
-    let mut manager = REPLAY_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
-    manager.init()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
