@@ -24,15 +24,15 @@ impl GameLogic {
         let Some(object) = self.objects.get_mut(&drone) else {
             return false;
         };
-        object.slaved_update = Some(State {
-            master: Some(master),
-            guard_offset: Vec3::new(
-                data.guard_max_range * angle.cos(),
-                0.0,
-                data.guard_max_range * angle.sin(),
-            ),
-            ..Default::default()
-        });
+        // C++ startSlavedEffects changes only binding and guard offset.
+        // Retain the existing repair/countdown continuation on re-enslavement.
+        let state = object.slaved_update.get_or_insert_with(State::default);
+        state.master = Some(master);
+        state.guard_offset = Vec3::new(
+            data.guard_max_range * angle.cos(),
+            0.0,
+            data.guard_max_range * angle.sin(),
+        );
         object.status.unselectable = true;
         if master_stealthed && object.innate_stealth {
             object.apply_grant_stealth();
