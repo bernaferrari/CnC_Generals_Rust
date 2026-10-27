@@ -35,6 +35,7 @@ pub(super) struct StartupSimulationRules {
     energy: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
     historic_damage_limit: u32,
     sell_percentage: f32,
+    combat_bonus: game_engine::common::ini::ini_game_data::CombatBonusRules,
     upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
 }
 impl StartupSimulationRules {
@@ -47,6 +48,7 @@ impl StartupSimulationRules {
             energy: world.production_energy_baseline(),
             historic_damage_limit: world.combat_system.historic_damage_limit(),
             sell_percentage: world.session_sell_percentage,
+            combat_bonus: world.combat_bonus_baseline().clone(),
             upgrade_definitions: world.upgrade_definitions.clone(),
         }
     }
@@ -90,6 +92,7 @@ impl StartupSimulationRules {
         world.admit_production_energy_base(self.energy);
         world.admit_historic_damage_limit(self.historic_damage_limit);
         world.admit_sell_percentage(self.sell_percentage);
+        world.admit_combat_bonus_baseline(self.combat_bonus);
         world.upgrade_definition_base = self.upgrade_definitions.clone();
         world.upgrade_definitions = self.upgrade_definitions;
         Ok(())

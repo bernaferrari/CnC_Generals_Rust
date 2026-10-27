@@ -11,8 +11,8 @@ fn explicit_solo_set_is_authoritative_and_neutral_when_missing_condition() {
     };
     let mut first = GameLogic::new();
     let mut second = GameLogic::new();
-    first.admit_global_weapon_bonus_entries(&[entry(1.5)]);
-    second.admit_global_weapon_bonus_entries(&[entry(2.0)]);
+    first.admit_weapon_bonus_entries(&[entry(1.5)]);
+    second.admit_weapon_bonus_entries(&[entry(2.0)]);
     let first_fields = object.weapon_bonus_fields_for_named_weapon_with_solo_set(
         "AbsentExtraWeapon",
         &first.solo_weapon_bonus_set,

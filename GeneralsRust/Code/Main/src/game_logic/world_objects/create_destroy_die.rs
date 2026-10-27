@@ -3378,43 +3378,22 @@ impl GameLogic {
             crate::ai::AIDifficulty::Medium => 1,
             crate::ai::AIDifficulty::Hard | crate::ai::AIDifficulty::Brutal => 2,
         };
-        let from_ini = self
-            .solo_player_health_bonus_for_difficulty
-            .as_ref()
-            .and_then(|bonuses| bonuses.get(type_idx)?.get(diff_idx))
-            .copied()
-            .filter(|factor| factor.is_finite() && *factor > 0.0);
-        let health_factor = match from_ini {
-            Some(factor) if (factor - 1.0).abs() > f32::EPSILON => factor,
-            _ if is_human => {
-                crate::game_logic::host_faction_skirmish_residual::human_solo_health_bonus_for_difficulty(
-                    difficulty,
-                )
-            }
-            Some(factor) => factor,
-            None => 1.0,
-        };
+        let health_factor = self.solo_player_health_bonus_for_difficulty[type_idx][diff_idx];
         let solo = crate::game_logic::host_faction_skirmish_residual::solo_weapon_bonus_condition(
             is_human, difficulty,
         );
         if let Some(object) = self.objects.get_mut(&object_id) {
             // C++ setReceivingDifficultyBonus then setWeaponBonusCondition
             // even when healthFactor == 1.0 (Normal).
-            if (health_factor - 1.0).abs() <= f32::EPSILON {
+            if health_factor == 1.0 {
                 object.weapon_bonus_solo = if apply { solo } else { 0 };
                 return;
             }
-            let old_max = if object.health.maximum > 0.0 {
-                object.health.maximum
-            } else {
-                object.max_health.max(1.0)
-            };
+            let old_max = object.health.maximum;
             let new_max = if apply {
                 old_max * health_factor
-            } else if health_factor != 0.0 {
-                old_max / health_factor
             } else {
-                old_max
+                old_max / health_factor
             };
             // End the actor borrow before capturing receiving identity/policy.
             self.set_owned_body_max_health_with_effects(

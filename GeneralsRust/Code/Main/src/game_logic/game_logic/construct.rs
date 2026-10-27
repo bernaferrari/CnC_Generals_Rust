@@ -78,7 +78,10 @@ impl GameLogic {
             weapon_definition_base: None,
             weapon_definitions: None,
             solo_weapon_bonus_set: gamelogic::weapon::WeaponBonusSet::new(),
-            solo_player_health_bonus_for_difficulty: None,
+            combat_bonus_base: Default::default(),
+            solo_player_health_bonus_for_difficulty: [[1.0;
+                game_engine::common::global_data::DIFFICULTY_COUNT];
+                game_engine::common::global_data::PLAYERTYPE_COUNT],
             veterancy_health_bonus: [1.0; game_engine::common::global_data::LEVEL_COUNT],
             session_sell_percentage: 1.0,
             projectile_definitions: Default::default(),
@@ -767,8 +770,6 @@ impl GameLogic {
         };
         instance.refresh_pathfinding_ai_definitions();
         instance.rebuild_objective_lookup();
-        instance.admit_current_global_solo_player_health_bonus_snapshot();
-        instance.admit_current_veterancy_health_bonus_table();
         // C++ GameLogic::GameLogic only initializes fields. Constructing a
         // candidate must not publish its authority, store bundle, or override
         // callback while another world is live. WorldServices constructs a
@@ -779,14 +780,6 @@ impl GameLogic {
     /// Admit the canonical ordered GameData result into this receiving match.
     pub(crate) fn admit_historic_damage_limit(&mut self, limit: u32) {
         self.combat_system.admit_historic_damage_limit(limit);
-    }
-
-    /// Snapshot the effective engine veterancy health table for this session.
-    /// Missing GlobalData preserves the prior admitted table.
-    pub(crate) fn admit_current_veterancy_health_bonus_table(&mut self) {
-        if let Some(data) = game_engine::common::ini::get_global_data() {
-            self.veterancy_health_bonus = data.read().health_bonus;
-        }
     }
 
     /// Admit the effective ordered startup GameData sell percentage.
@@ -861,10 +854,7 @@ impl GameLogic {
             self.combat_particles.can_clear(),
             "GameLogic reset requires its live receiving particle manager"
         );
-        // Snapshot immutable GlobalData weapon bonuses into this session.
-        // Missing GlobalData leaves the prior admitted owner set intact.
-        self.admit_current_global_weapon_bonus_snapshot();
-        self.admit_current_veterancy_health_bonus_table();
+        self.restore_combat_bonus_baseline();
         self.queued_audio_events.reset();
         self.session_view.world_animations.clear();
         self.session_view.border_shroud_level = None;

@@ -503,8 +503,8 @@ fn same_id_structure_topple_uses_each_receiving_solo_bonus_set() {
                 field: "DAMAGE".into(),
                 value,
             };
-            first.admit_global_weapon_bonus_entries(&[entry(1.5)]);
-            second.admit_global_weapon_bonus_entries(&[entry(2.0)]);
+            first.admit_weapon_bonus_entries(&[entry(1.5)]);
+            second.admit_weapon_bonus_entries(&[entry(2.0)]);
             first.host_object_mut(first_source).unwrap().weapon_bonus_solo = 16;
             second.host_object_mut(second_source).unwrap().weapon_bonus_solo = 16;
             let position = glam::Vec3::new(20.0, 0.0, 12.0);

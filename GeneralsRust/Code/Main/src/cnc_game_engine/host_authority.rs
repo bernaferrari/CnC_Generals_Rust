@@ -145,6 +145,7 @@ pub(super) struct RestoreTemplateCatalog<'a> {
     session_sell_percentage: f32,
     lighting_baseline: &'a crate::game_logic::lighting_rules::LightingContentRules,
     roads_baseline: &'a game_engine::common::ini::ini_road::TerrainRoadCollection,
+    combat_bonus_baseline: &'a game_engine::common::ini::ini_game_data::CombatBonusRules,
     templates: &'a std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
     modules:
         &'a Option<game_engine::common::thing::receiving_module_content::ReceivingModuleContent>,
@@ -161,6 +162,7 @@ impl<'a> RestoreTemplateCatalog<'a> {
             baseline: &world.receiving_template_baseline,
             lighting_baseline: world.lighting_rules_baseline(),
             roads_baseline: world.terrain_road_baseline(),
+            combat_bonus_baseline: world.combat_bonus_baseline(),
             body_damage_baseline: world.body_damage_baseline(),
             session_sell_percentage: world.session_sell_percentage,
         }
@@ -2290,6 +2292,7 @@ impl CnCGameEngine {
                 baseline: &live.receiving_template_baseline,
                 lighting_baseline: live.lighting_rules_baseline(),
                 roads_baseline: live.terrain_road_baseline(),
+                combat_bonus_baseline: live.combat_bonus_baseline(),
                 body_damage_baseline: live.body_damage_baseline(),
                 session_sell_percentage: live.session_sell_percentage,
             },
@@ -2435,6 +2438,7 @@ impl CnCGameEngine {
             candidate.admit_production_energy_base(live.production_energy_baseline());
             candidate.admit_historic_damage_limit(live.combat_system.historic_damage_limit());
             candidate.admit_sell_percentage(live.session_sell_percentage);
+            candidate.admit_combat_bonus_baseline(live.combat_bonus_baseline().clone());
             candidate.admit_physics_rules_base(live.physics_rules_baseline())?;
             candidate.admit_body_damage_baseline(live.body_damage_baseline());
             candidate.admit_lighting_rules_base(live.lighting_rules_baseline().clone());
@@ -2714,6 +2718,7 @@ impl CnCGameEngine {
         staged.admit_production_energy_base(production_energy_base);
         staged.admit_historic_damage_limit(historic_damage_limit);
         staged.admit_sell_percentage(template_catalog.session_sell_percentage);
+        staged.admit_combat_bonus_baseline(template_catalog.combat_bonus_baseline.clone());
         staged.admit_physics_rules_base(physics_rules_base)?;
         staged.admit_body_damage_baseline(template_catalog.body_damage_baseline);
         staged.admit_lighting_rules_base(template_catalog.lighting_baseline.clone());
@@ -2973,6 +2978,7 @@ impl CnCGameEngine {
                     baseline: &self.game_logic.receiving_template_baseline,
                     lighting_baseline: self.game_logic.lighting_rules_baseline(),
                     roads_baseline: self.game_logic.terrain_road_baseline(),
+                    combat_bonus_baseline: self.game_logic.combat_bonus_baseline(),
                     body_damage_baseline: self.game_logic.body_damage_baseline(),
                     session_sell_percentage: self.game_logic.session_sell_percentage,
                 },
@@ -3015,6 +3021,7 @@ impl CnCGameEngine {
                 baseline: &self.game_logic.receiving_template_baseline,
                 lighting_baseline: self.game_logic.lighting_rules_baseline(),
                 roads_baseline: self.game_logic.terrain_road_baseline(),
+                combat_bonus_baseline: self.game_logic.combat_bonus_baseline(),
                 body_damage_baseline: self.game_logic.body_damage_baseline(),
                 session_sell_percentage: self.game_logic.session_sell_percentage,
             },

@@ -339,6 +339,7 @@ impl GameLogic {
             return Ok(false);
         }
         self.body_damage_definitions.effective = self.body_damage_definitions.base;
+        self.restore_combat_bonus_baseline();
         self.lighting_definitions.effective = self.lighting_definitions.base.clone();
         self.terrain_road_definitions.effective = self.terrain_road_definitions.base.clone();
         self.reset_ocl_map_definitions();
@@ -421,6 +422,10 @@ impl GameLogic {
                     .collect();
                 if let Err(error) = self.admit_body_damage_companion_sources(&weapon_overrides) {
                     log::error!("Cannot admit receiving map Body rules: {error}");
+                    return Ok(false);
+                }
+                if let Err(error) = self.admit_combat_bonus_companion_sources(&weapon_overrides) {
+                    log::error!("Cannot admit receiving map combat bonuses: {error}");
                     return Ok(false);
                 }
                 if let Err(error) = self.admit_lighting_companion_sources(&weapon_overrides) {

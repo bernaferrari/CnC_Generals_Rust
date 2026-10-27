@@ -1337,6 +1337,9 @@ impl ProductionEnergyRules {
 #[path = "ini_game_data/body_damage_rules.rs"]
 mod body_damage_rules;
 pub use body_damage_rules::BodyDamageRules;
+#[path = "ini_game_data/combat_bonus_rules.rs"]
+mod combat_bonus_rules;
+pub use combat_bonus_rules::CombatBonusRules;
 #[path = "ini_game_data/lighting_rules.rs"]
 mod lighting_rules;
 pub use lighting_rules::{LightingContentRules, TerrainTrackRules, TerrainWaterRules};

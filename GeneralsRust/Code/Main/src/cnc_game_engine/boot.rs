@@ -518,7 +518,16 @@ impl CnCGameEngine {
                     .map_err(|error| anyhow::anyhow!("{path}: {error}"))
             },
         )?;
+        let combat_bonus = startup_sources.iter().try_fold(
+            game_engine::common::ini::ini_game_data::CombatBonusRules::default(),
+            |rules, (path, text)| {
+                rules
+                    .overlay_ini_text(text)
+                    .map_err(|error| anyhow::anyhow!("{path}: {error}"))
+            },
+        )?;
         let mut game_logic = GameLogic::initialize();
+        game_logic.admit_combat_bonus_baseline(combat_bonus);
         game_logic.admit_historic_damage_limit(historic_damage_limit.frames);
         game_logic.admit_sell_percentage(sell_percentage.percentage);
         game_logic.admit_armor_definitions(armor_definition_seed);

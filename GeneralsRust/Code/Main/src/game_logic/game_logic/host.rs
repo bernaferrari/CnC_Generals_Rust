@@ -38,11 +38,12 @@ pub struct GameLogic {
         Option<HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>>,
     /// Immutable SOLO WeaponBonus rows admitted with this session's weapon content.
     pub(crate) solo_weapon_bonus_set: gamelogic::weapon::WeaponBonusSet,
+    /// Original application GameData values; map overrides are derived from this owner.
+    pub(crate) combat_bonus_base: game_engine::common::ini::ini_game_data::CombatBonusRules,
     /// GameData SOLO health factors admitted with this receiving session.
-    pub(crate) solo_player_health_bonus_for_difficulty: Option<
+    pub(crate) solo_player_health_bonus_for_difficulty:
         [[f32; game_engine::common::global_data::DIFFICULTY_COUNT];
             game_engine::common::global_data::PLAYERTYPE_COUNT],
-    >,
     /// Global veterancy health factors admitted with this receiving session.
     pub(crate) veterancy_health_bonus: [f32; game_engine::common::global_data::LEVEL_COUNT],
     /// Effective ordered GameData SellPercentage admitted with this session.

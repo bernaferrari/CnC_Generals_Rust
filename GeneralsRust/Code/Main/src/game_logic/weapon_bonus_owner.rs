@@ -49,30 +49,74 @@ pub(crate) fn from_entries(
     set
 }
 
-pub(crate) fn current_global_solo_player_health_bonus_table() -> Option<
-    [[f32; game_engine::common::global_data::DIFFICULTY_COUNT];
-        game_engine::common::global_data::PLAYERTYPE_COUNT],
-> {
-    let data = game_engine::common::ini::get_global_data()?;
-    Some(data.read().solo_player_health_bonus_for_difficulty)
-}
-
-pub(crate) fn current_global_bonus_snapshot() -> Option<(
-    Vec<game_engine::common::ini::ini_game_data::WeaponBonusEntry>,
-    [[f32; game_engine::common::global_data::DIFFICULTY_COUNT];
-        game_engine::common::global_data::PLAYERTYPE_COUNT],
-)> {
-    let data = game_engine::common::ini::get_global_data()?;
-    let global = data.read();
-    Some((
-        global.weapon_bonus_entries.clone(),
-        global.solo_player_health_bonus_for_difficulty,
-    ))
-}
-
 impl crate::game_logic::GameLogic {
+    pub(crate) fn combat_bonus_baseline(
+        &self,
+    ) -> &game_engine::common::ini::ini_game_data::CombatBonusRules {
+        &self.combat_bonus_base
+    }
+
+    fn install_combat_bonus_rules(
+        &mut self,
+        rules: &game_engine::common::ini::ini_game_data::CombatBonusRules,
+    ) {
+        self.admit_weapon_bonus_entries(&rules.weapon_entries);
+        self.admit_solo_player_health_bonus_for_difficulty(rules.solo_health);
+        self.veterancy_health_bonus = rules.veterancy_health;
+    }
+
+    /// Admit the application baseline before any Object uses these definitions.
+    pub(crate) fn admit_combat_bonus_baseline(
+        &mut self,
+        rules: game_engine::common::ini::ini_game_data::CombatBonusRules,
+    ) {
+        assert!(
+            self.objects.registered_is_empty(),
+            "combat bonus admission requires an empty receiving world"
+        );
+        self.install_combat_bonus_rules(&rules);
+        self.combat_bonus_base = rules;
+    }
+
+    pub(crate) fn restore_combat_bonus_baseline(&mut self) {
+        let baseline = self.combat_bonus_base.clone();
+        self.install_combat_bonus_rules(&baseline);
+    }
+
+    /// Parse ordered application GameData without selecting a global owner.
+    pub fn admit_combat_bonus_ini_sources<I, S>(&mut self, sources: I) -> Result<(), String>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        if !self.objects.registered_is_empty() {
+            return Err("combat bonus admission requires an empty receiving world".into());
+        }
+        let mut rules = game_engine::common::ini::ini_game_data::CombatBonusRules::default();
+        for source in sources {
+            rules = rules.overlay_ini_text(source.as_ref())?;
+        }
+        self.admit_combat_bonus_baseline(rules);
+        Ok(())
+    }
+
+    pub(crate) fn admit_combat_bonus_companion_sources(
+        &mut self,
+        sources: &[String],
+    ) -> Result<(), String> {
+        if !self.objects.registered_is_empty() {
+            return Err("combat bonus map admission requires an empty receiving world".into());
+        }
+        let mut rules = self.combat_bonus_base.clone();
+        for source in sources {
+            rules = rules.overlay_ini_text(source)?;
+        }
+        self.install_combat_bonus_rules(&rules);
+        Ok(())
+    }
+
     /// Admit the immutable GameData bonus rows into this receiving session.
-    pub(crate) fn admit_global_weapon_bonus_entries(
+    pub(crate) fn admit_weapon_bonus_entries(
         &mut self,
         entries: &[game_engine::common::ini::ini_game_data::WeaponBonusEntry],
     ) {
@@ -84,19 +128,6 @@ impl crate::game_logic::GameLogic {
         bonuses: [[f32; game_engine::common::global_data::DIFFICULTY_COUNT];
             game_engine::common::global_data::PLAYERTYPE_COUNT],
     ) {
-        self.solo_player_health_bonus_for_difficulty = Some(bonuses);
-    }
-
-    pub(crate) fn admit_current_global_solo_player_health_bonus_snapshot(&mut self) {
-        if let Some(bonuses) = current_global_solo_player_health_bonus_table() {
-            self.admit_solo_player_health_bonus_for_difficulty(bonuses);
-        }
-    }
-
-    pub(crate) fn admit_current_global_weapon_bonus_snapshot(&mut self) {
-        if let Some((entries, health_bonuses)) = current_global_bonus_snapshot() {
-            self.admit_global_weapon_bonus_entries(&entries);
-            self.admit_solo_player_health_bonus_for_difficulty(health_bonuses);
-        }
+        self.solo_player_health_bonus_for_difficulty = bonuses;
     }
 }
