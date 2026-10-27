@@ -2370,6 +2370,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn sell_percentage_rules_follow_order_default_and_common_percent_syntax() {
+        let base = SellPercentageRules::default();
+        assert_eq!(base.percentage, 1.0);
+        let ordered = base
+            .overlay_ini_text("GameData\n SellPercentage = 25%\n SellPercentage = 40%\nEnd\n")
+            .unwrap()
+            .overlay_ini_text("GameData\n SellPercentage = 75%\nEnd\n")
+            .unwrap();
+        assert_eq!(ordered.percentage, 0.75);
+        assert!(
+            base.overlay_ini_text("GameData\n SellPercentage = invalid\nEnd\n")
+                .is_err()
+        );
+    }
+
+    #[test]
     fn test_global_data_creation() {
         let global_data = GlobalData::new();
         assert_eq!(global_data.x_resolution, 1024);
@@ -2676,7 +2692,48 @@ impl HistoricDamageLimitRules {
             Ok(())
         })
         .map_err(|error| error.to_string())?;
-        Ok(Self { frames: draft.historic_damage_limit })
+        Ok(Self {
+            frames: draft.historic_damage_limit,
+        })
+    }
+}
+
+/// Sell refund percentage admitted from the ordered application GameData sources.
+/// This projection uses the canonical GameData parser without publishing the
+/// result to Common's process-lifetime GlobalData.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SellPercentageRules {
+    pub percentage: f32,
+}
+impl Default for SellPercentageRules {
+    fn default() -> Self {
+        Self { percentage: 1.0 }
+    }
+}
+impl SellPercentageRules {
+    pub fn overlay_ini_text(self, text: &str) -> Result<Self, String> {
+        let mut draft = GlobalData::new();
+        draft.sell_percentage = self.percentage;
+        let mut ini = INI::new();
+        ini.with_inline_source(text, |ini| {
+            loop {
+                ini.read_line()?;
+                if ini.is_eof() {
+                    break;
+                }
+                if ini
+                    .get_next_token_or_null()
+                    .is_some_and(|key| key.eq_ignore_ascii_case("GameData"))
+                {
+                    parse_game_data_block(ini, &mut draft)?;
+                }
+            }
+            Ok(())
+        })
+        .map_err(|error| error.to_string())?;
+        Ok(Self {
+            percentage: draft.sell_percentage,
+        })
     }
 }
 

@@ -45,6 +45,8 @@ pub struct GameLogic {
     >,
     /// Global veterancy health factors admitted with this receiving session.
     pub(crate) veterancy_health_bonus: [f32; game_engine::common::global_data::LEVEL_COUNT],
+    /// Effective ordered GameData SellPercentage admitted with this session.
+    pub(crate) session_sell_percentage: f32,
     pub(crate) weapon_definitions: Option<HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>>,
     pub(crate) projectile_definitions:
         crate::game_logic::projectile_definitions::ProjectileDefinitions,

@@ -485,8 +485,17 @@ impl CnCGameEngine {
                     .map_err(|error| anyhow::anyhow!("{path}: {error}"))
             },
         )?;
+        let sell_percentage = startup_sources.iter().try_fold(
+            game_engine::common::ini::ini_game_data::SellPercentageRules::default(),
+            |rules, (path, text)| {
+                rules
+                    .overlay_ini_text(text)
+                    .map_err(|error| anyhow::anyhow!("{path}: {error}"))
+            },
+        )?;
         let mut game_logic = GameLogic::initialize();
         game_logic.admit_historic_damage_limit(historic_damage_limit.frames);
+        game_logic.admit_sell_percentage(sell_percentage.percentage);
         game_logic.admit_armor_definitions(armor_definition_seed);
         game_logic
             .admit_terrain_definitions(terrain_definition_seed)

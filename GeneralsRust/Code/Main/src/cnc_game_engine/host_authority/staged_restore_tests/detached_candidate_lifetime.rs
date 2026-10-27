@@ -31,6 +31,7 @@ fn stage_decoded(
             baseline: &source.receiving_template_baseline,
             lighting_baseline: source.lighting_rules_baseline(),
             body_damage_baseline: source.body_damage_baseline(),
+            session_sell_percentage: source.session_sell_percentage,
         },
         &source.weapon_definition_base,
         &source.projectile_definitions,
@@ -69,6 +70,7 @@ fn actual_main_holds_a_while_staging_b_and_malformed_c_then_drops_b_commits_a_an
             let mut saves = SaveFileManager::with_save_directory(temp.path());
             saves.init().unwrap();
             let mut live = GameLogic::new();
+            live.admit_sell_percentage(0.37);
             admit_skirmish_fixture(&mut live, &map, "CandidateLifetimeHuman", false);
             assert!(
                 live.load_map(&map),
@@ -100,6 +102,7 @@ fn actual_main_holds_a_while_staging_b_and_malformed_c_then_drops_b_commits_a_an
             let a = stage_decoded(&mut saves, decoded_a, &live, "held_a")
                 .unwrap_or_else(|failure| panic!("stage A: {}", failure.reason));
             assert_eq!(a.logic.frame, 41);
+            assert_eq!(a.logic.session_sell_percentage, 0.37);
             let expected_a = crate::authoritative_world::AuthorityProbe::capture(&a.logic, 0);
             assert_eq!(
                 crate::authoritative_world::AuthorityProbe::capture(&live, 0),
@@ -112,6 +115,7 @@ fn actual_main_holds_a_while_staging_b_and_malformed_c_then_drops_b_commits_a_an
             let b = stage_decoded(&mut saves, decoded_b, &live, "held_b")
                 .unwrap_or_else(|failure| panic!("stage B while A held: {}", failure.reason));
             assert_eq!(b.logic.frame, 42);
+            assert_eq!(b.logic.session_sell_percentage, 0.37);
             assert_eq!(a.logic.frame, 41);
             assert_eq!(
                 crate::authoritative_world::AuthorityProbe::capture(&live, 0),
@@ -182,6 +186,7 @@ fn actual_main_holds_a_while_staging_b_and_malformed_c_then_drops_b_commits_a_an
             live.reset();
             assert_eq!(live.host_objects().registered_len(), 0);
             assert_eq!(live.frame, 0);
+            assert_eq!(live.session_sell_percentage, 0.37);
             assert!(live.get_players().is_empty());
         },
     );

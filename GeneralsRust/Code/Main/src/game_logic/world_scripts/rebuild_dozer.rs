@@ -1129,8 +1129,7 @@ impl GameLogic {
                 )
             })
             .unwrap_or(object.thing().template.build_cost.supplies);
-        let sell_percentage = game_engine::common::global_data::read().sell_percentage;
-        ((build_cost as f32) * sell_percentage).max(0.0) as u32
+        ((build_cost as f32) * self.session_sell_percentage).max(0.0) as u32
     }
 
     pub fn honesty_sell_process_ok(&self) -> bool {

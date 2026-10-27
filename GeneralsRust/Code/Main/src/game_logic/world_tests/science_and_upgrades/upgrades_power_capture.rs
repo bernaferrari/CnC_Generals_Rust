@@ -2195,6 +2195,7 @@ fn sell_process_scaffold_sold_model_and_refund() {
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
+    logic.admit_sell_percentage(0.5);
     // Seed a USA player (GameLogic::new does not create players).
     logic
         .players

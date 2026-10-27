@@ -80,6 +80,7 @@ impl GameLogic {
             solo_weapon_bonus_set: gamelogic::weapon::WeaponBonusSet::new(),
             solo_player_health_bonus_for_difficulty: None,
             veterancy_health_bonus: [1.0; game_engine::common::global_data::LEVEL_COUNT],
+            session_sell_percentage: 1.0,
             projectile_definitions: Default::default(),
             body_damage_definitions: Default::default(),
             lighting_definitions: Default::default(),
@@ -784,6 +785,11 @@ impl GameLogic {
         if let Some(data) = game_engine::common::ini::get_global_data() {
             self.veterancy_health_bonus = data.read().health_bonus;
         }
+    }
+
+    /// Admit the effective ordered startup GameData sell percentage.
+    pub(crate) fn admit_sell_percentage(&mut self, percentage: f32) {
+        self.session_sell_percentage = percentage;
     }
 
     /// World bounds used for minimap/FOW projections.

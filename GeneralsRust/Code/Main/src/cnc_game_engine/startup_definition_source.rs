@@ -33,6 +33,7 @@ pub(super) struct StartupSimulationRules {
     physics: game_engine::common::ini::ini_game_data::PhysicsContentRules,
     energy: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
     historic_damage_limit: u32,
+    sell_percentage: f32,
     upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
 }
 impl StartupSimulationRules {
@@ -43,6 +44,7 @@ impl StartupSimulationRules {
             physics: world.physics_rules_baseline(),
             energy: world.production_energy_baseline(),
             historic_damage_limit: world.combat_system.historic_damage_limit(),
+            sell_percentage: world.session_sell_percentage,
             upgrade_definitions: world.upgrade_definitions.clone(),
         }
     }
@@ -84,6 +86,7 @@ impl StartupSimulationRules {
         world.admit_physics_rules_base(self.physics)?;
         world.admit_production_energy_base(self.energy);
         world.admit_historic_damage_limit(self.historic_damage_limit);
+        world.admit_sell_percentage(self.sell_percentage);
         world.upgrade_definition_base = self.upgrade_definitions.clone();
         world.upgrade_definitions = self.upgrade_definitions;
         Ok(())
@@ -95,6 +98,27 @@ mod tests {
     use super::*;
     use std::sync::{Arc, mpsc};
     use std::time::Duration;
+
+    #[test]
+    fn sell_percentage_survives_startup_handoff_and_peer_reset() {
+        let rule = game_engine::common::ini::ini_game_data::SellPercentageRules::default()
+            .overlay_ini_text("GameData\n SellPercentage = 25%\nEnd\n")
+            .unwrap()
+            .overlay_ini_text("GameData\n SellPercentage = 40%\nEnd\n")
+            .unwrap();
+        let mut source = crate::game_logic::GameLogic::new();
+        source.admit_sell_percentage(rule.percentage);
+        let captured = StartupSimulationRules::capture(&source);
+        let mut peer = crate::game_logic::GameLogic::new();
+        peer.admit_sell_percentage(0.9);
+        peer.reset();
+        source.reset();
+        drop(source);
+        let mut candidate = crate::game_logic::GameLogic::new();
+        captured.admit(&mut candidate).unwrap();
+        assert_eq!(candidate.session_sell_percentage, 0.4);
+        assert_eq!(peer.session_sell_percentage, 0.9);
+    }
 
     #[test]
     fn contended_owner_waits_and_preserves_read_error_instead_of_missing() {
