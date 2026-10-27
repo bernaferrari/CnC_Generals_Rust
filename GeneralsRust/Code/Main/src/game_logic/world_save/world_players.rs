@@ -216,7 +216,10 @@ impl GameLogic {
             "Fast sync polygons",
         )?;
         let polygon_triggers =
-            match super::script_loader::parse_runtime_polygon_triggers_from_chunky(chunky) {
+            match super::script_loader::parse_runtime_polygon_triggers_from_chunky_with_lighting_rules(
+                chunky,
+                self.lighting_rules_baseline(),
+            ) {
                 Ok(value) => value,
                 Err(err) => {
                     log::warn!(

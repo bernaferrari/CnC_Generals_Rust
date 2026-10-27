@@ -316,6 +316,26 @@ fn parse_runtime_world_info_dict(
 pub fn parse_runtime_polygon_triggers_from_chunky(
     chunky: &ChunkyMap,
 ) -> LoaderResult<Vec<PolygonTrigger>> {
+    let rules = game_engine::common::ini::get_global_data()
+        .map(|data| {
+            let data = data.read();
+            game_engine::common::ini::ini_game_data::LightingContentRules::from_global_data(&data)
+        })
+        .unwrap_or_else(
+            || game_engine::common::ini::ini_game_data::LightingContentRules {
+                water_extent_x: 0.0,
+                water_extent_y: 0.0,
+                ..Default::default()
+            },
+        );
+    parse_runtime_polygon_triggers_from_chunky_with_lighting_rules(chunky, &rules)
+}
+
+/// Parse using the receiving session's admitted application GameData owner.
+pub(crate) fn parse_runtime_polygon_triggers_from_chunky_with_lighting_rules(
+    chunky: &ChunkyMap,
+    rules: &game_engine::common::ini::ini_game_data::LightingContentRules,
+) -> LoaderResult<Vec<PolygonTrigger>> {
     let body = &chunky.bytes[chunky.body_offset..];
     let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, "PolygonTriggers")?
     else {
@@ -410,12 +430,8 @@ pub fn parse_runtime_polygon_triggers_from_chunky(
             Vec::new(),
         );
         trigger.set_water_area(true);
-        let (water_extent_x, water_extent_y) = game_engine::common::ini::get_global_data()
-            .map(|data| {
-                let data = data.read();
-                (data.water_extent_x, data.water_extent_y)
-            })
-            .unwrap_or((0.0, 0.0));
+        let water_extent_x = rules.water_extent_x;
+        let water_extent_y = rules.water_extent_y;
         let border = 30.0 * MAP_XY_FACTOR;
         trigger.add_point(ICoord3D::new((-border) as i32, (-border) as i32, 7));
         trigger.add_point(ICoord3D::new(
