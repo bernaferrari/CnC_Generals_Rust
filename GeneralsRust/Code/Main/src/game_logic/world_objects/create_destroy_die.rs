@@ -212,23 +212,10 @@ impl GameLogic {
     ///
     /// Programmatic fixtures without admitted modules retain the base-game pairs.
     fn authored_supply_center_one_shot_template(center: &Object) -> Option<String> {
-        use gamelogic::object::behavior::spawn_behavior::SpawnBehaviorModuleData;
-
         let template = center.get_template();
-        if let Some(receiving) = &template.receiving_client_template {
-            let module = receiving
-                .behavior_modules()
-                .iter()
-                .find(|entry| entry.name.as_str().eq_ignore_ascii_case("SpawnBehavior"))?;
-            let data = module
-                .data
-                .as_any()
-                .downcast_ref::<SpawnBehaviorModuleData>()?;
-            return (data.is_one_shot_data && data.spawn_number_data == 1)
-                .then(|| data.spawn_template_name_data.first())
-                .flatten()
-                .map(|name| name.as_str().to_owned())
-                .filter(|name| !name.is_empty());
+        if template.receiving_client_template.is_some() {
+            let spec = Self::authored_spawn_behavior_spec(center)?;
+            return (spec.one_shot && spec.spawn_number == 1).then_some(spec.spawn_template);
         }
         if template.receiving_object_definition.is_some() {
             return None;
@@ -493,50 +480,37 @@ impl GameLogic {
             && !crate::game_logic::host_base_defense::is_stinger_site_structure(name)
     }
 
-    fn resolve_host_spawn_behavior_spec(template_name: &str) -> Option<HostSpawnBehaviorSpec> {
-        if let Some(spec) = Self::authored_spawn_behavior_spec(template_name) {
-            return Some(spec);
+    fn resolve_host_spawn_behavior_spec(object: &Object) -> Option<HostSpawnBehaviorSpec> {
+        let template = object.get_template();
+        if template.receiving_client_template.is_some()
+            || template.receiving_object_definition.is_some()
+        {
+            return Self::authored_spawn_behavior_spec(object);
         }
-        Self::fallback_spawn_behavior_spec(template_name)
+        Self::fallback_spawn_behavior_spec(&object.template_name)
     }
 
-    fn authored_spawn_behavior_spec(template_name: &str) -> Option<HostSpawnBehaviorSpec> {
-        let manager_arc = get_asset_manager()?;
-        let manager = manager_arc.lock().ok()?;
-        let definition = manager.resolve_object_definition(template_name, None)?;
-        definition.behavior_modules.iter().find_map(|module| {
-            if !module.class_name.eq_ignore_ascii_case("SpawnBehavior") {
-                return None;
-            }
-            let spawn_template = module.attribute("SpawnTemplateName")?.trim().to_string();
-            if spawn_template.is_empty() {
-                return None;
-            }
-            let spawn_number = module
-                .attribute("SpawnNumber")
-                .and_then(|value| value.trim().parse::<u32>().ok())
-                .filter(|n| *n > 0)?;
-            let one_shot = module.attribute("OneShot").is_some_and(|value| {
-                matches!(
-                    value.trim().to_ascii_lowercase().as_str(),
-                    "yes" | "true" | "1"
-                )
-            });
-            let spawned_require_spawner =
-                module
-                    .attribute("SpawnedRequireSpawner")
-                    .is_some_and(|value| {
-                        matches!(
-                            value.trim().to_ascii_lowercase().as_str(),
-                            "yes" | "true" | "1"
-                        )
-                    });
-            Some(HostSpawnBehaviorSpec {
-                spawn_template,
-                spawn_number,
-                one_shot,
-                spawned_require_spawner,
-            })
+    fn authored_spawn_behavior_spec(object: &Object) -> Option<HostSpawnBehaviorSpec> {
+        use gamelogic::object::behavior::spawn_behavior::SpawnBehaviorModuleData;
+
+        let receiving = object.get_template().receiving_client_template.as_ref()?;
+        let module = receiving
+            .behavior_modules()
+            .iter()
+            .find(|entry| entry.name.as_str().eq_ignore_ascii_case("SpawnBehavior"))?;
+        let data = module
+            .data
+            .as_any()
+            .downcast_ref::<SpawnBehaviorModuleData>()?;
+        let spawn_template = data.spawn_template_name_data.first()?.as_str().to_owned();
+        let spawn_number = u32::try_from(data.spawn_number_data)
+            .ok()
+            .filter(|count| *count > 0)?;
+        (!spawn_template.is_empty()).then_some(HostSpawnBehaviorSpec {
+            spawn_template,
+            spawn_number,
+            one_shot: data.is_one_shot_data,
+            spawned_require_spawner: data.spawned_require_spawner,
         })
     }
 
@@ -574,6 +548,9 @@ impl GameLogic {
             .is_some_and(|template| template.is_kind_of(KindOf::Infantry))
         {
             return true;
+        }
+        if self.receiving_module_content.is_some() {
+            return false;
         }
         if self.ensure_host_spawn_template(spawn_template)
             && self
@@ -786,7 +763,10 @@ impl GameLogic {
         if is_supply {
             return Ok(());
         }
-        let Some(spec) = Self::resolve_host_spawn_behavior_spec(&template_name) else {
+        let Some(spec) = self
+            .host_object(object_id)
+            .and_then(Self::resolve_host_spawn_behavior_spec)
+        else {
             return Ok(());
         };
         let Some(object) = self.host_object(object_id) else {
@@ -1057,7 +1037,7 @@ impl GameLogic {
         for site_id in sites {
             let Some(spec) = self
                 .host_object(site_id)
-                .and_then(|object| Self::resolve_host_spawn_behavior_spec(&object.template_name))
+                .and_then(Self::resolve_host_spawn_behavior_spec)
             else {
                 continue;
             };
@@ -1208,7 +1188,7 @@ impl GameLogic {
                 if !object.is_alive() {
                     return None;
                 }
-                let spec = Self::resolve_host_spawn_behavior_spec(&object.template_name)?;
+                let spec = Self::resolve_host_spawn_behavior_spec(object)?;
                 Some((*id, spec.spawn_template))
             })
             .collect();
@@ -1227,13 +1207,10 @@ impl GameLogic {
         parent_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        let Some(template_name) = self
+        let Some(spec) = self
             .host_object(parent_id)
-            .map(|object| object.template_name.clone())
+            .and_then(Self::resolve_host_spawn_behavior_spec)
         else {
-            return;
-        };
-        let Some(spec) = Self::resolve_host_spawn_behavior_spec(&template_name) else {
             return;
         };
         if !spec.spawned_require_spawner {

@@ -60,9 +60,13 @@ fn world(start_money: u32, map: &std::path::Path) -> GameLogic {
                 "Object OwnedSupply\n KindOf = STRUCTURE SELECTABLE FS_SUPPLY_CENTER\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = {}\n End\nEnd\n\
                  Object FirstCollector\n KindOf = VEHICLE SELECTABLE HARVESTER\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
                  Object PeerCollector\n KindOf = VEHICLE SELECTABLE HARVESTER\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
-                 Object MissingSupply\n KindOf = STRUCTURE SELECTABLE FS_SUPPLY_CENTER\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = PeerOnlyCollector\n End\nEnd\n{}",
+                 Object MissingSupply\n KindOf = STRUCTURE SELECTABLE FS_SUPPLY_CENTER\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = PeerOnlyCollector\n End\nEnd\n{}\
+                 Object OwnedNest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = {}\n SpawnTemplateName = PeerSoldier\n End\nEnd\n\
+                 Object FirstSoldier\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
+                 Object PeerSoldier\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n",
                 if start_money == 1200 { "FirstCollector" } else { "PeerCollector" },
                 if start_money == 1200 { "" } else { "Object PeerOnlyCollector\n KindOf = VEHICLE SELECTABLE HARVESTER\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n" },
+                if start_money == 1200 { "FirstSoldier" } else { "PeerSoldier" },
             ),
         )])
         .unwrap();
@@ -639,7 +643,16 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
         children(&supply_peer, matching_center),
         ["PeerOnlyCollector"]
     );
+    let nest = supply_owner
+        .create_object_for_player("OwnedNest", 1, position)
+        .unwrap();
+    let peer_nest = supply_peer
+        .create_object_for_player("OwnedNest", 1, position)
+        .unwrap();
+    assert_eq!(children(&supply_owner, nest), ["FirstSoldier"]);
+    assert_eq!(children(&supply_peer, peer_nest), ["PeerSoldier"]);
     supply_peer.reset();
     assert_eq!(children(&supply_owner, center), ["FirstCollector"]);
+    assert_eq!(children(&supply_owner, nest), ["FirstSoldier"]);
     *get_player_template_store_mut() = previous;
 }
