@@ -163,7 +163,7 @@ pub struct SciencePurchaseState {
     pub live_rank_level: Option<i32>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ScienceButtonState {
     pub command_name: String,
     pub science_type: ScienceType,
@@ -246,6 +246,8 @@ pub struct ControlBar {
     control_bar_stage: ControlBarStage,
     portrait_state: PortraitDisplayState,
     science_state: SciencePurchaseState,
+    /// Frozen purchase buttons supplied by this bar's driving match.
+    receiving_purchase_sciences: Option<[Vec<ScienceButtonState>; 3]>,
     gen_star_flash: bool,
     last_flashed_at_point_value: i32,
     radar_attack_glow_on: bool,

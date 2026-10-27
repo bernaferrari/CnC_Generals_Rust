@@ -52,6 +52,7 @@ impl ControlBar {
         self.control_bar_stage = ControlBarStage::Default;
         self.portrait_state = PortraitDisplayState::default();
         self.science_state = SciencePurchaseState::default();
+        self.receiving_purchase_sciences = None;
         self.gen_star_flash = true;
         self.last_flashed_at_point_value = -1;
         self.radar_attack_glow_on = false;

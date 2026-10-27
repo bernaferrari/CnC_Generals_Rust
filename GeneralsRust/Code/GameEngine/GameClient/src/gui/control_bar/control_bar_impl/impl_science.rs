@@ -460,7 +460,23 @@ impl ControlBar {
                         }
                     }
                     if !button.command_name.is_empty() {
-                        let cmd = Self::leftover_command_button_by_name(&button.command_name)
+                        let cmd = self
+                            .receiving_upgrade_actions
+                            .as_ref()
+                            .and_then(|actions| {
+                                actions
+                                    .buttons
+                                    .find_command_button_resolved(&button.command_name)
+                            })
+                            .map(Self::command_from_definition)
+                            .or_else(|| {
+                                self.receiving_purchase_sciences
+                                    .is_none()
+                                    .then(|| {
+                                        Self::leftover_command_button_by_name(&button.command_name)
+                                    })
+                                    .flatten()
+                            })
                             .unwrap_or_else(|| {
                                 let mut fallback = CommandButton::default();
                                 fallback.command_name = button.command_name.clone();
@@ -588,10 +604,35 @@ impl ControlBar {
         self.toggle_purchase_science(receiving_manager, effects);
     }
 
+    /// Receive the immutable button state frozen by this match's presentation frame.
+    pub fn apply_receiving_purchase_sciences(&mut self, buttons: [Vec<ScienceButtonState>; 3]) {
+        self.receiving_purchase_sciences = Some(buttons);
+    }
+
+    fn install_receiving_purchase_sciences(&mut self) -> bool {
+        let Some([rank1, rank3, rank8]) = &self.receiving_purchase_sciences else {
+            return false;
+        };
+        self.science_state.rank1_buttons.clone_from(rank1);
+        self.science_state.rank3_buttons.clone_from(rank3);
+        self.science_state.rank8_buttons.clone_from(rank8);
+        true
+    }
+
     fn populate_purchase_science(
         &mut self,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) {
+        if self.install_receiving_purchase_sciences() {
+            self.update_context_purchase_science(receiving_manager);
+            return;
+        }
+        if self.receiving_upgrade_catalog.is_some() || self.presentation_science_ids.is_some() {
+            self.science_state.rank1_buttons.clear();
+            self.science_state.rank3_buttons.clear();
+            self.science_state.rank8_buttons.clear();
+            return;
+        }
         let player_arc = logic_player_list()
             .read()
             .ok()
@@ -834,6 +875,12 @@ impl ControlBar {
         unlocked.sort();
         unlocked.dedup();
         self.science_state.unlocked_sciences = unlocked.clone();
+
+        if self.install_receiving_purchase_sciences() {
+            self.leftover_apply_purchase_science_windows(receiving_manager);
+            self.mark_ui_dirty();
+            return;
+        }
 
         let mark = |buttons: &mut Vec<ScienceButtonState>| {
             for btn in buttons.iter_mut() {

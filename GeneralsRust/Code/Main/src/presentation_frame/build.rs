@@ -1931,6 +1931,8 @@ impl PresentationFrame {
                 asset_scale: scale, instance_scale: scale,
             })
         }).collect();
+        #[cfg(feature = "game_client")]
+        let purchase_science = super::science_purchase::freeze(logic, local_player_id);
         let mut frame = Self {
             frame: LogicFrame(logic.get_frame()),
             money_audio_receipts: logic.economy_events.take_money_audio(),
@@ -1972,6 +1974,8 @@ impl PresentationFrame {
             local_science_purchase_points,
             local_rank_progress_percent,
             local_unlocked_sciences,
+            #[cfg(feature = "game_client")]
+            purchase_science,
             receiving_science_player,
             superweapon_timers,
             can_make_cameos,

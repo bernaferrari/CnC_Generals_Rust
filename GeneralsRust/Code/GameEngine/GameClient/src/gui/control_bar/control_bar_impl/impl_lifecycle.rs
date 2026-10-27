@@ -36,6 +36,7 @@ impl ControlBar {
             control_bar_stage: ControlBarStage::Default,
             portrait_state: PortraitDisplayState::default(),
             science_state: SciencePurchaseState::default(),
+            receiving_purchase_sciences: None,
             gen_star_flash: true,
             last_flashed_at_point_value: -1,
             radar_attack_glow_on: false,

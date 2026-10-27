@@ -84,17 +84,78 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
         std::fs::write(&path, &bytes).unwrap();
         std::fs::write(
             dir.join("Map.ini"),
-            format!("PlayerTemplate FactionAmerica\n StartMoney = {money}\nEnd\n"),
+            format!(
+                "Science SCIENCE_Root\n IsGrantable = Yes\nEnd\n\
+                 Science SCIENCE_Shared\n PrerequisiteSciences = SCIENCE_Root\n SciencePurchasePointCost = {}\nEnd\n\
+                 CommandButton BuyShared\n Command = PURCHASE_SCIENCE\n Science = SCIENCE_Shared\nEnd\n\
+                 CommandSet Rank1\n 1 = BuyShared\nEnd\nCommandSet Rank3\nEnd\nCommandSet Rank8\nEnd\n\
+                 PlayerTemplate FactionAmerica\n StartMoney = {money}\n IntrinsicSciences = SCIENCE_Root\n PurchaseScienceCommandSetRank1 = Rank1\n PurchaseScienceCommandSetRank3 = Rank3\n PurchaseScienceCommandSetRank8 = Rank8\nEnd\n",
+                if money == 1300 { 1 } else { 5 }
+            ),
         )
         .unwrap();
         path
     };
     let first_map = create_map("first", 1300);
     let peer_map = create_map("peer", 2400);
-    let first = world(1200, &first_map);
+    let mut first = world(1200, &first_map);
     let mut peer = world(2200, &peer_map);
     assert_eq!(first.get_player(1).unwrap().resources.supplies, 1300);
     assert_eq!(peer.get_player(1).unwrap().resources.supplies, 2400);
+    let first_frame =
+        generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut first, 1);
+    let peer_frame =
+        generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut peer, 1);
+    let mut first_bar = game_client::gui::control_bar::ControlBar::new();
+    let mut peer_bar = game_client::gui::control_bar::ControlBar::new();
+    let mut first_client = game_client::core::GameClient::new().unwrap();
+    let mut peer_client = game_client::core::GameClient::new().unwrap();
+    first_client
+        .set_in_game_ui_subsystem(game_client::core::subsystems::InGameUISubsystem::default());
+    peer_client
+        .set_in_game_ui_subsystem(game_client::core::subsystems::InGameUISubsystem::default());
+    first_client.with_window_event_effects(None, |effects| {
+        effects.with_manager(|manager, effects| {
+            first_frame.apply_to_control_bar(&mut first_bar, manager, effects)
+        });
+    });
+    peer_client.with_window_event_effects(None, |effects| {
+        effects.with_manager(|manager, effects| {
+            peer_frame.apply_to_control_bar(&mut peer_bar, manager, effects)
+        });
+    });
+    let first_button = &first_bar.get_science_state().rank1_buttons[0];
+    let peer_button = &peer_bar.get_science_state().rank1_buttons[0];
+    assert_eq!(first_button.command_name, "BuyShared");
+    assert_eq!(peer_button.command_name, "BuyShared");
+    assert!(first_button.is_enabled && !first_button.is_hidden);
+    assert!(!peer_button.is_enabled && !peer_button.is_hidden);
+    first.queue_command(generals_main::command_system::GameCommand {
+        command_type: generals_main::command_system::CommandType::PurchaseScience {
+            science_name: "SCIENCE_Shared".into(),
+        },
+        player_id: 1,
+        command_id: 1,
+        timestamp: std::time::UNIX_EPOCH,
+        selected_units: Vec::new(),
+        modifier_keys: generals_main::command_system::ModifierKeys::default(),
+    });
+    first.process_commands();
+    assert!(
+        first
+            .get_player(1)
+            .unwrap()
+            .has_unlocked_science("SCIENCE_Shared")
+    );
+    let purchased_frame =
+        generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut first, 1);
+    first_client.with_window_event_effects(None, |effects| {
+        effects.with_manager(|manager, effects| {
+            purchased_frame.apply_to_control_bar(&mut first_bar, manager, effects)
+        });
+    });
+    assert!(first_bar.get_science_state().rank1_buttons[0].is_purchased);
+    assert!(!peer_bar.get_science_state().rank1_buttons[0].is_purchased);
     assert_eq!(
         get_player_template_store_mut()
             .find_template("FactionAmerica")

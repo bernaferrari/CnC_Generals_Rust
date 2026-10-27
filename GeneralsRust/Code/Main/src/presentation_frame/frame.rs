@@ -88,6 +88,11 @@ pub struct PresentationFrame {
     pub local_rank_progress_percent: i32,
     /// Unlocked science names residual (capped).
     pub local_unlocked_sciences: Vec<String>,
+    /// Exact purchase-button rows, frozen from the receiving local player.
+    #[cfg(feature = "game_client")]
+    #[serde(skip)]
+    pub(crate) purchase_science:
+        [Vec<game_client::gui::control_bar::control_bar::ScienceButtonState>; 3],
     /// InGameUI PublicTimer superweapon countdown residual (local player).
     /// Fail-closed: not full font flash / multi-CC SW map / script hide.
     pub superweapon_timers: Vec<PresentationSuperweaponTimer>,

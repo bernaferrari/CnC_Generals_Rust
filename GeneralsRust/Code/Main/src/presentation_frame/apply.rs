@@ -1292,6 +1292,7 @@ impl PresentationFrame {
         } else {
             self.objects.iter().filter(usable_selected).count()
         };
+        control_bar.apply_receiving_purchase_sciences(self.purchase_science.clone());
         control_bar.apply_presentation_science_hide_names(&self.local_unlocked_sciences);
         control_bar.apply_presentation_science_ids(Some(
             self.receiving_science_player

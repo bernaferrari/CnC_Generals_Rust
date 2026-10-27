@@ -50,6 +50,8 @@ mod particles;
 mod projectile;
 mod queries;
 mod restrict_a;
+#[cfg(feature = "game_client")]
+mod science_purchase;
 mod spectre;
 mod terrain_motion;
 mod types;
