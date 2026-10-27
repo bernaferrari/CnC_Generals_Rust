@@ -617,8 +617,14 @@ impl GameLogic {
         }
         // C++ awards XP to the hacker, not to a fixed retail template.  The
         // shadow event carries its exact parsed `XpPerCashUpdate` value.
+        let health_bonus = self.veterancy_health_bonus;
         self.with_object_veterancy_feedback(ev.id, |hacker, audio, feedback| {
-            hacker.gain_experience(ev.xp_per_cash_update, audio, feedback);
+            hacker.gain_experience_with_health_bonus_table(
+                ev.xp_per_cash_update,
+                &health_bonus,
+                audio,
+                feedback,
+            );
         });
         let is_local = owner_player_id
             .map(|pid| self.is_local_player(pid))
@@ -931,8 +937,14 @@ impl GameLogic {
                 }
             }
             // Residual XpPerCashUpdate.
+            let health_bonus = self.veterancy_health_bonus;
             self.with_object_veterancy_feedback(h.id, |object, audio, feedback| {
-                object.gain_experience(h.metadata.xp_per_cash_update, audio, feedback);
+                object.gain_experience_with_health_bonus_table(
+                    h.metadata.xp_per_cash_update,
+                    &health_bonus,
+                    audio,
+                    feedback,
+                );
             });
             // STEALTHED local display gate residual (owner + containedBy).
             let owner_local = owner_player_id
