@@ -1944,18 +1944,6 @@ impl Default for SaveFileManager {
     }
 }
 
-// Global save file manager instance
-lazy_static::lazy_static! {
-    pub static ref SAVE_FILE_MANAGER: std::sync::Mutex<SaveFileManager> =
-        std::sync::Mutex::new(SaveFileManager::new());
-}
-
-/// Initialize the global save file system
-pub fn init_save_file_system() -> SaveLoadResult<()> {
-    let mut manager = SAVE_FILE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
-    manager.init()
-}
-
 #[cfg(test)]
 mod tests;
 
