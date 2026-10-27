@@ -3366,8 +3366,11 @@ impl GameLogic {
             crate::ai::AIDifficulty::Medium => 1,
             crate::ai::AIDifficulty::Hard | crate::ai::AIDifficulty::Brutal => 2,
         };
-        let from_ini = gamelogic::helpers::TheGlobalData::get()
-            .map(|data| data.solo_player_health_bonus(type_idx, diff_idx))
+        let from_ini = self
+            .solo_player_health_bonus_for_difficulty
+            .as_ref()
+            .and_then(|bonuses| bonuses.get(type_idx)?.get(diff_idx))
+            .copied()
             .filter(|factor| factor.is_finite() && *factor > 0.0);
         let health_factor = match from_ini {
             Some(factor) if (factor - 1.0).abs() > f32::EPSILON => factor,

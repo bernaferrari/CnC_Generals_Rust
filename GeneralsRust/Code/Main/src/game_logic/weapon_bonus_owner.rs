@@ -49,10 +49,25 @@ pub(crate) fn from_entries(
     set
 }
 
-pub(crate) fn current_global_entries(
-) -> Option<Vec<game_engine::common::ini::ini_game_data::WeaponBonusEntry>> {
-    game_engine::common::ini::get_global_data()
-        .map(|data| data.read().weapon_bonus_entries.clone())
+pub(crate) fn current_global_solo_player_health_bonus_table() -> Option<
+    [[f32; game_engine::common::global_data::DIFFICULTY_COUNT];
+        game_engine::common::global_data::PLAYERTYPE_COUNT],
+> {
+    let data = game_engine::common::ini::get_global_data()?;
+    Some(data.read().solo_player_health_bonus_for_difficulty)
+}
+
+pub(crate) fn current_global_bonus_snapshot() -> Option<(
+    Vec<game_engine::common::ini::ini_game_data::WeaponBonusEntry>,
+    [[f32; game_engine::common::global_data::DIFFICULTY_COUNT];
+        game_engine::common::global_data::PLAYERTYPE_COUNT],
+)> {
+    let data = game_engine::common::ini::get_global_data()?;
+    let global = data.read();
+    Some((
+        global.weapon_bonus_entries.clone(),
+        global.solo_player_health_bonus_for_difficulty,
+    ))
 }
 
 impl crate::game_logic::GameLogic {
@@ -64,9 +79,24 @@ impl crate::game_logic::GameLogic {
         self.solo_weapon_bonus_set = from_entries(entries);
     }
 
+    pub(crate) fn admit_solo_player_health_bonus_for_difficulty(
+        &mut self,
+        bonuses: [[f32; game_engine::common::global_data::DIFFICULTY_COUNT];
+            game_engine::common::global_data::PLAYERTYPE_COUNT],
+    ) {
+        self.solo_player_health_bonus_for_difficulty = Some(bonuses);
+    }
+
+    pub(crate) fn admit_current_global_solo_player_health_bonus_snapshot(&mut self) {
+        if let Some(bonuses) = current_global_solo_player_health_bonus_table() {
+            self.admit_solo_player_health_bonus_for_difficulty(bonuses);
+        }
+    }
+
     pub(crate) fn admit_current_global_weapon_bonus_snapshot(&mut self) {
-        if let Some(entries) = current_global_entries() {
+        if let Some((entries, health_bonuses)) = current_global_bonus_snapshot() {
             self.admit_global_weapon_bonus_entries(&entries);
+            self.admit_solo_player_health_bonus_for_difficulty(health_bonuses);
         }
     }
 }

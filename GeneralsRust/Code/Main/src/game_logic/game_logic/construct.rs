@@ -78,6 +78,7 @@ impl GameLogic {
             weapon_definition_base: None,
             weapon_definitions: None,
             solo_weapon_bonus_set: gamelogic::weapon::WeaponBonusSet::new(),
+            solo_player_health_bonus_for_difficulty: None,
             projectile_definitions: Default::default(),
             body_damage_definitions: Default::default(),
             lighting_definitions: Default::default(),
@@ -762,6 +763,7 @@ impl GameLogic {
         };
         instance.refresh_pathfinding_ai_definitions();
         instance.rebuild_objective_lookup();
+        instance.admit_current_global_solo_player_health_bonus_snapshot();
         // C++ GameLogic::GameLogic only initializes fields. Constructing a
         // candidate must not publish its authority, store bundle, or override
         // callback while another world is live. WorldServices constructs a
