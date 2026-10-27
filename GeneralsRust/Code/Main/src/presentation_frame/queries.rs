@@ -2,30 +2,7 @@ use super::*;
 
 fn template_uses_overlord_draw(template: &str) -> bool {
     let t = template.to_ascii_lowercase();
-    if t.contains("overlord") || t.contains("helix") || t.contains("spectregunship") {
-        return true;
-    }
-    #[cfg(feature = "game_client")]
-    {
-        if let Some(manager) = crate::assets::get_asset_manager() {
-            if let Ok(manager) = manager.lock() {
-                if let Some(definition) = manager.get_object_definition(template) {
-                    return definition.draw_modules.iter().any(|module| {
-                        module
-                            .declaration
-                            .split_whitespace()
-                            .next()
-                            .is_some_and(|name| {
-                                name.eq_ignore_ascii_case("W3DOverlordTankDraw")
-                                    || name.eq_ignore_ascii_case("W3DOverlordTruckDraw")
-                                    || name.eq_ignore_ascii_case("W3DOverlordAircraftDraw")
-                            })
-                    });
-                }
-            }
-        }
-    }
-    false
+    t.contains("overlord") || t.contains("helix") || t.contains("spectregunship")
 }
 
 impl PresentationFrame {
@@ -672,14 +649,23 @@ impl PresentationFrame {
         let Some(container) = container else {
             return false;
         };
-        let visual = self
+        let direct = self
             .direct_host_drawables
             .iter()
-            .find(|direct| direct.resident && direct.object.id == container_id)
-            .map(|direct| direct.visual_template_name.as_str())
-            .filter(|name| !name.trim().is_empty())
-            .unwrap_or(container.template_name.as_str());
-        if !template_uses_overlord_draw(visual) {
+            .find(|direct| direct.resident && direct.object.id == container_id);
+        let uses_overlord_draw = match direct {
+            Some(direct) => match &direct.receiving_client_template {
+                Some(template) => template.uses_overlord_rider_draw(),
+                None if direct.authored_client_template_required => false,
+                None => template_uses_overlord_draw(
+                    (!direct.visual_template_name.trim().is_empty())
+                        .then_some(direct.visual_template_name.as_str())
+                        .unwrap_or(container.template_name.as_str()),
+                ),
+            },
+            None => template_uses_overlord_draw(&container.template_name),
+        };
+        if !uses_overlord_draw {
             return false;
         }
         container.garrisoned_units.first().copied() == Some(object.id)

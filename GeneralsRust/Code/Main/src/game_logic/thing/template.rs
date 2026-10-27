@@ -125,6 +125,18 @@ impl ReceivingClientTemplate {
             .any(|entry| entry.name.as_str().eq_ignore_ascii_case(name))
     }
 
+    pub(crate) fn uses_overlord_rider_draw(&self) -> bool {
+        self.0.draw_modules().iter().any(|entry| {
+            [
+                "W3DOverlordTankDraw",
+                "W3DOverlordTruckDraw",
+                "W3DOverlordAircraftDraw",
+            ]
+            .iter()
+            .any(|name| entry.name.as_str().eq_ignore_ascii_case(name))
+        })
+    }
+
     pub(crate) fn receiving_jet_lockon_data(
         &self,
     ) -> Option<&gamelogic::object::update::ai_update::jet_ai_update::JetAIUpdateModuleData> {

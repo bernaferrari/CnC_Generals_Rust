@@ -63,10 +63,13 @@ fn world(start_money: u32, map: &std::path::Path) -> GameLogic {
                  Object MissingSupply\n KindOf = STRUCTURE SELECTABLE FS_SUPPLY_CENTER\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = PeerOnlyCollector\n End\nEnd\n{}\
                  Object OwnedNest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = {}\n SpawnTemplateName = PeerSoldier\n End\nEnd\n\
                  Object FirstSoldier\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
-                 Object PeerSoldier\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n",
+                 Object PeerSoldier\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
+                 Object OwnedOverlordVisual\n KindOf = VEHICLE SELECTABLE\n Draw = {} DrawTag\n DefaultConditionState\n Model = NONE\n End\n End\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
+                 Object PortableRider\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n",
                 if start_money == 1200 { "FirstCollector" } else { "PeerCollector" },
                 if start_money == 1200 { "" } else { "Object PeerOnlyCollector\n KindOf = VEHICLE SELECTABLE HARVESTER\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n" },
                 if start_money == 1200 { "FirstSoldier" } else { "PeerSoldier" },
+                if start_money == 1200 { "W3DOverlordTankDraw" } else { "W3DModelDraw" },
             ),
         )])
         .unwrap();
@@ -651,6 +654,59 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
         .unwrap();
     assert_eq!(children(&supply_owner, nest), ["FirstSoldier"]);
     assert_eq!(children(&supply_peer, peer_nest), ["PeerSoldier"]);
+
+    // Same visual template name, different admitted Draw modules. A rider is
+    // visible only through the session whose container actually owns the
+    // Overlord Draw, even though the common name contains "Overlord".
+    let mut visual_owner = world(1200, &first_map);
+    let mut visual_peer = world(2200, &peer_map);
+    let attach_rider = |world: &mut GameLogic| {
+        let carrier = world
+            .create_object_for_player("OwnedOverlordVisual", 1, position)
+            .unwrap();
+        let rider = world
+            .create_object_for_player("PortableRider", 1, position)
+            .unwrap();
+        world
+            .host_object_mut(carrier)
+            .unwrap()
+            .occupants
+            .push(rider);
+        world.host_object_mut(rider).unwrap().contained_by = Some(carrier);
+        rider
+    };
+    let rider = attach_rider(&mut visual_owner);
+    let peer_rider = attach_rider(&mut visual_peer);
+    assert_eq!(rider, peer_rider);
+    let visual_frame = generals_main::presentation_frame::PresentationFrame::build_from_logic(
+        &mut visual_owner,
+        1,
+    );
+    let peer_visual_frame =
+        generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut visual_peer, 1);
+    assert!(
+        visual_frame
+            .unit_render_inputs()
+            .iter()
+            .any(|input| input.id == rider)
+    );
+    assert!(
+        !peer_visual_frame
+            .unit_render_inputs()
+            .iter()
+            .any(|input| input.id == peer_rider)
+    );
+    visual_peer.reset();
+    let after_peer_reset = generals_main::presentation_frame::PresentationFrame::build_from_logic(
+        &mut visual_owner,
+        1,
+    );
+    assert!(
+        after_peer_reset
+            .unit_render_inputs()
+            .iter()
+            .any(|input| input.id == rider)
+    );
     supply_peer.reset();
     assert_eq!(children(&supply_owner, center), ["FirstCollector"]);
     assert_eq!(children(&supply_owner, nest), ["FirstSoldier"]);
