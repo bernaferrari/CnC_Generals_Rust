@@ -1,5 +1,48 @@
 use super::*;
 
+fn weapon_set_lock_share_from_definition(
+    definition: &crate::assets::ObjectDefinition,
+    condition: &str,
+) -> Option<bool> {
+    let set = definition.weapon_sets.iter().find(|set| {
+        set.conditions.iter().any(|row| {
+            row.split(|ch: char| ch.is_ascii_whitespace() || matches!(ch, ',' | '|'))
+                .any(|token| {
+                    let token = token.trim().trim_start_matches("WEAPONSET_");
+                    token.eq_ignore_ascii_case(condition)
+                })
+        })
+    })?;
+    Some(set.attributes.iter().any(|(key, value)| {
+        (key.eq_ignore_ascii_case("WeaponLockSharedAcrossSets")
+            || key.eq_ignore_ascii_case("ShareWeaponLock"))
+            && matches!(value.trim().to_ascii_lowercase().as_str(), "yes" | "true" | "1")
+    }))
+}
+
+#[cfg(test)]
+mod receiving_weapon_set_tests {
+    use super::weapon_set_lock_share_from_definition;
+
+    #[test]
+    fn same_named_definitions_keep_their_own_lock_policy() {
+        let definition = |enabled: &str| {
+            let mut object = crate::assets::ObjectDefinition::new("SameUnit".into());
+            object.weapon_sets.push(crate::assets::WeaponSetDefinition {
+                conditions: vec!["WEAPONSET_VETERAN".into()],
+                attributes: [("WeaponLockSharedAcrossSets".into(), enabled.into())].into(),
+                ..Default::default()
+            });
+            object
+        };
+        let first = definition("Yes");
+        let second = definition("No");
+        assert_eq!(weapon_set_lock_share_from_definition(&first, "VETERAN"), Some(true));
+        assert_eq!(weapon_set_lock_share_from_definition(&second, "VETERAN"), Some(false));
+        assert_eq!(weapon_set_lock_share_from_definition(&first, "ELITE"), None);
+    }
+}
+
 impl Object {
     /// WaveGuideUpdate audio observes this object's admitted definition and
     /// updates only its runtime clock/latches. No template or RNG registry.
@@ -813,35 +856,22 @@ impl Object {
         &mut self,
         condition: &str,
     ) {
-        let Some(manager) = crate::assets::get_asset_manager() else {
-            return;
+        let sharing = if let Some(definition) = &self.thing.template.receiving_object_definition {
+            weapon_set_lock_share_from_definition(definition, condition)
+        } else {
+            let Some(manager) = crate::assets::get_asset_manager() else {
+                return;
+            };
+            let Ok(guard) = manager.lock() else {
+                return;
+            };
+            guard
+                .get_object_definition(&self.template_name)
+                .and_then(|definition| weapon_set_lock_share_from_definition(definition, condition))
         };
-        let Ok(guard) = manager.lock() else {
-            return;
-        };
-        let Some(definition) = guard.get_object_definition(&self.template_name) else {
-            return;
-        };
-        let Some(set) = definition.weapon_sets.iter().find(|set| {
-            set.conditions.iter().any(|row| {
-                row.split(|ch: char| ch.is_ascii_whitespace() || matches!(ch, ',' | '|'))
-                    .any(|token| {
-                        let token = token.trim().trim_start_matches("WEAPONSET_");
-                        token.eq_ignore_ascii_case(condition)
-                    })
-            })
-        }) else {
-            return;
-        };
-        self.thing.template.weapon_lock_shared_across_sets =
-            set.attributes.iter().any(|(key, value)| {
-                (key.eq_ignore_ascii_case("WeaponLockSharedAcrossSets")
-                    || key.eq_ignore_ascii_case("ShareWeaponLock"))
-                    && matches!(
-                        value.trim().to_ascii_lowercase().as_str(),
-                        "yes" | "true" | "1"
-                    )
-            });
+        if let Some(sharing) = sharing {
+            self.thing.template.weapon_lock_shared_across_sets = sharing;
+        }
     }
 
     /// Bind authored WeaponTemplateSet for this rank when INI declares one.
