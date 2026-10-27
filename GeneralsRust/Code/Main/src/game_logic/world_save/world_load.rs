@@ -340,6 +340,7 @@ impl GameLogic {
         }
         self.body_damage_definitions.effective = self.body_damage_definitions.base;
         self.lighting_definitions.effective = self.lighting_definitions.base.clone();
+        self.terrain_road_definitions.effective = self.terrain_road_definitions.base.clone();
         self.reset_ocl_map_definitions();
         self.named_script_cache.clear();
         self.construction_events.reset();
@@ -488,6 +489,7 @@ impl GameLogic {
                         Some(self.session_view.camera.clip_policy.current()),
                         Some(self.session_view.camera.shake_policy.current()),
                         Arc::clone(self.effective_terrain_definitions()),
+                        self.terrain_road_baseline().clone(),
                         self.current_armor_definitions().cloned(),
                         self.receiving_module_content.as_ref().map(|_| companion_sources.as_slice()),
                         self.upgrade_definition_base.clone(),
@@ -506,6 +508,9 @@ impl GameLogic {
                             }
                             if let Some(definitions) = &meta.terrain_definitions {
                                 self.terrain_definitions = Arc::clone(definitions);
+                            }
+                            if let Some(definitions) = &meta.road_definitions {
+                                self.terrain_road_definitions.effective = definitions.clone();
                             }
                             self.weather_definition_updates =
                                 meta.weather_definition_updates.clone();

@@ -34,6 +34,7 @@ impl RenderPipeline {
                 &env.terrain_track_rules,
             );
         visual.admit_water_rules(env.terrain_water_rules);
+        visual.admit_road_presentation(env.terrain_roads.clone());
         visual
             .admit_water_presentation(&env.terrain_water)
             .map_err(|error| anyhow::anyhow!("Terrain water admission failed: {error}"))?;

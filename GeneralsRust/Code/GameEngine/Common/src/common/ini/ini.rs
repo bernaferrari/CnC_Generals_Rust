@@ -231,6 +231,8 @@ pub struct INI {
     // One operation-owned Terrain catalogue. None retains the standalone
     // application compatibility parser; Some(empty) is explicitly authoritative.
     terrain_types_target: Option<super::ini_terrain::TerrainTypes>,
+    // Road and Bridge declarations belong to the receiving content draft.
+    terrain_roads_target: Option<super::ini_road::TerrainRoadCollection>,
     armor_definitions_target: Option<armor_definitions::ArmorDefinitions>,
     // ChallengeMode is parsed into this operation-owned draft and published only after validation.
     challenge_generals_target: Option<super::ini_challenge_generals::ChallengeGenerals>,
@@ -337,10 +339,20 @@ fn parse_webpage_url_block(ini: &mut INI) -> INIResult<()> {
 }
 
 fn parse_road_block(ini: &mut INI) -> INIResult<()> {
+    if let Some(mut target) = ini.terrain_roads_target.take() {
+        let result = super::ini_road::parse_terrain_road_definition_into(ini, &mut target);
+        ini.terrain_roads_target = Some(target);
+        return result;
+    }
     super::ini_road::parse_terrain_road_definition_from_ini(ini)
 }
 
 fn parse_bridge_block(ini: &mut INI) -> INIResult<()> {
+    if let Some(mut target) = ini.terrain_roads_target.take() {
+        let result = super::ini_road::parse_terrain_bridge_definition_into(ini, &mut target);
+        ini.terrain_roads_target = Some(target);
+        return result;
+    }
     super::ini_road::parse_terrain_bridge_definition_from_ini(ini)
 }
 
@@ -1311,6 +1323,7 @@ impl INI {
             owned_upgrade_center_target: None,
             water_definitions: None,
             terrain_types_target: None,
+            terrain_roads_target: None,
             armor_definitions_target: None,
             challenge_generals_target: None,
             #[cfg(debug_assertions)]
@@ -1361,6 +1374,16 @@ impl INI {
     }
     pub fn take_terrain_types_target(&mut self) -> Option<super::ini_terrain::TerrainTypes> {
         self.terrain_types_target.take()
+    }
+
+    /// Bind Road and Bridge blocks to this operation's receiving draft.
+    pub fn set_terrain_roads_target(&mut self, target: super::ini_road::TerrainRoadCollection) {
+        self.terrain_roads_target = Some(target);
+    }
+    pub fn take_terrain_roads_target(
+        &mut self,
+    ) -> Option<super::ini_road::TerrainRoadCollection> {
+        self.terrain_roads_target.take()
     }
 
     /// Transfer one receiving definition draft through this parse operation.

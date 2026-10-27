@@ -601,20 +601,17 @@ mod tests {
         use game_engine::common::ascii_string::AsciiString;
 
         const TEMPLATE: &str = "hq_mlu40_AuthoredBridge";
-        {
-            let mut roads = game_engine::common::ini::get_terrain_roads_mut();
-            if roads.find_bridge(TEMPLATE).is_none() {
-                let bridge = roads.new_bridge(AsciiString::from(TEMPLATE));
-                bridge.bridge_model_name = AsciiString::from("CBBridgeSt");
-                bridge.bridge_scale = 0.7;
-                bridge.tower_object_name[0] = AsciiString::from("TowerFromLeft");
-                bridge.tower_object_name[1] = AsciiString::from("TowerFromRight");
-                bridge.tower_object_name[2] = AsciiString::from("TowerToLeft");
-                bridge.tower_object_name[3] = AsciiString::from("TowerToRight");
-            }
-        }
+        let mut roads = game_engine::common::ini::ini_road::TerrainRoadCollection::new();
+        let bridge = roads.new_bridge(AsciiString::from(TEMPLATE));
+        bridge.bridge_model_name = AsciiString::from("CBBridgeSt");
+        bridge.bridge_scale = 0.7;
+        bridge.tower_object_name[0] = AsciiString::from("TowerFromLeft");
+        bridge.tower_object_name[1] = AsciiString::from("TowerFromRight");
+        bridge.tower_object_name[2] = AsciiString::from("TowerToLeft");
+        bridge.tower_object_name[3] = AsciiString::from("TowerToRight");
 
         let mut visual = TerrainVisualImpl::new();
+        visual.admit_road_presentation(roads.presentation());
         visual
             .set_runtime_bridge_segments(&[(
                 [0.0, 0.0, 0.0],

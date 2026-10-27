@@ -87,6 +87,8 @@ pub struct TerrainVisualImpl {
 
     /// Road rendering system
     road_system: RoadSystem,
+    /// Authored road art frozen from this visual's receiving session.
+    road_presentation: game_engine::common::ini::ini_road::TerrainRoadPresentation,
 
     /// Terrain track rendering system.
     terrain_tracks: TerrainTracksRenderObjClassSystem,

@@ -189,6 +189,7 @@ impl RenderPipeline {
                     );
                 if let Some(frame) = self.presentation_frame.as_ref() {
                     candidate.admit_water_rules(frame.world_env.terrain_water_rules);
+                    candidate.admit_road_presentation(frame.world_env.terrain_roads.clone());
                     candidate.admit_water_presentation(&frame.world_env.terrain_water)?;
                 }
                 candidate.set_skybox_enabled(self.skybox_enabled);

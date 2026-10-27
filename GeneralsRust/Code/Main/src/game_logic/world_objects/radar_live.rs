@@ -49,30 +49,30 @@ impl HostRadarMapState {
     }
 
     /// Immutable effective content is admitted once, never selected by a refresh.
-    fn admit_effective_definitions(&mut self, (r, g, b): (f32, f32, f32)) {
+    fn admit_effective_definitions(
+        &mut self,
+        (r, g, b): (f32, f32, f32),
+        roads: &game_engine::common::ini::ini_road::TerrainRoadCollection,
+    ) {
         self.water_color = if r > 1.0 || g > 1.0 || b > 1.0 {
             [r / 255.0, g / 255.0, b / 255.0]
         } else {
             [r, g, b]
         };
-        self.bridge_colors = game_engine::common::ini::try_get_terrain_roads()
-            .map(|roads| {
-                roads
-                    .iter_bridges()
-                    .map(|template| {
-                        let color = template.radar_color;
-                        (
-                            template.name.as_str().to_owned(),
-                            [
-                                color.r as f32 / 255.0,
-                                color.g as f32 / 255.0,
-                                color.b as f32 / 255.0,
-                            ],
-                        )
-                    })
-                    .collect()
+        self.bridge_colors = roads
+            .iter_bridges()
+            .map(|template| {
+                let color = template.radar_color;
+                (
+                    template.name.as_str().to_owned(),
+                    [
+                        color.r as f32 / 255.0,
+                        color.g as f32 / 255.0,
+                        color.b as f32 / 255.0,
+                    ],
+                )
             })
-            .unwrap_or_default();
+            .collect();
     }
 
     fn sample_index(&self, world_x: f32, world_y: f32) -> Option<usize> {
@@ -467,7 +467,10 @@ impl GameLogic {
             .water_definitions
             .transparency()
             .radar_water_color;
-        self.radar_map.admit_effective_definitions(water_color);
+        self.radar_map.admit_effective_definitions(
+            water_color,
+            &self.terrain_road_definitions.effective,
+        );
         let Some((lo, hi)) =
             store_radar_map_extent(&mut self.radar_map, self.world_min, self.world_max)
         else {

@@ -48,6 +48,14 @@ impl CnCGameEngine {
         crate::game_logic::terrain_definitions::parse_application_terrain_sources(&sources)
     }
 
+    pub(super) async fn load_application_road_definitions()
+    -> Result<game_engine::common::ini::ini_road::TerrainRoadCollection, String> {
+        let sources =
+            Self::load_startup_ini_texts(&["Data/INI/Default/Roads.ini", "Data/INI/Roads.ini"])
+                .await?;
+        crate::game_logic::terrain_definitions::parse_application_road_sources(&sources)
+    }
+
     pub(super) async fn load_body_damage_baseline()
     -> Result<crate::game_logic::body_damage_rules::BodyDamagePolicy, String> {
         use crate::game_logic::body_damage_rules::{BodyDamagePolicy, BodyDamageRules};
@@ -516,6 +524,13 @@ impl CnCGameEngine {
         game_logic.admit_armor_definitions(armor_definition_seed);
         game_logic
             .admit_terrain_definitions(terrain_definition_seed)
+            .map_err(anyhow::Error::msg)?;
+        game_logic
+            .admit_terrain_road_definitions(
+                Self::load_application_road_definitions()
+                    .await
+                    .map_err(anyhow::Error::msg)?,
+            )
             .map_err(anyhow::Error::msg)?;
         game_logic
             .admit_ocl_application_sources(&ocl_sources)

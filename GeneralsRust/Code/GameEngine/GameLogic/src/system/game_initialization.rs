@@ -740,6 +740,7 @@ pub fn load_map_ini_ui_overrides_with_owned_upgrade_definitions(
         std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
     >,
     terrain: game_engine::common::ini::ini_terrain::TerrainTypes,
+    roads: game_engine::common::ini::ini_road::TerrainRoadCollection,
     armor: game_engine::common::ini::ini::armor_definitions::ArmorDefinitions,
     object_definitions_admitted: bool,
     upgrades: game_engine::common::system::upgrade::UpgradeCenter,
@@ -747,6 +748,7 @@ pub fn load_map_ini_ui_overrides_with_owned_upgrade_definitions(
     (
         usize,
         game_engine::common::ini::ini_terrain::TerrainTypes,
+        game_engine::common::ini::ini_road::TerrainRoadCollection,
         game_engine::common::ini::ini::armor_definitions::ArmorDefinitions,
         game_engine::common::system::upgrade::UpgradeCenter,
     ),
@@ -762,6 +764,7 @@ pub fn load_map_ini_ui_overrides_with_owned_upgrade_definitions(
         ini.set_ai_data_store_target(target);
     }
     ini.set_terrain_types_target(terrain);
+    ini.set_terrain_roads_target(roads);
     ini.set_armor_definitions_target(armor);
     ini.with_inline_source_and_load_type(contents, INILoadType::CreateOverrides, |ini| {
         ini.parse_current_file()
@@ -776,6 +779,8 @@ pub fn load_map_ini_ui_overrides_with_owned_upgrade_definitions(
     Ok((
         count_map_ini_blocks(contents, &["CommandButton", "CommandSet", "Upgrade"]),
         terrain,
+        ini.take_terrain_roads_target()
+            .expect("operation owns road definition target"),
         armor,
         ini.take_owned_upgrade_center_target()
             .expect("operation owns upgrade draft"),

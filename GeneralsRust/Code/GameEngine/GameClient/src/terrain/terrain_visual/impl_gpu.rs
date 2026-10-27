@@ -746,8 +746,7 @@ impl TerrainVisualImpl {
 
         let mut road_meshes = Vec::new();
         let mut bridge_meshes = Vec::new();
-        let authored_roads = game_engine::common::ini::try_get_terrain_roads();
-        let retry_road_authoring = authored_roads.is_none();
+        let authored_roads = &self.road_presentation;
         let height_map = self.height_map.as_ref();
         let height_at = |x: f32, y: f32| {
             height_map
@@ -765,7 +764,7 @@ impl TerrainVisualImpl {
                 let texture_name = authored_road_texture_name(
                     road.name.as_str(),
                     segment.properties.texture_override.as_deref(),
-                    authored_roads.as_deref(),
+                    authored_roads,
                 );
                 if matches!(road.road_type, RoadType::StoneBridge { .. }) {
                     let width = segment.width.max(0.1);
@@ -904,7 +903,6 @@ impl TerrainVisualImpl {
 
         self.road_meshes = road_meshes;
         self.bridge_meshes = bridge_meshes;
-        drop(authored_roads);
         let mut road_texture_names = Vec::new();
         for mesh in self.road_meshes.iter().chain(&self.bridge_meshes) {
             if !mesh.texture_name.is_empty()
@@ -919,9 +917,8 @@ impl TerrainVisualImpl {
             self.ensure_named_road_texture(&device, &name);
         }
         self.update_scorch_meshes(&device);
-        // Roads.ini may briefly hold its write lock during map load. Keep the
-        // mesh dirty so the following frame can bind authored textures.
-        self.overlay_gpu_meshes_dirty = retry_road_authoring;
+        // The receiving visual already owns the authored road art.
+        self.overlay_gpu_meshes_dirty = false;
         Ok(())
     }
 
@@ -1639,10 +1636,8 @@ impl TerrainVisualImpl {
             }
         };
 
-        if let Some(roads) = game_engine::common::ini::try_get_terrain_roads() {
-            for road in roads.iter_roads() {
-                push_name(road.texture.as_str());
-            }
+        for road in &self.road_presentation.roads {
+            push_name(&road.texture);
         }
 
         // Retail Roads.ini Texture names (W3DRoadBuffer.cpp loadRoads firstRoad).
@@ -2760,11 +2755,8 @@ fn pack_water_rgba_int(color: (f32, f32, f32, f32)) -> u32 {
 fn authored_road_texture_name(
     road_name: &str,
     metadata: Option<&str>,
-    roads: Option<&game_engine::common::ini::ini_road::TerrainRoadCollection>,
+    roads: &game_engine::common::ini::ini_road::TerrainRoadPresentation,
 ) -> String {
-    let Some(roads) = roads else {
-        return String::new();
-    };
     let road_type_id = metadata.and_then(|metadata| {
         metadata
             .split_whitespace()
@@ -2772,13 +2764,15 @@ fn authored_road_texture_name(
             .and_then(|value| value.parse::<u32>().ok())
     });
     roads
-        .iter_roads()
-        .find(|road| road.name.as_str().eq_ignore_ascii_case(road_name))
-        .or_else(|| road_type_id.and_then(|id| roads.iter_roads().find(|road| road.id == id)))
+        .roads
+        .iter()
+        .find(|road| road.name.eq_ignore_ascii_case(road_name))
+        .or_else(|| road_type_id.and_then(|id| roads.roads.iter().find(|road| road.id == id)))
         .or_else(|| {
             roads
-                .iter_bridges()
-                .find(|bridge| bridge.name.as_str().eq_ignore_ascii_case(road_name))
+                .bridges
+                .iter()
+                .find(|bridge| bridge.name.eq_ignore_ascii_case(road_name))
         })
         .map(|road| road.texture.as_str().trim().to_string())
         .unwrap_or_default()
@@ -2800,20 +2794,21 @@ mod authored_road_texture_tests {
         let dirt_id = dirt.id;
         let bridge = roads.new_bridge(AsciiString::from("IronBridge"));
         bridge.texture = AsciiString::from("TBIronBridge.tga");
+        let roads = roads.presentation();
 
         assert_eq!(
-            authored_road_texture_name("Cobblestone", None, Some(&roads)),
+            authored_road_texture_name("Cobblestone", None, &roads),
             "TRCobbleStones.tga"
         );
         assert_eq!(
-            authored_road_texture_name("DirtRoad", None, Some(&roads)),
+            authored_road_texture_name("DirtRoad", None, &roads),
             "TRDirtRoad.tga"
         );
         assert_eq!(
             authored_road_texture_name(
                 "__SYNTH_TEE__",
                 Some(&format!("RoadTypeId={dirt_id} Kind=TEE")),
-                Some(&roads)
+                &roads
             ),
             "TRDirtRoad.tga"
         );
@@ -2821,18 +2816,18 @@ mod authored_road_texture_tests {
             authored_road_texture_name(
                 "Cobblestone",
                 Some(&format!("RoadTypeId={dirt_id}")),
-                Some(&roads)
+                &roads
             ),
             "TRCobbleStones.tga",
             "name wins over stale metadata"
         );
         assert_ne!(cobble_id, dirt_id);
         assert_eq!(
-            authored_road_texture_name("IronBridge", None, Some(&roads)),
+            authored_road_texture_name("IronBridge", None, &roads),
             "TBIronBridge.tga"
         );
         assert_eq!(
-            authored_road_texture_name("Unknown", None, Some(&roads)),
+            authored_road_texture_name("Unknown", None, &roads),
             ""
         );
     }

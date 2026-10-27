@@ -1,7 +1,5 @@
 // C++ ownership: TheFileSystem virtual-path resolution and map-file access helpers.
 
-static TERRAIN_ROADS_LOAD_RESULT: OnceLock<Result<(), String>> = OnceLock::new();
-
 fn normalize_virtual_path(path: &Path) -> String {
     normalize_virtual_path_str(&path.to_string_lossy())
 }
@@ -182,76 +180,6 @@ fn resolve_runtime_path(path: &Path) -> Option<PathBuf> {
     } else {
         None
     }
-}
-
-fn resolve_runtime_ini_path(requested: &Path) -> Option<PathBuf> {
-    let requested_normalized = normalize_virtual_path(requested);
-    if requested_normalized.is_empty() {
-        return None;
-    }
-
-    let mut candidates = Vec::new();
-    push_unique_string(
-        &mut candidates,
-        normalize_lookup_path(&requested_normalized),
-    );
-    if let Some(stripped) = requested_normalized
-        .strip_prefix("Data/")
-        .or_else(|| requested_normalized.strip_prefix("data/"))
-    {
-        push_unique_string(&mut candidates, stripped.to_string());
-    }
-
-    candidates.sort();
-    candidates.dedup();
-
-    for candidate in candidates {
-        let Some(candidate_path) = resolve_path_candidate(Path::new(&candidate)) else {
-            continue;
-        };
-        if let Some(runtime_path) = resolve_runtime_path(&candidate_path) {
-            return Some(runtime_path);
-        }
-    }
-
-    None
-}
-
-fn ensure_terrain_roads_loaded() {
-    TERRAIN_ROADS_LOAD_RESULT.get_or_init(|| {
-        let result = (|| {
-            let mut ini = INI::new();
-
-            if let Some(default_path) =
-                resolve_runtime_ini_path(Path::new("Data/INI/Default/Roads.ini"))
-            {
-                ini.load(&default_path, INILoadType::Overwrite)
-                    .map_err(|err| {
-                        format!("failed loading '{}': {}", default_path.display(), err)
-                    })?;
-            }
-
-            if let Some(override_path) = resolve_runtime_ini_path(Path::new("Data/INI/Roads.ini")) {
-                ini.load(&override_path, INILoadType::MultiFile)
-                    .map_err(|err| {
-                        format!("failed loading '{}': {}", override_path.display(), err)
-                    })?;
-            }
-
-            Ok(())
-        })();
-        if let Err(err) = &result {
-            // The result is cached for the process lifetime; report a failure once
-            // rather than once per object placement that asks whether it is a road.
-            warn!("Terrain roads registry unavailable: {}", err);
-        }
-        result
-    });
-}
-
-fn is_terrain_road_name(name: &str) -> bool {
-    ensure_terrain_roads_loaded();
-    try_get_terrain_roads().is_some_and(|roads| roads.find_road(name).is_some())
 }
 
 /// Public helper to resolve a map name to an on-disk .map file if present.

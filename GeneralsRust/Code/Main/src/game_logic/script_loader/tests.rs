@@ -276,10 +276,11 @@ End\n";
         };
         let heightmap = parse_heightmap_data_from_chunky(&chunky).expect("heightmap");
         let _ = parse_runtime_waypoints_from_chunky(&chunky).expect("waypoints");
-        let _ = parse_runtime_bridges_from_chunky(&chunky).expect("bridges");
+        let _ = parse_runtime_bridges_from_chunky(&chunky, &HashMap::new()).expect("bridges");
         let _ = parse_runtime_water_height_from_chunky(&chunky).expect("water");
         let _ = parse_runtime_polygon_triggers_from_chunky(&chunky).expect("polygons");
-        let _ = parse_runtime_roads_from_chunky(&chunky).expect("roads");
+        let _ = parse_runtime_roads_from_chunky(&chunky, &TerrainRoadCollection::new())
+            .expect("roads");
         let _ = parse_runtime_sides_from_chunky(&chunky).expect("sides");
         let elapsed = started.elapsed();
         assert!(
@@ -569,7 +570,8 @@ End\n";
         assert_eq!(triggers[0].get_point(0).map(|p| p.z), Some(12));
 
         let bridges =
-            parse_runtime_bridges_from_chunky(&chunky).expect("bridge endpoints should pair");
+            parse_runtime_bridges_from_chunky(&chunky, &HashMap::new())
+                .expect("bridge endpoints should pair");
         assert_eq!(bridges.len(), 1);
         assert_eq!(bridges[0].template_name, "TestBridge");
         assert_eq!(bridges[0].from.z, 20.0);

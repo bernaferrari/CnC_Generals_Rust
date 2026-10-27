@@ -83,6 +83,8 @@ pub struct MapMetadata {
         Option<std::sync::Arc<gamelogic::object::armor::ArmorDefinitions>>,
     pub(crate) terrain_definitions:
         Option<std::sync::Arc<game_engine::common::ini::ini_terrain::TerrainTypes>>,
+    pub(crate) road_definitions:
+        Option<game_engine::common::ini::ini_road::TerrainRoadCollection>,
     pub(crate) camera_clip_rules: Option<game_engine::common::ini::ini_game_data::CameraClipRules>,
     pub(crate) camera_shake_rules:
         Option<game_engine::common::ini::ini_game_data::CameraShakeRules>,

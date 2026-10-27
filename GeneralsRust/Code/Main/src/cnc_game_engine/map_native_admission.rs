@@ -498,6 +498,7 @@ fn prepare_native_map_visual(
     };
     let env = crate::presentation_frame::PresentationWorldEnv {
         terrain_definitions: Some(std::sync::Arc::clone(world.effective_terrain_definitions())),
+        terrain_roads: world.effective_terrain_roads().presentation(),
         terrain_global_lights: crate::presentation_frame::freeze_receiving_terrain_lights(world),
         terrain_track_rules: world.lighting_rules().terrain_tracks,
         terrain_water_rules: world.lighting_rules().terrain_water_rules(),

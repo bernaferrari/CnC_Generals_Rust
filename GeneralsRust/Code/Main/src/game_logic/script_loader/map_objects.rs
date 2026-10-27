@@ -54,7 +54,10 @@ pub fn parse_runtime_waypoints_from_chunky(
     Ok((waypoints, links))
 }
 
-pub fn parse_runtime_bridges_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Vec<BridgeData>> {
+pub fn parse_runtime_bridges_from_chunky(
+    chunky: &ChunkyMap,
+    templates: &HashMap<String, super::ThingTemplate>,
+) -> LoaderResult<Vec<BridgeData>> {
     let body = &chunky.bytes[chunky.body_offset..];
     let mut bridges = Vec::new();
     let mut pending: HashMap<String, Vec<PendingRuntimeBridge>> = HashMap::new();
@@ -67,7 +70,7 @@ pub fn parse_runtime_bridges_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Vec
             if let Some(endpoint) =
                 parse_bridge_endpoint_object_chunk(data, child_version.max(version))?
             {
-                add_runtime_bridge_point(&mut bridges, &mut pending, endpoint);
+                add_runtime_bridge_point(&mut bridges, &mut pending, endpoint, templates);
             }
             Ok(())
         })?;
@@ -83,9 +86,8 @@ pub fn parse_runtime_bridges_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Vec
 /// produce a segment.
 pub fn parse_runtime_roads_from_chunky(
     chunky: &ChunkyMap,
+    definitions: &TerrainRoadCollection,
 ) -> LoaderResult<Vec<RuntimeRoadSegment>> {
-    ensure_terrain_roads_loaded();
-
     let body = &chunky.bytes[chunky.body_offset..];
     let mut objects = Vec::new();
 
@@ -121,6 +123,7 @@ pub fn parse_runtime_roads_from_chunky(
         }
 
         roads.push(build_runtime_road_data(
+            definitions,
             current.template_name.as_str(),
             current.location,
             next.location,
@@ -231,15 +234,20 @@ pub fn parse_side_build_list_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Vec
     Ok(sides.side_builds)
 }
 
-pub fn parse_object_placements(map_name: &str) -> LoaderResult<Vec<PlacedObject>> {
+pub fn parse_object_placements(
+    map_name: &str,
+    definitions: &TerrainRoadCollection,
+) -> LoaderResult<Vec<PlacedObject>> {
     let Some(chunky) = load_chunky_map(map_name)? else {
         return Ok(Vec::new());
     };
-    parse_object_placements_from_chunky(&chunky)
+    parse_object_placements_from_chunky(&chunky, definitions)
 }
 
-pub fn parse_object_placements_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Vec<PlacedObject>> {
-    ensure_terrain_roads_loaded();
+pub fn parse_object_placements_from_chunky(
+    chunky: &ChunkyMap,
+    definitions: &TerrainRoadCollection,
+) -> LoaderResult<Vec<PlacedObject>> {
     let body = &chunky.bytes[chunky.body_offset..];
     let map_name = chunky.source.display().to_string();
 
@@ -251,7 +259,7 @@ pub fn parse_object_placements_from_chunky(chunky: &ChunkyMap) -> LoaderResult<V
             if label != OBJECT_LABEL {
                 return Ok(());
             }
-            if let Some(obj) = parse_map_object_chunk(data, version, &chunky.toc)? {
+            if let Some(obj) = parse_map_object_chunk(data, version, &chunky.toc, definitions)? {
                 objects.push(obj);
             }
             Ok(())
@@ -273,7 +281,7 @@ pub fn parse_object_placements_from_chunky(chunky: &ChunkyMap) -> LoaderResult<V
             if label != OBJECT_LABEL {
                 return Ok(());
             }
-            if let Some(obj) = parse_object_creation_chunk(data, version)? {
+            if let Some(obj) = parse_object_creation_chunk(data, version, definitions)? {
                 objects.push(obj);
             }
             Ok(())
@@ -377,6 +385,7 @@ fn parse_map_object_chunk(
     data: &[u8],
     version: u16,
     toc: &HashMap<u32, String>,
+    definitions: &TerrainRoadCollection,
 ) -> LoaderResult<Option<PlacedObject>> {
     // Mirrors C++ ParseObjectDataChunk: x/y/z, angle, flags, template name, dict (v2+).
     let mut reader = BinaryReader::new(data);
@@ -396,7 +405,7 @@ fn parse_map_object_chunk(
     if template.is_empty() {
         return Ok(None);
     }
-    if is_terrain_road_name(&template) {
+    if definitions.find_road(&template).is_some() {
         return Ok(None);
     }
 
@@ -631,6 +640,7 @@ fn add_runtime_bridge_point(
     bridges: &mut Vec<BridgeData>,
     pending: &mut HashMap<String, Vec<PendingRuntimeBridge>>,
     endpoint: RuntimeBridgeEndpoint,
+    templates: &HashMap<String, super::ThingTemplate>,
 ) {
     let entry = pending.entry(endpoint.template_name.clone()).or_default();
 
@@ -641,6 +651,7 @@ fn add_runtime_bridge_point(
                 let from = endpoint.location;
                 entry.swap_remove(index);
                 bridges.push(build_runtime_bridge_data(
+                    templates,
                     endpoint.template_name.as_str(),
                     from,
                     to,
@@ -659,6 +670,7 @@ fn add_runtime_bridge_point(
                 let to = endpoint.location;
                 entry.swap_remove(index);
                 bridges.push(build_runtime_bridge_data(
+                    templates,
                     endpoint.template_name.as_str(),
                     from,
                     to,
@@ -673,8 +685,17 @@ fn add_runtime_bridge_point(
     }
 }
 
-fn build_runtime_bridge_data(template_name: &str, from: Coord3D, to: Coord3D) -> BridgeData {
-    let width = runtime_bridge_width_from_template(template_name).unwrap_or(MAP_XY_FACTOR * 2.0);
+fn build_runtime_bridge_data(
+    templates: &HashMap<String, super::ThingTemplate>,
+    template_name: &str,
+    from: Coord3D,
+    to: Coord3D,
+) -> BridgeData {
+    let width = templates
+        .get(template_name)
+        .map(|template| (template.geometry_info.minor_radius * 2.0).max(0.0))
+        .filter(|width| *width > 0.0)
+        .unwrap_or(MAP_XY_FACTOR * 2.0);
     BridgeData::new(
         SystemCoord3D::new(from.x, from.y, from.z),
         SystemCoord3D::new(to.x, to.y, to.z),
@@ -683,20 +704,8 @@ fn build_runtime_bridge_data(template_name: &str, from: Coord3D, to: Coord3D) ->
     )
 }
 
-fn runtime_bridge_width_from_template(template_name: &str) -> Option<f32> {
-    // Do not call TheThingFactory::find_template here: that helper lazy-inits
-    // the entire Object INI database (14s+ on Lone Eagle). C++ already has
-    // TheThingFactory from GameEngine::init; if the host factory is empty or
-    // still held by the abandoned boot worker, use the default bridge width.
-    let factory_guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
-    let factory = factory_guard.as_ref()?;
-    let template = factory.find_template(template_name, false)?;
-    let geometry = template.get_template_geometry_info();
-    let width = (geometry.minor_radius() * 2.0).max(0.0);
-    if width > 0.0 { Some(width) } else { None }
-}
-
 fn build_runtime_road_data(
+    definitions: &TerrainRoadCollection,
     template_name: &str,
     from: Coord3D,
     mut to: Coord3D,
@@ -707,7 +716,8 @@ fn build_runtime_road_data(
         to.x += 0.25;
     }
 
-    let (width, width_in_texture, road_type_id) = runtime_road_style_for_template(template_name);
+    let (width, width_in_texture, road_type_id) =
+        runtime_road_style_for_template(definitions, template_name);
     RuntimeRoadSegment {
         template_name: template_name.to_string(),
         from,
@@ -727,21 +737,22 @@ fn build_runtime_road_data(
     }
 }
 
-fn runtime_road_style_for_template(template_name: &str) -> (f32, f32, u32) {
-    if let Some(roads) = try_get_terrain_roads() {
-        if let Some(road) = roads.find_road(template_name) {
-            let width = if road.road_width > 0.0 {
-                road.road_width
-            } else {
-                DEFAULT_RUNTIME_ROAD_WIDTH
-            };
-            let width_in_texture = if road.road_width_in_texture > 0.0 {
-                road.road_width_in_texture
-            } else {
-                DEFAULT_RUNTIME_ROAD_WIDTH_IN_TEXTURE
-            };
-            return (width, width_in_texture, road.id);
-        }
+fn runtime_road_style_for_template(
+    definitions: &TerrainRoadCollection,
+    template_name: &str,
+) -> (f32, f32, u32) {
+    if let Some(road) = definitions.find_road(template_name) {
+        let width = if road.road_width > 0.0 {
+            road.road_width
+        } else {
+            DEFAULT_RUNTIME_ROAD_WIDTH
+        };
+        let width_in_texture = if road.road_width_in_texture > 0.0 {
+            road.road_width_in_texture
+        } else {
+            DEFAULT_RUNTIME_ROAD_WIDTH_IN_TEXTURE
+        };
+        return (width, width_in_texture, road.id);
     }
 
     (
@@ -751,7 +762,11 @@ fn runtime_road_style_for_template(template_name: &str) -> (f32, f32, u32) {
     )
 }
 
-fn parse_object_creation_chunk(data: &[u8], _version: u16) -> LoaderResult<Option<PlacedObject>> {
+fn parse_object_creation_chunk(
+    data: &[u8],
+    _version: u16,
+    definitions: &TerrainRoadCollection,
+) -> LoaderResult<Option<PlacedObject>> {
     // This is a partial parser: many fields omitted, only template/team/position are read.
     let mut reader = BinaryReader::new(data);
     if reader.remaining() < 24 {
@@ -762,7 +777,7 @@ fn parse_object_creation_chunk(data: &[u8], _version: u16) -> LoaderResult<Optio
     let name_len = reader.read_u8()? as usize;
     let name_bytes = reader.read_bytes(name_len)?;
     let template = String::from_utf8_lossy(name_bytes).to_string();
-    if template.is_empty() || is_terrain_road_name(&template) {
+    if template.is_empty() || definitions.find_road(&template).is_some() {
         return Ok(None);
     }
 

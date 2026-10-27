@@ -505,6 +505,9 @@ pub struct PresentationTerrainScorch {
 pub struct PresentationWorldEnv {
     #[serde(default)]
     pub terrain_definitions: Option<Arc<game_engine::common::ini::ini_terrain::TerrainTypes>>,
+    /// Road art frozen from the same session as the map geometry.
+    #[serde(default)]
+    pub terrain_roads: game_engine::common::ini::ini_road::TerrainRoadPresentation,
     #[serde(default)]
     pub terrain_motion: PresentationTerrainMotion,
     #[serde(default)]
@@ -732,6 +735,7 @@ impl PresentationWorldEnv {
         Self {
             terrain_motion: PresentationTerrainMotion::from_logic(logic),
             terrain_definitions: Some(Arc::clone(logic.effective_terrain_definitions())),
+            terrain_roads: logic.effective_terrain_roads().presentation(),
             authored_scorches: meta
                 .as_ref()
                 .into_iter()

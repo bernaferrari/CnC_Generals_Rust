@@ -30,6 +30,7 @@ pub(super) fn read_optional_text(
 pub(super) struct StartupSimulationRules {
     body: crate::game_logic::body_damage_rules::BodyDamagePolicy,
     lighting: game_engine::common::ini::ini_game_data::LightingContentRules,
+    roads: game_engine::common::ini::ini_road::TerrainRoadCollection,
     physics: game_engine::common::ini::ini_game_data::PhysicsContentRules,
     energy: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
     historic_damage_limit: u32,
@@ -41,6 +42,7 @@ impl StartupSimulationRules {
         Self {
             body: world.body_damage_baseline(),
             lighting: world.lighting_rules_baseline().clone(),
+            roads: world.terrain_road_baseline().clone(),
             physics: world.physics_rules_baseline(),
             energy: world.production_energy_baseline(),
             historic_damage_limit: world.combat_system.historic_damage_limit(),
@@ -83,6 +85,7 @@ impl StartupSimulationRules {
     pub(super) fn admit(self, world: &mut crate::game_logic::GameLogic) -> Result<(), String> {
         world.admit_body_damage_baseline(self.body);
         world.admit_lighting_rules_base(self.lighting);
+        world.admit_terrain_road_definitions(self.roads)?;
         world.admit_physics_rules_base(self.physics)?;
         world.admit_production_energy_base(self.energy);
         world.admit_historic_damage_limit(self.historic_damage_limit);

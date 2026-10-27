@@ -52,6 +52,9 @@ pub struct GameLogic {
         crate::game_logic::projectile_definitions::ProjectileDefinitions,
     pub(crate) terrain_definitions:
         std::sync::Arc<crate::game_logic::terrain_definitions::TerrainTypes>,
+    /// Road and Bridge content belongs to the receiving session and map.
+    pub(crate) terrain_road_definitions:
+        crate::game_logic::terrain_definitions::TerrainRoadDefinitions,
     /// Immutable current Armor.ini definitions; None is the explicit mapless residual profile.
     pub(crate) armor_definitions:
         Option<std::sync::Arc<gamelogic::object::armor::ArmorDefinitions>>,

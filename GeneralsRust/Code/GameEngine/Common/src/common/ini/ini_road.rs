@@ -575,6 +575,7 @@ impl TerrainRoadType {
 
 /// Terrain road collection
 /// Matches C++ TerrainRoadCollection from TerrainRoads.h lines 174-203
+#[derive(Debug, Clone)]
 pub struct TerrainRoadCollection {
     roads: HashMap<AsciiString, TerrainRoadType>,
     bridges: HashMap<AsciiString, TerrainRoadType>,
@@ -583,7 +584,52 @@ pub struct TerrainRoadCollection {
     id_counter: u32,
 }
 
+/// Frozen road art needed by one presentation, detached from INI mutation.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TerrainRoadPresentation {
+    pub roads: Vec<TerrainRoadPresentationEntry>,
+    pub bridges: Vec<TerrainRoadPresentationEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TerrainRoadPresentationEntry {
+    pub name: String,
+    pub id: u32,
+    pub texture: String,
+    pub bridge_model_name: String,
+    pub bridge_scale: f32,
+    pub tower_object_names: [String; 4],
+}
+
+impl TerrainRoadPresentationEntry {
+    fn from_definition(road: &TerrainRoadType) -> Self {
+        Self {
+            name: road.name.as_str().to_owned(),
+            id: road.id,
+            texture: road.texture.as_str().to_owned(),
+            bridge_model_name: road.bridge_model_name.as_str().to_owned(),
+            bridge_scale: road.bridge_scale,
+            tower_object_names: std::array::from_fn(|index| {
+                road.tower_object_name[index].as_str().to_owned()
+            }),
+        }
+    }
+}
+
 impl TerrainRoadCollection {
+    pub fn presentation(&self) -> TerrainRoadPresentation {
+        TerrainRoadPresentation {
+            roads: self
+                .iter_roads()
+                .map(TerrainRoadPresentationEntry::from_definition)
+                .collect(),
+            bridges: self
+                .iter_bridges()
+                .map(TerrainRoadPresentationEntry::from_definition)
+                .collect(),
+        }
+    }
+
     pub fn new() -> Self {
         Self {
             roads: HashMap::new(),
@@ -747,6 +793,15 @@ pub fn parse_terrain_bridge_definition(
 
 /// Parse a `Road` block directly from the active INI stream.
 pub fn parse_terrain_road_definition_from_ini(ini: &mut INI) -> INIResult<()> {
+    let mut roads = get_terrain_roads_mut();
+    parse_terrain_road_definition_into(ini, &mut roads)
+}
+
+/// Parse into the collection supplied by this INI operation.
+pub(crate) fn parse_terrain_road_definition_into(
+    ini: &mut INI,
+    roads: &mut TerrainRoadCollection,
+) -> INIResult<()> {
     let tokens = ini.get_line_tokens();
     let name = tokens
         .iter()
@@ -755,7 +810,6 @@ pub fn parse_terrain_road_definition_from_ini(ini: &mut INI) -> INIResult<()> {
         .ok_or(INIError::InvalidData)?
         .to_string();
 
-    let mut roads = get_terrain_roads_mut();
     if roads.find_bridge(&name).is_some() {
         return Err(INIError::InvalidData);
     }
@@ -795,6 +849,15 @@ pub fn parse_terrain_road_definition_from_ini(ini: &mut INI) -> INIResult<()> {
 
 /// Parse a `Bridge` block directly from the active INI stream.
 pub fn parse_terrain_bridge_definition_from_ini(ini: &mut INI) -> INIResult<()> {
+    let mut roads = get_terrain_roads_mut();
+    parse_terrain_bridge_definition_into(ini, &mut roads)
+}
+
+/// Parse into the collection supplied by this INI operation.
+pub(crate) fn parse_terrain_bridge_definition_into(
+    ini: &mut INI,
+    roads: &mut TerrainRoadCollection,
+) -> INIResult<()> {
     let tokens = ini.get_line_tokens();
     let name = tokens
         .iter()
@@ -803,7 +866,6 @@ pub fn parse_terrain_bridge_definition_from_ini(ini: &mut INI) -> INIResult<()> 
         .ok_or(INIError::InvalidData)?
         .to_string();
 
-    let mut roads = get_terrain_roads_mut();
     if roads.find_road(&name).is_some() {
         return Err(INIError::InvalidData);
     }

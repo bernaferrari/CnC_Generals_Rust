@@ -167,7 +167,10 @@ impl GameLogic {
             0.42,
             "Fast sync bridges",
         )?;
-        let bridges = match super::script_loader::parse_runtime_bridges_from_chunky(chunky) {
+        let bridges = match super::script_loader::parse_runtime_bridges_from_chunky(
+            chunky,
+            &self.templates,
+        ) {
             Ok(value) => value,
             Err(err) => {
                 log::warn!(
@@ -259,7 +262,10 @@ impl GameLogic {
             "Fast sync roads",
         )?;
         self.runtime_road_segments =
-            match super::script_loader::parse_runtime_roads_from_chunky(chunky) {
+            match super::script_loader::parse_runtime_roads_from_chunky(
+                chunky,
+                self.effective_terrain_roads(),
+            ) {
                 Ok(value) => value,
                 Err(err) => {
                     log::warn!(

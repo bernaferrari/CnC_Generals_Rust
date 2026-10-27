@@ -118,6 +118,7 @@ impl CnCGameEngine {
                 object_definitions: &self.game_logic.receiving_object_definitions,
                 baseline: &self.game_logic.receiving_template_baseline,
                 lighting_baseline: self.game_logic.lighting_rules_baseline(),
+                roads_baseline: self.game_logic.terrain_road_baseline(),
                 body_damage_baseline: self.game_logic.body_damage_baseline(),
                 session_sell_percentage: self.game_logic.session_sell_percentage,
             },

@@ -434,7 +434,7 @@ impl_bootstrap_subsystem!(TerrainTypesSubsystem, "TerrainTypes", {
 });
 
 impl_bootstrap_subsystem!(TerrainRoadsSubsystem, "TerrainRoads", {
-    drop(game_engine::common::ini::get_terrain_roads());
+    // Each session receives its own parsed Road and Bridge definitions.
     Ok(())
 });
 

@@ -132,6 +132,7 @@ impl TerrainVisualImpl {
             water_rules: Default::default(),
             water_presentation: Default::default(),
             road_system: RoadSystem::new(),
+            road_presentation: Default::default(),
             terrain_tracks: TerrainTracksRenderObjClassSystem::new(
                 TerrainTracksConfig::from_rules(rules),
             ),

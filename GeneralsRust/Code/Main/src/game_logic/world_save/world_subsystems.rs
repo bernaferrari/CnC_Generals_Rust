@@ -917,14 +917,13 @@ impl GameLogic {
         let Ok(terrain) = terrain_owner_handle.read() else {
             return Vec::new();
         };
-        let roads = game_engine::common::ini::try_get_terrain_roads();
+        let roads = self.effective_terrain_roads();
         terrain
             .bridge_data_snapshot()
             .into_iter()
             .map(|bridge| {
                 let identity = roads
-                    .as_ref()
-                    .and_then(|roads| roads.find_bridge(&bridge.template_name))
+                    .find_bridge(&bridge.template_name)
                     .map(|tmpl| {
                         encode_authored_bridge_visual(
                             &bridge.template_name,
@@ -1654,17 +1653,14 @@ impl GameLogic {
         info: &gamelogic::terrain::BridgeInfo,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        let Some(roads) = game_engine::common::ini::try_get_terrain_roads() else {
-            return Ok(());
-        };
         let Some(bridge_tmpl) = self
             .objects
             .get(&bridge_id)
-            .and_then(|obj| roads.find_bridge(&obj.template_name).cloned())
+            .and_then(|obj| self.effective_terrain_roads().find_bridge(&obj.template_name))
+            .cloned()
         else {
             return Ok(());
         };
-        drop(roads);
 
         let bridge_indestructible = self
             .objects

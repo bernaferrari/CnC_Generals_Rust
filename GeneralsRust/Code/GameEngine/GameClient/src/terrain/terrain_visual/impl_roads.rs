@@ -1,6 +1,17 @@
 // Split from `terrain/terrain_visual.rs` dump. Included by `terrain_visual/mod.rs`.
 
 impl TerrainVisualImpl {
+    /// Accept immutable road art from this presentation's session.
+    pub fn admit_road_presentation(
+        &mut self,
+        presentation: game_engine::common::ini::ini_road::TerrainRoadPresentation,
+    ) {
+        if self.road_presentation != presentation {
+            self.road_presentation = presentation;
+            self.overlay_gpu_meshes_dirty = true;
+        }
+    }
+
     /// Export minimap-ready road samples for static map overlays.
     pub fn minimap_road_samples(&self, samples_per_segment: u32) -> Vec<RoadMinimapSample> {
         self.road_system
@@ -963,7 +974,9 @@ impl TerrainVisualImpl {
             // C++ W3DBridge::load (W3DBridgeBuffer.cpp:182-191) fails closed
             // when TheTerrainRoads->findBridge misses or the W3D model is empty.
             // Do not invent RoadType::StoneBridge granite ribbons.
-            let Some(authored) = resolve_runtime_bridge_authoring(template_name) else {
+            let Some(authored) =
+                resolve_runtime_bridge_authoring(template_name, &self.road_presentation)
+            else {
                 continue;
             };
 
@@ -1057,11 +1070,14 @@ struct RuntimeBridgeAuthoring {
 }
 
 /// C++ `W3DBridge::load` (`W3DBridgeBuffer.cpp:182-191`) identity.
-fn resolve_runtime_bridge_authoring(raw: &str) -> Option<RuntimeBridgeAuthoring> {
+fn resolve_runtime_bridge_authoring(
+    raw: &str,
+    roads: &game_engine::common::ini::ini_road::TerrainRoadPresentation,
+) -> Option<RuntimeBridgeAuthoring> {
     if let Some(authored) = parse_authored_bridge_visual(raw) {
         return Some(authored);
     }
-    lookup_runtime_bridge_authoring(raw)
+    lookup_runtime_bridge_authoring(raw, roads)
 }
 
 fn parse_authored_bridge_visual(raw: &str) -> Option<RuntimeBridgeAuthoring> {
@@ -1081,22 +1097,19 @@ fn parse_authored_bridge_visual(raw: &str) -> Option<RuntimeBridgeAuthoring> {
     authored_bridge_if_valid(template_name, model_name, scale, towers)
 }
 
-fn lookup_runtime_bridge_authoring(template_name: &str) -> Option<RuntimeBridgeAuthoring> {
+fn lookup_runtime_bridge_authoring(
+    template_name: &str,
+    roads: &game_engine::common::ini::ini_road::TerrainRoadPresentation,
+) -> Option<RuntimeBridgeAuthoring> {
     if template_name.is_empty() {
         return None;
     }
-    let roads = game_engine::common::ini::try_get_terrain_roads()?;
-    let tmpl = roads.find_bridge(template_name)?;
+    let tmpl = roads.bridges.iter().find(|bridge| bridge.name == template_name)?;
     authored_bridge_if_valid(
         template_name.to_string(),
-        tmpl.bridge_model_name.as_str().to_string(),
+        tmpl.bridge_model_name.clone(),
         tmpl.bridge_scale,
-        [
-            tmpl.tower_object_name[0].as_str().to_string(),
-            tmpl.tower_object_name[1].as_str().to_string(),
-            tmpl.tower_object_name[2].as_str().to_string(),
-            tmpl.tower_object_name[3].as_str().to_string(),
-        ],
+        tmpl.tower_object_names.clone(),
     )
 }
 

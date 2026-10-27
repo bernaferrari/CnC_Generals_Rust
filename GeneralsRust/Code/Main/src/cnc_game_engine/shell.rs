@@ -1339,19 +1339,8 @@ impl CnCGameEngine {
                     // Keep this phase's owned input, without ambient publication.
                     let terrain_definitions = Arc::clone(&terrain_definition_seed);
 
-                    let _ = game_engine::common::ini::ini_terrain_bridge::initialize_terrain_roads();
-                    // C++ parity: GameEngine.cpp:401 — load Roads.ini (Default + override)
-                    {
-                        for roads_path in ["Data/INI/Default/Roads.ini", "Data/INI/Roads.ini"] {
-                            if let Some(content) = extract_ini_text_from_archives(roads_path)? {
-                                let mut ini = game_engine::common::ini::INI::new();
-                                match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
-                                    Ok(()) => info!("Loaded road definitions from {}", roads_path),
-                                    Err(err) => warn!("Failed parsing Roads.ini '{}': {}", roads_path, err),
-                                }
-                            }
-                        }
-                    }
+                    // Boot admitted Roads.ini into the receiving session before
+                    // this worker started; it must not republish another catalog.
 
                     game_engine::common::ini::ini_special_power::initialize_special_power_store();
 

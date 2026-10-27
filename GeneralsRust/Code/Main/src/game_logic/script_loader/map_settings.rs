@@ -473,6 +473,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_definition_catalogs(
     camera_clip_rules: Option<game_engine::common::ini::ini_game_data::CameraClipRules>,
     camera_shake_rules: Option<game_engine::common::ini::ini_game_data::CameraShakeRules>,
     terrain_definitions: std::sync::Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
+    road_definitions: game_engine::common::ini::ini_road::TerrainRoadCollection,
     armor_definitions: Option<std::sync::Arc<gamelogic::object::armor::ArmorDefinitions>>,
     admitted_object_sources: Option<&[(PathBuf, String)]>,
     upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
@@ -483,6 +484,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_definition_catalogs(
         MapMetadata {
             upgrade_definitions: Some(upgrade_definitions),
             terrain_definitions: Some(terrain_definitions),
+            road_definitions: Some(road_definitions),
             armor_definitions,
             camera_clip_rules,
             camera_shake_rules,
@@ -510,6 +512,7 @@ fn parse_map_settings_from_loaded_chunky(
         .as_deref()
         .cloned()
         .unwrap_or_else(game_engine::common::ini::ini_terrain::TerrainTypes::new);
+    let mut road_definitions = meta.road_definitions.take().unwrap_or_default();
     let mut upgrade_definitions = meta.upgrade_definitions.take().unwrap_or_else(|| {
         game_engine::common::system::upgrade::process_lifetime_upgrade_center()
             .read()
@@ -535,7 +538,7 @@ fn parse_map_settings_from_loaded_chunky(
         meta.world_max = Some(max);
     }
 
-    match parse_object_placements_from_chunky(chunky) {
+    match parse_object_placements_from_chunky(chunky, &road_definitions) {
         Ok(objects) => {
             meta.authored_scorches = objects
                 .iter()
@@ -635,11 +638,12 @@ fn parse_map_settings_from_loaded_chunky(
                     parse_map_default_starting_cash(&contents)?.or(meta.default_starting_cash);
                 // C++ GameLogic.cpp:2404-2408 loadMapINI — full block table
                 // via INI_LOAD_CREATE_OVERRIDES (CommandSet/CommandButton/Upgrade).
-                let (_, updated, armor, upgrades) =
+                let (_, updated, roads, armor, upgrades) =
                     gamelogic::system::game_initialization::load_map_ini_ui_overrides_with_owned_upgrade_definitions(
                         &contents,
                         ai_data_target.as_ref().map(std::sync::Arc::clone),
                         terrain_definitions,
+                        road_definitions,
                         armor_definitions.to_parsed(),
                         admitted_object_sources.is_some(),
                         upgrade_definitions,
@@ -647,6 +651,7 @@ fn parse_map_settings_from_loaded_chunky(
                     .map_err(GameLogicError::Configuration)?;
                 upgrade_definitions = upgrades;
                 terrain_definitions = updated;
+                road_definitions = roads;
                 armor_definitions
                     .overlay_parsed(&armor)
                     .map_err(|error| GameLogicError::Configuration(error.to_string()))?;
@@ -735,11 +740,12 @@ fn parse_map_settings_from_loaded_chunky(
                 }
                 meta.default_starting_cash =
                     parse_map_default_starting_cash(&contents)?.or(meta.default_starting_cash);
-                let (_, updated, armor, upgrades) =
+                let (_, updated, roads, armor, upgrades) =
                     gamelogic::system::game_initialization::load_map_ini_ui_overrides_with_owned_upgrade_definitions(
                         &contents,
                         ai_data_target.as_ref().map(std::sync::Arc::clone),
                         terrain_definitions,
+                        road_definitions,
                         armor_definitions.to_parsed(),
                         admitted_object_sources.is_some(),
                         upgrade_definitions,
@@ -747,6 +753,7 @@ fn parse_map_settings_from_loaded_chunky(
                     .map_err(GameLogicError::Configuration)?;
                 upgrade_definitions = upgrades;
                 terrain_definitions = updated;
+                road_definitions = roads;
                 armor_definitions
                     .overlay_parsed(&armor)
                     .map_err(|error| GameLogicError::Configuration(error.to_string()))?;
@@ -806,7 +813,16 @@ fn parse_map_settings_from_loaded_chunky(
         }
     }
 
+    // Map.ini and Solo.ini can add road names after the original object read.
+    meta.objects
+        .retain(|object| road_definitions.find_road(&object.template).is_none());
+    meta.authored_scorches = meta
+        .objects
+        .iter()
+        .filter_map(PlacedObject::terrain_scorch)
+        .collect();
     meta.terrain_definitions = Some(std::sync::Arc::new(terrain_definitions));
+    meta.road_definitions = Some(road_definitions);
     // None is the explicit mapless residual profile. A map without Armor
     // blocks does not silently change it into an authored empty catalogue.
     // Native startup always supplies Some, including an intentionally empty set.

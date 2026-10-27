@@ -87,6 +87,7 @@ impl GameLogic {
             physics_definitions: Default::default(),
             object_lifecycle_callback_depth: 0,
             terrain_definitions: Default::default(),
+            terrain_road_definitions: Default::default(),
             armor_definitions: None,
             weapon_effect_definitions: Default::default(),
             production_energy: Default::default(),
@@ -889,6 +890,7 @@ impl GameLogic {
             .expect("previously admitted projectile base must remain valid across reset");
         self.body_damage_definitions.effective = self.body_damage_definitions.base;
         self.lighting_definitions.effective = self.lighting_definitions.base.clone();
+        self.terrain_road_definitions.effective = self.terrain_road_definitions.base.clone();
         self.reset_ocl_map_definitions();
         self.apply_aidata_enable_repulsors();
         self.refresh_pathfinding_ai_definitions();
