@@ -612,12 +612,22 @@ impl Object {
     }
 
     pub fn ensure_lifetime_update(&mut self, current_frame: u32) {
+        self.ensure_lifetime_update_with_hulk_override(
+            current_frame,
+            crate::game_logic::host_lifetime_update::legacy_hulk_max_lifetime_override(),
+        );
+    }
+
+    /// Initialize the fallback lifetime using the owning GameLogic's script override.
+    pub fn ensure_lifetime_update_with_hulk_override(
+        &mut self,
+        current_frame: u32,
+        hulk_override_frames: i32,
+    ) {
         if self.native_lifecycle.is_some()
             || self.thing.template.native_lifecycle_definitions.is_some()
+            || self.lifetime_update.is_some()
         {
-            return;
-        }
-        if self.lifetime_update.is_some() {
             return;
         }
         if let Some((min_ms, max_ms)) =
@@ -627,12 +637,8 @@ impl Object {
         {
             let is_hulk = self.template_name.to_ascii_lowercase().contains("hulk");
             self.lifetime_update = Some(
-                crate::game_logic::host_lifetime_update::HostLifetimeUpdateData::from_ini_range(
-                    current_frame,
-                    min_ms,
-                    max_ms,
-                    self.id.0,
-                    is_hulk,
+                crate::game_logic::host_lifetime_update::HostLifetimeUpdateData::from_ini_range_with_hulk_override(
+                    current_frame, min_ms, max_ms, self.id.0, is_hulk, hulk_override_frames,
                 ),
             );
         }
@@ -689,18 +695,28 @@ impl Object {
 
     /// C++ LifetimeUpdate residual. True when object should die this frame.
     pub fn tick_lifetime_update(&mut self, current_frame: u32) -> bool {
+        self.tick_lifetime_update_with_hulk_override(
+            current_frame,
+            crate::game_logic::host_lifetime_update::legacy_hulk_max_lifetime_override(),
+        )
+    }
+
+    /// Tick the fallback lifetime against the receiving session's override.
+    pub fn tick_lifetime_update_with_hulk_override(
+        &mut self,
+        current_frame: u32,
+        hulk_override_frames: i32,
+    ) -> bool {
         if self.native_lifecycle.is_some() {
             return false;
         }
-        self.ensure_lifetime_update(current_frame);
+        self.ensure_lifetime_update_with_hulk_override(current_frame, hulk_override_frames);
         let Some(lifetime) = self.lifetime_update.as_mut() else {
             return false;
         };
         if !lifetime.tick(current_frame) {
             return false;
         }
-        // CPP LifetimeUpdate::update returns UPDATE_SLEEP_FOREVER after kill.
-        // Retain the original absolute deadline for persistence/diagnostics.
         lifetime.active = false;
         true
     }

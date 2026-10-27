@@ -175,7 +175,10 @@ impl GameLogic {
                 // CPP LifetimeUpdate::update calls Object::kill at this point,
                 // then sleeps forever. End the module/Object loan before the
                 // receiving Body dispatch; its immediate callbacks can reenter.
-                let lifetime_due = obj.tick_lifetime_update(self.frame);
+                let lifetime_due = obj.tick_lifetime_update_with_hulk_override(
+                    self.frame,
+                    self.native_hulk_max_lifetime_override,
+                );
                 let _ = obj;
                 self.tick_native_lifecycle_with_effects(object_id, presentation_effects);
                 if lifetime_due {

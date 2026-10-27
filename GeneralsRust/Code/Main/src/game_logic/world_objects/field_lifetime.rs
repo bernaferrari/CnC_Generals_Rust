@@ -121,6 +121,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let frame = self.frame;
+        let hulk_override_frames = self.native_hulk_max_lifetime_override;
         let due: Vec<_> = self
             .objects
             .registered()
@@ -153,7 +154,7 @@ impl GameLogic {
                     });
                 // Consume before callbacks; a rejected kill stays asleep and
                 // the later generic AI update cannot repeat or rearm it.
-                object.tick_lifetime_update(frame)
+                object.tick_lifetime_update_with_hulk_override(frame, hulk_override_frames)
             };
             if !admitted {
                 continue;

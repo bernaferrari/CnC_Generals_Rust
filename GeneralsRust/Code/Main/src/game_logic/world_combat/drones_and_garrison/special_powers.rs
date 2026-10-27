@@ -112,7 +112,10 @@ impl GameLogic {
         if let Some(d) = self.objects.get_mut(&det_id) {
             d.pending_death_fx = Some(BAIKONUR_NUKE_FX.to_string());
             // Lifetime 0 residual — mark for quick completion after blasts.
-            d.ensure_lifetime_update(self.frame);
+            d.ensure_lifetime_update_with_hulk_override(
+                self.frame,
+                self.native_hulk_max_lifetime_override,
+            );
         }
         self.baikonur_launches
             .record_detonation(location.x, location.z);

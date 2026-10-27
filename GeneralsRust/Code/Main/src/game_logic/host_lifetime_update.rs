@@ -36,7 +36,32 @@ impl HostLifetimeUpdateData {
         seed: u32,
         is_hulk: bool,
     ) -> Self {
-        let (min_ms, max_ms) = effective_lifetime_msec_range(min_msec, max_msec, is_hulk);
+        Self::from_ini_range_with_hulk_override(
+            current_frame,
+            min_msec,
+            max_msec,
+            seed,
+            is_hulk,
+            legacy_hulk_max_lifetime_override(),
+        )
+    }
+
+    /// Build from the receiving GameLogic's owned script override.
+    pub fn from_ini_range_with_hulk_override(
+        current_frame: u32,
+        min_msec: u32,
+        max_msec: u32,
+        seed: u32,
+        is_hulk: bool,
+        hulk_override_frames: i32,
+    ) -> Self {
+        let (min_ms, max_ms) = effective_lifetime_msec_range_with_override(
+            min_msec, max_msec, is_hulk, hulk_override_frames,
+        );
+        Self::from_effective_ini_range(current_frame, min_ms, max_ms, seed)
+    }
+
+    fn from_effective_ini_range(current_frame: u32, min_ms: u32, max_ms: u32, seed: u32) -> Self {
         let min_f = msec_to_frames(min_ms).max(1);
         let max_f = msec_to_frames(max_ms).max(min_f);
         let delay = crate::game_logic::host_rng_residual::pure_logic_random_int(
@@ -70,14 +95,29 @@ pub fn get_hulk_max_lifetime_override() -> i32 {
 /// C++ LifetimeUpdate.cpp:31-37 HULK override replaces Min/Max when != -1.
 /// Script action writes leftover `TheGameLogic` atomic; live hulks must read it.
 pub fn effective_lifetime_msec_range(min_msec: u32, max_msec: u32, is_hulk: bool) -> (u32, u32) {
+    effective_lifetime_msec_range_with_override(
+        min_msec,
+        max_msec,
+        is_hulk,
+        legacy_hulk_max_lifetime_override(),
+    )
+}
+
+/// Resolve the legacy ambient override for compatibility callers only.
+pub fn legacy_hulk_max_lifetime_override() -> i32 {
     let leftover = gamelogic::helpers::TheGameLogic::get_hulk_max_lifetime_override();
-    let ov = if leftover != -1 {
-        leftover
-    } else {
-        get_hulk_max_lifetime_override()
-    };
-    if is_hulk && ov >= 0 {
-        let ms = ((ov as f32) * 1000.0 / 30.0).round() as u32;
+    if leftover != -1 { leftover } else { get_hulk_max_lifetime_override() }
+}
+
+/// C++ LifetimeUpdate.cpp:31-37 with the owning GameLogic override supplied explicitly.
+pub fn effective_lifetime_msec_range_with_override(
+    min_msec: u32,
+    max_msec: u32,
+    is_hulk: bool,
+    hulk_override_frames: i32,
+) -> (u32, u32) {
+    if is_hulk && hulk_override_frames >= 0 {
+        let ms = ((hulk_override_frames as f32) * 1000.0 / 30.0).round() as u32;
         return (ms, ms);
     }
     if min_msec <= max_msec {
@@ -126,6 +166,23 @@ pub fn lifetime_msec_for_template(name: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_hulk_override_uses_receiving_owner() {
+        // The C++ override replaces both bounds; 30 logic frames = 1000 msec.
+        let owner_a = HostLifetimeUpdateData::from_ini_range_with_hulk_override(
+            7, 10_000, 20_000, 11, true, 30,
+        );
+        let owner_b = HostLifetimeUpdateData::from_ini_range_with_hulk_override(
+            7, 10_000, 20_000, 11, true, 60,
+        );
+        assert_eq!(owner_a.expire_at_frame, 37);
+        assert_eq!(owner_b.expire_at_frame, 67);
+        let non_hulk = HostLifetimeUpdateData::from_ini_range_with_hulk_override(
+            7, 10_000, 10_000, 11, false, 30,
+        );
+        assert_eq!(non_hulk.expire_at_frame, 307);
+    }
 
     #[test]
     fn lifetime_expires() {

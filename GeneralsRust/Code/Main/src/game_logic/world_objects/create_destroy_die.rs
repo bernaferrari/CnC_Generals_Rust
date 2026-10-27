@@ -2772,7 +2772,10 @@ impl GameLogic {
             object.ensure_transition_damage_fx();
             object.ensure_fx_list_die();
             object.ensure_create_object_die();
-            object.ensure_lifetime_update(self.frame);
+            object.ensure_lifetime_update_with_hulk_override(
+                self.frame,
+                self.native_hulk_max_lifetime_override,
+            );
             object.ensure_height_die(self.frame);
             if object.is_detector {
                 // C++ StealthDetectorUpdate ctor: UPDATE_SLEEP(GameLogicRandomValue(1, rate))
