@@ -13,6 +13,9 @@ pub struct LightingContentRules {
     pub use_tree_sway: bool,
     /// Per-session presentation gate for physics drawable transforms.
     pub show_client_physics: bool,
+    /// Shroud clear/fog alpha inputs used by the receiving presentation frame.
+    pub clear_alpha: u8,
+    pub fog_alpha: u8,
     /// GameData water extent used by legacy version-1 PolygonTriggers.
     pub water_extent_x: f32,
     pub water_extent_y: f32,
@@ -35,6 +38,8 @@ impl LightingContentRules {
             use_draw_module_lod: data.use_draw_module_lod,
             use_tree_sway: data.use_tree_sway,
             show_client_physics: data.show_client_physics,
+            clear_alpha: data.clear_alpha,
+            fog_alpha: data.fog_alpha,
             water_extent_x: data.water_extent_x,
             water_extent_y: data.water_extent_y,
         }
@@ -52,6 +57,8 @@ impl LightingContentRules {
         draft.use_draw_module_lod = self.use_draw_module_lod;
         draft.use_tree_sway = self.use_tree_sway;
         draft.show_client_physics = self.show_client_physics;
+        draft.clear_alpha = self.clear_alpha;
+        draft.fog_alpha = self.fog_alpha;
         draft.water_extent_x = self.water_extent_x;
         draft.water_extent_y = self.water_extent_y;
         let mut ini = INI::new();
@@ -96,5 +103,20 @@ mod show_client_physics_tests {
             enabled.show_client_physics,
             "another session's parse must not mutate this owner"
         );
+    }
+
+    #[test]
+    fn shroud_alphas_follow_ordered_game_data_overlays() {
+        let base = LightingContentRules::default()
+            .overlay_ini_text("GameData\n ClearAlpha = 211\n FogAlpha = 63\nEnd\n")
+            .unwrap();
+        let overlay = base
+            .overlay_ini_text("GameData\n FogAlpha = 92\nEnd\n")
+            .unwrap();
+
+        assert_eq!((base.clear_alpha, base.fog_alpha), (211, 63));
+        assert_eq!((overlay.clear_alpha, overlay.fog_alpha), (211, 92));
+        let defaults = LightingContentRules::default();
+        assert_eq!((defaults.clear_alpha, defaults.fog_alpha), (255, 127));
     }
 }

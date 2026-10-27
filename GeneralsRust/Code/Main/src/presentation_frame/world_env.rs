@@ -1,7 +1,7 @@
 use super::*;
 use game_engine::common::ini::ini_game_data::{
     GlobalData as AuthoredGlobalData, MAX_GLOBAL_LIGHTS, TIME_OF_DAY_COUNT,
-    TerrainLighting as AuthoredTerrainLighting, TimeOfDay, get_global_data,
+    TerrainLighting as AuthoredTerrainLighting, TimeOfDay,
 };
 use std::sync::Arc;
 
@@ -710,12 +710,8 @@ impl PresentationWorldEnv {
         let primary_terrain_lighting = terrain_global_lights[0];
         // Units/shadows: C++ W3DDisplay.cpp:2128 uses objects lighting, not terrain.
         let unit_light = primary_object_lighting;
-        let (clear_alpha, fog_alpha) = get_global_data()
-            .map(|global| {
-                let global = global.read();
-                (global.clear_alpha, global.fog_alpha)
-            })
-            .unwrap_or((default_clear_alpha(), default_fog_alpha()));
+        let lighting = logic.lighting_rules_baseline();
+        let (clear_alpha, fog_alpha) = (lighting.clear_alpha, lighting.fog_alpha);
         Self {
             terrain_motion: PresentationTerrainMotion::from_logic(logic),
             terrain_definitions: Some(Arc::clone(logic.effective_terrain_definitions())),
@@ -1053,6 +1049,27 @@ mod lighting_parity_tests {
         assert!(!PresentationWorldEnv::from_logic(&peer).is_night);
         logic.set_receiving_time_of_day(TimeOfDay::Afternoon);
         assert!(!PresentationWorldEnv::from_logic(&logic).is_night);
+    }
+
+    #[test]
+    fn world_env_shroud_alphas_follow_the_receiving_rules_owner() {
+        use crate::game_logic::{GameLogic, lighting_rules::LightingContentRules};
+        let mut first = GameLogic::new();
+        let mut first_rules = LightingContentRules::default();
+        first_rules.clear_alpha = 201;
+        first_rules.fog_alpha = 44;
+        first.admit_lighting_rules_base(first_rules);
+
+        let mut second = GameLogic::new();
+        let mut second_rules = LightingContentRules::default();
+        second_rules.clear_alpha = 123;
+        second_rules.fog_alpha = 17;
+        second.admit_lighting_rules_base(second_rules);
+
+        let first_frame = PresentationWorldEnv::from_logic(&first);
+        let second_frame = PresentationWorldEnv::from_logic(&second);
+        assert_eq!((first_frame.clear_alpha, first_frame.fog_alpha), (201, 44));
+        assert_eq!((second_frame.clear_alpha, second_frame.fog_alpha), (123, 17));
     }
 }
 
