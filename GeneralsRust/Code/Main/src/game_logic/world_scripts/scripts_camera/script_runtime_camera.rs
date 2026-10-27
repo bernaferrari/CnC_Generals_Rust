@@ -16,6 +16,12 @@ impl GameLogic {
             return;
         }
 
+        // The installed ScriptActionHandler has no ScriptContext parameter.
+        // Refresh its per-session local-player view at the synchronous action-walk
+        // boundary so audio actions observe the same current player as this world.
+        self.mission_scripts
+            .set_script_local_player_id(self.local_player_id());
+
         // Host script path: named-unit/team/area queries hit HOST objects.
         // Crate evaluator sees the name→id map + query snapshot (no crate Objects).
         self.inject_host_script_query_snapshot();

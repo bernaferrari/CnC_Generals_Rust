@@ -13,16 +13,10 @@ impl MissionScriptActionHandler {
         Arc::clone(&self.hooks)
     }
 
-    fn local_player_index() -> Option<u32> {
-        let players = gamelogic::player::player_list().read().ok()?;
-        let index = players.get_local_player_index();
-        (index >= 0).then_some(index as u32)
-    }
-
     /// C++ `ScriptActions::doMusicTrackChange` (ScriptActions.cpp:3271-3286):
     /// `TheAudio->removeAudioEvent(AHSV_StopTheMusic[Fade])` then
     /// `TheAudio->addAudioEvent` of the named track (GameMusic / MusicManager).
-    fn play_music_track_through_the_audio(track: &str, fade_out: bool, fade_in: bool) {
+    fn play_music_track_through_the_audio(&self, track: &str, fade_out: bool, fade_in: bool) {
         const AHSV_STOP_THE_MUSIC: u32 = 0xFFFF_FFF0;
         const AHSV_STOP_THE_MUSIC_FADE: u32 = 0xFFFF_FFF1;
 
@@ -37,7 +31,7 @@ impl MissionScriptActionHandler {
 
         let mut event = gamelogic::common::audio::AudioEventRts::new(track);
         event.set_should_fade(fade_in);
-        if let Some(player_index) = Self::local_player_index() {
+        if let Some(player_index) = self.hooks.script_local_player_index() {
             event.set_player_index(player_index);
         }
         let _handle = audio.add_audio_event(&event);
@@ -46,14 +40,14 @@ impl MissionScriptActionHandler {
     /// C++ `ScriptActions::doSpeechPlay` (ScriptActions.cpp:2743-2764):
     /// `AudioEventRTS` + `setIsLogicalAudio(true)` + local player index +
     /// `setUninterruptable(!allowOverlap)` + `TheAudio->addAudioEvent`.
-    fn play_speech_through_the_audio(name: &str, allow_overlap: bool) -> u32 {
+    fn play_speech_through_the_audio(&self, name: &str, allow_overlap: bool) -> u32 {
         let Some(audio) = gamelogic::helpers::TheAudio::get() else {
             return 0;
         };
         let mut event = gamelogic::common::audio::AudioEventRts::new(name);
         event.set_is_logical_audio(true);
         event.set_uninterruptable(!allow_overlap);
-        if let Some(player_index) = Self::local_player_index() {
+        if let Some(player_index) = self.hooks.script_local_player_index() {
             event.set_player_index(player_index);
         }
         audio.add_audio_event(&event)
@@ -685,7 +679,7 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         // GameClientScriptActionHandler. C++ SPEECH_PLAY always reaches
         // TheAudio via doSpeechPlay — do not leave this as a UI SFX.
         // C++ discards the playback handle; completion timing begins on query.
-        let _ = Self::play_speech_through_the_audio(name, allow_overlap);
+        let _ = self.play_speech_through_the_audio(name, allow_overlap);
         if let Some(label) = speech_subtitle_label_if_displayable(name, localization::translate) {
             self.hooks
                 .push_military_caption(label, SPEECH_SUBTITLE_DURATION_MS);
@@ -713,7 +707,7 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         // Live GAME_SHELL installs this handler (initialize_scripts), not
         // GameClientScriptActionHandler. C++ MUSIC_SET_TRACK always reaches
         // TheAudio via doMusicTrackChange — do not leave this as a UI note.
-        Self::play_music_track_through_the_audio(track, fade_out, fade_in);
+        self.play_music_track_through_the_audio(track, fade_out, fade_in);
         self.hooks.note_music_started(track);
         // C++ doMusicTrackChange: TheAudio only — no InGameUI / broadcast.
         Ok(())

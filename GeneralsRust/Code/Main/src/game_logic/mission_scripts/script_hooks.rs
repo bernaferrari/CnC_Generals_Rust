@@ -103,6 +103,9 @@ pub struct MissionScriptHooks {
     /// atomic against pushes instead of one mutex per queue.
     notifications: Mutex<ScriptNotificationQueues>,
     camera_movement_finished: AtomicBool,
+    /// Local player identity for synchronous ScriptAction callbacks in this world.
+    /// Refreshed from the receiving GameLogic immediately before each script update.
+    script_local_player_id: std::sync::atomic::AtomicI32,
     /// Test-only count at the actual contiguous view drain acquisitions.
     #[cfg(test)]
     view_drain_acquisitions: AtomicUsize,
@@ -184,9 +187,26 @@ impl MissionScriptHooks {
         Arc::new(Self {
             notifications: Mutex::new(ScriptNotificationQueues::default()),
             camera_movement_finished: AtomicBool::new(true),
+            script_local_player_id: std::sync::atomic::AtomicI32::new(-1),
             #[cfg(test)]
             view_drain_acquisitions: AtomicUsize::new(0),
         })
+    }
+
+    pub(crate) fn set_script_local_player_id(&self, player_id: Option<u32>) {
+        let index = player_id
+            .and_then(|id| i32::try_from(id).ok())
+            .unwrap_or(-1);
+        self.script_local_player_id
+            .store(index, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(crate) fn script_local_player_index(&self) -> Option<u32> {
+        u32::try_from(
+            self.script_local_player_id
+                .load(std::sync::atomic::Ordering::Relaxed),
+        )
+        .ok()
     }
 
     pub fn push_message(&self, text: String) {
