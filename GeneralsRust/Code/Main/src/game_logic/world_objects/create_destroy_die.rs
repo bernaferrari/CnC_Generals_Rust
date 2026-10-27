@@ -1166,16 +1166,28 @@ impl GameLogic {
             high = next;
         }
         if high != parent_level {
+            let health_bonus = self.veterancy_health_bonus;
             let _ = self.host_object_mut(parent_id);
             self.with_object_veterancy_feedback(parent_id, |parent, audio, feedback| {
-                parent.set_min_veterancy_level(high, audio, feedback)
+                parent.set_min_veterancy_level_with_health_bonus_table(
+                    high,
+                    &health_bonus,
+                    audio,
+                    feedback,
+                )
             });
         }
         for (id, level) in children {
             if level != high {
+                let health_bonus = self.veterancy_health_bonus;
                 let _ = self.host_object_mut(id);
                 self.with_object_veterancy_feedback(id, |child, audio, feedback| {
-                    child.set_min_veterancy_level(high, audio, feedback)
+                    child.set_min_veterancy_level_with_health_bonus_table(
+                        high,
+                        &health_bonus,
+                        audio,
+                        feedback,
+                    )
                 });
             }
         }
