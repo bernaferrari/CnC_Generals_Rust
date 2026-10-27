@@ -534,9 +534,11 @@ pub struct GlobalData {
     // Prison system (conditional compilation)
     pub prison_bounty_multiplier: f32,
     pub prison_bounty_text_color: RGBColor,
+    pub prison_bounty_text_alpha: u8,
 
     // UI colors
     pub hot_key_text_color: RGBColor,
+    pub hot_key_text_alpha: u8,
 
     // Special powers
     pub special_power_view_object_name: String,
@@ -965,8 +967,10 @@ impl GlobalData {
 
             prison_bounty_multiplier: 1.0,
             prison_bounty_text_color: RGBColor::new(1.0, 1.0, 1.0),
+            prison_bounty_text_alpha: 255,
 
             hot_key_text_color: RGBColor::new(1.0, 1.0, 0.0),
+            hot_key_text_alpha: 255,
 
             special_power_view_object_name: String::new(),
             weapon_bonus_entries: Vec::new(),
@@ -1715,7 +1719,8 @@ fn parse_game_data_block(ini: &mut INI, data: &mut GlobalData) -> INIResult<()> 
             "BASEREGENDELAY" => data.base_regen_delay = parse_duration_u32(&args)?,
             "PRISONBOUNTYMULTIPLIER" => data.prison_bounty_multiplier = parse_real(&args)?,
             "PRISONBOUNTYTEXTCOLOR" => {
-                data.prison_bounty_text_color = parse_color_int(&args)?;
+                (data.prison_bounty_text_color, data.prison_bounty_text_alpha) =
+                    parse_color_int(&args)?;
             }
             "SPECIALPOWERVIEWOBJECT" => {
                 data.special_power_view_object_name = parse_string(&args)?;
@@ -1727,7 +1732,9 @@ fn parse_game_data_block(ini: &mut INI, data: &mut GlobalData) -> INIResult<()> 
             "CLEARALPHA" => data.clear_alpha = parse_u8(&args)?,
             "FOGALPHA" => data.fog_alpha = parse_u8(&args)?,
             "SHROUDALPHA" => data.shroud_alpha = parse_u8(&args)?,
-            "HOTKEYTEXTCOLOR" => data.hot_key_text_color = parse_color_int(&args)?,
+            "HOTKEYTEXTCOLOR" => {
+                (data.hot_key_text_color, data.hot_key_text_alpha) = parse_color_int(&args)?;
+            }
             "POWERBARBASE" => data.power_bar_base = parse_int(&args)?,
             "POWERBARINTERVALS" => data.power_bar_intervals = parse_real(&args)?,
             "POWERBARYELLOWRANGE" => data.power_bar_yellow_range = parse_int(&args)?,
@@ -1989,7 +1996,7 @@ fn apply_to_runtime_global_data(data: &GlobalData, runtime: &mut runtime_global_
         data.hot_key_text_color.r,
         data.hot_key_text_color.g,
         data.hot_key_text_color.b,
-        1.0,
+        f32::from(data.hot_key_text_alpha) / 255.0,
     ];
     runtime.power_bar_base = data.power_bar_base;
     runtime.power_bar_intervals = data.power_bar_intervals;
@@ -2240,54 +2247,33 @@ fn parse_rgb_color(args: &[&str]) -> INIResult<RGBColor> {
     Ok(RGBColor::new(r, g, b))
 }
 
-fn parse_color_int(args: &[&str]) -> INIResult<RGBColor> {
-    let mut r = None;
-    let mut g = None;
-    let mut b = None;
-    let mut i = 0;
-
-    while i < args.len() {
-        let token = args[i];
-        let (key, value) = if let Some((left, right)) = token.split_once(':') {
-            if right.is_empty() {
-                i += 1;
-                if i >= args.len() {
-                    return Err(INIError::InvalidData);
-                }
-                (left, args[i])
-            } else {
-                (left, right)
+fn parse_color_int(args: &[&str]) -> INIResult<(RGBColor, u8)> {
+    let mut tokens = args.iter().copied();
+    let mut colors = [0_u8, 0, 0, 255];
+    for (index, expected) in ["R", "G", "B", "A"].into_iter().enumerate() {
+        let Some(token) = tokens.next() else {
+            if index == 3 {
+                break;
             }
-        } else {
-            if i + 1 >= args.len() {
-                return Err(INIError::InvalidData);
-            }
-            (token.trim_end_matches(':'), args[i + 1])
+            return Err(INIError::InvalidData);
         };
-
-        let value: i32 = value.parse().map_err(|_| INIError::InvalidData)?;
-        if value < 0 || value > 255 {
+        let (key, value) = match token.split_once(':') {
+            Some((key, "")) => (key, tokens.next().ok_or(INIError::InvalidData)?),
+            Some(pair) => pair,
+            None => (token, tokens.next().ok_or(INIError::InvalidData)?),
+        };
+        if !key.eq_ignore_ascii_case(expected) {
             return Err(INIError::InvalidData);
         }
-
-        match key.to_ascii_uppercase().as_str() {
-            "R" => r = Some(value),
-            "G" => g = Some(value),
-            "B" => b = Some(value),
-            _ => {}
-        }
-
-        i += 1;
+        colors[index] = value.parse().map_err(|_| INIError::InvalidData)?;
     }
-
-    let r = r.ok_or(INIError::InvalidData)?;
-    let g = g.ok_or(INIError::InvalidData)?;
-    let b = b.ok_or(INIError::InvalidData)?;
-
-    Ok(RGBColor::new(
-        r as f32 / 255.0,
-        g as f32 / 255.0,
-        b as f32 / 255.0,
+    Ok((
+        RGBColor::new(
+            f32::from(colors[0]) / 255.0,
+            f32::from(colors[1]) / 255.0,
+            f32::from(colors[2]) / 255.0,
+        ),
+        colors[3],
     ))
 }
 
@@ -2368,6 +2354,30 @@ fn parse_weapon_bonus(args: &[&str]) -> INIResult<WeaponBonusEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn game_data_colors_preserve_order_and_optional_alpha() {
+        let mut data = GlobalData::new();
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "GameData\n HotKeyTextColor = R:64 G:128 B:255 A:32\n PrisonBountyTextColor = R:1 G:2 B:3\nEnd\n",
+            |ini| {
+                ini.read_line()?;
+                parse_game_data_block(ini, &mut data)
+            },
+        )
+        .unwrap();
+        assert_eq!(data.hot_key_text_alpha, 32);
+        assert_eq!(data.prison_bounty_text_alpha, 255);
+        assert_eq!(data.hot_key_text_color, RGBColor::new(64.0 / 255.0, 128.0 / 255.0, 1.0));
+        let mut runtime = runtime_global_data::GlobalData::default();
+        apply_to_runtime_global_data(&data, &mut runtime);
+        assert_eq!(runtime.hot_key_text_color[3], 32.0 / 255.0);
+        assert!(parse_color_int(&["G:1", "R:2", "B:3"]).is_err());
+        assert!(parse_color_int(&["R:1", "G:2", "B:3", "A:256"]).is_err());
+        assert!(parse_color_int(&["R:1", "G:2", "B:3", "X:4"]).is_err());
+        assert_eq!(parse_color_int(&["R", "1", "G:", "2", "B:3", "a:4"]).unwrap().1, 4);
+    }
 
     #[test]
     fn sell_percentage_rules_follow_order_default_and_common_percent_syntax() {

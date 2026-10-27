@@ -312,9 +312,12 @@ pub(super) fn gadget_color_opt_to_win_color<C: RgbaColor>(color: Option<C>) -> O
 
 pub(super) fn global_hotkey_text_color() -> u32 {
     get_global_data()
-        .map(|global| global.read().hot_key_text_color)
-        .map(|color| {
-            ((1.0_f32.clamp(0.0, 1.0) * 255.0).round() as u32) << 24
+        .map(|global| {
+            let data = global.read();
+            (data.hot_key_text_color, data.hot_key_text_alpha)
+        })
+        .map(|(color, alpha)| {
+            (u32::from(alpha) << 24)
                 | ((color.r.clamp(0.0, 1.0) * 255.0).round() as u32) << 16
                 | ((color.g.clamp(0.0, 1.0) * 255.0).round() as u32) << 8
                 | (color.b.clamp(0.0, 1.0) * 255.0).round() as u32
