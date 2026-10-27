@@ -521,7 +521,7 @@ impl TerrainVisualImpl {
 
     /// C++ `setTerrainTracksDetail`.
     pub fn set_terrain_tracks_detail(&mut self) {
-        self.set_terrain_tracks_detail_with_config(Self::terrain_tracks_config());
+        self.set_terrain_tracks_detail_with_config(self.terrain_tracks.config());
     }
 
     /// Forward a concrete config into the terrain-track system.

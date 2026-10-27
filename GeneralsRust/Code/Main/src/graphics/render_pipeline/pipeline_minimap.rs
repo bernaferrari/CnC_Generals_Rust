@@ -178,7 +178,15 @@ impl RenderPipeline {
         #[cfg(feature = "game_client")]
         {
             {
-                let mut candidate = game_client::terrain::terrain_visual::TerrainVisualImpl::new();
+                let track_rules = self
+                    .presentation_frame
+                    .as_ref()
+                    .map(|frame| frame.world_env.terrain_track_rules)
+                    .unwrap_or_default();
+                let mut candidate =
+                    game_client::terrain::terrain_visual::TerrainVisualImpl::new_with_track_rules(
+                        &track_rules,
+                    );
                 candidate.set_skybox_enabled(self.skybox_enabled);
                 if let Some(lighting) = self
                     .presentation_frame

@@ -133,3 +133,55 @@ fn dynamic_light_and_expiry_are_isolated_between_terrain_owners() {
     assert_eq!(first_render_color(&first), peer_before);
     assert_eq!(first_render_color(&peer), peer_before);
 }
+
+#[test]
+fn terrain_track_pools_use_each_worlds_ini_settings() {
+    let defaults = LightingContentRules::default();
+    let first_rules = defaults
+        .overlay_ini_text("GameData\n MaxTerrainTracks = 1\n MakeTrackMarks = No\nEnd\n")
+        .unwrap();
+    let peer_rules = defaults
+        .overlay_ini_text("GameData\n MaxTerrainTracks = 2\nEnd\n")
+        .unwrap();
+    let mut first = TerrainVisualImpl::new_with_track_rules(&first_rules.terrain_tracks);
+    let mut peer = TerrainVisualImpl::new_with_track_rules(&peer_rules.terrain_tracks);
+    assert_eq!(first.terrain_tracks_mut().config().max_terrain_tracks, 1);
+    assert!(!first.terrain_tracks_mut().config().make_track_marks);
+    assert_eq!(peer.terrain_tracks_mut().config().max_terrain_tracks, 2);
+    assert!(peer.terrain_tracks_mut().config().make_track_marks);
+
+    assert!(
+        first
+            .terrain_tracks_mut()
+            .bind_track(1.0, 1.0, "first")
+            .is_some()
+    );
+    assert!(
+        first
+            .terrain_tracks_mut()
+            .bind_track(1.0, 1.0, "extra")
+            .is_none()
+    );
+    assert!(
+        peer.terrain_tracks_mut()
+            .bind_track(1.0, 1.0, "peer-one")
+            .is_some()
+    );
+    assert!(
+        peer.terrain_tracks_mut()
+            .bind_track(1.0, 1.0, "peer-two")
+            .is_some()
+    );
+    first.reset().unwrap();
+    assert!(
+        peer.terrain_tracks_mut()
+            .bind_track(1.0, 1.0, "extra")
+            .is_none()
+    );
+    assert!(
+        first
+            .terrain_tracks_mut()
+            .bind_track(1.0, 1.0, "after-reset")
+            .is_some()
+    );
+}

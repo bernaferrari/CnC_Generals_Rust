@@ -549,6 +549,9 @@ pub struct PresentationWorldEnv {
     /// Authored terrain lights 0..2 for TerrainVisual.
     #[serde(default)]
     pub terrain_global_lights: [Option<PresentationPrimaryGlobalLight>; MAX_GLOBAL_LIGHTS],
+    /// Track-pool limits admitted from this world's GameData.
+    #[serde(default)]
+    pub terrain_track_rules: game_engine::common::ini::ini_game_data::TerrainTrackRules,
     /// C++ `m_scriptOverrideInfantryLightScale` or `m_infantryLightScale[tod]`.
     #[serde(default)]
     pub infantry_light_scale: Option<f32>,
@@ -761,6 +764,7 @@ impl PresentationWorldEnv {
             primary_terrain_lighting,
             object_global_lights,
             terrain_global_lights,
+            terrain_track_rules: logic.lighting_rules().terrain_tracks,
             infantry_light_scale,
             map_object_count: meta.as_ref().map(|m| m.objects.len() as u32).unwrap_or(0),
             has_map_metadata: meta.is_some(),

@@ -1,5 +1,30 @@
 //! Receiving GameData lighting definitions, never a published GlobalData owner.
 use super::*;
+/// GameData inputs used to size and fade one world's terrain tracks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TerrainTrackRules {
+    pub max_terrain_tracks: i32,
+    pub max_tank_track_edges: i32,
+    pub max_tank_track_opaque_edges: i32,
+    pub max_tank_track_fade_delay: i32,
+    pub make_track_marks: bool,
+}
+impl TerrainTrackRules {
+    pub fn from_global_data(data: &GlobalData) -> Self {
+        Self {
+            max_terrain_tracks: data.max_terrain_tracks,
+            max_tank_track_edges: data.max_tank_track_edges,
+            max_tank_track_opaque_edges: data.max_tank_track_opaque_edges,
+            max_tank_track_fade_delay: data.max_tank_track_fade_delay,
+            make_track_marks: data.make_track_marks,
+        }
+    }
+}
+impl Default for TerrainTrackRules {
+    fn default() -> Self {
+        Self::from_global_data(&GlobalData::new())
+    }
+}
 #[derive(Debug, Clone)]
 pub struct LightingContentRules {
     pub time_of_day: TimeOfDay,
@@ -23,6 +48,8 @@ pub struct LightingContentRules {
     /// GameData water extent used by legacy version-1 PolygonTriggers.
     pub water_extent_x: f32,
     pub water_extent_y: f32,
+    /// Receiving GameData track definitions, including subsequent INI overlays.
+    pub terrain_tracks: TerrainTrackRules,
 }
 impl Default for LightingContentRules {
     fn default() -> Self {
@@ -53,6 +80,7 @@ impl LightingContentRules {
             shroud_alpha: data.shroud_alpha,
             water_extent_x: data.water_extent_x,
             water_extent_y: data.water_extent_y,
+            terrain_tracks: TerrainTrackRules::from_global_data(data),
         }
     }
     /// Same GameData field table and original source order; no singleton writes.
@@ -79,6 +107,11 @@ impl LightingContentRules {
         draft.shroud_alpha = self.shroud_alpha;
         draft.water_extent_x = self.water_extent_x;
         draft.water_extent_y = self.water_extent_y;
+        draft.max_terrain_tracks = self.terrain_tracks.max_terrain_tracks;
+        draft.max_tank_track_edges = self.terrain_tracks.max_tank_track_edges;
+        draft.max_tank_track_opaque_edges = self.terrain_tracks.max_tank_track_opaque_edges;
+        draft.max_tank_track_fade_delay = self.terrain_tracks.max_tank_track_fade_delay;
+        draft.make_track_marks = self.terrain_tracks.make_track_marks;
         let mut ini = INI::new();
         ini.with_inline_source(text, |ini| {
             loop {

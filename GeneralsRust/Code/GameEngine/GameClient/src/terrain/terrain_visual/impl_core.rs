@@ -34,6 +34,15 @@ fn frustum_ground_footprint_center(view: Mat4, projection: Mat4, ground_y: f32) 
 
 impl TerrainVisualImpl {
     pub fn new() -> Self {
+        Self::new_with_track_rules(
+            &game_engine::common::ini::ini_game_data::TerrainTrackRules::default(),
+        )
+    }
+
+    /// Construct with the receiving world's definitions, before track pools exist.
+    pub fn new_with_track_rules(
+        rules: &game_engine::common::ini::ini_game_data::TerrainTrackRules,
+    ) -> Self {
         Self {
             config: TerrainConfig::default(),
             stats: TerrainStats::default(),
@@ -57,7 +66,9 @@ impl TerrainVisualImpl {
 
             water_system: WaterSystem::new(),
             road_system: RoadSystem::new(),
-            terrain_tracks: TerrainTracksRenderObjClassSystem::new(Self::terrain_tracks_config()),
+            terrain_tracks: TerrainTracksRenderObjClassSystem::new(
+                TerrainTracksConfig::from_rules(rules),
+            ),
             water_tracks: crate::terrain::WaterTracksRenderSystem::new(
                 crate::terrain::DEFAULT_WATER_TRACK_MODULES,
             ),
@@ -190,50 +201,6 @@ impl TerrainVisualImpl {
             smudge_mesh: None,
             flat_lod_meshes: Vec::new(),
         }
-    }
-
-    fn terrain_tracks_config() -> TerrainTracksConfig {
-        let from_values = |max_terrain_tracks: i32,
-                           max_tank_track_edges: i32,
-                           max_tank_track_opaque_edges: i32,
-                           max_tank_track_fade_delay: i32,
-                           make_track_marks: bool| {
-            let defaults = TerrainTracksConfig::default();
-            TerrainTracksConfig {
-                max_terrain_tracks: positive_usize(max_terrain_tracks)
-                    .unwrap_or(defaults.max_terrain_tracks),
-                max_tank_track_edges: positive_usize(max_tank_track_edges)
-                    .unwrap_or(defaults.max_tank_track_edges),
-                max_tank_track_opaque_edges: positive_usize(max_tank_track_opaque_edges)
-                    .unwrap_or(defaults.max_tank_track_opaque_edges),
-                max_tank_track_fade_delay: if max_tank_track_fade_delay > 0 {
-                    max_tank_track_fade_delay
-                } else {
-                    defaults.max_tank_track_fade_delay
-                },
-                make_track_marks,
-            }
-        };
-
-        if let Some(global_data) = get_global_data() {
-            let data = global_data.read();
-            return from_values(
-                data.max_terrain_tracks,
-                data.max_tank_track_edges,
-                data.max_tank_track_opaque_edges,
-                data.max_tank_track_fade_delay,
-                data.make_track_marks,
-            );
-        }
-
-        let data = global_data::read();
-        from_values(
-            data.max_terrain_tracks,
-            data.max_tank_track_edges,
-            data.max_tank_track_opaque_edges,
-            data.max_tank_track_fade_delay,
-            data.make_track_marks,
-        )
     }
 
     /// Expose chunk manager for renderer passes.

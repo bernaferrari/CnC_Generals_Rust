@@ -387,6 +387,37 @@ impl Default for TerrainTracksConfig {
     }
 }
 
+impl TerrainTracksConfig {
+    /// Convert the receiving world's GameData values using the existing
+    /// fallback for non-positive limits.
+    pub fn from_rules(rules: &game_engine::common::ini::ini_game_data::TerrainTrackRules) -> Self {
+        let defaults = Self::default();
+        let positive = |value: i32, fallback: usize| {
+            usize::try_from(value)
+                .ok()
+                .filter(|value| *value > 0)
+                .unwrap_or(fallback)
+        };
+        Self {
+            max_terrain_tracks: positive(rules.max_terrain_tracks, defaults.max_terrain_tracks),
+            max_tank_track_edges: positive(
+                rules.max_tank_track_edges,
+                defaults.max_tank_track_edges,
+            ),
+            max_tank_track_opaque_edges: positive(
+                rules.max_tank_track_opaque_edges,
+                defaults.max_tank_track_opaque_edges,
+            ),
+            max_tank_track_fade_delay: if rules.max_tank_track_fade_delay > 0 {
+                rules.max_tank_track_fade_delay
+            } else {
+                defaults.max_tank_track_fade_delay
+            },
+            make_track_marks: rules.make_track_marks,
+        }
+    }
+}
+
 /// CPU pool equivalent of C++ `TerrainTracksRenderObjClassSystem`.
 #[derive(Debug, Clone)]
 pub struct TerrainTracksRenderObjClassSystem {
@@ -398,6 +429,9 @@ pub struct TerrainTracksRenderObjClassSystem {
 }
 
 impl TerrainTracksRenderObjClassSystem {
+    pub fn config(&self) -> TerrainTracksConfig {
+        self.config
+    }
     /// Construct and preallocate track objects.
     pub fn new(config: TerrainTracksConfig) -> Self {
         let max_edges = config.max_tank_track_edges;

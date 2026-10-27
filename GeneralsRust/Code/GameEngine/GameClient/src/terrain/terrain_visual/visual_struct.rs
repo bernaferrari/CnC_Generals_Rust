@@ -418,7 +418,3 @@ const MAX_TEXTURES_PER_CHUNK: usize = 4;
 fn matrix4_to_array(matrix: &Mat4) -> [[f32; 4]; 4] {
     matrix.to_cols_array_2d()
 }
-
-fn positive_usize(value: i32) -> Option<usize> {
-    (value > 0).then_some(value as usize)
-}
