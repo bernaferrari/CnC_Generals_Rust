@@ -34,7 +34,7 @@ impl GameLogic {
         let Some(shooter) = self.objects.get_mut(&source) else {
             return false;
         };
-        let Some((slot, shot)) = shooter.prepare_passive_weapon_shot_with_operation(
+        let Some((slot, shot)) = shooter.prepare_passive_weapon_shot_with_operation_and_solo_set(
             slot,
             target,
             self.frame as f32 * LOGIC_FRAME_TIMESTEP,
@@ -50,6 +50,7 @@ impl GameLogic {
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             self.frame,
             &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+            &self.solo_weapon_bonus_set,
         ) else {
             return false;
         };

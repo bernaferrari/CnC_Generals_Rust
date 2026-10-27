@@ -166,6 +166,45 @@ impl Object {
         )
     }
 
+    /// Passive/contained-unit discharge using the receiving GameLogic's
+    /// admitted SOLO set. The common shot operation retains its read order.
+    pub(crate) fn prepare_passive_weapon_shot_with_operation_and_solo_set(
+        &mut self,
+        slot: u8,
+        target_id: ObjectId,
+        current_time: f32,
+        target_is_infantry: bool,
+        target_has_faerie_fire: bool,
+        logic_frame: u32,
+        muzzle_origin: Vec3,
+        sound_events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        content: Option<&crate::game_logic::projectile_definitions::ProjectileDefinitions>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> Option<(u8, super::combat::PendingProjectile)> {
+        self.prepare_weapon_shot_with_operation(
+            WeaponShotRoute::Passive {
+                slot,
+                origin: muzzle_origin,
+            },
+            target_id,
+            current_time,
+            target_is_infantry,
+            target_has_faerie_fire,
+            logic_frame,
+            sound_events,
+            attack_events,
+            content,
+            audio,
+            operation_frame,
+            operation_effects,
+            Some(solo_set),
+        )
+    }
+
     pub(crate) fn prepare_autonomous_weapon_shot(
         &mut self,
         target: ObjectId,
