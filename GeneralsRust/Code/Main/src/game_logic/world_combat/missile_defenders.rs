@@ -2401,7 +2401,7 @@ impl GameLogic {
 
         let mut kills = 0u32;
         let mut destroy_ids: Vec<ObjectId> = Vec::new();
-        let mut clear_players: Vec<i32> = Vec::new();
+        let mut clear_players: Vec<u32> = Vec::new();
         let mut score_pairs: Vec<(ObjectId, ObjectId)> = Vec::new();
         for occ_id in to_kill {
             let Some(occ) = self.objects.get_mut(&occ_id) else {
@@ -2453,7 +2453,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(pid) = owner_pid {
-                clear_players.push(pid as i32);
+                clear_players.push(pid);
             }
             let containment_actor_id = occ.id;
             Self::set_owned_containment_in_parts(
@@ -2487,16 +2487,11 @@ impl GameLogic {
                 );
             }
         }
-        if let Ok(list) = gamelogic::player::player_list().read() {
-            for pid in clear_players {
-                let Some(player) = list.get_player(pid) else {
-                    continue;
-                };
-                if let Ok(mut guard) = player.write() {
-                    guard
-                        .get_academy_stats_mut()
-                        .record_cleared_garrisoned_building();
-                }
+        for pid in clear_players {
+            if let Some(player) = self.players.get_mut(&pid) {
+                player
+                    .academy_stats
+                    .record_cleared_garrisoned_building();
             }
         }
         for (killer, victim) in score_pairs {
