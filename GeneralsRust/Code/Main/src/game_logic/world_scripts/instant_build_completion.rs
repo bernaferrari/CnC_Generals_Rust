@@ -22,44 +22,25 @@ impl GameLogic {
             .command_set_override
             .clone()
             .filter(|name| !name.is_empty())
-            .or_else(|| {
-                let factory = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
-                let template = factory
-                    .as_ref()?
-                    .find_template(&object.template_name, false)?;
-                let name = template.get_command_set_string().as_str().to_string();
-                (!name.is_empty()).then_some(name)
-            });
+            .or_else(|| self.command_set_for_template(&object.template_name));
         let Some(set_name) = set_name else {
             return false;
         };
-        // Release each catalog guard before acquiring another or executing game
-        // behavior. These are existing content catalogs, never an active world.
-        let button_names = {
-            let Some(sets) = game_engine::common::ini::ini_command_set::get_command_set_manager()
-            else {
-                return false;
-            };
-            let Some(set) = sets.find_command_set_resolved(&set_name) else {
-                return false;
-            };
-            (0..gamelogic::command_button::MAX_COMMANDS_PER_SET)
-                .filter_map(|index| set.get_button_at_position(index).cloned())
-                .collect::<Vec<_>>()
+        // Resolve through this GameLogic's admitted command definitions and
+        // per-world slot overrides. Helpers clone entries and release any
+        // catalog guard before the next lookup.
+        let Some(button_names) = self.effective_command_slots(&set_name) else {
+            return false;
         };
-        let buildable = {
-            let Some(bar) = game_engine::common::ini::ini_command_button::get_control_bar() else {
-                return false;
-            };
-            button_names
-                .iter()
-                .filter_map(|name| bar.find_command_button_resolved(name))
-                .filter(|button| {
-                    matches!(button.command.as_str(), "UNIT_BUILD" | "DOZER_CONSTRUCT")
-                })
-                .map(|button| button.object.clone())
-                .collect::<Vec<_>>()
-        };
+        let buildable = button_names
+            .into_iter()
+            .flatten()
+            .filter_map(|name| self.admitted_command_button(&name))
+            .filter(|button| {
+                matches!(button.command.as_str(), "UNIT_BUILD" | "DOZER_CONSTRUCT")
+            })
+            .map(|button| button.object.clone())
+            .collect::<Vec<_>>();
         // C++ retains the LAST equivalent build button, then checks that
         // button's template prerequisites. Cash is not part of this query.
         buildable
