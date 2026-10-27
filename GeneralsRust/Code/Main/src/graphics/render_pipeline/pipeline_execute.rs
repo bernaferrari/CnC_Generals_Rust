@@ -372,9 +372,12 @@ impl RenderPipeline {
             let tree_receipt = {
                 let (poses, terrain) = self.borrow_native_installed_poses_and_terrain();
                 match terrain {
-                    Some(terrain) => native_receiver
-                        .complete_tree_cpu_draw(terrain, poses, graphics_system, motion)
-                        .map_err(anyhow::Error::msg)?,
+                    Some(terrain) => {
+                        terrain.set_skybox_view(view_matrix);
+                        native_receiver
+                            .complete_tree_cpu_draw(terrain, poses, graphics_system, motion)
+                            .map_err(anyhow::Error::msg)?
+                    }
                     None => None,
                 }
             };

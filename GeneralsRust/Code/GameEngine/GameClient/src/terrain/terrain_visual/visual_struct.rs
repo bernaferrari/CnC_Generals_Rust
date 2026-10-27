@@ -39,6 +39,10 @@ pub struct TerrainVisualImpl {
 
     /// Sky visibility belongs to this receiving terrain presentation.
     skybox_enabled: bool,
+    /// Failed face lookups belong to this visual's mounted assets.
+    missing_skybox_textures: HashSet<String>,
+    /// Preferred face and horizontal fallback from this visual's view matrix.
+    skybox_view_faces: (usize, usize),
 
     /// Current LOD setting
     lod_setting: TerrainVisualLOD,

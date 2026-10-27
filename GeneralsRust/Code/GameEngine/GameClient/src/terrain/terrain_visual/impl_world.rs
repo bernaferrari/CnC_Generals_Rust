@@ -801,61 +801,62 @@ impl TerrainVisualImpl {
         }
     }
 
-    /// Pick N/E/S/W/T from a wgpu/glam view matrix (Y-up or Z-up).
+    /// Pick N/E/S/W/T from a native Y-up view matrix.
     pub fn skybox_face_from_view_matrix(view: &Mat4) -> usize {
+        Self::skybox_faces_from_view_matrix(view, Vec3::Y).0
+    }
+
+    fn skybox_faces_from_view_matrix(view: &Mat4, up: Vec3) -> (usize, usize) {
         let inv = view.inverse();
+        if !inv.is_finite() {
+            return (0, 0);
+        }
         let forward = inv.transform_vector3(-Vec3::Z);
-        let world_up = inv.transform_vector3(Vec3::Y);
-        let up = if world_up.length_squared() < 1.0e-8 {
-            Vec3::Z
-        } else {
-            world_up.normalize()
-        };
         let fwd = if forward.length_squared() < 1.0e-8 {
-            if up.z.abs() >= up.y.abs() {
-                Vec3::Y
-            } else {
-                Vec3::Z
-            }
+            if up == Vec3::Z { Vec3::Y } else { Vec3::Z }
         } else {
             forward.normalize()
         };
         let look_pitch = fwd.dot(up).clamp(-1.0, 1.0).asin();
-        let north = if up.z.abs() >= up.y.abs() {
-            Vec3::Y
-        } else {
-            Vec3::Z
-        };
+        let north = if up == Vec3::Z { Vec3::Y } else { Vec3::Z };
         let east = up.cross(north);
         let horiz = fwd - up * fwd.dot(up);
         let yaw = if horiz.length_squared() < 1.0e-8 {
-            0.0
+            // At a vertical look angle the camera right vector retains the
+            // horizontal orientation needed if the top face is unavailable.
+            let right = inv.transform_vector3(Vec3::X);
+            right.dot(north).atan2(-right.dot(east))
         } else {
             let h = horiz.normalize();
             h.dot(east).atan2(h.dot(north))
         };
-        Self::skybox_face_from_yaw_pitch(yaw, look_pitch)
+        (
+            Self::skybox_face_from_yaw_pitch(yaw, look_pitch),
+            Self::skybox_face_from_yaw_pitch(yaw, 0.0),
+        )
+    }
+
+    /// Admit the view that will actually draw this visual.
+    pub fn set_skybox_view(&mut self, view: &Mat4) {
+        self.skybox_view_faces = Self::skybox_faces_from_view_matrix(view, Vec3::Y);
+    }
+
+    fn set_client_skybox_view(&mut self, view: &Mat4) {
+        let y_as_up = view.transform_vector3(Vec3::Y).y.abs();
+        let z_as_up = view.transform_vector3(Vec3::Z).y.abs();
+        let up = if z_as_up > y_as_up { Vec3::Z } else { Vec3::Y };
+        self.skybox_view_faces = Self::skybox_faces_from_view_matrix(view, up);
+    }
+
+    /// Preferred face before unavailable-face fallback.
+    pub fn skybox_view_face(&self) -> usize {
+        self.skybox_view_faces.0
     }
 
     /// Rebind the visible skybox face from the live camera. Called every
     /// `TerrainVisual::render` / `update` (via `update_tree_meshes`).
     pub fn rebind_skybox_background_for_camera(&mut self) {
         let _ = self.refresh_skybox_background_binding_if_ready();
-    }
-
-    fn skybox_camera_yaw_and_look_pitch() -> (f32, f32) {
-        crate::display::view::with_tactical_view_ref(|view| {
-            let eye = view.get_3d_camera_position();
-            let target = view.position();
-            let forward = Vec3::new(target.x - eye.x, target.y - eye.y, target.z - eye.z);
-            let len = forward.length();
-            let look_pitch = if len > 1.0e-5 {
-                (forward.z / len).asin()
-            } else {
-                0.0
-            };
-            (view.angle(), look_pitch)
-        })
     }
 
     fn is_loaded_skybox_face(&self, index: usize) -> bool {
@@ -886,8 +887,7 @@ impl TerrainVisualImpl {
             return Some(preferred);
         }
         if preferred == 4 {
-            let (yaw, _) = Self::skybox_camera_yaw_and_look_pitch();
-            let side = Self::skybox_face_from_yaw_pitch(yaw, 0.0);
+            let side = self.skybox_view_faces.1;
             if self.is_loaded_skybox_face(side) {
                 return Some(side);
             }
@@ -916,15 +916,9 @@ impl TerrainVisualImpl {
 
         let mut loaded = Vec::new();
         for (i, texture_path) in replacements {
-            // C++ WW3D swaps an unavailable texture file for the shared
-            // missing-texture placeholder and caches that per name for the
-            // whole process (dx8wrapper.cpp:2870-2878,
-            // MissingTexture::_Get_Missing_Texture missingtexture.h:19) —
-            // later frames and later map loads reuse it instead of reopening
-            // the file. The default TSMorning faces live in the base Generals
-            // texture archives; a missing install falls back to the synthetic
-            // horizon gradient. Empty names never reach the loader.
-            if texture_path.is_empty() || skybox_texture_known_missing(texture_path) {
+            // Failed lookups are scoped to this visual's asset context.
+            let cache_key = texture_path.to_ascii_lowercase();
+            if texture_path.is_empty() || self.missing_skybox_textures.contains(&cache_key) {
                 continue;
             }
             match self.load_texture_from_path(device.as_ref(), texture_path) {
@@ -933,7 +927,7 @@ impl TerrainVisualImpl {
                     loaded.push((*i, texture));
                 }
                 Err(err) => {
-                    remember_missing_skybox_texture(texture_path);
+                    self.missing_skybox_textures.insert(cache_key);
                     info!(
                         "Skybox face {} '{}' not in mounted assets; C++ MissingTexture parity keeps gradient fallback (dx8wrapper.cpp:2870): {}",
                         i, texture_path, err
@@ -996,8 +990,7 @@ impl TerrainVisualImpl {
 
         self.ensure_water_ini_skybox_faces_loaded();
 
-        let (yaw, look_pitch) = Self::skybox_camera_yaw_and_look_pitch();
-        let preferred = Self::skybox_face_from_yaw_pitch(yaw, look_pitch);
+        let preferred = self.skybox_view_faces.0;
         let mut used_gradient = false;
         let selected_index = match self.resolve_skybox_face_index(preferred) {
             Some(index) => index,
@@ -1461,30 +1454,6 @@ const FOG_FALLBACK_BIND: &str = "fog-fallback";
 
 fn is_synthetic_skybox_bind(name: &str) -> bool {
     name.eq_ignore_ascii_case(HORIZON_GRADIENT_BIND) || name.eq_ignore_ascii_case(FOG_FALLBACK_BIND)
-}
-
-/// Process-wide record of skybox face names whose asset load already failed.
-/// C++ WW3D registers the shared MissingTexture placeholder per texture name
-/// in manager-level tables (dx8wrapper.cpp:2870-2878, missingtexture.h:19),
-/// so a missing file is opened once per process — not once per map load or
-/// per frame (`init_terrain_visual` re-creates the singleton per match, so
-/// this must not live on the instance).
-// THREAD: main thread only — consulted on the terrain init/draw path.
-thread_local! {
-    static MISSING_SKYBOX_TEXTURES: RefCell<Vec<String>> = RefCell::new(Vec::new());
-}
-
-fn skybox_texture_known_missing(name: &str) -> bool {
-    MISSING_SKYBOX_TEXTURES
-        .with_borrow(|names| names.iter().any(|known| known.eq_ignore_ascii_case(name)))
-}
-
-fn remember_missing_skybox_texture(name: &str) {
-    MISSING_SKYBOX_TEXTURES.with_borrow_mut(|names| {
-        if !names.iter().any(|known| known.eq_ignore_ascii_case(name)) {
-            names.push(name.to_string());
-        }
-    });
 }
 
 fn water_ini_or_default_skybox_names() -> [String; 5] {

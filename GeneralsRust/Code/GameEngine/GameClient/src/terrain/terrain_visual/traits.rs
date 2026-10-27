@@ -27,6 +27,8 @@ impl SubsystemInterface for TerrainVisualImpl {
 
         self.filename.clear();
         self.skybox_enabled = false;
+        self.missing_skybox_textures.clear();
+        self.skybox_view_faces = (0, 0);
         self.dynamic_lights.clear();
         self.loaded_terrain_sources.clear();
         self.height_map = None;
@@ -120,6 +122,7 @@ impl TerrainVisualImpl {
         min_height: f32,
         snow: &crate::snow::SnowRenderState,
     ) -> Result<(), TerrainError> {
+        self.set_skybox_view(view);
         let camera = snow_camera::SnowCamera::native_y_up(*view, *projection, min_height);
         self.render_with_snow_camera(view, projection, camera, Some(snow), None, false)
     }
@@ -133,6 +136,7 @@ impl TerrainVisualImpl {
         snow: &crate::snow::SnowRenderState,
         motion: TerrainVisualMotion,
     ) -> Result<(), TerrainError> {
+        self.set_skybox_view(view);
         let camera = snow_camera::SnowCamera::native_y_up(*view, *projection, min_height);
         self.render_with_snow_camera(view, projection, camera, Some(snow), Some(motion), false)
     }
@@ -150,6 +154,7 @@ impl TerrainVisualImpl {
     ) -> Result<(), TerrainError> {
         self.validate_owned_tree_draw(receipt)
             .map_err(|error| TerrainError::InvalidData(error.into()))?;
+        self.set_skybox_view(view);
         let camera = snow_camera::SnowCamera::native_y_up(*view, *projection, min_height);
         self.render_with_snow_camera(view, projection, camera, Some(snow), Some(motion), true)
     }
@@ -197,6 +202,7 @@ impl TerrainVisualImpl {
         projection: &Mat4,
         snow: &crate::snow::SnowRenderState,
     ) -> Result<(), TerrainError> {
+        self.set_client_skybox_view(view);
         let camera =
             snow_camera::SnowCamera::from_client_view(*view, *projection, self.snow_min_height());
         self.render_with_snow_camera(view, projection, camera, Some(snow), None, false)
@@ -309,6 +315,7 @@ impl TerrainVisualImpl {
 
 impl TerrainVisual for TerrainVisualImpl {
     fn render(&mut self, view_matrix: &Mat4, projection_matrix: &Mat4) -> Result<(), TerrainError> {
+        self.set_client_skybox_view(view_matrix);
         let camera = snow_camera::SnowCamera::from_client_view(
             *view_matrix,
             *projection_matrix,

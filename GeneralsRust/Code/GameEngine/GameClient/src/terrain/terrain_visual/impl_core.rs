@@ -48,6 +48,8 @@ impl TerrainVisualImpl {
             stats: TerrainStats::default(),
             enabled: true,
             skybox_enabled: false,
+            missing_skybox_textures: HashSet::new(),
+            skybox_view_faces: (0, 0),
             lod_setting: TerrainVisualLOD::default(),
             filename: String::new(),
             loaded_terrain_sources: Vec::new(),

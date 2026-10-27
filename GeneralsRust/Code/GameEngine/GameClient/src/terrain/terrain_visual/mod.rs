@@ -3,7 +3,6 @@
 //! Core terrain rendering system that matches the C++ TerrainVisual implementation exactly.
 //! Handles heightmaps, texturing, water, roads, and all visual terrain features.
 
-use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::f32::consts::PI;
 use std::path::{Path, PathBuf};

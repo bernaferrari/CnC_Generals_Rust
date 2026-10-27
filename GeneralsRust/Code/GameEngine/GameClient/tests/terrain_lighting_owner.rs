@@ -6,7 +6,7 @@ use game_client_rust::terrain::chunk::TerrainStaticLighting;
 use game_client_rust::terrain::terrain_visual::TerrainVisualImpl;
 use game_engine::common::ini::ini_game_data::{LightingContentRules, RGBColor, TimeOfDay};
 use game_engine::common::ini::ini_terrain::TerrainTypes;
-use glam::Vec3;
+use glam::{Vec3, camera::rh::view::look_at_mat4};
 use std::sync::Arc;
 
 fn lighting(ambient: [f32; 3]) -> TerrainStaticLighting {
@@ -184,4 +184,27 @@ fn terrain_track_pools_use_each_worlds_ini_settings() {
             .bind_track(1.0, 1.0, "after-reset")
             .is_some()
     );
+}
+
+#[test]
+fn terrain_skybox_uses_the_receiving_view() {
+    let mut first = TerrainVisualImpl::new();
+    let mut peer = TerrainVisualImpl::new();
+    let north = look_at_mat4(Vec3::ZERO, Vec3::Z, Vec3::Y);
+    let east = look_at_mat4(Vec3::ZERO, Vec3::X, Vec3::Y);
+    first.set_skybox_view(&north);
+    peer.set_skybox_view(&east);
+    assert_eq!(first.skybox_view_face(), 0);
+    assert_eq!(peer.skybox_view_face(), 1);
+    let upward = look_at_mat4(Vec3::ZERO, Vec3::new(0.0, 2.0, 1.0), Vec3::Y);
+    first.set_skybox_view(&upward);
+    assert_eq!(first.skybox_view_face(), 4);
+    assert_eq!(peer.skybox_view_face(), 1);
+    let vertical = look_at_mat4(Vec3::ZERO, Vec3::Y, Vec3::Z);
+    first.set_skybox_view(&vertical);
+    assert_eq!(first.skybox_view_face(), 4);
+    first.set_skybox_view(&east);
+    first.reset().unwrap();
+    assert_eq!(first.skybox_view_face(), 0);
+    assert_eq!(peer.skybox_view_face(), 1);
 }
