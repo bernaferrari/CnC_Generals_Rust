@@ -468,6 +468,10 @@ impl Object {
         }
         let rubble_h = if self.thing.template.structure_rubble_height > 0 {
             self.thing.template.structure_rubble_height as f32
+        } else if self.thing.template.receiving_client_template.is_some()
+            || self.thing.template.receiving_object_definition.is_some()
+        {
+            self.physics_rules.default_structure_rubble_height
         } else {
             host_structure_rubble_height(&self.template_name)
         };

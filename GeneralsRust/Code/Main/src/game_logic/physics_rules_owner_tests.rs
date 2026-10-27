@@ -10,6 +10,7 @@ fn rules_world(gravity: f32, ground: f32, structure: f32) -> (GameLogic, ObjectI
             gravity,
             ground_stiffness: ground,
             structure_stiffness: structure,
+            default_structure_rubble_height: 1.0,
         })
         .unwrap();
     let mut template = ThingTemplate::new("OwnedPhysicsRuleVehicle");
@@ -135,7 +136,8 @@ fn physics_rule_admission_rejects_invalid_or_live_replacement_without_mutation()
             .admit_physics_rules_base(PhysicsContentRules {
                 gravity: f32::NAN,
                 ground_stiffness: 0.5,
-                structure_stiffness: 0.5
+                structure_stiffness: 0.5,
+                default_structure_rubble_height: 1.0,
             })
             .is_err()
     );
@@ -146,7 +148,8 @@ fn physics_rule_admission_rejects_invalid_or_live_replacement_without_mutation()
         live.admit_physics_rules_base(PhysicsContentRules {
             gravity: -0.1,
             ground_stiffness: 0.2,
-            structure_stiffness: 0.3
+            structure_stiffness: 0.3,
+            default_structure_rubble_height: 1.0,
         })
         .is_err()
     );
@@ -200,6 +203,7 @@ fn authored_fall_height_sign_and_zero_follow_cpp_fabs_expression() {
             gravity: -1.0,
             ground_stiffness: 0.5,
             structure_stiffness: 0.5,
+            default_structure_rubble_height: 1.0,
         };
         world.admit_physics_rules_base(rules).unwrap();
         let mut template = ThingTemplate::new("SignedFallHeightActor");

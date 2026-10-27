@@ -8,6 +8,7 @@ pub(crate) fn default_host_physics_rules() -> PhysicsContentRules {
         gravity: -64.0 / 900.0,
         ground_stiffness: 0.8,
         structure_stiffness: 0.3,
+        default_structure_rubble_height: 1.0,
     }
 }
 

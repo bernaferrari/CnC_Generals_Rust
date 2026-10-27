@@ -167,6 +167,7 @@ mod tests {
             gravity: -0.2,
             ground_stiffness: 0.3,
             structure_stiffness: 0.6,
+            default_structure_rubble_height: 1.0,
         };
         source.admit_physics_rules_base(physics).unwrap();
         let energy = ProductionEnergyRules {
