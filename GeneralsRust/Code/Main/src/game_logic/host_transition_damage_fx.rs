@@ -21,8 +21,6 @@ use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use std::cell::{Cell, RefCell};
-#[cfg(test)]
-use std::collections::HashMap;
 
 /// C++ BODYDAMAGETYPE_COUNT residual (Pristine/Damaged/ReallyDamaged/Rubble).
 pub const TRANSITION_DAMAGE_FX_SLOTS: usize = 4;
@@ -235,15 +233,6 @@ impl HostTransitionDamageFxData {
         }
     }
 
-    fn overlay_template_audio(&mut self, name: &str) {
-        let audio = lookup_template_damage_audio(name);
-        if let Some(s) = audio.sound_on_damaged {
-            self.audio_for_state[HostBodyDamageType::Damaged.ordinal() as usize] = Some(s);
-        }
-        if let Some(s) = audio.sound_on_really_damaged {
-            self.audio_for_state[HostBodyDamageType::ReallyDamaged.ordinal() as usize] = Some(s);
-        }
-    }
 }
 
 /// One transition residual event (presentation/audio consumers).
@@ -429,13 +418,13 @@ pub fn on_body_damage_state_change_for_damage(
     })
 }
 
-pub fn transition_damage_fx_config_for_template(
-    name: &str,
+pub(crate) fn transition_damage_fx_config_for_template(
+    template: &crate::game_logic::ThingTemplate,
     is_structure: bool,
     is_vehicle: bool,
 ) -> Option<HostTransitionDamageFxData> {
-    let n = name.to_ascii_lowercase();
-    let mut data = if n.contains("toxic") && n.contains("bunker") {
+    let n = template.name.to_ascii_lowercase();
+    let fallback = || if n.contains("toxic") && n.contains("bunker") {
         HostTransitionDamageFxData::toxic_bunker_residual()
     } else if is_structure {
         HostTransitionDamageFxData::generic_structure_residual()
@@ -450,26 +439,40 @@ pub fn transition_damage_fx_config_for_template(
         // Infantry / everything else: still emit template SoundOnDamaged.
         HostTransitionDamageFxData::infantry_audio_residual()
     };
-    data.overlay_template_audio(name);
-    overlay_authored_transition_slots(&mut data, name);
+    let mut data = template.transition_damage_definition.clone().unwrap_or_else(fallback);
+    if let Some(typed) = &template.receiving_client_template {
+        for (state, sound) in [HostBodyDamageType::Damaged, HostBodyDamageType::ReallyDamaged]
+            .into_iter()
+            .zip(typed.damage_sounds())
+        {
+            data.audio_for_state[state.ordinal() as usize] = sound.map(str::to_owned);
+        }
+    }
     Some(data)
 }
 
-fn overlay_authored_transition_slots(data: &mut HostTransitionDamageFxData, name: &str) {
-    let Some(manager) = crate::assets::get_asset_manager() else {
-        return;
-    };
-    let Ok(manager) = manager.lock() else {
-        return;
-    };
-    let Some(definition) = manager.get_object_definition(name) else {
-        return;
-    };
+/// Freeze authored transition data when this template is admitted.
+pub(crate) fn transition_damage_fx_config_for_definition(
+    definition: &crate::assets::ObjectDefinition,
+) -> HostTransitionDamageFxData {
+    let mut data = HostTransitionDamageFxData::generic_structure_residual();
+    for (state, field) in [
+        (HostBodyDamageType::Damaged, "SoundOnDamaged"),
+        (HostBodyDamageType::ReallyDamaged, "SoundOnReallyDamaged"),
+    ] {
+        data.audio_for_state[state.ordinal() as usize] = definition
+            .attributes
+            .iter()
+            .find_map(|(key, value)| key.eq_ignore_ascii_case(field).then_some(value.as_str()))
+            .and_then(|value| value.split_whitespace().next())
+            .map(str::to_owned);
+    }
     for module in &definition.behavior_modules {
         if module.class_name.eq_ignore_ascii_case("TransitionDamageFX") {
-            overlay_authored_transition_module(data, module);
+            overlay_authored_transition_module(&mut data, module);
         }
     }
+    data
 }
 
 // Definition parsing is independent of the asset publication adapter above.
@@ -1115,64 +1118,10 @@ pub fn spawn_transition_particles(
 /// C++ `ActiveBody.cpp` `#define YELLOW_DAMAGE_PERCENT (0.25f)`.
 pub const YELLOW_DAMAGE_PERCENT: f32 = 0.25;
 
-/// Template `SoundOnDamaged` / `SoundOnReallyDamaged` / `VoiceFear` names.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct TemplateDamageAudio {
-    pub sound_on_damaged: Option<String>,
-    pub sound_on_really_damaged: Option<String>,
-    pub voice_fear: Option<String>,
-}
-
 #[cfg(test)]
 thread_local! {
-    static TEMPLATE_AUDIO_OVERRIDE: RefCell<HashMap<String, TemplateDamageAudio>> =
-        RefCell::new(HashMap::new());
     static DISPATCHED_ARMOR_DAMAGE_FX: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     static VOICE_FEAR_ROLL: Cell<Option<i32>> = const { Cell::new(None) };
-}
-
-fn nonempty_event_name(event: &game_engine::common::audio::AudioEventRts) -> Option<String> {
-    let name = event.get_event_name();
-    if name.is_empty() {
-        None
-    } else {
-        Some(name.to_string())
-    }
-}
-
-pub fn lookup_template_damage_audio(template_name: &str) -> TemplateDamageAudio {
-    #[cfg(test)]
-    if let Some(over) = TEMPLATE_AUDIO_OVERRIDE.with(|m| m.borrow().get(template_name).cloned()) {
-        return over;
-    }
-    // Non-blocking Common factory only. TheThingFactory::find_template can
-    // rebuild the Object INI database on a miss (seconds) — never on hit FX.
-    if let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() {
-        if let Some(factory) = guard.as_ref() {
-            if let Some(tmpl) = factory.find_template(template_name, false) {
-                return TemplateDamageAudio {
-                    sound_on_damaged: tmpl.get_sound_on_damaged().and_then(nonempty_event_name),
-                    sound_on_really_damaged: tmpl
-                        .get_sound_on_really_damaged()
-                        .and_then(nonempty_event_name),
-                    voice_fear: tmpl.get_voice_fear().and_then(nonempty_event_name),
-                };
-            }
-        }
-    }
-    TemplateDamageAudio::default()
-}
-
-#[cfg(test)]
-pub fn set_test_template_audio(template_name: &str, audio: TemplateDamageAudio) {
-    TEMPLATE_AUDIO_OVERRIDE.with(|m| {
-        m.borrow_mut().insert(template_name.to_string(), audio);
-    });
-}
-
-#[cfg(test)]
-pub fn clear_test_template_audio() {
-    TEMPLATE_AUDIO_OVERRIDE.with(|m| m.borrow_mut().clear());
 }
 
 /// C++ `ActiveBody.cpp:625-631` yellow-health VoiceFear gate + 25% roll.
@@ -1539,16 +1488,10 @@ mod tests {
     #[test]
     fn template_sound_on_damaged_not_invented_names() {
         // C++ ActiveBody.cpp:605-621 getSoundOnDamaged / getSoundOnReallyDamaged.
-        set_test_template_audio(
-            "AmericaInfantryRanger",
-            TemplateDamageAudio {
-                sound_on_damaged: Some("RangerVoiceDamaged".into()),
-                sound_on_really_damaged: Some("RangerVoiceReallyDamaged".into()),
-                voice_fear: Some("RangerVoiceFear".into()),
-            },
-        );
-        let cfg = transition_damage_fx_config_for_template("AmericaInfantryRanger", false, false)
-            .expect("infantry must get a config");
+        let mut definition = crate::assets::ObjectDefinition::new("AmericaInfantryRanger".into());
+        definition.attributes.insert("SoundOnDamaged".into(), "RangerVoiceDamaged".into());
+        definition.attributes.insert("SoundOnReallyDamaged".into(), "RangerVoiceReallyDamaged".into());
+        let cfg = transition_damage_fx_config_for_definition(&definition);
         let e = transition_event(
             &cfg,
             HostBodyDamageType::Pristine,
@@ -1558,7 +1501,6 @@ mod tests {
         assert_eq!(e.audio_name.as_deref(), Some("RangerVoiceDamaged"));
         assert_ne!(e.audio_name.as_deref(), Some("BuildingDamaged"));
         assert_ne!(e.audio_name.as_deref(), Some("VehicleDamaged"));
-        clear_test_template_audio();
     }
 
     #[test]

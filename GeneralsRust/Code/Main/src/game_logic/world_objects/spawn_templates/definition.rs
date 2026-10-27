@@ -67,6 +67,28 @@ impl GameLogic {
         &mut self,
         source: crate::assets::ReceivingObjectContent,
     ) -> Result<(), String> {
+        self.admit_receiving_module_content_with_weapons(source, None)
+    }
+
+    /// Admit an ordered Object INI stream into this session. This entry point
+    /// is for content without external science or command definitions; normal
+    /// application startup supplies those catalogs along with its source.
+    pub fn admit_object_ini_sources<I>(&mut self, sources: I) -> Result<(), String>
+    where
+        I: IntoIterator<Item = (String, String)>,
+    {
+        self.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources(
+            sources,
+        )?)
+    }
+
+    /// The caller supplies the weapon snapshot from its own asset service.
+    /// No process-wide asset manager is selected while admitting a session.
+    pub(crate) fn admit_receiving_module_content_with_weapons(
+        &mut self,
+        source: crate::assets::ReceivingObjectContent,
+        weapons: Option<Vec<(String, gamelogic::weapon::WeaponTemplate)>>,
+    ) -> Result<(), String> {
         if self.receiving_module_content.is_some() || !self.objects.registered_is_empty() {
             return Err("Receiving module content must be admitted before live Objects".into());
         }
@@ -87,13 +109,7 @@ impl GameLogic {
             .rows()
             .map(|row| (row.name.clone(), (**row).clone()))
             .collect::<Vec<_>>();
-        // Weapon definitions retain their existing separate application adapter.
-        // Object definitions below never come from that application's registry.
-        if let Some(manager) = get_asset_manager() {
-            let weapons = manager
-                .lock()
-                .map_err(|_| "Cannot admit initial weapon definitions: asset manager poisoned")?
-                .weapon_definitions_snapshot();
+        if let Some(weapons) = weapons {
             self.admit_weapon_content_snapshot(weapons, &definitions)?;
         }
         let projectile_candidate=crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(definitions.iter().map(|(name,row)|(name.as_str(),row)),self.physics_definitions.effective.gravity)?;
@@ -325,10 +341,7 @@ impl GameLogic {
         ))
     }
 
-    // Internal callers outside `game_logic` use this only to build a parsed
-    // Object INI fixture before exercising the frozen input/authority seam.
-    // Keeping the parser-to-template boundary crate-visible avoids a second,
-    // hand-built RiderChange test representation.
+    // Construct the host projection only inside its admitted content boundary.
     pub(crate) fn build_template_from_object_definition(
         template_name: &str,
         definition: &ObjectDefinition,
@@ -400,7 +413,7 @@ impl GameLogic {
             }
             Err(error) => template.native_lifecycle_error = Some(error),
         }
-        Self::apply_authored_ghost_draw_metadata(&mut template, definition);
+        Self::apply_authored_template_metadata(&mut template, definition);
         // This constructor consumes a complete definition, including an
         // intentional absence of Draw data; no template-name mesh is implied.
         template

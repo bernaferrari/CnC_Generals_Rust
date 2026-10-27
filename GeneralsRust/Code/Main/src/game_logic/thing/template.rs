@@ -108,6 +108,10 @@ impl ReceivingClientTemplate {
         self.0.is_bridge()
     }
 
+    pub(crate) fn damage_sounds(&self) -> [Option<&str>; 2] {
+        self.0.damage_sounds()
+    }
+
     pub(crate) fn behavior_modules(
         &self,
     ) -> &game_engine::common::thing::thing_template::ModuleInfo {
@@ -296,6 +300,10 @@ pub struct ThingTemplate {
     pub(crate) receiving_object_definition: Option<std::sync::Arc<crate::assets::ObjectDefinition>>,
     #[serde(skip)]
     pub(crate) receiving_client_template: Option<ReceivingClientTemplate>,
+    /// Immutable transition-effect content rebound from the receiving catalog.
+    #[serde(skip)]
+    pub(crate) transition_damage_definition:
+        Option<crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxData>,
     #[serde(skip)]
     pub(crate) native_die_declarations:
         Option<Box<[crate::game_logic::native_die_definition::NativeDieDeclaration]>>,
@@ -922,6 +930,7 @@ impl ThingTemplate {
             client_module_declarations: None,
             receiving_object_definition: None,
             receiving_client_template: None,
+            transition_damage_definition: None,
             body_kind: None,
             native_lifecycle_definitions: None,
             native_lifecycle_error: None,

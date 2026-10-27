@@ -738,7 +738,7 @@ impl Object {
         let is_vehicle = self.is_kind_of(crate::game_logic::KindOf::Vehicle);
         if let Some(cfg) =
             crate::game_logic::host_transition_damage_fx::transition_damage_fx_config_for_template(
-                &self.template_name,
+                self.get_template(),
                 is_structure,
                 is_vehicle,
             )

@@ -420,7 +420,7 @@ impl GameLogic {
                 Self::apply_authored_physics_behavior_metadata(template, &definition);
                 Self::apply_authored_structure_death_metadata(template, &definition);
                 Self::apply_authored_geometry(template, &definition);
-                Self::apply_authored_ghost_draw_metadata(template, &definition);
+                Self::apply_authored_template_metadata(template, &definition);
                 // Effective Object definitions select immutable weapon rows;
                 // curated movement/render adapters cannot override those names.
                 if let Some(name) = definition.base_weapon_name(0) {
@@ -573,10 +573,10 @@ impl GameLogic {
         Self::apply_object_definition_create_overrides(template, &definition);
     }
 
-    /// PartitionData::attachToObject excludes the actual W3DDefaultDraw
-    /// module before onCreate; keep this immutable admission metadata on both
-    /// initial templates and subsequent definition refreshes.
-    pub(super) fn apply_authored_ghost_draw_metadata(
+    /// Keep immutable Object metadata on both initial admission and refresh.
+    /// PartitionData excludes W3DDefaultDraw before onCreate; damage transitions
+    /// likewise use the effective definition from this same template.
+    pub(super) fn apply_authored_template_metadata(
         template: &mut ThingTemplate,
         definition: &crate::assets::ObjectDefinition,
     ) {
@@ -587,6 +587,11 @@ impl GameLogic {
             .source_declarations
             .as_ref()
             .map(|_| std::sync::Arc::new(definition.clone()));
+        template.transition_damage_definition = Some(
+            crate::game_logic::host_transition_damage_fx::transition_damage_fx_config_for_definition(
+                definition,
+            ),
+        );
         template.client_module_declarations =
             Some(definition.client_modules.clone().into_boxed_slice());
         if definition.source_declarations.is_some()
@@ -619,7 +624,7 @@ impl GameLogic {
             &game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
         >,
     ) -> Result<(), String> {
-        Self::apply_authored_ghost_draw_metadata(template, definition);
+        Self::apply_authored_template_metadata(template, definition);
         if !definition.display_name.is_empty() {
             template.display_name = definition.display_name.clone();
         }

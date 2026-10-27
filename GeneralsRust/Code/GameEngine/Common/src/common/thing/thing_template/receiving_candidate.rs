@@ -165,6 +165,14 @@ impl AdmittedReceivingTemplate {
     pub fn is_bridge(&self) -> bool {
         self.template.is_bridge()
     }
+    /// ActiveBody reads these events from this exact admitted template.
+    pub fn damage_sounds(&self) -> [Option<&str>; 2] {
+        [
+            self.template.get_sound_on_damaged(),
+            self.template.get_sound_on_really_damaged(),
+        ]
+        .map(|event| event.map(|event| event.get_event_name()).filter(|name| !name.is_empty()))
+    }
     pub fn command_set_name(&self) -> &str {
         self.template.get_command_set_string().as_str()
     }

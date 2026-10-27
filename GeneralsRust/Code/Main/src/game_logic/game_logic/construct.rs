@@ -830,6 +830,15 @@ impl GameLogic {
 
     /// Reset method - matching C++ GameLogic interface
     pub fn reset(&mut self) {
+        // Remaining legacy callbacks must see this recipient only for the
+        // duration of reset; a peer reset must not select that peer forever.
+        let services = Arc::clone(&self.world_services);
+        gamelogic::system::engine_stores::with_world_services(&services, || {
+            self.reset_with_receiving_services();
+        });
+    }
+
+    fn reset_with_receiving_services(&mut self) {
         self.intro_movie_playing = false;
         self.campaign_session_kind = super::host::CampaignSessionKind::None;
         self.host_trigger_world
@@ -895,10 +904,6 @@ impl GameLogic {
         self.apply_aidata_enable_repulsors();
         self.refresh_pathfinding_ai_definitions();
         Self::register_leftover_object_create_overrides_overlay();
-        // Temporary publication for remaining singleton-era consumers. A
-        // constructor never selects a world; the operation scopes are tracked
-        // separately until all consumers take their receiving services.
-        self.install_as_active_stores();
         // Per-world shroud teardown — start_new_game /
         // clearGameData route through here (C++ GameLogic.cpp newGame calls
         // clearGameData before rebuilding the player list). Explicitly on
