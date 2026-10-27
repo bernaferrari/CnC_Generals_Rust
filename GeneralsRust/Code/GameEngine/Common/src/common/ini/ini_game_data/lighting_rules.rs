@@ -25,6 +25,38 @@ impl Default for TerrainTrackRules {
         Self::from_global_data(&GlobalData::new())
     }
 }
+
+/// Per-world GameData observed by the terrain water presentation.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TerrainWaterRules {
+    pub position: [f32; 3],
+    pub extent: [f32; 2],
+    pub water_type: i32,
+    pub show_soft_water_edge: bool,
+    pub feather_water: i32,
+    pub time_of_day: u8,
+}
+impl Default for TerrainWaterRules {
+    fn default() -> Self {
+        LightingContentRules::from_global_data(&GlobalData::new()).terrain_water_rules()
+    }
+}
+impl TerrainWaterRules {
+    /// C++ draws the GameData sea plane only for water type 2 with positive extents.
+    pub fn sea_plane_bounds(&self) -> Option<([f32; 2], [f32; 2], f32)> {
+        if self.water_type != 2 || self.extent[0] <= 0.0 || self.extent[1] <= 0.0 {
+            return None;
+        }
+        Some((
+            [self.position[0], self.position[1]],
+            [
+                self.position[0] + self.extent[0],
+                self.position[1] + self.extent[1],
+            ],
+            self.position[2],
+        ))
+    }
+}
 #[derive(Debug, Clone)]
 pub struct LightingContentRules {
     pub time_of_day: TimeOfDay,
@@ -48,6 +80,10 @@ pub struct LightingContentRules {
     /// GameData water extent used by legacy version-1 PolygonTriggers.
     pub water_extent_x: f32,
     pub water_extent_y: f32,
+    pub water_position: [f32; 3],
+    pub water_type: i32,
+    pub show_soft_water_edge: bool,
+    pub feather_water: i32,
     /// Receiving GameData track definitions, including subsequent INI overlays.
     pub terrain_tracks: TerrainTrackRules,
 }
@@ -80,7 +116,25 @@ impl LightingContentRules {
             shroud_alpha: data.shroud_alpha,
             water_extent_x: data.water_extent_x,
             water_extent_y: data.water_extent_y,
+            water_position: [
+                data.water_position_x,
+                data.water_position_y,
+                data.water_position_z,
+            ],
+            water_type: data.water_type,
+            show_soft_water_edge: data.show_soft_water_edge,
+            feather_water: data.feather_water,
             terrain_tracks: TerrainTrackRules::from_global_data(data),
+        }
+    }
+    pub fn terrain_water_rules(&self) -> TerrainWaterRules {
+        TerrainWaterRules {
+            position: self.water_position,
+            extent: [self.water_extent_x, self.water_extent_y],
+            water_type: self.water_type,
+            show_soft_water_edge: self.show_soft_water_edge,
+            feather_water: self.feather_water,
+            time_of_day: self.time_of_day as u8,
         }
     }
     /// Same GameData field table and original source order; no singleton writes.
@@ -107,6 +161,12 @@ impl LightingContentRules {
         draft.shroud_alpha = self.shroud_alpha;
         draft.water_extent_x = self.water_extent_x;
         draft.water_extent_y = self.water_extent_y;
+        draft.water_position_x = self.water_position[0];
+        draft.water_position_y = self.water_position[1];
+        draft.water_position_z = self.water_position[2];
+        draft.water_type = self.water_type;
+        draft.show_soft_water_edge = self.show_soft_water_edge;
+        draft.feather_water = self.feather_water;
         draft.max_terrain_tracks = self.terrain_tracks.max_terrain_tracks;
         draft.max_tank_track_edges = self.terrain_tracks.max_tank_track_edges;
         draft.max_tank_track_opaque_edges = self.terrain_tracks.max_tank_track_opaque_edges;

@@ -552,6 +552,9 @@ pub struct PresentationWorldEnv {
     /// Track-pool limits admitted from this world's GameData.
     #[serde(default)]
     pub terrain_track_rules: game_engine::common::ini::ini_game_data::TerrainTrackRules,
+    /// Water plane and shoreline inputs from the receiving world's GameData.
+    #[serde(default)]
+    pub terrain_water_rules: game_engine::common::ini::ini_game_data::TerrainWaterRules,
     /// C++ `m_scriptOverrideInfantryLightScale` or `m_infantryLightScale[tod]`.
     #[serde(default)]
     pub infantry_light_scale: Option<f32>,
@@ -765,6 +768,7 @@ impl PresentationWorldEnv {
             object_global_lights,
             terrain_global_lights,
             terrain_track_rules: logic.lighting_rules().terrain_tracks,
+            terrain_water_rules: logic.lighting_rules().terrain_water_rules(),
             infantry_light_scale,
             map_object_count: meta.as_ref().map(|m| m.objects.len() as u32).unwrap_or(0),
             has_map_metadata: meta.is_some(),

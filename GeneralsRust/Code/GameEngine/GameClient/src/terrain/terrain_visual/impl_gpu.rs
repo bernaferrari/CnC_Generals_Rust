@@ -44,7 +44,7 @@ impl TerrainVisualImpl {
         self.ensure_snow_texture_bind_group(device.as_ref());
         self.create_tree_pipeline(device.as_ref())?;
 
-        self.sync_global_water_plane(device.as_ref())?;
+        self.sync_water_plane(device.as_ref())?;
         self.upload_extra_blend_overlay();
 
         // Create uniform buffer
@@ -1126,8 +1126,8 @@ impl TerrainVisualImpl {
     }
 
     /// Ensure the GlobalData water mesh exists (honors `water_position_z` / extents).
-    pub fn ensure_global_water_plane(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
-        self.sync_global_water_plane(device)
+    pub fn ensure_water_plane(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
+        self.sync_water_plane(device)
     }
 
     pub fn record_water_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
@@ -1881,14 +1881,12 @@ impl TerrainVisualImpl {
                 push_name(guard.get_final_override().standing_water_texture.as_str());
             }
         }
-        if let Some(global_data) = get_global_data() {
-            let tod = game_engine::common::ini::ini_water::TimeOfDay::from_index(
-                global_data.read().time_of_day as usize,
-            );
-            if let Some(lock) = game_engine::common::ini::ini_water::get_water_setting(tod) {
-                if let Ok(guard) = lock.read() {
-                    push_name(guard.texture_name.as_str());
-                }
+        let tod = game_engine::common::ini::ini_water::TimeOfDay::from_index(
+            self.water_rules.time_of_day as usize,
+        );
+        if let Some(lock) = game_engine::common::ini::ini_water::get_water_setting(tod) {
+            if let Ok(guard) = lock.read() {
+                push_name(guard.texture_name.as_str());
             }
         }
         for name in [
@@ -2261,37 +2259,24 @@ impl TerrainVisualImpl {
         }));
     }
 
-    fn sync_global_water_plane(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
-        let Some(global_data) = get_global_data() else {
-            self.water_plane = None;
-            return Ok(());
-        };
-        let global = global_data.read();
-
-        if !self.config.water_enabled
-            || global.water_extent_x <= 0.0
-            || global.water_extent_y <= 0.0
-        {
+    fn sync_water_plane(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
+        if !self.config.water_enabled {
             self.water_plane = None;
             return Ok(());
         }
         // C++ Render() only draws the GlobalData-extent sea plane for
         // WATER_TYPE_2_PVSHADER (drawSea, W3DWater.cpp:1540-1543); the shipped
         // WATER_TYPE_0 path renders polygon-trigger water only.
-        if global.water_type != 2 {
+        let Some(([min_x, min_z], [max_x, max_z], water_y)) = self.water_rules.sea_plane_bounds()
+        else {
             self.water_plane = None;
             return Ok(());
-        }
+        };
 
         // C++ WaterRenderObjClass::getClippedWaterPlane (W3DWater.cpp:1735-1738)
         // spans local [0..m_dx] x [0..m_dy] at m_level, then Set_Position
         // (waterPositionX, waterPositionY, waterPositionZ). Not centered
         // [-extent/2, +extent/2] — Alpine camera x=1362 must sit over the plane.
-        let water_y = global.water_position_z;
-        let min_x = global.water_position_x;
-        let min_z = global.water_position_y;
-        let max_x = global.water_position_x + global.water_extent_x;
-        let max_z = global.water_position_y + global.water_extent_y;
         // Tile 15×15 patches across GlobalData extents (do not stretch one sheet).
         let (_standing_color, additive, standing_tex) = {
             game_engine::common::ini::ini_water::initialize_water_settings();
@@ -2314,8 +2299,9 @@ impl TerrainVisualImpl {
         };
         self.water_additive_blend = additive;
 
-        let tod =
-            game_engine::common::ini::ini_water::TimeOfDay::from_index(global.time_of_day as usize);
+        let tod = game_engine::common::ini::ini_water::TimeOfDay::from_index(
+            self.water_rules.time_of_day as usize,
+        );
         let water_set = game_engine::common::ini::ini_water::get_water_setting(tod)
             .and_then(|lock| lock.read().ok().map(|g| g.clone()));
         // C++ type-2 sea vertices use the ini TransparentDiffuseColor directly

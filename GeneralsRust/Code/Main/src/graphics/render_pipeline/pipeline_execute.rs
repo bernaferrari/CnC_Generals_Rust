@@ -86,6 +86,9 @@ impl RenderPipeline {
         }
         #[cfg(feature = "game_client")]
         if let Some(terrain) = self.native_terrain.as_mut() {
+            if let Some(frame) = self.presentation_frame.as_ref() {
+                terrain.admit_water_rules(frame.world_env.terrain_water_rules);
+            }
             let lights = self
                 .presentation_frame
                 .as_ref()

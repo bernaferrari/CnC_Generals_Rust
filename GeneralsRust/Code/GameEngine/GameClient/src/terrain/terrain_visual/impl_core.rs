@@ -33,6 +33,33 @@ fn frustum_ground_footprint_center(view: Mat4, projection: Mat4, ground_y: f32) 
 }
 
 impl TerrainVisualImpl {
+    /// Admit water GameData from the world that owns this presentation.
+    pub fn admit_water_rules(
+        &mut self,
+        rules: game_engine::common::ini::ini_game_data::TerrainWaterRules,
+    ) {
+        if self.water_rules == rules {
+            return;
+        }
+        let time_changed = self.water_rules.time_of_day != rules.time_of_day;
+        self.water_rules = rules;
+        self.water_plane = None;
+        self.overlay.water_grid_dirty = true;
+        self.overlay.overlays_dirty = true;
+        if time_changed {
+            self.water_texture_bind_group = None;
+            self.water_texture_is_fallback = true;
+            self.water_texture_search_exhausted = false;
+        }
+        if self.height_map.is_some() {
+            self.rebuild_shoreline();
+        }
+    }
+
+    pub fn water_rules(&self) -> game_engine::common::ini::ini_game_data::TerrainWaterRules {
+        self.water_rules
+    }
+
     pub fn new() -> Self {
         Self::new_with_track_rules(
             &game_engine::common::ini::ini_game_data::TerrainTrackRules::default(),
@@ -67,6 +94,7 @@ impl TerrainVisualImpl {
             texture_class_rank_builds: 0,
 
             water_system: WaterSystem::new(),
+            water_rules: Default::default(),
             road_system: RoadSystem::new(),
             terrain_tracks: TerrainTracksRenderObjClassSystem::new(
                 TerrainTracksConfig::from_rules(rules),
@@ -617,9 +645,7 @@ impl TerrainVisualImpl {
                 self.water_y
             }
         }
-        let show_soft = get_global_data()
-            .map(|g| g.read().show_soft_water_edge)
-            .unwrap_or(true);
+        let show_soft = self.water_rules.show_soft_water_edge;
         let transparent_depth = get_water_transparency()
             .and_then(|t| {
                 t.read()
@@ -629,10 +655,7 @@ impl TerrainVisualImpl {
             .unwrap_or(1.0);
         self.water_tracks
             .set_render_enabled(show_soft, transparent_depth);
-        let water_y = get_global_data()
-            .map(|g| g.read().water_position_z)
-            .or_else(|| self.get_water_grid_height(0.0, 0.0))
-            .unwrap_or(0.0);
+        let water_y = self.water_rules.position[2];
         let flush = self.water_tracks.flush(&SampledWaterHeight {
             water_y,
             grid_enabled: self.water_grid_enabled,

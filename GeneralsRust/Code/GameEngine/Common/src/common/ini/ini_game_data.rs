@@ -1339,7 +1339,7 @@ mod body_damage_rules;
 pub use body_damage_rules::BodyDamageRules;
 #[path = "ini_game_data/lighting_rules.rs"]
 mod lighting_rules;
-pub use lighting_rules::{LightingContentRules, TerrainTrackRules};
+pub use lighting_rules::{LightingContentRules, TerrainTrackRules, TerrainWaterRules};
 
 #[path = "ini_game_data/camera_rules.rs"]
 mod camera_rules;

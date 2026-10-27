@@ -187,6 +187,49 @@ fn terrain_track_pools_use_each_worlds_ini_settings() {
 }
 
 #[test]
+fn terrain_water_plane_and_settings_follow_the_receiving_world() {
+    let defaults = LightingContentRules::default();
+    let first_rules = defaults
+        .overlay_ini_text(
+            "GameData\n WaterPositionX = 10\n WaterPositionY = 20\n WaterPositionZ = 3\n WaterExtentX = 80\n WaterExtentY = 40\n WaterType = 2\n ShowSoftWaterEdge = No\n FeatherWater = 2\nEnd\n",
+        )
+        .unwrap()
+        .overlay_ini_text("GameData\n WaterPositionZ = 5\nEnd\n")
+        .unwrap();
+    let peer_rules = defaults
+        .overlay_ini_text(
+            "GameData\n WaterPositionX = -8\n WaterPositionY = 6\n WaterPositionZ = 9\n WaterExtentX = 12\n WaterExtentY = 30\n WaterType = 2\n ShowSoftWaterEdge = Yes\nEnd\n",
+        )
+        .unwrap();
+    let mut first = TerrainVisualImpl::new();
+    let mut peer = TerrainVisualImpl::new();
+    first.admit_water_rules(first_rules.terrain_water_rules());
+    peer.admit_water_rules(peer_rules.terrain_water_rules());
+    assert_eq!(
+        first.water_rules().sea_plane_bounds(),
+        Some(([10.0, 20.0], [90.0, 60.0], 5.0))
+    );
+    assert_eq!(
+        peer.water_rules().sea_plane_bounds(),
+        Some(([-8.0, 6.0], [4.0, 36.0], 9.0))
+    );
+    assert!(!first.water_rules().show_soft_water_edge);
+    assert!(peer.water_rules().show_soft_water_edge);
+    assert_eq!(first.water_rules().feather_water, 2);
+
+    let mut changed = peer.water_rules();
+    changed.water_type = 0;
+    peer.admit_water_rules(changed);
+    assert_eq!(peer.water_rules().sea_plane_bounds(), None);
+    peer.reset().unwrap();
+    drop(peer);
+    assert_eq!(
+        first.water_rules().sea_plane_bounds(),
+        Some(([10.0, 20.0], [90.0, 60.0], 5.0))
+    );
+}
+
+#[test]
 fn terrain_skybox_uses_the_receiving_view() {
     let mut first = TerrainVisualImpl::new();
     let mut peer = TerrainVisualImpl::new();

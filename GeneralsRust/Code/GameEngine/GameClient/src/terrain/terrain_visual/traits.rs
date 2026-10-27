@@ -229,7 +229,7 @@ impl TerrainVisualImpl {
         }
 
         if let Some(device) = self.device.as_ref().cloned() {
-            self.sync_global_water_plane(device.as_ref())?;
+            self.sync_water_plane(device.as_ref())?;
             if self.water_texture_bind_group.is_none() || self.water_texture_is_fallback {
                 self.ensure_water_texture_bind_group(device.as_ref());
             }

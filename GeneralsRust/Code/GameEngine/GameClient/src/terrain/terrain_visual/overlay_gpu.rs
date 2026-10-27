@@ -30,9 +30,7 @@ impl TerrainVisualImpl {
             return;
         };
         let (show_soft, transparent) = {
-            let show = get_global_data()
-                .map(|g| g.read().show_soft_water_edge)
-                .unwrap_or(true);
+            let show = self.water_rules.show_soft_water_edge;
             let (depth, opacity) = get_water_transparency()
                 .and_then(|t| {
                     t.read().ok().map(|s| {
@@ -43,9 +41,7 @@ impl TerrainVisualImpl {
                 .unwrap_or((3.0, 1.0));
             (show, depth.max(0.0) * opacity.max(0.01))
         };
-        let water_y = get_global_data()
-            .map(|g| g.read().water_position_z)
-            .unwrap_or(0.0);
+        let water_y = self.water_rules.position[2];
         let tiles = height_map.rebuild_shoreline_tiles(
             |x, z| self.sample_water_height(x, z).unwrap_or(water_y),
             transparent,
@@ -208,7 +204,7 @@ impl TerrainVisualImpl {
         if let Some(h) = self.get_water_grid_height(world_x, world_z) {
             return Some(h);
         }
-        get_global_data().map(|g| g.read().water_position_z)
+        Some(self.water_rules.position[2])
     }
 
     fn load_water_tracks_from_map(&mut self) {
@@ -395,9 +391,7 @@ impl TerrainVisualImpl {
         // sine-wobbled V scrolled by riverVOrigin, waterDiffuse color with
         // alpha reduced by 0x20 for the wave mesh.
         game_engine::common::ini::ini_water::initialize_water_settings();
-        let tod = get_global_data()
-            .map(|g| g.read().time_of_day as usize)
-            .unwrap_or(0);
+        let tod = self.water_rules.time_of_day as usize;
         let setting = game_engine::common::ini::ini_water::get_water_setting(
             game_engine::common::ini::ini_water::TimeOfDay::from_index(tod),
         )
@@ -518,9 +512,7 @@ impl TerrainVisualImpl {
                 })
             })
             .unwrap_or([1.0, 1.0, 1.0]);
-        let tod = get_global_data()
-            .map(|g| g.read().time_of_day as usize)
-            .unwrap_or(0);
+        let tod = self.water_rules.time_of_day as usize;
         let water_set = game_engine::common::ini::ini_water::get_water_setting(
             game_engine::common::ini::ini_water::TimeOfDay::from_index(tod),
         )
@@ -549,9 +541,7 @@ impl TerrainVisualImpl {
         if self.overlay.water_areas.is_empty() {
             return Ok(());
         }
-        let feather = get_global_data()
-            .map(|g| g.read().feather_water.max(0))
-            .unwrap_or(0);
+        let feather = self.water_rules.feather_water.max(0);
         let diffuse = self.standing_water_diffuse_packed();
         let river_v = self.overlay.river_v_origin;
         let layers = if feather > 0 { feather.min(5) } else { 1 };

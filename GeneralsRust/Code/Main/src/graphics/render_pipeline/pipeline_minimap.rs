@@ -187,6 +187,9 @@ impl RenderPipeline {
                     game_client::terrain::terrain_visual::TerrainVisualImpl::new_with_track_rules(
                         &track_rules,
                     );
+                if let Some(frame) = self.presentation_frame.as_ref() {
+                    candidate.admit_water_rules(frame.world_env.terrain_water_rules);
+                }
                 candidate.set_skybox_enabled(self.skybox_enabled);
                 if let Some(lighting) = self
                     .presentation_frame

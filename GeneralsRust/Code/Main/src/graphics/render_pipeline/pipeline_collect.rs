@@ -2198,7 +2198,7 @@ impl RenderPipeline {
         {
             if let Some(terrain_visual) = self.native_terrain.as_mut() {
                 terrain_visual
-                    .ensure_global_water_plane(graphics_system.device())
+                    .ensure_water_plane(graphics_system.device())
                     .map_err(|e| anyhow::anyhow!("water plane sync failed: {e}"))?;
             }
             let (vp_x, vp_y, vp_w, vp_h) = self.tactical_viewport.pixel_rect();
