@@ -2,10 +2,9 @@
 // Ported from C++ W3DFunctionLexicon.cpp
 
 use crate::w3_d_device::common::w3_d_function_lexicon::{
-    FunctionLexicon, FunctionPtr, TableEntry, TableIndex,
+    FunctionLexicon, FunctionPtr, TableEntry, TableIndex, WindowDrawFn,
 };
-use game_client::gui::GameWindow;
-use game_client::gui::game_window::{WindowInstanceData, default_draw_callback};
+use game_client::gui::game_window::default_draw_callback;
 use game_client::gui::w3d_gadget_draw::{
     w3d_cameo_movie_draw, w3d_clock_draw, w3d_command_bar_background_draw,
     w3d_command_bar_foreground_draw, w3d_command_bar_gen_exp_draw, w3d_command_bar_grid_draw,
@@ -28,19 +27,14 @@ use game_client::gui::w3d_gadget_draw::{
     w3d_thin_border_draw,
 };
 
-type GameWinDrawFunc = fn(&GameWindow, &WindowInstanceData);
-
 /// Load the W3D-specific function tables.
 pub fn load_w3d_tables(lexicon: &mut FunctionLexicon) {
     lexicon.load_table(game_win_draw_table(), TableIndex::GameWinDeviceDraw);
     lexicon.load_table(layout_init_table(), TableIndex::WinLayoutDeviceInit);
 }
 
-fn draw_func_ptr(func: GameWinDrawFunc) -> FunctionPtr {
-    // GameWinDrawFunc is a real function item (`fn(&GameWindow, &WindowInstanceData)`).
-    // Store it as `fn()` for the lexicon table; invoke sites transmute back.
-    // SAFETY: `func` is a live function item, not an arbitrary address.
-    unsafe { FunctionPtr::from_usize(func as *const () as usize) }
+fn draw_func_ptr(func: WindowDrawFn) -> FunctionPtr {
+    FunctionPtr::from_window_draw(func)
 }
 
 fn game_win_draw_table() -> Vec<TableEntry> {

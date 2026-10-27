@@ -1,9 +1,11 @@
 // FILE: w3_d_function_lexicon.rs
 // Ported from C++ W3DFunctionLexicon.h and FunctionLexicon.h
 
+use game_client::gui::GameWindow;
+use game_client::gui::game_window::WindowInstanceData;
+use game_client::gui::window_draw_context::WindowDrawContext;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::sync::{Mutex, OnceLock};
 
 /// Name key type (matches C++ `NameKeyType`)
 pub type NameKeyType = u32;
@@ -69,32 +71,22 @@ impl NameKeyGeneratorState {
     }
 }
 
-static NAME_KEY_STATE: OnceLock<Mutex<NameKeyGeneratorState>> = OnceLock::new();
+/// WND draws borrow the receiving client's services for one synchronous call.
+pub type WindowDrawFn = fn(&GameWindow, &WindowInstanceData, &mut WindowDrawContext<'_>);
 
-fn with_name_key_state<T>(f: impl FnOnce(&mut NameKeyGeneratorState) -> T) -> T {
-    let state = NAME_KEY_STATE.get_or_init(|| Mutex::new(NameKeyGeneratorState::new()));
-    let mut guard = state.lock().expect("NameKeyGenerator mutex poisoned");
-    f(&mut guard)
-}
-
-fn name_to_key(name: &str) -> NameKeyType {
-    with_name_key_state(|state| state.name_to_key(name))
-}
-
-/// Function pointer stored in the W3D lexicon tables.
-///
-/// Stores a real `fn()` (or none). Callers construct via [`FunctionPtr::from_fn`]
-/// so the value cannot be forged from an arbitrary integer and later
-/// `transmute`d. `fn()` is already `Send + Sync` — no `unsafe impl`.
-///
-/// `Eq`/`Hash` use the code address so duplicate-registration checks can
-/// compare entries the same way the previous `*const ()` wrapper did.
 #[derive(Debug, Clone, Copy)]
-pub struct FunctionPtr(Option<fn()>);
+enum FunctionKind {
+    Unit(fn()),
+    WindowDraw(WindowDrawFn),
+}
+
+/// A lexicon entry retains its callback's actual signature.
+#[derive(Debug, Clone, Copy)]
+pub struct FunctionPtr(Option<FunctionKind>);
 
 impl PartialEq for FunctionPtr {
     fn eq(&self, other: &Self) -> bool {
-        self.as_ptr() == other.as_ptr()
+        self.kind_id() == other.kind_id() && self.as_ptr() == other.as_ptr()
     }
 }
 
@@ -102,40 +94,37 @@ impl Eq for FunctionPtr {}
 
 impl Hash for FunctionPtr {
     fn hash<H: Hasher>(&self, state: &mut H) {
+        self.kind_id().hash(state);
         (self.as_ptr() as usize).hash(state);
     }
 }
 
 impl FunctionPtr {
-    /// Wrap a typed unit function pointer.
-    pub fn from_fn(f: fn()) -> Self {
-        Self(Some(f))
+    fn kind_id(self) -> u8 {
+        match self.0 {
+            None => 0,
+            Some(FunctionKind::Unit(_)) => 1,
+            Some(FunctionKind::WindowDraw(_)) => 2,
+        }
     }
 
-    /// Reconstruct from a raw address (C++ FunctionLexicon static tables).
-    ///
-    /// # Safety
-    ///
-    /// `raw` must be `0` (null) or the address of a live `fn()` that remains
-    /// valid for the rest of the process (typical for C++ static callback
-    /// tables and Rust function items). Passing a non-function address is
-    /// undefined behavior if the result is later invoked via
-    /// [`FunctionPtr::as_unit_fn`].
-    // SAFETY: Caller must pass 0 or the address of a live `fn()` that stays valid
-    // SAFETY: for process lifetime (C++ static callback tables / Rust function
-    // SAFETY: items). Any other address is UB if later invoked via as_unit_fn.
-    pub unsafe fn from_usize(raw: usize) -> Self {
-        if raw == 0 {
-            Self(None)
-        } else {
-            // Safety: caller guarantees `raw` is a valid `fn()` address or 0.
-            Self(Some(std::mem::transmute::<usize, fn()>(raw)))
-        }
+    /// Wrap a typed unit function pointer.
+    pub fn from_fn(f: fn()) -> Self {
+        Self(Some(FunctionKind::Unit(f)))
+    }
+
+    /// Wrap a draw function without erasing its borrowed context.
+    pub fn from_window_draw(f: WindowDrawFn) -> Self {
+        Self(Some(FunctionKind::WindowDraw(f)))
     }
 
     /// Convert back to a raw function pointer address (null if unset).
     pub fn as_ptr(self) -> *const () {
-        self.0.map(|f| f as *const ()).unwrap_or(std::ptr::null())
+        match self.0 {
+            Some(FunctionKind::Unit(f)) => f as *const (),
+            Some(FunctionKind::WindowDraw(f)) => f as *const (),
+            None => std::ptr::null(),
+        }
     }
 
     /// Create a null function pointer.
@@ -150,7 +139,18 @@ impl FunctionPtr {
 
     /// Convert to a typed unit function pointer (`fn()`).
     pub fn as_unit_fn(self) -> Option<fn()> {
-        self.0
+        match self.0 {
+            Some(FunctionKind::Unit(f)) => Some(f),
+            _ => None,
+        }
+    }
+
+    /// Retrieve a window draw only from a matching table entry.
+    pub fn as_window_draw(self) -> Option<WindowDrawFn> {
+        match self.0 {
+            Some(FunctionKind::WindowDraw(f)) => Some(f),
+            _ => None,
+        }
     }
 }
 
@@ -197,9 +197,16 @@ impl TableIndex {
 }
 
 /// Function lexicon for managing function pointer lookups by name.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct FunctionLexicon {
     tables: Vec<Vec<TableEntry>>,
+    names: NameKeyGeneratorState,
+}
+
+impl Default for FunctionLexicon {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FunctionLexicon {
@@ -207,11 +214,12 @@ impl FunctionLexicon {
     pub fn new() -> Self {
         Self {
             tables: vec![Vec::new(); TableIndex::MaxFunctionTables as usize],
+            names: NameKeyGeneratorState::new(),
         }
     }
 
     pub fn init(&mut self) {
-        with_name_key_state(NameKeyGeneratorState::reset);
+        self.names.reset();
     }
 
     pub fn reset(&mut self) {
@@ -225,13 +233,23 @@ impl FunctionLexicon {
     pub fn load_table(&mut self, mut table: Vec<TableEntry>, table_index: TableIndex) {
         for entry in &mut table {
             if !entry.name.is_empty() {
-                entry.key = name_to_key(entry.name);
+                entry.key = self.names.name_to_key(entry.name);
             }
         }
         let index = table_index.as_usize();
         if index < self.tables.len() {
             self.tables[index] = table;
         }
+    }
+
+    /// Resolve names in the same lexicon that will receive the lookup.
+    pub fn key_for_name(&mut self, name: &str) -> NameKeyType {
+        self.names.name_to_key(name)
+    }
+
+    pub fn find_function_by_name(&mut self, name: &str, index: TableIndex) -> Option<FunctionPtr> {
+        let key = self.key_for_name(name);
+        self.find_function(key, index)
     }
 
     #[must_use]
@@ -306,6 +324,14 @@ impl W3DFunctionLexicon {
 
     pub fn update(&mut self) {
         self.base.update();
+    }
+
+    pub fn key_for_name(&mut self, name: &str) -> NameKeyType {
+        self.base.key_for_name(name)
+    }
+
+    pub fn find_function_by_name(&mut self, name: &str, index: TableIndex) -> Option<FunctionPtr> {
+        self.base.find_function_by_name(name, index)
     }
 
     #[must_use]
