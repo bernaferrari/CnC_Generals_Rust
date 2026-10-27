@@ -119,7 +119,11 @@ impl GameLogic {
                 return;
             };
             let slot = attacker
-                .select_combat_weapon_slot(target_obj, current_time)
+                .select_combat_weapon_slot_with_solo_set(
+                    target_obj,
+                    current_time,
+                    &self.solo_weapon_bonus_set,
+                )
                 .or_else(|| {
                     let s = attacker.active_weapon_slot;
                     attacker
@@ -136,8 +140,12 @@ impl GameLogic {
             // C++ Weapon::isWithinAttackRange / getAttackRange applies
             // WEAPONBONUSCONDITION_GARRISONED RANGE 133% (not raw PrimaryAttackRange).
             let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
-            let range =
-                (attacker.effective_weapon_range_for_slot(slot, weapon.range) - under).max(0.0);
+            let range = (attacker.effective_weapon_range_for_slot_with_solo_set(
+                slot,
+                weapon.range,
+                &self.solo_weapon_bonus_set,
+            ) - under)
+                .max(0.0);
             let dist = fire_pos.distance(cand.position);
             if dist > range {
                 continue;
