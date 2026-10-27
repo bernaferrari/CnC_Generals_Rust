@@ -20,6 +20,14 @@ fn projectile_goal_on_object(target: &Object) -> Vec3 {
 }
 
 impl CombatSystem {
+    pub(crate) fn admit_historic_damage_limit(&mut self, limit: u32) {
+        self.historic_damage_limit = limit;
+    }
+
+    pub(crate) fn historic_damage_limit(&self) -> u32 {
+        self.historic_damage_limit
+    }
+
     pub fn new() -> Self {
         Self {
             projectiles: HashMap::new(),
@@ -30,6 +38,7 @@ impl CombatSystem {
             pending_under_attack: Vec::new(),
             pending_on_die: Vec::new(),
             fire_ocl: Vec::new(),
+            historic_damage_limit: 0,
             historic_bonus: Default::default(),
             projectileless_delayed: Vec::new(),
         }
@@ -40,7 +49,9 @@ impl CombatSystem {
     /// WeaponStore.cpp1627–1646 clears delayed damage and template history.
     /// Immutable weapon/projectile definitions live on GameLogic, not here.
     pub(crate) fn reset_for_new_game(&mut self) {
+        let historic_damage_limit = self.historic_damage_limit;
         *self = Self::new();
+        self.historic_damage_limit = historic_damage_limit;
     }
 
     /// Discard accepted shots only when this owning game resets.
@@ -490,7 +501,7 @@ impl CombatSystem {
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) -> Vec<ObjectId> {
         let ids = self.projectile_update_ids();
-        let limit = game_engine::common::global_data::read().historic_damage_limit;
+        let limit = self.historic_damage_limit();
         let mut countermeasures = countermeasures;
         let mut retired = Vec::new();
         for id in ids {
@@ -533,7 +544,7 @@ impl CombatSystem {
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) -> (Vec<DamageEvent>, Vec<ObjectId>) {
         let ids = self.projectile_update_ids();
-        let limit = game_engine::common::global_data::read().historic_damage_limit;
+        let limit = self.historic_damage_limit();
         let mut events = Vec::new();
         let mut retired = Vec::new();
         for id in ids {

@@ -9,23 +9,6 @@ use crate::game_logic::combat::tests::{
 use crate::game_logic::combat::*;
 use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon};
 
-struct RetentionRules(u32);
-
-impl RetentionRules {
-    fn install(limit: u32) -> Self {
-        let mut rules = game_engine::common::global_data::write();
-        let previous = rules.historic_damage_limit;
-        rules.historic_damage_limit = limit;
-        Self(previous)
-    }
-}
-
-impl Drop for RetentionRules {
-    fn drop(&mut self) {
-        game_engine::common::global_data::write().historic_damage_limit = self.0;
-    }
-}
-
 fn admit_source(world: &mut GameLogic, team: Team) -> ObjectId {
     let mut template = ThingTemplate::new("HistoricOwnershipSource");
     template.set_health(100.0);
@@ -80,9 +63,10 @@ fn zones(world: &GameLogic) -> usize {
 #[test]
 fn historic_impacts_alternate_same_ids_without_combining_matches() {
     let _serial = combat_test_guard();
-    let _rules = RetentionRules::install(90);
     let mut first = GameLogic::new();
     let mut second = GameLogic::new();
+    first.admit_historic_damage_limit(90);
+    second.admit_historic_damage_limit(90);
     let first_source = admit_source(&mut first, Team::China);
     let second_source = admit_source(&mut second, Team::GLA);
     assert_eq!(first_source, second_source);
@@ -136,8 +120,8 @@ fn historic_impacts_alternate_same_ids_without_combining_matches() {
 #[test]
 fn constructing_another_game_cannot_take_pending_historic_bonus() {
     let _serial = combat_test_guard();
-    let _rules = RetentionRules::install(90);
     let mut first = GameLogic::new();
+    first.admit_historic_damage_limit(90);
     let source = admit_source(&mut first, Team::China);
     first.frame = 100;
     const KEY: &str = "HqVrkh8PendingInferno";
@@ -145,6 +129,7 @@ fn constructing_another_game_cannot_take_pending_historic_bonus() {
         impact(&mut first, source, KEY, Vec3::new(10.0, 4.0, 10.0), 3, 90);
     }
     let mut second = GameLogic::new();
+    second.admit_historic_damage_limit(90);
     assert_eq!(admit_source(&mut second, Team::GLA), source);
     second.frame = 500;
     second.drain_historic_bonus_firestorms();
@@ -161,9 +146,10 @@ fn constructing_another_game_cannot_take_pending_historic_bonus() {
 #[test]
 fn game_reset_clears_only_its_own_historic_samples_and_pending_bonus() {
     let _serial = combat_test_guard();
-    let _rules = RetentionRules::install(90);
     let mut first = GameLogic::new();
     let mut second = GameLogic::new();
+    first.admit_historic_damage_limit(90);
+    second.admit_historic_damage_limit(90);
     let first_source = admit_source(&mut first, Team::China);
     let second_source = admit_source(&mut second, Team::GLA);
     assert_eq!(first_source, second_source);
@@ -214,8 +200,8 @@ fn game_reset_clears_only_its_own_historic_samples_and_pending_bonus() {
 #[test]
 fn delayed_impact_uses_consumer_frame_for_historic_expiration() {
     let _serial = combat_test_guard();
-    let _rules = RetentionRules::install(90);
     let mut world = GameLogic::new();
+    world.admit_historic_damage_limit(90);
     let source = admit_source(&mut world, Team::China);
     world.frame = 100;
     let pos = Vec3::new(10.0, 4.0, 10.0);

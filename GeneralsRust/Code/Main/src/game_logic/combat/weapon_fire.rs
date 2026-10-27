@@ -120,6 +120,8 @@ pub struct CombatSystem {
     pending_on_die: Vec<ObjectId>,
     /// Parsed fire-time FX/OCL references accepted with queued projectile shots.
     fire_ocl: Vec<WeaponFireOcl>,
+    /// Effective GameData retention admitted by this receiving match.
+    historic_damage_limit: u32,
     /// Same-template impact history and pending bonuses belong to this match.
     historic_bonus: crate::game_logic::host_historic_bonus::HostHistoricBonus,
     /// Materialized projectileless damage belongs to the accepting match.
@@ -223,7 +225,7 @@ pub fn apply_ready_projectileless_delayed_damage(
     ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
 ) {
     let ready = take_ready_projectileless_delayed_damage(combat, current_frame);
-    let historic_damage_limit = game_engine::common::global_data::read().historic_damage_limit;
+    let historic_damage_limit = combat.historic_damage_limit();
     for shot in ready {
         combat.apply_projectileless_delayed_shot(
             &shot,

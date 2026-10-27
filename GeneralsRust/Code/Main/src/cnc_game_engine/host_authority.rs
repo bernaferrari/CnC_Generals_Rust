@@ -2124,6 +2124,7 @@ impl CnCGameEngine {
         >,
         ai_definition_base: &game_engine::common::ini::AIData,
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
+        historic_damage_limit: u32,
         physics_rules_base: game_engine::common::ini::ini_game_data::PhysicsContentRules,
         terrain_definition_seed: &Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
         armor_definition_seed: Option<&Arc<gamelogic::object::armor::ArmorDefinitions>>,
@@ -2144,6 +2145,7 @@ impl CnCGameEngine {
             ocl_application_base,
             ai_definition_base,
             production_energy_base,
+            historic_damage_limit,
             physics_rules_base,
             terrain_definition_seed,
             armor_definition_seed,
@@ -2171,6 +2173,7 @@ impl CnCGameEngine {
         >,
         ai_definition_base: &game_engine::common::ini::AIData,
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
+        historic_damage_limit: u32,
         physics_rules_base: game_engine::common::ini::ini_game_data::PhysicsContentRules,
         terrain_definition_seed: &Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
         armor_definition_seed: Option<&Arc<gamelogic::object::armor::ArmorDefinitions>>,
@@ -2208,6 +2211,7 @@ impl CnCGameEngine {
             ocl_application_base,
             ai_definition_base,
             production_energy_base,
+            historic_damage_limit,
             physics_rules_base,
             terrain_definition_seed,
             armor_definition_seed,
@@ -2288,6 +2292,7 @@ impl CnCGameEngine {
             &live.ocl_application_definitions(),
             live.ai_definitions.baseline(),
             live.production_energy_baseline(),
+            live.combat_system.historic_damage_limit(),
             live.physics_rules_baseline(),
             live.effective_terrain_definitions(),
             live.current_armor_definitions(),
@@ -2422,6 +2427,7 @@ impl CnCGameEngine {
             candidate.seed_ocl_application_definitions(live.ocl_application_definitions());
             candidate.set_ai_definition_base(live.ai_definitions.baseline().clone());
             candidate.admit_production_energy_base(live.production_energy_baseline());
+            candidate.admit_historic_damage_limit(live.combat_system.historic_damage_limit());
             candidate.admit_physics_rules_base(live.physics_rules_baseline())?;
             candidate.admit_body_damage_baseline(live.body_damage_baseline());
             candidate.admit_lighting_rules_base(live.lighting_rules_baseline().clone());
@@ -2538,6 +2544,7 @@ impl CnCGameEngine {
         >,
         ai_definition_base: &game_engine::common::ini::AIData,
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
+        historic_damage_limit: u32,
         physics_rules_base: game_engine::common::ini::ini_game_data::PhysicsContentRules,
         terrain_definition_seed: &Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
         armor_definition_seed: Option<&Arc<gamelogic::object::armor::ArmorDefinitions>>,
@@ -2570,6 +2577,7 @@ impl CnCGameEngine {
             ocl_application_base,
             ai_definition_base,
             production_energy_base,
+            historic_damage_limit,
             physics_rules_base,
             terrain_definition_seed,
             armor_definition_seed,
@@ -2603,6 +2611,7 @@ impl CnCGameEngine {
         >,
         ai_definition_base: &game_engine::common::ini::AIData,
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
+        historic_damage_limit: u32,
         physics_rules_base: game_engine::common::ini::ini_game_data::PhysicsContentRules,
         terrain_definition_seed: &Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
         armor_definition_seed: Option<&Arc<gamelogic::object::armor::ArmorDefinitions>>,
@@ -2695,6 +2704,7 @@ impl CnCGameEngine {
         staged.seed_ocl_application_definitions(Arc::clone(ocl_application_base));
         staged.set_ai_definition_base(ai_definition_base.clone());
         staged.admit_production_energy_base(production_energy_base);
+        staged.admit_historic_damage_limit(historic_damage_limit);
         staged.admit_physics_rules_base(physics_rules_base)?;
         staged.admit_body_damage_baseline(template_catalog.body_damage_baseline);
         staged.admit_lighting_rules_base(template_catalog.lighting_baseline.clone());
@@ -2959,6 +2969,7 @@ impl CnCGameEngine {
                 &self.game_logic.ocl_application_definitions(),
                 self.game_logic.ai_definitions.baseline(),
                 self.game_logic.production_energy_baseline(),
+                self.game_logic.combat_system.historic_damage_limit(),
                 self.game_logic.physics_rules_baseline(),
                 self.game_logic.effective_terrain_definitions(),
                 self.game_logic.current_armor_definitions(),
@@ -2998,6 +3009,7 @@ impl CnCGameEngine {
             &self.game_logic.ocl_application_definitions(),
             self.game_logic.ai_definitions.baseline(),
             self.game_logic.production_energy_baseline(),
+            self.game_logic.combat_system.historic_damage_limit(),
             self.game_logic.physics_rules_baseline(),
             self.game_logic.effective_terrain_definitions(),
             self.game_logic.current_armor_definitions(),

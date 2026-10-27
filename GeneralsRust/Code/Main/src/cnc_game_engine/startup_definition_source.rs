@@ -32,6 +32,7 @@ pub(super) struct StartupSimulationRules {
     lighting: game_engine::common::ini::ini_game_data::LightingContentRules,
     physics: game_engine::common::ini::ini_game_data::PhysicsContentRules,
     energy: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
+    historic_damage_limit: u32,
     upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
 }
 impl StartupSimulationRules {
@@ -41,6 +42,7 @@ impl StartupSimulationRules {
             lighting: world.lighting_rules_baseline().clone(),
             physics: world.physics_rules_baseline(),
             energy: world.production_energy_baseline(),
+            historic_damage_limit: world.combat_system.historic_damage_limit(),
             upgrade_definitions: world.upgrade_definitions.clone(),
         }
     }
@@ -81,6 +83,7 @@ impl StartupSimulationRules {
         world.admit_lighting_rules_base(self.lighting);
         world.admit_physics_rules_base(self.physics)?;
         world.admit_production_energy_base(self.energy);
+        world.admit_historic_damage_limit(self.historic_damage_limit);
         world.upgrade_definition_base = self.upgrade_definitions.clone();
         world.upgrade_definitions = self.upgrade_definitions;
         Ok(())

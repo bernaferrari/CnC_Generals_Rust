@@ -2648,6 +2648,38 @@ pub use camera_movement_rules::CameraMovementRules;
 #[cfg(any(debug_assertions, feature = "internal"))]
 mod debug_fields;
 
+/// Session combat history retention admitted from ordered GameData sources.
+/// This projection uses the canonical GameData field parser without publishing
+/// to the Common process-lifetime GlobalData singleton.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HistoricDamageLimitRules {
+    pub frames: u32,
+}
+impl HistoricDamageLimitRules {
+    pub fn overlay_ini_text(self, text: &str) -> Result<Self, String> {
+        let mut draft = GlobalData::new();
+        draft.historic_damage_limit = self.frames;
+        let mut ini = INI::new();
+        ini.with_inline_source(text, |ini| {
+            loop {
+                ini.read_line()?;
+                if ini.is_eof() {
+                    break;
+                }
+                if ini
+                    .get_next_token_or_null()
+                    .is_some_and(|key| key.eq_ignore_ascii_case("GameData"))
+                {
+                    parse_game_data_block(ini, &mut draft)?;
+                }
+            }
+            Ok(())
+        })
+        .map_err(|error| error.to_string())?;
+        Ok(Self { frames: draft.historic_damage_limit })
+    }
+}
+
 /// Private startup GameData projection; never installs writable global data.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PromotionContentRules {

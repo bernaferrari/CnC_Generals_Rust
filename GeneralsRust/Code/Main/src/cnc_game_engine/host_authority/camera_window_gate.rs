@@ -125,6 +125,7 @@ impl CnCGameEngine {
             &self.game_logic.ocl_application_definitions(),
             self.game_logic.ai_definitions.baseline(),
             self.game_logic.production_energy_baseline(),
+            self.game_logic.combat_system.historic_damage_limit(),
             self.game_logic.physics_rules_baseline(),
             self.game_logic.effective_terrain_definitions(),
             self.game_logic.current_armor_definitions(),

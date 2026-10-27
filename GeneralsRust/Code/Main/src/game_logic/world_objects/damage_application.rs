@@ -1026,7 +1026,7 @@ impl GameLogic {
             &mut self.next_object_id,
         );
         if let Some(shot) = ready {
-            let limit = game_engine::common::global_data::read().historic_damage_limit;
+            let limit = self.combat_system.historic_damage_limit();
             let events = self.combat_system.prepare_projectileless_delayed_shot(
                 &shot,
                 self.objects.read(),
@@ -1053,7 +1053,7 @@ impl GameLogic {
     ) {
         use crate::game_logic::combat::take_ready_projectileless_delayed_damage;
         let ready = take_ready_projectileless_delayed_damage(&mut self.combat_system, self.frame);
-        let limit = game_engine::common::global_data::read().historic_damage_limit;
+        let limit = self.combat_system.historic_damage_limit();
         for shot in ready {
             let events = self.combat_system.prepare_projectileless_delayed_shot(
                 &shot,
@@ -1085,7 +1085,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Vec<ObjectId> {
         let ids = self.combat_system.projectile_update_ids();
-        let limit = game_engine::common::global_data::read().historic_damage_limit;
+        let limit = self.combat_system.historic_damage_limit();
         let mut retired = Vec::new();
         for id in ids {
             let removals = self.update_owned_projectile_impact_with_effects(id, dt, limit, effects);

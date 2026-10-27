@@ -477,7 +477,16 @@ impl CnCGameEngine {
         let terrain_definition_seed = Self::load_application_terrain_definitions()
             .await
             .map_err(anyhow::Error::msg)?;
+        let historic_damage_limit = startup_sources.iter().try_fold(
+            game_engine::common::ini::ini_game_data::HistoricDamageLimitRules::default(),
+            |rules, (path, text)| {
+                rules
+                    .overlay_ini_text(text)
+                    .map_err(|error| anyhow::anyhow!("{path}: {error}"))
+            },
+        )?;
         let mut game_logic = GameLogic::initialize();
+        game_logic.admit_historic_damage_limit(historic_damage_limit.frames);
         game_logic.admit_armor_definitions(armor_definition_seed);
         game_logic
             .admit_terrain_definitions(terrain_definition_seed)

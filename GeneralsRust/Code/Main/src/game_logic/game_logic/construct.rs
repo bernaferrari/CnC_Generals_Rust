@@ -773,6 +773,11 @@ impl GameLogic {
         instance
     }
 
+    /// Admit the canonical ordered GameData result into this receiving match.
+    pub(crate) fn admit_historic_damage_limit(&mut self, limit: u32) {
+        self.combat_system.admit_historic_damage_limit(limit);
+    }
+
     /// Snapshot the effective engine veterancy health table for this session.
     /// Missing GlobalData preserves the prior admitted table.
     pub(crate) fn admit_current_veterancy_health_bonus_table(&mut self) {
