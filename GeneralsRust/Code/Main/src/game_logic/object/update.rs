@@ -1295,6 +1295,26 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
     ) -> bool {
+        self.set_exact_veterancy_level_inner(level, None, audio, feedback)
+    }
+
+    pub(crate) fn set_exact_veterancy_level_with_health_bonus_table(
+        &mut self,
+        level: VeterancyLevel,
+        health_bonus: &[f32; game_engine::common::global_data::LEVEL_COUNT],
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+    ) -> bool {
+        self.set_exact_veterancy_level_inner(level, Some(health_bonus), audio, feedback)
+    }
+
+    fn set_exact_veterancy_level_inner(
+        &mut self,
+        level: VeterancyLevel,
+        health_bonus: Option<&[f32; game_engine::common::global_data::LEVEL_COUNT]>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+    ) -> bool {
         let previous = self.experience.level;
         if previous == level {
             return false;
@@ -1307,7 +1327,13 @@ impl Object {
             VeterancyLevel::Elite => thresholds[1],
             VeterancyLevel::Heroic => thresholds[2],
         };
-        self.apply_veterancy_bonuses(previous, level, audio, feedback);
+        if let Some(table) = health_bonus {
+            self.apply_veterancy_bonuses_with_health_table(
+                previous, level, table, audio, feedback,
+            );
+        } else {
+            self.apply_veterancy_bonuses(previous, level, audio, feedback);
+        }
         true
     }
 
