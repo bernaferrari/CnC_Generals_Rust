@@ -2056,11 +2056,15 @@ impl INI {
         Ok(Self::convert_velocity_secs_to_frames(units_per_sec))
     }
 
-    /// Parse a color in R:100 G:114 B:245 format
-    pub fn parse_rgb_color(tokens: &[&str]) -> INIResult<(f32, f32, f32)> {
+    // C++ getNextSubToken consumes names in a fixed order and leaves later
+    // tokens to the caller. A name and its value may be split across tokens.
+    fn ordered_subtokens<'a, const N: usize>(
+        tokens: &[&'a str],
+        names: [&str; N],
+    ) -> INIResult<[&'a str; N]> {
         let mut tokens = tokens.iter().copied();
-        let mut colors = [0.0; 3];
-        for (expected, color) in ["R", "G", "B"].into_iter().zip(&mut colors) {
+        let mut values = [""; N];
+        for (expected, result) in names.into_iter().zip(&mut values) {
             let token = tokens.next().ok_or(INIError::InvalidData)?;
             let (key, value) = if let Some((left, right)) = token.split_once(':') {
                 if right.is_empty() {
@@ -2075,6 +2079,16 @@ impl INI {
             if !key.eq_ignore_ascii_case(expected) {
                 return Err(INIError::InvalidData);
             }
+            *result = value;
+        }
+        Ok(values)
+    }
+
+    /// Parse a color in R:100 G:114 B:245 format
+    pub fn parse_rgb_color(tokens: &[&str]) -> INIResult<(f32, f32, f32)> {
+        let values = Self::ordered_subtokens(tokens, ["R", "G", "B"])?;
+        let mut colors = [0.0; 3];
+        for (value, color) in values.into_iter().zip(&mut colors) {
             let value: i32 = value.parse().map_err(|_| INIError::InvalidData)?;
             if !(0..=255).contains(&value) {
                 return Err(INIError::InvalidData);
@@ -2086,89 +2100,18 @@ impl INI {
 
     /// Parse a 3D coordinate in X:400 Y:-214.3 Z:8.6 format
     pub fn parse_coord_3d(tokens: &[&str]) -> INIResult<(f32, f32, f32)> {
-        let mut x = None;
-        let mut y = None;
-        let mut z = None;
-        let mut i = 0;
-
-        while i < tokens.len() {
-            let token = tokens[i];
-            let (key, value) = if let Some((left, right)) = token.split_once(':') {
-                if right.is_empty() {
-                    i += 1;
-                    if i >= tokens.len() {
-                        return Err(INIError::InvalidData);
-                    }
-                    (left, tokens[i])
-                } else {
-                    (left, right)
-                }
-            } else {
-                if i + 1 >= tokens.len() {
-                    return Err(INIError::InvalidData);
-                }
-                (token.trim_end_matches(':'), tokens[i + 1])
-            };
-
-            let value: f32 = value.parse().map_err(|_| INIError::InvalidData)?;
-
-            match key.to_ascii_uppercase().as_str() {
-                "X" => x = Some(value),
-                "Y" => y = Some(value),
-                "Z" => z = Some(value),
-                _ => {}
-            }
-
-            i += 1;
-        }
-
+        let [x, y, z] = Self::ordered_subtokens(tokens, ["X", "Y", "Z"])?;
         Ok((
-            x.ok_or(INIError::InvalidData)?,
-            y.ok_or(INIError::InvalidData)?,
-            z.ok_or(INIError::InvalidData)?,
+            Self::parse_real(x)?,
+            Self::parse_real(y)?,
+            Self::parse_real(z)?,
         ))
     }
 
     /// Parse a 2D coordinate in X:400 Y:-214.3 format
     pub fn parse_coord_2d(tokens: &[&str]) -> INIResult<(f32, f32)> {
-        let mut x = None;
-        let mut y = None;
-        let mut i = 0;
-
-        while i < tokens.len() {
-            let token = tokens[i];
-            let (key, value) = if let Some((left, right)) = token.split_once(':') {
-                if right.is_empty() {
-                    i += 1;
-                    if i >= tokens.len() {
-                        return Err(INIError::InvalidData);
-                    }
-                    (left, tokens[i])
-                } else {
-                    (left, right)
-                }
-            } else {
-                if i + 1 >= tokens.len() {
-                    return Err(INIError::InvalidData);
-                }
-                (token.trim_end_matches(':'), tokens[i + 1])
-            };
-
-            let value: f32 = value.parse().map_err(|_| INIError::InvalidData)?;
-
-            match key.to_ascii_uppercase().as_str() {
-                "X" => x = Some(value),
-                "Y" => y = Some(value),
-                _ => {}
-            }
-
-            i += 1;
-        }
-
-        Ok((
-            x.ok_or(INIError::InvalidData)?,
-            y.ok_or(INIError::InvalidData)?,
-        ))
+        let [x, y] = Self::ordered_subtokens(tokens, ["X", "Y"])?;
+        Ok((Self::parse_real(x)?, Self::parse_real(y)?))
     }
 
     /// Parse index list - find token in name list and return index
@@ -2681,6 +2624,21 @@ mod tests {
         ] {
             assert!(INI::parse_rgb_color(tokens).is_err(), "accepted {tokens:?}");
         }
+    }
+
+    #[test]
+    fn coordinates_consume_components_in_cpp_order() {
+        assert_eq!(
+            INI::parse_coord_2d(&["X:1.5", "y:-2", "ignored"]).unwrap(),
+            (1.5, -2.0)
+        );
+        assert_eq!(
+            INI::parse_coord_3d(&["X:", "1", "Y", "-2", "z:3.5f"]).unwrap(),
+            (1.0, -2.0, 3.5)
+        );
+        assert!(INI::parse_coord_2d(&["Y:2", "X:1"]).is_err());
+        assert!(INI::parse_coord_3d(&["X:1", "Y:2", "Y:3", "Z:4"]).is_err());
+        assert!(INI::parse_coord_3d(&["X:1", "Y:2"]).is_err());
     }
 
     #[test]
