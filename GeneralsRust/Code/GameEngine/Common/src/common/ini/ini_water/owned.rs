@@ -77,7 +77,10 @@ impl WaterDefinitions {
             .position(|candidate| candidate.eq_ignore_ascii_case(name))
             .ok_or(WaterError::InvalidTimeOfDay)?;
         // INIWater.cpp updates the existing indexed record, including NONE.
-        self.settings[index].update_from_properties(&properties)
+        let mut updated = self.settings[index].clone();
+        updated.update_from_properties(&properties)?;
+        self.settings[index] = updated;
+        Ok(())
     }
 
     pub(crate) fn apply_transparency(
@@ -86,7 +89,9 @@ impl WaterDefinitions {
         properties: HashMap<String, String>,
     ) -> WaterResult<()> {
         if !self.transparency_defined {
-            apply_transparency_properties(&mut self.transparency, &properties)?;
+            let mut updated = self.transparency.clone();
+            apply_transparency_properties(&mut updated, &properties)?;
+            self.transparency = updated;
             self.transparency_defined = true;
             return Ok(());
         }

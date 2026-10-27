@@ -9,9 +9,7 @@
 //! Desc:   Water settings
 
 use crate::common::ascii_string::AsciiString;
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
 
 #[path = "ini_water/owned.rs"]
 mod owned;
@@ -373,48 +371,6 @@ impl Default for WaterTransparencySetting {
     }
 }
 
-/// Global water settings array (indexed by time of day)
-static WATER_SETTINGS: OnceCell<[Arc<RwLock<WaterSetting>>; 5]> = OnceCell::new();
-static WATER_TRANSPARENCY: OnceCell<Arc<RwLock<WaterTransparencySetting>>> = OnceCell::new();
-
-/// Initialize water settings for all times of day
-pub fn initialize_water_settings() {
-    WATER_SETTINGS.get_or_init(|| {
-        [
-            Arc::new(RwLock::new(WaterSetting::new(TimeOfDay::from_index(0)))),
-            Arc::new(RwLock::new(WaterSetting::new(TimeOfDay::from_index(1)))),
-            Arc::new(RwLock::new(WaterSetting::new(TimeOfDay::from_index(2)))),
-            Arc::new(RwLock::new(WaterSetting::new(TimeOfDay::from_index(3)))),
-            Arc::new(RwLock::new(WaterSetting::new(TimeOfDay::from_index(4)))),
-        ]
-    });
-
-    WATER_TRANSPARENCY.get_or_init(|| Arc::new(RwLock::new(WaterTransparencySetting::new())));
-}
-
-/// Get water setting for a specific time of day
-pub fn get_water_setting(time_of_day: TimeOfDay) -> Option<Arc<RwLock<WaterSetting>>> {
-    let settings = WATER_SETTINGS.get()?;
-    settings.get(time_of_day.as_index()).cloned()
-}
-
-/// Get the water transparency setting
-pub fn get_water_transparency() -> Option<Arc<RwLock<WaterTransparencySetting>>> {
-    WATER_TRANSPARENCY.get().cloned()
-}
-/// Clear any map-generated water transparency overrides.
-///
-/// Matches C++ GameLogic::reset() lines 465-466:
-///   WaterTransparencySetting *wt = TheWaterTransparency.getNonOverloadedPointer();
-///   TheWaterTransparency = wt->deleteOverrides();
-pub fn clear_water_transparency_overrides() {
-    if let Some(transparency) = WATER_TRANSPARENCY.get() {
-        if let Ok(mut guard) = transparency.write() {
-            guard.next_override = None;
-        }
-    }
-}
-
 fn skybox_names(setting: &WaterTransparencySetting) -> [String; 5] {
     [
         setting.skybox_texture_n.to_string(),
@@ -473,34 +429,6 @@ fn apply_transparency_properties(
         }
     }
     Ok(())
-}
-
-/// Live `WaterTransparency` store: first load constructs, CreateOverrides copies the base.
-pub fn apply_parsed_water_transparency(
-    load_type: crate::common::ini::ini::INILoadType,
-    properties: HashMap<String, String>,
-) -> WaterResult<()> {
-    use crate::common::ini::ini::INILoadType;
-    initialize_water_settings();
-    let lock = get_water_transparency().ok_or(WaterError::NotFound)?;
-    let mut transparency = lock.write().expect("WaterTransparency poisoned");
-
-    if load_type == INILoadType::CreateOverrides {
-        let mut override_setting = transparency.clone();
-        override_setting.next_override = None;
-        override_setting.is_override = false;
-        apply_transparency_properties(&mut override_setting, &properties)?;
-        override_setting.mark_as_override();
-        if let Some(next) = transparency.next_override.as_mut() {
-            next.get_final_override_mut()
-                .set_next_override(override_setting);
-        } else {
-            transparency.set_next_override(override_setting);
-        }
-        return Ok(());
-    }
-
-    apply_transparency_properties(&mut transparency, &properties)
 }
 
 /// Parse RGBA color from string (format: R G B A or R,G,B,A)
@@ -651,83 +579,6 @@ pub fn stricmp(a: &str, b: &str) -> i32 {
 pub struct IniWater;
 
 impl IniWater {
-    /// Parse water setting definition - equivalent to INI::parseWaterSettingDefinition
-    pub fn parse_water_setting_definition(name: AsciiString) -> WaterResult<()> {
-        // Validate name
-        if name.is_empty() {
-            return Err(WaterError::InvalidName);
-        }
-
-        // Initialize water settings if needed
-        initialize_water_settings();
-
-        // Find the time of day that matches the name
-        let mut time_of_day_index = TimeOfDay::Invalid;
-        for (index, &time_name) in TIME_OF_DAY_NAMES.iter().enumerate() {
-            if stricmp(time_name, name.as_str()) == 0 {
-                time_of_day_index = TimeOfDay::from_index(index);
-                break;
-            }
-        }
-
-        // Check for no time of day match
-        if time_of_day_index == TimeOfDay::Invalid {
-            return Err(WaterError::InvalidTimeOfDay);
-        }
-
-        // Get the water setting to load based on time of day
-        if let Some(water_setting_lock) = get_water_setting(time_of_day_index) {
-            let _guard = water_setting_lock.write().expect("Water setting poisoned");
-            // In the original C++, this would call:
-            // ini->initFromINI(waterSetting, waterSetting->getFieldParse());
-            println!("Parsing water setting definition for: {}", name.as_str());
-        } else {
-            return Err(WaterError::NotFound);
-        }
-
-        Ok(())
-    }
-
-    /// Parse water transparency definition - equivalent to INI::parseWaterTransparencyDefinition
-    pub fn parse_water_transparency_definition(load_type: IniLoadType) -> WaterResult<()> {
-        initialize_water_settings();
-
-        let transparency_lock = get_water_transparency().ok_or(WaterError::NotFound)?;
-
-        match load_type {
-            IniLoadType::Overwrite => {
-                let _guard = transparency_lock
-                    .write()
-                    .expect("Water transparency poisoned");
-                // Just update the existing setting
-            }
-            IniLoadType::CreateOverrides => {
-                let mut transparency = transparency_lock
-                    .write()
-                    .expect("Water transparency poisoned");
-                // Create override (simplified version)
-                let mut override_setting = WaterTransparencySetting::new();
-                override_setting.mark_as_override();
-
-                // In the real implementation, this would properly handle the override chain
-                println!("Creating water transparency override");
-                transparency.set_next_override(override_setting);
-            }
-            _ => {
-                return Err(WaterError::InvalidData);
-            }
-        }
-
-        // In the original C++, this would call:
-        // ini->initFromINI(waterTrans, TheWaterTransparency->getFieldParse());
-        println!("Parsing water transparency definition");
-
-        // Handle skybox texture replacement logic would go here
-        // This is complex and involves the terrain visual system
-
-        Ok(())
-    }
-
     /// Parse a complete water setting block from INI data
     pub fn parse_water_setting_block(
         name: AsciiString,
@@ -776,14 +627,6 @@ impl IniWater {
     pub fn get_time_of_day_names() -> Vec<&'static str> {
         TIME_OF_DAY_NAMES.to_vec()
     }
-}
-
-/// Load types for INI parsing
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IniLoadType {
-    Overwrite,
-    CreateOverrides,
-    Multifile,
 }
 
 #[cfg(test)]
@@ -1070,32 +913,18 @@ mod tests {
 
     #[test]
     fn create_overrides_copies_base_then_applies_only_present_keys() {
-        initialize_water_settings();
-        clear_water_transparency_overrides();
-        let lock = get_water_transparency().expect("transparency");
-        {
-            let mut base = lock.write().expect("lock");
-            base.next_override = None;
-            base.standing_water_texture = AsciiString::from("TWWater01.tga");
-            base.transparent_water_depth = 3.0;
-            base.standing_water_color = (1.0, 1.0, 1.0);
-            base.skybox_texture_n = AsciiString::from("TSMorningN.tga");
-        }
-
-        let mut properties = HashMap::new();
-        properties.insert(
-            "StandingWaterTexture".to_string(),
-            "MapWater.tga".to_string(),
-        );
-        apply_parsed_water_transparency(
-            crate::common::ini::ini::INILoadType::CreateOverrides,
-            properties,
-        )
-        .expect("override");
-
-        let guard = lock.read().expect("read");
-        assert_eq!(guard.standing_water_texture.as_str(), "TWWater01.tga");
-        let r#override = guard.get_final_override();
+        use crate::common::ini::ini::INILoadType;
+        let base = WaterDefinitions::default()
+            .overlay_ini_text("WaterTransparency\nEnd\n", INILoadType::Overwrite)
+            .unwrap();
+        let owned = base
+            .overlay_ini_text(
+                "WaterTransparency\nStandingWaterTexture = MapWater.tga\nEnd\n",
+                INILoadType::CreateOverrides,
+            )
+            .unwrap();
+        assert_eq!(base.transparency().standing_water_texture.as_str(), "TWWater01.tga");
+        let r#override = owned.transparency();
         assert!(r#override.is_override);
         assert_eq!(r#override.standing_water_texture.as_str(), "MapWater.tga");
         assert_eq!(r#override.transparent_water_depth, 3.0);
@@ -1105,20 +934,13 @@ mod tests {
 
     #[test]
     fn water_transparency_parses_final_end_without_newline() {
-        initialize_water_settings();
-        let lock = get_water_transparency().expect("transparency store");
-        let original = {
-            let mut guard = lock.write().expect("write");
-            std::mem::replace(&mut *guard, WaterTransparencySetting::new())
-        };
         let src = "WaterTransparency\nTransparentWaterDepth = 7.25\nStandingWaterTexture = SyntheticWater.tga\nEnd";
         let mut ini = crate::common::ini::ini::INI::new();
         ini.with_inline_source(src, |ini| ini.parse_current_file())
             .expect("synthetic WaterTransparency block without trailing newline");
-        let mut guard = lock.write().expect("write");
-        assert!((guard.transparent_water_depth - 7.25).abs() < 0.001);
-        assert_eq!(guard.standing_water_texture.as_str(), "SyntheticWater.tga");
-        *guard = original;
+        let water = ini.water_definitions().unwrap().transparency();
+        assert!((water.transparent_water_depth - 7.25).abs() < 0.001);
+        assert_eq!(water.standing_water_texture.as_str(), "SyntheticWater.tga");
     }
 
     #[test]
@@ -1128,13 +950,11 @@ mod tests {
             .join("../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/Water.ini");
         let src = std::fs::read_to_string(&path)
             .unwrap_or_else(|error| panic!("read retail {}: {error}", path.display()));
-        initialize_water_settings();
         let mut ini = crate::common::ini::ini::INI::new();
         ini.with_inline_source(&src, |ini| ini.parse_current_file())
             .expect("retail Water.ini");
-        let lock = get_water_transparency().expect("transparency store");
-        let guard = lock.read().expect("read");
-        assert!((guard.transparent_water_depth - 3.0).abs() < 0.001);
-        assert_eq!(guard.standing_water_texture.as_str(), "TWWater01.tga");
+        let water = ini.water_definitions().unwrap().transparency();
+        assert!((water.transparent_water_depth - 3.0).abs() < 0.001);
+        assert_eq!(water.standing_water_texture.as_str(), "TWWater01.tga");
     }
 }

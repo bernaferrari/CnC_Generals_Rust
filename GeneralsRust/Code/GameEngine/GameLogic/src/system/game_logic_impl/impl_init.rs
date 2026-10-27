@@ -223,9 +223,6 @@ impl GameLogic {
         // C++ line 472: m_rankPointsToAddAtGameStart = 0
         crate::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(0);
 
-        // C++ lines 465-466: clean up water transparency overrides
-        game_engine::common::ini::ini_water::clear_water_transparency_overrides();
-
         // C++ lines 469-470: clean up weather overrides
         game_engine::common::ini::ini_weather::clear_weather_setting_overrides();
     }

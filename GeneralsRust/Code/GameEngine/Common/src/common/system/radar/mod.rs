@@ -944,6 +944,8 @@ pub struct RadarSystem {
 
     /// Average water height
     water_average_z: f32,
+    /// Effective water color supplied to this radar's world.
+    water_radar_color: [f32; 3],
 
     /// Radar objects sorted by priority (regular list)
     object_list: Vec<RadarObject>,
@@ -1054,6 +1056,7 @@ impl RadarSystem {
             y_sample: 0.0,
             terrain_average_z: 0.0,
             water_average_z: 0.0,
+            water_radar_color: [140.0 / 255.0, 140.0 / 255.0, 1.0],
             object_list: Vec::new(),
             local_object_list: Vec::new(),
             events: std::array::from_fn(|_| RadarEvent::default()),

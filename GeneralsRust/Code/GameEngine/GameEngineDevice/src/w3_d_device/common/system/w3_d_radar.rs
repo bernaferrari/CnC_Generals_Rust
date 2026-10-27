@@ -240,6 +240,11 @@ impl W3DRadar {
         self.radar.refresh_terrain();
     }
 
+    /// Supply the water color belonging to the radar's receiving world.
+    pub fn set_water_radar_color(&mut self, color: [f32; 3]) {
+        self.radar.set_water_radar_color(color);
+    }
+
     /// C++ `W3DRadar::buildTerrainTexture`.
     pub fn build_terrain_texture(&mut self) {
         self.radar.build_terrain_texture_cpp();

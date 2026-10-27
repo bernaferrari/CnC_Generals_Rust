@@ -3,7 +3,6 @@
 use super::{
     Coord3D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH, RadarSystem, interpolate_color_for_height,
 };
-use crate::common::ini::ini_water::get_water_transparency;
 use std::sync::{Arc, OnceLock};
 
 /// Intact bridge sampled at a radar cell.
@@ -29,20 +28,6 @@ fn paint_source() -> Option<&'static dyn RadarTerrainPaintSource> {
     PAINT_SOURCE.get().map(|s| s.as_ref())
 }
 
-fn water_radar_color() -> [f32; 3] {
-    get_water_transparency()
-        .and_then(|wt| wt.read().ok().map(|g| g.radar_water_color))
-        .map(|(r, g, b)| {
-            // INI stores 0-255 style floats in this port.
-            if r > 1.0 || g > 1.0 || b > 1.0 {
-                [r / 255.0, g / 255.0, b / 255.0]
-            } else {
-                [r, g, b]
-            }
-        })
-        .unwrap_or([140.0 / 255.0, 140.0 / 255.0, 1.0])
-}
-
 fn sample_world(radar: &RadarSystem, x: i32, y: i32) -> Option<Coord3D> {
     if x < 0 || y < 0 || x >= RADAR_CELL_WIDTH as i32 || y >= RADAR_CELL_HEIGHT as i32 {
         return None;
@@ -65,9 +50,17 @@ fn average_color(samples: &[[f32; 3]]) -> [f32; 3] {
 }
 
 impl RadarSystem {
+    /// Admit the receiving world's normalized water color.
+    pub fn set_water_radar_color(&mut self, color: [f32; 3]) {
+        if self.water_radar_color != color {
+            self.water_radar_color = color;
+            self.terrain_dirty = true;
+        }
+    }
+
     /// C++ `W3DRadar::buildTerrainTexture` software path.
     pub fn build_terrain_texture_cpp(&mut self) {
-        self.build_terrain_texture_with_source(paint_source(), water_radar_color());
+        self.build_terrain_texture_with_source(paint_source(), self.water_radar_color);
     }
 
     /// Paint the supplied owner's frozen tiles/bridges and effective water definition.

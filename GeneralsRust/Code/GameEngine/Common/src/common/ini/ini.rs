@@ -237,6 +237,9 @@ pub struct INI {
     // Explicit engine-owner target for `Upgrade` block parsing.
     upgrade_center_target: Option<Arc<RwLock<crate::common::system::upgrade::UpgradeCenter>>>,
     owned_upgrade_center_target: Option<crate::common::system::upgrade::UpgradeCenter>,
+    // Water blocks parsed by this operation belong to this parser until moved
+    // into the receiving session; no process-wide water registry is selected.
+    water_definitions: Option<super::ini_water::WaterDefinitions>,
     #[cfg(debug_assertions)]
     cur_block_start: String,
 }
@@ -814,22 +817,18 @@ fn parse_video_block(ini: &mut INI) -> INIResult<()> {
 
 fn parse_water_set_block(ini: &mut INI) -> INIResult<()> {
     let (name, properties) = parse_named_property_block(ini)?;
-    let setting = super::ini_water::IniWater::parse_water_setting_block(
-        AsciiString::from(name.as_str()),
-        properties,
-    )
-    .map_err(|_| INIError::InvalidData)?;
-    super::ini_water::initialize_water_settings();
-    let setting_slot =
-        super::ini_water::get_water_setting(setting.time_of_day).ok_or(INIError::InvalidData)?;
-    let mut setting_guard = setting_slot.write().expect("WaterSetting poisoned");
-    *setting_guard = setting;
-    Ok(())
+    ini.water_definitions
+        .get_or_insert_with(Default::default)
+        .apply_setting(&name, properties)
+        .map_err(|_| INIError::InvalidData)
 }
 
 fn parse_water_transparency_block(ini: &mut INI) -> INIResult<()> {
     let properties = parse_unnamed_property_block(ini)?;
-    super::ini_water::apply_parsed_water_transparency(ini.get_load_type(), properties)
+    let load_type = ini.get_load_type();
+    ini.water_definitions
+        .get_or_insert_with(Default::default)
+        .apply_transparency(load_type, properties)
         .map_err(|_| INIError::InvalidData)
 }
 
@@ -1310,6 +1309,7 @@ impl INI {
             ai_data_store_target: None,
             upgrade_center_target: None,
             owned_upgrade_center_target: None,
+            water_definitions: None,
             terrain_types_target: None,
             armor_definitions_target: None,
             challenge_generals_target: None,
@@ -1375,6 +1375,17 @@ impl INI {
         &mut self,
     ) -> Option<crate::common::system::upgrade::UpgradeCenter> {
         self.owned_upgrade_center_target.take()
+    }
+
+    /// Bind or transfer the definitions parsed by this individual INI owner.
+    pub fn set_water_definitions(&mut self, definitions: super::ini_water::WaterDefinitions) {
+        self.water_definitions = Some(definitions);
+    }
+    pub fn water_definitions(&self) -> Option<&super::ini_water::WaterDefinitions> {
+        self.water_definitions.as_ref()
+    }
+    pub fn take_water_definitions(&mut self) -> Option<super::ini_water::WaterDefinitions> {
+        self.water_definitions.take()
     }
 
     /// Bind `Upgrade` block parsing in this INI operation to an explicit

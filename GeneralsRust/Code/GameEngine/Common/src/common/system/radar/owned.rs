@@ -59,7 +59,7 @@ impl RadarSystem {
     /// Repaint already admitted samples without selecting a map provider.
     pub fn refresh_owned_terrain(&mut self) {
         self.queue_terrain_refresh_frame = None;
-        self.build_terrain_texture_with_source(None, [140.0 / 255.0, 140.0 / 255.0, 1.0]);
+        self.build_terrain_texture_with_source(None, self.water_radar_color);
     }
 
     pub fn refresh_owned_terrain_with_source(
@@ -68,6 +68,7 @@ impl RadarSystem {
         water: [f32; 3],
     ) {
         self.queue_terrain_refresh_frame = None;
+        self.water_radar_color = water;
         self.build_terrain_texture_with_source(Some(source), water);
     }
 
