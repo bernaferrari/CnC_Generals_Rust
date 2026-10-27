@@ -1,6 +1,15 @@
 //! Native host `AI_PANIC` waypoint-path state.
 use super::*;
 
+/// Preserve getNextWaypoint's GameLogicRandomValue call even for zero links,
+/// using the receiving simulation's random stream explicitly.
+fn panic_waypoint_link_index(
+    random: &game_engine::common::random_value::SessionRandom,
+    link_count: usize,
+) -> i32 {
+    random.next_int(0, link_count as i32 - 1)
+}
+
 fn panic_waypoint_extra_distance(terrain: &gamelogic::terrain::TerrainLogic, start_id: u32) -> f32 {
     let mut extra = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL / 10.0;
     let mut current_id = start_id;
@@ -372,10 +381,7 @@ impl GameLogic {
                 // C++ getNextWaypoint calls RandomValue(0, linkCount - 1)
                 // even for zero links. The unsigned range wraps to zero and
                 // returns -1 without consuming the stream.
-                let index = game_engine::common::random_value::get_game_logic_random_value(
-                    0,
-                    count as i32 - 1,
-                ) as usize;
+                let index = panic_waypoint_link_index(&self.logic_random, count) as usize;
                 if count == 0 {
                     Some(None)
                 } else {
@@ -460,5 +466,42 @@ impl GameLogic {
             }
         }
         Ok(())
+    }
+}
+
+
+#[cfg(test)]
+mod panic_waypoint_random_owner_tests {
+    use super::*;
+    use game_engine::common::random_value::SessionRandom;
+
+    #[test]
+    fn zero_link_selection_returns_minus_one_without_advancing_owner() {
+        let random = SessionRandom::default();
+        random.seed_random(71);
+        let before = random.seed_words();
+        assert_eq!(panic_waypoint_link_index(&random, 0), -1);
+        assert_eq!(random.seed_words(), before);
+    }
+
+    #[test]
+    fn panic_waypoint_draws_interleave_only_on_their_own_sessions() {
+        let first = SessionRandom::default();
+        let peer = SessionRandom::default();
+        let first_reference = SessionRandom::default();
+        let peer_reference = SessionRandom::default();
+        first.seed_random(71);
+        first_reference.seed_random(71);
+        peer.seed_random(908);
+        peer_reference.seed_random(908);
+
+        let expected_first = panic_waypoint_link_index(&first_reference, 7);
+        let expected_peer = panic_waypoint_link_index(&peer_reference, 5);
+        let expected_first_again = panic_waypoint_link_index(&first_reference, 9);
+        assert_eq!(panic_waypoint_link_index(&first, 7), expected_first);
+        assert_eq!(panic_waypoint_link_index(&peer, 5), expected_peer);
+        assert_eq!(panic_waypoint_link_index(&first, 9), expected_first_again);
+        assert_eq!(first.seed_words(), first_reference.seed_words());
+        assert_eq!(peer.seed_words(), peer_reference.seed_words());
     }
 }
