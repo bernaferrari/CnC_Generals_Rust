@@ -44,10 +44,11 @@ impl GameLogic {
             self.objects
                 .get(&attacker_id)
                 .map_or(self.frame, |attacker| {
-                    attacker.possible_next_shot_frame_for_slot(
+                    attacker.possible_next_shot_frame_for_slot_with_solo_set(
                         slot,
                         self.frame,
                         target_has_faerie_fire,
+                        &self.solo_weapon_bonus_set,
                     )
                 });
         // Pathfinder residual sniper honesty (any successful fire from residual).
@@ -305,9 +306,16 @@ impl GameLogic {
                     &attacker.template_name,
                 );
             if specialized_lane {
-                attacker.finish_shot_after_specialized_tracker();
+                attacker.finish_shot_after_specialized_tracker_with_solo_set(
+                    &self.solo_weapon_bonus_set,
+                );
             } else {
-                attacker.record_shot_at_target(target_id, fire_frame, possible_next_shot_frame);
+                attacker.record_shot_at_target_with_solo_set(
+                    target_id,
+                    fire_frame,
+                    possible_next_shot_frame,
+                    &self.solo_weapon_bonus_set,
+                );
             }
             attacker.stamp_auto_reload_when_idle_from_slot(slot, fire_frame);
             // C++ STEALTH_NOT_WHILE_ATTACKING residual: combat fire breaks stealth.

@@ -539,6 +539,18 @@ impl Object {
         base_damage * self.weapon_bonus_fields().0
     }
 
+    pub(crate) fn effective_weapon_damage_for_slot_with_solo_set(
+        &self,
+        slot: u8,
+        base_damage: f32,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> f32 {
+        base_damage
+            * self
+                .weapon_bonus_fields_for_slot_with_solo_set(slot, solo_set)
+                .0
+    }
+
     pub(crate) fn effective_weapon_damage_with_solo_set(
         &self,
         base_damage: f32,
@@ -654,6 +666,26 @@ impl Object {
             current_time,
             target_has_faerie_fire,
         )
+    }
+
+    /// Ready check with this slot's admitted SOLO set and target FAERIE_FIRE ROF.
+    pub(crate) fn weapon_ready_vs_target_bonused_for_slot_with_solo_set(
+        &self,
+        slot: u8,
+        weapon: &Weapon,
+        current_time: f32,
+        target_has_faerie_fire: bool,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> bool {
+        let rof = self
+            .weapon_bonus_fields_for_slot_with_solo_set(slot, solo_set)
+            .2;
+        let base = (weapon.reload_time / rof).max(0.0);
+        let effective = crate::game_logic::host_avenger::effective_reload_vs_target(
+            base,
+            target_has_faerie_fire,
+        );
+        current_time - weapon.last_fire_time >= effective
     }
 
     /// Ready check with attacker WeaponBonus RATE_OF_FIRE + target FAERIE_FIRE ROF.

@@ -73,7 +73,11 @@ impl GameLogic {
                 let invuln_hidden = target.is_eject_invulnerable() && is_enemy;
                 let enemy_or_forced = attacker.force_attack || is_enemy;
                 let slot = if enemy_or_forced && !stealthed_hidden && !invuln_hidden {
-                    attacker.select_combat_weapon_slot(target, current_time)
+                    attacker.select_combat_weapon_slot_with_solo_set(
+                        target,
+                        current_time,
+                        &self.solo_weapon_bonus_set,
+                    )
                 } else {
                     None
                 };
@@ -117,7 +121,13 @@ impl GameLogic {
             {
                 let faerie = target.is_faerie_fire();
                 let ready = attacker.weapon_slot(slot).is_some_and(|w| {
-                    attacker.weapon_ready_vs_target_bonused(w, current_time, faerie)
+                    attacker.weapon_ready_vs_target_bonused_for_slot_with_solo_set(
+                        slot,
+                        w,
+                        current_time,
+                        faerie,
+                        &self.solo_weapon_bonus_set,
+                    )
                 });
                 let in_range = attacker
                     .weapon_slot(slot)
@@ -169,7 +179,11 @@ impl GameLogic {
 
             // Same predicate AIAttackState uses. In-range was already
             // required to reach here, so a true result is the obstacle check.
-            if self.out_of_weapon_range_object(attacker_id, target_id) {
+            if self.out_of_weapon_range_object_with_solo_set(
+                attacker_id,
+                target_id,
+                &self.solo_weapon_bonus_set,
+            ) {
                 // Ready but LOS blocked → findAttackPath residual (firing cell).
                 let combat_chase_ok = self
                     .objects
@@ -207,8 +221,14 @@ impl GameLogic {
                             let under =
                                 crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
                             a.selected_weapon_slot().and_then(|slot| {
-                                a.weapon_slot(slot)
-                                    .map(|w| (a.effective_weapon_range(w.range) - under).max(0.0))
+                                a.weapon_slot(slot).map(|w| {
+                                    (a.effective_weapon_range_for_slot_with_solo_set(
+                                        slot,
+                                        w.range,
+                                        &self.solo_weapon_bonus_set,
+                                    ) - under)
+                                        .max(0.0)
+                                })
                             })
                         })
                         .unwrap_or(50.0);
@@ -239,8 +259,14 @@ impl GameLogic {
                             let under =
                                 crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
                             a.selected_weapon_slot().and_then(|slot| {
-                                a.weapon_slot(slot)
-                                    .map(|w| (a.effective_weapon_range(w.range) - under).max(0.0))
+                                a.weapon_slot(slot).map(|w| {
+                                    (a.effective_weapon_range_for_slot_with_solo_set(
+                                        slot,
+                                        w.range,
+                                        &self.solo_weapon_bonus_set,
+                                    ) - under)
+                                        .max(0.0)
+                                })
                             })
                         })
                         .unwrap_or(50.0);
@@ -474,7 +500,7 @@ impl GameLogic {
                         .or_else(|| name.and_then(crate::game_logic::weapon_bootstrap::host_primary_damage_for_weapon_name))
                         .or_else(|| attacker.weapon_slot(slot).map(|w| w.damage))
                         .unwrap_or(0.0);
-                    attacker.effective_weapon_damage(base)
+                    attacker.effective_weapon_damage_for_slot_with_solo_set(slot, base, &self.solo_weapon_bonus_set)
                 })
                 .unwrap_or(0.0);
             if overcharge {
@@ -515,12 +541,22 @@ impl GameLogic {
                 .get(&attacker_id)
                 .map(|attacker| {
                     let slot = attacker.selected_weapon_slot();
-                    let w = slot.and_then(|s| attacker.weapon_slot(s));
                     let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
-                    let min_r = w.map(|w| (w.min_range - under).max(0.0)).unwrap_or(0.0);
-                    let max_r = w
-                        .map(|w| (attacker.effective_weapon_range(w.range) - under).max(0.0))
-                        .unwrap_or(0.0);
+                    let (min_r, max_r) = slot
+                        .and_then(|s| {
+                            attacker.weapon_slot(s).map(|w| {
+                                (
+                                    (w.min_range - under).max(0.0),
+                                    (attacker.effective_weapon_range_for_slot_with_solo_set(
+                                        s,
+                                        w.range,
+                                        &self.solo_weapon_bonus_set,
+                                    ) - under)
+                                        .max(0.0),
+                                )
+                            })
+                        })
+                        .unwrap_or((0.0, 0.0));
                     let can = attacker.can_move()
                         && !(attacker.is_above_terrain()
                             && (attacker.locomotor_surfaces
@@ -682,8 +718,16 @@ impl GameLogic {
                             let under =
                                 crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
                             let r = slot
-                                .and_then(|s| a.weapon_slot(s))
-                                .map(|w| (a.effective_weapon_range(w.range) - under).max(0.0))
+                                .and_then(|s| {
+                                    a.weapon_slot(s).map(|w| {
+                                        (a.effective_weapon_range_for_slot_with_solo_set(
+                                            s,
+                                            w.range,
+                                            &self.solo_weapon_bonus_set,
+                                        ) - under)
+                                            .max(0.0)
+                                    })
+                                })
                                 .unwrap_or(50.0);
                             let n = slot.and_then(|s| a.weapon_name_for_slot(s).map(str::to_owned));
                             (r, n)

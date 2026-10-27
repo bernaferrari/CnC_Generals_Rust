@@ -607,6 +607,24 @@ impl Object {
     /// Ground attack fires one slot. Another slot being ready must not
     /// discharge this one while it is still reloading.
     pub fn can_fire_slot(&self, slot: u8, current_time: f32) -> bool {
+        self.can_fire_slot_with_optional_solo_set(slot, current_time, None)
+    }
+
+    pub(crate) fn can_fire_slot_with_solo_set(
+        &self,
+        slot: u8,
+        current_time: f32,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> bool {
+        self.can_fire_slot_with_optional_solo_set(slot, current_time, Some(solo_set))
+    }
+
+    fn can_fire_slot_with_optional_solo_set(
+        &self,
+        slot: u8,
+        current_time: f32,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) -> bool {
         if self.status.weapons_jammed
             || self.is_disabled()
             || self.is_shock_stunned()
@@ -619,7 +637,10 @@ impl Object {
             return false;
         };
         let name = self.weapon_name_for_slot(slot).map(str::to_owned);
-        let rof = self.weapon_bonus_fields().2;
+        let rof = solo_set.map_or_else(
+            || self.weapon_bonus_fields().2,
+            |set| self.weapon_bonus_fields_for_slot_with_solo_set(slot, set).2,
+        );
         let reload = self.live_reload_interval(weapon, name.as_deref(), rof);
         Self::weapon_ready_named(weapon, current_time, name.as_deref(), reload)
     }
@@ -656,6 +677,24 @@ impl Object {
     /// ready suppression, zero-damage (DAMAGE_UNRESISTABLE exception),
     /// and unready-but-valid backup.
     pub fn select_combat_weapon_slot(&self, target: &Object, current_time: f32) -> Option<u8> {
+        self.select_combat_weapon_slot_with_optional_solo_set(target, current_time, None)
+    }
+
+    pub(crate) fn select_combat_weapon_slot_with_solo_set(
+        &self,
+        target: &Object,
+        current_time: f32,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> Option<u8> {
+        self.select_combat_weapon_slot_with_optional_solo_set(target, current_time, Some(solo_set))
+    }
+
+    fn select_combat_weapon_slot_with_optional_solo_set(
+        &self,
+        target: &Object,
+        current_time: f32,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) -> Option<u8> {
         // C++ WeaponSet.cpp:782-783 / leftover weapon_set.rs:683-685 —
         // locked current slot stays until someone unlocks. A reloading
         // FireWeapon/flashbang/snipe waits; it does not auto-choose PRIMARY.
@@ -668,18 +707,38 @@ impl Object {
         let target_faerie = target.is_faerie_fire();
         let primary_valid = self.leftover_choose_best_slot_valid(0, target);
         let secondary_valid = self.leftover_choose_best_slot_valid(1, target);
-        let primary_ok =
-            self.leftover_choose_best_slot_ready(0, target, current_time, target_faerie);
-        let secondary_ok =
-            self.leftover_choose_best_slot_ready(1, target, current_time, target_faerie);
+        let primary_ok = self.leftover_choose_best_slot_ready_with_optional_solo_set(
+            0,
+            target,
+            current_time,
+            target_faerie,
+            solo_set,
+        );
+        let secondary_ok = self.leftover_choose_best_slot_ready_with_optional_solo_set(
+            1,
+            target,
+            current_time,
+            target_faerie,
+            solo_set,
+        );
 
         // Manual weapon-slot toggle (command residual).
         if self.active_weapon_slot == 2 {
             // TERTIARY is intentionally not an auto-choice candidate.  This
             // handles an explicit selected/locked manual weapon only.
             let tertiary_ok = self.tertiary_weapon.as_ref().is_some_and(|w| {
-                self.weapon_ready_vs_target_bonused(w, current_time, target_faerie)
-                    && self.can_target_with_slot(target, w, Some(2))
+                solo_set.map_or_else(
+                    || self.weapon_ready_vs_target_bonused(w, current_time, target_faerie),
+                    |set| {
+                        self.weapon_ready_vs_target_bonused_for_slot_with_solo_set(
+                            2,
+                            w,
+                            current_time,
+                            target_faerie,
+                            set,
+                        )
+                    },
+                ) && self.can_target_with_slot(target, w, Some(2))
                     && self.is_slot_within_target_pitch(2, target)
                     && !self.leftover_choose_best_eliminates_zero_damage(2, target)
             });
@@ -703,8 +762,18 @@ impl Object {
         if self.active_weapon_slot == 1 {
             // Explicit secondary (flashbang / TOW) even if AutoChoose is NONE.
             let secondary_explicit = self.secondary_weapon.as_ref().is_some_and(|w| {
-                self.weapon_ready_vs_target_bonused(w, current_time, target_faerie)
-                    && self.can_target_with_slot(target, w, Some(1))
+                solo_set.map_or_else(
+                    || self.weapon_ready_vs_target_bonused(w, current_time, target_faerie),
+                    |set| {
+                        self.weapon_ready_vs_target_bonused_for_slot_with_solo_set(
+                            1,
+                            w,
+                            current_time,
+                            target_faerie,
+                            set,
+                        )
+                    },
+                ) && self.can_target_with_slot(target, w, Some(1))
                     && self.is_slot_within_target_pitch(1, target)
                     && !self.leftover_choose_best_eliminates_zero_damage(1, target)
             });
@@ -839,13 +908,41 @@ impl Object {
         current_time: f32,
         target_faerie: bool,
     ) -> bool {
+        self.leftover_choose_best_slot_ready_with_optional_solo_set(
+            slot,
+            target,
+            current_time,
+            target_faerie,
+            None,
+        )
+    }
+
+    fn leftover_choose_best_slot_ready_with_optional_solo_set(
+        &self,
+        slot: u8,
+        target: &Object,
+        current_time: f32,
+        target_faerie: bool,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) -> bool {
         if !self.leftover_choose_best_slot_valid(slot, target) {
             return false;
         }
         let Some(weapon) = self.weapon_slot(slot) else {
             return false;
         };
-        let status_ready = self.weapon_ready_vs_target_bonused(weapon, current_time, target_faerie);
+        let status_ready = solo_set.map_or_else(
+            || self.weapon_ready_vs_target_bonused(weapon, current_time, target_faerie),
+            |set| {
+                self.weapon_ready_vs_target_bonused_for_slot_with_solo_set(
+                    slot,
+                    weapon,
+                    current_time,
+                    target_faerie,
+                    set,
+                )
+            },
+        );
         gamelogic::weapon::choose_best_ready_after_turret_aim(
             status_ready,
             self.is_weapon_slot_on_turret_and_aiming_at_target(slot, target),
@@ -1580,6 +1677,13 @@ impl Object {
     /// Apply only PER_SHOT re-arm and shared reload synchronization.
     pub(crate) fn finish_shot_after_specialized_tracker(&mut self) {
         self.finish_shot_engagement();
+    }
+
+    pub(crate) fn finish_shot_after_specialized_tracker_with_solo_set(
+        &mut self,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) {
+        self.finish_shot_engagement_with_optional_solo_set(Some(solo_set));
     }
 
     fn finish_shot_engagement(&mut self) {

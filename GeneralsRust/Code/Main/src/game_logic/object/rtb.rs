@@ -525,6 +525,19 @@ impl Object {
         self.is_within_attack_range_at_distance(slot, self.distance_to_pos(pos))
     }
 
+    pub(crate) fn is_within_attack_range_pos_for_slot_with_solo_set(
+        &self,
+        slot: u8,
+        pos: glam::Vec3,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> bool {
+        self.is_within_attack_range_at_distance_with_solo_set(
+            slot,
+            self.distance_to_pos(pos),
+            solo_set,
+        )
+    }
+
     /// C++ Weapon::isWithinAttackRange residual for one concrete WeaponSet slot.
     ///
     /// Unknown or unbound slots fail closed.  Tertiary deliberately has no

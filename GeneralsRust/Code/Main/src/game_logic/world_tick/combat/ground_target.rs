@@ -75,14 +75,21 @@ impl GameLogic {
             .and_then(|slot| {
                 self.objects.get(&attacker_id).and_then(|attacker| {
                     attacker.weapon_slot(slot).map(|weapon| {
-                        attacker.can_fire_slot(slot, current_time)
-                            && attacker.has_max_shots_remaining()
+                        attacker.can_fire_slot_with_solo_set(
+                            slot,
+                            current_time,
+                            &self.solo_weapon_bonus_set,
+                        ) && attacker.has_max_shots_remaining()
                             && attacker.weapon_allows_target_anti_mask(
                                 weapon,
                                 Some(slot),
                                 gamelogic::weapon::WeaponAntiMask::GROUND,
                             )
-                            && attacker.is_within_attack_range_pos_for_slot(slot, target_location)
+                            && attacker.is_within_attack_range_pos_for_slot_with_solo_set(
+                                slot,
+                                target_location,
+                                &self.solo_weapon_bonus_set,
+                            )
                     })
                 })
             })
@@ -203,7 +210,7 @@ impl GameLogic {
                             attacker.weapon_slot(ground_slot).map(|weapon| weapon.damage)
                         })
                         .unwrap_or(0.0);
-                    attacker.effective_weapon_damage(base)
+                    attacker.effective_weapon_damage_for_slot_with_solo_set(ground_slot, base, &self.solo_weapon_bonus_set)
                 })
                 .unwrap_or(0.0);
             if overcharge {
@@ -520,7 +527,12 @@ impl GameLogic {
                     .map(|w| {
                         (
                             (w.min_range - under).max(0.0),
-                            (attacker.effective_weapon_range(w.range) - under).max(0.0),
+                            (attacker.effective_weapon_range_for_slot_with_solo_set(
+                                slot,
+                                w.range,
+                                &self.solo_weapon_bonus_set,
+                            ) - under)
+                                .max(0.0),
                         )
                     })
                     .unwrap_or((0.0, 0.0));
@@ -579,7 +591,12 @@ impl GameLogic {
                     .map(|w| {
                         (
                             (w.min_range - under).max(0.0),
-                            (attacker.effective_weapon_range(w.range) - under).max(0.0),
+                            (attacker.effective_weapon_range_for_slot_with_solo_set(
+                                slot,
+                                w.range,
+                                &self.solo_weapon_bonus_set,
+                            ) - under)
+                                .max(0.0),
                         )
                     })
                     .unwrap_or((0.0, 0.0));

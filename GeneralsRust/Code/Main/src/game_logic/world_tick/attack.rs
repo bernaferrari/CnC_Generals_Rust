@@ -311,6 +311,24 @@ impl GameLogic {
     /// True when view is LOS-blocked or target is outside attack range
     /// (unless leech-range is active).
     pub fn out_of_weapon_range_object(&self, unit_id: ObjectId, victim_id: ObjectId) -> bool {
+        self.out_of_weapon_range_object_with_optional_solo_set(unit_id, victim_id, None)
+    }
+
+    pub(crate) fn out_of_weapon_range_object_with_solo_set(
+        &self,
+        unit_id: ObjectId,
+        victim_id: ObjectId,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> bool {
+        self.out_of_weapon_range_object_with_optional_solo_set(unit_id, victim_id, Some(solo_set))
+    }
+
+    fn out_of_weapon_range_object_with_optional_solo_set(
+        &self,
+        unit_id: ObjectId,
+        victim_id: ObjectId,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) -> bool {
         let contained = self.objects.get(&unit_id).and_then(|obj| obj.contained_by);
         let container_ground = contained.is_some_and(|id| {
             self.objects.get(&id).is_some_and(|container| {
@@ -368,7 +386,10 @@ impl GameLogic {
                 return true;
             }
         }
-        !obj.is_within_attack_range_for_slot(slot, victim)
+        !solo_set.map_or_else(
+            || obj.is_within_attack_range_for_slot(slot, victim),
+            |set| obj.is_within_attack_range_for_slot_with_solo_set(slot, victim, set),
+        )
     }
 
     /// C++ wantToSquishTarget state condition (AIStates.cpp:1140-1166).
