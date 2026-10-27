@@ -34,7 +34,7 @@ use crate::video_stream::VideoStreamInterface;
 #[cfg(feature = "w3d_support")]
 use crate::w3d::W3DParticleSystemBridge;
 use game_engine::common::ini::ini_game_data::{
-    GlobalData, MAX_GLOBAL_LIGHTS, TIME_OF_DAY_COUNT, TimeOfDay, get_global_data,
+    LightingContentRules, MAX_GLOBAL_LIGHTS, TIME_OF_DAY_COUNT, TimeOfDay,
 };
 use log::{error, warn};
 use std::any::Any;
@@ -87,31 +87,22 @@ impl Default for DisplayLightingState {
 }
 
 impl DisplayLightingState {
-    pub fn from_current_global_data() -> Self {
-        let Some(global_data) = get_global_data() else {
-            return Self::default();
-        };
-        let global_data = global_data.read();
-        Self::from_global_data(&global_data, global_data.time_of_day, false)
-    }
-
-    pub fn from_global_data(
-        global_data: &GlobalData,
+    pub fn from_lighting_rules(
+        rules: &LightingContentRules,
         time_of_day: TimeOfDay,
         tactical_view_redraw_forced: bool,
     ) -> Self {
         let time_of_day = match time_of_day {
-            TimeOfDay::Invalid => global_data.time_of_day,
+            TimeOfDay::Invalid => rules.time_of_day,
             other => other,
         };
         let time_index = time_of_day_index(time_of_day);
         let mut lights = [DisplayDirectionalLightState::default(); MAX_GLOBAL_LIGHTS];
-        let active_light_count = global_data
-            .num_global_lights
-            .clamp(0, MAX_GLOBAL_LIGHTS as i32) as usize;
+        let active_light_count =
+            rules.num_global_lights.clamp(0, MAX_GLOBAL_LIGHTS as i32) as usize;
 
         for (index, light) in lights.iter_mut().enumerate().take(active_light_count) {
-            let source = &global_data.terrain_objects_lighting[time_index][index];
+            let source = &rules.objects[time_index][index];
             *light = DisplayDirectionalLightState {
                 ambient: [0.0, 0.0, 0.0],
                 diffuse: [source.diffuse.r, source.diffuse.g, source.diffuse.b],
@@ -120,7 +111,7 @@ impl DisplayLightingState {
             };
         }
 
-        let scene_source = &global_data.terrain_objects_lighting[time_index][0];
+        let scene_source = &rules.objects[time_index][0];
         Self {
             time_of_day,
             scene_ambient: [
@@ -232,7 +223,11 @@ impl Display {
             debug_display_user_data: None,
             border_shroud_level: 0,
             letterbox_fade_level: 0.0,
-            lighting_state: DisplayLightingState::from_current_global_data(),
+            lighting_state: DisplayLightingState::from_lighting_rules(
+                &LightingContentRules::default(),
+                TimeOfDay::Invalid,
+                false,
+            ),
         }
     }
 
@@ -240,13 +235,13 @@ impl Display {
         &self.lighting_state
     }
 
-    pub fn set_time_of_day(&mut self, time_of_day: TimeOfDay) -> bool {
-        let Some(global_data) = get_global_data() else {
-            return false;
-        };
-        let global_data = global_data.read();
+    pub fn set_time_of_day(
+        &mut self,
+        time_of_day: TimeOfDay,
+        rules: &LightingContentRules,
+    ) -> bool {
         let effective_time_of_day = match time_of_day {
-            TimeOfDay::Invalid => global_data.time_of_day,
+            TimeOfDay::Invalid => rules.time_of_day,
             other => other,
         };
         if matches!(effective_time_of_day, TimeOfDay::Invalid) {
@@ -254,33 +249,7 @@ impl Display {
         }
 
         self.lighting_state =
-            DisplayLightingState::from_global_data(&global_data, effective_time_of_day, true);
-        let time_index = time_of_day_index(effective_time_of_day);
-        let terrain_lighting = &global_data.terrain_lighting[time_index][0];
-        if let Ok(mut terrain_guard) = THE_TERRAIN_VISUAL.lock() {
-            if let Some(terrain) = terrain_guard.as_mut() {
-                terrain.set_lighting(
-                    Some([
-                        terrain_lighting.light_pos.x,
-                        terrain_lighting.light_pos.y,
-                        terrain_lighting.light_pos.z,
-                    ]),
-                    Some([
-                        terrain_lighting.diffuse.r,
-                        terrain_lighting.diffuse.g,
-                        terrain_lighting.diffuse.b,
-                    ]),
-                    Some([
-                        terrain_lighting.ambient.r,
-                        terrain_lighting.ambient.g,
-                        terrain_lighting.ambient.b,
-                    ]),
-                    None,
-                    None,
-                );
-            }
-        }
-        with_tactical_view(|view| view.force_redraw());
+            DisplayLightingState::from_lighting_rules(rules, effective_time_of_day, true);
         true
     }
 
@@ -867,13 +836,6 @@ impl Display {
 
 impl SubsystemInterface for Display {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(global_data) = get_global_data() {
-            let (time_of_day, gamma) = {
-                let gd = global_data.read();
-                (gd.time_of_day, gd.display_gamma)
-            };
-            self.set_time_of_day(time_of_day);
-        }
         Ok(())
     }
 
@@ -1306,7 +1268,7 @@ impl DisplayInterface for Display {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_engine::common::ini::ini_game_data::{Coord3D, RGBColor};
+    use game_engine::common::ini::ini_game_data::{Coord3D, GlobalData, RGBColor};
 
     #[test]
     fn display_lighting_uses_object_lighting_for_scene_and_w3d_lights() {
@@ -1323,7 +1285,11 @@ mod tests {
         global_data.terrain_objects_lighting[index][1].diffuse = RGBColor::new(0.11, 0.12, 0.13);
         global_data.terrain_objects_lighting[index][1].light_pos = Coord3D::new(4.0, 5.0, 6.0);
 
-        let state = DisplayLightingState::from_global_data(&global_data, tod, true);
+        let state = DisplayLightingState::from_lighting_rules(
+            &LightingContentRules::from_global_data(&global_data),
+            tod,
+            true,
+        );
 
         assert_eq!(state.time_of_day, TimeOfDay::Night);
         assert_eq!(state.scene_ambient, [0.1, 0.2, 0.3]);
@@ -1348,7 +1314,11 @@ mod tests {
         let index = time_of_day_index(TimeOfDay::Evening);
         global_data.terrain_objects_lighting[index][0].ambient = RGBColor::new(0.2, 0.3, 0.4);
 
-        let state = DisplayLightingState::from_global_data(&global_data, TimeOfDay::Invalid, false);
+        let state = DisplayLightingState::from_lighting_rules(
+            &LightingContentRules::from_global_data(&global_data),
+            TimeOfDay::Invalid,
+            false,
+        );
 
         assert_eq!(state.time_of_day, TimeOfDay::Evening);
         assert_eq!(state.scene_ambient, [0.2, 0.3, 0.4]);
@@ -1377,28 +1347,18 @@ impl Display {
     pub fn reset_receiving(
         &mut self,
         fx: &mut display_fx::DisplayFxState,
+        lighting: &LightingContentRules,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.letterbox_fade_level = 0.0;
         fx.set_letterbox_enabled(false);
         fx.letterbox_fade_start_time = None;
         self.stop_movie(fx);
         self.reset_views();
-        // C++ W3DDisplay::reset (W3DDisplay.cpp:841-842) clears
-        // TheWritableGlobalData->m_drawSkyBox so skybox state never leaks
-        // across maps. Both Rust stores move together (see
-        // script_set_skybox_enabled).
-        game_engine::common::global_data::write().draw_sky_box = false;
-        if let Some(global_data) = get_global_data() {
-            global_data.write().draw_sky_box = 0.0;
-        }
         #[cfg(feature = "w3d_support")]
         {
             self.particle_bridge = Mutex::new(W3DParticleSystemBridge::new());
         }
-        if let Some(global_data) = get_global_data() {
-            let time_of_day = global_data.read().time_of_day;
-            self.set_time_of_day(time_of_day);
-        }
+        self.set_time_of_day(lighting.time_of_day, lighting);
         Ok(())
     }
 }

@@ -460,16 +460,17 @@ impl GameClient {
 
     /// Sets time of day for all drawables
     pub fn set_time_of_day(&mut self, tod: TimeOfDay) -> GameClientResult<()> {
+        self.iterate_drawables_in_region(None, |drawable| {
+            let _ = drawable.set_time_of_day(tod);
+        })?;
+
         if let Some(display) = self.subsystem_manager.display.as_ref().map(Arc::clone) {
             let mut display = display.lock().map_err(|_| {
                 GameClientError::SubsystemError("Display lock poisoned".to_string())
             })?;
-            display.set_time_of_day(map_client_time_of_day_to_ini(tod));
+            display.set_time_of_day(map_client_time_of_day_to_ini(tod), &self.session_lighting);
         }
-
-        self.iterate_drawables_in_region(None, |drawable| {
-            let _ = drawable.set_time_of_day(tod);
-        })
+        Ok(())
     }
 
     /// Loads a map

@@ -37,6 +37,9 @@ pub struct TerrainVisualImpl {
     /// Terrain enabled/disabled
     enabled: bool,
 
+    /// Sky visibility belongs to this receiving terrain presentation.
+    skybox_enabled: bool,
+
     /// Current LOD setting
     lod_setting: TerrainVisualLOD,
 

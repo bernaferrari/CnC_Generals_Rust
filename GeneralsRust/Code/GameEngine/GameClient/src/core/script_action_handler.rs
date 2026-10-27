@@ -7,7 +7,6 @@ use crate::game_text::GameText;
 use crate::gui::callbacks::control_bar_callbacks::{hide_control_bar, show_control_bar};
 use crate::terrain::TerrainVisual;
 use crate::terrain::terrain_visual::get_terrain_visual;
-use game_engine::common::ini::get_global_data;
 use game_engine::common::system::radar::get_radar_system;
 use gamelogic::GameLogicResult;
 use gamelogic::commands::get_selection_manager;
@@ -204,16 +203,6 @@ pub fn script_popup_message_with_host_generation(
 
 pub fn script_resize_view_guardband(gbx: f32, gby: f32) {
     with_tactical_view(|view| view.set_guard_band_bias(Vector2::new(gbx, gby)));
-}
-
-pub fn script_set_skybox_enabled(enabled: bool) {
-    // C++ doSkyBoxSet (W3DWater.cpp:150-154) writes the single
-    // TheWritableGlobalData; both Rust stores must move together or the
-    // terrain skybox gate (common::global_data draw_sky_box) never sees it.
-    game_engine::common::global_data::write().draw_sky_box = enabled;
-    if let Some(global) = get_global_data() {
-        global.write().draw_sky_box = if enabled { 1.0 } else { 0.0 };
-    }
 }
 
 pub fn script_set_3d_wireframe_mode(enabled: bool) {
@@ -1352,15 +1341,10 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
         Ok(())
     }
 
-    fn set_skybox_enabled(&self, enabled: bool) -> GameLogicResult<()> {
-        // C++ DRAW_SKYBOX_BEGIN/END -> ScriptActions::doSkyBox -> doSkyBoxSet
-        // writes the single TheWritableGlobalData->m_drawSkyBox; keep both
-        // Rust stores in sync (render gate reads common::global_data).
-        game_engine::common::global_data::write().draw_sky_box = enabled;
-        if let Some(global) = get_global_data() {
-            global.write().draw_sky_box = if enabled { 1.0 } else { 0.0 };
-        }
-        Ok(())
+    fn set_skybox_enabled(&self, _enabled: bool) -> GameLogicResult<()> {
+        Err(gamelogic::GameLogicError::Configuration(
+            "skybox update requires its receiving world".into(),
+        ))
     }
     fn set_weather_visible(&self, visible: bool) -> GameLogicResult<()> {
         // C++ ScriptActions.cpp: TheSnowManager->setVisible(showWeather)

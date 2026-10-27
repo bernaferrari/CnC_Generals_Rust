@@ -38,6 +38,7 @@ impl TerrainVisualImpl {
             config: TerrainConfig::default(),
             stats: TerrainStats::default(),
             enabled: true,
+            skybox_enabled: false,
             lod_setting: TerrainVisualLOD::default(),
             filename: String::new(),
             loaded_terrain_sources: Vec::new(),
@@ -237,6 +238,14 @@ impl TerrainVisualImpl {
     /// Expose chunk manager for renderer passes.
     pub fn chunk_manager(&self) -> &ChunkManager {
         &self.chunk_manager
+    }
+
+    pub fn set_skybox_enabled(&mut self, enabled: bool) {
+        self.skybox_enabled = enabled;
+    }
+
+    pub fn skybox_enabled(&self) -> bool {
+        self.skybox_enabled
     }
 
     /// Number of visible chunks; used to accumulate draw-call stats.

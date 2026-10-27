@@ -157,6 +157,10 @@ impl RenderPipeline {
         let delta_time = time - self.last_frame_time;
         self.last_frame_time = time;
 
+        // The frozen session is the source of both scene and terrain light.
+        // A changed time of day must replace the previous frame's values.
+        self.sync_receiving_primary_lighting(graphics_system);
+
         // Update global uniforms
         graphics_system.update_global_uniforms(
             view_matrix,
@@ -619,6 +623,50 @@ impl RenderPipeline {
             );
         }
         Ok(())
+    }
+
+    fn sync_receiving_primary_lighting(&mut self, graphics_system: &mut GraphicsSystem) {
+        let Some(frame) = self.presentation_frame.as_ref() else {
+            return;
+        };
+        let object = frame.world_env.primary_object_lighting;
+        let terrain = frame.world_env.primary_terrain_lighting;
+        if let Some(light) = object {
+            let state = self
+                .cached_lighting
+                .get_or_insert_with(CachedLighting::default);
+            let direction = light.object_light_active.then(|| light.render_light_pos());
+            let diffuse = light.object_light_active.then_some(light.diffuse);
+            let changed = state.ambient_color != Some(light.ambient)
+                || direction.is_some_and(|value| state.sun_direction != Some(value))
+                || diffuse.is_some_and(|value| state.sun_color != Some(value));
+            state.ambient_color = Some(light.ambient);
+            if let Some(direction) = direction {
+                state.sun_direction = Some(direction);
+            }
+            if let Some(diffuse) = diffuse {
+                state.sun_color = Some(diffuse);
+            }
+            if changed {
+                graphics_system.set_lighting(Some(light.ambient), diffuse, direction, None);
+            }
+        }
+        if let Some(light) = terrain {
+            let state = self
+                .cached_terrain_lighting
+                .get_or_insert_with(CachedLighting::default);
+            let direction = light.render_light_pos();
+            let changed = state.ambient_color != Some(light.ambient)
+                || state.sun_direction != Some(direction)
+                || state.sun_color != Some(light.diffuse);
+            state.ambient_color = Some(light.ambient);
+            state.sun_direction = Some(direction);
+            state.sun_color = Some(light.diffuse);
+            if changed {
+                let state = state.clone();
+                self.apply_cached_lighting_to_terrain(&state);
+            }
+        }
     }
 
     pub(super) fn sync_lighting_from_map_metadata(&mut self) {

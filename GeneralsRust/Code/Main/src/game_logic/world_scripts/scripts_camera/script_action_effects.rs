@@ -660,12 +660,6 @@ impl GameLogic {
 
         if let Some(enabled) = camera_view.skybox_enabled.into_iter().last() {
             self.script_skybox_enabled = enabled;
-            {
-                let mut global = game_engine::common::global_data::write();
-                global.draw_sky_box = enabled;
-            }
-            #[cfg(feature = "game_client")]
-            game_client::core::script_action_handler::script_set_skybox_enabled(enabled);
         }
 
         for request in camera_view.motion_blur {

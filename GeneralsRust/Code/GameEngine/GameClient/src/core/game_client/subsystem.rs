@@ -52,12 +52,13 @@ impl SubsystemManager {
     fn reset_all(
         &mut self,
         fx: &mut crate::display::display_fx::DisplayFxState,
+        lighting: &game_engine::common::ini::ini_game_data::LightingContentRules,
     ) -> GameClientResult<()> {
         if let Some(ref display) = self.display {
             display
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .reset_receiving(fx)?;
+                .reset_receiving(fx, lighting)?;
         }
 
         if let Some(ref audio) = self.audio {

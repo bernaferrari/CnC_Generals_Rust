@@ -65,6 +65,8 @@ pub struct GameClient {
     pub(crate) session_weather_is_snowy: bool,
     pub(crate) session_force_models_to_follow_time_of_day: bool,
     pub(crate) session_force_models_to_follow_weather: bool,
+    /// Effective lighting admitted by the driving game instance.
+    session_lighting: game_engine::common::ini::ini_game_data::LightingContentRules,
     command_hints: crate::gui::command_hints::CommandHintState,
     owned_world_animations: OwnedWorldAnimations,
     /// DrawIconUI admitted from the driving Main session before native draw.

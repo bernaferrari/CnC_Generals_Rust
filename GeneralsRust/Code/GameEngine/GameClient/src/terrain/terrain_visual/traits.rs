@@ -26,6 +26,7 @@ impl SubsystemInterface for TerrainVisualImpl {
         log::info!("Resetting TerrainVisual subsystem");
 
         self.filename.clear();
+        self.skybox_enabled = false;
         self.loaded_terrain_sources.clear();
         self.height_map = None;
         self.source_tile_classes.clear();

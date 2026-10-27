@@ -30,6 +30,7 @@ impl RenderPipeline {
         );
         let hint = env.heightmap_hint.as_deref().map(std::path::Path::new);
         let mut visual = game_client::terrain::terrain_visual::TerrainVisualImpl::new();
+        visual.set_skybox_enabled(env.skybox_enabled);
         if let Some(lighting) = Self::static_terrain_lighting(env) {
             visual.admit_static_lighting(lighting);
         }

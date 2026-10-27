@@ -54,6 +54,10 @@ impl RenderPipeline {
 
     pub fn set_skybox_enabled(&mut self, enabled: bool) {
         self.skybox_enabled = enabled;
+        #[cfg(feature = "game_client")]
+        if let Some(terrain) = self.native_terrain.as_mut() {
+            terrain.set_skybox_enabled(enabled);
+        }
     }
 
     pub fn skybox_hint(&self) -> Option<&[String; 5]> {
@@ -175,6 +179,7 @@ impl RenderPipeline {
         {
             {
                 let mut candidate = game_client::terrain::terrain_visual::TerrainVisualImpl::new();
+                candidate.set_skybox_enabled(self.skybox_enabled);
                 if let Some(lighting) = self
                     .presentation_frame
                     .as_ref()

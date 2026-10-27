@@ -1472,12 +1472,7 @@ impl CnCGameEngine {
         let requested_time_of_day;
         {
             let gc = &mut self.game_client;
-            gc.set_session_model_environment(
-                lighting.time_of_day as i32,
-                weather_is_snowy,
-                lighting.force_models_to_follow_time_of_day,
-                lighting.force_models_to_follow_weather,
-            );
+            gc.set_session_model_environment(lighting, weather_is_snowy);
             if early_menu_frame {
                 debug!(
                     "Menu update_internal: calling gc.ensure_shell_visible (menu_frame={})",
@@ -2655,12 +2650,8 @@ impl CnCGameEngine {
             .current_weather
             .to_ascii_lowercase()
             .contains("snow");
-        self.game_client.set_session_model_environment(
-            lighting.time_of_day as i32,
-            weather_is_snowy,
-            lighting.force_models_to_follow_time_of_day,
-            lighting.force_models_to_follow_weather,
-        );
+        self.game_client
+            .set_session_model_environment(lighting, weather_is_snowy);
         // C++ GameLogic::update setFrame(TheGameLogic->getFrame()) before client update.
         // Extra presents with the same host frame freeze drawable/FX time.
         // The actual client frame is admitted before each logic step, including catch-up.

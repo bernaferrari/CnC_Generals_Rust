@@ -96,6 +96,7 @@ impl GameClient {
             session_weather_is_snowy: false,
             session_force_models_to_follow_time_of_day: false,
             session_force_models_to_follow_weather: true,
+            session_lighting: Default::default(),
             command_hints: Default::default(),
             owned_world_animations: OwnedWorldAnimations::default(),
             receiving_draw_icon_ui: true,
@@ -446,7 +447,7 @@ impl GameClient {
 
         // Reset subsystems
         self.subsystem_manager
-            .reset_all(self.script_display.fx_mut())?;
+            .reset_all(self.script_display.fx_mut(), &self.session_lighting)?;
         self.drawables.particles.reset_runtime();
         self.window_manager_owner
             .with_manager(|manager| self.ime.reset(manager));
@@ -1059,15 +1060,15 @@ impl GameClient {
     /// This keeps message callbacks from consulting process-wide weather state.
     pub fn set_session_model_environment(
         &mut self,
-        time_of_day: i32,
+        lighting: &game_engine::common::ini::ini_game_data::LightingContentRules,
         weather_is_snowy: bool,
-        force_models_to_follow_time_of_day: bool,
-        force_models_to_follow_weather: bool,
     ) {
-        self.session_time_of_day = time_of_day;
+        self.session_time_of_day = lighting.time_of_day as i32;
         self.session_weather_is_snowy = weather_is_snowy;
-        self.session_force_models_to_follow_time_of_day = force_models_to_follow_time_of_day;
-        self.session_force_models_to_follow_weather = force_models_to_follow_weather;
+        self.session_force_models_to_follow_time_of_day =
+            lighting.force_models_to_follow_time_of_day;
+        self.session_force_models_to_follow_weather = lighting.force_models_to_follow_weather;
+        self.session_lighting.clone_from(lighting);
     }
 
     /// Transfer a local demo TOD input to the GameLogic instance driving this client.

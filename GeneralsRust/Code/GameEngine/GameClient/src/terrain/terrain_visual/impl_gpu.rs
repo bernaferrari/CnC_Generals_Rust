@@ -1100,7 +1100,7 @@ impl TerrainVisualImpl {
         // skybox only while TheGlobalData->m_drawSkyBox stands (GameData.ini
         // `DrawSkyBox`; script DRAW_SKYBOX_BEGIN/END -> doSkyBoxSet,
         // W3DWater.cpp:150-154).
-        if !game_engine::common::global_data::read().draw_sky_box {
+        if !self.skybox_enabled {
             return;
         }
         let (Some(pipeline), Some(bind_group)) = (
