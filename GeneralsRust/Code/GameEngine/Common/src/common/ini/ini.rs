@@ -2017,17 +2017,11 @@ impl INI {
     }
 
     pub fn parse_ascii_string(token: &str) -> INIResult<String> {
-        // C++ getNextAsciiString leaves an empty value when a lone opening
-        // quote has no following token.
-        if token == "\"" {
-            return Ok(String::new());
-        }
-        // Handle quoted strings
-        if token.starts_with('"') && token.ends_with('"') {
-            Ok(token[1..token.len() - 1].to_string())
-        } else {
-            Ok(token.to_string())
-        }
+        // C++ removes the opening quote even when no closing quote follows.
+        let value = token.strip_prefix('"').map_or(token, |quoted| {
+            quoted.strip_suffix('"').unwrap_or(quoted)
+        });
+        Ok(value.to_owned())
     }
 
     pub fn parse_percent_to_real(token: &str) -> INIResult<f32> {
@@ -2659,6 +2653,8 @@ mod tests {
         assert_eq!(INI::parse_ascii_string("\"").unwrap(), "");
         assert_eq!(INI::parse_ascii_string("\"\"").unwrap(), "");
         assert_eq!(INI::parse_ascii_string("\"héllo\"").unwrap(), "héllo");
+        assert_eq!(INI::parse_ascii_string("\"unfinished").unwrap(), "unfinished");
+        assert_eq!(INI::parse_ascii_string("\"two words").unwrap(), "two words");
         assert_eq!(INI::parse_ascii_string("plain").unwrap(), "plain");
     }
 
