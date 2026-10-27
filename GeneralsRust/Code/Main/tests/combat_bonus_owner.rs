@@ -89,24 +89,31 @@ fn map_overrides_remain_with_their_receiving_worlds() {
     map.close_data_chunk();
     let bytes = map.into_ckmp_bytes();
     let root = tempfile::tempdir().unwrap();
-    let make_map = |name: &str, percent: u32| {
+    let make_map = |name: &str, percent: u32, guard_msec: u32| {
         let directory = root.path().join(name);
         std::fs::create_dir(&directory).unwrap();
         let path = directory.join("Bonus.map");
         std::fs::write(&path, &bytes).unwrap();
         std::fs::write(
             directory.join("Map.ini"),
-            format!("GameData\n HumanSoloPlayerHealthBonus_Normal = {percent}%\nEnd\n"),
+            format!("GameData\n HumanSoloPlayerHealthBonus_Normal = {percent}%\nEnd\nAIData\n GuardEnemyScanRate = {guard_msec}\nEnd\n"),
         )
         .unwrap();
         path
     };
-    let first_map = make_map("first", 150);
-    let peer_map = make_map("peer", 200);
+    let first_map = make_map("first", 150, 1000);
+    let peer_map = make_map("peer", 200, 2000);
+    std::fs::write(
+        first_map.parent().unwrap().join("Solo.ini"),
+        "AIData\n GuardEnemyScanRate = 3500\nEnd\n",
+    )
+    .unwrap();
     let mut first = world(125);
     let mut peer = world(175);
     assert!(first.load_map(first_map.to_str().unwrap()));
     assert!(peer.load_map(peer_map.to_str().unwrap()));
+    assert_eq!(first.host_guard_enemy_scan_rate(), 105);
+    assert_eq!(peer.host_guard_enemy_scan_rate(), 60);
     first.add_player(Player::new(42, Team::USA, "BonusOwner", true));
     peer.add_player(Player::new(42, Team::USA, "BonusOwner", true));
     let first_id = spawn(&mut first);
@@ -114,9 +121,12 @@ fn map_overrides_remain_with_their_receiving_worlds() {
     assert_eq!(first.host_object(first_id).unwrap().health.maximum, 150.0);
     assert_eq!(peer.host_object(peer_id).unwrap().health.maximum, 200.0);
     peer.reset();
+    assert_eq!(first.host_guard_enemy_scan_rate(), 105);
+    assert_eq!(peer.host_guard_enemy_scan_rate(), 15);
     let next = spawn(&mut first);
     assert_eq!(first.host_object(next).unwrap().health.maximum, 150.0);
     first.reset();
+    assert_eq!(first.host_guard_enemy_scan_rate(), 15);
     first.add_player(Player::new(42, Team::USA, "BonusOwner", true));
     let base = spawn(&mut first);
     assert_eq!(first.host_object(base).unwrap().health.maximum, 125.0);

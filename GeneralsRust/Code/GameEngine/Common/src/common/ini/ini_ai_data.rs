@@ -733,17 +733,25 @@ fn parse_skill_set(ini: &mut INI, skillset: &mut SkillSet, _tokens: &[&str]) -> 
     Ok(())
 }
 
-fn parse_science_skill(_ini: &mut INI, skillset: &mut SkillSet, tokens: &[&str]) -> INIResult<()> {
+fn parse_science_skill(ini: &mut INI, skillset: &mut SkillSet, tokens: &[&str]) -> INIResult<()> {
     let name = tokens.first().ok_or(INIError::InvalidData)?;
     // C++ AI::parseScience: missing/unpurchaseable sciences are skipped, not fatal.
-    let Some(store) = get_science_store() else {
-        return Ok(());
+    let (science, cost) = if let Some(facts) = ini.receiving_science_names() {
+        let Some(science) = facts.science(name) else {
+            return Ok(());
+        };
+        (science, facts.definitions().get_science_purchase_cost(science))
+    } else {
+        let Some(store) = get_science_store() else {
+            return Ok(());
+        };
+        let science = store.get_science_from_internal_name(name);
+        (science, store.get_science_purchase_cost(science))
     };
-    let science = store.get_science_from_internal_name(name);
     if science == SCIENCE_INVALID {
         return Ok(());
     }
-    if store.get_science_purchase_cost(science) == 0 {
+    if cost == 0 {
         return Ok(());
     }
     if skillset.num_skills as usize >= MAX_AI_UPGRADES {
@@ -1109,8 +1117,17 @@ const BUILD_LIST_STRUCTURE_FIELDS: &[FieldParse<BuildListEntry>] = &[
 
 /// Parse AI Data definition from INI file
 pub fn parse_ai_data_definition(ini: &mut INI) -> INIResult<()> {
+    if let Some(mut owned) = ini.take_owned_ai_data_store_target() {
+        let result = parse_ai_data_into_store(ini, &mut owned);
+        ini.set_owned_ai_data_store_target(owned);
+        return result;
+    }
     let store = ini.ai_data_store_target().unwrap_or_else(get_ai_data_store);
     let mut store = store.write().expect("AI data store write lock");
+    parse_ai_data_into_store(ini, &mut store)
+}
+
+fn parse_ai_data_into_store(ini: &mut INI, store: &mut AIDataStore) -> INIResult<()> {
     store.ensure_base();
 
     if ini.get_load_type() == INILoadType::CreateOverrides {

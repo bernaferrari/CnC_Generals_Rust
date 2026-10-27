@@ -836,24 +836,15 @@ impl AIPlayer {
         self.side_info_name().map(str::to_string)
     }
 
-    pub(super) fn science_names_from_skill_ids(num_skills: i32, skills: &[i32]) -> Vec<String> {
-        use game_engine::common::rts::science::{SCIENCE_INVALID, get_science_store};
-        let Some(store) = get_science_store() else {
-            return Vec::new();
-        };
+    pub(super) fn science_names_from_skill_ids(
+        ai_data: &AiDataView,
+        num_skills: i32,
+        skills: &[i32],
+    ) -> Vec<String> {
         let n = (num_skills.max(0) as usize).min(skills.len());
         (0..n)
             .filter_map(|i| {
-                let sci = skills[i];
-                if sci == SCIENCE_INVALID {
-                    return None;
-                }
-                let name = store.get_internal_name_for_science(sci);
-                if name.is_empty() {
-                    None
-                } else {
-                    Some(name.to_string())
-                }
+                ai_data.science_name(skills[i]).map(str::to_owned)
             })
             .collect()
     }
@@ -871,22 +862,27 @@ impl AIPlayer {
                 .find(|info| info.side.eq_ignore_ascii_case(side))?;
             let sets = [
                 Self::science_names_from_skill_ids(
+                    ai_data,
                     info.skill_set_1.num_skills,
                     &info.skill_set_1.skills,
                 ),
                 Self::science_names_from_skill_ids(
+                    ai_data,
                     info.skill_set_2.num_skills,
                     &info.skill_set_2.skills,
                 ),
                 Self::science_names_from_skill_ids(
+                    ai_data,
                     info.skill_set_3.num_skills,
                     &info.skill_set_3.skills,
                 ),
                 Self::science_names_from_skill_ids(
+                    ai_data,
                     info.skill_set_4.num_skills,
                     &info.skill_set_4.skills,
                 ),
                 Self::science_names_from_skill_ids(
+                    ai_data,
                     info.skill_set_5.num_skills,
                     &info.skill_set_5.skills,
                 ),

@@ -228,6 +228,8 @@ pub struct INI {
     script_template_definitions: Vec<super::ini_script::ScriptTemplateDefinition>,
     // Explicit engine-owner target for AIData content loading.
     ai_data_store_target: Option<Arc<RwLock<super::ini_ai_data::AIDataStore>>>,
+    // A synchronous parser owns this draft without shared mutable access.
+    owned_ai_data_store_target: Option<super::ini_ai_data::AIDataStore>,
     // One operation-owned Terrain catalogue. None retains the standalone
     // application compatibility parser; Some(empty) is explicitly authoritative.
     terrain_types_target: Option<super::ini_terrain::TerrainTypes>,
@@ -1248,6 +1250,14 @@ impl INI {
         self.receiving_science_names.as_deref()
     }
 
+    /// Supply the immutable science catalog belonging to this parse owner.
+    pub fn set_receiving_science_names(
+        &mut self,
+        sciences: Arc<crate::common::rts::science::ScienceNameFacts>,
+    ) {
+        self.receiving_science_names = Some(sciences);
+    }
+
     pub(crate) fn with_receiving_science_names<T>(
         &mut self,
         sciences: Arc<crate::common::rts::science::ScienceNameFacts>,
@@ -1319,6 +1329,7 @@ impl INI {
             xfer: None,
             script_template_definitions: Vec::new(),
             ai_data_store_target: None,
+            owned_ai_data_store_target: None,
             upgrade_center_target: None,
             owned_upgrade_center_target: None,
             water_definitions: None,
@@ -1344,6 +1355,15 @@ impl INI {
         &self,
     ) -> Option<Arc<RwLock<super::ini_ai_data::AIDataStore>>> {
         self.ai_data_store_target.as_ref().map(Arc::clone)
+    }
+
+    /// Transfer an AIData draft into this parser for one ordered operation.
+    pub fn set_owned_ai_data_store_target(&mut self, store: super::ini_ai_data::AIDataStore) {
+        self.owned_ai_data_store_target = Some(store);
+    }
+
+    pub fn take_owned_ai_data_store_target(&mut self) -> Option<super::ini_ai_data::AIDataStore> {
+        self.owned_ai_data_store_target.take()
     }
 
     /// Keep ChallengeMode parsing state on this individual INI operation.

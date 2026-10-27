@@ -1414,60 +1414,6 @@ impl CnCGameEngine {
         ["Data/INI/Default/AIData.ini", "Data/INI/AIData.ini"]
     }
 
-    /// Load AIData.ini (Default + override) into the AI data store.
-    /// C++ parity: GameEngine.cpp:480 initSubsystem(TheAI, ..., "Data\\INI\\Default\\AIData.ini", "Data\\INI\\AIData.ini")
-    pub(super) fn preload_startup_ai_data_inis() {
-        for path in Self::startup_ai_data_ini_paths() {
-            // Disk first (extracted INIZH). Archive `INI::load` can block on
-            // FileSystem/asset locks held by the main thread during Loading.
-            if let Some(text) = Self::read_startup_ini_from_disk(path) {
-                let mut ini = game_engine::common::ini::INI::new();
-                ini.set_ai_data_store_target(
-                    game_engine::common::ini::ini_ai_data::process_lifetime_ai_data_store(),
-                );
-                match ini.with_inline_source(&text, |ini| ini.parse_current_file()) {
-                    Ok(()) => {
-                        info!("Preloaded AIData INI from disk: {}", path);
-                    }
-                    Err(err) => warn!(
-                        "Failed to parse AIData INI '{}' from disk; continuing: {}",
-                        path, err
-                    ),
-                }
-                continue;
-            }
-            let mut ini = game_engine::common::ini::INI::new();
-            ini.set_ai_data_store_target(
-                game_engine::common::ini::ini_ai_data::process_lifetime_ai_data_store(),
-            );
-            match ini.load(path, game_engine::common::ini::INILoadType::Overwrite) {
-                Ok(()) => {
-                    info!("Preloaded AIData INI: {}", path);
-                }
-                Err(err) => warn!(
-                    "Failed to preload AIData INI '{}' during init; continuing: {}",
-                    path, err
-                ),
-            }
-        }
-    }
-
-    /// After archive extract of AIData.ini (Upgrade-style path in shell.rs).
-    pub(super) fn apply_startup_ai_data_enable_repulsors() {
-        // Application content is admitted at engine startup; each world later
-        // copies this baseline without publishing its runtime policy.
-        let store = game_engine::common::ini::ini_ai_data::process_lifetime_ai_data_store();
-        let enabled = store
-            .read()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .get_active()
-            .is_some_and(|data| data.enable_repulsors);
-        info!(
-            "AIData EnableRepulsors={} (C++ TAiData::m_enableRepulsors)",
-            enabled
-        );
-    }
-
     pub(super) fn startup_audio_should_quit(no_audio: bool, audio_ready: bool) -> bool {
         !no_audio && !audio_ready
     }

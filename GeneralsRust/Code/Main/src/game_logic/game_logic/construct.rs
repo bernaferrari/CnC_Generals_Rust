@@ -59,17 +59,18 @@ impl GameLogic {
         let mission_hooks = MissionScriptHooks::new();
         let team_factory = gamelogic::team::TeamFactoryHandle::new();
 
-        let ai_definitions =
-            crate::game_logic::ai_definitions::AiDefinitions::from_engine_baseline();
+        let ai_definitions = crate::game_logic::ai_definitions::AiDefinitions::from_base(
+            game_engine::common::ini::ini_ai_data::AIData::default(),
+        );
         // The same existing playback namespace also binds lookup registration.
         // Hoisting this one allocation creates no additional identity owner.
         let live_draw_playback_world = std::sync::Arc::new(());
         let world_services = gamelogic::system::engine_stores::new_world_services();
-        let upgrade_definitions =
-            game_engine::common::system::upgrade::process_lifetime_upgrade_center()
-                .read()
-                .unwrap_or_else(|error| error.into_inner())
-                .clone();
+        // The original UpgradeCenter::init reserves these three mask bits
+        // before authored content. A constructor never samples another world.
+        let mut upgrade_definitions =
+            game_engine::common::system::upgrade::UpgradeCenter::new();
+        upgrade_definitions.init();
         let mut instance = Self {
             w3d_ghosts: Default::default(),
             host_ghosts: Default::default(),

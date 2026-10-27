@@ -736,9 +736,8 @@ pub fn load_map_ini_ui_overrides_with_receiving_definitions(
 
 pub fn load_map_ini_ui_overrides_with_owned_upgrade_definitions(
     contents: &str,
-    target: Option<
-        std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
-    >,
+    target: Option<&mut game_engine::common::ini::ini_ai_data::AIDataStore>,
+    sciences: Option<std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>>,
     terrain: game_engine::common::ini::ini_terrain::TerrainTypes,
     roads: game_engine::common::ini::ini_road::TerrainRoadCollection,
     armor: game_engine::common::ini::ini::armor_definitions::ArmorDefinitions,
@@ -760,8 +759,11 @@ pub fn load_map_ini_ui_overrides_with_owned_upgrade_definitions(
     if object_definitions_admitted {
         ini.set_object_definitions_admitted();
     }
-    if let Some(target) = target {
-        ini.set_ai_data_store_target(target);
+    if let Some(target) = target.as_ref() {
+        ini.set_owned_ai_data_store_target((**target).clone());
+    }
+    if let Some(sciences) = sciences {
+        ini.set_receiving_science_names(sciences);
     }
     ini.set_terrain_types_target(terrain);
     ini.set_terrain_roads_target(roads);
@@ -770,6 +772,11 @@ pub fn load_map_ini_ui_overrides_with_owned_upgrade_definitions(
         ini.parse_current_file()
     })
     .map_err(|error| error.to_string())?;
+    if let Some(target) = target {
+        *target = ini
+            .take_owned_ai_data_store_target()
+            .expect("operation owns AIData draft");
+    }
     let terrain = ini
         .take_terrain_types_target()
         .expect("operation owns terrain definition target");

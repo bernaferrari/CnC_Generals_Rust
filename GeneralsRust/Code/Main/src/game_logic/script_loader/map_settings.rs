@@ -107,7 +107,7 @@ pub fn parse_map_settings(map_name: &str) -> LoaderResult<MapMetadata> {
     let Some(chunky) = load_chunky_map(map_name)? else {
         return Ok(meta);
     };
-    parse_map_settings_from_loaded_chunky(map_name, &chunky, meta, None, None)
+    parse_map_settings_from_loaded_chunky(map_name, &chunky, meta, None, None, None)
 }
 
 /// C++ `WorldHeightMap::ParseLightingDataChunk` (WorldHeightMap.cpp:758-829).
@@ -347,13 +347,14 @@ pub fn parse_map_settings_from_chunky(chunky: &ChunkyMap) -> LoaderResult<MapMet
         MapMetadata::default(),
         None,
         None,
+        None,
     )
 }
 
 /// Production map and Solo overrides parse only into the driving draft.
 pub(crate) fn parse_map_settings_from_chunky_with_ai_data(
     chunky: &ChunkyMap,
-    draft: std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+    draft: &mut game_engine::common::ini::ini_ai_data::AIDataStore,
 ) -> LoaderResult<MapMetadata> {
     let map_name = chunky.source.to_string_lossy();
     parse_map_settings_from_chunky_with_ai_data_from_source(chunky, draft, map_name.as_ref(), None)
@@ -362,7 +363,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_ai_data(
 /// Decode the supplied CKMP body, while resolving companion files explicitly.
 pub(crate) fn parse_map_settings_from_chunky_with_ai_data_from_source(
     chunky: &ChunkyMap,
-    draft: std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+    draft: &mut game_engine::common::ini::ini_ai_data::AIDataStore,
     definition_source: &str,
     production_energy: Option<game_engine::common::ini::ini_game_data::ProductionEnergyRules>,
 ) -> LoaderResult<MapMetadata> {
@@ -377,7 +378,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_ai_data_from_source(
 
 pub(crate) fn parse_map_settings_from_chunky_with_content_rules(
     chunky: &ChunkyMap,
-    draft: std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+    draft: &mut game_engine::common::ini::ini_ai_data::AIDataStore,
     definition_source: &str,
     production_energy: Option<game_engine::common::ini::ini_game_data::ProductionEnergyRules>,
     physics_rules: Option<game_engine::common::ini::ini_game_data::PhysicsContentRules>,
@@ -394,7 +395,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_content_rules(
 
 pub(crate) fn parse_map_settings_from_chunky_with_camera_rules(
     chunky: &ChunkyMap,
-    draft: std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+    draft: &mut game_engine::common::ini::ini_ai_data::AIDataStore,
     definition_source: &str,
     production_energy: Option<game_engine::common::ini::ini_game_data::ProductionEnergyRules>,
     physics_rules: Option<game_engine::common::ini::ini_game_data::PhysicsContentRules>,
@@ -414,7 +415,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_camera_rules(
 
 pub(crate) fn parse_map_settings_from_chunky_with_camera_and_clip_rules(
     chunky: &ChunkyMap,
-    draft: std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+    draft: &mut game_engine::common::ini::ini_ai_data::AIDataStore,
     definition_source: &str,
     production_energy: Option<game_engine::common::ini::ini_game_data::ProductionEnergyRules>,
     physics_rules: Option<game_engine::common::ini::ini_game_data::PhysicsContentRules>,
@@ -437,7 +438,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_camera_and_clip_rules(
 
 pub(crate) fn parse_map_settings_from_chunky_with_owned_terrain_definitions(
     chunky: &ChunkyMap,
-    draft: std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+    draft: &mut game_engine::common::ini::ini_ai_data::AIDataStore,
     definition_source: &str,
     production_energy: Option<game_engine::common::ini::ini_game_data::ProductionEnergyRules>,
     physics_rules: Option<game_engine::common::ini::ini_game_data::PhysicsContentRules>,
@@ -460,12 +461,13 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_terrain_definitions(
         },
         Some(draft),
         None,
+        None,
     )
 }
 
 pub(crate) fn parse_map_settings_from_chunky_with_owned_definition_catalogs(
     chunky: &ChunkyMap,
-    draft: std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+    draft: &mut game_engine::common::ini::ini_ai_data::AIDataStore,
     definition_source: &str,
     production_energy: Option<game_engine::common::ini::ini_game_data::ProductionEnergyRules>,
     physics_rules: Option<game_engine::common::ini::ini_game_data::PhysicsContentRules>,
@@ -477,6 +479,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_definition_catalogs(
     armor_definitions: Option<std::sync::Arc<gamelogic::object::armor::ArmorDefinitions>>,
     admitted_object_sources: Option<&[(PathBuf, String)]>,
     upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
+    science_facts: std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>,
 ) -> LoaderResult<MapMetadata> {
     parse_map_settings_from_loaded_chunky(
         definition_source,
@@ -494,6 +497,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_definition_catalogs(
             ..MapMetadata::default()
         },
         Some(draft),
+        Some(science_facts),
         admitted_object_sources,
     )
 }
@@ -502,9 +506,8 @@ fn parse_map_settings_from_loaded_chunky(
     map_name: &str,
     chunky: &ChunkyMap,
     mut meta: MapMetadata,
-    ai_data_target: Option<
-        std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
-    >,
+    mut ai_data_target: Option<&mut game_engine::common::ini::ini_ai_data::AIDataStore>,
+    science_facts: Option<std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>>,
     admitted_object_sources: Option<&[(PathBuf, String)]>,
 ) -> LoaderResult<MapMetadata> {
     let mut terrain_definitions = meta
@@ -641,7 +644,8 @@ fn parse_map_settings_from_loaded_chunky(
                 let (_, updated, roads, armor, upgrades) =
                     gamelogic::system::game_initialization::load_map_ini_ui_overrides_with_owned_upgrade_definitions(
                         &contents,
-                        ai_data_target.as_ref().map(std::sync::Arc::clone),
+                        ai_data_target.as_deref_mut(),
+                        science_facts.clone(),
                         terrain_definitions,
                         road_definitions,
                         armor_definitions.to_parsed(),
@@ -743,7 +747,8 @@ fn parse_map_settings_from_loaded_chunky(
                 let (_, updated, roads, armor, upgrades) =
                     gamelogic::system::game_initialization::load_map_ini_ui_overrides_with_owned_upgrade_definitions(
                         &contents,
-                        ai_data_target.as_ref().map(std::sync::Arc::clone),
+                        ai_data_target.as_deref_mut(),
+                        science_facts.clone(),
                         terrain_definitions,
                         road_definitions,
                         armor_definitions.to_parsed(),

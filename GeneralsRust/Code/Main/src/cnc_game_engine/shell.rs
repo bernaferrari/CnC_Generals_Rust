@@ -1524,17 +1524,24 @@ impl CnCGameEngine {
                         simulation_rules.publish_upgrade_definitions_to_engine_lifetime();
                     }
 
+                    let science_names = {
+                        let store = game_engine::common::rts::science::get_science_store()
+                            .ok_or("Receiving Object admission requires initialized application Science definitions")?;
+                        std::sync::Arc::new(game_engine::common::rts::science::ScienceNameFacts::from_store(&store))
+                    };
                     // C++ parity: GameEngine.cpp:480 — AIData.ini after Upgrade, before Crate.
-                    {
+                    let startup_ai_baseline = {
+                        let mut draft = game_engine::common::ini::ini_ai_data::AIDataStore::default();
                         let mut loaded_any = false;
                         for ai_path in Self::startup_ai_data_ini_paths() {
                             if let Some(content) = extract_ini_text_from_archives(ai_path)? {
                                 let mut ini = game_engine::common::ini::INI::new();
-                                ini.set_ai_data_store_target(
-                                    game_engine::common::ini::ini_ai_data::process_lifetime_ai_data_store(),
-                                );
-                                match ini.with_inline_source(&content, |ini| ini.parse_current_file())
-                                {
+                                ini.set_owned_ai_data_store_target(draft);
+                                ini.set_receiving_science_names(std::sync::Arc::clone(&science_names));
+                                let result = ini.with_inline_source(&content, |ini| ini.parse_current_file());
+                                draft = ini.take_owned_ai_data_store_target()
+                                    .expect("startup owns its AIData draft");
+                                match result {
                                     Ok(()) => {
                                         info!("Loaded AIData from {}", ai_path);
                                         loaded_any = true;
@@ -1546,19 +1553,24 @@ impl CnCGameEngine {
                                 }
                             }
                         }
-                        if loaded_any {
-                            Self::apply_startup_ai_data_enable_repulsors();
-                        } else {
-                            Self::preload_startup_ai_data_inis();
+                        if !loaded_any {
+                            for ai_path in Self::startup_ai_data_ini_paths() {
+                                let mut ini = game_engine::common::ini::INI::new();
+                                ini.set_owned_ai_data_store_target(draft);
+                                ini.set_receiving_science_names(std::sync::Arc::clone(&science_names));
+                                let result = ini.load(ai_path, game_engine::common::ini::INILoadType::Overwrite);
+                                draft = ini.take_owned_ai_data_store_target()
+                                    .expect("startup owns its AIData draft");
+                                match result {
+                                    Ok(()) => info!("Preloaded AIData INI: {}", ai_path),
+                                    Err(err) => warn!("Failed to preload AIData INI '{}': {}", ai_path, err),
+                                }
+                            }
                         }
-                        // EnableRepulsors is parsed before SideInfo; apply leftover even if
-                        // a later nested field warned.
-                        let store = game_engine::common::ini::get_ai_data_store();
-                        if store.read().expect("AI data store read lock").get_active().is_some()
-                        {
-                            Self::apply_startup_ai_data_enable_repulsors();
-                        }
-                    }
+                        let baseline = draft.get_active().cloned().unwrap_or_default();
+                        info!("AIData EnableRepulsors={} (C++ TAiData::m_enableRepulsors)", baseline.enable_repulsors);
+                        baseline
+                    };
 
                     // C++ parity: GameEngine.cpp:483 — load Crate.ini (Default + override) into ParsedCrateSystem.
                     {
@@ -1585,11 +1597,6 @@ impl CnCGameEngine {
                     // Parse each actual Object declaration once, preserving the existing
                     // Default/Object + current-directory + nested archive source order.
                     // System.ini is already in this list; no synthetic tracer replay.
-                    let science_names = {
-                        let store = game_engine::common::rts::science::get_science_store()
-                            .ok_or("Receiving Object admission requires initialized application Science definitions")?;
-                        std::sync::Arc::new(game_engine::common::rts::science::ScienceNameFacts::from_store(&store))
-                    };
                     // SpecialPower is admitted before Objects (GameEngine.cpp443),
                     // while command buttons/sets are admitted later below.
                     let action_definitions=game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions {
@@ -1753,8 +1760,7 @@ impl CnCGameEngine {
                     game_logic.admit_camera_application_rules(camera_rule_base)?;
                     simulation_rules.admit(&mut game_logic)?;
                     // Explicit engine-content admission before this session loads a map.
-                    let definitions = crate::game_logic::ai_definitions::AiDefinitions::from_engine_baseline();
-                    game_logic.set_ai_definition_base(definitions.baseline().clone());
+                    game_logic.set_ai_definition_base(startup_ai_baseline);
                     Self::emit_startup_load_progress(&sender, 0.22, "Priming object templates");
 
                     // The original initial-file message and receiving Recorder messages

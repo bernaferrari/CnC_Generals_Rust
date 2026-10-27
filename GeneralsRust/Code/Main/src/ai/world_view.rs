@@ -18,12 +18,17 @@ use std::collections::HashMap;
 /// driving GameLogic.
 pub(super) struct AiDataView {
     definitions: std::sync::Arc<game_engine::common::ini::AIData>,
+    sciences: Option<std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>>,
 }
 
 impl AiDataView {
     pub(super) fn from_world(world: &GameLogic) -> Self {
         Self {
             definitions: world.ai_definitions.snapshot(),
+            sciences: world
+                .receiving_module_content
+                .as_ref()
+                .map(|content| content.science_facts()),
         }
     }
     pub(super) fn from_source(source: &(impl AiReadSource + ?Sized)) -> Self {
@@ -31,6 +36,10 @@ impl AiDataView {
     }
     pub(super) fn catalog(&self) -> Option<&game_engine::common::ini::AIData> {
         Some(&self.definitions)
+    }
+
+    pub(super) fn science_name(&self, id: i32) -> Option<&str> {
+        self.sciences.as_ref()?.name(id)
     }
 }
 

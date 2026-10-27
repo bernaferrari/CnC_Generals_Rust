@@ -482,11 +482,11 @@ impl GameLogic {
                     0.36,
                     "Reading map settings",
                 )?;
-                let ai_draft = self.ai_definitions.map_override_draft();
+                let mut ai_draft = self.ai_definitions.map_override_draft();
                 let parsed =
                     super::script_loader::parse_map_settings_from_chunky_with_owned_definition_catalogs(
                         &chunky,
-                        std::sync::Arc::clone(&ai_draft),
+                        &mut ai_draft,
                         &definition_source,
                         Some(*self.production_energy_rules()),
                         Some(self.physics_definitions.effective),
@@ -498,6 +498,10 @@ impl GameLogic {
                         self.current_armor_definitions().cloned(),
                         self.receiving_module_content.as_ref().map(|_| companion_sources.as_slice()),
                         self.upgrade_definition_base.clone(),
+                        self.receiving_module_content
+                            .as_ref()
+                            .map(|content| content.science_facts())
+                            .unwrap_or_default(),
                     );
                 let parsed_settings = match parsed {
                     Ok(meta) => match self.admit_ai_map_overrides(ai_draft) {

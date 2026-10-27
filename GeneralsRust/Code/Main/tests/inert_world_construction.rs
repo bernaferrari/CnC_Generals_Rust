@@ -6,9 +6,22 @@ use std::sync::Arc;
 
 #[test]
 fn world_construction_and_landmark_geometry_are_instance_owned() {
+    let ambient_ai = game_engine::common::ini::ini_ai_data::process_lifetime_ai_data_store();
+    let previous_ai = ambient_ai.read().unwrap().clone();
+    {
+        let mut data = ambient_ai.write().unwrap();
+        data.ensure_base();
+        data.get_active_mut().unwrap().guard_enemy_scan_rate = 777;
+    }
     let live = new_world_services();
     install_services(Arc::clone(&live));
     let first = GameLogic::initialize();
+    let first_scan_rate = first.host_guard_enemy_scan_rate();
+    *ambient_ai.write().unwrap() = previous_ai;
+    assert_eq!(
+        first_scan_rate,
+        game_engine::common::ini::ini_ai_data::AIData::default().guard_enemy_scan_rate,
+    );
     assert!(Arc::ptr_eq(&active_services(), &live));
     let peer = GameLogic::initialize();
     assert!(Arc::ptr_eq(&active_services(), &live));

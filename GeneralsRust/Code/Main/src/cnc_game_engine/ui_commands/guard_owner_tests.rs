@@ -116,12 +116,13 @@ fn guard_cursor_uses_authored_driving_controller_with_foreign_same_id_core_ai_he
                     std::env::temp_dir().join(format!("guard-map-{}.ini", std::process::id()));
                 std::fs::write(&path, BASE_A).unwrap();
                 let mut ini = game_engine::common::ini::INI::new();
-                ini.set_ai_data_store_target(Arc::clone(&draft));
+                ini.set_owned_ai_data_store_target(draft);
                 ini.load(
                     &path,
                     game_engine::common::ini::INILoadType::CreateOverrides,
                 )
                 .unwrap();
+                let draft = ini.take_owned_ai_data_store_target().unwrap();
                 drop(ini);
                 std::fs::remove_file(path).unwrap();
                 b.admit_ai_map_overrides(draft).unwrap();

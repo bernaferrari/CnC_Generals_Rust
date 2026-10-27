@@ -51,15 +51,11 @@ fn isolated(name: &str) -> bool {
 }
 
 fn authored_base(contents: &str) -> AIData {
-    let target = Arc::new(RwLock::new(AIDataStore::default()));
     let mut ini = game_engine::common::ini::INI::new();
-    ini.set_ai_data_store_target(Arc::clone(&target));
+    ini.set_owned_ai_data_store_target(AIDataStore::default());
     ini.with_inline_source(contents, |ini| ini.parse_current_file())
         .unwrap();
-    drop(ini);
-    Arc::try_unwrap(target)
-        .unwrap()
-        .into_inner()
+    ini.take_owned_ai_data_store_target()
         .unwrap()
         .get_active()
         .unwrap()
@@ -125,7 +121,7 @@ fn same_id_world_rules_ignore_foreign_common_and_held_core_ai() {
         common.get_active_mut().unwrap().guard_enemy_scan_rate = 777;
         common.get_active_mut().unwrap().attack_uses_line_of_sight = false;
     }
-    let engine_base = AiDefinitions::from_engine_baseline();
+    let default_base = AiDefinitions::from_base(AIData::default());
     let core_guard = foreign.ai().write().unwrap();
     gamelogic::system::engine_stores::with_active_stores(&foreign, || {
         assert_eq!(a.host_guard_enemy_scan_rate(), 15);
@@ -146,8 +142,8 @@ fn same_id_world_rules_ignore_foreign_common_and_held_core_ai() {
         let candidate = GameLogic::new();
         assert_eq!(
             format!("{:?}", candidate.ai_definitions.baseline()),
-            format!("{:?}", engine_base.baseline()),
-            "constructor samples engine content, never a selected foreign world"
+            format!("{:?}", default_base.baseline()),
+            "constructor starts with its own defaults, never an ambient catalog"
         );
         assert!(Arc::ptr_eq(
             &gamelogic::system::engine_stores::active(),
@@ -183,10 +179,10 @@ impl MapFixture {
         let document = crate::game_logic::script_loader::load_chunky_map(path.to_str().unwrap())
             .unwrap()
             .unwrap();
-        let draft = world.ai_definitions.map_override_draft();
+        let mut draft = world.ai_definitions.map_override_draft();
         crate::game_logic::script_loader::parse_map_settings_from_chunky_with_ai_data(
             &document,
-            Arc::clone(&draft),
+            &mut draft,
         )
         .unwrap();
         world.admit_ai_map_overrides(draft).unwrap();
@@ -277,14 +273,17 @@ fn failed_definition_draft_and_candidate_drop_preserve_live_snapshot() {
         "restore starts from engine baseline, then rebuilds map overrides"
     );
     let draft = candidate.ai_definitions.map_override_draft();
+    let mut ini = game_engine::common::ini::INI::new();
+    ini.set_owned_ai_data_store_target(draft);
     assert!(
-        gamelogic::system::load_map_ini_ui_overrides_with_ai_data(
+        ini.with_inline_source_and_load_type(
             "AIData\n WallHeight = 777\n UnknownOwnerField = 1\n End\n",
-            Arc::clone(&draft)
+            game_engine::common::ini::INILoadType::CreateOverrides,
+            |ini| ini.parse_current_file(),
         )
         .is_err()
     );
-    drop(draft);
+    drop(ini);
     drop(candidate);
     assert!(Arc::ptr_eq(&retained, &live.ai_definitions.snapshot()));
     assert_eq!(live.ai_definitions.data().wall_height, 31.0);

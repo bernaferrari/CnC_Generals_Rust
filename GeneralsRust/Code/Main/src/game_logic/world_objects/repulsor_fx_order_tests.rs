@@ -84,12 +84,9 @@ fn owned_repulsor_definitions_admit_and_reset_without_touching_another_match() {
             enabled.enable_repulsors = true;
             first.set_ai_definition_base(enabled);
             second.set_ai_definition_base(game_engine::common::ini::AIData::default());
-            let draft = first.ai_definitions.map_override_draft();
-            {
-                let mut draft = draft.write().unwrap();
-                draft.push_override();
-                draft.get_active_mut().unwrap().enable_repulsors = false;
-            }
+            let mut draft = first.ai_definitions.map_override_draft();
+            draft.push_override();
+            draft.get_active_mut().unwrap().enable_repulsors = false;
             first.admit_ai_map_overrides(draft).unwrap();
             assert!(!first.enable_repulsors);
             assert!(!second.enable_repulsors);
