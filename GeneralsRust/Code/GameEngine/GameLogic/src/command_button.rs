@@ -10,7 +10,7 @@ use crate::helpers::TheThingFactory;
 use crate::object::special_power_template::find_or_create_special_power_template;
 use crate::object::update::special_power_update::SpecialPowerCommandOption;
 use crate::upgrade::UpgradeTemplate;
-use crate::upgrade::center::with_upgrade_center;
+use crate::upgrade::center::{UpgradeCenter, with_upgrade_center};
 use game_engine::common::ini::ini_command_button as common_buttons;
 use game_engine::common::rts::{
     SCIENCE_INVALID, ScienceAccess, ScienceStore, ScienceType, get_science_store,
@@ -187,6 +187,33 @@ impl CommandButton {
     }
 
     pub fn from_common(id: CommandButtonId, button: &common_buttons::CommandButton) -> Self {
+        let upgrade_template = if button.upgrade.is_empty() {
+            None
+        } else {
+            with_upgrade_center(|center| center.find_upgrade(button.upgrade.as_str()))
+        };
+        Self::from_common_with_upgrade_template(id, button, upgrade_template)
+    }
+
+    /// Resolve this parsed button against the receiving world's upgrade catalog.
+    pub fn from_common_with_upgrade_definitions(
+        id: CommandButtonId,
+        button: &common_buttons::CommandButton,
+        upgrade_definitions: &UpgradeCenter,
+    ) -> Self {
+        let upgrade_template = if button.upgrade.is_empty() {
+            None
+        } else {
+            upgrade_definitions.find_upgrade(button.upgrade.as_str())
+        };
+        Self::from_common_with_upgrade_template(id, button, upgrade_template)
+    }
+
+    fn from_common_with_upgrade_template(
+        id: CommandButtonId,
+        button: &common_buttons::CommandButton,
+        upgrade_template: Option<Arc<UpgradeTemplate>>,
+    ) -> Self {
         let tooltip = if !button.descriptive_text.is_empty() {
             button.descriptive_text.clone()
         } else {
@@ -214,12 +241,6 @@ impl CommandButton {
         let thing_template = object_template_name
             .as_deref()
             .and_then(TheThingFactory::find_template);
-        let upgrade_template = if button.upgrade.is_empty() {
-            None
-        } else {
-            with_upgrade_center(|center| center.find_upgrade(button.upgrade.as_str()))
-        };
-
         let mut out = Self::new(id, button.name.clone(), tooltip, button.purchase_cost);
         out.command_type = command_type;
         out.gui_command = button.command.clone();

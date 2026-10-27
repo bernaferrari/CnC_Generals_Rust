@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard};
 
 use crate::command_button::{CommandButton, CommandButtonId, CommandSet, MAX_COMMANDS_PER_SET};
+use crate::upgrade::center::UpgradeCenter;
 use crate::commands::command::CommandType;
 use crate::common::KindOf;
 use crate::common::types::ControlBarInterface;
@@ -54,6 +55,23 @@ fn is_exact_unit_build_identity(
 
 impl ControlBarBridge {
     pub fn build_from_common() -> Result<Self, String> {
+        Self::build_from_common_using(CommandButton::from_common)
+    }
+
+    pub fn build_from_common_with_upgrade_definitions(
+        upgrade_definitions: &UpgradeCenter,
+    ) -> Result<Self, String> {
+        Self::build_from_common_using(|id, button| {
+            CommandButton::from_common_with_upgrade_definitions(id, button, upgrade_definitions)
+        })
+    }
+
+    fn build_from_common_using(
+        mut make_button: impl FnMut(
+            CommandButtonId,
+            &game_engine::common::ini::ini_command_button::CommandButton,
+        ) -> CommandButton,
+    ) -> Result<Self, String> {
         let control_bar = get_control_bar().ok_or("ControlBar not initialized")?;
         let mut button_names: Vec<String> = control_bar
             .get_button_names()
@@ -70,7 +88,7 @@ impl ControlBarBridge {
             let Some(common_button) = control_bar.find_command_button_resolved(&name) else {
                 continue;
             };
-            let command_button = CommandButton::from_common(next_id, common_button);
+            let command_button = make_button(next_id, common_button);
             name_to_id.insert(name.clone(), next_id);
             buttons_by_id.insert(next_id, command_button);
             next_id += 1;
@@ -185,6 +203,18 @@ pub fn initialize_control_bar_bridge_from_common() -> Result<(), String> {
 
 pub fn refresh_control_bar_bridge_from_common() -> Result<(), String> {
     let bridge = ControlBarBridge::build_from_common()?;
+    replace_control_bar_bridge(bridge)
+}
+
+/// Refresh from explicit receiving-session upgrade content without selecting Core AI.
+pub fn refresh_control_bar_bridge_from_common_with_upgrade_definitions(
+    upgrade_definitions: &UpgradeCenter,
+) -> Result<(), String> {
+    let bridge = ControlBarBridge::build_from_common_with_upgrade_definitions(upgrade_definitions)?;
+    replace_control_bar_bridge(bridge)
+}
+
+fn replace_control_bar_bridge(bridge: ControlBarBridge) -> Result<(), String> {
     if let Some(cell) = CONTROL_BAR_BRIDGE.get() {
         let mut guard = cell
             .write()
@@ -192,7 +222,9 @@ pub fn refresh_control_bar_bridge_from_common() -> Result<(), String> {
         *guard = bridge;
         return Ok(());
     }
-    initialize_control_bar_bridge_from_common()
+    CONTROL_BAR_BRIDGE
+        .set(RwLock::new(bridge))
+        .map_err(|_| "ControlBarBridge already initialized".to_string())
 }
 
 pub fn get_control_bar_bridge() -> Option<RwLockReadGuard<'static, ControlBarBridge>> {

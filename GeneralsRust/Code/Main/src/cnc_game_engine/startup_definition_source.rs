@@ -32,6 +32,7 @@ pub(super) struct StartupSimulationRules {
     lighting: game_engine::common::ini::ini_game_data::LightingContentRules,
     physics: game_engine::common::ini::ini_game_data::PhysicsContentRules,
     energy: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
+    upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
 }
 impl StartupSimulationRules {
     pub(super) fn capture(world: &crate::game_logic::GameLogic) -> Self {
@@ -40,13 +41,48 @@ impl StartupSimulationRules {
             lighting: world.lighting_rules_baseline().clone(),
             physics: world.physics_rules_baseline(),
             energy: world.production_energy_baseline(),
+            upgrade_definitions: world.upgrade_definitions.clone(),
         }
+    }
+    pub(super) fn upgrade_definitions(&self) -> &gamelogic::upgrade::center::UpgradeCenter {
+        &self.upgrade_definitions
+    }
+    /// Seed this startup recipient from the canonical engine-content center
+    /// after its init/default upgrades have been installed.
+    pub(super) fn refresh_upgrade_definitions_from_engine_lifetime(&mut self) {
+        let center = game_engine::common::system::upgrade::process_lifetime_upgrade_center();
+        self.upgrade_definitions = center
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+    }
+    /// Parse fallback text into this owned recipient using the same Common INI
+    /// Upgrade block handler and order, without selecting Core AI.
+    pub(super) fn admit_upgrade_ini_text(&mut self, text: &str) -> Result<(), String> {
+        let mut ini = game_engine::common::ini::INI::new();
+        ini.set_owned_upgrade_center_target(self.upgrade_definitions.clone());
+        let result = ini
+            .with_inline_source(text, |ini| ini.parse_current_file())
+            .map_err(|error| error.to_string());
+        if let Some(center) = ini.take_owned_upgrade_center_target() {
+            self.upgrade_definitions = center;
+        }
+        result
+    }
+    /// Keep Common's engine-lifetime compatibility owner equal to the one
+    /// parsed recipient. This is a clone, not a second INI parse.
+    pub(super) fn publish_upgrade_definitions_to_engine_lifetime(&self) {
+        let center = game_engine::common::system::upgrade::process_lifetime_upgrade_center();
+        *center.write().unwrap_or_else(|error| error.into_inner()) =
+            self.upgrade_definitions.clone();
     }
     pub(super) fn admit(self, world: &mut crate::game_logic::GameLogic) -> Result<(), String> {
         world.admit_body_damage_baseline(self.body);
         world.admit_lighting_rules_base(self.lighting);
         world.admit_physics_rules_base(self.physics)?;
         world.admit_production_energy_base(self.energy);
+        world.upgrade_definition_base = self.upgrade_definitions.clone();
+        world.upgrade_definitions = self.upgrade_definitions;
         Ok(())
     }
 }

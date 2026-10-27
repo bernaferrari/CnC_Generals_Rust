@@ -1202,7 +1202,7 @@ impl CnCGameEngine {
 
     pub(super) fn spawn_startup_map_load(
         application_assets: Arc<std::sync::Mutex<crate::assets::manager::AssetManager>>,
-        simulation_rules: super::startup_definition_source::StartupSimulationRules,
+        mut simulation_rules: super::startup_definition_source::StartupSimulationRules,
         receiving_object_sources: super::object_ini_boot::ObjectSourceSnapshot,
         start_in_menu: bool,
         map_to_load: Option<String>,
@@ -1515,6 +1515,7 @@ impl CnCGameEngine {
                     // canonical `Upgrade` block path. Never parse twice: re-parsing a
                     // different copy could allocate mask bits in a different order.
                     game_engine::common::system::upgrade::initialize_upgrade_center();
+                    simulation_rules.refresh_upgrade_definitions_from_engine_lifetime();
                     let upgrade_ini_loaded = game_engine::common::system::upgrade::process_lifetime_upgrade_center()
                         .read()
                         // More than the three init() veterancy templates.
@@ -1523,12 +1524,15 @@ impl CnCGameEngine {
                     if !upgrade_ini_loaded {
                         for upgrade_path in ["Data/INI/Default/Upgrade.ini", "Data/INI/Upgrade.ini"] {
                             if let Some(content) = extract_ini_text_from_archives(upgrade_path)? {
-                                match crate::assets::ini_template_loader::load_upgrade_ini_text(&content) {
+                                match simulation_rules.admit_upgrade_ini_text(&content) {
                                     Ok(()) => info!("Loaded upgrade definitions from {}", upgrade_path),
                                     Err(err) => warn!("Failed parsing Upgrade.ini '{}': {}", upgrade_path, err),
                                 }
                             }
                         }
+                        // Publish a clone of the parsed recipient for legacy Common
+                        // readers; definitions were parsed only once, into the owner.
+                        simulation_rules.publish_upgrade_definitions_to_engine_lifetime();
                     }
 
                     // C++ parity: GameEngine.cpp:480 — AIData.ini after Upgrade, before Crate.
@@ -1699,7 +1703,9 @@ impl CnCGameEngine {
                         // CommandSet buttons shown to the player; Main's
                         // production authorization reads its typed UNIT_BUILD
                         // identities through the bridge as well.
-                        if let Err(err) = gamelogic::control_bar::refresh_control_bar_bridge_from_common() {
+                        if let Err(err) = gamelogic::control_bar::refresh_control_bar_bridge_from_common_with_upgrade_definitions(
+                            simulation_rules.upgrade_definitions(),
+                        ) {
                             warn!(
                                 "Failed to refresh parsed ControlBar bridge; production catalog unavailable: {}",
                                 err
