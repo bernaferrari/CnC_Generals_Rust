@@ -51,57 +51,52 @@ fn world_info_weather_stays_with_each_world_through_presentation_reset_and_resto
     let follows_weather = map_with_weather_rule(root.path(), "follows", "Yes");
     let ignores_weather = map_with_weather_rule(root.path(), "ignores", "No");
     let mut snowy = world_with_world_info_weather(&follows_weather, 0.4);
-    let mut snowy_without_model_follow = world_with_world_info_weather(&ignores_weather, 0.8);
+    let mut peer = world_with_world_info_weather(&ignores_weather, 0.8);
 
     assert_eq!(snowy.weather_state().current_weather, "snowy");
-    assert_eq!(
-        snowy_without_model_follow.weather_state().current_weather,
-        "snowy"
-    );
+    assert_eq!(peer.weather_state().current_weather, "snowy");
     assert_eq!(snowy.weather_state().intensity, 0.4);
-    assert_eq!(snowy_without_model_follow.weather_state().intensity, 0.8);
+    assert_eq!(peer.weather_state().intensity, 0.8);
     assert!(published_snow(&mut snowy));
     assert!(
-        !published_snow(&mut snowy_without_model_follow),
+        !published_snow(&mut peer),
         "the receiving Map.ini rule controls model weather translation"
     );
+
+    peer.apply_world_info_weather(Some(0));
+    assert_eq!(peer.weather_state().current_weather, "normal");
+    assert_eq!(snowy.weather_state().current_weather, "snowy");
 
     let builder = SnapshotBuilder::new();
     let snowy_snapshot = builder
         .create_world_snapshot(&snowy)
         .expect("capture snowy world");
-    let no_follow_snapshot = builder
-        .create_world_snapshot(&snowy_without_model_follow)
-        .expect("capture second snowy world");
+    let peer_snapshot = builder
+        .create_world_snapshot(&peer)
+        .expect("capture peer world");
 
     // Reapply WorldInfo to one session and reset it while its peer remains live.
     snowy.apply_world_info_weather(Some(0));
     assert_eq!(snowy.weather_state().current_weather, "normal");
-    assert_eq!(
-        snowy_without_model_follow.weather_state().current_weather,
-        "snowy"
-    );
+    assert_eq!(peer.weather_state().current_weather, "normal");
     snowy.reset();
     assert_eq!(snowy.weather_state().current_weather, "clear");
-    assert_eq!(
-        snowy_without_model_follow.weather_state().current_weather,
-        "snowy"
-    );
+    assert_eq!(peer.weather_state().current_weather, "normal");
 
     // Restore into receivers that have admitted the corresponding map and its
     // team definitions; a bare GameLogic is not a valid loaded-map candidate.
     let mut restored_snow = world_with_world_info_weather(&follows_weather, 0.0);
-    let mut restored_no_follow = world_with_world_info_weather(&ignores_weather, 0.0);
+    let mut restored_peer = world_with_world_info_weather(&ignores_weather, 0.0);
     builder
         .restore_from_snapshot(&snowy_snapshot, &mut restored_snow)
         .expect("restore snowy continuation");
     builder
-        .restore_from_snapshot(&no_follow_snapshot, &mut restored_no_follow)
-        .expect("restore second snowy continuation");
+        .restore_from_snapshot(&peer_snapshot, &mut restored_peer)
+        .expect("restore peer continuation");
     assert_eq!(restored_snow.weather_state().current_weather, "snowy");
-    assert_eq!(restored_no_follow.weather_state().current_weather, "snowy");
+    assert_eq!(restored_peer.weather_state().current_weather, "normal");
     assert_eq!(restored_snow.weather_state().intensity, 0.4);
-    assert_eq!(restored_no_follow.weather_state().intensity, 0.8);
+    assert_eq!(restored_peer.weather_state().intensity, 0.8);
     assert!(published_snow(&mut restored_snow));
-    assert!(!published_snow(&mut restored_no_follow));
+    assert!(!published_snow(&mut restored_peer));
 }
