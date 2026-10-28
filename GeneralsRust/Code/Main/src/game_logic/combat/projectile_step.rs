@@ -190,6 +190,7 @@ impl CombatSystem {
                             projectile,
                             objects.read(),
                             impact,
+                            true,
                         ));
                     }
                     if !projectile.detonation_fx_name.is_empty()
@@ -333,7 +334,12 @@ impl CombatSystem {
                     objects.read(),
                 );
                 if !projectile.no_damage && projectile.explosion_radius > 0.0 {
-                    damage_events.push(Self::splash_area_event(projectile, objects.read(), impact));
+                    damage_events.push(Self::splash_area_event(
+                        projectile,
+                        objects.read(),
+                        impact,
+                        true,
+                    ));
                 } else if !projectile.no_damage {
                     damage_events.push(DamageEvent::Direct {
                         target_id: sid,
@@ -406,6 +412,7 @@ impl CombatSystem {
                                 projectile,
                                 objects.read(),
                                 impact,
+                                true,
                             ));
                         } else if !projectile.no_damage {
                             damage_events.push(DamageEvent::Direct {
@@ -459,6 +466,7 @@ impl CombatSystem {
                             projectile,
                             objects.read(),
                             impact,
+                            true,
                         ));
                     }
                     if !projectile.detonation_fx_name.is_empty()

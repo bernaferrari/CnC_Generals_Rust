@@ -56,6 +56,7 @@ pub(in crate::game_logic) mod tests {
             shooter_pos: Vec3::ZERO,
             source_context: Some(ProjectileLaunchContext {
                 source_team: Team::China,
+                projectile_team_id: None,
                 source_owner_player_id: None,
                 source_veterancy: crate::game_logic::VeterancyLevel::Rookie,
                 source_orientation: 0.0,
@@ -1340,6 +1341,7 @@ pub(in crate::game_logic) mod tests {
             shooter_pos: Vec3::ZERO,
             source_context: Some(ProjectileLaunchContext {
                 source_team: Team::China,
+                projectile_team_id: None,
                 source_owner_player_id: None,
                 source_veterancy: crate::game_logic::VeterancyLevel::Heroic,
                 source_orientation: std::f32::consts::FRAC_PI_2,
@@ -2414,6 +2416,7 @@ pub(in crate::game_logic) mod tests {
             shooter_pos: Vec3::ZERO,
             source_context: Some(ProjectileLaunchContext {
                 source_team: Team::USA,
+                projectile_team_id: None,
                 source_owner_player_id: Some(1),
                 source_veterancy: crate::game_logic::VeterancyLevel::Rookie,
                 source_orientation: 0.0,

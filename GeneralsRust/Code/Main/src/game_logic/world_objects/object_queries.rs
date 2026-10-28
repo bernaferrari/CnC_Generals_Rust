@@ -702,7 +702,7 @@ impl GameLogic {
         )
     }
 
-    fn object_relationship_from_identities(
+    pub(crate) fn object_relationship_from_identities(
         team_factory: &gamelogic::team::TeamFactoryHandle,
         players: &std::collections::HashMap<u32, crate::game_logic::Player>,
         source_owner: Option<u32>,

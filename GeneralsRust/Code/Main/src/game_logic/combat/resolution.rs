@@ -323,8 +323,15 @@ impl CombatSystem {
         projectile: &Projectile,
         objects: HostObjectRead<'_>,
         position: Vec3,
+        moving_projectile: bool,
     ) -> DamageEvent {
         let live = objects.lookup(&projectile.shooter_id);
+        let radius_source_present = moving_projectile || live.is_some();
+        let radius_source_id = if moving_projectile {
+            projectile.id
+        } else {
+            projectile.shooter_id
+        };
         // C++ fireWeaponTemplate: DamageDealtAtSelfPosition → damageID=INVALID,
         // damagePos=sourcePos (Weapon.cpp:1008, 1035). Stay off cone field.
         let at_self =
@@ -351,15 +358,39 @@ impl CombatSystem {
             shock_wave_radius: projectile.shock_wave_radius,
             shock_wave_taper_off: projectile.shock_wave_taper_off,
             radius_damage_affects: projectile.radius_damage_affects,
-            shooter_team: live.map(|o| o.team).unwrap_or(projectile.source_team),
-            shooter_owner_player_id: live
-                .and_then(|o| o.owner_player_id)
-                .or(projectile.source_owner_player_id),
-            shooter_team_instance_name: live
-                .map(|o| o.team_instance_name.clone())
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| projectile.source_team_instance_name.clone()),
-            shooter_template: live.map(|o| o.template_name.clone()).unwrap_or_default(),
+            shooter_team: if moving_projectile {
+                projectile.source_team
+            } else {
+                live.map(|o| o.team).unwrap_or(projectile.source_team)
+            },
+            shooter_owner_player_id: if moving_projectile {
+                projectile.source_owner_player_id
+            } else {
+                live.and_then(|o| o.owner_player_id)
+            },
+            shooter_team_instance_name: if moving_projectile {
+                String::new()
+            } else {
+                live.map(|o| o.team_instance_name.clone())
+                    .unwrap_or_default()
+            },
+            shooter_template: if moving_projectile {
+                projectile.projectile_object_name.clone()
+            } else {
+                live.map(|o| o.template_name.clone()).unwrap_or_default()
+            },
+            radius_source_present,
+            radius_source_id,
+            radius_source_producer: if moving_projectile {
+                Some(projectile.shooter_id)
+            } else {
+                live.and_then(|o| o.producer_id)
+            },
+            radius_source_team_id: if moving_projectile {
+                projectile.source_projectile_team_id
+            } else {
+                live.and_then(|o| o.team_instance_id)
+            },
             primary_victim,
             radius_damage_angle: leftover_radius_damage_angle(&projectile.historic_weapon_key),
         }
@@ -652,6 +683,10 @@ impl CombatSystem {
                     shock_wave_taper_off,
                     shooter_id,
                     radius_damage_affects,
+                    radius_source_present,
+                    radius_source_id,
+                    radius_source_producer,
+                    radius_source_team_id,
                     shooter_owner_player_id,
                     shooter_team_instance_name,
                     shooter_template,
@@ -672,7 +707,7 @@ impl CombatSystem {
                     let shock_amt = (*shock_wave_amount).max(0.0);
                     let shock_taper = (*shock_wave_taper_off).clamp(0.0, 1.0);
                     let shooter_pos = objects.get(shooter_id).map(|s| s.get_position());
-                    let shooter_producer = objects.get(shooter_id).and_then(|s| s.producer_id);
+                    let shooter_producer = *radius_source_producer;
                     let shooter_dir_xz = objects.get(shooter_id).map(|s| s.unit_direction_xz());
                     for (vid, obj) in objects.registered_mut() {
                         let op = obj.get_position();
@@ -685,11 +720,11 @@ impl CombatSystem {
                             continue;
                         }
                         let is_primary = *primary_victim == Some(*vid);
-                        let kills_self = (*radius_damage_affects
+                        let kills_self = *radius_source_present && (*radius_damage_affects
                             & crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF)
                             != 0
-                            && *vid == *shooter_id;
-                        if !is_primary && !kills_self {
+                            && *vid == *radius_source_id;
+                        if *radius_source_present && !is_primary && !kills_self {
                             let airborne = obj.is_significantly_above_terrain();
                             let same_tmpl =
                                 crate::game_logic::weapon_bootstrap::splash_templates_equivalent(
@@ -698,12 +733,14 @@ impl CombatSystem {
                                 );
                             let relationship = match players {
                                 Some(map) if team_factory.is_some() => {
-                                    crate::game_logic::GameLogic::object_relationship_from_owners(
+                                    crate::game_logic::GameLogic::object_relationship_from_identities(
                                         team_factory.expect("guarded Some"),
                                         map,
                                         obj.owner_player_id,
+                                        obj.team_instance_id,
                                         &obj.team_instance_name,
                                         *shooter_owner_player_id,
+                                        *radius_source_team_id,
                                         shooter_team_instance_name,
                                     )
                                 }
@@ -711,7 +748,7 @@ impl CombatSystem {
                                 // ownership-driven; the live host falls back to
                                 // the frozen launch teams when no player
                                 // registry is wired into this combat pass.
-                                Some(map) if obj.owner_player_id == *shooter_owner_player_id => {
+                                Some(_map) if obj.owner_player_id == *shooter_owner_player_id => {
                                     gamelogic::common::Relationship::Allies
                                 }
                                 Some(map) => {
@@ -731,7 +768,7 @@ impl CombatSystem {
                                 crate::game_logic::weapon_bootstrap::radius_damage_affects_victim(
                                     *radius_damage_affects,
                                     relationship,
-                                    *shooter_id,
+                                    *radius_source_id,
                                     *vid,
                                     shooter_producer,
                                     airborne,
@@ -894,7 +931,12 @@ impl CombatSystem {
         );
         let mut events = Vec::new();
         if proj.explosion_radius > 0.0 || proj.secondary_damage_radius > 0.0 {
-            events.push(Self::splash_area_event(&proj, objects, shot.damage_pos));
+            events.push(Self::splash_area_event(
+                &proj,
+                objects,
+                shot.damage_pos,
+                false,
+            ));
         } else if let Some(target_id) = shot.damage_id {
             events.push(DamageEvent::Direct {
                 target_id,

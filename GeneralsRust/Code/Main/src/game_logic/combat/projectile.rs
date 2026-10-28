@@ -108,6 +108,10 @@ pub struct Projectile {
     /// its firing object, while its detonation OCL must still create objects
     /// for the original team.
     pub source_team: crate::game_logic::Team,
+    /// Exact default Team assigned to this projectile at launch. Unlike the
+    /// firing object's Team, this is the projectile's own C++ object Team.
+    #[serde(skip)]
+    pub source_projectile_team_id: Option<u32>,
     /// Firing object's controlling player frozen at launch (C++ getRelationship).
     #[serde(default)]
     pub source_owner_player_id: Option<u32>,
@@ -198,6 +202,7 @@ impl Projectile {
             detonation_ocl_name: String::new(),
             exhaust_name: String::new(),
             source_team: crate::game_logic::Team::Neutral,
+            source_projectile_team_id: None,
             source_owner_player_id: None,
             source_team_instance_name: String::new(),
             source_veterancy: crate::game_logic::VeterancyLevel::Rookie,

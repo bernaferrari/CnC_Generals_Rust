@@ -373,9 +373,10 @@ fn delayed(label: &str, remove_source: bool) {
     let source = f.shooters[0];
     if remove_source {
         // Setup-only promotion: explicit local audio, no receiving UI admission.
+        let mut audio = generals_main::game_logic::SessionAudio::default();
         f.world.objects.get_mut(&source).unwrap().gain_experience(
             10.0,
-            &mut generals_main::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut generals_main::game_logic::ObjectAudio::queue(&mut audio),
             &mut generals_main::game_logic::VeterancyFeedback::standalone(),
         );
         assert_eq!(
@@ -417,6 +418,36 @@ fn ordinary_library_queued_area_finite_speed_due_frame() {
 #[test]
 fn ordinary_library_queued_area_missing_source_at_arrival() {
     delayed("MissingSource", true);
+}
+
+#[test]
+fn missing_projectileless_source_bypasses_radius_affects_filters() {
+    let mut f = fixture_custom(
+        "MissingSourceBypass",
+        200.0,
+        false,
+        30,
+        1,
+        10.0,
+        5.0,
+        "ENEMIES",
+        "",
+    );
+    let same_owner_collateral = f
+        .world
+        .create_object_for_player("QueuedSink", 0, Vec3::new(12.0, 0.0, 0.0))
+        .unwrap();
+    let source = f.shooters[0];
+    f.accept();
+    f.world.destroy_object(source).unwrap();
+    f.world.update();
+    while f.world.get_current_frame() <= 110 {
+        f.world.update();
+    }
+    assert_eq!(
+        f.world.objects[&same_owner_collateral].health.current, 400.0,
+        "C++ skips RadiusDamageAffects filtering when the delayed source no longer exists"
+    );
 }
 #[test]
 fn ordinary_library_queued_area_two_accepted_hits_credit_once() {

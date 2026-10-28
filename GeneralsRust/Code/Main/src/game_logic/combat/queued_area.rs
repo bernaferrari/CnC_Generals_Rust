@@ -12,14 +12,19 @@ impl<'a> AreaDamage<'a> {
         event: &'a DamageEvent,
         objects: HostObjectRead<'_>,
     ) -> Option<Self> {
-        let DamageEvent::Area { shooter_id, .. } = event else {
+        let DamageEvent::Area {
+            shooter_id,
+            radius_source_producer,
+            ..
+        } = event
+        else {
             return None;
         };
         let source = objects.lookup(shooter_id);
         Some(Self {
             event,
             shooter_pos: source.map(|o| o.get_position()),
-            shooter_producer: source.and_then(|o| o.producer_id),
+            shooter_producer: *radius_source_producer,
             shooter_dir_xz: source.map(|o| o.unit_direction_xz()),
         })
     }
@@ -82,6 +87,10 @@ impl<'a> AreaDamage<'a> {
             shock_wave_taper_off,
             shooter_id,
             radius_damage_affects,
+            radius_source_present,
+            radius_source_id,
+            radius_source_producer: _,
+            radius_source_team_id,
             shooter_owner_player_id,
             shooter_team_instance_name,
             shooter_template,
@@ -99,11 +108,12 @@ impl<'a> AreaDamage<'a> {
         let shooter_dir_xz = self.shooter_dir_xz;
         let op = obj.get_position();
         let is_primary = *primary_victim == Some(vid);
-        let kills_self = (*radius_damage_affects
-            & crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF)
-            != 0
-            && vid == *shooter_id;
-        if !is_primary && !kills_self {
+        let kills_self = *radius_source_present
+            && (*radius_damage_affects
+                & crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF)
+                != 0
+            && vid == *radius_source_id;
+        if *radius_source_present && !is_primary && !kills_self {
             let airborne = obj.is_significantly_above_terrain();
             let same_tmpl = crate::game_logic::weapon_bootstrap::splash_templates_equivalent(
                 shooter_template,
@@ -111,12 +121,14 @@ impl<'a> AreaDamage<'a> {
             );
             let relationship = match players {
                 Some(map) if team_factory.is_some() => {
-                    crate::game_logic::GameLogic::object_relationship_from_owners(
+                    crate::game_logic::GameLogic::object_relationship_from_identities(
                         team_factory.expect("guarded Some"),
                         map,
                         obj.owner_player_id,
+                        obj.team_instance_id,
                         &obj.team_instance_name,
                         *shooter_owner_player_id,
+                        *radius_source_team_id,
                         shooter_team_instance_name,
                     )
                 }
@@ -141,7 +153,7 @@ impl<'a> AreaDamage<'a> {
             let allowed = crate::game_logic::weapon_bootstrap::radius_damage_affects_victim(
                 *radius_damage_affects,
                 relationship,
-                *shooter_id,
+                *radius_source_id,
                 vid,
                 shooter_producer,
                 airborne,

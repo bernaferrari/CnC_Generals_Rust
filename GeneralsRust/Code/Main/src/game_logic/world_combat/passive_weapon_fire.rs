@@ -31,6 +31,11 @@ impl GameLogic {
         };
         let infantry = victim.is_kind_of(KindOf::Infantry);
         let faerie = victim.is_faerie_fire();
+        let projectile_team_id = self
+            .objects
+            .get(&source)
+            .and_then(|object| object.owner_player_id)
+            .and_then(|player_id| self.host_default_team_id(player_id));
         let Some(shooter) = self.objects.get_mut(&source) else {
             return false;
         };
@@ -52,6 +57,7 @@ impl GameLogic {
             &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
             &self.solo_weapon_bonus_set,
             &self.logic_random,
+            projectile_team_id,
         ) else {
             return false;
         };

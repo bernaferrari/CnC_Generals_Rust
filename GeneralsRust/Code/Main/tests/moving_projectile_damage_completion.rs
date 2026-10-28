@@ -70,6 +70,23 @@ fn fixture_custom(
     affects: &str,
     extra: &str,
 ) -> Fixture {
+    fixture_custom_with_ai(
+        label, health, sink, speed, count, threshold, radius, affects, extra, false,
+    )
+}
+
+fn fixture_custom_with_ai(
+    label: &str,
+    health: f32,
+    sink: bool,
+    speed: u32,
+    count: usize,
+    threshold: f32,
+    radius: f32,
+    affects: &str,
+    extra: &str,
+    with_ai: bool,
+) -> Fixture {
     let rule = format!("LibraryMoving{label}Weapon");
     let rows = format!("LibraryMoving{label}Rows");
     gamelogic::initialize_weapon_store().unwrap();
@@ -147,6 +164,21 @@ End
         player.is_alive = true;
         world.add_player(player);
     }
+    // Give snapshot capture the same admitted receiving AI source used by
+    // the production continuation fixtures. The fixture's host-only combat
+    // fields below remain customized after receiving admission.
+    if with_ai {
+        world
+            .admit_object_ini_sources([
+            (
+                "MovingProjectileFixture.ini".into(),
+                format!(
+                    "Object QueuedSource\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 500\nInitialHealth = 500\nEnd\nBehavior = AIUpdateInterface ActualQueuedSourceAI\nEnd\nEnd\nObject QueuedVictim\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody Body\nMaxHealth = {health}\nInitialHealth = {health}\nEnd\nBehavior = AIUpdateInterface ActualQueuedVictimAI\nEnd\nEnd\nObject QueuedSink\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 500\nInitialHealth = 500\nEnd\nBehavior = AIUpdateInterface ActualQueuedSinkAI\nEnd\nEnd\n"
+                ),
+            ),
+            ])
+            .unwrap();
+    }
     let make = |name: &str, hp: f32, xp: f32| {
         let mut t = ThingTemplate::new(name);
         t.set_health(hp)
@@ -171,7 +203,21 @@ End
             damage_fx: Some(rows.clone()),
         });
     for t in [shooter, target, make("QueuedSink", 500.0, 0.0)] {
-        world.templates.insert(t.name.clone(), t);
+        if with_ai {
+            let admitted = world.templates.get_mut(&t.name).unwrap();
+            admitted.set_health(t.max_health);
+            admitted.kind_of = t.kind_of;
+            admitted.is_trainable = t.is_trainable;
+            admitted.veterancy_xp_thresholds = t.veterancy_xp_thresholds;
+            admitted.experience_values = t.experience_values;
+            admitted.geometry_info = t.geometry_info;
+            admitted.armor_sets = t.armor_sets;
+            admitted.primary_weapon = t.primary_weapon;
+            admitted.primary_weapon_name = t.primary_weapon_name;
+            admitted.primary_weapon_explicitly_none = t.primary_weapon_explicitly_none;
+        } else {
+            world.templates.insert(t.name.clone(), t);
+        }
     }
     let shooters: Vec<_> = (0..count)
         .map(|_| {
@@ -240,6 +286,39 @@ End
         rows,
     }
 }
+
+fn set_team_override_for_members(
+    world: &mut GameLogic,
+    source: ObjectId,
+    target: ObjectId,
+    relationship: i32,
+) {
+    let mut chunks = generals_main::save_load::snapshot::stamp_player_team_chunks(world).unwrap();
+    let teams = &mut chunks.teams.as_mut().unwrap().teams;
+    let source_team = teams
+        .iter()
+        .find(|team| {
+            team.members
+                .as_ref()
+                .is_some_and(|members| members.contains(&source.0))
+        })
+        .unwrap()
+        .team_id;
+    let target_team = teams
+        .iter_mut()
+        .find(|team| {
+            team.members
+                .as_ref()
+                .is_some_and(|members| members.contains(&target.0))
+        })
+        .unwrap();
+    target_team.team_relations.push(Default::default());
+    let override_ = target_team.team_relations.last_mut().unwrap();
+    override_.team_id = source_team;
+    override_.relationship = relationship;
+    generals_main::save_load::snapshot::apply_pending_player_team_chunks(world, &chunks).unwrap();
+}
+
 impl Fixture {
     fn accept(&mut self) {
         self.world.update(); // frame99 aims
@@ -638,7 +717,7 @@ fn moving_area_interleaved_worlds() {
     worlds(10.0);
 }
 #[test]
-fn moving_area_team_instance_admission_uses_live_relationship_policy() {
+fn moving_area_uses_projectile_default_team_identity_not_launcher_custom_team() {
     let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let _clear = ClearObserver;
     let observer = observe();
@@ -683,18 +762,85 @@ fn moving_area_team_instance_admission_uses_live_relationship_policy() {
     override_.relationship = 2;
     generals_main::save_load::snapshot::apply_pending_player_team_chunks(&mut f.world, &chunks)
         .unwrap();
+    f.world
+        .objects
+        .get_mut(&f.shooters[0])
+        .unwrap()
+        .team_instance_name = "LauncherTeam".into();
+    f.world
+        .objects
+        .get_mut(&collateral)
+        .unwrap()
+        .team_instance_name = "CollateralTeam".into();
     assert_eq!(
         f.world.player_relationship(0, 1),
         gamelogic::common::Relationship::Enemies
     );
     f.accept();
     advance_to_impact(&mut f, &observer, 150.0);
-    // Queued None(team_factory) would fall back to Neutral and exclude this
-    // collateral. Moving Some(team_factory) honors victim-to-source override.
+    // The projectile belongs to the shooter's default Team, while the launcher
+    // has a custom Team name. The exact default-Team override still admits the
+    // collateral hit because C++ uses the projectile as detonation source.
     assert_eq!(f.world.objects[&collateral].health.current, 50.0);
     assert_eq!(f.world.objects[&f.victim].health.current, 50.0); // primary bypass
     assert_eq!(observer.0.lock().unwrap().len(), 2);
     assert_eq!(f.xp(), 0.0);
+}
+
+#[test]
+fn moving_area_projectile_default_team_identity_controls_collateral_filter() {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let _clear = ClearObserver;
+    let observer = observe();
+    let mut f = fixture_custom_with_ai(
+        "DefaultTeamIdentity",
+        150.0,
+        false,
+        30,
+        1,
+        10.0,
+        10.0,
+        "ALLIES",
+        "",
+        true,
+    );
+    let collateral = f
+        .world
+        .create_object_for_player("QueuedVictim", 1, Vec3::new(31.0, 0.0, 0.0))
+        .unwrap();
+    f.world
+        .objects
+        .get_mut(&f.shooters[0])
+        .unwrap()
+        .team_instance_name = "LauncherCustomTeam".into();
+    set_team_override_for_members(
+        &mut f.world,
+        f.shooters[0],
+        collateral,
+        2, // Allies in the Team relationship wire value.
+    );
+    f.accept();
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&f.world).unwrap();
+    let mut receiver = fixture_custom_with_ai(
+        "DefaultTeamIdentity",
+        150.0,
+        false,
+        30,
+        1,
+        10.0,
+        10.0,
+        "ALLIES",
+        "",
+        true,
+    )
+    .world;
+    builder
+        .restore_from_snapshot(&snapshot, &mut receiver)
+        .unwrap();
+    f.world = receiver;
+    advance_to_impact(&mut f, &observer, 150.0);
+    assert_eq!(f.world.objects[&collateral].health.current, 50.0);
 }
 #[test]
 fn moving_area_shock_final_state() {

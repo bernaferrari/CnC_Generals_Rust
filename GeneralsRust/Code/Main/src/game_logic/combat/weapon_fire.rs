@@ -29,6 +29,13 @@ pub enum DamageEvent {
         radius_damage_affects: u32,
         /// Shooter team frozen at impact for ally/enemy filter.
         shooter_team: crate::game_logic::Team,
+        /// The C++ radius-damage source may differ from damage attribution:
+        /// moving projectile impacts use the projectile, projectileless shots
+        /// use the live shooter, and missing shooters bypass source filters.
+        radius_source_present: bool,
+        radius_source_id: ObjectId,
+        radius_source_producer: Option<ObjectId>,
+        radius_source_team_id: Option<u32>,
         /// Shooter controlling player frozen at impact (C++ getRelationship).
         shooter_owner_player_id: Option<u32>,
         /// Shooter team instance frozen at impact (PLAYER_SET_OVERRIDE_RELATION_TO_TEAM).
@@ -266,6 +273,10 @@ pub(in crate::game_logic) fn take_ready_projectileless_delayed_damage(
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ProjectileLaunchContext {
     pub source_team: crate::game_logic::Team,
+    /// Exact default Team assigned to the C++ projectile object at admission.
+    /// This is projectile ownership, not the shooter's possibly custom Team.
+    #[serde(skip)]
+    pub projectile_team_id: Option<u32>,
     /// Controlling player frozen at fire acceptance (C++ Object::getRelationship).
     pub source_owner_player_id: Option<u32>,
     pub source_veterancy: crate::game_logic::VeterancyLevel,
@@ -544,6 +555,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
             .lookup(&p.shooter_id)
             .map(|source| ProjectileLaunchContext {
                 source_team: source.team,
+                projectile_team_id: None,
                 source_owner_player_id: source.owner_player_id,
                 source_veterancy: source.experience.level,
                 source_orientation: source.get_orientation(),
@@ -552,6 +564,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     });
     let source_context = source_context.unwrap_or(ProjectileLaunchContext {
         source_team: crate::game_logic::Team::Neutral,
+        projectile_team_id: None,
         source_owner_player_id: None,
         source_veterancy: crate::game_logic::VeterancyLevel::Rookie,
         source_orientation: 0.0,
@@ -734,6 +747,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         proj.detonation_ocl_name = p.detonation_ocl_name.clone();
         proj.exhaust_name = p.exhaust_name.clone();
         proj.source_team = source_context.source_team;
+        proj.source_projectile_team_id = source_context.projectile_team_id;
         proj.source_owner_player_id = source_context.source_owner_player_id.or_else(|| {
             objects
                 .lookup(&p.shooter_id)

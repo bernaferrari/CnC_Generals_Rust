@@ -9,14 +9,21 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
 const TAG: &[u8; 4] = b"CPRJ";
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 
 /// The nested arena preserves the exact CPRJ v1 positional payload. Bindings
 /// are derived from canonical flight fields, never a second mutable registry.
 #[derive(Serialize, Deserialize)]
-struct ArenaWithStreams {
+struct ArenaWithStreamsV2 {
     arena: Vec<u8>,
     bindings: Vec<(crate::game_logic::ObjectId, ProjectileStreamBinding)>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ArenaWithStreamsV3 {
+    arena: Vec<u8>,
+    bindings: Vec<(crate::game_logic::ObjectId, ProjectileStreamBinding)>,
+    projectile_team_ids: Vec<(crate::game_logic::ObjectId, u32)>,
 }
 
 pub(super) struct Decoded<'a> {
@@ -53,8 +60,21 @@ pub(super) fn append_record(
                 .map(|binding| (projectile.id, binding))
         })
         .collect();
-    let payload = bincode_legacy::serialize(&ArenaWithStreams { arena, bindings })
-        .map_err(|error| corrupted(format!("encoding projectile stream bindings: {error}")))?;
+    let projectile_team_ids = record
+        .projectiles
+        .iter()
+        .filter_map(|projectile| {
+            projectile
+                .source_projectile_team_id
+                .map(|team_id| (projectile.id, team_id))
+        })
+        .collect();
+    let payload = bincode_legacy::serialize(&ArenaWithStreamsV3 {
+        arena,
+        bindings,
+        projectile_team_ids,
+    })
+    .map_err(|error| corrupted(format!("encoding projectile stream bindings: {error}")))?;
     let length = u32::try_from(payload.len())
         .map_err(|_| corrupted("projectile arena exceeds u32 framing"))?;
     bytes.extend_from_slice(TAG);
@@ -85,7 +105,7 @@ pub(super) fn decode(bytes: &[u8], required_new: bool) -> SaveLoadResult<Decoded
     let mut offset = 4;
     let version = word(suffix, &mut offset)?;
     let length = word(suffix, &mut offset)? as usize;
-    if !matches!(version, 1 | VERSION) {
+    if !matches!(version, 1 | 2 | VERSION) {
         return Err(corrupted("invalid projectile arena version or length"));
     }
     let end = offset
@@ -94,24 +114,35 @@ pub(super) fn decode(bytes: &[u8], required_new: bool) -> SaveLoadResult<Decoded
     let payload = suffix
         .get(offset..end)
         .ok_or_else(|| corrupted("projectile arena truncated"))?;
-    let record: LiveProjectileArenaSnapshot = if version == 1 {
-        decode_exact(payload)?
-    } else {
-        let framed: ArenaWithStreams = decode_exact(payload)?;
-        let mut arena: LiveProjectileArenaSnapshot = decode_exact(&framed.arena)?;
-        let mut seen = std::collections::HashSet::new();
-        for (id, binding) in framed.bindings {
-            if binding.slot > 2 || !seen.insert(id) {
-                return Err(corrupted("invalid or duplicate projectile stream binding"));
-            }
-            let projectile = arena
-                .projectiles
-                .iter_mut()
-                .find(|projectile| projectile.id == id)
-                .ok_or_else(|| corrupted("projectile stream binding references unknown flight"))?;
-            projectile.stream_binding = Some(binding);
+    let record: LiveProjectileArenaSnapshot = match version {
+        1 => decode_exact(payload)?,
+        2 => {
+            let framed: ArenaWithStreamsV2 = decode_exact(payload)?;
+            let mut arena: LiveProjectileArenaSnapshot = decode_exact(&framed.arena)?;
+            apply_bindings(&mut arena, framed.bindings)?;
+            arena
         }
-        arena
+        VERSION => {
+            let framed: ArenaWithStreamsV3 = decode_exact(payload)?;
+            let mut arena: LiveProjectileArenaSnapshot = decode_exact(&framed.arena)?;
+            apply_bindings(&mut arena, framed.bindings)?;
+            let mut seen = std::collections::HashSet::new();
+            for (id, team_id) in framed.projectile_team_ids {
+                if !seen.insert(id) {
+                    return Err(corrupted("duplicate projectile Team identity"));
+                }
+                let projectile = arena
+                    .projectiles
+                    .iter_mut()
+                    .find(|projectile| projectile.id == id)
+                    .ok_or_else(|| {
+                        corrupted("projectile Team identity references unknown flight")
+                    })?;
+                projectile.source_projectile_team_id = Some(team_id);
+            }
+            arena
+        }
+        _ => unreachable!("version checked above"),
     };
     if suffix[end..].starts_with(TAG) {
         return Err(corrupted("duplicate projectile arena frame"));
@@ -124,6 +155,25 @@ pub(super) fn decode(bytes: &[u8], required_new: bool) -> SaveLoadResult<Decoded
         arena,
         legacy_tail: Cow::Owned(legacy),
     })
+}
+
+fn apply_bindings(
+    arena: &mut LiveProjectileArenaSnapshot,
+    bindings: Vec<(crate::game_logic::ObjectId, ProjectileStreamBinding)>,
+) -> SaveLoadResult<()> {
+    let mut seen = std::collections::HashSet::new();
+    for (id, binding) in bindings {
+        if binding.slot > 2 || !seen.insert(id) {
+            return Err(corrupted("invalid or duplicate projectile stream binding"));
+        }
+        let projectile = arena
+            .projectiles
+            .iter_mut()
+            .find(|projectile| projectile.id == id)
+            .ok_or_else(|| corrupted("projectile stream binding references unknown flight"))?;
+        projectile.stream_binding = Some(binding);
+    }
+    Ok(())
 }
 
 fn decode_exact<T: serde::de::DeserializeOwned>(payload: &[u8]) -> SaveLoadResult<T> {
@@ -237,7 +287,7 @@ mod tests {
         bad_tag[12] = b'X';
         assert!(decode(&bad_tag, true).is_err());
         let mut version = bytes.clone();
-        version[16..20].copy_from_slice(&3_u32.to_le_bytes());
+        version[16..20].copy_from_slice(&4_u32.to_le_bytes());
         assert!(decode(&version, true).is_err());
         let mut duplicate = bytes.clone();
         duplicate.extend_from_slice(&bytes[12..]);
@@ -254,6 +304,7 @@ mod tests {
             crate::game_logic::ObjectId(1),
             Some(crate::game_logic::ObjectId(2)),
         );
+        projectile.source_projectile_team_id = Some(42);
         projectile.stream_binding = Some(ProjectileStreamBinding {
             slot: 2,
             name: String::new(),
@@ -265,7 +316,7 @@ mod tests {
     }
 
     #[test]
-    fn stream_v2_preserves_authoritative_empty_and_v1_is_explicitly_unbound() {
+    fn stream_v3_preserves_projectile_team_and_v1_is_explicitly_unbound() {
         let record = one_bound_flight();
         let old_payload = bincode_legacy::serialize(&record).unwrap();
         let mut unbound = record.clone();
@@ -284,6 +335,37 @@ mod tests {
         assert_eq!(
             world.combat_system.projectiles_snapshot()[0].stream_binding,
             record.projectiles[0].stream_binding
+        );
+        assert_eq!(
+            world.combat_system.projectiles_snapshot()[0].source_projectile_team_id,
+            Some(42)
+        );
+        let old_wrapper = ArenaWithStreamsV2 {
+            arena: old_payload.clone(),
+            bindings: vec![(
+                record.projectiles[0].id,
+                record.projectiles[0].stream_binding.clone().unwrap(),
+            )],
+        };
+        let old_v2_payload = bincode_legacy::serialize(&old_wrapper).unwrap();
+        let mut old_v2 = super::super::lifecycle_tail::encode_lifecycle_tail(&Default::default());
+        old_v2.extend_from_slice(TAG);
+        old_v2.extend_from_slice(&2u32.to_le_bytes());
+        old_v2.extend_from_slice(&(old_v2_payload.len() as u32).to_le_bytes());
+        old_v2.extend_from_slice(&old_v2_payload);
+        let decoded = decode(&old_v2, true).unwrap();
+        world
+            .combat_system
+            .restore_live_projectile_arena(decoded.arena);
+        assert_eq!(
+            world.combat_system.projectiles_snapshot()[0].source_projectile_team_id,
+            None,
+            "v2 continuation remains readable without a projectile-owned Team id"
+        );
+        assert!(
+            world.combat_system.projectiles_snapshot()[0]
+                .stream_binding
+                .is_some()
         );
         let mut old = super::super::lifecycle_tail::encode_lifecycle_tail(&Default::default());
         old.extend_from_slice(TAG);
@@ -317,9 +399,10 @@ mod tests {
                 },
             )],
         ] {
-            let framed = ArenaWithStreams {
+            let framed = ArenaWithStreamsV3 {
                 arena: bincode_legacy::serialize(&record).unwrap(),
                 bindings,
+                projectile_team_ids: Vec::new(),
             };
             let payload = bincode_legacy::serialize(&framed).unwrap();
             let mut bytes =

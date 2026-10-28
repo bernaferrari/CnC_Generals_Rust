@@ -1,6 +1,7 @@
 //! Typed Rust world codec for the identical version-23 through 28 positional body.
 use super::*;
 use crate::save_load::{SaveLoadError, SaveLoadResult, Xfer, XferMode};
+use serde::{Deserialize, Serialize};
 // Decode through the actual bincode 2 adapter wire configuration. The local
 // bincode_legacy Options setters do not enforce trailing-byte rejection.
 fn decode_exact<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> SaveLoadResult<T> {
@@ -32,11 +33,29 @@ pub(super) fn xfer_pending_combat(
     xfer: &mut dyn Xfer,
     snapshot: &mut crate::game_logic::combat::PendingCombatSnapshot,
 ) -> SaveLoadResult<()> {
+    #[derive(Serialize, Deserialize)]
+    struct ProjectileTeamIdentityEnvelope {
+        pending: Vec<u8>,
+        team_ids: Vec<Option<u32>>,
+    }
+    const TAG: &[u8; 4] = b"PCID";
+    const VERSION: u32 = 1;
     let mut bytes = if xfer.get_mode() == XferMode::Load {
         Vec::new()
     } else {
-        bincode_legacy::serialize(snapshot)
-            .map_err(|error| SaveLoadError::Serialization(error.to_string()))?
+        let pending = bincode_legacy::serialize(snapshot)
+            .map_err(|error| SaveLoadError::Serialization(error.to_string()))?;
+        let envelope = ProjectileTeamIdentityEnvelope {
+            pending,
+            team_ids: snapshot.projectile_team_ids(),
+        };
+        let mut bytes = Vec::from(TAG.as_slice());
+        bytes.extend_from_slice(&VERSION.to_le_bytes());
+        bytes.extend_from_slice(
+            &bincode_legacy::serialize(&envelope)
+                .map_err(|error| SaveLoadError::Serialization(error.to_string()))?,
+        );
+        bytes
     };
     let mut length = u32::try_from(bytes.len()).map_err(|_| {
         SaveLoadError::Serialization("Pending combat snapshot exceeds u32 framing".to_string())
@@ -52,7 +71,23 @@ pub(super) fn xfer_pending_combat(
             remaining -= block.len();
             bytes.extend_from_slice(&block);
         }
-        let decoded = decode_exact(&bytes)?;
+        let decoded = if bytes.starts_with(TAG) {
+            if bytes.len() < 8 || u32::from_le_bytes(bytes[4..8].try_into().unwrap()) != VERSION {
+                return Err(SaveLoadError::Serialization(
+                    "Unsupported pending projectile Team identity frame".to_string(),
+                ));
+            }
+            let envelope: ProjectileTeamIdentityEnvelope = decode_exact(&bytes[8..])?;
+            let mut pending: crate::game_logic::combat::PendingCombatSnapshot =
+                decode_exact(&envelope.pending)?;
+            pending
+                .restore_projectile_team_ids(&envelope.team_ids)
+                .map_err(SaveLoadError::Serialization)?;
+            pending
+        } else {
+            // The pre-PCID typed frame stores only PendingCombatSnapshot.
+            decode_exact(&bytes)?
+        };
         *snapshot = decoded;
     } else {
         xfer.xfer_raw(&mut bytes)?;

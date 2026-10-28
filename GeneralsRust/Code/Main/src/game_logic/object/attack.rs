@@ -164,6 +164,7 @@ impl Object {
             operation_effects,
             None,
             None,
+            None,
         )
     }
 
@@ -186,6 +187,7 @@ impl Object {
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         solo_set: &gamelogic::weapon::WeaponBonusSet,
         random: &game_engine::common::random_value::SessionRandom,
+        projectile_team_id: Option<u32>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         self.prepare_weapon_shot_with_operation(
             WeaponShotRoute::Passive {
@@ -205,6 +207,7 @@ impl Object {
             operation_effects,
             Some(solo_set),
             Some(random),
+            projectile_team_id,
         )
     }
 
@@ -264,6 +267,7 @@ impl Object {
             operation_effects,
             None,
             None,
+            None,
         )
     }
 
@@ -285,6 +289,7 @@ impl Object {
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         solo_set: &gamelogic::weapon::WeaponBonusSet,
         random: &game_engine::common::random_value::SessionRandom,
+        projectile_team_id: Option<u32>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         self.prepare_weapon_shot_with_operation(
             WeaponShotRoute::Autonomous,
@@ -301,6 +306,7 @@ impl Object {
             operation_effects,
             Some(solo_set),
             Some(random),
+            projectile_team_id,
         )
     }
     /// The receiving content catalogue cannot silently substitute a process
@@ -358,6 +364,7 @@ impl Object {
             &mut Default::default(),
             None,
             None,
+            None,
         )
     }
 
@@ -377,6 +384,7 @@ impl Object {
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
         random: Option<&game_engine::common::random_value::SessionRandom>,
+        projectile_team_id: Option<u32>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         let autonomous = matches!(route, WeaponShotRoute::Autonomous);
         // C++ Weapon::getMaxShotCount residual — AI burst / scatter limits.
@@ -946,6 +954,7 @@ impl Object {
             shooter_pos,
             source_context: Some(super::combat::ProjectileLaunchContext {
                 source_team: self.team,
+                projectile_team_id,
                 source_owner_player_id: self.owner_player_id,
                 source_veterancy: veterancy,
                 source_orientation: self.get_orientation(),

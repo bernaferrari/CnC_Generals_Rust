@@ -2193,6 +2193,11 @@ impl GameLogic {
             .map(|v| (v.is_kind_of(KindOf::Infantry), v.is_faerie_fire()))
             .unwrap_or((false, false));
 
+        let projectile_team_id = self
+            .objects
+            .get(&unit_id)
+            .and_then(|object| object.owner_player_id)
+            .and_then(|player_id| self.host_default_team_id(player_id));
         let prepared = {
             let Some(u) = self.objects.get_mut(&unit_id) else {
                 return AttackFireResult::Failure;
@@ -2234,6 +2239,7 @@ impl GameLogic {
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                 &self.solo_weapon_bonus_set,
                 &self.logic_random,
+                projectile_team_id,
             )
         };
 
