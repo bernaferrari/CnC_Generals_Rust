@@ -102,7 +102,6 @@ impl GameLogic {
             &mut ui,
         )?;
         self.apply_host_hunt_guard_script_requests(&mut ui)?;
-        self.apply_host_garrison_enter_exit_script_requests_with_effects(&mut ui)?;
         self.apply_host_idle_script_requests_with_effects(&mut ui);
         self.apply_host_kill_delete_damage_script_requests_with_effects(&mut ui);
 

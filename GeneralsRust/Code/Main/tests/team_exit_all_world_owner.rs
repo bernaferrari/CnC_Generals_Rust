@@ -6,7 +6,9 @@ use gamelogic::scripting::core::{
     ScriptActionType, ScriptList,
 };
 use gamelogic::scripting::engine::ScriptEngine;
-use generals_main::game_logic::{GameLogic, GameMode, Player, Team};
+use generals_main::game_logic::{
+    BuildingData, BuildingType, GameLogic, GameMode, KindOf, Player, Team, ThingTemplate,
+};
 
 fn map_file(root: &std::path::Path) -> std::path::PathBuf {
     let mut out = DataChunkOutput::new();
@@ -27,7 +29,10 @@ fn map_file(root: &std::path::Path) -> std::path::PathBuf {
     out.write_ascii_string("Waypoint");
     let mut properties = Dict::new();
     properties.set_int(NameKeyGenerator::name_to_key("waypointID"), 701);
-    properties.set_ascii_string(NameKeyGenerator::name_to_key("waypointName"), "ExitAllFixture");
+    properties.set_ascii_string(
+        NameKeyGenerator::name_to_key("waypointName"),
+        "ExitAllFixture",
+    );
     out.write_dict(&properties);
     out.close_data_chunk();
     out.close_data_chunk();
@@ -37,7 +42,9 @@ fn map_file(root: &std::path::Path) -> std::path::PathBuf {
     path
 }
 
-fn world(map: &std::path::Path) -> (
+fn world(
+    map: &std::path::Path,
+) -> (
     GameLogic,
     generals_main::game_logic::ObjectId,
     generals_main::game_logic::ObjectId,
@@ -104,7 +111,6 @@ fn exit_all_script() -> ScriptEngine {
 
 #[test]
 fn live_team_exit_all_only_changes_the_receiving_world_with_colliding_ids() {
-    let _ = gamelogic::scripting::take_host_script_garrison_enter_requests();
     let first_root = tempfile::tempdir().unwrap();
     let second_root = tempfile::tempdir().unwrap();
     let first_map = map_file(first_root.path());
@@ -169,12 +175,10 @@ fn live_team_exit_all_only_changes_the_receiving_world_with_colliding_ids() {
         second.host_object(second_passenger).unwrap().ai_state(),
         generals_main::game_logic::AIState::Exiting
     );
-    assert!(gamelogic::scripting::take_host_script_garrison_enter_requests().is_empty());
 }
 
 #[test]
 fn live_team_exit_all_routes_airborne_transport_through_receiving_world() {
-    let _ = gamelogic::scripting::take_host_script_garrison_enter_requests();
     let first_root = tempfile::tempdir().unwrap();
     let second_root = tempfile::tempdir().unwrap();
     let first_map = map_file(first_root.path());
@@ -216,9 +220,123 @@ fn live_team_exit_all_routes_airborne_transport_through_receiving_world() {
             .unwrap()
             .pending_evacuate_on_stop
     );
-    assert!(!second.host_object(second_aircraft).unwrap().status.airborne_target);
+    assert!(
+        !second
+            .host_object(second_aircraft)
+            .unwrap()
+            .status
+            .airborne_target
+    );
     assert_ne!(
         second.host_object(second_aircraft).unwrap().ai_state(),
         generals_main::game_logic::AIState::Moving
+    );
+}
+
+fn garrison_world() -> (
+    GameLogic,
+    generals_main::game_logic::ObjectId,
+    generals_main::game_logic::ObjectId,
+) {
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(1, Team::USA, "Owner", true).with_script_identity("Owner"));
+    let mut infantry_template = ThingTemplate::new("GarrisonScriptInfantry");
+    infantry_template
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    world
+        .templates
+        .insert(infantry_template.name.clone(), infantry_template);
+    let mut bunker_template = ThingTemplate::new("GarrisonScriptBunker");
+    bunker_template
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(800.0);
+    world
+        .templates
+        .insert(bunker_template.name.clone(), bunker_template);
+    let infantry = world
+        .create_object_for_player(
+            "GarrisonScriptInfantry",
+            1,
+            glam::Vec3::new(20.0, 0.0, 20.0),
+        )
+        .unwrap();
+    let bunker = world
+        .create_object_for_player("GarrisonScriptBunker", 1, glam::Vec3::new(60.0, 0.0, 20.0))
+        .unwrap();
+    {
+        let object = world.host_object_mut(bunker).unwrap();
+        object.name = "NamedGarrisonBunker".into();
+        let mut building = BuildingData::new(BuildingType::Bunker);
+        building.max_garrison = 3;
+        object.building_data = Some(building);
+    }
+    (world, infantry, bunker)
+}
+
+fn player_garrison_all_script(player: &str) -> ScriptEngine {
+    let mut action = ScriptAction::new(ScriptActionType::PlayerGarrisonAllBuildings);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            player.into(),
+        ))
+        .unwrap();
+    let mut condition = OrCondition::new();
+    condition.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    let mut script = Script::new();
+    script.script_name = "OwnedPlayerGarrisonAll".into();
+    script.is_one_shot = true;
+    script.condition = Some(Box::new(condition));
+    script.action = Some(Box::new(action));
+    let mut scripts = ScriptList::new();
+    scripts.append_script(Box::new(script));
+    let engine = ScriptEngine::new().unwrap();
+    engine
+        .set_script_list_for_player(0, Some(Box::new(scripts)))
+        .unwrap();
+    engine
+}
+
+#[test]
+fn live_player_garrison_all_is_synchronous_and_isolated_for_colliding_ids() {
+    let (mut first, first_infantry, first_bunker) = garrison_world();
+    let (mut second, second_infantry, second_bunker) = garrison_world();
+    assert_eq!(first_infantry, second_infantry);
+    assert_eq!(first_bunker, second_bunker);
+
+    first
+        .update_local_script_engine_with_owner(&player_garrison_all_script("Owner"))
+        .unwrap();
+    assert_eq!(
+        first.host_object(first_infantry).unwrap().target,
+        Some(first_bunker)
+    );
+    assert_eq!(
+        first.host_object(first_infantry).unwrap().ai_state(),
+        generals_main::game_logic::AIState::Entering
+    );
+    assert!(second
+        .host_object(second_infantry)
+        .unwrap()
+        .target
+        .is_none());
+
+    second
+        .update_local_script_engine_with_owner(&player_garrison_all_script("Owner"))
+        .unwrap();
+    assert_eq!(
+        second.host_object(second_infantry).unwrap().target,
+        Some(second_bunker)
+    );
+    assert_eq!(
+        second.host_object(second_infantry).unwrap().ai_state(),
+        generals_main::game_logic::AIState::Entering
+    );
+    assert_eq!(
+        first.host_object(first_infantry).unwrap().target,
+        Some(first_bunker)
     );
 }

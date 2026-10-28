@@ -137,7 +137,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         )
     }
 
-    fn script_player_id(&self, token: &str, current_player: Option<&str>) -> Option<u32> {
+    pub(super) fn script_player_id(&self, token: &str, current_player: Option<&str>) -> Option<u32> {
         use gamelogic::scripting::core::{
             LOCAL_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_PLAYER_ENEMY,
         };

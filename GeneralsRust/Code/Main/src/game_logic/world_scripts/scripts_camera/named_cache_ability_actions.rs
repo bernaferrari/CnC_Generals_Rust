@@ -2,6 +2,17 @@
 use super::*;
 
 impl<'a> HostScriptExecutionDriver<'a> {
+    fn receiving_script_player_name(&self, token: &str) -> Option<String> {
+        let current_player = self
+            .interpreter
+            .and_then(|engine| engine.get_current_player_name());
+        let id = self.script_player_id(token, current_player.as_deref())?;
+        self.world
+            .players
+            .get(&id)
+            .map(|player| player.map_side.map_player_name.clone())
+    }
+
     pub(super) fn receive_garrison_request(
         &mut self,
         request: gamelogic::scripting::HostScriptGarrisonEnterExitRequest,
@@ -9,14 +20,29 @@ impl<'a> HostScriptExecutionDriver<'a> {
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        self.world.apply_receiving_garrison_request(
+        use gamelogic::scripting::HostScriptGarrisonEnterExitRequest as Request;
+        let request = match request {
+            Request::PlayerGarrisonAll { player } => {
+                let Some(player) = self.receiving_script_player_name(&player) else {
+                    return Some(Ok(()));
+                };
+                Request::PlayerGarrisonAll { player }
+            }
+            Request::PlayerExitAll { player } => {
+                let Some(player) = self.receiving_script_player_name(&player) else {
+                    return Some(Ok(()));
+                };
+                Request::PlayerExitAll { player }
+            }
+            request => request,
+        };
+        Some(self.world.apply_receiving_garrison_request(
             request,
             this_object.map(ObjectId),
             calling,
             condition,
             &mut self.ui,
-        );
-        Some(Ok(()))
+        ))
     }
 
     pub(super) fn receive_named_special_power(

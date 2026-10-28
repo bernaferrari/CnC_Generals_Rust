@@ -1442,23 +1442,6 @@ impl GameLogic {
         !obj.is_kind_of(KindOf::Structure)
     }
 
-    /// C++ enter/garrison/exit family live drain (`aiEnter` / `aiEvacuate` / `aiExit`).
-    pub fn apply_host_garrison_enter_exit_script_requests(&mut self) {
-        self.apply_host_garrison_enter_exit_script_requests_with_effects(&mut Default::default())
-            .expect("garrison script requests failed");
-    }
-
-    pub(crate) fn apply_host_garrison_enter_exit_script_requests_with_effects(
-        &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
-        use gamelogic::scripting::HostScriptGarrisonEnterExitRequest;
-        for req in gamelogic::scripting::take_host_script_garrison_enter_requests() {
-            self.apply_receiving_garrison_request(req, None, None, None, effects)?;
-        }
-        Ok(())
-    }
-
     fn receiving_garrison_members(
         &self,
         name: &str,
@@ -1549,15 +1532,6 @@ impl GameLogic {
         use gamelogic::scripting::HostScriptGarrisonEnterExitRequest;
 
         match req {
-            HostScriptGarrisonEnterExitRequest::NamedEnter { unit, dest } => {
-                let Some(unit_id) = self.owned_named_script_object(&unit, this_object) else {
-                    return Ok(());
-                };
-                let Some(dest_id) = self.owned_named_script_object(&dest, this_object) else {
-                    return Ok(());
-                };
-                self.host_script_ai_enter(unit_id, dest_id)?;
-            }
             HostScriptGarrisonEnterExitRequest::TeamEnter { team, dest } => {
                 let Some(dest_id) = self.owned_named_script_object(&dest, this_object) else {
                     return Ok(());
@@ -1566,12 +1540,6 @@ impl GameLogic {
                 for id in members {
                     self.host_script_ai_enter(id, dest_id)?;
                 }
-            }
-            HostScriptGarrisonEnterExitRequest::NamedExitAll { unit } => {
-                let Some(id) = self.owned_named_script_object(&unit, this_object) else {
-                    return Ok(());
-                };
-                self.host_script_ai_evacuate_with_effects(id, effects);
             }
             HostScriptGarrisonEnterExitRequest::TeamGarrisonSpecific { team, building } => {
                 let Some(building_id) = self.owned_named_script_object(&building, this_object)
@@ -1602,7 +1570,7 @@ impl GameLogic {
                 self.host_script_ai_evacuate_with_effects(id, effects);
             }
             HostScriptGarrisonEnterExitRequest::TeamGarrisonNearest { team } => {
-                self.host_script_team_garrison_nearest(&team)?;
+                self.host_script_team_garrison_nearest(&team, calling, condition)?;
             }
             HostScriptGarrisonEnterExitRequest::TeamExitAllBuildings { team } => {
                 for id in self.receiving_garrison_members(&team, calling, condition)? {
@@ -1642,12 +1610,6 @@ impl GameLogic {
             }
         }
         Ok(())
-    }
-
-    pub(super) fn host_script_garrison_team_member_ids(&self, team: &str) -> Vec<ObjectId> {
-        let mut ids = self.host_script_team_member_ids(team);
-        ids.sort_by_key(|id| id.0);
-        ids
     }
 
     pub(super) fn host_script_contain_slots_available(
@@ -1757,8 +1719,8 @@ impl GameLogic {
         leader_is_hacker: bool,
         player_id: Option<u32>,
     ) -> bool {
-        use crate::game_logic::KindOf;
         use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
+        use crate::game_logic::KindOf;
         if !building.is_alive() || building.status.destroyed {
             return false;
         }
@@ -1794,10 +1756,12 @@ impl GameLogic {
     pub(super) fn host_script_team_garrison_nearest(
         &mut self,
         team: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
     ) -> gamelogic::GameLogicResult<()> {
-        use crate::game_logic::KindOf;
         use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
-        let members = self.host_script_garrison_team_member_ids(team);
+        use crate::game_logic::KindOf;
+        let members = self.receiving_garrison_members(team, calling, condition)?;
         let Some(&leader_id) = members.first() else {
             return Ok(());
         };
@@ -1877,8 +1841,8 @@ impl GameLogic {
         &mut self,
         unit_id: ObjectId,
     ) -> gamelogic::GameLogicResult<()> {
-        use crate::game_logic::KindOf;
         use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
+        use crate::game_logic::KindOf;
         let Some((unit_pos, unit_off_map, unit_is_hacker, player_id)) =
             self.host_object(unit_id).map(|obj| {
                 (
@@ -2668,13 +2632,11 @@ End
             assert!(logic.unit_can_move(air));
             assert!(logic.unit_can_move(foot));
             assert!(logic.host_object(air).unwrap().cur_locomotor_name.is_some());
-            assert!(
-                logic
-                    .host_object(foot)
-                    .unwrap()
-                    .cur_locomotor_name
-                    .is_some()
-            );
+            assert!(logic
+                .host_object(foot)
+                .unwrap()
+                .cur_locomotor_name
+                .is_some());
             assert!(
                 !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(
                     logic.host_object(air).unwrap()

@@ -2889,7 +2889,7 @@ fn live_named_set_attitude_drains_to_host_ai() {
     use crate::game_logic::host_strategy_center::HostAiAttitude;
     use gamelogic::object::registry::OBJECT_REGISTRY;
     use gamelogic::scripting::{
-        HostScriptNamedAttitudeRequest, request_host_script_named_attitude,
+        request_host_script_named_attitude, HostScriptNamedAttitudeRequest,
     };
 
     OBJECT_REGISTRY.clear();
@@ -2926,7 +2926,7 @@ fn live_named_set_attitude_drains_to_host_ai() {
 fn live_set_stopping_distance_drains_and_arrives_at_scripted_band() {
     use gamelogic::object::registry::OBJECT_REGISTRY;
     use gamelogic::scripting::{
-        HostScriptStoppingDistanceRequest, request_host_script_stopping_distance,
+        request_host_script_stopping_distance, HostScriptStoppingDistanceRequest,
     };
 
     OBJECT_REGISTRY.clear();
@@ -2986,7 +2986,7 @@ fn live_set_stopping_distance_drains_and_arrives_at_scripted_band() {
 fn live_set_stopping_distance_aborts_at_first_member_without_locomotor() {
     use gamelogic::object::registry::OBJECT_REGISTRY;
     use gamelogic::scripting::{
-        HostScriptStoppingDistanceRequest, request_host_script_stopping_distance,
+        request_host_script_stopping_distance, HostScriptStoppingDistanceRequest,
     };
 
     OBJECT_REGISTRY.clear();
@@ -3222,64 +3222,64 @@ fn live_team_garrison_specific_building_drains_ai_enter() {
     use crate::game_logic::AIState;
     use crate::game_logic::{BuildingData, BuildingType};
     use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::scripting::{
-        HostScriptGarrisonEnterExitRequest, request_host_script_garrison_enter,
-        take_host_script_garrison_enter_requests,
+    use gamelogic::scripting::core::{
+        Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+        ScriptActionType, ScriptList,
     };
+    use gamelogic::scripting::engine::ScriptEngine;
 
     OBJECT_REGISTRY.clear();
-    let _ = take_host_script_garrison_enter_requests();
+    fn world() -> (GameLogic, ObjectId, ObjectId) {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
+        let mut ranger = ThingTemplate::new("GarrBunkRanger");
+        ranger.add_kind_of(KindOf::Infantry);
+        ranger.set_health(100.0);
+        logic.templates.insert("GarrBunkRanger".into(), ranger);
+        let mut bunker_t = ThingTemplate::new("GarrBunk");
+        bunker_t.add_kind_of(KindOf::Structure);
+        bunker_t.set_health(800.0);
+        logic.templates.insert("GarrBunk".into(), bunker_t);
 
-    let mut logic = GameLogic::new();
-    logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
-    let mut ranger = ThingTemplate::new("GarrBunkRanger");
-    ranger.add_kind_of(KindOf::Infantry);
-    ranger.set_health(100.0);
-    logic.templates.insert("GarrBunkRanger".into(), ranger);
-    let mut bunker_t = ThingTemplate::new("GarrBunk");
-    bunker_t.add_kind_of(KindOf::Structure);
-    bunker_t.set_health(800.0);
-    logic.templates.insert("GarrBunk".into(), bunker_t);
-
-    let team_id = {
-        let mut factory = logic.team_factory.lock().unwrap();
-        let (_, effects) = factory
-            .init_team_owned_with_effects(
-                "USA_Infantry".into(),
-                "PlyrAmerica".into(),
+        let team_id = {
+            let mut factory = logic.team_factory.lock().unwrap();
+            let (_, effects) = factory
+                .init_team_owned_with_effects(
+                    "USA_Infantry".into(),
+                    "PlyrAmerica".into(),
+                    true,
+                    None,
+                    Some(1),
+                )
+                .unwrap();
+            assert!(effects.is_empty());
+            factory
+                .find_team_instances("USA_Infantry")
+                .into_iter()
+                .next()
+                .unwrap()
+                .read()
+                .unwrap()
+                .get_id()
+        };
+        let infantry = logic
+            .create_object_on_exact_script_team_with_effects_checked(
+                "GarrBunkRanger",
+                1,
+                "USA_Infantry",
+                team_id,
+                Vec3::new(20.0, 0.0, 20.0),
                 true,
                 None,
-                Some(1),
+                &mut Default::default(),
             )
-            .unwrap();
-        assert!(effects.is_empty());
-        let team = factory
-            .find_team_instances("USA_Infantry")
-            .into_iter()
-            .next()
-            .unwrap();
-        let id = team.read().unwrap().get_id();
-        id
-    };
-    let infantry = logic
-        .create_object_on_exact_script_team_with_effects_checked(
-            "GarrBunkRanger",
-            1,
-            "USA_Infantry",
-            team_id,
-            Vec3::new(20.0, 0.0, 20.0),
-            true,
-            None,
-            &mut Default::default(),
-        )
-        .unwrap()
-        .expect("infantry on actual receiving Team");
-    assert_eq!(
-        logic.host_object(infantry).unwrap().team_instance_id,
-        Some(team_id)
-    );
-    assert!(
-        logic
+            .unwrap()
+            .expect("infantry on actual receiving Team");
+        assert_eq!(
+            logic.host_object(infantry).unwrap().team_instance_id,
+            Some(team_id)
+        );
+        assert!(logic
             .team_factory
             .lock()
             .unwrap()
@@ -3287,32 +3287,170 @@ fn live_team_garrison_specific_building_drains_ai_enter() {
             .unwrap()
             .read()
             .unwrap()
-            .has_member(infantry.0)
-    );
-    let bunker = logic
-        .create_object("GarrBunk", Team::USA, Vec3::new(60.0, 0.0, 20.0))
-        .expect("bunker");
-    if let Some(obj) = logic.host_object_mut(bunker) {
+            .has_member(infantry.0));
+        let bunker = logic
+            .create_object("GarrBunk", Team::USA, Vec3::new(60.0, 0.0, 20.0))
+            .expect("bunker");
+        let obj = logic.host_object_mut(bunker).unwrap();
         obj.name = "NamedBunker".into();
         obj.owner_player_id = Some(1);
         let mut bd = BuildingData::new(BuildingType::Bunker);
         bd.max_garrison = 5;
         obj.building_data = Some(bd);
+        logic.initialize_receiving_named_cache_for_fixture();
+        (logic, infantry, bunker)
+    }
+    fn execute_team_garrison(logic: &mut GameLogic) {
+        let mut action = ScriptAction::new(ScriptActionType::TeamGarrisonSpecificBuilding);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                "USA_Infantry".into(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                "NamedBunker".into(),
+            ))
+            .unwrap();
+        let mut condition = OrCondition::new();
+        condition
+            .set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+        let mut script = Script::new();
+        script.script_name = "OwnedTeamGarrisonAction".into();
+        script.is_one_shot = true;
+        script.condition = Some(Box::new(condition));
+        script.action = Some(Box::new(action));
+        let mut list = ScriptList::new();
+        list.append_script(Box::new(script));
+        let engine = ScriptEngine::new().unwrap();
+        engine
+            .set_script_list_for_player(0, Some(Box::new(list)))
+            .unwrap();
+        logic
+            .update_local_script_engine_with_owner(&engine)
+            .unwrap();
     }
 
-    logic.initialize_receiving_named_cache_for_fixture();
-    request_host_script_garrison_enter(HostScriptGarrisonEnterExitRequest::TeamGarrisonSpecific {
-        team: "USA_Infantry".into(),
-        building: "NamedBunker".into(),
-    });
-    logic.apply_host_garrison_enter_exit_script_requests();
-
-    let infantry_after = logic.host_object(infantry).expect("infantry after");
+    let (mut first, first_infantry, first_bunker) = world();
+    let (mut second, second_infantry, second_bunker) = world();
+    assert_eq!(first_infantry, second_infantry, "same-ID control");
+    assert_eq!(first_bunker, second_bunker, "same-ID control");
+    execute_team_garrison(&mut first);
     assert_eq!(
-        infantry_after.target,
-        Some(bunker),
-        "TEAM_GARRISON_SPECIFIC_BUILDING must leftover-drain aiEnter"
+        first.host_object(first_infantry).unwrap().target,
+        Some(first_bunker)
     );
-    assert_eq!(infantry_after.ai_state(), AIState::Entering);
+    assert_eq!(
+        first.host_object(first_infantry).unwrap().ai_state(),
+        AIState::Entering
+    );
+    assert!(second
+        .host_object(second_infantry)
+        .unwrap()
+        .target
+        .is_none());
+    assert!(second
+        .host_object(second_infantry)
+        .unwrap()
+        .occupants
+        .is_empty());
+    execute_team_garrison(&mut second);
+    assert_eq!(
+        second.host_object(second_infantry).unwrap().target,
+        Some(second_bunker)
+    );
+    assert_eq!(
+        second.host_object(second_infantry).unwrap().ai_state(),
+        AIState::Entering
+    );
+    assert_eq!(
+        first.host_object(first_infantry).unwrap().target,
+        Some(first_bunker)
+    );
     assert!(OBJECT_REGISTRY.is_empty());
+}
+
+#[test]
+fn live_team_garrison_nearest_preserves_roster_order_for_membership() {
+    let mut logic = GameLogic::new();
+    logic.add_player(
+        Player::new(1, Team::USA, "RosterOwner", true).with_script_identity("RosterOwner"),
+    );
+    let mut infantry_template = ThingTemplate::new("RosterOrderInfantry");
+    infantry_template
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0)
+        .set_authored_ai_update_interface(Some(true));
+    logic
+        .templates
+        .insert(infantry_template.name.clone(), infantry_template);
+    let mut bunker_template = ThingTemplate::new("RosterOrderBunker");
+    bunker_template
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(800.0);
+    logic
+        .templates
+        .insert(bunker_template.name.clone(), bunker_template);
+
+    // The lower-ID infantry is deliberately second in the admitted Team roster.
+    let first_by_id = logic
+        .create_object_for_player("RosterOrderInfantry", 1, Vec3::new(90.0, 0.0, 20.0))
+        .unwrap();
+    let first_by_roster = logic
+        .create_object_for_player("RosterOrderInfantry", 1, Vec3::new(10.0, 0.0, 20.0))
+        .unwrap();
+    let bunker = logic
+        .create_object_for_player("RosterOrderBunker", 1, Vec3::new(12.0, 0.0, 20.0))
+        .unwrap();
+    logic.host_object_mut(bunker).unwrap().building_data = Some({
+        let mut data = BuildingData::new(BuildingType::Bunker);
+        data.max_garrison = 1;
+        data
+    });
+
+    let roster = {
+        let mut factory = logic.team_factory.lock().unwrap();
+        factory
+            .init_team_owned("RosterOrderTeam".into(), "RosterOwner".into(), false, None, Some(1))
+            .unwrap();
+        factory.create_team("RosterOrderTeam").unwrap()
+    };
+    for id in [first_by_roster, first_by_id] {
+        logic.host_object_mut(id).unwrap().team_instance_name = "RosterOrderTeam".into();
+        roster.write().unwrap().add_member(id.0);
+    }
+    roster.write().unwrap().set_active();
+
+    let mut action = ScriptAction::new(ScriptActionType::TeamGarrisonNearestBuilding);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "RosterOrderTeam".into(),
+        ))
+        .unwrap();
+    let mut condition = OrCondition::new();
+    condition.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    let mut script = Script::new();
+    script.script_name = "RosterOrderedNearestGarrison".into();
+    script.is_one_shot = true;
+    script.condition = Some(Box::new(condition));
+    script.action = Some(Box::new(action));
+    let mut scripts = ScriptList::new();
+    scripts.append_script(Box::new(script));
+    let engine = ScriptEngine::new().unwrap();
+    engine
+        .set_script_list_for_player(0, Some(Box::new(scripts)))
+        .unwrap();
+    logic.update_local_script_engine_with_owner(&engine).unwrap();
+
+    assert_eq!(
+        logic.host_object(first_by_roster).unwrap().target,
+        Some(bunker),
+        "Team roster order chooses the first unit for the only garrison slot"
+    );
+    assert!(logic.host_object(first_by_id).unwrap().target.is_none());
 }

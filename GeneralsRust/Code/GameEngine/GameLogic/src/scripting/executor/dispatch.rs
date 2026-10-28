@@ -406,28 +406,46 @@ impl ScriptActionDispatcher<'_> {
                 | ScriptActionType::TeamEnterNamed
                 | ScriptActionType::TeamGarrisonSpecificBuilding
                 | ScriptActionType::ExitSpecificBuilding
+                | ScriptActionType::TeamGarrisonNearestBuilding
+                | ScriptActionType::TeamExitAllBuildings
+                | ScriptActionType::PlayerGarrisonAllBuildings
+                | ScriptActionType::PlayerExitAllBuildings
         ) {
             use crate::scripting::HostScriptGarrisonEnterExitRequest as Request;
-            let first = self.get_string_param(action, 0)?;
+            let raw_first = self.get_string_param(action, 0)?;
             let request = match action_type {
                 ScriptActionType::NamedGarrisonSpecificBuilding => Request::NamedGarrisonSpecific {
-                    unit: first,
+                    unit: raw_first,
                     building: self.get_string_param(action, 1)?,
                 },
                 ScriptActionType::NamedGarrisonNearestBuilding => {
-                    Request::NamedGarrisonNearest { unit: first }
+                    Request::NamedGarrisonNearest { unit: raw_first }
                 }
-                ScriptActionType::NamedExitBuilding => Request::NamedExitBuilding { unit: first },
+                ScriptActionType::NamedExitBuilding => {
+                    Request::NamedExitBuilding { unit: raw_first }
+                }
                 ScriptActionType::TeamEnterNamed => Request::TeamEnter {
-                    team: first,
+                    team: raw_first,
                     dest: self.get_string_param(action, 1)?,
                 },
                 ScriptActionType::TeamGarrisonSpecificBuilding => Request::TeamGarrisonSpecific {
-                    team: first,
+                    team: raw_first,
                     building: self.get_string_param(action, 1)?,
                 },
-                ScriptActionType::ExitSpecificBuilding => {
-                    Request::ExitSpecificBuilding { building: first }
+                ScriptActionType::ExitSpecificBuilding => Request::ExitSpecificBuilding {
+                    building: raw_first,
+                },
+                ScriptActionType::TeamGarrisonNearestBuilding => {
+                    Request::TeamGarrisonNearest { team: raw_first }
+                }
+                ScriptActionType::TeamExitAllBuildings => {
+                    Request::TeamExitAllBuildings { team: raw_first }
+                }
+                ScriptActionType::PlayerGarrisonAllBuildings => {
+                    Request::PlayerGarrisonAll { player: raw_first }
+                }
+                ScriptActionType::PlayerExitAllBuildings => {
+                    Request::PlayerExitAll { player: raw_first }
                 }
                 _ => unreachable!(),
             };
