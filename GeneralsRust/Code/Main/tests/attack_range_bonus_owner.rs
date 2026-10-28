@@ -122,3 +122,11 @@ fn explicit_secondary_target_selection_uses_receiving_bonus() {
     assert!(boosted.choose_best_weapon_for_target(boosted_attacker, Some(boosted_target), 10.0));
     assert!(!reduced.choose_best_weapon_for_target(reduced_attacker, Some(reduced_target), 10.0));
 }
+
+#[test]
+fn attack_fire_gate_uses_receiving_bonus() {
+    let (boosted, boosted_attacker, boosted_target) = world(200);
+    let (reduced, reduced_attacker, reduced_target) = world(50);
+    assert!(boosted.attack_can_fire_at(boosted_attacker, boosted_target, 10.0, false));
+    assert!(!reduced.attack_can_fire_at(reduced_attacker, reduced_target, 10.0, false));
+}

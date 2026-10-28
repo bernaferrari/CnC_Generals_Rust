@@ -1506,8 +1506,12 @@ impl GameLogic {
                                 return Ok(AttackAimResult::Failure);
                             };
                             (
-                                u.can_fire(current_time),
-                                u.is_within_attack_range_pos_for_slot(slot, pos),
+                                u.can_fire_with_solo_set(current_time, &self.solo_weapon_bonus_set),
+                                u.is_within_attack_range_pos_for_slot_with_solo_set(
+                                    slot,
+                                    pos,
+                                    &self.solo_weapon_bonus_set,
+                                ),
                             )
                         };
                         if !in_range {
@@ -1860,7 +1864,11 @@ impl GameLogic {
                 let Some(slot) = u.selected_weapon_slot() else {
                     return Ok(AttackAimResult::Failure);
                 };
-                u.is_within_attack_range_pos_for_slot(slot, victim_pos)
+                u.is_within_attack_range_pos_for_slot_with_solo_set(
+                    slot,
+                    victim_pos,
+                    &self.solo_weapon_bonus_set,
+                )
             };
 
             if turn_aligned && pitch_aligned && range_ok && !preventing && !target_preventing {
@@ -2022,7 +2030,11 @@ impl GameLogic {
                     self.frame,
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                 );
-                let range_ok = u.is_within_attack_range_pos_for_slot(slot, victim_pos);
+                let range_ok = u.is_within_attack_range_pos_for_slot_with_solo_set(
+                    slot,
+                    victim_pos,
+                    &self.solo_weapon_bonus_set,
+                );
                 (body_aimed, range_ok, u.turret_enabled)
             };
 
@@ -2272,7 +2284,7 @@ impl GameLogic {
         if !atk.is_alive() || !vic.is_alive() {
             return false;
         }
-        if !atk.can_fire(current_time) {
+        if !atk.can_fire_with_solo_set(current_time, &self.solo_weapon_bonus_set) {
             return false;
         }
         if !atk.has_max_shots_remaining() {
@@ -2295,7 +2307,11 @@ impl GameLogic {
         let Some(slot) = atk.selected_weapon_slot() else {
             return false;
         };
-        if !atk.is_within_attack_range_for_slot(slot, vic) {
+        if !atk.is_within_attack_range_for_slot_with_solo_set(
+            slot,
+            vic,
+            &self.solo_weapon_bonus_set,
+        ) {
             return false;
         }
         let to = vic.get_position();

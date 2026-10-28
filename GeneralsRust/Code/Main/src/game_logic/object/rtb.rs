@@ -829,6 +829,16 @@ impl Object {
             .any(|slot| self.is_within_attack_range_for_slot(slot, other))
     }
 
+    pub(crate) fn is_within_attack_range_with_solo_set(
+        &self,
+        other: &Object,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> bool {
+        [0u8, 1u8, 2u8]
+            .into_iter()
+            .any(|slot| self.is_within_attack_range_for_slot_with_solo_set(slot, other, solo_set))
+    }
+
     /// C++ Weapon::isWithinAttackRange for a position.
     pub fn is_within_attack_range_pos(&self, pos: glam::Vec3) -> bool {
         [0u8, 1u8, 2u8]

@@ -301,7 +301,9 @@ impl GameLogic {
             if dist > range {
                 continue;
             }
-            if within_ar && !me.is_within_attack_range(obj) {
+            if within_ar
+                && !me.is_within_attack_range_with_solo_set(obj, &self.solo_weapon_bonus_set)
+            {
                 continue;
             }
             if need_los {

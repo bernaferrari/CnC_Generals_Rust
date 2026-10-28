@@ -794,11 +794,19 @@ impl GameLogic {
                 };
                 match (obj.target, obj.target_location) {
                     (Some(target_id), _) => self.objects.get(&target_id).is_some_and(|target| {
-                        target.is_alive() && obj.is_within_attack_range_for_slot(slot, target)
+                        target.is_alive()
+                            && obj.is_within_attack_range_for_slot_with_solo_set(
+                                slot,
+                                target,
+                                &self.solo_weapon_bonus_set,
+                            )
                     }),
-                    (None, Some(target_location)) => {
-                        obj.is_within_attack_range_pos_for_slot(slot, target_location)
-                    }
+                    (None, Some(target_location)) => obj
+                        .is_within_attack_range_pos_for_slot_with_solo_set(
+                            slot,
+                            target_location,
+                            &self.solo_weapon_bonus_set,
+                        ),
                     (None, None) => false,
                 }
             })
