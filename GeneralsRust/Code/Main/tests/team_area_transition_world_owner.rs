@@ -76,7 +76,8 @@ fn world(map: &Path, position: [f32; 3]) -> (GameLogic, generals_main::game_logi
             "TeamAreaTransition.ini".into(),
             "Object OwnedTeamEdgeUnit\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL TeamEdgeLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n\
              Object BorrowedEdgeGarrison\n KindOf = STRUCTURE SELECTABLE\n Geometry = BOX\n GeometryMajorRadius = 20\n GeometryMinorRadius = 10\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = GarrisonContain GarrisonTag\n ContainMax = 5\n End\nEnd\n\
-             Object ChinaStandardMine\n KindOf = IMMOBILE MINE\n Body = ActiveBody MineBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
+             Object ChinaStandardMine\n KindOf = IMMOBILE MINE\n Body = ActiveBody MineBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
+             Object AmericaJetCargoPlane\n KindOf = AIRCRAFT VEHICLE SELECTABLE\n Body = ActiveBody PlaneBody\n MaxHealth = 800\n InitialHealth = 800\n End\nEnd\n".into(),
         )])
         .unwrap();
     world.start_new_game(GameMode::SinglePlayer);
@@ -541,4 +542,50 @@ fn public_land_mine_scoot_marks_only_the_receiving_team() {
 
     assert_eq!(observe(&mut owner, "MineOwnerEdge", entered_cases()), [1]);
     assert_eq!(observe(&mut peer, "MinePeerControl", entered_cases()), [0]);
+}
+
+#[test]
+fn public_paradrop_plane_entry_marks_only_the_receiving_team() {
+    let owner_root = tempfile::tempdir().unwrap();
+    let peer_root = tempfile::tempdir().unwrap();
+    let owner_map = map_file(owner_root.path(), &[]);
+    let peer_map = map_file(peer_root.path(), &[]);
+    let (mut owner, owner_unit) = world(&owner_map, [20.0, 0.0, 20.0]);
+    let (mut peer, peer_unit) = world(&peer_map, [20.0, 0.0, 20.0]);
+    assert_eq!(owner_unit, peer_unit);
+    let entered_cases = |counter: &str| {
+        vec![(
+            transition_condition(
+                ConditionType::TeamEnteredAreaPartially,
+                "teamOwner",
+                "OwnerTransitionArea",
+            ),
+            counter.into(),
+        )]
+    };
+
+    // Clear the source unit's create-time entry. The transport begins at the
+    // nearest map edge and enters the area on its first direct flight step.
+    let _ = observe(&mut owner, "ParadropBefore", entered_cases("before_owner"));
+    let _ = observe(
+        &mut peer,
+        "ParadropBeforePeer",
+        entered_cases("before_peer"),
+    );
+    let plane = owner
+        .spawn_paradrop_cargo_plane(owner_unit, glam::Vec3::new(30.0, 0.0, 30.0))
+        .expect("paradrop transport is admitted");
+    owner.host_object_mut(plane).unwrap().locomotor_surfaces = 1;
+    owner.update_paradrop_cargo_planes();
+    owner.inject_host_script_query_snapshot();
+    peer.inject_host_script_query_snapshot();
+
+    assert_eq!(
+        observe(&mut owner, "ParadropOwnerEdge", entered_cases("owner_edge")),
+        [1]
+    );
+    assert_eq!(
+        observe(&mut peer, "ParadropPeerControl", entered_cases("peer_edge")),
+        [0]
+    );
 }

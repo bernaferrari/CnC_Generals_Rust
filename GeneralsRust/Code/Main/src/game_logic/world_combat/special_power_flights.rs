@@ -58,10 +58,11 @@ impl GameLogic {
             if should_drop {
                 o.kill_delivery_radius_decal();
             }
-            o.set_position_with_effects(
+            o.set_position_with_effects_and_team_factory(
                 new_pos,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.team_factory,
             );
             o.movement.velocity = vel;
             o.movement.target_position = None;
@@ -392,10 +393,11 @@ impl GameLogic {
             if should_drop {
                 o.kill_delivery_radius_decal();
             }
-            o.set_position_with_effects(
+            o.set_position_with_effects_and_team_factory(
                 new_pos,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.team_factory,
             );
             o.movement.velocity = vel;
             if vel.length_squared() > 1e-6 {
@@ -854,10 +856,11 @@ impl GameLogic {
             if should_drop {
                 o.kill_delivery_radius_decal();
             }
-            o.set_position_with_effects(
+            o.set_position_with_effects_and_team_factory(
                 new_pos,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.team_factory,
             );
             o.movement.velocity = vel;
             if vel.length_squared() > 1e-6 {
@@ -1481,10 +1484,11 @@ impl GameLogic {
                 let mut p = o.get_position();
                 p.x += dx;
                 p.z += dz;
-                o.set_position_with_effects(
+                o.set_position_with_effects_and_team_factory(
                     p,
                     self.frame,
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.team_factory,
                 );
             }
         }
@@ -3252,10 +3256,11 @@ impl GameLogic {
                 hunter.set_status_moving(false);
                 hunter.set_status_attacking(false);
                 hunter.target = None;
-                hunter.set_position_with_effects(
+                hunter.set_position_with_effects_and_team_factory(
                     position,
                     self.frame,
                     &mut ui.reborrow_for_object(&mut self.partition_manager),
+                    &self.team_factory,
                 );
                 {}
             }
@@ -3407,10 +3412,11 @@ impl GameLogic {
                 guard.set_status_moving(false);
                 guard.set_status_attacking(false);
                 guard.target = None;
-                guard.set_position_with_effects(
+                guard.set_position_with_effects_and_team_factory(
                     position,
                     self.frame,
                     &mut ui.reborrow_for_object(&mut self.partition_manager),
+                    &self.team_factory,
                 );
                 {}
             }
@@ -3497,10 +3503,11 @@ impl GameLogic {
                 unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
-                unit.set_position_with_effects(
+                unit.set_position_with_effects_and_team_factory(
                     crawler_pos + offset,
                     self.frame,
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.team_factory,
                 );
                 {}
                 let containment_actor_id = unit.id;

@@ -2386,10 +2386,11 @@ impl GameLogic {
             };
             let (new_pos, vel, at_exit) = data.tick_transport(pos);
             drop(data);
-            o.set_position_with_effects(
+            o.set_position_with_effects_and_team_factory(
                 new_pos,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.team_factory,
             );
             o.movement.velocity = vel;
             if vel.length_squared() > 1e-6 {
@@ -2738,10 +2739,11 @@ impl GameLogic {
             if should_drop {
                 o.kill_delivery_radius_decal();
             }
-            o.set_position_with_effects(
+            o.set_position_with_effects_and_team_factory(
                 new_pos,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.team_factory,
             );
             o.movement.velocity = vel;
             if vel.length_squared() > 1e-6 {
@@ -3149,10 +3151,11 @@ impl GameLogic {
                 let step = speed.min(dist);
                 new_pos.x += dx / dist * step;
                 new_pos.z += dz / dist * step;
-                o.set_position_with_effects(
+                o.set_position_with_effects_and_team_factory(
                     new_pos,
                     self.frame,
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.team_factory,
                 );
                 o.movement.velocity = new_pos - pos;
                 o.set_orientation_with_partition_owner(dz.atan2(dx), &mut self.partition_manager);
@@ -3385,10 +3388,11 @@ impl GameLogic {
                 let step = speed.min(dist);
                 new_pos.x += dx / dist * step;
                 new_pos.z += dz / dist * step;
-                o.set_position_with_effects(
+                o.set_position_with_effects_and_team_factory(
                     new_pos,
                     self.frame,
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.team_factory,
                 );
                 o.movement.velocity = new_pos - pos;
                 o.set_orientation_with_partition_owner(dz.atan2(dx), &mut self.partition_manager);
@@ -3643,10 +3647,11 @@ impl GameLogic {
             if should_drop {
                 o.kill_delivery_radius_decal();
             }
-            o.set_position_with_effects(
+            o.set_position_with_effects_and_team_factory(
                 new_pos,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.team_factory,
             );
             o.movement.velocity = vel;
             if vel.length_squared() > 1e-6 {

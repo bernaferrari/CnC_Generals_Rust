@@ -442,10 +442,11 @@ impl GameLogic {
                     let cp = chute.get_position();
                     let open = chute.is_parachute_open();
                     if let Some(r) = self.objects.get_mut(&pilot_id) {
-                        r.set_position_with_effects(
+                        r.set_position_with_effects_and_team_factory(
                             cp,
                             self.frame,
                             &mut effects.reborrow_for_object(&mut self.partition_manager),
+                            &self.team_factory,
                         );
                         {}
                         if open && !r.is_parachute_open() {
@@ -548,10 +549,11 @@ impl GameLogic {
             if landed {
                 p.y = ground;
             }
-            obj.set_position_with_effects(
+            obj.set_position_with_effects_and_team_factory(
                 p,
                 self.frame,
                 &mut effects.reborrow_for_object(&mut self.partition_manager),
+                &self.team_factory,
             );
             {}
             if let Some((np, nr, npr, nrr)) = sway {
@@ -580,10 +582,11 @@ impl GameLogic {
                 .unwrap_or_default();
             for rid in ids {
                 if let Some(r) = self.objects.get_mut(&rid) {
-                    r.set_position_with_effects(
+                    r.set_position_with_effects_and_team_factory(
                         land_pos,
                         self.frame,
                         &mut effects.reborrow_for_object(&mut self.partition_manager),
+                        &self.team_factory,
                     );
                     {}
                     if open && !r.is_parachute_open() {
@@ -621,10 +624,11 @@ impl GameLogic {
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     {}
-                    r.set_position_with_effects(
+                    r.set_position_with_effects_and_team_factory(
                         land_pos,
                         self.frame,
                         &mut effects.reborrow_for_object(&mut self.partition_manager),
+                        &self.team_factory,
                     );
                     {}
                     r.clear_eject_parachuting();

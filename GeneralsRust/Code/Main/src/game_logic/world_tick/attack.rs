@@ -1100,10 +1100,11 @@ impl GameLogic {
             let frame = self.frame;
             for pid in occupants {
                 if let Some(p) = self.objects.get_mut(&pid) {
-                    p.set_position_with_effects(
+                    p.set_position_with_effects_and_team_factory(
                         pos,
                         frame,
                         &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                        &self.team_factory,
                     );
                 }
             }

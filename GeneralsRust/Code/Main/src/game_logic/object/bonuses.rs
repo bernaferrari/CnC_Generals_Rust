@@ -1060,6 +1060,36 @@ impl Object {
         operation_frame: u32,
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
+        self.takeoff_from_airfield_parking_with_operation_owner(
+            audio,
+            operation_frame,
+            operation_effects,
+            None,
+        )
+    }
+
+    pub(crate) fn takeoff_from_airfield_parking_with_operation_and_team_factory(
+        &mut self,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+    ) -> Option<ObjectId> {
+        self.takeoff_from_airfield_parking_with_operation_owner(
+            audio,
+            operation_frame,
+            operation_effects,
+            Some(team_factory),
+        )
+    }
+
+    fn takeoff_from_airfield_parking_with_operation_owner(
+        &mut self,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+    ) -> Option<ObjectId> {
         if !(self.is_kind_of(KindOf::Aircraft) || self.object_type == ObjectType::Aircraft) {
             return None;
         }
@@ -1081,7 +1111,16 @@ impl Object {
             let mut pos = self.get_position();
             if pos.y < PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT {
                 pos.y = PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT;
-                self.set_position_with_effects(pos, operation_frame, operation_effects);
+                if let Some(team_factory) = team_factory {
+                    self.set_position_with_effects_and_team_factory(
+                        pos,
+                        operation_frame,
+                        operation_effects,
+                        team_factory,
+                    );
+                } else {
+                    self.set_position_with_effects(pos, operation_frame, operation_effects);
+                }
             }
         }
         af

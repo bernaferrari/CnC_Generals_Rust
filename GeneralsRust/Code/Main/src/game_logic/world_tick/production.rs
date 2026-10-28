@@ -1480,10 +1480,11 @@ impl GameLogic {
                 }
                 if let Some(unit) = self.objects.get_mut(&new_id) {
                     {
-                        unit.set_position_with_effects(
+                        unit.set_position_with_effects_and_team_factory(
                             spawn_pos,
                             pose_frame,
                             &mut ui.reborrow_for_object(&mut self.partition_manager),
+                            &self.team_factory,
                         );
                     }
                 }

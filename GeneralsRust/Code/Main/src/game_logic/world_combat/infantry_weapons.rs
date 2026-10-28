@@ -736,10 +736,11 @@ impl GameLogic {
             // Preferred altitude residual.
             let mut p = g.get_position();
             p.y = plan.spawn_pos.y;
-            g.set_position_with_effects(
+            g.set_position_with_effects_and_team_factory(
                 p,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.team_factory,
             );
             // C++ SpectreGunshipUpdate::initiateIntent: INSERTING, doors CLOSING,
             // afterburners on, panic loco, overridable reticle dest.
@@ -876,10 +877,11 @@ impl GameLogic {
                 players,
                 presentation_effects,
             );
-            o.set_position_with_effects(
+            o.set_position_with_effects_and_team_factory(
                 tick.pos,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.team_factory,
             );
             o.movement.velocity = tick.vel;
             if tick.vel.length_squared() > 1.0e-6 {
@@ -1520,10 +1522,11 @@ impl GameLogic {
             if deliver.start_at_preferred_height {
                 let mut pos = p;
                 pos.y = pos.y.max(120.0);
-                t.set_position_with_effects(
+                t.set_position_with_effects_and_team_factory(
                     pos,
                     self.frame,
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.team_factory,
                 );
             }
         }
@@ -1601,10 +1604,11 @@ impl GameLogic {
                     plan.target_coord,
                 );
             if let Some(t) = self.objects.get_mut(&transport_id) {
-                t.set_position_with_effects(
+                t.set_position_with_effects_and_team_factory(
                     edge,
                     self.frame,
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.team_factory,
                 );
                 let yaw = flight.dir_z.atan2(flight.dir_x);
                 t.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);

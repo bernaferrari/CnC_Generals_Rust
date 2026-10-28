@@ -394,10 +394,11 @@ impl GameLogic {
                         .objects
                         .get_mut(&containment_actor_id)
                         .expect("containment operation preserves this birth");
-                    unit.set_position_with_effects(
+                    unit.set_position_with_effects_and_team_factory(
                         start,
                         tree_move_frame,
                         &mut effects.reborrow_for_object(&mut self.partition_manager),
+                        &self.team_factory,
                     );
                     unit.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
                     // OpenContain.cpp:1086 setLayer before adjustToPossibleDestination.

@@ -687,7 +687,12 @@ impl GameLogic {
             self.objects
                 .get_mut(&id)
                 .unwrap()
-                .set_position_with_effects(goal, frame, effects);
+                .set_position_with_effects_and_team_factory(
+                    goal,
+                    frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.team_factory,
+                );
         }
         self.apply_arrival_goal_snap(id, Some(goal));
         let deadline = self.guard_initial_scan_deadline(false);
