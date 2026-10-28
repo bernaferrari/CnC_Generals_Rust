@@ -3,6 +3,26 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+/// Results already created by an OCL stay committed if a later nugget fails.
+/// Receipts retain the birth identity needed by reentrant callers.
+pub(crate) struct OclExecutionOutcome {
+    pub(crate) created: Vec<(ObjectId, std::sync::Weak<()>)>,
+    pub(crate) error: Option<gamelogic::GameLogicError>,
+}
+
+impl OclExecutionOutcome {
+    fn success(created: Vec<(ObjectId, std::sync::Weak<()>)>) -> Self {
+        Self { created, error: None }
+    }
+
+    fn failure(
+        created: Vec<(ObjectId, std::sync::Weak<()>)>,
+        error: gamelogic::GameLogicError,
+    ) -> Self {
+        Self { created, error: Some(error) }
+    }
+}
+
 /// Whether this host bridge can reproduce a parsed generic OCL nugget.
 /// Unsupported physics/container/debris nuggets are skipped individually —
 /// C++ `ObjectCreationList::createInternal` still runs every later nugget.
@@ -104,6 +124,47 @@ mod receiving_debris_ocl_owner_tests {
                 &mut world.partition_manager,
             );
         (world, source)
+    }
+
+    #[test]
+    fn later_factory_error_retains_the_ordered_committed_ocl_prefix() {
+        let mut world = GameLogic::new();
+        world
+            .admit_object_creation_list_sources(["ObjectCreationList OCL_PartialFactoryError\nCreateObject\nObjectNames = OclPartialGood\nCount = 1\nEnd\nCreateObject\nObjectNames = OclPartialBad\nCount = 1\nEnd\nEnd\n".into()])
+            .expect("OCL is valid receiving content");
+        let mut source = ThingTemplate::new("OclPartialSource");
+        source.add_kind_of(crate::game_logic::KindOf::Structure).set_health(100.0);
+        let mut good = ThingTemplate::new("OclPartialGood");
+        good.add_kind_of(crate::game_logic::KindOf::Vehicle).set_health(100.0);
+        let mut bad = ThingTemplate::new("OclPartialBad");
+        bad.add_kind_of(crate::game_logic::KindOf::Vehicle).set_health(100.0);
+        // Private factory fault injection after receiving OCL admission. The
+        // public content parser correctly rejects this malformed Body field;
+        // this test targets the later-factory-error boundary itself.
+        bad.body_definition_error = Some("injected checked factory error".into());
+        world.templates.insert(source.name.clone(), source);
+        world.templates.insert(good.name.clone(), good);
+        world.templates.insert(bad.name.clone(), bad);
+        let source_id = world
+            .create_object("OclPartialSource", Team::USA, Vec3::ZERO)
+            .expect("OCL source object");
+
+        let created = world.execute_parsed_weapon_ocl_at(
+            "OCL_PartialFactoryError",
+            Some(source_id),
+            Team::USA,
+            VeterancyLevel::Rookie,
+            0.0,
+            Vec3::ZERO,
+            Vec3::ZERO,
+        );
+
+        assert_eq!(created.len(), 1);
+        assert_eq!(world.host_object(created[0]).unwrap().template_name, "OclPartialGood");
+        assert!(world
+            .host_objects()
+            .registered_values()
+            .all(|object| object.template_name != "OclPartialBad"));
     }
 
     #[test]
@@ -496,20 +557,53 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Vec<ObjectId> {
+        let outcome = self.execute_parsed_weapon_ocl_with_births(
+            ocl_name,
+            source_id,
+            source_team,
+            source_veterancy,
+            source_orientation,
+            source_velocity,
+            origin,
+            interpreter,
+            presentation_effects,
+        );
+        if let Some(error) = outcome.error {
+            log::error!("{error}");
+        }
+        outcome
+            .created
+            .into_iter()
+            .filter_map(|(id, birth)| self.object_birth_matches(id, &birth).then_some(id))
+            .collect()
+    }
+
+    pub(crate) fn execute_parsed_weapon_ocl_with_births(
+        &mut self,
+        ocl_name: &str,
+        source_id: Option<ObjectId>,
+        source_team: Team,
+        source_veterancy: VeterancyLevel,
+        source_orientation: f32,
+        source_velocity: Vec3,
+        origin: Vec3,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> OclExecutionOutcome {
         use gamelogic::object_creation_list::{
             DebrisDisposition, GenericObjectCreationNugget, ObjectCreationNugget,
         };
 
         let ocl_name = ocl_name.trim();
         if source_id.is_none() || ocl_name.is_empty() || ocl_name.eq_ignore_ascii_case("None") {
-            return Vec::new();
+            return OclExecutionOutcome::success(Vec::new());
         }
 
         let Some(ocl) = self.object_creation_list_definition(ocl_name) else {
             log::warn!(
                 "receiving OCL `{ocl_name}` was not admitted for this GameLogic; no global fallback was used"
             );
-            return Vec::new();
+            return OclExecutionOutcome::success(Vec::new());
         };
 
         // C++ ObjectCreationList.cpp:1524-1534 createInternal walks every nugget
@@ -531,13 +625,17 @@ impl GameLogic {
                 continue;
             }
             if !generic.name_are_objects {
-                created.extend(self.execute_receiving_create_debris(
+                let debris = self.execute_receiving_create_debris(
                     generic,
                     source_id.expect("validated above"),
                     source_team,
                     origin,
                     presentation_effects,
-                ));
+                );
+                created.extend(debris.created);
+                if let Some(error) = debris.error {
+                    return OclExecutionOutcome::failure(created, error);
+                }
                 continue;
             }
             if !supports_host_weapon_generic_ocl(generic) {
@@ -615,16 +713,38 @@ impl GameLogic {
                 // None in 2v2 same-faction, dropping the controlling player.
                 let source_owner_player_id =
                     source_id.and_then(|id| self.objects.get(&id).and_then(|o| o.owner_player_id));
-                let Some(created_id) = self.create_object_for_owner_or_team_with_effects(
-                    template_name,
-                    source_team,
-                    source_owner_player_id,
-                    spawn_position,
-                    interpreter,
-                    presentation_effects,
-                ) else {
-                    continue;
+                let creation = self
+                    .create_object_for_owner_or_team_with_birth_checked(
+                        template_name,
+                        source_team,
+                        source_owner_player_id,
+                        spawn_position,
+                        interpreter,
+                        presentation_effects,
+                    );
+                let (created_id, created_birth) = match creation {
+                    Ok(Some(created)) => created,
+                    Ok(None) => continue,
+                    Err(error) => {
+                        if let Some(committed) = error.committed {
+                            created.push(committed);
+                        }
+                        return OclExecutionOutcome::failure(created, error.error);
+                    }
                 };
+                // Registration is already committed, even if a later callback
+                // removes this birth before the OCL finishes.
+                created.push((created_id, std::sync::Weak::clone(&created_birth)));
+                let birth_matches = |world: &Self| {
+                    world.objects.get(&created_id).is_some_and(|object| {
+                        created_birth.ptr_eq(&std::sync::Arc::downgrade(
+                            &object.visual_draw_identity_token,
+                        ))
+                    })
+                };
+                if !birth_matches(self) {
+                    continue;
+                }
                 if let Some(object) = self.objects.get_mut(&created_id) {
                     object.producer_id = source_id;
                     if generic.disposition.has(DebrisDisposition::LIKE_EXISTING) {
@@ -662,6 +782,9 @@ impl GameLogic {
                         },
                     )
                     .unwrap_or(false);
+                if !birth_matches(self) {
+                    continue;
+                }
                 let Some(object) = self.objects.get_mut(&created_id) else {
                     continue;
                 };
@@ -736,6 +859,9 @@ impl GameLogic {
                         let _ = self.transfer_script_object_name(sid, created_id);
                     }
                 }
+                if !birth_matches(self) {
+                    continue;
+                }
                 // C++ ObjectCreationList.cpp:962-969 — ParticleSystem is extra
                 // attached fire/smoke. The object still spawns.
                 if let Some(particle) = usable_ocl_particle_sys_name(&generic.particle_sys_name) {
@@ -751,10 +877,9 @@ impl GameLogic {
                             presentation_effects,
                         );
                 }
-                created.push(created_id);
             }
         }
-        created
+        OclExecutionOutcome::success(created)
     }
 
     /// Bounded receiving-session implementation of authored CreateDebris.
@@ -770,7 +895,7 @@ impl GameLogic {
         source_team: Team,
         origin: Vec3,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Vec<ObjectId> {
+    ) -> OclExecutionOutcome {
         use gamelogic::object_creation_list::DebrisDisposition as D;
         use gamelogic::object_creation_list::StaticGameLODLevel;
 
@@ -808,18 +933,16 @@ impl GameLogic {
             log::warn!(
                 "receiving CreateDebris nugget is outside the GenericDebris bridge slice; no Core ThingFactory/GameLOD fallback was used"
             );
-            return Vec::new();
+            return OclExecutionOutcome::success(Vec::new());
         }
         if !self.templates.contains_key("GenericDebris") {
             log::warn!(
                 "receiving CreateDebris requires the admitted GenericDebris template; no fallback object geometry was created"
             );
-            return Vec::new();
+            return OclExecutionOutcome::success(Vec::new());
         }
-        let Some((owner_player_id, source_layer, source_matrix, source_orientation)) = self
-            .objects
-            .get(&source_id)
-            .map(|source| {
+        let Some((owner_player_id, source_layer, source_matrix, source_orientation)) =
+            self.objects.get(&source_id).map(|source| {
                 (
                     source.owner_player_id,
                     source.pathfind_layer,
@@ -828,7 +951,7 @@ impl GameLogic {
                 )
             })
         else {
-            return Vec::new();
+            return OclExecutionOutcome::success(Vec::new());
         };
         let team = if owner_player_id.is_some() {
             source_team
@@ -860,16 +983,32 @@ impl GameLogic {
             // transform the vector without applying the matrix translation.
             let local_offset = Vec3::new(generic.offset.x, generic.offset.y, generic.offset.z);
             let position = origin + source_matrix.transform_vector3(local_offset);
-            let Some(id) = self.create_object_for_owner_or_team_with_effects(
+            let creation = self.create_object_for_owner_or_team_with_birth_checked(
                 "GenericDebris",
                 team,
                 owner_player_id,
                 position,
                 None,
                 presentation_effects,
-            ) else {
-                continue;
+            );
+            let (id, birth) = match creation {
+                Ok(Some(created)) => created,
+                Ok(None) => continue,
+                Err(error) => {
+                    if let Some(committed) = error.committed {
+                        created.push(committed);
+                    }
+                    return OclExecutionOutcome::failure(created, error.error);
+                }
             };
+            created.push((id, std::sync::Weak::clone(&birth)));
+            if !self.objects.get(&id).is_some_and(|object| {
+                birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &object.visual_draw_identity_token,
+                ))
+            }) {
+                continue;
+            }
 
             // C++ doStuffToObj sets producer and per-instance DebrisDraw state.
             // Keep model selection on the new Object; the shared template remains
@@ -947,9 +1086,7 @@ impl GameLogic {
                 let vertical = 3.0 * generic.disposition_intensity;
                 let force_x = self.logic_random.next_real(-horizontal, horizontal);
                 let force_y = self.logic_random.next_real(-horizontal, horizontal);
-                let force_z = self
-                    .logic_random
-                    .next_real(vertical * 0.33, vertical);
+                let force_z = self.logic_random.next_real(vertical * 0.33, vertical);
                 // Draw in C++ Coord3D x/y/z order, then map the vertical
                 // component to this host's Y-up force vector.
                 let force = Vec3::new(force_x, force_z, force_y);
@@ -961,9 +1098,8 @@ impl GameLogic {
             }
             self.ocl_create_debris_reg
                 .record_spawn(host_ocl_disposition_bits(generic.disposition));
-            created.push(id);
         }
-        created
+        OclExecutionOutcome::success(created)
     }
 
     /// Materialize FireFX and FireOCL events stamped when pending projectiles
@@ -3003,8 +3139,8 @@ impl GameLogic {
     /// Apply AP Rockets residual damage mult to Scorpion missile secondary.
     pub fn apply_scorpion_ap_rockets_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_scorpion::{
-            has_scorpion_rocket_upgrade, is_scorpion_template, salvage_tier_from_upgrades,
-            scorpion_missile_weapon, UPGRADE_GLA_AP_ROCKETS,
+            UPGRADE_GLA_AP_ROCKETS, has_scorpion_rocket_upgrade, is_scorpion_template,
+            salvage_tier_from_upgrades, scorpion_missile_weapon,
         };
 
         let Some(obj) = self.objects.get_mut(&object_id) else {

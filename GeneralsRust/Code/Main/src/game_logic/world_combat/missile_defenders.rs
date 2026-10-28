@@ -1903,19 +1903,40 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
+        self.residual_attach_slave_drone_checked(master_id, kind, interpreter, presentation_effects)
+            .unwrap_or_else(|error| {
+                log::error!("{error}");
+                None
+            })
+    }
+
+    pub(crate) fn residual_attach_slave_drone_checked(
+        &mut self,
+        master_id: ObjectId,
+        kind: crate::game_logic::host_slave_drones::SlaveDroneKind,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
         use crate::game_logic::host_slave_drones::{
             SlaveDroneKind, drone_spawn_offset_from_master, is_slave_drone_master_template,
         };
 
-        let (team, master_pos, owner_player_id) = {
-            let master = self.objects.get(&master_id)?;
+        let (team, master_pos, owner_player_id, master_birth) = {
+            let Some(master) = self.objects.get(&master_id) else {
+                return Ok(None);
+            };
             if !master.is_alive() || master.status.under_construction {
-                return None;
+                return Ok(None);
             }
             if !is_slave_drone_master_template(&master.template_name) {
-                return None;
+                return Ok(None);
             }
-            (master.team, master.get_position(), master.owner_player_id)
+            (
+                master.team,
+                master.get_position(),
+                master.owner_player_id,
+                std::sync::Arc::downgrade(&master.visual_draw_identity_token),
+            )
         };
 
         // SlavedUpdate is an authored module, not a template-name behavior.
@@ -1923,43 +1944,92 @@ impl GameLogic {
         // resident Object definition before factory admission.
         let drone_tpl_name = kind.template_name();
         if !self.templates.contains_key(drone_tpl_name) {
-            let template = Self::build_template_from_asset_definition(drone_tpl_name)?;
+            let Some(template) = Self::build_template_from_asset_definition(drone_tpl_name) else {
+                return Ok(None);
+            };
             self.templates.insert(drone_tpl_name.to_string(), template);
         }
-        if self
+        if !self
             .templates
-            .get(drone_tpl_name)?
-            .slaved_update_metadata
-            .is_none()
+            .get(drone_tpl_name)
+            .is_some_and(|template| template.slaved_update_metadata.is_some())
         {
-            return None;
+            return Ok(None);
         }
         crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
 
         let (ox, oz) = drone_spawn_offset_from_master(kind);
         let spawn_pos = Vec3::new(master_pos.x + ox, master_pos.y, master_pos.z + oz);
-        let drone_id = self.create_object_for_owner_or_team_with_effects(
-            drone_tpl_name,
-            team,
-            owner_player_id,
-            spawn_pos,
-            interpreter,
-            presentation_effects,
-        )?;
-        // Creation callbacks may remove the intended master. Do not report
-        // attachment success unless the original received identities survive.
-        // The factory-created object keeps its identity; no rollback destruction.
-        if !self.enslave_owned_drone(drone_id, master_id) {
-            return None;
+        let creation = self.create_object_for_owner_or_team_with_birth_checked(
+                drone_tpl_name,
+                team,
+                owner_player_id,
+                spawn_pos,
+                interpreter,
+                presentation_effects,
+            );
+        let (drone_id, drone_birth) = match creation {
+            Ok(Some(created)) => created,
+            Ok(None) => return Ok(None),
+            Err(error) => {
+                if let Some((child_id, child_birth)) = error.committed {
+                    let _ = self.destroy_object_if_birth_matches_with_effects(
+                        child_id,
+                        &child_birth,
+                        presentation_effects,
+                    )?;
+                }
+                return Err(error.error);
+            }
+        };
+        // Creation callbacks may remove or replace the intended master. C++
+        // holds the original Object pointer; never bind by its recycled ID.
+        let original_master_survives = self.objects.get(&master_id).is_some_and(|master| {
+            master_birth.ptr_eq(&std::sync::Arc::downgrade(
+                &master.visual_draw_identity_token,
+            ))
+        });
+        if !original_master_survives {
+            self.destroy_object_if_birth_matches_with_effects(
+                drone_id,
+                &drone_birth,
+                presentation_effects,
+            )?;
+            return Err(gamelogic::GameLogicError::InvalidObject(master_id.0));
+        }
+        if !self.object_birth_matches(drone_id, &drone_birth) {
+            return Err(gamelogic::GameLogicError::InvalidObject(drone_id.0));
+        }
+
+        if let Some(drone) = self.objects.get_mut(&drone_id) {
+            // C++ SpawnBehavior.cpp:637 sets producer before invoking the
+            // first SlavedUpdateInterface::onEnslave callback.
+            drone.producer_id = Some(master_id);
+        } else {
+            return Err(gamelogic::GameLogicError::InvalidObject(drone_id.0));
+        }
+        if !self.enslave_owned_drone(drone_id, master_id, &master_birth) {
+            self.destroy_object_if_birth_matches_with_effects(
+                drone_id,
+                &drone_birth,
+                presentation_effects,
+            )?;
+            return Err(gamelogic::GameLogicError::ModuleError(
+                "spawned slave drone could not bind to its original master birth".into(),
+            ));
         }
 
         // C++ startSlavedEffects (SlavedUpdate.cpp:700-701) OBJECT_STATUS_UNSELECTABLE.
         if let Some(drone) = self.objects.get_mut(&drone_id) {
-            drone.producer_id = Some(master_id);
             drone.set_status_unselectable(true);
             if drone.upgrade_die.is_none() {
                 drone.install_upgrade_die(kind.upgrade_name());
             }
+        }
+        if !self.object_birth_matches(drone_id, &drone_birth)
+            || !self.object_birth_matches(master_id, &master_birth)
+        {
+            return Err(gamelogic::GameLogicError::InvalidObject(drone_id.0));
         }
 
         // SpawnBehavior aggregate rank synchronization occurs at spawn.
@@ -1967,7 +2037,7 @@ impl GameLogic {
         let (master_level, drone_level) =
             match (self.objects.get(&master_id), self.objects.get(&drone_id)) {
                 (Some(m), Some(d)) => (m.experience.level, d.experience.level),
-                _ => return Some(drone_id),
+                _ => return Err(gamelogic::GameLogicError::InvalidObject(drone_id.0)),
             };
         let (sync_master, sync_drone) =
             crate::game_logic::host_slave_drones::synced_spawn_veterancy(master_level, drone_level);
@@ -1986,6 +2056,11 @@ impl GameLogic {
                 },
             );
         }
+        if !self.object_birth_matches(drone_id, &drone_birth)
+            || !self.object_birth_matches(master_id, &master_birth)
+        {
+            return Err(gamelogic::GameLogicError::InvalidObject(drone_id.0));
+        }
         if sync_drone != drone_level {
             self.with_object_veterancy_feedback_and_locomotors(
                 drone_id,
@@ -1999,6 +2074,11 @@ impl GameLogic {
                     )
                 },
             );
+        }
+        if !self.object_birth_matches(drone_id, &drone_birth)
+            || !self.object_birth_matches(master_id, &master_birth)
+        {
+            return Err(gamelogic::GameLogicError::InvalidObject(drone_id.0));
         }
 
         if let Some(master) = self.objects.get_mut(&master_id) {
@@ -2020,7 +2100,7 @@ impl GameLogic {
             }
         }
 
-        Some(drone_id)
+        Ok(Some(drone_id))
     }
 
     /// Residual honesty: bunker-buster blast + garrison kill or bunker damage.

@@ -9,6 +9,7 @@ impl GameLogic {
         &mut self,
         drone: ObjectId,
         master: ObjectId,
+        expected_master_birth: &std::sync::Weak<()>,
     ) -> bool {
         let Some(data) = self
             .objects
@@ -17,9 +18,15 @@ impl GameLogic {
         else {
             return false;
         };
-        let Some(master_stealthed) = self.objects.get(&master).map(|o| o.status.stealthed) else {
+        let Some(master_object) = self.objects.get(&master) else {
             return false;
         };
+        if !expected_master_birth.ptr_eq(&std::sync::Arc::downgrade(
+            &master_object.visual_draw_identity_token,
+        )) {
+            return false;
+        }
+        let master_stealthed = master_object.status.stealthed;
         let angle = self.slave_random_real(0.0, std::f32::consts::TAU);
         let Some(object) = self.objects.get_mut(&drone) else {
             return false;

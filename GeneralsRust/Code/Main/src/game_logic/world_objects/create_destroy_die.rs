@@ -3,6 +3,11 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+pub(crate) struct CheckedFactoryError {
+    pub(crate) error: gamelogic::GameLogicError,
+    pub(crate) committed: Option<(ObjectId, std::sync::Weak<()>)>,
+}
+
 #[cfg(test)]
 #[path = "create_destroy_die/incoming_death_owner_tests.rs"]
 mod incoming_death_owner_tests;
@@ -1565,6 +1570,76 @@ impl GameLogic {
         }
     }
 
+    /// The OCL spawn path needs the exact admitted object's identity because
+    /// its factory callbacks can reenter and replace an object at the same ID.
+    pub(crate) fn create_object_for_owner_or_team_with_birth_checked(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        position: Vec3,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Result<Option<(ObjectId, std::sync::Weak<()>)>, CheckedFactoryError> {
+        let (team, owner_player_id) = match owner_player_id {
+            Some(owner) => {
+                let Some(player) = self.players.get(&owner) else {
+                    return Ok(None);
+                };
+                if player.team == Team::Neutral {
+                    return Ok(None);
+                }
+                (player.team, Some(owner))
+            }
+            None => (team, self.unique_player_id_for_team(team)),
+        };
+        let mut birth = None;
+        let creation = self.create_object_with_initial_team_and_ui_birth_checked(
+            template_name,
+            team,
+            owner_player_id,
+            position,
+            FactoryCreationPurpose::AtCreation,
+            None,
+            interpreter,
+            ui,
+            Some(&mut birth),
+        );
+        let id = match creation {
+            Ok(Some(id)) => id,
+            Ok(None) => return Ok(None),
+            Err(error) => return Err(CheckedFactoryError { error, committed: birth }),
+        };
+        let Some((birth_id, birth)) = birth else {
+            return Err(CheckedFactoryError {
+                error: gamelogic::GameLogicError::InvalidObject(id.0),
+                committed: None,
+            });
+        };
+        if birth_id != id || !self.objects.get(&id).is_some_and(|object| {
+            birth.ptr_eq(&std::sync::Arc::downgrade(
+                &object.visual_draw_identity_token,
+            ))
+        }) {
+            return Err(CheckedFactoryError {
+                error: gamelogic::GameLogicError::InvalidObject(id.0),
+                committed: Some((birth_id, birth)),
+            });
+        }
+        self.apply_cash_bounty_on_object_created(id);
+        if !self.objects.get(&id).is_some_and(|object| {
+            birth.ptr_eq(&std::sync::Arc::downgrade(
+                &object.visual_draw_identity_token,
+            ))
+        }) {
+            return Err(CheckedFactoryError {
+                error: gamelogic::GameLogicError::InvalidObject(id.0),
+                committed: Some((id, birth)),
+            });
+        }
+        Ok(Some((id, birth)))
+    }
+
     /// ProductionUpdate calls onCreate at allocation, but onBuildComplete
     /// only after exit and Player::onUnitCreated (CPP:798-825). Map/script
     /// creation retains its immediate completion behavior.
@@ -1910,6 +1985,31 @@ impl GameLogic {
         initial_team: Option<(&str, u32, bool)>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+        self.create_object_with_initial_team_and_ui_birth_checked(
+            template_name,
+            team,
+            owner_player_id,
+            position,
+            creation_purpose,
+            initial_team,
+            interpreter,
+            ui,
+            None,
+        )
+    }
+
+    fn create_object_with_initial_team_and_ui_birth_checked(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        position: Vec3,
+        creation_purpose: FactoryCreationPurpose,
+        initial_team: Option<(&str, u32, bool)>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        birth_out: Option<&mut Option<(ObjectId, std::sync::Weak<()>)>>,
     ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
         if let Some(error) = self.object_retirement_error() {
             return Err(error);
@@ -2832,6 +2932,27 @@ impl GameLogic {
                 object.set_drawable_hidden(true);
             }
             self.try_admit_host_object(object)?;
+            // Capture the admitted object's birth before any factory/onCreate
+            // callback can synchronously remove it and reuse its numeric ID.
+            let birth = self
+                .objects
+                .get(&id)
+                .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+                .ok_or(gamelogic::GameLogicError::InvalidObject(id.0))?;
+            if let Some(birth_out) = birth_out {
+                *birth_out = Some((id, std::sync::Weak::clone(&birth)));
+            }
+            macro_rules! verify_factory_birth {
+                () => {
+                    if !self.objects.get(&id).is_some_and(|object| {
+                        birth.ptr_eq(&std::sync::Arc::downgrade(
+                            &object.visual_draw_identity_token,
+                        ))
+                    }) {
+                        return Err(gamelogic::GameLogicError::InvalidObject(id.0));
+                    }
+                };
+            }
             // C++ Object.cpp onCreate residual: inherit team prototype attitude + attack priority.
             self.inherit_team_ai_defaults(id);
             // C++ Object.cpp:419-462 resolves the selected AIUpdateInterface,
@@ -2841,8 +2962,10 @@ impl GameLogic {
             // only the authored first AI provider here, before team admission
             // can run callbacks or create another actor.
             self.initialize_base_ai_on_object_created_owned(id)?;
+            verify_factory_birth!();
             // C++ GameLogic map/create: team->setActive() once the team has members.
             self.admit_team_for_host_object_with_effects_checked(id, interpreter, false, ui)?;
+            verify_factory_birth!();
 
             // C++ SpecialPowerModule ctor (SpecialPowerModule.cpp:86-101):
             // pre-built non-SharedNSync modules arm their authored reload at
@@ -2862,10 +2985,12 @@ impl GameLogic {
                 interpreter,
                 ui,
             )?;
+            verify_factory_birth!();
 
             // Object ctor: modules are ready before radar/list admission and
             // before ThingFactory enters its ordered Create callbacks.
             self.host_radar_add_object_with_effects(id, ui);
+            verify_factory_birth!();
 
             // C++ SupplyWarehouseCreate::onCreate residual — StartingBoxes + manager register.
             self.init_supply_warehouse_create(id);
@@ -2877,6 +3002,7 @@ impl GameLogic {
                 interpreter,
                 ui,
             );
+            verify_factory_birth!();
             // Residual honesty: Emperor innate propaganda counts as install on spawn.
             if emperor_spawn {
                 self.overlord_addons.record_propaganda_install();
@@ -2942,6 +3068,7 @@ impl GameLogic {
                         },
                     )
                     .flatten();
+                verify_factory_birth!();
                 if let Some(kind) = grant {
                     self.unit_training.record_grant(kind);
                 }
@@ -2961,6 +3088,7 @@ impl GameLogic {
                 }
             }
             self.admit_factory_drawable_with_effects(id, ui)?;
+            verify_factory_birth!();
             self.apply_factory_init_bootstrap_upgrades(
                 id,
                 template_name,
@@ -2968,7 +3096,9 @@ impl GameLogic {
                 owner_player_id,
                 sentry_had_explicit_primary,
             );
+            verify_factory_birth!();
             self.apply_researched_player_upgrades_to_object_with_interpreter(id, interpreter, ui);
+            verify_factory_birth!();
 
             if !starts_under_construction {
                 // C++ ExperienceScalarUpgrade after player Upgrade_AmericaAdvancedTraining:
@@ -3082,6 +3212,7 @@ impl GameLogic {
             }
 
             self.apply_difficulty_bonuses_for_object_with_effects(id, ui);
+            verify_factory_birth!();
 
             // Factory return-equivalent boundary: caller placement must never
             // become observable during constructor, onCreate or Drawable birth.
@@ -3121,6 +3252,7 @@ impl GameLogic {
                     interpreter,
                     ui,
                 )?;
+                verify_factory_birth!();
             }
 
             // C++ SpawnBehavior ModuleTag_12 on stock and general-specific
@@ -3138,10 +3270,12 @@ impl GameLogic {
                     interpreter,
                     ui,
                 )?;
+                verify_factory_birth!();
             }
 
             if initial_team.is_none_or(|(_, _, activate)| activate) {
                 self.admit_team_for_host_object_with_effects_checked(id, interpreter, true, ui)?;
+                verify_factory_birth!();
             }
 
             if counts_as_unit {
@@ -3174,6 +3308,7 @@ impl GameLogic {
             // Drawable constructor/binding effects have already run at the
             // semantic birth boundary; never queue a second host ambient start.
 
+            verify_factory_birth!();
             Ok(Some(id))
         } else {
             log::warn!("Template not found: {}", template_name);
@@ -3405,7 +3540,12 @@ impl GameLogic {
             .and_then(|player_id| self.players.get(&player_id))
             .map(|player| player.is_human)
             .unwrap_or(false);
-        let difficulty = self.get_difficulty();
+        // C++ Player::getPlayerDifficulty selects the AI's own configured
+        // difficulty when this controller has an AI object; humans use the
+        // receiving session's global script difficulty.
+        let difficulty = owner_player_id
+            .and_then(|player_id| self.host_ai_difficulty(player_id))
+            .unwrap_or_else(|| self.get_difficulty());
         let type_idx = if is_human { 0 } else { 1 };
         let diff_idx = match difficulty {
             crate::ai::AIDifficulty::Easy => 0,

@@ -21,8 +21,46 @@ fn world() -> (
             .is_some(),
         "factory must bind the actual selected locomotor definition"
     );
-    assert!(game.enslave_owned_drone(drone, master));
+    game.host_object_mut(drone).unwrap().producer_id = Some(master);
+    let master_birth =
+        std::sync::Arc::downgrade(&game.host_object(master).unwrap().visual_draw_identity_token);
+    assert!(game.enslave_owned_drone(drone, master, &master_birth));
     (game, master, drone)
+}
+
+#[test]
+fn on_enslave_rejects_replaced_master_birth_but_accepts_queued_dead_original() {
+    let (mut replaced, old_master, drone) = world();
+    let expected = std::sync::Arc::downgrade(
+        &replaced
+            .host_object(old_master)
+            .unwrap()
+            .visual_draw_identity_token,
+    );
+    let mut replacement = replaced.objects.remove(&old_master).unwrap();
+    replacement.visual_draw_identity_token = std::sync::Arc::new(());
+    replaced.objects.insert(old_master, replacement);
+    assert!(
+        !replaced.enslave_owned_drone(drone, old_master, &expected),
+        "same numeric ID with a new birth must not become the slave master"
+    );
+
+    let (mut queued_dead, master, drone) = world();
+    let birth = std::sync::Arc::downgrade(
+        &queued_dead
+            .host_object(master)
+            .unwrap()
+            .visual_draw_identity_token,
+    );
+    queued_dead
+        .host_object_mut(master)
+        .unwrap()
+        .status
+        .effectively_dead = true;
+    assert!(
+        queued_dead.enslave_owned_drone(drone, master, &birth),
+        "C++ retains the original Object pointer during queued deletion"
+    );
 }
 
 /// One paired source owns both typed module data and the host projection.

@@ -76,7 +76,7 @@ impl GameLogic {
             .get(&source_id)
             .map(|o| (o.team, o.get_orientation(), o.movement.velocity))
             .unwrap_or((crate::game_logic::Team::Neutral, 0.0, Vec3::ZERO));
-        let created = self.execute_parsed_weapon_ocl_at_with_effects(
+        let outcome = self.execute_parsed_weapon_ocl_with_births(
             ocl,
             Some(source_id),
             team,
@@ -84,12 +84,24 @@ impl GameLogic {
             yaw,
             vel,
             pos,
+            None,
             effects,
         );
+        // A failed or partially committed OCL is not an empty successful OCL:
+        // do not create a second fallback after its callbacks already ran.
+        let fallback = outcome.error.is_none() && outcome.created.is_empty();
+        if let Some(error) = outcome.error {
+            log::error!("{error}");
+        }
+        let created: Vec<_> = outcome
+            .created
+            .into_iter()
+            .filter_map(|(id, birth)| self.object_birth_matches(id, &birth).then_some(id))
+            .collect();
         let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
             pos, None, self.frame, source_id, None, "", "", ocl, "", 0.0, 0.0,
         );
-        if created.is_empty() {
+        if fallback {
             const EMBER_TEMPLATE: &str = "BurningEmbers";
             if !self.templates.contains_key(EMBER_TEMPLATE) {
                 let mut tpl = crate::game_logic::ThingTemplate::new(EMBER_TEMPLATE);

@@ -3,6 +3,31 @@
 use super::super::*;
 
 impl GameLogic {
+    pub(in crate::game_logic) fn object_birth_matches(
+        &self,
+        object_id: ObjectId,
+        birth: &std::sync::Weak<()>,
+    ) -> bool {
+        self.objects.get(&object_id).is_some_and(|object| {
+            birth.ptr_eq(&std::sync::Arc::downgrade(
+                &object.visual_draw_identity_token,
+            ))
+        })
+    }
+
+    pub(in crate::game_logic) fn destroy_object_if_birth_matches_with_effects(
+        &mut self,
+        object_id: ObjectId,
+        birth: &std::sync::Weak<()>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        if !self.object_birth_matches(object_id, birth) {
+            return Ok(false);
+        }
+        self.destroy_object_with_effects(object_id, presentation_effects)?;
+        Ok(true)
+    }
+
     /// Apply an upgrade tag to an object.
     /// Mirrors C++ behavior where upgrades are persistent object state, not display-name edits.
     pub(crate) fn apply_upgrade_to_object(&mut self, object_id: ObjectId, upgrade: &str) {
@@ -259,7 +284,7 @@ impl GameLogic {
                 kind,
                 interpreter,
                 presentation_effects,
-            );
+            )?;
         }
         if installed_gattling {
             self.overlord_addons.record_gattling_install();
@@ -412,7 +437,7 @@ impl GameLogic {
         &mut self,
         object_id: ObjectId,
         kind: crate::game_logic::host_slave_drones::SlaveDroneKind,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.apply_object_creation_upgrade_ocl_with_effects(
             object_id,
             kind,
@@ -425,7 +450,7 @@ impl GameLogic {
         object_id: ObjectId,
         kind: crate::game_logic::host_slave_drones::SlaveDroneKind,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.apply_object_creation_upgrade_ocl_with_interpreter_and_effects(
             object_id,
             kind,
@@ -439,7 +464,7 @@ impl GameLogic {
         kind: crate::game_logic::host_slave_drones::SlaveDroneKind,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_slave_drones::{SlaveDroneKind, drone_ocl_name};
 
         let ctx = self.objects.get(&object_id).map(|obj| {
@@ -449,12 +474,13 @@ impl GameLogic {
                 obj.get_orientation(),
                 obj.experience.level,
                 obj.movement.velocity,
+                std::sync::Arc::downgrade(&obj.visual_draw_identity_token),
             )
         });
-        let Some((team, pos, orient, vet, vel)) = ctx else {
-            return;
+        let Some((team, pos, orient, vet, vel, master_birth)) = ctx else {
+            return Ok(());
         };
-        let spawned = self.execute_parsed_weapon_ocl_at_with_interpreter_and_effects(
+        let outcome = self.execute_parsed_weapon_ocl_with_births(
             drone_ocl_name(kind),
             Some(object_id),
             team,
@@ -465,17 +491,55 @@ impl GameLogic {
             interpreter,
             presentation_effects,
         );
+        let ocl_error = outcome.error;
+        let spawned = outcome.created;
+        let original_master_survives = self.objects.get(&object_id).is_some_and(|master| {
+            master_birth.ptr_eq(&std::sync::Arc::downgrade(
+                &master.visual_draw_identity_token,
+            ))
+        });
         if spawned.is_empty() {
-            let _ = self.residual_attach_slave_drone_with_interpreter_and_effects(
+            if let Some(error) = ocl_error {
+                return Err(error);
+            }
+            if !original_master_survives {
+                return Err(gamelogic::GameLogicError::InvalidObject(object_id.0));
+            }
+            let _ = self.residual_attach_slave_drone_checked(
                 object_id,
                 kind,
                 interpreter,
                 presentation_effects,
-            );
-            return;
+            )?;
+            return Ok(());
+        }
+        if !original_master_survives {
+            let mut cleanup_error = None;
+            for (drone_id, drone_birth) in spawned {
+                match self.destroy_object_if_birth_matches_with_effects(
+                    drone_id,
+                    &drone_birth,
+                    presentation_effects,
+                ) {
+                    Ok(_) => {}
+                    Err(error) => {
+                        cleanup_error.get_or_insert(error);
+                    }
+                }
+            }
+            if let Some(error) = cleanup_error {
+                return Err(error);
+            }
+            if let Some(error) = ocl_error {
+                return Err(error);
+            }
+            return Err(gamelogic::GameLogicError::InvalidObject(object_id.0));
         }
         // C++ SlavedUpdate startSlavedEffects + UpgradeDie on the OCL spawn.
-        for drone_id in spawned {
+        for (drone_id, drone_birth) in spawned {
+            if !self.object_birth_matches(drone_id, &drone_birth) {
+                continue;
+            }
             if let Some(drone) = self.objects.get_mut(&drone_id) {
                 drone.producer_id = Some(object_id);
                 drone.set_status_unselectable(true);
@@ -483,6 +547,9 @@ impl GameLogic {
                     drone.install_upgrade_die(kind.upgrade_name());
                 }
             }
+        }
+        if let Some(error) = ocl_error {
+            return Err(error);
         }
         match kind {
             SlaveDroneKind::Scout => {
@@ -498,5 +565,35 @@ impl GameLogic {
                     self.battle_drone_residual_attaches.saturating_add(1);
             }
         }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod object_creation_upgrade_birth_tests {
+    use super::*;
+
+    #[test]
+    fn stale_ocl_child_receipt_does_not_destroy_same_id_replacement() {
+        let mut world = GameLogic::new();
+        let id = ObjectId(77);
+        let template = ThingTemplate::new("BirthReceiptChild");
+        let original = Object::new(template.clone(), id, Team::USA);
+        let original_birth = std::sync::Arc::downgrade(&original.visual_draw_identity_token);
+        world.objects.insert(id, original);
+
+        let replacement = Object::new(template, id, Team::China);
+        let replacement_birth = std::sync::Arc::downgrade(&replacement.visual_draw_identity_token);
+        world.objects.insert(id, replacement);
+
+        let destroyed = world
+            .destroy_object_if_birth_matches_with_effects(
+                id,
+                &original_birth,
+                &mut crate::game_logic::ScriptPresentationEffects::default(),
+            )
+            .expect("mismatched receipt should be a harmless no-op");
+        assert!(!destroyed);
+        assert!(world.object_birth_matches(id, &replacement_birth));
     }
 }
