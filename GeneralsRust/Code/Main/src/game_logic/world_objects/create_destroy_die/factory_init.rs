@@ -389,12 +389,20 @@ impl GameLogic {
             if shoes && !(allow_upgrades && object.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES)) {
                 object.apply_upgrade_tag(UPGRADE_GLA_WORKER_SHOES);
                 let _ =
-                    crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_upgrade(
+                    crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_upgrade_in(
                         object,
                         UPGRADE_GLA_WORKER_SHOES,
+                        self.locomotor_definitions.as_ref(),
                     );
             }
-            object.movement.max_speed = worker_residual_speed(shoes);
+            if object
+                .thing()
+                .template
+                .receiving_object_definition
+                .is_none()
+            {
+                object.movement.max_speed = worker_residual_speed(shoes);
+            }
         }
 
         // Host residual: GLA RPG Trooper / Tunnel Defender PRIMARY rocket residual.

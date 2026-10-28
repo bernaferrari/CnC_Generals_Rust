@@ -337,7 +337,17 @@ pub fn template_locomotor_set_upgrade_triggered(
     let def = mgr
         .get_object_definition(template_name)
         .or_else(|| mgr.resolve_object_definition(template_name, None))?;
-    Some(def.behavior_modules.iter().any(|module| {
+    Some(definition_locomotor_set_upgrade_triggered(
+        &def,
+        upgrade_name,
+    ))
+}
+
+fn definition_locomotor_set_upgrade_triggered(
+    definition: &crate::assets::ini_parser::ObjectDefinition,
+    upgrade_name: &str,
+) -> bool {
+    definition.behavior_modules.iter().any(|module| {
         module
             .class_name
             .eq_ignore_ascii_case("LocomotorSetUpgrade")
@@ -347,7 +357,7 @@ pub fn template_locomotor_set_upgrade_triggered(
                     upgrade_name,
                 )
             })
-    }))
+    })
 }
 
 /// C++ only `LocomotorSetUpgrade::upgradeImplementation` swaps. INI module
@@ -988,10 +998,22 @@ pub fn apply_locomotor_set_upgrade(
     obj: &mut crate::game_logic::object::Object,
     upgrade: &str,
 ) -> bool {
-    if !should_apply_locomotor_set_upgrade(&obj.template_name, upgrade) {
+    apply_locomotor_set_upgrade_in(obj, upgrade, None)
+}
+
+pub(crate) fn apply_locomotor_set_upgrade_in(
+    obj: &mut crate::game_logic::object::Object,
+    upgrade: &str,
+    locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
+) -> bool {
+    let triggered = match &obj.thing().template.receiving_object_definition {
+        Some(definition) => definition_locomotor_set_upgrade_triggered(definition, upgrade),
+        None => should_apply_locomotor_set_upgrade(&obj.template_name, upgrade),
+    };
+    if !triggered {
         return false;
     }
-    obj.set_locomotor_upgrade(true);
+    obj.set_locomotor_upgrade_in(true, locomotors);
     true
 }
 

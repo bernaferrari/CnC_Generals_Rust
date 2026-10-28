@@ -103,7 +103,10 @@ impl Object {
     }
 
     /// Tick move-away temporary state residual.
-    pub fn tick_move_away_state(&mut self) {
+    pub(crate) fn tick_move_away_state(
+        &mut self,
+        locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
+    ) {
         if !self.is_alive() && self.move_away_frames > 0 {
             self.move_away_frames = 1;
         }
@@ -143,10 +146,11 @@ impl Object {
                     self.set_status_moving(false);
                 }
                 if self.is_panicking {
-                    crate::game_logic::host_upgrade_module_residuals::apply_choose_locomotor_set(
+                    crate::game_logic::host_upgrade_module_residuals::apply_choose_locomotor_set_in(
                         self,
                         crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Normal,
                         false,
+                        locomotors,
                     );
                 }
             }

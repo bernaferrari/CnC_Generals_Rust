@@ -72,7 +72,7 @@ impl GameLogic {
         let mut expired_paths: Vec<ObjectId> = Vec::new();
         for (id, o) in self.objects.registered_mut() {
             o.clear_blocked_frame_state();
-            o.tick_move_away_state();
+            o.tick_move_away_state(self.locomotor_definitions.as_ref());
             if o.tick_path_queue(
                 self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),

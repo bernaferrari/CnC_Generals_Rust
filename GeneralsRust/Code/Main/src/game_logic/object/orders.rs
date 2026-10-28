@@ -350,6 +350,14 @@ impl Object {
 
     /// C++ AIUpdateInterface::setLocomotorUpgrade residual.
     pub fn set_locomotor_upgrade(&mut self, enabled: bool) {
+        self.set_locomotor_upgrade_in(enabled, None);
+    }
+
+    pub(crate) fn set_locomotor_upgrade_in(
+        &mut self,
+        enabled: bool,
+        locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
+    ) {
         self.locomotor_upgrade = enabled;
         if self
             .jet_ai
@@ -357,9 +365,11 @@ impl Object {
             .as_deref()
             .is_none_or(|set| set == "SET_NORMAL" || set == "SET_NORMAL_UPGRADED")
         {
-            crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_kind(
+            crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_kind_for_surfaces_in(
                 self,
                 crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Normal,
+                0,
+                locomotors,
             );
         }
     }

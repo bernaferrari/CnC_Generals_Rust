@@ -326,7 +326,7 @@ pub fn ensure_host_locomotor_store() -> usize {
 /// Construct fallback content locally when an application has no archive data.
 /// It never reads or publishes the process-wide compatibility store.
 pub fn default_host_locomotor_store() -> LocomotorStore {
-    let mut store = LocomotorStore::new();
+    let mut store = LocomotorStore::new_owned();
     try_load_locomotor_ini_from_disk(&mut store);
     seed_missing_host_locomotors(&mut store);
     ensure_chinook_helix_slide_into_place(&mut store);
@@ -678,6 +678,9 @@ impl crate::game_logic::GameLogic {
         &mut self,
         definitions: LocomotorStore,
     ) -> Result<(), String> {
+        if !definitions.owns_name_namespace() {
+            return Err("Locomotor definitions require an owned name namespace".into());
+        }
         if self.receiving_module_content.is_some()
             || !self.objects.registered_is_empty()
             || self.has_unregistered_host_objects()

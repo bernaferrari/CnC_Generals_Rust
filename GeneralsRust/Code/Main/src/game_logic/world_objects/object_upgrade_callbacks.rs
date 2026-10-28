@@ -167,8 +167,10 @@ impl GameLogic {
             }
             // C++ LocomotorSetUpgrade::upgradeImplementation only — not a
             // name-sniff of Heroic rank or AutoLoader research.
-            if crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_upgrade(
-                obj, upgrade,
+            if crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_upgrade_in(
+                obj,
+                upgrade,
+                self.locomotor_definitions.as_ref(),
             ) {
                 self.upgrade_module_residuals.record_locomotor_set(upgrade);
             }

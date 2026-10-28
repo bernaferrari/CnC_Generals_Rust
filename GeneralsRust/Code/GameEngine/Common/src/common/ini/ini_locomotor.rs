@@ -20,7 +20,7 @@ use crate::common::game_common::{
     convert_angular_velocity_in_degrees_per_sec_to_rads_per_frame,
     convert_velocity_in_secs_to_frames,
 };
-use crate::common::name_key_generator::{NameKeyGenerator, NameKeyType};
+use crate::common::name_key_generator::{NameKeyGenerator, NameKeyNamespace, NameKeyType};
 
 /// Result type for locomotor operations
 pub type LocomotorResult<T> = Result<T, LocomotorError>;
@@ -408,6 +408,7 @@ pub struct LocomotorStore {
     templates: BTreeMap<(NameKeyType, u64), LocomotorTemplate>,
     template_order_by_name: HashMap<String, (NameKeyType, u64)>,
     next_registration_ordinal: u64,
+    owned_names: Option<NameKeyNamespace>,
 }
 
 impl LocomotorStore {
@@ -416,7 +417,21 @@ impl LocomotorStore {
             templates: BTreeMap::new(),
             template_order_by_name: HashMap::new(),
             next_registration_ordinal: 0,
+            owned_names: None,
         }
+    }
+
+    /// A receiving catalog owns its private ordering keys. No numeric key
+    /// escapes this store; gameplay resolves authored locomotors by name.
+    pub fn new_owned() -> Self {
+        Self {
+            owned_names: Some(NameKeyNamespace::new()),
+            ..Self::new()
+        }
+    }
+
+    pub fn owns_name_namespace(&self) -> bool {
+        self.owned_names.is_some()
     }
 
     fn template_key(name: &AsciiString) -> NameKeyType {
@@ -430,7 +445,10 @@ impl LocomotorStore {
     pub fn add_template(&mut self, template: LocomotorTemplate) -> LocomotorResult<()> {
         // Preserve NAMEKEY allocation at admission (Locomotor.cpp:594). A
         // calling-thread key never determines which definition is replaced.
-        let key = Self::template_key(&template.name);
+        let key = match &mut self.owned_names {
+            Some(names) => names.name_to_key(template.name.as_str()),
+            None => Self::template_key(&template.name),
+        };
         if let Some(&order) = self.template_order_by_name.get(template.name.as_str()) {
             self.templates.insert(order, template);
         } else {
@@ -449,15 +467,19 @@ impl LocomotorStore {
     }
 
     pub fn find_template(&self, name: &str) -> Option<&LocomotorTemplate> {
-        // Keep the original string adapter's allocation side effect, but not
-        // its invalid assumption that every thread shares a numeric namespace.
-        let _ = Self::template_key_from_str(name);
+        // The compatibility adapter retains its original allocation side
+        // effect. Owned catalogs resolve locally without publishing a key.
+        if self.owned_names.is_none() {
+            let _ = Self::template_key_from_str(name);
+        }
         let order = self.template_order_by_name.get(name)?;
         self.templates.get(order)
     }
 
     pub fn find_template_mut(&mut self, name: &str) -> Option<&mut LocomotorTemplate> {
-        let _ = Self::template_key_from_str(name);
+        if self.owned_names.is_none() {
+            let _ = Self::template_key_from_str(name);
+        }
         let order = self.template_order_by_name.get(name)?;
         self.templates.get_mut(order)
     }

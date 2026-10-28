@@ -6,18 +6,20 @@ use generals_main::game_logic::{GameLogic, GameMode, Player, Team};
 use generals_main::save_load::SnapshotBuilder;
 
 fn base_catalog(speed: u32, pitch: u32) -> LocomotorStore {
-    let mut catalog = LocomotorStore::new();
+    let mut catalog = LocomotorStore::new_owned();
     catalog
         .apply_source(&format!(
             "Locomotor SharedOwnerLoco\n Surfaces = GROUND\n Speed = {speed}\n Acceleration = 60\n Braking = 80\n TurnRate = 120\n Appearance = TWO_LEGS\n PitchStiffness = {pitch}\n WanderWidthFactor = 2\n StickToGround = Yes\nEnd\n\
              Locomotor CliffOwnerLoco\n Surfaces = CLIFF\n Speed = {speed}\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\n\
              Locomotor GroundOwnerLoco\n Surfaces = GROUND\n Speed = {}\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\n\
              Locomotor PanicOwnerLoco\n Surfaces = GROUND\n Speed = {}\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\n\
+             Locomotor UpgradedOwnerLoco\n Surfaces = GROUND\n Speed = {}\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\n\
              Locomotor AirOwnerLoco\n Surfaces = AIR\n Speed = {}\n Acceleration = 60\n TurnRate = 120\n Appearance = WINGS\n MinSpeed = 10\nEnd\n\
              Locomotor TaxiOwnerLoco\n Surfaces = GROUND\n Speed = {}\n Acceleration = 60\n TurnRate = 120\n Appearance = FOUR_WHEELS\nEnd\n\
              Locomotor ThresholdOwnerLoco\n Surfaces = GROUND\n Speed = 20\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\n",
             speed + 10,
             speed + 5,
+            speed + 30,
             speed + 100,
             speed + 4,
         ))
@@ -37,6 +39,9 @@ fn world_with_catalog(map: &std::path::Path, catalog: LocomotorStore) -> GameLog
             "Owner.ini".into(),
             "Object OwnerMover\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL SharedOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
              Object OwnerSwitcher\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL CliffOwnerLoco GroundOwnerLoco\n Locomotor = SET_PANIC PanicOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n\
+             Object OwnerUpgrader\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL GroundOwnerLoco\n Locomotor = SET_NORMAL_UPGRADED UpgradedOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n Behavior = LocomotorSetUpgrade Bonus\n TriggeredBy = Upgrade_GLAWorkerShoes\n End\nEnd\n\
+             Object OwnerNoUpgrade\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL GroundOwnerLoco\n Locomotor = SET_NORMAL_UPGRADED UpgradedOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n\
+             Object GLAInfantryWorker\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL GroundOwnerLoco\n Locomotor = SET_NORMAL_UPGRADED UpgradedOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n Behavior = LocomotorSetUpgrade Bonus\n TriggeredBy = Upgrade_GLAWorkerShoes\n End\nEnd\n\
              Object OwnerBike\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL CliffOwnerLoco GroundOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = RiderChangeContain RiderTag\n Slots = 1\n Rider1 = OwnerRider RIDER1 WEAPON_RIDER1 STATUS_RIDER1 BikeSet SET_NORMAL\n End\nEnd\n\
              Object OwnerRider\n KindOf = SELECTABLE INFANTRY\n TransportSlotCount = 1\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n\
              Object OwnerJet\n KindOf = SELECTABLE AIRCRAFT\n Locomotor = SET_NORMAL AirOwnerLoco\n Locomotor = SET_TAXIING TaxiOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = JetAIUpdate JetBrain\n End\nEnd\n\
@@ -51,6 +56,26 @@ fn world_with_catalog(map: &std::path::Path, catalog: LocomotorStore) -> GameLog
 
 #[test]
 fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
+    use game_engine::common::name_key_generator::NameKeyGenerator;
+    let before = NameKeyGenerator::name_to_key("LocomotorOwnerProbeBefore");
+    let mut independent = LocomotorStore::new_owned();
+    independent
+        .apply_source("Locomotor IsolatedProbe\n Surfaces = GROUND\n Speed = 1\nEnd\n")
+        .unwrap();
+    assert!(independent.find_template("IsolatedProbe").is_some());
+    assert!(independent.find_template("MissingProbe").is_none());
+    let after = NameKeyGenerator::name_to_key("LocomotorOwnerProbeAfter");
+    assert_eq!(
+        after,
+        before + 1,
+        "owned admission and lookup must not publish name keys"
+    );
+    let mut unadmitted = GameLogic::new();
+    assert!(
+        unadmitted
+            .admit_locomotor_definitions(LocomotorStore::new())
+            .is_err()
+    );
     // A mixed map source contains an Object field named Locomotor; it is not
     // itself a Locomotor definition. Overrides retain unspecified base fields.
     let mut parser = base_catalog(20, 3);
@@ -82,6 +107,7 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
             Locomotor CliffOwnerLoco\n Surfaces = GROUND\n Speed = 999\nEnd\n\
             Locomotor GroundOwnerLoco\n Surfaces = GROUND\n Speed = 999\nEnd\n\
             Locomotor PanicOwnerLoco\n Surfaces = GROUND\n Speed = 999\nEnd\n\
+            Locomotor UpgradedOwnerLoco\n Surfaces = GROUND\n Speed = 999\nEnd\n\
             Locomotor AirOwnerLoco\n Surfaces = AIR\n Speed = 999\nEnd\n\
             Locomotor TaxiOwnerLoco\n Surfaces = GROUND\n Speed = 999\nEnd\n\
             Locomotor ThresholdOwnerLoco\n Surfaces = GROUND\n Speed = 999\n AirborneTargetingHeight = 0\nEnd\n").unwrap();
@@ -124,7 +150,7 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
     assert_eq!(first_id, peer_id);
     assert!(
         first
-            .admit_locomotor_definitions(LocomotorStore::new())
+            .admit_locomotor_definitions(LocomotorStore::new_owned())
             .is_err()
     );
     assert!(first.admit_locomotor_companion_sources(&[]).is_err());
@@ -175,8 +201,88 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
         assert_eq!(object.cur_locomotor_name.as_deref(), Some("PanicOwnerLoco"));
         assert!((object.movement.max_speed - expected).abs() < 0.001);
     }
-    assert!(first.apply_unit_locomotor_set(first_switcher, "normal"));
-    assert!(peer.apply_unit_locomotor_set(peer_switcher, "normal"));
+    first
+        .host_object_mut(first_switcher)
+        .unwrap()
+        .move_away_frames = 1;
+    peer.host_object_mut(peer_switcher)
+        .unwrap()
+        .move_away_frames = 1;
+    assert_eq!(first.update_with_dt(1.0 / 30.0).steps_run, 1);
+    assert_eq!(peer.update_with_dt(1.0 / 30.0).steps_run, 1);
+    for (world, id, expected) in [(&first, first_switcher, 30.0), (&peer, peer_switcher, 70.0)] {
+        let object = world.host_object(id).unwrap();
+        assert!(!object.is_panicking);
+        assert_eq!(
+            object.cur_locomotor_name.as_deref(),
+            Some("GroundOwnerLoco")
+        );
+        assert!((object.movement.max_speed - expected).abs() < 0.001);
+    }
+    let first_upgrade = first
+        .create_object_for_player("OwnerUpgrader", 42, glam::Vec3::new(120., 0., 120.))
+        .unwrap();
+    let peer_upgrade = peer
+        .create_object_for_player("OwnerUpgrader", 42, glam::Vec3::new(120., 0., 120.))
+        .unwrap();
+    let no_module = first
+        .create_object_for_player("OwnerNoUpgrade", 42, glam::Vec3::new(150., 0., 120.))
+        .unwrap();
+    let peer_no_module = peer
+        .create_object_for_player("OwnerNoUpgrade", 42, glam::Vec3::new(150., 0., 120.))
+        .unwrap();
+    let first_worker = first
+        .create_object_for_player("GLAInfantryWorker", 42, glam::Vec3::new(170., 0., 120.))
+        .unwrap();
+    let peer_worker = peer
+        .create_object_for_player("GLAInfantryWorker", 42, glam::Vec3::new(170., 0., 120.))
+        .unwrap();
+    assert_eq!(first_upgrade, peer_upgrade);
+    assert_eq!(no_module, peer_no_module);
+    assert_eq!(first_worker, peer_worker);
+    first
+        .get_players_mut()
+        .get_mut(&42)
+        .unwrap()
+        .queued_upgrades
+        .insert("Upgrade_GLAWorkerShoes".into());
+    assert_eq!(first.update_with_dt(1.0 / 30.0).steps_run, 1);
+    let upgraded = first.host_object(first_upgrade).unwrap();
+    assert!(upgraded.locomotor_upgrade);
+    assert_eq!(
+        upgraded.cur_locomotor_name.as_deref(),
+        Some("UpgradedOwnerLoco")
+    );
+    assert!((upgraded.movement.max_speed - 50.0).abs() < 0.001);
+    assert!(!first.host_object(no_module).unwrap().locomotor_upgrade);
+    assert!(!peer.host_object(peer_upgrade).unwrap().locomotor_upgrade);
+    assert!((first.host_object(first_worker).unwrap().movement.max_speed - 50.0).abs() < 0.001);
+    peer.get_players_mut()
+        .get_mut(&42)
+        .unwrap()
+        .queued_upgrades
+        .insert("Upgrade_GLAWorkerShoes".into());
+    assert_eq!(peer.update_with_dt(1.0 / 30.0).steps_run, 1);
+    let upgraded = peer.host_object(peer_upgrade).unwrap();
+    assert!(upgraded.locomotor_upgrade);
+    assert_eq!(
+        upgraded.cur_locomotor_name.as_deref(),
+        Some("UpgradedOwnerLoco")
+    );
+    assert!((upgraded.movement.max_speed - 90.0).abs() < 0.001);
+    assert!((peer.host_object(peer_worker).unwrap().movement.max_speed - 90.0).abs() < 0.001);
+    for (world, expected) in [(&mut first, 50.0), (&mut peer, 90.0)] {
+        let worker = world
+            .create_object_for_player("GLAInfantryWorker", 42, glam::Vec3::new(190., 0., 120.))
+            .unwrap();
+        let worker = world.host_object(worker).unwrap();
+        assert!(worker.locomotor_upgrade);
+        assert_eq!(
+            worker.cur_locomotor_name.as_deref(),
+            Some("UpgradedOwnerLoco")
+        );
+        assert!((worker.movement.max_speed - expected).abs() < 0.001);
+    }
     let builder = SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&first).unwrap();
     let first_jet = first
@@ -284,11 +390,20 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
         Some("GroundOwnerLoco")
     );
     assert!((restored_switcher.movement.max_speed - 30.0).abs() < 0.001);
+    for id in [first_upgrade, first_worker] {
+        let object = restored.host_object(id).unwrap();
+        assert!(object.locomotor_upgrade);
+        assert_eq!(
+            object.cur_locomotor_name.as_deref(),
+            Some("UpgradedOwnerLoco")
+        );
+        assert!((object.movement.max_speed - 50.0).abs() < 0.001);
+    }
     let restored = restored.host_object(first_id).unwrap();
     assert_eq!(restored.movement.max_speed, 40.0);
     assert_eq!(restored.wander_width_factor, 2.0);
     assert!(restored.stick_to_ground);
-    let mut missing = world_with_catalog(&first_map, LocomotorStore::new());
+    let mut missing = world_with_catalog(&first_map, LocomotorStore::new_owned());
     assert!(
         builder
             .restore_from_snapshot(&snapshot, &mut missing)

@@ -1496,7 +1496,7 @@ impl CnCGameEngine {
                     // Default/Locomotor.ini then Locomotor.ini from archives.
                     {
                         let mut loaded_any_locomotor = false;
-                        let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new();
+                        let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
                         for loco_path in [
                             "Data/INI/Default/Locomotor.ini",
                             "Data/INI/Locomotor.ini",
