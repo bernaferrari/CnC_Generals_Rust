@@ -349,6 +349,48 @@ fn team_transfer_refreshes_the_receiving_players_upgrade_modules() {
 }
 
 #[test]
+fn team_transfer_does_not_apply_player_upgrades_to_destroyed_members() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut owner, source, _) = world(&map);
+    let (mut peer, peer_source, _) = world(&map);
+    assert_eq!(source, peer_source);
+    for game in [&mut owner, &mut peer] {
+        game.get_player_mut(2)
+            .unwrap()
+            .add_completed_upgrade("Upgrade_AmericaAdvancedTraining");
+    }
+    owner.host_object_mut(source).unwrap().status.destroyed = true;
+
+    for game in [&mut owner, &mut peer] {
+        let mut action = ScriptAction::new(ScriptActionType::TeamTransferToPlayer);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                "SourceRoster".into(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_string(ParameterType::Side, "Other".into()))
+            .unwrap();
+        run_action(game, action);
+    }
+
+    assert_eq!(owner.host_object(source).unwrap().owner_player_id, Some(2));
+    assert!(
+        !owner
+            .host_object(source)
+            .unwrap()
+            .has_upgrade_tag("Upgrade_AmericaAdvancedTraining")
+    );
+    assert!(
+        peer.host_object(peer_source)
+            .unwrap()
+            .has_upgrade_tag("Upgrade_AmericaAdvancedTraining")
+    );
+}
+
+#[test]
 fn named_transfer_refreshes_only_the_receiving_worlds_upgrade_modules() {
     let root = tempfile::tempdir().unwrap();
     let map = map_file(root.path());

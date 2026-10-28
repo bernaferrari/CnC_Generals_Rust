@@ -1160,7 +1160,9 @@ impl GameLogic {
             return;
         };
         let structure_birth = std::sync::Arc::downgrade(&obj.visual_draw_identity_token);
-        if obj.status.under_construction {
+        // Object::updateUpgradeModules never runs for construction or an
+        // object already marked destroyed, even if it is still in a Team.
+        if obj.under_construction_status() || obj.status.destroyed {
             return;
         }
         let Some(player_id) = self.player_owner_for_host_object(obj) else {
