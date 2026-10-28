@@ -263,6 +263,34 @@ impl ScriptConditionEvaluator<'_> {
             }
         }
 
+        if matches!(
+            condition_type,
+            ConditionType::TeamStateIs | ConditionType::TeamStateIsNot
+        ) {
+            use crate::scripting::engine::ScriptOwnerQuery;
+            let team = self.get_condition_string_param(condition, 0)?;
+            let expected = self.get_condition_string_param(condition, 1)?;
+            let engine = self.context.borrowed_engine();
+            match driver.team_state(
+                &team,
+                engine.get_calling_team_id(),
+                engine.get_condition_team_id(),
+            ) {
+                ScriptOwnerQuery::Present(state) => {
+                    let matches = state == expected;
+                    return Ok(bool_result(
+                        if condition_type == ConditionType::TeamStateIs {
+                            matches
+                        } else {
+                            !matches
+                        },
+                    ));
+                }
+                ScriptOwnerQuery::Missing => return Ok(bool_result(false)),
+                ScriptOwnerQuery::Unavailable => {}
+            }
+        }
+
         // These edge-triggered events select their player/source owner before
         // standalone token resolution or ambient player/object discovery.
         if let Some(result) = self.eval_player_event(condition, driver)? {
@@ -274,6 +302,43 @@ impl ScriptConditionEvaluator<'_> {
         }
         if let Some(result) = self.eval_owned_waypoint_complete(condition, driver)? {
             return Ok(result);
+        }
+
+        if matches!(
+            condition_type,
+            ConditionType::TeamInsideAreaPartially
+                | ConditionType::TeamInsideAreaEntirely
+                | ConditionType::TeamOutsideAreaEntirely
+        ) {
+            use crate::scripting::engine::{ScriptOwnerQuery, ScriptTeamAreaMembership};
+            let team = self.get_condition_string_param(condition, 0)?;
+            let area = self.get_condition_string_param(condition, 1)?;
+            let surfaces = self.get_condition_int_param(condition, 2).unwrap_or(1) as u32;
+            let engine = self.context.borrowed_engine();
+            let current_player = engine.get_current_player_name();
+            match driver.team_area_membership(
+                &team,
+                &area,
+                current_player.as_deref(),
+                engine.get_calling_team_id(),
+                engine.get_condition_team_id(),
+                surfaces,
+            ) {
+                ScriptOwnerQuery::Present(membership) => {
+                    return Ok(bool_result(team_area_condition_result(
+                        condition_type,
+                        membership,
+                    )));
+                }
+                ScriptOwnerQuery::Missing => {
+                    // C++ TEAM_OUTSIDE_AREA_ENTIRELY negates both inside
+                    // predicates, which are false for a missing team/area.
+                    return Ok(bool_result(
+                        condition_type == ConditionType::TeamOutsideAreaEntirely,
+                    ));
+                }
+                ScriptOwnerQuery::Unavailable => {}
+            }
         }
 
         if let Some(result) = self.eval_owned_skirmish(condition, driver)? {
@@ -2332,6 +2397,21 @@ struct TeamInsideCounts {
     any_considered: bool,
     any_inside: bool,
     any_outside: bool,
+}
+
+fn team_area_condition_result(
+    condition_type: ConditionType,
+    membership: crate::scripting::engine::ScriptTeamAreaMembership,
+) -> bool {
+    let all_inside = membership.any_considered && !membership.any_outside;
+    // C++ TEAM_INSIDE_AREA_PARTIALLY is someInsideSomeOutside || allInside.
+    let partially_inside = membership.any_considered && membership.any_inside;
+    match condition_type {
+        ConditionType::TeamInsideAreaPartially => partially_inside,
+        ConditionType::TeamInsideAreaEntirely => all_inside,
+        ConditionType::TeamOutsideAreaEntirely => !(all_inside || partially_inside),
+        _ => false,
+    }
 }
 
 fn member_counts_for_team_area(obj: &crate::object::Object, which_to_consider: u32) -> bool {

@@ -111,6 +111,13 @@ pub struct ScriptTeamPresence {
     pub has_objects: bool,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ScriptTeamAreaMembership {
+    pub any_considered: bool,
+    pub any_inside: bool,
+    pub any_outside: bool,
+}
+
 /// CPP ScriptConditions244–272: the aggregate terrain gate is already
 /// applied by the driving owner; a named query never consumes its transition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1228,6 +1235,20 @@ pub trait ScriptExecutionDriver {
         ScriptOwnerQuery::Unavailable
     }
 
+    /// Receiving-team membership at one trigger polygon observation point.
+    /// Missing means the owner lacks the named team or trigger area.
+    fn team_area_membership(
+        &self,
+        _team: &str,
+        _area: &str,
+        _current_player: Option<&str>,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+        _surfaces: u32,
+    ) -> ScriptOwnerQuery<ScriptTeamAreaMembership> {
+        ScriptOwnerQuery::Unavailable
+    }
+
     fn skirmish_census(
         &self,
         _player: &str,
@@ -1316,6 +1337,29 @@ pub trait ScriptExecutionDriver {
 
     fn team_name(&self, _id: TeamID) -> ScriptOwnerQuery<String> {
         ScriptOwnerQuery::Unavailable
+    }
+
+    /// Current state of the receiving team's first/contextual instance.
+    /// Missing is authoritative for an owner that has no matching team.
+    fn team_state(
+        &self,
+        _name: &str,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> ScriptOwnerQuery<String> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    /// Mutate only the receiving team's first/contextual instance. `None`
+    /// retains standalone Core behavior.
+    fn set_team_state(
+        &mut self,
+        _name: &str,
+        _state: &str,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
     }
 
     /// The callback controller, including human players (unlike sequential AI).

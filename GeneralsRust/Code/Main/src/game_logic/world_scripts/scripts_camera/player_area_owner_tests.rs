@@ -17,6 +17,185 @@ fn area(world: &mut GameLogic) {
             ],
         )]);
 }
+
+fn run_team_set_state_action(world: &mut GameLogic, team: &str, state: &str) {
+    use super::script_execution_driver::HostScriptExecutionDriver;
+    use gamelogic::scripting::core::{
+        OrCondition, Script, ScriptAction, ScriptActionType, ScriptList,
+    };
+    use gamelogic::scripting::engine::ScriptEngine;
+
+    let mut action = ScriptAction::new(ScriptActionType::TeamSetState);
+    action
+        .add_parameter(Parameter::with_string(ParameterType::Team, team.into()))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::TeamState,
+            state.into(),
+        ))
+        .unwrap();
+    let mut branch = OrCondition::new();
+    branch.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    let mut script = Script::new();
+    script.script_name = "SetOwnedTeamState".into();
+    script.is_one_shot = true;
+    script.condition = Some(Box::new(branch));
+    script.action = Some(Box::new(action));
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(script));
+    let mut engine = ScriptEngine::new().unwrap();
+    engine
+        .set_script_list_for_player(0, Some(Box::new(list)))
+        .unwrap();
+    engine
+        .update_with_driver(
+            gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
+            &mut HostScriptExecutionDriver::new(world),
+        )
+        .unwrap();
+}
+
+fn team_state_condition(kind: ConditionType, team: &str, state: &str) -> Condition {
+    let mut condition = Condition::new(kind);
+    condition
+        .add_parameter(Parameter::with_string(ParameterType::Team, team.into()))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::TeamState,
+            state.into(),
+        ))
+        .unwrap();
+    condition
+}
+
+#[test]
+fn team_inside_area_condition_reads_the_receiving_same_id_objects() {
+    use super::condition_cursor_control_tests::admit;
+
+    let (mut owner, id, _) = world();
+    let (mut peer, peer_id, _) = world();
+    assert_eq!(id, peer_id);
+    area(&mut owner);
+    area(&mut peer);
+    admit(&owner, "AreaTeam", 81, Some(id));
+    admit(&peer, "AreaTeam", 81, Some(peer_id));
+    owner.set_fixture_object_position(id, Vec3::new(2.0, 0.0, 2.0));
+    peer.set_fixture_object_position(peer_id, Vec3::new(18.0, 0.0, 18.0));
+    // Production `evaluate_and_execute_scripts_with_effects` projects these
+    // receiving object positions into each owner's trigger slots before the
+    // early ScriptEngine condition walk.
+    owner.inject_host_script_query_snapshot();
+    peer.inject_host_script_query_snapshot();
+
+    let condition = |kind, team: &str| {
+        let mut condition = Condition::new(kind);
+        condition
+            .add_parameter(Parameter::with_string(ParameterType::Team, team.into()))
+            .unwrap();
+        condition
+            .add_parameter(Parameter::with_string(
+                ParameterType::TriggerArea,
+                "OwnerTriangle".into(),
+            ))
+            .unwrap();
+        condition
+            .add_parameter(Parameter::with_int(ParameterType::SurfacesAllowed, 1))
+            .unwrap();
+        condition
+    };
+
+    assert!(owner.owned_script_condition_for_test(condition(
+        ConditionType::TeamInsideAreaPartially,
+        "AreaTeam"
+    )));
+    let member = owner.host_object(id).unwrap();
+    assert!(member.has_ai_update_interface());
+    let authored_surfaces = member.locomotor_surfaces;
+    assert_ne!(authored_surfaces, 0);
+    owner.host_object_mut(id).unwrap().locomotor_surfaces = 0;
+    assert!(
+        !owner.owned_script_condition_for_test(condition(
+            ConditionType::TeamInsideAreaPartially,
+            "AreaTeam"
+        )),
+        "an AI member's valid-surfaces mask of zero matches no requested surface"
+    );
+    assert!(owner.owned_script_condition_for_test(condition(
+        ConditionType::TeamOutsideAreaEntirely,
+        "AreaTeam"
+    )));
+    owner.host_object_mut(id).unwrap().locomotor_surfaces = authored_surfaces;
+    assert!(
+        !peer.owned_script_condition_for_test(condition(
+            ConditionType::TeamInsideAreaPartially,
+            "AreaTeam"
+        )),
+        "same numeric object and team IDs in a peer cannot borrow the owner's position"
+    );
+    assert!(owner.owned_script_condition_for_test(condition(
+        ConditionType::TeamInsideAreaEntirely,
+        "AreaTeam"
+    )));
+    assert!(!peer.owned_script_condition_for_test(condition(
+        ConditionType::TeamInsideAreaEntirely,
+        "AreaTeam"
+    )));
+    assert!(!owner.owned_script_condition_for_test(condition(
+        ConditionType::TeamOutsideAreaEntirely,
+        "AreaTeam"
+    )));
+    assert!(peer.owned_script_condition_for_test(condition(
+        ConditionType::TeamOutsideAreaEntirely,
+        "AreaTeam"
+    )));
+    assert!(owner.owned_script_condition_for_test(condition(
+        ConditionType::TeamOutsideAreaEntirely,
+        "MissingTeam"
+    )));
+}
+
+#[test]
+fn team_set_state_action_and_conditions_share_the_receiving_team_owner() {
+    use super::condition_cursor_control_tests::admit;
+
+    let (mut owner, unit, _) = world();
+    let (mut peer, peer_unit, _) = world();
+    assert_eq!(unit, peer_unit);
+    admit(&owner, "ActionTeam", 82, Some(unit));
+    admit(&peer, "ActionTeam", 82, Some(peer_unit));
+
+    run_team_set_state_action(&mut owner, "ActionTeam", "OwnerState");
+    assert!(owner.owned_script_condition_for_test(team_state_condition(
+        ConditionType::TeamStateIs,
+        "ActionTeam",
+        "OwnerState"
+    )));
+    assert!(!peer.owned_script_condition_for_test(team_state_condition(
+        ConditionType::TeamStateIs,
+        "ActionTeam",
+        "OwnerState"
+    )));
+    assert!(owner.owned_script_condition_for_test(team_state_condition(
+        ConditionType::TeamStateIsNot,
+        "ActionTeam",
+        "PeerState"
+    )));
+
+    run_team_set_state_action(&mut peer, "ActionTeam", "PeerState");
+    assert!(peer.owned_script_condition_for_test(team_state_condition(
+        ConditionType::TeamStateIs,
+        "ActionTeam",
+        "PeerState"
+    )));
+    assert!(!owner.owned_script_condition_for_test(team_state_condition(
+        ConditionType::TeamStateIs,
+        "ActionTeam",
+        "PeerState"
+    )));
+}
+
 fn condition(
     kind: ConditionType,
     comparison: i32,
@@ -179,6 +358,60 @@ fn strings(kind: ConditionType, params: &[(ParameterType, &str)]) -> Condition {
     }
     condition
 }
+
+fn run_team_waypoint_trigger(world: &mut GameLogic, team: &str, path: &str) -> bool {
+    run_condition_trigger(
+        world,
+        strings(
+            ConditionType::TeamReachedWaypointsEnd,
+            &[
+                (ParameterType::Team, team),
+                (ParameterType::WaypointPath, path),
+            ],
+        ),
+    )
+}
+
+fn run_condition_trigger(world: &mut GameLogic, condition: Condition) -> bool {
+    use super::script_execution_driver::HostScriptExecutionDriver;
+    use gamelogic::scripting::core::{
+        OrCondition, Script, ScriptAction, ScriptActionType, ScriptList,
+    };
+    use gamelogic::scripting::engine::ScriptEngine;
+
+    let mut branch = OrCondition::new();
+    branch.set_first_and_condition(Some(Box::new(condition)));
+    let mut action = ScriptAction::new(ScriptActionType::SetCounter);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Counter,
+            "WaypointObserved".into(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_int(ParameterType::Int, 1))
+        .unwrap();
+    let mut script = Script::new();
+    script.script_name = "ObserveOwnedTeamWaypoint".into();
+    script.is_one_shot = true;
+    script.condition = Some(Box::new(branch));
+    script.action = Some(Box::new(action));
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(script));
+    let mut engine = ScriptEngine::new().unwrap();
+    engine.set_counter("WaypointObserved", 0).unwrap();
+    engine
+        .set_script_list_for_player(0, Some(Box::new(list)))
+        .unwrap();
+    engine
+        .update_with_driver(
+            gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
+            &mut HostScriptExecutionDriver::new(world),
+        )
+        .unwrap();
+    engine.get_counter("WaypointObserved").unwrap().value == 1
+}
+
 #[test]
 fn discovery_and_waypoint_conditions_read_actual_owned_state_with_colliding_ids() {
     use super::condition_cursor_control_tests::admit;
@@ -238,6 +471,107 @@ fn discovery_and_waypoint_conditions_read_actual_owned_state_with_colliding_ids(
         .template_mut()
         .set_authored_ai_update_interface(Some(false));
     assert!(!owner.owned_script_condition_for_test(finished()));
+}
+
+#[test]
+fn authored_team_waypoint_trigger_uses_the_receiving_world_for_colliding_ids() {
+    let (mut owner, unit, _) = world();
+    let (mut peer, peer_unit, _) = world();
+    assert_eq!(unit, peer_unit);
+    for logic in [&owner, &peer] {
+        super::condition_cursor_control_tests::admit(logic, "FinishedTeam", 91, Some(unit));
+    }
+
+    owner
+        .host_object_mut(unit)
+        .unwrap()
+        .pending_waypoint_labels
+        .push("OwnerOnlyPath".into());
+    owner
+        .host_object_mut(unit)
+        .unwrap()
+        .commit_completed_waypoint_labels();
+    peer.host_object_mut(peer_unit)
+        .unwrap()
+        .pending_waypoint_labels
+        .push("PeerOnlyPath".into());
+    peer.host_object_mut(peer_unit)
+        .unwrap()
+        .commit_completed_waypoint_labels();
+
+    assert!(run_team_waypoint_trigger(
+        &mut owner,
+        "FinishedTeam",
+        "OwnerOnlyPath"
+    ));
+    assert!(!run_team_waypoint_trigger(
+        &mut peer,
+        "FinishedTeam",
+        "OwnerOnlyPath"
+    ));
+    assert!(run_team_waypoint_trigger(
+        &mut peer,
+        "FinishedTeam",
+        "PeerOnlyPath"
+    ));
+    assert!(!run_team_waypoint_trigger(
+        &mut owner,
+        "FinishedTeam",
+        "PeerOnlyPath"
+    ));
+}
+
+#[test]
+fn authored_team_state_conditions_use_the_receiving_team_instance() {
+    let (mut owner, unit, _) = world();
+    let (mut peer, peer_unit, _) = world();
+    assert_eq!(unit, peer_unit);
+    for logic in [&owner, &peer] {
+        super::condition_cursor_control_tests::admit(logic, "StatefulTeam", 92, Some(unit));
+    }
+    for (logic, state) in [(&owner, "OwnerState"), (&peer, "PeerState")] {
+        let factory = logic.team_factory.lock().unwrap();
+        factory
+            .find_team_instances("StatefulTeam")
+            .first()
+            .unwrap()
+            .write()
+            .unwrap()
+            .set_state(state.into());
+    }
+
+    let is_state = |state: &str| {
+        strings(
+            ConditionType::TeamStateIs,
+            &[
+                (ParameterType::Team, "StatefulTeam"),
+                (ParameterType::TeamState, state),
+            ],
+        )
+    };
+    let is_not_state = |state: &str| {
+        strings(
+            ConditionType::TeamStateIsNot,
+            &[
+                (ParameterType::Team, "StatefulTeam"),
+                (ParameterType::TeamState, state),
+            ],
+        )
+    };
+    assert!(run_condition_trigger(&mut owner, is_state("OwnerState")));
+    assert!(!run_condition_trigger(&mut peer, is_state("OwnerState")));
+    assert!(run_condition_trigger(&mut peer, is_state("PeerState")));
+    assert!(!run_condition_trigger(&mut owner, is_state("PeerState")));
+    assert!(run_condition_trigger(&mut owner, is_not_state("PeerState")));
+    assert!(!run_condition_trigger(&mut peer, is_not_state("PeerState")));
+    let missing_team = strings(
+        ConditionType::TeamStateIsNot,
+        &[
+            (ParameterType::Team, "MissingTeam"),
+            (ParameterType::TeamState, "OwnerState"),
+        ],
+    );
+    assert!(!run_condition_trigger(&mut owner, missing_team));
 }
 #[test]
 fn skirmish_counts_use_actual_owner_and_neutral_identity() {

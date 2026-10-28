@@ -1167,6 +1167,67 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 }),
         )
     }
+
+    fn team_area_membership(
+        &self,
+        team: &str,
+        area: &str,
+        current_player: Option<&str>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+        which_to_consider: u32,
+    ) -> ScriptOwnerQuery<gamelogic::scripting::engine::ScriptTeamAreaMembership> {
+        use gamelogic::scripting::engine::ScriptTeamAreaMembership;
+
+        let Some((_, members)) = self
+            .world
+            .resolve_owned_script_team(team, calling, condition)
+            .expect("owned team area query")
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let Some(area_name) = self.qualified_area(area, current_player) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let trigger_world = self
+            .world
+            .host_trigger_world
+            .lock()
+            .expect("owned team area polygon");
+        let Some(trigger) = trigger_world.trigger_area_by_canonical_name(&area_name) else {
+            return ScriptOwnerQuery::Missing;
+        };
+
+        let mut membership = ScriptTeamAreaMembership::default();
+        let remapped = (which_to_consider & 0x01) | ((which_to_consider & 0x02) << 2);
+        for member_id in members {
+            let Some(object) = self.world.host_object(ObjectId(member_id)) else {
+                continue;
+            };
+            let surfaces = if object.has_ai_update_interface() {
+                object.locomotor_surfaces
+            } else {
+                gamelogic::path::SURFACE_GROUND
+            };
+            if (surfaces & remapped) == 0
+                || Self::status(object).effectively_dead
+                || object.is_kind_of(KindOf::Inert)
+            {
+                continue;
+            }
+            membership.any_considered = true;
+            // C++ Object::isInside reads the tracked slot. The receiving host
+            // trigger owner is projected at the early script boundary, with
+            // movement updates retaining the same slot/frame semantics.
+            if trigger_world.is_inside(member_id, &trigger) {
+                membership.any_inside = true;
+            } else {
+                membership.any_outside = true;
+            }
+        }
+        ScriptOwnerQuery::Present(membership)
+    }
+
     fn skirmish_special_power_readiness(
         &self,
         player: &str,
@@ -2335,7 +2396,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         match request {
             ScriptWorldRequest::Input { enabled } => self.world.set_script_input_enabled(enabled),
             ScriptWorldRequest::RadarForced(forced) => self.world.set_radar_forced(forced),
-                ScriptWorldRequest::RadarRefreshTerrain => unreachable!("already admitted above"),
+            ScriptWorldRequest::RadarRefreshTerrain => unreachable!("already admitted above"),
             _ => {}
         }
         // Clone the explicit interpreter's external service adapter before
@@ -2556,6 +2617,54 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             .get_name()
             .to_string();
         ScriptOwnerQuery::Present(name)
+    }
+
+    fn team_state(
+        &self,
+        name: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> ScriptOwnerQuery<String> {
+        let Some((id, _)) = self
+            .world
+            .resolve_owned_script_team(name, calling, condition)
+            .expect("owned team state selection")
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let Some(team) = self.owned_team(id) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        ScriptOwnerQuery::Present(
+            team.read()
+                .expect("owned script team state")
+                .get_state()
+                .to_string(),
+        )
+    }
+
+    fn set_team_state(
+        &mut self,
+        name: &str,
+        state: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some((|| {
+            let Some((id, _)) = self
+                .world
+                .resolve_owned_script_team(name, calling, condition)?
+            else {
+                return Ok(());
+            };
+            let Some(team) = self.owned_team(id) else {
+                return Ok(());
+            };
+            team.write()
+                .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+                .set_state(state.to_owned().into());
+            Ok(())
+        })())
     }
 
     fn condition_team_after(

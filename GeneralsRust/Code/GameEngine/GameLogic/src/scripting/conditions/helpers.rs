@@ -1087,6 +1087,21 @@ impl HostTriggerWorld {
         })
     }
 
+    /// C++ Object::isInside (`Object.cpp:2520-2529`): query the object's
+    /// tracked trigger slot, preserving the update phase and trigger identity.
+    pub fn is_inside(
+        &self,
+        object_id: u32,
+        trigger: &crate::polygon_trigger::PolygonTrigger,
+    ) -> bool {
+        self.objects.get(&object_id).is_some_and(|state| {
+            state
+                .slots
+                .iter()
+                .any(|slot| slot.is_inside && slot.trigger_id == trigger.get_id())
+        })
+    }
+
     pub fn team_did_enter_or_exit(&self, team_name: &str, now: u32) -> bool {
         self.team_entered_or_exited
             .get(team_name)

@@ -843,7 +843,22 @@ impl ScriptActionDispatcher<'_> {
                     self.do_damage_team_members(action)
                 }
             }
-            ScriptActionType::TeamSetState => self.do_set_team_state(action),
+            ScriptActionType::TeamSetState => {
+                let team = self.get_string_param(action, 0)?;
+                let state = self.get_string_param(action, 1)?;
+                let engine = self.context.borrowed_engine();
+                if let Some(result) = driver.set_team_state(
+                    &team,
+                    &state,
+                    engine.get_calling_team_id(),
+                    engine.get_condition_team_id(),
+                ) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_set_team_state(action)
+                }
+            }
             ScriptActionType::TeamFollowWaypoints | ScriptActionType::TeamFollowWaypointsExact => {
                 let team = self.get_string_param(action, 0)?;
                 let path = self.get_string_param(action, 1)?;
