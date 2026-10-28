@@ -1447,7 +1447,28 @@ impl ScriptActionDispatcher<'_> {
                 self.do_team_partial_use_command_button(action, driver)
             }
             ScriptActionType::TeamCaptureNearestUnownedFactionUnit => {
-                self.do_team_capture_nearest_unowned_faction_unit(action)
+                let raw_team = self.get_string_param(action, 0)?;
+                // TEAM_THE_PLAYER is resolved by the receiving session on
+                // Challenge maps; avoid selecting a process-wide PlayerList.
+                let team = if raw_team == TEAM_THE_PLAYER {
+                    raw_team
+                } else {
+                    self.resolve_team_name_token(&raw_team)
+                };
+                let (calling, condition) = self
+                    .context
+                    .with_engine_ref(|engine| {
+                        (engine.get_calling_team_id(), engine.get_condition_team_id())
+                    })
+                    .unwrap_or_default();
+                if let Some(result) =
+                    driver.team_capture_nearest_unowned_faction_unit(&team, calling, condition)
+                {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_team_capture_nearest_unowned_faction_unit(action)
+                }
             }
             ScriptActionType::TeamAffectObjectPanelFlags => {
                 self.do_team_affect_object_panel_flags(action)

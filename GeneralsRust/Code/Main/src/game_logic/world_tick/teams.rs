@@ -1125,7 +1125,6 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         self.apply_host_team_factory_script_requests();
         self.apply_host_merge_team_script_requests_with_effects(effects);
-        self.apply_host_capture_nearest_unowned_script_requests()?;
         self.apply_host_load_transports_script_requests()?;
         self.apply_host_named_fire_weapon_path_script_requests_with_effects(effects);
         Ok(())
@@ -1512,25 +1511,30 @@ impl GameLogic {
         self.ai_manager = ai_mgr;
     }
 
-    /// C++ `ScriptActions::doTeamCaptureNearestUnownedFactionUnit` live drain.
-    /// Leftover partition is empty on the player path.
-    pub fn apply_host_capture_nearest_unowned_script_requests(
-        &mut self,
-    ) -> gamelogic::GameLogicResult<()> {
-        for req in gamelogic::scripting::take_host_script_capture_nearest_unowned_requests() {
-            self.host_script_team_capture_nearest_unowned(&req.team)?;
-        }
-        Ok(())
-    }
-
-    /// C++ AIGroup center + `getClosestObject` (unmanned + enemies/neutral +
-    /// on-map) + `groupEnter(..., CMD_FROM_SCRIPT)`.
-    fn host_script_team_capture_nearest_unowned(
+    /// C++ `doTeamCaptureNearestUnownedFactionUnit`: resolve the contextual
+    /// Team and roster in this receiving factory, then synchronously compute
+    /// the AIGroup center, select a target, and issue groupEnter effects.
+    pub(crate) fn apply_owned_team_capture_nearest_unowned(
         &mut self,
         team_name: &str,
+        calling_team: Option<u32>,
+        condition_team: Option<u32>,
     ) -> gamelogic::GameLogicResult<()> {
-        let members: Vec<ObjectId> = self
-            .host_script_team_census_member_ids(team_name)
+        let Some((_, roster)) =
+            self.resolve_owned_script_team(team_name, calling_team, condition_team)?
+        else {
+            return Ok(());
+        };
+        self.apply_owned_team_capture_nearest_roster(roster)
+    }
+
+    pub(crate) fn apply_owned_team_capture_nearest_roster(
+        &mut self,
+        roster: Vec<u32>,
+    ) -> gamelogic::GameLogicResult<()> {
+        // Use the factory's captured roster order; do not recensus by a
+        // process-wide name or retain TeamFactory locks over command effects.
+        let members: Vec<ObjectId> = roster
             .into_iter()
             .map(ObjectId)
             .filter(|id| {
@@ -2887,90 +2891,6 @@ mod tests {
                 .is_empty(),
             "census must follow rewritten team_instance_name"
         );
-    }
-
-    #[test]
-    fn team_capture_nearest_unowned_enters_live_husk() {
-        use crate::game_logic::AIState;
-        use gamelogic::object::registry::OBJECT_REGISTRY;
-        use gamelogic::scripting::{
-            request_host_script_capture_nearest_unowned,
-            take_host_script_capture_nearest_unowned_requests,
-        };
-
-        OBJECT_REGISTRY.clear();
-        let _ = take_host_script_capture_nearest_unowned_requests();
-
-        let mut logic = GameLogic::new();
-        logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
-        let mut ranger = ThingTemplate::new("W29HijackRanger");
-        ranger.add_kind_of(KindOf::Infantry);
-        ranger.set_health(100.0);
-        logic.templates.insert("W29HijackRanger".into(), ranger);
-        let mut tank = ThingTemplate::new("W29HijackTank");
-        tank.add_kind_of(KindOf::Vehicle);
-        tank.set_health(400.0);
-        logic.templates.insert("W29HijackTank".into(), tank);
-
-        let infantry = logic
-            .create_object(
-                "W29HijackRanger",
-                Team::USA,
-                glam::Vec3::new(50.0, 0.0, 50.0),
-            )
-            .expect("infantry");
-        if let Some(obj) = logic.host_object_mut(infantry) {
-            obj.owner_player_id = Some(1);
-            obj.team_instance_name = "USA_HijackSquad".into();
-        }
-
-        let near = logic
-            .create_object(
-                "W29HijackTank",
-                Team::Neutral,
-                glam::Vec3::new(80.0, 0.0, 50.0),
-            )
-            .expect("near husk");
-        if let Some(obj) = logic.host_object_mut(near) {
-            obj.status.disabled_unmanned = true;
-            obj.owner_player_id = None;
-            obj.team_instance_name.clear();
-        }
-        let far = logic
-            .create_object(
-                "W29HijackTank",
-                Team::Neutral,
-                glam::Vec3::new(200.0, 0.0, 50.0),
-            )
-            .expect("far husk");
-        if let Some(obj) = logic.host_object_mut(far) {
-            obj.status.disabled_unmanned = true;
-            obj.owner_player_id = None;
-            obj.team_instance_name.clear();
-        }
-        let off = logic
-            .create_object(
-                "W29HijackTank",
-                Team::Neutral,
-                glam::Vec3::new(-40.0, 0.0, 50.0),
-            )
-            .expect("off-map husk");
-        if let Some(obj) = logic.host_object_mut(off) {
-            obj.status.disabled_unmanned = true;
-            obj.owner_player_id = None;
-            obj.team_instance_name.clear();
-        }
-
-        request_host_script_capture_nearest_unowned("USA_HijackSquad");
-        logic
-            .apply_host_capture_nearest_unowned_script_requests()
-            .unwrap();
-
-        let infantry = logic.host_object(infantry).expect("infantry after");
-        assert_eq!(infantry.target, Some(near), "groupEnter nearest unmanned");
-        assert_eq!(infantry.ai_state(), AIState::Entering);
-        assert_ne!(infantry.target, Some(far));
-        assert_ne!(infantry.target, Some(off));
     }
 
     #[test]

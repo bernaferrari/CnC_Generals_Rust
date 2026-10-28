@@ -388,3 +388,6 @@ mod buildability_owner_tests;
 
 #[cfg(test)]
 mod special_power_notification_owner_tests;
+
+#[cfg(test)]
+mod team_capture_nearest_owner_tests;

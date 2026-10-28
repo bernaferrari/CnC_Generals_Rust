@@ -764,9 +764,9 @@ impl ScriptActionDispatcher<'_> {
             "Team '{}' capturing nearest unowned faction unit",
             team_name
         );
-        // Live host path: leftover partition / leftover crate objects are empty.
+        // Standalone Core has no host objects or partition to command. The
+        // receiving Main driver handles the live simulation synchronously.
         if super::dual_world_registry_unavailable() {
-            crate::scripting::request_host_script_capture_nearest_unowned(&team_name);
             return Ok(ScriptActionResult::Success);
         }
 

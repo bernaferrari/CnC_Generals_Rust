@@ -819,6 +819,16 @@ pub trait ScriptExecutionDriver {
     ) -> Option<GameLogicResult<()>> {
         None
     }
+    /// Resolve and command the named team's live roster in the receiving
+    /// session, matching C++ `doTeamCaptureNearestUnownedFactionUnit` order.
+    fn team_capture_nearest_unowned_faction_unit(
+        &mut self,
+        _team: &str,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
     fn team_transfer(
         &mut self,
         _team: &str,
