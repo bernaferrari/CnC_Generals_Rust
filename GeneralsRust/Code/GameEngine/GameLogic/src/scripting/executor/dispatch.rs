@@ -1951,10 +1951,12 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::RadarCreateEvent => self.do_radar_create_event(action),
             ScriptActionType::RadarForceEnable => self.do_radar_force_enable(driver),
             ScriptActionType::RadarRevertToNormal => self.do_radar_revert_to_normal(driver),
-            ScriptActionType::MapRevealAll => self.do_map_reveal_all(action),
-            ScriptActionType::MapRevealAllPerm => self.do_map_reveal_all_perm(action),
-            ScriptActionType::MapRevealAllUndoPerm => self.do_map_reveal_all_undo_perm(action),
-            ScriptActionType::MapShroudAll => self.do_map_shroud_all(action),
+            ScriptActionType::MapRevealAll => self.do_map_reveal_all(driver, action),
+            ScriptActionType::MapRevealAllPerm => self.do_map_reveal_all_perm(driver, action),
+            ScriptActionType::MapRevealAllUndoPerm => {
+                self.do_map_reveal_all_undo_perm(driver, action)
+            }
+            ScriptActionType::MapShroudAll => self.do_map_shroud_all(driver, action),
             ScriptActionType::MapRevealPermanentlyAtWaypoint => {
                 self.do_map_reveal_permanently_at_waypoint(action)
             }

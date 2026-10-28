@@ -27,6 +27,28 @@ fn resolve_script_named_object_id(unit_name: &str) -> Option<u32> {
         .or_else(|| crate::scripting::host_script_named_unit_id(unit_name))
 }
 
+fn apply_map_visibility_for_player(
+    shroud: &mut crate::system::shroud_manager::ShroudManager,
+    player_id: u32,
+    operation: crate::scripting::engine::ScriptMapVisibilityOperation,
+) {
+    use crate::scripting::engine::ScriptMapVisibilityOperation as Op;
+    match operation {
+        Op::Reveal => {
+            let _ = shroud.reveal_map_for_player(player_id);
+        }
+        Op::RevealPermanently => {
+            let _ = shroud.reveal_map_for_player_permanently(player_id);
+        }
+        Op::UndoPermanentReveal => {
+            let _ = shroud.undo_reveal_map_for_player_permanently(player_id);
+        }
+        Op::Shroud => {
+            let _ = shroud.shroud_map_for_player(player_id);
+        }
+    }
+}
+
 /// C++ `ScriptActions::doEnableObjectSound` leftover drawable + live-host queue.
 impl ScriptActionDispatcher<'_> {
     fn enable_or_disable_object_sound(&self, object_name: &str, enable: bool) {
@@ -539,83 +561,65 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_map_reveal_all(
         &mut self,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.get_string_param(action, 0)?;
         log::debug!("Revealing all map for '{}'", player_name);
-
-        let Ok(players) = player_list().read() else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
-        let mut shroud_mgr = shroud_manager.lock().map_err(|_| {
-            ScriptError::ExecutionFailed("Failed to lock ShroudManager".to_string())
-        })?;
-
-        if !player_name.is_empty() {
-            if let Some(player_arc) = players.find_player_by_name(&player_name) {
-                if let Ok(player) = player_arc.read() {
-                    let _ = shroud_mgr.reveal_map_for_player(player.get_player_index() as u32);
-                }
-                return Ok(ScriptActionResult::Success);
-            }
-        }
-
-        for player_arc in players.iter() {
-            if let Ok(player) = player_arc.read() {
-                if player.get_player_type() == PlayerType::Human {
-                    let _ = shroud_mgr.reveal_map_for_player(player.get_player_index() as u32);
-                }
-            }
-        }
+        self.apply_map_visibility_all(
+            driver,
+            &player_name,
+            crate::scripting::engine::ScriptMapVisibilityOperation::Reveal,
+        )?;
         Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_map_reveal_all_perm(
         &mut self,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.get_string_param(action, 0)?;
         log::debug!("Permanently revealing all map for '{}'", player_name);
-
-        let Ok(players) = player_list().read() else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
-        let mut shroud_mgr = shroud_manager.lock().map_err(|_| {
-            ScriptError::ExecutionFailed("Failed to lock ShroudManager".to_string())
-        })?;
-
-        if !player_name.is_empty() {
-            if let Some(player_arc) = players.find_player_by_name(&player_name) {
-                if let Ok(player) = player_arc.read() {
-                    let _ = shroud_mgr
-                        .reveal_map_for_player_permanently(player.get_player_index() as u32);
-                }
-                return Ok(ScriptActionResult::Success);
-            }
-        }
-
-        for player_arc in players.iter() {
-            if let Ok(player) = player_arc.read() {
-                if player.get_player_type() == PlayerType::Human {
-                    let _ = shroud_mgr
-                        .reveal_map_for_player_permanently(player.get_player_index() as u32);
-                }
-            }
-        }
+        self.apply_map_visibility_all(
+            driver,
+            &player_name,
+            crate::scripting::engine::ScriptMapVisibilityOperation::RevealPermanently,
+        )?;
         Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_map_reveal_all_undo_perm(
         &mut self,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.get_string_param(action, 0)?;
         log::debug!("Undoing permanent map reveal for '{}'", player_name);
+        self.apply_map_visibility_all(
+            driver,
+            &player_name,
+            crate::scripting::engine::ScriptMapVisibilityOperation::UndoPermanentReveal,
+        )?;
+        Ok(ScriptActionResult::Success)
+    }
+
+    fn apply_map_visibility_all(
+        &mut self,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
+        player_name: &str,
+        operation: crate::scripting::engine::ScriptMapVisibilityOperation,
+    ) -> Result<(), ScriptError> {
+        let current_player = self.context.borrowed_engine().get_current_player_name();
+        if let Some(result) =
+            driver.map_visibility_all(operation, player_name, current_player.as_deref())
+        {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+            return Ok(());
+        }
 
         let Ok(players) = player_list().read() else {
-            return Ok(ScriptActionResult::Success);
+            return Ok(());
         };
         let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
         let mut shroud_mgr = shroud_manager.lock().map_err(|_| {
@@ -625,55 +629,42 @@ impl ScriptActionDispatcher<'_> {
         if !player_name.is_empty() {
             if let Some(player_arc) = players.find_player_by_name(&player_name) {
                 if let Ok(player) = player_arc.read() {
-                    let _ = shroud_mgr
-                        .undo_reveal_map_for_player_permanently(player.get_player_index() as u32);
+                    apply_map_visibility_for_player(
+                        &mut shroud_mgr,
+                        player.get_player_index() as u32,
+                        operation,
+                    );
                 }
-                return Ok(ScriptActionResult::Success);
+                return Ok(());
             }
         }
 
         for player_arc in players.iter() {
             if let Ok(player) = player_arc.read() {
                 if player.get_player_type() == PlayerType::Human {
-                    let _ = shroud_mgr
-                        .undo_reveal_map_for_player_permanently(player.get_player_index() as u32);
+                    apply_map_visibility_for_player(
+                        &mut shroud_mgr,
+                        player.get_player_index() as u32,
+                        operation,
+                    );
                 }
             }
         }
-        Ok(ScriptActionResult::Success)
+        Ok(())
     }
 
     pub(crate) fn do_map_shroud_all(
         &mut self,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.get_string_param(action, 0)?;
         log::debug!("Shrouding all map for '{}'", player_name);
-
-        let Ok(players) = player_list().read() else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
-        let mut shroud_mgr = shroud_manager.lock().map_err(|_| {
-            ScriptError::ExecutionFailed("Failed to lock ShroudManager".to_string())
-        })?;
-
-        if !player_name.is_empty() {
-            if let Some(player_arc) = players.find_player_by_name(&player_name) {
-                if let Ok(player) = player_arc.read() {
-                    let _ = shroud_mgr.shroud_map_for_player(player.get_player_index() as u32);
-                }
-                return Ok(ScriptActionResult::Success);
-            }
-        }
-
-        for player_arc in players.iter() {
-            if let Ok(player) = player_arc.read() {
-                if player.get_player_type() == PlayerType::Human {
-                    let _ = shroud_mgr.shroud_map_for_player(player.get_player_index() as u32);
-                }
-            }
-        }
+        self.apply_map_visibility_all(
+            driver,
+            &player_name,
+            crate::scripting::engine::ScriptMapVisibilityOperation::Shroud,
+        )?;
         Ok(ScriptActionResult::Success)
     }
 

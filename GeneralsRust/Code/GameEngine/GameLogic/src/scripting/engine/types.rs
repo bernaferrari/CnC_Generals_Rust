@@ -277,6 +277,16 @@ pub enum ScriptWaterRequest<'a> {
     },
 }
 
+/// C++ `doRevealMapEntire*` / `doShroudMapEntire` operations, applied in the
+/// authored script action phase to the receiving world's shroud owner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptMapVisibilityOperation {
+    Reveal,
+    RevealPermanently,
+    UndoPermanentReveal,
+    Shroud,
+}
+
 /// Object presentation changes are applied by this script's driving owner.
 #[derive(Debug, Clone, Copy)]
 pub enum ScriptNamedPresentation<'a> {
@@ -395,6 +405,17 @@ pub trait ScriptExecutionDriver {
     /// Receiving application handles CampaignManager mutations at the authored
     /// action phase. `None` preserves standalone handler behavior.
     fn set_campaign_victorious(&mut self, _victorious: bool) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    /// Receiving application applies map-wide visibility actions against its
+    /// own player and shroud owners. `None` keeps standalone Core behavior.
+    fn map_visibility_all(
+        &mut self,
+        _operation: ScriptMapVisibilityOperation,
+        _player_name: &str,
+        _current_player: Option<&str>,
+    ) -> Option<GameLogicResult<()>> {
         None
     }
 
