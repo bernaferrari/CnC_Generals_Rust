@@ -944,7 +944,7 @@ impl GameLogic {
         self.production_spawn_completions.clear();
         self.warehouse_crippling_states.clear();
         self.mission_scripts.clear_warehouse_set_values();
-        self.host_dock_approach_queues.get_mut().clear();
+        self.host_dock_approach_queues.clear();
         self.vision_last_looks.clear();
         self.vision_last_reveal_all.clear();
         self.vision_last_shroud.clear();

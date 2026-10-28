@@ -4,45 +4,47 @@ use super::super::super::*;
 impl GameLogic {
     /// Warehouse stock/status/relationship portion of C++
     /// ActionManager::canTransferSuppliesAt plus ResourceGatheringManager's
-    /// clear-approach gate. Caller-specific availability and shroud checks
-    /// remain outside this candidate selector.
+    /// clear-approach gate. Cancellation epochs are reconciled synchronously
+    /// because this selector observes queue state. Caller-specific availability
+    /// and shroud checks remain outside this candidate selector.
     pub(in super::super) fn supply_warehouse_available_for(
-        &self,
+        &mut self,
         warehouse_id: ObjectId,
         collector_id: ObjectId,
     ) -> bool {
-        let Some((warehouse, collector)) = self
-            .objects
-            .get(&warehouse_id)
-            .zip(self.objects.get(&collector_id))
-        else {
-            return false;
+        let eligible = {
+            let Some((warehouse, collector)) = self
+                .objects
+                .get(&warehouse_id)
+                .zip(self.objects.get(&collector_id))
+            else {
+                return false;
+            };
+            warehouse.thing().template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse
+                && warehouse.is_alive()
+                && !warehouse.status.under_construction
+                && !warehouse.status.sold
+                && warehouse.stored_resources.supplies != 0
+                && collector.thing().template.supply_truck_metadata.is_some()
+                && collector.is_alive()
+                && !collector.status.under_construction
+                && self.object_relationship(warehouse, collector)
+                    != gamelogic::common::Relationship::Enemies
         };
-        if warehouse.thing().template.dock_kind != crate::game_logic::DockKind::SupplyWarehouse
-            || !warehouse.is_alive()
-            || warehouse.status.under_construction
-            || warehouse.status.sold
-            || warehouse.stored_resources.supplies == 0
-            || collector.thing().template.supply_truck_metadata.is_none()
-            || !collector.is_alive()
-            || collector.status.under_construction
-            || self.object_relationship(warehouse, collector)
-                == gamelogic::common::Relationship::Enemies
-        {
+        if !eligible {
             return false;
         }
         self.sync_host_dock_queue_cancellations_for_dock(warehouse_id);
         self.host_dock_approach_queues
-            .borrow()
             .is_clear_to_approach(warehouse_id, collector_id)
     }
 
     /// Consume only cancellation epochs for docker IDs represented in this
     /// world's queues. Object setters record epochs synchronously; this owner
-    /// reconciles queue state at observers and applies dock fields at its next
-    /// mutable boundary.
-    pub(crate) fn sync_host_dock_queue_cancellations(&self) {
-        let tracked = self.host_dock_approach_queues.borrow().tracked_docker_ids();
+    /// reconciles queue state at mutable observers and applies dock fields at
+    /// its next mutable boundary.
+    pub(crate) fn sync_host_dock_queue_cancellations(&mut self) {
+        let tracked = self.host_dock_approach_queues.tracked_docker_ids();
         if tracked.is_empty() {
             return;
         }
@@ -59,7 +61,6 @@ impl GameLogic {
             .collect();
         let objects = &self.objects;
         self.host_dock_approach_queues
-            .borrow_mut()
             .reconcile_cancel_epochs(&current_epochs, |docker_id| {
                 let mut docks: Vec<_> = objects
                     .registered()
@@ -72,14 +73,13 @@ impl GameLogic {
             });
     }
 
-    pub(crate) fn sync_host_dock_queue_cancellations_for_dock(&self, dock_id: ObjectId) {
+    pub(crate) fn sync_host_dock_queue_cancellations_for_dock(&mut self, dock_id: ObjectId) {
         let active_docker = self
             .objects
             .get(&dock_id)
             .and_then(|dock| dock.dock_active_docker);
         let tracked = self
             .host_dock_approach_queues
-            .borrow()
             .tracked_docker_ids_for_dock(dock_id, active_docker);
         if tracked.is_empty() {
             return;
@@ -97,7 +97,6 @@ impl GameLogic {
             .collect();
         let objects = &self.objects;
         self.host_dock_approach_queues
-            .borrow_mut()
             .reconcile_dock_cancel_epochs(&current_epochs, |docker_id| {
                 let mut docks: Vec<_> = objects
                     .registered()
@@ -110,10 +109,9 @@ impl GameLogic {
             });
     }
 
-    pub(crate) fn sync_host_dock_queue_cancellations_for_docker(&self, docker_id: ObjectId) {
+    pub(crate) fn sync_host_dock_queue_cancellations_for_docker(&mut self, docker_id: ObjectId) {
         let is_tracked = self
             .host_dock_approach_queues
-            .borrow()
             .tracks_docker(docker_id);
         if !is_tracked {
             return;
@@ -124,7 +122,6 @@ impl GameLogic {
             .map(|object| object.dock_cancel_epoch);
         let objects = &self.objects;
         self.host_dock_approach_queues
-            .borrow_mut()
             .reconcile_cancel_epochs(&[(docker_id, current)], |docker_id| {
                 let mut docks: Vec<_> = objects
                     .registered()
@@ -152,13 +149,11 @@ impl GameLogic {
         active
     }
 
-    /// Apply deferred Object callback events at a mutable GameLogic boundary.
-    /// Read-only selectors may clear queue slots, but only this owner can also
-    /// clear active-docker/model state on the dock and docker objects.
+    /// Apply dock field/model effects deferred by an earlier cancellation
+    /// observation at a mutable GameLogic boundary.
     pub(super) fn apply_pending_host_dock_cancellation_effects(&mut self) {
         let pending = self
             .host_dock_approach_queues
-            .borrow_mut()
             .take_pending_cancel_effects();
         for (dock_id, docker_id) in pending {
             self.clear_dock_holder_without_reconcile(dock_id, docker_id);
@@ -179,7 +174,6 @@ impl GameLogic {
             .map(|object| object.dock_cancel_epoch)
             .unwrap_or(0);
         self.host_dock_approach_queues
-            .borrow_mut()
             .track_restored_active_docker(docker_id, epoch);
     }
 
@@ -189,12 +183,67 @@ impl GameLogic {
         ObjectId,
         crate::game_logic::host_supply_gather::HostDockApproachQueue,
     )> {
-        self.sync_host_dock_queue_cancellations();
-        self.host_dock_approach_queues.borrow().snapshot()
+        self.host_dock_approach_snapshot().0
+    }
+
+    /// Read-only save projection of both queue slots and active docker fields.
+    /// Cancellation reconciliation removes queue ownership immediately but
+    /// leaves Object/model effects queued for the next mutable boundary. Keep
+    /// those two serialized views consistent by excluding those pending active
+    /// holders from this detached projection.
+    pub(crate) fn host_dock_approach_snapshot(
+        &self,
+    ) -> (
+        Vec<(
+            ObjectId,
+            crate::game_logic::host_supply_gather::HostDockApproachQueue,
+        )>,
+        Vec<(ObjectId, ObjectId)>,
+    ) {
+        // Snapshot construction is intentionally read-only. Reconcile a
+        // detached queue projection so a cancellation already observable at
+        // this save boundary is reflected without interior mutation or a
+        // second writable owner.
+        let mut queues = self.host_dock_approach_queues.clone();
+        let tracked = queues.tracked_docker_ids();
+        let current_epochs: Vec<_> = tracked
+            .into_iter()
+            .map(|docker_id| {
+                (
+                    docker_id,
+                    self.objects
+                        .get(&docker_id)
+                        .map(|object| object.dock_cancel_epoch),
+                )
+            })
+            .collect();
+        let objects = &self.objects;
+        queues.reconcile_cancel_epochs(&current_epochs, |docker_id| {
+            let mut docks: Vec<_> = objects
+                .registered()
+                .filter_map(|(dock_id, dock)| {
+                    (dock.dock_active_docker == Some(docker_id)).then_some(*dock_id)
+                })
+                .collect();
+            docks.sort_unstable();
+            docks
+        });
+        let pending_effects: std::collections::HashSet<_> =
+            queues.take_pending_cancel_effects().into_iter().collect();
+        let mut dock_ids: Vec<_> = self.objects.registered_keys().copied().collect();
+        dock_ids.sort_unstable();
+        let active = dock_ids
+            .into_iter()
+            .filter_map(|dock_id| {
+                let docker_id = self.objects.get(&dock_id)?.dock_active_docker?;
+                (!pending_effects.contains(&(dock_id, docker_id))).then_some((dock_id, docker_id))
+            })
+            .collect();
+        (queues.snapshot(), active)
     }
 
     pub(crate) fn restore_host_dock_approach_queues(
-        &self,
+        &mut self,
         entries: Vec<(
             ObjectId,
             crate::game_logic::host_supply_gather::HostDockApproachQueue,
@@ -213,16 +262,15 @@ impl GameLogic {
             })
             .collect();
         self.host_dock_approach_queues
-            .borrow_mut()
             .restore(entries, &object_epochs);
     }
 
-    pub(crate) fn reset_host_dock_approach_queues(&self) {
-        self.host_dock_approach_queues.borrow_mut().clear();
+    pub(crate) fn reset_host_dock_approach_queues(&mut self) {
+        self.host_dock_approach_queues.clear();
     }
 
     pub(crate) fn remove_host_dock_approach_queue(
-        &self,
+        &mut self,
         dock_id: ObjectId,
         removed_active_docker: Option<ObjectId>,
     ) {
@@ -231,7 +279,7 @@ impl GameLogic {
             .into_iter()
             .filter_map(|(active_dock, docker)| (active_dock != dock_id).then_some(docker))
             .collect();
-        self.host_dock_approach_queues.borrow_mut().remove_dock(
+        self.host_dock_approach_queues.remove_dock(
             dock_id,
             removed_active_docker,
             &active_elsewhere,
@@ -347,8 +395,9 @@ impl GameLogic {
             .get(&docker_id)
             .map(|object| object.dock_cancel_epoch)
             .unwrap_or(0);
+        let objects = &self.objects;
         let tick = {
-            self.host_dock_approach_queues.borrow_mut().tick(
+            self.host_dock_approach_queues.tick(
                 dock_id,
                 docker_id,
                 docker_cancel_epoch,
@@ -363,7 +412,7 @@ impl GameLogic {
                 self.frame,
                 dock_crippled,
                 |id| {
-                    self.objects.get(&id).is_some_and(|object| {
+                    objects.get(&id).is_some_and(|object| {
                         object.is_alive()
                             && (id == docker_id
                                 || crate::game_logic::host_supply_gather::is_live_dock_ai_state(
@@ -372,7 +421,7 @@ impl GameLogic {
                     })
                 },
                 |docker_id| {
-                    self.objects
+                    objects
                         .registered()
                         .any(|(_, dock)| dock.dock_active_docker == Some(docker_id))
                 },
@@ -476,7 +525,7 @@ impl GameLogic {
         let active_elsewhere = self.objects.registered().any(|(other_id, dock)| {
             *other_id != dock_id && dock.dock_active_docker == Some(docker_id)
         });
-        self.host_dock_approach_queues.borrow_mut().cancel_dock(
+        self.host_dock_approach_queues.cancel_dock(
             dock_id,
             docker_id,
             active_elsewhere,
@@ -513,7 +562,6 @@ impl GameLogic {
             self.clear_dock_holder_without_reconcile(dock_id, docker_id);
         }
         self.host_dock_approach_queues
-            .borrow_mut()
             .cancel_docker(docker_id);
     }
 

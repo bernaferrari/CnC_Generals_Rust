@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 /// Main-owned mirror of each dock module's C++ approach-position state.
 /// `GameLogic` owns this store; object state transitions report cancellations
 /// with epochs that the owner reconciles before observing queue state.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct HostDockApproachQueues {
     queues: HashMap<ObjectId, HostDockApproachQueue>,
     observed_cancel_epochs: HashMap<ObjectId, u64>,

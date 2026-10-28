@@ -109,7 +109,7 @@ impl GameLogic {
     /// Find the nearest supply center (refinery/supply dropzone) for a team.
 
     pub(in super::super) fn find_nearest_harvestable_supply(
-        &self,
+        &mut self,
         team: Team,
         from: Vec3,
     ) -> Option<ObjectId> {
@@ -120,7 +120,7 @@ impl GameLogic {
     /// `max_scan` is already AI-doubled via `warehouse_scan_distance`.
     /// C++ `computeRelativeCost` returns FLT_MAX when `!isClearToApproach`.
     pub(in super::super) fn find_nearest_harvestable_supply_within(
-        &self,
+        &mut self,
         team: Team,
         from: Vec3,
         max_scan: Option<f32>,
@@ -141,7 +141,8 @@ impl GameLogic {
             .objects
             .get(&query_id)
             .is_some_and(|collector| collector.thing().template.supply_truck_metadata.is_some());
-        // Pure residual acquire: nearest harvestable supply pile (3D distance).
+        // Snapshot object facts first so cancellation reconciliation can
+        // mutably borrow this world without retaining an ObjectStore borrow.
         let candidates: Vec<_> = self
             .objects
             .registered()
@@ -156,25 +157,32 @@ impl GameLogic {
                 if !harvestable {
                     return None;
                 }
-                // Prefer piles that still have stored supplies when tracked.
                 if obj.stored_resources.supplies == 0
                     && (obj.is_kind_of(KindOf::SupplySource)
                         || obj.is_kind_of(KindOf::Harvestable)
                         || obj.object_type == ObjectType::Supply)
+                    && obj.thing().template.dock_kind == DockKind::SupplyWarehouse
                 {
-                    if obj.thing().template.dock_kind == DockKind::SupplyWarehouse {
-                        return None;
-                    }
+                    return None;
                 }
-                // C++ `computeRelativeCost`: occupied approach-queues score FLT_MAX.
-                if obj.thing().template.dock_kind == DockKind::SupplyWarehouse {
+                Some((
+                    id,
+                    obj.team,
+                    obj.get_position(),
+                    obj.status.under_construction,
+                    obj.thing().template.dock_kind,
+                ))
+            })
+            .collect();
+        let candidates: Vec<_> = candidates
+            .into_iter()
+            .filter_map(|(id, team, position, under_construction, dock_kind)| {
+                if dock_kind == DockKind::SupplyWarehouse {
                     if supply_truck_query {
                         if let Some(scan_limit) = max_scan {
-                            let in_range =
-                                obj.get_position().distance_squared(from) < scan_limit * scan_limit;
-                            if !in_range {
-                                // ResourceGatheringManager uses strict
-                                // distanceSquared < maxDistanceSquared.
+                            // Keep the C++ strict comparison verbatim: NaN
+                            // distances are not admitted by `distance < cap`.
+                            if !(position.distance_squared(from) < scan_limit * scan_limit) {
                                 return None;
                             }
                         }
@@ -183,29 +191,23 @@ impl GameLogic {
                         }
                     } else {
                         self.sync_host_dock_queue_cancellations_for_dock(id);
-                        if !self
-                            .host_dock_approach_queues
-                            .borrow()
-                            .is_clear_to_approach(id, query_id)
-                        {
+                        if !self.host_dock_approach_queues.is_clear_to_approach(id, query_id) {
                             return None;
                         }
                     }
                 }
-                Some(
-                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
-                        id,
-                        team: obj.team,
-                        position: obj.get_position(),
-                        is_alive: true,
-                        is_neutral: obj.team == Team::Neutral,
-                        under_construction: obj.status.under_construction,
-                        combat_kind: true,
-                        effectively_stealthed: false,
-                        is_air: false,
-                        eject_invulnerable: false,
-                    },
-                )
+                Some(crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                    id,
+                    team,
+                    position,
+                    is_alive: true,
+                    is_neutral: team == Team::Neutral,
+                    under_construction,
+                    combat_kind: true,
+                    effectively_stealthed: false,
+                    is_air: false,
+                    eject_invulnerable: false,
+                })
             })
             .collect();
         let scan = max_scan.filter(|d| *d > 0.0).unwrap_or(f32::MAX);
@@ -3356,7 +3358,7 @@ mod dock_approach_owner_tests {
             assert!(!world_a.try_claim_dock_for_test(dock_a, docker));
         }
         make_gathering(&mut world_a, dock_a, docker_ids_a[9]);
-        let query_a = |world: &GameLogic, docker| {
+        let query_a = |world: &mut GameLogic, docker| {
             world.find_nearest_harvestable_supply_within(
                 Team::USA,
                 glam::Vec3::new(700.0, 0.0, 0.0),
@@ -3364,23 +3366,23 @@ mod dock_approach_owner_tests {
                 docker,
             )
         };
-        assert_eq!(query_a(&world_a, docker_ids_a[9]), None);
+        assert_eq!(query_a(&mut world_a, docker_ids_a[9]), None);
 
         // Construct B only after A owns all slots. Constructing a candidate
         // world must not reset an already live owner's module state.
         let (mut world_b, dock_b, docker_ids_b) = world_with_warehouse_and_workers();
         assert_eq!(dock_a, dock_b);
-        assert_eq!(query_a(&world_a, docker_ids_a[9]), None);
+        assert_eq!(query_a(&mut world_a, docker_ids_a[9]), None);
 
         for &docker in &docker_ids_b[..9] {
             make_gathering(&mut world_b, dock_b, docker);
             assert!(!world_b.try_claim_dock_for_test(dock_b, docker));
         }
         make_gathering(&mut world_b, dock_b, docker_ids_b[9]);
-        assert_eq!(query_a(&world_b, docker_ids_b[9]), None);
+        assert_eq!(query_a(&mut world_b, docker_ids_b[9]), None);
 
         world_a.reset();
-        assert_eq!(query_a(&world_b, docker_ids_b[9]), None);
+        assert_eq!(query_a(&mut world_b, docker_ids_b[9]), None);
     }
 
     #[test]
@@ -3497,7 +3499,7 @@ mod dock_approach_owner_tests {
         let replacement = world.host_object(destroyed_id).unwrap().clone();
         let waiter = docker_ids[9];
         make_gathering(&mut world, dock, waiter);
-        let query_waiter = |world: &GameLogic| {
+        let query_waiter = |world: &mut GameLogic| {
             world.find_nearest_harvestable_supply_within(
                 Team::USA,
                 glam::Vec3::new(700.0, 0.0, 0.0),
@@ -3505,15 +3507,15 @@ mod dock_approach_owner_tests {
                 waiter,
             )
         };
-        assert_eq!(query_waiter(&world), None);
+        assert_eq!(query_waiter(&mut world), None);
 
         world.destroy_object(destroyed_id);
         world.process_destroy_list();
         assert!(world.host_object(destroyed_id).is_none());
-        assert_eq!(query_waiter(&world), Some(dock));
+        assert_eq!(query_waiter(&mut world), Some(dock));
 
         world.admit_host_object(replacement);
-        assert_eq!(query_waiter(&world), Some(dock));
+        assert_eq!(query_waiter(&mut world), Some(dock));
     }
 
     #[test]
@@ -3522,13 +3524,13 @@ mod dock_approach_owner_tests {
         let owner = docker_ids[0];
         make_gathering(&mut world, dock, owner);
         assert!(!world.try_claim_dock_for_test(dock, owner));
-        assert!(world.host_dock_approach_queues.borrow().has_dock(dock));
+        assert!(world.host_dock_approach_queues.has_dock(dock));
 
         world.destroy_object(dock);
         world.process_destroy_list();
         assert!(world.host_object(dock).is_none());
         assert!(
-            !world.host_dock_approach_queues.borrow().has_dock(dock),
+            !world.host_dock_approach_queues.has_dock(dock),
             "the DockUpdate mirror must be removed with its owning Object"
         );
     }
@@ -3555,7 +3557,6 @@ mod dock_approach_owner_tests {
             );
             let slots: Vec<_> = world
                 .host_dock_approach_queues
-                .borrow()
                 .snapshot()
                 .into_iter()
                 .find(|(id, _)| *id == dock)
@@ -3597,6 +3598,22 @@ mod dock_approach_owner_tests {
                 AIState::Moving,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
+        assert_eq!(
+            world_a.host_object(dock_a).unwrap().dock_active_docker,
+            Some(active_a),
+            "Object holder effects remain deferred until a mutable GameLogic boundary"
+        );
+        let (snapshot_queues, snapshot_active) = world_a.host_dock_approach_snapshot();
+        assert!(
+            !snapshot_active.contains(&(dock_a, active_a)),
+            "save projection must not pair reconciled queue slots with a stale active holder"
+        );
+        assert!(snapshot_queues
+            .iter()
+            .find(|(id, _)| *id == dock_a)
+            .map_or(true, |(_, queue)| {
+                !queue.owned_dockers().any(|id| id == active_a)
+            }));
         let waiter_a = workers_a[1];
         make_gathering(&mut world_a, dock_a, waiter_a);
         // The normal mutable support-state update flushes callback epochs
@@ -3685,7 +3702,7 @@ mod dock_approach_owner_tests {
         );
 
         assert!(!world.try_claim_dock_for_test(dock, second));
-        let queues = world.host_dock_approach_queues.borrow();
+        let queues = &world.host_dock_approach_queues;
         let owners: Vec<_> = queues
             .snapshot()
             .into_iter()

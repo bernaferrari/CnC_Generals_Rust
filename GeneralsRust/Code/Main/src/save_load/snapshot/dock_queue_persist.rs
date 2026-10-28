@@ -87,8 +87,8 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
 }
 
 fn capture(game_logic: &GameLogic) -> DockQueuePersistPayload {
-    let queues = game_logic
-        .host_dock_approach_queue_snapshot()
+    let (queue_snapshot, active_snapshot) = game_logic.host_dock_approach_snapshot();
+    let queues = queue_snapshot
         .into_iter()
         .map(|(dock_id, queue)| DockQueuePersist {
             dock_id: dock_id.0,
@@ -117,25 +117,13 @@ fn capture(game_logic: &GameLogic) -> DockQueuePersistPayload {
         })
         .collect();
 
-    let mut dock_ids: Vec<ObjectId> = game_logic
-        .host_objects()
-        .registered_keys()
-        .copied()
-        .collect();
-    dock_ids.sort();
-    let mut active = Vec::new();
-    for id in dock_ids {
-        let Some(object) = game_logic.host_object(id) else {
-            continue;
-        };
-        let Some(docker) = object.dock_active_docker else {
-            continue;
-        };
-        active.push(DockActivePersist {
-            dock_id: id.0,
+    let active = active_snapshot
+        .into_iter()
+        .map(|(dock_id, docker)| DockActivePersist {
+            dock_id: dock_id.0,
             active_docker: docker.0,
-        });
-    }
+        })
+        .collect();
     DockQueuePersistPayload { queues, active }
 }
 

@@ -193,7 +193,7 @@ pub struct GameLogic {
     /// Per-world mirror of C++ DockUpdate approach owners/reached state.
     /// Object cancellation epochs are reconciled before each queue observation.
     pub(super) host_dock_approach_queues:
-        std::cell::RefCell<crate::game_logic::host_supply_gather::HostDockApproachQueues>,
+        crate::game_logic::host_supply_gather::HostDockApproachQueues,
 
     /// Next unused sequence for an actual accepted WeaponSet discharge.
     ///
