@@ -641,8 +641,11 @@ impl GameLogic {
         let frame = self.frame;
         for _ in 0..count {
             let mut offset =
-                crate::game_logic::host_hero_abilities::leftover_disable_fx_footprint_offset(&geom);
-            offset.y = leftover_emp_spark_z(height);
+                crate::game_logic::host_hero_abilities::leftover_disable_fx_footprint_offset(
+                    &geom,
+                    &self.logic_random,
+                );
+            offset.y = leftover_emp_spark_z(height, &self.logic_random);
             offset = leftover_emp_spark_dome_clamp(offset, height);
             let is_shrouded = self.host_fx_object_is_shrouded(victim_id.0);
             let Some(pid) = self
@@ -669,7 +672,9 @@ impl GameLogic {
             {
                 if let Some(manager) = particle_owner.particle_systems_mut() {
                     if let Some(system) = manager.find_particle_system_mut(client_id) {
-                        system.set_initial_delay(leftover_emp_spark_initial_delay());
+                        system.set_initial_delay(leftover_emp_spark_initial_delay(
+                            &self.logic_random,
+                        ));
                     }
                 }
             }
@@ -2348,10 +2353,8 @@ impl GameLogic {
         position: Vec3,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        let Some((team, veterancy, orientation, velocity)) = self
-            .objects
-            .get(&span_id)
-            .map(|bridge| {
+        let Some((team, veterancy, orientation, velocity)) =
+            self.objects.get(&span_id).map(|bridge| {
                 (
                     bridge.team,
                     bridge.experience.level,
@@ -3622,22 +3625,29 @@ mod bridge_ocl_receiving_owner_tests {
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         );
 
-        assert!(left
-            .objects
-            .registered_values()
-            .any(|object| object.template_name == "LeftBridgeDieWitness"));
-        assert!(!left
-            .objects
-            .registered_values()
-            .any(|object| object.template_name == "RightBridgeDieWitness"));
-        assert!(right
-            .objects
-            .registered_values()
-            .any(|object| object.template_name == "RightBridgeDieWitness"));
-        assert!(!right
-            .objects
-            .registered_values()
-            .any(|object| object.template_name == "LeftBridgeDieWitness"));
+        assert!(
+            left.objects
+                .registered_values()
+                .any(|object| object.template_name == "LeftBridgeDieWitness")
+        );
+        assert!(
+            !left
+                .objects
+                .registered_values()
+                .any(|object| object.template_name == "RightBridgeDieWitness")
+        );
+        assert!(
+            right
+                .objects
+                .registered_values()
+                .any(|object| object.template_name == "RightBridgeDieWitness")
+        );
+        assert!(
+            !right
+                .objects
+                .registered_values()
+                .any(|object| object.template_name == "LeftBridgeDieWitness")
+        );
         assert!(left.objects.get(&left_bridge).is_some());
         assert!(right.objects.get(&right_bridge).is_some());
     }

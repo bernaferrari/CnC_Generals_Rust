@@ -595,24 +595,24 @@ pub fn leftover_disable_fx_footprint_area(
 /// C++ `GeometryInfo::makeRandomOffsetWithinFootprint` in host Y-up.
 pub fn leftover_disable_fx_footprint_offset(
     geom: &crate::game_logic::HostGeometryInfo,
+    random: &game_engine::common::random_value::SessionRandom,
 ) -> glam::Vec3 {
     use crate::game_logic::HostGeometryType;
-    use game_engine::common::random_value::get_game_logic_random_value_real;
     let (x, y) = match geom.geom_type {
         HostGeometryType::Sphere | HostGeometryType::Cylinder => {
             let width = geom.major_radius.max(0.0);
             let max_dist_sq = width * width;
             loop {
-                let x = get_game_logic_random_value_real(-width, width);
-                let y = get_game_logic_random_value_real(-width, width);
+                let x = random.next_real(-width, width);
+                let y = random.next_real(-width, width);
                 if x * x + y * y <= max_dist_sq {
                     break (x, y);
                 }
             }
         }
         HostGeometryType::Box => (
-            get_game_logic_random_value_real(-geom.major_radius, geom.major_radius),
-            get_game_logic_random_value_real(-geom.minor_radius, geom.minor_radius),
+            random.next_real(-geom.major_radius, geom.major_radius),
+            random.next_real(-geom.minor_radius, geom.minor_radius),
         ),
     };
     glam::Vec3::new(x, 0.0, y)

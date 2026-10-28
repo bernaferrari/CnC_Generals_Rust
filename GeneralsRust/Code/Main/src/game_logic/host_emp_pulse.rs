@@ -291,14 +291,19 @@ pub fn leftover_emp_spark_lifetime(disabled_duration_frames: u32) -> u32 {
 }
 
 /// C++ `GameLogicRandomValue(3, victimHeight)` (host Y-up height).
-pub fn leftover_emp_spark_z(victim_height: f32) -> f32 {
+pub fn leftover_emp_spark_z(
+    victim_height: f32,
+    random: &game_engine::common::random_value::SessionRandom,
+) -> f32 {
     let hi = victim_height.max(3.0) as i32;
-    gamelogic::helpers::get_game_logic_random_value(3, hi).max(3) as f32
+    random.next_int(3, hi).max(3) as f32
 }
 
 /// C++ `GameLogicRandomValue(1, 100)` spark `setInitialDelay`.
-pub fn leftover_emp_spark_initial_delay() -> u32 {
-    gamelogic::helpers::get_game_logic_random_value(1, 100).max(1) as u32
+pub fn leftover_emp_spark_initial_delay(
+    random: &game_engine::common::random_value::SessionRandom,
+) -> u32 {
+    random.next_int(1, 100).max(1) as u32
 }
 
 /// C++ EMPUpdate.cpp:297-307 quadrahemicycloid clamp. Host Y-up: y is height.

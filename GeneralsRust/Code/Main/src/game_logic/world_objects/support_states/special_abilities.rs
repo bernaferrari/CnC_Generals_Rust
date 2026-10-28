@@ -1409,7 +1409,10 @@ impl GameLogic {
             );
         if emit {
             let offset =
-                crate::game_logic::host_hero_abilities::leftover_disable_fx_footprint_offset(&geom);
+                crate::game_logic::host_hero_abilities::leftover_disable_fx_footprint_offset(
+                    &geom,
+                    &self.logic_random,
+                );
             // C++ SpecialAbilityUpdate.cpp:1386-1395 attachToObject(target) +
             // setPosition(footprint offset) + setSystemLifetime(duration * interleave).
             let lifetime =
