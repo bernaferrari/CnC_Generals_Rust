@@ -193,8 +193,12 @@ unsafe impl<T: Sync> Sync for Slab<T> {}
 pub struct PoolAllocator<T> {
     /// All slabs in this pool.
     slabs: Vec<Slab<T>>,
-    /// Generations for each slot (across all slabs).
+    /// Generation history by slot index, retained past shrink so regrowing a
+    /// slot cannot revive handles issued before that slot was freed.
     generations: Vec<Generation>,
+    /// Explicit initialization state for each slot. The free-list union arm
+    /// cannot prove that a `T` is initialized.
+    occupied: Vec<bool>,
     /// Head of the free list (slot index).
     free_list_head: Option<u32>,
     /// Total capacity across all slabs.
@@ -213,6 +217,7 @@ impl<T> PoolAllocator<T> {
         let mut allocator = Self {
             slabs: Vec::new(),
             generations: Vec::new(),
+            occupied: Vec::new(),
             free_list_head: None,
             total_capacity: 0,
             occupied_count: 0,
@@ -250,13 +255,20 @@ impl<T> PoolAllocator<T> {
                 self.free_list_head
             };
 
-            let generation = Generation::first();
+            let generation = self
+                .generations
+                .get(index as usize)
+                .copied()
+                .unwrap_or_else(Generation::first);
+            if self.generations.len() <= index as usize {
+                self.generations.push(generation);
+            }
             // SAFETY: slot i of the brand-new slab is vacant; writing the
             // free-list entry initializes its `free` arm in bounds.
             unsafe {
                 slab.init_free_slot(i, FreeListEntry::new(next_free, generation));
             }
-            self.generations.push(generation);
+            self.occupied.push(false);
         }
 
         // Update free list head to point to first slot in new slab
@@ -310,6 +322,7 @@ impl<T> PoolAllocator<T> {
             self.slabs[slab_idx].write_value(local_idx, value);
         }
 
+        self.occupied[index as usize] = true;
         self.occupied_count += 1;
         Ok(index)
     }
@@ -319,6 +332,9 @@ impl<T> PoolAllocator<T> {
         if index as usize >= self.total_capacity {
             return Err(format!("Index {} out of bounds", index));
         }
+        if !self.occupied[index as usize] {
+            return Err(format!("Index {} is not occupied", index));
+        }
 
         // Find the slab and local index
         let (slab_idx, local_idx) = self.locate_slot(index as usize);
@@ -327,6 +343,7 @@ impl<T> PoolAllocator<T> {
         // SAFETY: bounds checked above; callers only hand out indices
         // returned by alloc, so the value arm holds an initialized T.
         let value = unsafe { self.slabs[slab_idx].read_value(local_idx) };
+        self.occupied[index as usize] = false;
 
         // Zero memory if configured
         if self.config.zero_on_free {
@@ -362,39 +379,17 @@ impl<T> PoolAllocator<T> {
             return 0;
         }
 
-        let mut free_slots = vec![false; self.total_capacity];
-        let mut current = self.free_list_head;
-
-        while let Some(index) = current {
-            if index as usize >= self.total_capacity {
-                break;
-            }
-            free_slots[index as usize] = true;
-            let (slab_idx, local_idx) = self.locate_slot(index as usize);
-            // SAFETY: the walk visits only current free-list members whose
-            // `free` arm is initialized.
-            let entry = unsafe { self.slabs[slab_idx].read_free_entry(local_idx) };
-            current = entry.next_free;
-        }
-
         let mut cleared = 0usize;
         for idx in 0..self.total_capacity {
-            if !free_slots[idx] {
-                let (slab_idx, local_idx) = self.locate_slot(idx);
-                // SAFETY: idx is not reachable from the free-list walk above,
-                // so it is occupied and its value arm is initialized; this
-                // read drops ownership exactly once.
-                let value = unsafe { self.slabs[slab_idx].read_value(local_idx) };
-                drop(value);
-                if self.config.zero_on_free {
-                    // SAFETY: idx in bounds and now vacant after the drop read.
-                    unsafe {
-                        self.slabs[slab_idx].zero_slot(local_idx);
-                    }
-                }
-                let generation = self.generations[idx].next();
-                self.generations[idx] = generation;
+            if self.occupied[idx] {
+                // `dealloc` commits the slot's free-list entry, generation,
+                // and occupancy before running user drop code. If `T::drop`
+                // unwinds, the pool therefore still contains valid slots.
+                let value = self
+                    .dealloc(idx as u32)
+                    .expect("occupied slot must deallocate");
                 cleared += 1;
+                drop(value);
             }
         }
 
@@ -422,6 +417,9 @@ impl<T> PoolAllocator<T> {
         if index as usize >= self.total_capacity {
             return None;
         }
+        if !self.occupied[index as usize] {
+            return None;
+        }
 
         let (slab_idx, local_idx) = self.locate_slot(index as usize);
         // SAFETY: bounds-checked above; &self proves aliasing is shared-only.
@@ -434,6 +432,9 @@ impl<T> PoolAllocator<T> {
         if index as usize >= self.total_capacity {
             return None;
         }
+        if !self.occupied[index as usize] {
+            return None;
+        }
 
         let (slab_idx, local_idx) = self.locate_slot(index as usize);
         // SAFETY: bounds-checked above; unique &mut self makes the result
@@ -444,16 +445,15 @@ impl<T> PoolAllocator<T> {
     /// Get the generation for a slot.
     #[inline]
     pub fn generation(&self, index: u32) -> Option<Generation> {
-        self.generations.get(index as usize).copied()
+        ((index as usize) < self.total_capacity)
+            .then(|| self.generations.get(index as usize).copied())
+            .flatten()
     }
 
     /// Check if a slot is occupied.
     #[inline]
     pub fn is_occupied(&self, index: u32) -> bool {
-        // A slot is occupied if it's not in the free list
-        // We can check this by iterating the free list, but that's O(n)
-        // For now, we trust the caller to check generation
-        (index as usize) < self.total_capacity
+        self.occupied.get(index as usize).copied().unwrap_or(false)
     }
 
     /// Get total capacity.
@@ -541,78 +541,24 @@ impl<T> PoolAllocator<T> {
         }
 
         let mut released = 0;
-        let mut slabs_to_remove = Vec::new();
+        while released < target {
+            let Some(slab) = self.slabs.last() else {
+                break;
+            };
+            let slab_capacity = slab.capacity();
+            let base_index = self.total_capacity - slab_capacity;
 
-        // Scan slabs from the end to find empty ones
-        // We can only safely remove slabs if they're completely empty
-        // and their slots are in the free list
-        for (slab_idx, slab) in self.slabs.iter().enumerate().rev() {
-            if released >= target {
+            // Only remove trailing slabs. Removing an interior slab would
+            // renumber live slots and invalidate indices already handed out.
+            if self.occupied[base_index..].iter().any(|occupied| *occupied) {
                 break;
             }
 
-            // Calculate the base index for this slab
-            let base_index: usize = self.slabs.iter().take(slab_idx).map(|s| s.capacity()).sum();
-
-            // Check if all slots in this slab are free
-            let mut all_free = true;
-            for local_idx in 0..slab.capacity() {
-                let global_idx = base_index + local_idx;
-
-                // Check if this slot is in the free list
-                // We do this by walking the free list (expensive, but only during shrink)
-                let mut is_free = false;
-                let mut current = self.free_list_head;
-
-                while let Some(idx) = current {
-                    if idx as usize == global_idx {
-                        is_free = true;
-                        break;
-                    }
-
-                    // Get next free slot
-                    let (s_idx, l_idx) = self.locate_slot(idx as usize);
-                    // SAFETY: shrink scan visits only free-list members whose
-                    // `free` arm is initialized.
-                    let entry = unsafe { self.slabs[s_idx].read_free_entry(l_idx) };
-                    current = entry.next_free;
-
-                    // Prevent infinite loops
-                    if current == Some(idx) {
-                        break;
-                    }
-                }
-
-                if !is_free {
-                    all_free = false;
-                    break;
-                }
-            }
-
-            // If all slots are free, mark this slab for removal
-            if all_free {
-                slabs_to_remove.push(slab_idx);
-                released += slab.capacity();
-            }
-        }
-
-        // Remove the slabs (in reverse order to maintain indices)
-        for &slab_idx in slabs_to_remove.iter().rev() {
-            // Calculate base index for this slab
-            let base_index: usize = self.slabs.iter().take(slab_idx).map(|s| s.capacity()).sum();
-
-            // Remove slots from free list
-            self.remove_slots_from_free_list(base_index, self.slabs[slab_idx].capacity());
-
-            // Remove from generations vector
-            let slab_capacity = self.slabs[slab_idx].capacity();
-            self.generations
-                .drain(base_index..base_index + slab_capacity);
-
-            // Remove the slab (will be dropped automatically)
-            self.slabs.remove(slab_idx);
-
+            self.remove_slots_from_free_list(base_index, slab_capacity);
+            self.occupied.drain(base_index..self.total_capacity);
+            self.slabs.pop();
             self.total_capacity -= slab_capacity;
+            released += slab_capacity;
         }
 
         Ok(released)
@@ -696,12 +642,12 @@ impl<T> Drop for PoolAllocator<T> {
         // Drop all live objects
         if mem::needs_drop::<T>() {
             for index in 0..self.total_capacity {
-                // Check if slot is occupied by seeing if it's NOT in free list
-                // This is a simplified check; in production you'd track this more efficiently
-                if self.is_occupied(index as u32) {
+                // Explicit metadata distinguishes live values from free-list
+                // union payloads without reading either arm speculatively.
+                if self.occupied[index] {
                     let (slab_idx, local_idx) = self.locate_slot(index);
-                    // SAFETY: drop path — slots not reachable from the free
-                    // list hold initialized values; read-and-drop once.
+                    // SAFETY: the occupancy bit is set only after writing a
+                    // fully initialized T and cleared on every removal path.
                     unsafe {
                         let _ = self.slabs[slab_idx].read_value(local_idx);
                     }
@@ -744,6 +690,144 @@ mod tests {
         let value = allocator.dealloc(idx).unwrap();
         assert_eq!(value, 42);
         assert_eq!(allocator.len(), 0);
+    }
+
+    #[test]
+    fn vacant_and_freed_slots_reject_reads_and_double_free() {
+        let config = PoolConfigBuilder::new("Test")
+            .with_initial_capacity(2)
+            .fixed_size()
+            .build();
+        let mut allocator = PoolAllocator::<String>::new(config).unwrap();
+
+        assert!(!allocator.is_occupied(0));
+        assert!(allocator.get(0).is_none());
+        assert!(allocator.get_mut(0).is_none());
+        assert!(allocator.dealloc(0).is_err());
+
+        let index = allocator.alloc("live".to_string()).unwrap();
+        assert!(allocator.is_occupied(index));
+        assert_eq!(allocator.dealloc(index).unwrap(), "live");
+        assert!(!allocator.is_occupied(index));
+        assert!(allocator.get(index).is_none());
+        assert!(allocator.get_mut(index).is_none());
+        assert!(allocator.dealloc(index).is_err());
+
+        let reused = allocator.alloc("reused".to_string()).unwrap();
+        assert_eq!(reused, index);
+        assert_eq!(allocator.get(reused).map(String::as_str), Some("reused"));
+    }
+
+    #[test]
+    fn shrink_only_releases_trailing_free_slabs_without_renumbering_live_slots() {
+        let config = PoolConfigBuilder::new("Test")
+            .with_initial_capacity(2)
+            .with_grow_by(2)
+            .build();
+        let mut allocator = PoolAllocator::new(config).unwrap();
+        let first = allocator.alloc(10_u64).unwrap();
+        let second = allocator.alloc(20_u64).unwrap();
+        let third = allocator.alloc(30_u64).unwrap();
+        assert_eq!((first, second, third), (0, 1, 2));
+        let stale_generation = allocator.generation(third).unwrap();
+        assert_eq!(allocator.dealloc(third).unwrap(), 30);
+        let free_generation = allocator.generation(third).unwrap();
+        assert_ne!(stale_generation, free_generation);
+
+        assert_eq!(allocator.shrink(1).unwrap(), 2);
+        assert_eq!(allocator.capacity(), 2);
+        assert_eq!(allocator.generation(third), None);
+        assert_eq!(allocator.get(first), Some(&10));
+        assert_eq!(allocator.get(second), Some(&20));
+        assert_eq!(allocator.alloc(30).unwrap(), 2);
+        assert_eq!(allocator.generation(third), Some(free_generation));
+        assert_ne!(allocator.generation(third), Some(stale_generation));
+    }
+
+    #[test]
+    fn clear_and_pool_drop_destroy_each_live_value_once() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+
+        struct DropCounter(Arc<AtomicUsize>);
+        impl Drop for DropCounter {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let drops = Arc::new(AtomicUsize::new(0));
+        let config = PoolConfigBuilder::new("Test")
+            .with_initial_capacity(2)
+            .fixed_size()
+            .build();
+        let mut allocator = PoolAllocator::new(config).unwrap();
+        let deallocated = allocator.alloc(DropCounter(drops.clone())).unwrap();
+        let live = allocator.alloc(DropCounter(drops.clone())).unwrap();
+
+        drop(allocator.dealloc(deallocated).unwrap());
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+        assert_eq!(allocator.clear(), 1);
+        assert_eq!(drops.load(Ordering::SeqCst), 2);
+        assert!(!allocator.is_occupied(live));
+        drop(allocator);
+        assert_eq!(drops.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn clear_leaves_pool_valid_when_a_value_drop_unwinds() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+        };
+
+        struct PanicOnceDrop {
+            panic_next: Arc<AtomicBool>,
+            drops: Arc<AtomicUsize>,
+        }
+        impl Drop for PanicOnceDrop {
+            fn drop(&mut self) {
+                self.drops.fetch_add(1, Ordering::SeqCst);
+                if self.panic_next.swap(false, Ordering::SeqCst) {
+                    panic!("intentional drop panic");
+                }
+            }
+        }
+
+        let panic_next = Arc::new(AtomicBool::new(true));
+        let drops = Arc::new(AtomicUsize::new(0));
+        let config = PoolConfigBuilder::new("Test")
+            .with_initial_capacity(2)
+            .fixed_size()
+            .build();
+        let mut allocator = PoolAllocator::new(config).unwrap();
+        let first = allocator
+            .alloc(PanicOnceDrop {
+                panic_next: panic_next.clone(),
+                drops: drops.clone(),
+            })
+            .unwrap();
+        let second = allocator
+            .alloc(PanicOnceDrop {
+                panic_next: panic_next.clone(),
+                drops: drops.clone(),
+            })
+            .unwrap();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            allocator.clear();
+        }));
+        assert!(result.is_err());
+        assert!(!allocator.is_occupied(first));
+        assert!(allocator.is_occupied(second));
+        assert_eq!(allocator.len(), 1);
+        assert!(allocator.get(first).is_none());
+        assert!(allocator.get(second).is_some());
+        assert_eq!(allocator.clear(), 1);
+        assert_eq!(allocator.len(), 0);
+        assert_eq!(drops.load(Ordering::SeqCst), 2);
     }
 
     #[test]
