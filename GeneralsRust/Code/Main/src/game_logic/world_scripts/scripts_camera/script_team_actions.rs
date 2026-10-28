@@ -1446,7 +1446,7 @@ impl GameLogic {
         team: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-        _effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         for id in self.receiving_garrison_members(team, calling, condition)? {
             let Some(member) = self.host_object(id) else {
@@ -1468,14 +1468,32 @@ impl GameLogic {
                 continue;
             }
 
-            // C++ AIGroup::groupEvacuate delegates airborne aircraft to
-            // aiMoveToAndEvacuate at the highest terrain layer. Main does not
-            // yet expose that state transition through an owned world API.
-            // Leave those members untouched until that route is migrated.
             if airborne_aircraft && has_ai {
-                log::warn!(
-                    "TEAM_EXIT_ALL skipped airborne aircraft {id:?}: owned MoveAndEvacuate is not implemented"
+                // C++ AIGroup.cpp:2416-2422 snapshots the aircraft position,
+                // picks the highest receiving-world layer below it, and
+                // synchronously calls aiMoveToAndEvacuate(CMD_FROM_SCRIPT).
+                // Run the same existing owner-bound transport state machine
+                // here, inline with roster traversal, before the next member's
+                // evacuation callbacks.
+                let Some((position, ground_height)) = self
+                    .host_object(id)
+                    .map(|object| (object.get_position(), object.ground_height))
+                else {
+                    continue;
+                };
+                let destination_y = self.evacuation_surface_height(position, ground_height);
+                let destination = glam::Vec3::new(position.x, destination_y, position.z);
+                let mut executor = crate::command_executor::CommandExecutor::new_with_effects(
+                    self,
+                    0,
+                    effects.reborrow(),
                 );
+                executor.execute_move_to_and_evacuate_with_source(
+                    &[id],
+                    destination,
+                    false,
+                    crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT,
+                )?;
                 continue;
             }
 

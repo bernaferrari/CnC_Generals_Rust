@@ -46,7 +46,7 @@ fn world(map: &std::path::Path) -> (
     world
         .admit_object_ini_sources([(
             "TeamExitAll.ini".into(),
-            "Object TeamExitCarrier\n KindOf = SELECTABLE VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = TransportContain ContainTag\n  ContainMax = 2\n  Slots = 2\n  AllowInsideKindOf = INFANTRY\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\nObject TeamExitPassenger\n KindOf = SELECTABLE INFANTRY\n TransportSlotCount = 1\n Locomotor = SET_NORMAL BasicHumanLocomotor\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
+            "Object TeamExitCarrier\n KindOf = SELECTABLE VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = TransportContain ContainTag\n  ContainMax = 2\n  Slots = 2\n  AllowInsideKindOf = INFANTRY\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\nObject TeamExitAircraft\n KindOf = SELECTABLE VEHICLE AIRCRAFT\n TransportSlotCount = 2\n Locomotor = SET_NORMAL BasicHumanLocomotor\n Body = ActiveBody BodyTag\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = PhysicsBehavior PhysTag\n  Mass = 1\n End\n Behavior = TransportContain ContainTag\n  ContainMax = 2\n  Slots = 2\n  AllowInsideKindOf = INFANTRY\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\nObject TeamExitPassenger\n KindOf = SELECTABLE INFANTRY\n TransportSlotCount = 1\n Locomotor = SET_NORMAL BasicHumanLocomotor\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
         )])
         .unwrap();
     world.start_new_game(GameMode::SinglePlayer);
@@ -170,4 +170,55 @@ fn live_team_exit_all_only_changes_the_receiving_world_with_colliding_ids() {
         generals_main::game_logic::AIState::Exiting
     );
     assert!(gamelogic::scripting::take_host_script_garrison_enter_requests().is_empty());
+}
+
+#[test]
+fn live_team_exit_all_routes_airborne_transport_through_receiving_world() {
+    let _ = gamelogic::scripting::take_host_script_garrison_enter_requests();
+    let first_root = tempfile::tempdir().unwrap();
+    let second_root = tempfile::tempdir().unwrap();
+    let first_map = map_file(first_root.path());
+    let second_map = map_file(second_root.path());
+    let (mut first, _, _) = world(&first_map);
+    let (mut second, _, _) = world(&second_map);
+    let first_aircraft = first
+        .create_object_for_player("TeamExitAircraft", 1, glam::Vec3::new(50.0, 40.0, 50.0))
+        .unwrap();
+    let second_aircraft = second
+        .create_object_for_player("TeamExitAircraft", 1, glam::Vec3::new(50.0, 40.0, 50.0))
+        .unwrap();
+    assert_eq!(first_aircraft, second_aircraft);
+    first
+        .host_object_mut(first_aircraft)
+        .unwrap()
+        .status
+        .airborne_target = true;
+    second
+        .host_object_mut(second_aircraft)
+        .unwrap()
+        .status
+        .airborne_target = false;
+
+    first
+        .update_local_script_engine_with_owner(&exit_all_script())
+        .unwrap();
+
+    let owner = first.host_object(first_aircraft).unwrap();
+    assert!(owner.pending_evacuate_on_stop);
+    assert_eq!(owner.ai_state(), generals_main::game_logic::AIState::Moving);
+    assert_eq!(
+        owner.last_command_source,
+        1, // C++ CMD_FROM_SCRIPT and the Main residual's serialized source value.
+    );
+    assert!(
+        !second
+            .host_object(second_aircraft)
+            .unwrap()
+            .pending_evacuate_on_stop
+    );
+    assert!(!second.host_object(second_aircraft).unwrap().status.airborne_target);
+    assert_ne!(
+        second.host_object(second_aircraft).unwrap().ai_state(),
+        generals_main::game_logic::AIState::Moving
+    );
 }

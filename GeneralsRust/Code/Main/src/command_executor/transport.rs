@@ -862,6 +862,23 @@ impl<'a> CommandExecutor<'a> {
         destination: Vec3,
         and_exit: bool,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        self.execute_move_to_and_evacuate_with_source(
+            units,
+            destination,
+            and_exit,
+            crate::game_logic::HUNT_CMD_FROM_PLAYER,
+        )
+    }
+
+    /// Script/AI callers share the same receiving-world path but retain their
+    /// original command source for synchronous AI callbacks.
+    pub(crate) fn execute_move_to_and_evacuate_with_source(
+        &mut self,
+        units: &[ObjectId],
+        destination: Vec3,
+        and_exit: bool,
+        source: u32,
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         if !destination.x.is_finite() || !destination.y.is_finite() || !destination.z.is_finite() {
             return Ok(CommandResult::InvalidLocation);
         }
@@ -883,9 +900,16 @@ impl<'a> CommandExecutor<'a> {
             if !can {
                 continue;
             }
-            if self.game_logic.apply_locked_transport_command(unit_id) {
+            if source != crate::game_logic::HUNT_CMD_FROM_PLAYER {
                 if let Some(object) = self.game_logic.host_object_mut(unit_id) {
-                    object.last_command_source = crate::game_logic::HUNT_CMD_FROM_PLAYER;
+                    object.last_command_source = source;
+                }
+            }
+            if self.game_logic.apply_locked_transport_command(unit_id) {
+                if source == crate::game_logic::HUNT_CMD_FROM_PLAYER {
+                    if let Some(object) = self.game_logic.host_object_mut(unit_id) {
+                        object.last_command_source = source;
+                    }
                 }
                 any = true;
                 continue;
