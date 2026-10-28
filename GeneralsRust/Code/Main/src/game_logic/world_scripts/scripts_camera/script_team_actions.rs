@@ -324,11 +324,12 @@ impl GameLogic {
     /// C++ `ScriptActions::doNamedSetBoobytrapped` / `doTeamSetBoobytrapped`.
     /// Leftover queues [`gamelogic::scripting::HostScriptBoobytrapRequest`].
     pub(super) fn apply_host_boobytrap_script_requests(&mut self) {
-        self.apply_host_boobytrap_script_requests_with_effects(&mut Default::default())
+        self.apply_host_boobytrap_script_requests_with_effects(None, &mut Default::default())
     }
 
     pub(super) fn apply_host_boobytrap_script_requests_with_effects(
         &mut self,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use gamelogic::scripting::HostScriptBoobytrapRequest;
@@ -336,12 +337,30 @@ impl GameLogic {
             match req {
                 HostScriptBoobytrapRequest::Named { thing, unit } => {
                     if let Some(id) = self.host_object_id_by_script_name(&unit) {
-                        self.host_script_plant_boobytrap_with_effects(&thing, id, effects);
+                        self.host_script_plant_boobytrap_with_effects(
+                            &thing,
+                            id,
+                            interpreter,
+                            effects,
+                        );
                     }
                 }
                 HostScriptBoobytrapRequest::Team { thing, team } => {
-                    for id in self.host_script_team_member_ids(&team) {
-                        self.host_script_plant_boobytrap_with_effects(&thing, id, effects);
+                    let members = match self.resolve_owned_script_team(&team, None, None) {
+                        Ok(Some((_, members))) => members,
+                        Ok(None) => continue,
+                        Err(error) => {
+                            log::error!("Cannot resolve scripted boobytrap Team: {error}");
+                            continue;
+                        }
+                    };
+                    for member in members {
+                        self.host_script_plant_boobytrap_with_effects(
+                            &thing,
+                            ObjectId(member),
+                            interpreter,
+                            effects,
+                        );
                     }
                 }
             }
@@ -511,77 +530,22 @@ impl GameLogic {
     /// C++ `TheThingFactory->newObject(thing, obj->getTeam())` then
     /// `StickyBombUpdate::initStickyBomb(obj, NULL, &perimeterPos)`.
     pub(super) fn host_script_plant_boobytrap(&mut self, thing: &str, target_id: ObjectId) {
-        self.host_script_plant_boobytrap_with_effects(thing, target_id, &mut Default::default())
+        self.host_script_plant_boobytrap_with_effects(
+            thing,
+            target_id,
+            None,
+            &mut Default::default(),
+        )
     }
 
     pub(super) fn host_script_plant_boobytrap_with_effects(
         &mut self,
         thing: &str,
         target_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        use crate::game_logic::host_booby_trap::BOOBY_TRAP_OBJECT;
-
-        let thing = thing.trim();
-        if thing.is_empty() {
-            return;
-        }
-        let lower = thing.to_ascii_lowercase();
-        // C++ only inits when the new object has StickyBombUpdate.
-        if !(lower.contains("boobytrap")
-            || lower.contains("sticky")
-            || lower.contains("democharge")
-            || lower.contains("remotecharge"))
-        {
-            return;
-        }
-        let Some(obj) = self.objects.get(&target_id) else {
-            return;
-        };
-        if !obj.is_alive() || obj.status.destroyed {
-            return;
-        }
-        let team = obj.team;
-        let owner = obj.owner_player_id;
-        let geom = obj.selection_radius.max(8.0);
-        let p = obj.get_position();
-        let pos = glam::Vec3::new(p.x, p.y + 8.0, p.z);
-        let frame = self.frame;
-
-        let charge = if thing.eq_ignore_ascii_case(BOOBY_TRAP_OBJECT) {
-            self.spawn_booby_trap_special_object_with_owner_effects(
-                target_id,
-                team,
-                target_id,
-                super::super::StickyBombInitPosition::ScriptPerimeter,
-                None,
-                effects,
-            )
-        } else if self.templates.contains_key(thing) {
-            self.create_object_for_owner_or_team_with_effects(
-                thing, team, owner, pos, None, effects,
-            )
-        } else {
-            None
-        };
-        let Some(cid) = charge else {
-            return;
-        };
-
-        let is_booby_kind = thing.to_ascii_lowercase().contains("boobytrap");
-        if let Some(o) = self.objects.get_mut(&cid) {
-            o.booby_trap_special = true;
-            o.booby_trap_attached_to = Some(target_id);
-            o.producer_id = Some(target_id);
-        }
-        if is_booby_kind {
-            let _ = self
-                .booby_trap
-                .install(target_id, target_id, team, frame, geom, Some(cid));
-            if let Some(target) = self.objects.get_mut(&target_id) {
-                target.set_status_booby_trapped(true);
-            }
-        }
+        let _ = self.create_script_sticky_bomb_with_effects(thing, target_id, interpreter, effects);
     }
 
     /// C++ `ScriptActions::doGuardSupplyCenter` live drain.

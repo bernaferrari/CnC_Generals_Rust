@@ -6,7 +6,7 @@ use generals_main::save_load::snapshot::{
 };
 use glam::Vec3;
 
-const TRAP_SOURCE: &str = "Object BoobyTrap\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 37\n InitialHealth = 19\n End\n Behavior = StickyBombUpdate Sticky\n  OffsetZ = 17\n  GeometryBasedDamageWeapon = TrapBlast\n End\n UnitSpecificSounds\n  StickyBombCreated = StickyCreated\n End\nEnd\nObject BoobyTrapWithoutUpdate\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 1\n InitialHealth = 1\nEnd\nEnd\nObject TrapPlanter\n KindOf = INFANTRY SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\nObject TrapTarget\n KindOf = STRUCTURE IMMOBILE SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\nEnd\nEnd\nObject TrapMobileTarget\n KindOf = STRUCTURE SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\nEnd\nEnd\nObject TrapVictim\n KindOf = INFANTRY SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\n";
+const TRAP_SOURCE: &str = "Object BoobyTrap\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 37\n InitialHealth = 19\n End\n Behavior = StickyBombUpdate Sticky\n  OffsetZ = 17\n  GeometryBasedDamageWeapon = TrapBlast\n End\n UnitSpecificSounds\n  StickyBombCreated = StickyCreated\n End\nEnd\nObject AuthoredStickyCharge\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 31\n InitialHealth = 17\n End\n Behavior = StickyBombUpdate Sticky\n End\nEnd\nObject PlainAuthoredCharge\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 29\n InitialHealth = 13\nEnd\nEnd\nObject BoobyTrapWithoutUpdate\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 1\n InitialHealth = 1\nEnd\nEnd\nObject TrapPlanter\n KindOf = INFANTRY SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\nObject TrapTarget\n KindOf = STRUCTURE IMMOBILE SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\nEnd\nEnd\nObject TrapMobileTarget\n KindOf = STRUCTURE SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\nEnd\nEnd\nObject TrapVictim\n KindOf = INFANTRY SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\n";
 
 fn admit_trap_blast(game: &mut GameLogic) {
     let mut blast = gamelogic::weapon::WeaponTemplate::new("TrapBlast".into());
@@ -66,6 +66,161 @@ fn world_with_positions(
         .create_object_for_player("TrapTarget", 1, target_position)
         .expect("target");
     (game, planter_id, target_id)
+}
+
+fn scripted_team_boobytrap_engine(
+    template: &str,
+    team: &str,
+) -> gamelogic::scripting::engine::ScriptEngine {
+    use gamelogic::scripting::core::{
+        Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+        ScriptActionType, ScriptList,
+    };
+    use gamelogic::scripting::engine::ScriptEngine;
+
+    let mut action = ScriptAction::new(ScriptActionType::TeamSetBoobytrapped);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::ObjectType,
+            template.into(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_string(ParameterType::Team, team.into()))
+        .unwrap();
+    let mut condition = OrCondition::new();
+    condition.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    let mut script = Script::new();
+    script.script_name = "AuthoredStickyScript".into();
+    script.is_one_shot = true;
+    script.condition = Some(Box::new(condition));
+    script.action = Some(Box::new(action));
+    let mut scripts = ScriptList::new();
+    scripts.append_script(Box::new(script));
+    let engine = ScriptEngine::new().expect("script templates");
+    engine
+        .set_script_list_for_player(0, Some(Box::new(scripts)))
+        .expect("install test script");
+    engine
+}
+
+fn team_for_member(world: &GameLogic, target: ObjectId) -> (u32, String) {
+    stamp_player_team_chunks(world)
+        .expect("Team snapshot")
+        .teams
+        .unwrap()
+        .teams
+        .into_iter()
+        .find(|team| {
+            team.members
+                .as_ref()
+                .is_some_and(|members| members.contains(&target.0))
+        })
+        .map(|team| (team.team_id, team.team_name))
+        .expect("receiving Team instance")
+}
+
+fn team_id_for_members(world: &GameLogic, members: &[ObjectId]) -> u32 {
+    stamp_player_team_chunks(world)
+        .expect("Team snapshot")
+        .teams
+        .unwrap()
+        .teams
+        .into_iter()
+        .find(|team| {
+            team.members.as_ref().is_some_and(|team_members| {
+                members
+                    .iter()
+                    .all(|member| team_members.contains(&member.0))
+            })
+        })
+        .expect("members share a receiving Team")
+        .team_id
+}
+
+#[test]
+fn scripted_team_boobytrap_uses_authored_module_and_keeps_object_without_module() {
+    let (mut owner, _, owner_target) = world();
+    let (peer, _, peer_target) = world();
+    assert_eq!(
+        owner_target, peer_target,
+        "worlds reuse the target ObjectId"
+    );
+    let (owner_team, owner_team_name) = team_for_member(&owner, owner_target);
+    let (peer_team, peer_team_name) = team_for_member(&peer, peer_target);
+    assert_eq!(owner_team, peer_team, "worlds begin with the same Team ID");
+    assert_eq!(owner_team_name, peer_team_name);
+
+    owner
+        .update_local_script_engine_with_owner(&scripted_team_boobytrap_engine(
+            "AuthoredStickyCharge",
+            &owner_team_name,
+        ))
+        .expect("execute authored TeamSetBoobytrapped");
+
+    assert!(
+        owner
+            .host_object(owner_target)
+            .unwrap()
+            .has_object_status_bit("BOOBY_TRAPPED")
+    );
+    assert!(
+        !peer
+            .host_object(peer_target)
+            .unwrap()
+            .has_object_status_bit("BOOBY_TRAPPED")
+    );
+    let charge = owner
+        .host_objects()
+        .registered_values()
+        .find(|object| object.template_name == "AuthoredStickyCharge")
+        .expect("arbitrary authored template is created and initialized");
+    assert_eq!(charge.owner_player_id, Some(1));
+    assert_eq!(
+        team_id_for_members(&owner, &[owner_target, charge.id]),
+        owner_team
+    );
+    assert_eq!(charge.producer_id, Some(owner_target));
+    assert_eq!(charge.booby_trap_attached_to, Some(owner_target));
+    assert!(charge.booby_trap_special);
+    assert!(
+        peer.host_objects()
+            .registered_values()
+            .all(|object| object.template_name != "AuthoredStickyCharge")
+    );
+
+    let (mut no_module, _, no_module_target) = world();
+    let (_, no_module_team_name) = team_for_member(&no_module, no_module_target);
+    let count_before = no_module.host_objects().registered_len();
+    no_module
+        .update_local_script_engine_with_owner(&scripted_team_boobytrap_engine(
+            "PlainAuthoredCharge",
+            &no_module_team_name,
+        ))
+        .expect("execute no-module TeamSetBoobytrapped");
+    assert_eq!(
+        no_module.host_objects().registered_len(),
+        count_before + 1,
+        "C++ leaves the created object in the world when StickyBombUpdate is absent"
+    );
+    assert!(
+        !no_module
+            .host_object(no_module_target)
+            .unwrap()
+            .has_object_status_bit("BOOBY_TRAPPED")
+    );
+    let plain = no_module
+        .host_objects()
+        .registered_values()
+        .find(|object| object.template_name == "PlainAuthoredCharge")
+        .expect("template without StickyBombUpdate remains created");
+    assert!(!plain.booby_trap_special);
+    assert_eq!(plain.producer_id, None);
+    assert_eq!(plain.owner_player_id, Some(1));
+    assert_eq!(
+        team_id_for_members(&no_module, &[no_module_target, plain.id]),
+        team_id_for_members(&no_module, &[no_module_target])
+    );
 }
 
 fn move_into_same_named_team(game: &mut GameLogic, member: ObjectId) -> u32 {

@@ -109,7 +109,7 @@ impl GameLogic {
         self.apply_host_skirmish_approach_path_script_requests();
 
         self.apply_host_create_script_requests_with_effects(Some(interpreter), &mut ui);
-        self.apply_host_boobytrap_script_requests_with_effects(&mut ui);
+        self.apply_host_boobytrap_script_requests_with_effects(Some(interpreter), &mut ui);
         self.apply_host_unmanned_script_requests_with_effects(&mut ui);
         self.apply_host_radar_event_script_requests();
         self.apply_host_stealth_enabled_script_requests();
