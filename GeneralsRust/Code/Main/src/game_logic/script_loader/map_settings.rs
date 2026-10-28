@@ -663,6 +663,7 @@ fn parse_map_settings_from_loaded_chunky(
                 }
                 meta.default_starting_cash =
                     parse_map_default_starting_cash(&contents)?.or(meta.default_starting_cash);
+                meta.draw_sky_box = parse_map_draw_sky_box(&contents)?.or(meta.draw_sky_box);
                 // C++ GameLogic.cpp:2404-2408 loadMapINI — full block table
                 // via INI_LOAD_CREATE_OVERRIDES (CommandSet/CommandButton/Upgrade).
                 let (_, updated, roads, armor, upgrades) =
@@ -732,6 +733,7 @@ fn parse_map_settings_from_loaded_chunky(
                 &["Solo.ini", "solo.ini"],
                 admitted_object_sources,
             ) {
+                meta.draw_sky_box = parse_map_draw_sky_box(&contents)?.or(meta.draw_sky_box);
                 if let Some(rules) = meta.camera_shake_rules {
                     meta.camera_shake_rules = Some(
                         rules
@@ -904,6 +906,36 @@ fn parse_map_default_starting_cash(contents: &str) -> LoaderResult<Option<u32>> 
         Ok(cash)
     })
     .map_err(|err| GameLogicError::Configuration(format!("DefaultStartingCash: {err}")))
+}
+
+/// Read the optional GameData.DrawSkyBox initialization without updating the
+/// process-wide authored/runtime GameData registries. Map settings are an
+/// input to the receiving world's presentation owner.
+fn parse_map_draw_sky_box(contents: &str) -> LoaderResult<Option<bool>> {
+    let mut ini = INI::new();
+    ini.with_inline_source(contents, |ini| {
+        let mut game_data = false;
+        let mut draw_sky_box = None;
+        loop {
+            ini.read_line()?;
+            if ini.is_eof() {
+                break;
+            }
+            let Some(key) = ini.get_next_token_or_null() else {
+                continue;
+            };
+            if key.eq_ignore_ascii_case("GameData") {
+                game_data = true;
+            } else if key.eq_ignore_ascii_case("End") {
+                game_data = false;
+            } else if game_data && key.eq_ignore_ascii_case("DrawSkyBox") {
+                let value = ini.get_next_token()?;
+                draw_sky_box = Some(INI::parse_bool(&value)?);
+            }
+        }
+        Ok(draw_sky_box)
+    })
+    .map_err(|err| GameLogicError::Configuration(format!("DrawSkyBox: {err}")))
 }
 
 #[cfg(test)]

@@ -1375,6 +1375,13 @@ impl GameLogic {
         );
 
         self.map_loaded = true;
+        if let Some(draw_sky_box) = self
+            .last_map_settings
+            .as_ref()
+            .and_then(|settings| settings.draw_sky_box)
+        {
+            self.script_skybox_enabled = draw_sky_box;
+        }
         // C++ start-of-match residual: reveal FOW around loaded units/structures
         // immediately so build placement / presentation FOW are not stuck LBC_SHROUD
         // until the first logic tick. Same XZ→shroud mapping as update path.

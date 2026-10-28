@@ -114,6 +114,8 @@ pub struct MapMetadata {
     pub heightmap_path: Option<PathBuf>,
     /// Optional skybox texture names (order: front, back, left, right, top)
     pub skybox_textures: Option<[String; 5]>,
+    /// Optional Map.ini/Solo.ini GameData.DrawSkyBox initial draw gate.
+    pub(crate) draw_sky_box: Option<bool>,
     pub ambient_color: Option<[f32; 3]>,
     pub sun_color: Option<[f32; 3]>,
     pub sky_color: Option<[f32; 3]>,
