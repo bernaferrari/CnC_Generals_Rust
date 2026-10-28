@@ -187,13 +187,18 @@ impl<'a> AiWorldView<'a> {
         let Some(target_player) = self.get_player(target) else {
             return gamelogic::common::Relationship::Neutral;
         };
+        let Some(target_team_id) = self.world.host_default_team_id(target) else {
+            // Player::getRelationship(nullptr) returns NEUTRAL; selecting a
+            // same-named sibling would observe a different Team's override.
+            return gamelogic::common::Relationship::Neutral;
+        };
         let target_team = self.default_host_team_instance_name(Some(target), target_player.team);
-        GameLogic::object_relationship_from_owners(
+        GameLogic::object_relationship_from_owner_to_team_identity(
             &self.world.team_factory,
             self.get_players(),
             Some(source),
-            "",
             Some(target),
+            Some(target_team_id),
             &target_team,
         )
     }

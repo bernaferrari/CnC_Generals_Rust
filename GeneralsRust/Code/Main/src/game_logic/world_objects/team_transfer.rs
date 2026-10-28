@@ -65,7 +65,7 @@ impl GameLogic {
             identity: instance.get_id(),
         }))
     }
-    pub(in crate::game_logic) fn host_default_team_id(&self, player_id: u32) -> Option<u32> {
+    pub(crate) fn host_default_team_id(&self, player_id: u32) -> Option<u32> {
         let player = self.players.get(&player_id)?;
         let identity = player.default_team_id?;
         let expected_name = self.default_host_team_instance_name(Some(player_id), player.team);

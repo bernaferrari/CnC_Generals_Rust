@@ -216,6 +216,95 @@ fn same_named_team_member(
     (member, team_id)
 }
 
+fn duplicate_default_team(world: &mut GameLogic, player: u32) -> (u32, u32) {
+    use generals_main::save_load::snapshot::{
+        apply_pending_player_team_chunks, stamp_player_team_chunks,
+    };
+
+    let mut chunks = stamp_player_team_chunks(world).unwrap();
+    let player = chunks
+        .players
+        .as_mut()
+        .unwrap()
+        .players
+        .iter_mut()
+        .find(|saved| saved.player_id == player)
+        .unwrap();
+    let original_id = player.host_default_team_id.unwrap();
+    let teams = chunks.teams.as_mut().unwrap();
+    let mut sibling = teams
+        .teams
+        .iter()
+        .find(|team| team.team_id == original_id)
+        .unwrap()
+        .clone();
+    let sibling_id = teams.unique_team_id;
+    teams.unique_team_id += 1;
+    sibling.team_id = sibling_id;
+    sibling.members = Some(Vec::new());
+    sibling.team_relations.clear();
+    sibling.player_relations.clear();
+    teams.teams.push(sibling);
+    player.host_default_team_id = Some(sibling_id);
+    apply_pending_player_team_chunks(world, &chunks).unwrap();
+    (original_id, sibling_id)
+}
+
+#[test]
+fn strategic_ai_uses_each_players_exact_default_team() {
+    use generals_main::ai::{AIDifficulty, AIPlayer};
+    use generals_main::game_logic::Team;
+
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut owner, _, _) = world(&map);
+    let (mut peer, _, _) = world(&map);
+    let (original, selected) = duplicate_default_team(&mut owner, 2);
+    assert_eq!((original, selected), duplicate_default_team(&mut peer, 2));
+    for (game, selected_relation, other_relation) in [
+        (&mut owner, Relationship::Enemies, Relationship::Allies),
+        (&mut peer, Relationship::Allies, Relationship::Enemies),
+    ] {
+        let player = game.get_player_mut(1).unwrap();
+        player.set_team_relationship_override(original, other_relation);
+        player.set_team_relationship_override(selected, selected_relation);
+    }
+    let make_ai = || {
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.enemy_check_time = -5.0;
+        ai.next_building_time = f32::MAX;
+        ai.next_team_time = f32::MAX;
+        ai.next_team_queue_time = f32::MAX;
+        ai
+    };
+    let mut first_ai = make_ai();
+    let mut peer_ai = make_ai();
+    peer_ai.update(&mut peer, 0.0);
+    first_ai.update(&mut owner, 0.0);
+    assert_eq!(first_ai.enemy_player_id, Some(2));
+    assert_eq!(peer_ai.enemy_player_id, None);
+
+    // A missing default Team is not permission to pick a same-named instance.
+    // Player::getRelationship(nullptr) is NEUTRAL in the original.
+    let (mut no_default, _, _) = world(&map);
+    let mut chunks =
+        generals_main::save_load::snapshot::stamp_player_team_chunks(&no_default).unwrap();
+    chunks
+        .players
+        .as_mut()
+        .unwrap()
+        .players
+        .iter_mut()
+        .find(|saved| saved.player_id == 2)
+        .unwrap()
+        .host_default_team_id = None;
+    generals_main::save_load::snapshot::apply_pending_player_team_chunks(&mut no_default, &chunks)
+        .unwrap();
+    let mut no_default_ai = make_ai();
+    no_default_ai.update(&mut no_default, 0.0);
+    assert_eq!(no_default_ai.enemy_player_id, None);
+}
+
 fn team_id_for_member(world: &GameLogic, member: ObjectId) -> u32 {
     use generals_main::save_load::snapshot::stamp_player_team_chunks;
 
