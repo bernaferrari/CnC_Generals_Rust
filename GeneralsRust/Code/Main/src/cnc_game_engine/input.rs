@@ -3064,6 +3064,25 @@ impl CnCGameEngine {
                     selection_count: self.ui_selected_ids(id).len(),
                 })
         });
+        let local_player_side = self.game_logic.local_player_id().and_then(|id| {
+            let player = self.game_logic.get_players().get(&id)?;
+            let side = match self.game_logic.player_template_identity(id) {
+                Some(identity) => identity
+                    .resolve_in(self.game_logic.player_template_definitions.as_ref()?)?
+                    .get_side(),
+                None => match player.team {
+                    crate::game_logic::Team::USA => "America",
+                    crate::game_logic::Team::China => "China",
+                    crate::game_logic::Team::GLA => "GLA",
+                    crate::game_logic::Team::Neutral => "Observer",
+                },
+            };
+            Some(if side.is_empty() {
+                "Observer".to_string()
+            } else {
+                side.to_string()
+            })
+        });
         let mouse = self
             .game_client
             .input_mouse()
@@ -3080,6 +3099,7 @@ impl CnCGameEngine {
                 GameMode::Lan | GameMode::Internet | GameMode::Multiplayer
             ),
             local_player,
+            local_player_side,
             mouse,
         }
     }

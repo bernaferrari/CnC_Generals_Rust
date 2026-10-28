@@ -166,7 +166,7 @@ impl ControlBarInputContext<'_> {
     ) -> R {
         let mut effects = crate::gui::game_window::WindowEventEffects {
             cursor_mouse: self.cursor_mouse.as_deref_mut(),
-            control_bar_observation: self.control_bar_observation,
+            control_bar_observation: self.control_bar_observation.clone(),
             menu_audio: self
                 .menu_audio
                 .as_mut()

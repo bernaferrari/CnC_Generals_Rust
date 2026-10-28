@@ -1338,7 +1338,7 @@ impl CnCGameEngine {
                               request,
                               messages: &mut Vec<game_engine::common::message_stream::GameMessage>| {
                 let mut context = game_client::gui::window_manager::ControlBarInputContext {
-            control_bar_observation:Some(control_bar_observation),
+            control_bar_observation:Some(control_bar_observation.clone()),
             diplomacy_world: diplomacy_world.as_ref(),
             menu_audio: Some(menu_audio),
             input_provenance: game_client::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,

@@ -57,10 +57,12 @@ fn receiving_callback_observation(
                     selection_count: selection_count(),
                 })
         });
+    let local_player_side = local_player.as_ref().map(|_| local_control_bar_player_side());
     Some(ControlBarCallbackObservation {
         game_ending: TheScriptEngine::is_game_ending(),
         multiplayer: TheGameLogic::is_in_multiplayer_game(),
         local_player,
+        local_player_side,
         mouse: Some(ControlBarMouseObservation {
             middle_held: effects
                 .cursor_mouse()
@@ -849,19 +851,24 @@ impl ControlBarCallbacks {
         }
     }
 
-    /// Toggle control bar visibility
-    pub fn toggle_control_bar(
+    fn toggle_control_bar_with_receiving_side(
         &mut self,
         immediate: bool,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
         ui: &mut crate::core::subsystems::InGameUISubsystem,
+        local_player_side: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // C++ ToggleControlBar: toggleReplayControls() then flip the bar.
         toggle_replay_controls(receiving_manager);
         if self.state.visible {
             self.hide_control_bar_window(immediate, receiving_manager, ui)?;
         } else {
-            self.show_control_bar_window(immediate, receiving_manager, ui)?;
+            self.show_control_bar_window(
+                immediate,
+                receiving_manager,
+                ui,
+                local_player_side,
+            )?;
         }
         Ok(())
     }
@@ -878,15 +885,21 @@ impl ControlBarCallbacks {
         self.hide_control_bar_window(immediate, receiving_manager, ui)
     }
 
-    pub fn show_control_bar(
+    fn show_control_bar_with_receiving_side(
         &mut self,
         immediate: bool,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
         ui: &mut crate::core::subsystems::InGameUISubsystem,
+        local_player_side: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // C++ ShowControlBar: showReplayControls() then switch DEFAULT + winHide(FALSE).
         show_replay_controls(receiving_manager);
-        self.show_control_bar_window(immediate, receiving_manager, ui)
+        self.show_control_bar_window(
+            immediate,
+            receiving_manager,
+            ui,
+            local_player_side,
+        )
     }
 
     fn hide_control_bar_window(
@@ -900,7 +913,7 @@ impl ControlBarCallbacks {
         }
         self.state.visible = false;
         TheControlBar::hide_special_power_shortcut(ui);
-        self.apply_visibility_change(immediate, false, receiving_manager, ui)?;
+        self.apply_visibility_change(immediate, false, receiving_manager, ui, None)?;
         Ok(())
     }
 
@@ -909,6 +922,7 @@ impl ControlBarCallbacks {
         immediate: bool,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
         ui: &mut crate::core::subsystems::InGameUISubsystem,
+        local_player_side: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // C++ ShowControlBar always switchControlBarStage(DEFAULT) + winHide(FALSE)
         // even when already shown. Do not early-return on state.visible.
@@ -916,7 +930,7 @@ impl ControlBarCallbacks {
             self.state.visible = true;
             TheControlBar::show_special_power_shortcut(ui);
         }
-        self.apply_visibility_change(immediate, true, receiving_manager, ui)?;
+        self.apply_visibility_change(immediate, true, receiving_manager, ui, local_player_side)?;
         Ok(())
     }
 
@@ -925,6 +939,7 @@ impl ControlBarCallbacks {
         &self,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
         ui: &mut crate::core::subsystems::InGameUISubsystem,
+        local_player_side: Option<&str>,
     ) {
         let parent_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ControlBarParent") as i32;
         let parent_live = (|manager: &mut crate::gui::window_manager::WindowManager| {
@@ -933,8 +948,9 @@ impl ControlBarCallbacks {
         if !parent_live {
             return;
         }
-        let side = local_control_bar_player_side();
-        TheControlBar::set_control_bar_scheme_by_player(&side, ui);
+        if let Some(side) = local_player_side {
+            TheControlBar::set_control_bar_scheme_by_player(side, ui);
+        }
         ControlBar::request_switch_control_bar_stage(ControlBarStage::Default, ui);
     }
 
@@ -949,6 +965,7 @@ impl ControlBarCallbacks {
         show: bool,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
         ui: &mut crate::core::subsystems::InGameUISubsystem,
+        local_player_side: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let control_bar_id =
             NameKeyGenerator::name_to_key("ControlBar.wnd:ControlBarParent") as i32;
@@ -997,7 +1014,11 @@ impl ControlBarCallbacks {
             if parent_live {
                 // C++ ShowControlBar: scheme is applied at InGame start; stage DEFAULT
                 // when ControlBarParent exists (ControlBarCallback.cpp:489).
-                self.apply_show_control_bar_scheme_and_default_stage(receiving_manager, ui);
+                self.apply_show_control_bar_scheme_and_default_stage(
+                    receiving_manager,
+                    ui,
+                    local_player_side,
+                );
             }
             TheControlBar::animate_special_power_shortcut(true, ui);
         } else {
@@ -1435,8 +1456,18 @@ pub fn toggle_control_bar(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let observation = receiving_callback_observation(effects);
+    let local_player_side = observation
+        .as_ref()
+        .and_then(|facts| facts.local_player_side.as_deref())
+        .map(|side| if side.is_empty() { "Observer" } else { side });
     let (callbacks, ui) = effects.control_bar_callbacks_and_ui_mut();
-    callbacks.toggle_control_bar(immediate, receiving_manager, ui)
+    callbacks.toggle_control_bar_with_receiving_side(
+        immediate,
+        receiving_manager,
+        ui,
+        local_player_side,
+    )
 }
 pub fn hide_control_bar(
     immediate: bool,
@@ -1451,8 +1482,18 @@ pub fn show_control_bar(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let observation = receiving_callback_observation(effects);
+    let local_player_side = observation
+        .as_ref()
+        .and_then(|facts| facts.local_player_side.as_deref())
+        .map(|side| if side.is_empty() { "Observer" } else { side });
     let (callbacks, ui) = effects.control_bar_callbacks_and_ui_mut();
-    callbacks.show_control_bar(immediate, receiving_manager, ui)
+    callbacks.show_control_bar_with_receiving_side(
+        immediate,
+        receiving_manager,
+        ui,
+        local_player_side,
+    )
 }
 pub fn is_control_bar_visible(effects: &crate::gui::game_window::WindowEventEffects<'_>) -> bool {
     effects.control_bar_callbacks().is_visible()
@@ -1473,6 +1514,7 @@ mod tests {
                 active: true,
                 selection_count: 1,
             }),
+            local_player_side: Some("America".to_string()),
             mouse: Some(ControlBarMouseObservation {
                 middle_held,
                 alternate_mouse,
@@ -1516,25 +1558,19 @@ mod tests {
 
     #[test]
     fn test_control_bar_callbacks() {
-        let mut callbacks = ControlBarCallbacks::new();
-
-        // Test initial state
-        assert!(callbacks.is_visible());
-
-        // Test hiding
-        assert!(callbacks.hide_control_bar(true).is_ok());
-        assert!(!callbacks.is_visible());
-
-        // Test showing
-        assert!(callbacks.show_control_bar(true).is_ok());
-        assert!(callbacks.is_visible());
-
-        // Test toggling
-        assert!(callbacks.toggle_control_bar(true).is_ok());
-        assert!(!callbacks.is_visible());
-
-        assert!(callbacks.toggle_control_bar(true).is_ok());
-        assert!(callbacks.is_visible());
+        with_receiving_observation(test_observation(false, false, false), |effects| {
+            effects.with_manager(|manager, effects| {
+                assert!(is_control_bar_visible(effects));
+                assert!(hide_control_bar(true, manager, effects).is_ok());
+                assert!(!is_control_bar_visible(effects));
+                assert!(show_control_bar(true, manager, effects).is_ok());
+                assert!(is_control_bar_visible(effects));
+                assert!(toggle_control_bar(true, manager, effects).is_ok());
+                assert!(!is_control_bar_visible(effects));
+                assert!(toggle_control_bar(true, manager, effects).is_ok());
+                assert!(is_control_bar_visible(effects));
+            });
+        });
     }
 
     #[test]

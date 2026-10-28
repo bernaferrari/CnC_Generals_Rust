@@ -118,7 +118,7 @@ impl<'effects> WindowEventEffects<'effects> {
     pub fn control_bar_callback_observation(
         &self,
     ) -> Option<crate::gui::callbacks::control_bar_observation::ControlBarCallbackObservation> {
-        self.control_bar_observation
+        self.control_bar_observation.clone()
     }
     pub(crate) fn challenge(&self) -> &crate::gui::callbacks::challenge_menu::ChallengeMenuState {
         self.menus
@@ -728,7 +728,7 @@ impl<'effects> WindowEventEffects<'effects> {
     ) -> R {
         let mut local = WindowEventEffects {
             cursor_mouse: self.cursor_mouse.as_deref_mut(),
-            control_bar_observation: self.control_bar_observation,
+            control_bar_observation: self.control_bar_observation.clone(),
             menu_audio: Some(audio),
             payloads: std::mem::take(&mut self.payloads),
             pending_window_callbacks: std::mem::take(&mut self.pending_window_callbacks),
@@ -771,7 +771,7 @@ impl<'effects> WindowEventEffects<'effects> {
     ) -> R {
         let mut local = WindowEventEffects {
             cursor_mouse: self.cursor_mouse.as_deref_mut(),
-            control_bar_observation: self.control_bar_observation,
+            control_bar_observation: self.control_bar_observation.clone(),
             menu_audio: self
                 .menu_audio
                 .as_mut()
@@ -819,7 +819,7 @@ impl<'effects> WindowEventEffects<'effects> {
     ) -> R {
         let mut local = WindowEventEffects {
             cursor_mouse: self.cursor_mouse.as_deref_mut(),
-            control_bar_observation: self.control_bar_observation,
+            control_bar_observation: self.control_bar_observation.clone(),
             menu_audio: self
                 .menu_audio
                 .as_mut()

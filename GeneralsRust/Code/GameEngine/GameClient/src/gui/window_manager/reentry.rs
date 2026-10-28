@@ -517,7 +517,7 @@ pub fn dispatch_translated_window_input_for_owner(
     {
         let mut effects = crate::gui::game_window::WindowEventEffects {
             cursor_mouse: context.cursor_mouse.as_deref_mut(),
-            control_bar_observation: context.control_bar_observation,
+            control_bar_observation: context.control_bar_observation.clone(),
             menu_audio: context
                 .menu_audio
                 .as_mut()
