@@ -1777,10 +1777,28 @@ impl AssetManager {
 
     /// Extract raw file data from archives
     pub async fn extract_file(&mut self, filename: &str) -> Result<Vec<u8>> {
+        self.extract_file_sync(filename)
+    }
+
+    pub fn extract_file_sync(&mut self, filename: &str) -> Result<Vec<u8>> {
         if !self.initialized {
             return Err(anyhow!("AssetManager not initialized"));
         }
-        self.archive_system.open_file(filename).await
+        self.archive_system.open_file_sync(filename)
+    }
+
+    /// Read startup definitions through this application's mounted archive.
+    /// The archive reads synchronously, so no asset lock crosses an await.
+    pub(crate) fn read_ordered_ini_sources<'a>(
+        &mut self,
+        paths: &[&'a str],
+        read_loose: impl FnMut(&str) -> Option<String>,
+    ) -> std::result::Result<Vec<(&'a str, String)>, String> {
+        if !self.initialized {
+            return Err("asset manager not initialized".into());
+        }
+        self.archive_system
+            .read_ordered_ini_sources(paths, read_loose)
     }
 
     /// Strict receiving definition admission preserves missing/read-error identity.
@@ -2407,7 +2425,9 @@ static TEXTURE_PRIME_QUEUE: OnceLock<Sender<String>> = OnceLock::new();
 
 /// Initialize the global asset manager
 pub async fn init_asset_manager(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
-    init_asset_manager_with_sources(device, queue, |_| Ok(())).await
+    init_asset_manager_with_sources(device, queue, |_| Ok(()))
+        .await
+        .map(|_| ())
 }
 
 /// Transfer immutable CPU inputs while initialization still exclusively owns
@@ -2416,7 +2436,7 @@ pub(crate) async fn init_asset_manager_with_sources<T>(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     capture: impl FnOnce(&mut AssetManager) -> Result<T>,
-) -> Result<T> {
+) -> Result<(T, Arc<Mutex<AssetManager>>)> {
     let manager_create_start = SystemTime::now();
     info!("📂 Creating asset manager and loading BIG archives...");
 
@@ -2438,8 +2458,9 @@ pub(crate) async fn init_asset_manager_with_sources<T>(
 
     let sources = capture(&mut manager)?;
 
+    let application_assets = Arc::new(Mutex::new(manager));
     ASSET_MANAGER
-        .set(Arc::new(Mutex::new(manager)))
+        .set(Arc::clone(&application_assets))
         .map_err(|_| anyhow!("Asset manager already initialized"))?;
 
     begin_background_music_startup();
@@ -2448,7 +2469,7 @@ pub(crate) async fn init_asset_manager_with_sources<T>(
         "Global asset manager initialized (Total: {:.2}s)",
         (manager_create_duration + wgpu_init_duration).as_secs_f32()
     );
-    Ok(sources)
+    Ok((sources, application_assets))
 }
 
 fn begin_background_music_startup() {

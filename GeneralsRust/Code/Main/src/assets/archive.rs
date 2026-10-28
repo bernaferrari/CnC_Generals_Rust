@@ -359,6 +359,33 @@ impl ArchiveFileSystem {
         Ok(data)
     }
 
+    /// Read ordered INI sources from this archive owner. The application may
+    /// supply an earlier loose-file override; an absent archive entry is
+    /// skipped, while a present entry containing invalid UTF-8 is an error.
+    pub fn read_ordered_ini_sources<'a>(
+        &mut self,
+        paths: &[&'a str],
+        mut read_loose: impl FnMut(&str) -> Option<String>,
+    ) -> std::result::Result<Vec<(&'a str, String)>, String> {
+        let mut sources = Vec::new();
+        for &path in paths {
+            let text = if let Some(text) = read_loose(path) {
+                Some(text)
+            } else {
+                match self.open_file_sync(path) {
+                    Ok(bytes) => {
+                        Some(String::from_utf8(bytes).map_err(|error| format!("{path}: {error}"))?)
+                    }
+                    Err(_) => None,
+                }
+            };
+            if let Some(text) = text {
+                sources.push((path, text));
+            }
+        }
+        Ok(sources)
+    }
+
     /// Definition admission distinguishes true absence from a selected source
     /// that cannot be read. Never substitute BIG bytes after a local read error.
     pub(crate) fn read_optional_definition_source(

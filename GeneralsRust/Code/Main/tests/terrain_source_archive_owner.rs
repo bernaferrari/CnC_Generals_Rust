@@ -117,3 +117,83 @@ fn terrain_source_tiles_read_from_the_receiving_archive_mount() {
     let first_after_interleave = terrain_color(&mut first_mount, &class_name);
     assert_eq!(first_after_interleave, first);
 }
+
+#[test]
+fn startup_ini_reads_ordered_sources_from_the_receiving_archive() {
+    use game_engine::common::ini::ini_game_data::ProductionEnergyRules;
+
+    const DEFAULT: &str = "Data/INI/Default/GameData.ini";
+    const OVERRIDE: &str = "Data/INI/GameData.ini";
+    const INVALID: &str = "Data/INI/InvalidOwnerTest.ini";
+    let first_dir = tempfile::tempdir().unwrap();
+    let second_dir = tempfile::tempdir().unwrap();
+
+    async fn mounted(
+        directory: &std::path::Path,
+        default: i32,
+        override_value: i32,
+    ) -> ArchiveFileSystem {
+        let mut archive = ArchiveFileSystem::new();
+        archive.set_local_search_roots(Vec::new());
+        for (name, path, data) in [
+            (
+                "default.big",
+                DEFAULT,
+                format!("GameData\n MaxLineBuildObjects = {default}\nEnd\n").into_bytes(),
+            ),
+            (
+                "override.big",
+                OVERRIDE,
+                format!("GameData\n MaxLineBuildObjects = {override_value}\nEnd\n").into_bytes(),
+            ),
+            ("invalid.big", INVALID, vec![0xff]),
+        ] {
+            let big = directory.join(name);
+            write_single_file_big(&big, path, &data);
+            archive.load_big_file(big).await.unwrap();
+        }
+        archive
+    }
+
+    fn admitted_limit(archive: &mut ArchiveFileSystem) -> i32 {
+        let sources = archive
+            .read_ordered_ini_sources(&[DEFAULT, "Data/INI/Missing.ini", OVERRIDE], |_| None)
+            .unwrap();
+        assert_eq!(
+            sources.iter().map(|(path, _)| *path).collect::<Vec<_>>(),
+            [DEFAULT, OVERRIDE]
+        );
+        sources
+            .into_iter()
+            .fold(ProductionEnergyRules::default(), |rules, (_, text)| {
+                rules.overlay_ini_text(&text).unwrap()
+            })
+            .max_line_build_objects
+    }
+
+    let mut first = pollster::block_on(mounted(first_dir.path(), 11, 19));
+    let mut second = pollster::block_on(mounted(second_dir.path(), 23, 37));
+    assert_eq!(admitted_limit(&mut first), 19);
+    assert_eq!(admitted_limit(&mut second), 37);
+    assert_eq!(admitted_limit(&mut first), 19);
+    let loose = first
+        .read_ordered_ini_sources(&[OVERRIDE], |_| {
+            Some("GameData\n MaxLineBuildObjects = 59\nEnd\n".into())
+        })
+        .unwrap();
+    assert_eq!(
+        ProductionEnergyRules::default()
+            .overlay_ini_text(&loose[0].1)
+            .unwrap()
+            .max_line_build_objects,
+        59
+    );
+    assert!(
+        first
+            .read_ordered_ini_sources(&[INVALID], |_| None)
+            .unwrap_err()
+            .starts_with(INVALID)
+    );
+    drop(second);
+    assert_eq!(admitted_limit(&mut first), 19);
+}

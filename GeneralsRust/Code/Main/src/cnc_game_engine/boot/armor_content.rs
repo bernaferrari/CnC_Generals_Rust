@@ -32,12 +32,13 @@ where
     Ok(Arc::new(gamelogic::object::armor::ArmorDefinitions::new()))
 }
 impl CnCGameEngine {
-    pub(super) async fn load_application_armor_definitions()
-    -> Result<Arc<gamelogic::object::armor::ArmorDefinitions>, String> {
+    pub(super) async fn load_application_armor_definitions(
+        assets: &StartupAssets,
+    ) -> Result<Arc<gamelogic::object::armor::ArmorDefinitions>, String> {
         select_armor_source(|path| async move {
             // The existing loose/archive resolver is unchanged. A singleton
             // request ensures its eager collection cannot touch the next path.
-            let texts = Self::load_startup_ini_texts(&[path]).await?;
+            let texts = Self::load_startup_ini_texts(&[path], Some(assets)).await?;
             Ok(texts.into_iter().next().map(|(_, text)| text))
         })
         .await

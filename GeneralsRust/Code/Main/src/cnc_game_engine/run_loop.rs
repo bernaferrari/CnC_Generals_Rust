@@ -567,7 +567,7 @@ pub async fn run_cnc_game(
                             let startup_window = created_window.clone();
                             let startup_args = cmd_args.clone();
                             *engine_init_future = Some(Box::pin(async move {
-                                let startup_sources = CnCGameEngine::load_startup_game_data_texts()
+                                let startup_sources = CnCGameEngine::load_startup_game_data_texts(None)
                                     .await.map_err(anyhow::Error::msg)?;
                                 let paths = crate::config::startup_paths::StartupUserData::admit(
                                     &startup_sources.iter().map(|(_, text)| text.clone()).collect::<Vec<_>>(),

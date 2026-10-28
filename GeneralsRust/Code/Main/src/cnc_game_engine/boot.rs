@@ -1,14 +1,14 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
+type StartupAssets = Mutex<crate::assets::manager::AssetManager>;
 impl CnCGameEngine {
-    async fn load_map_victory_rule_sources() -> Result<Vec<(&'static str, String)>, String> {
-        const SOURCES: [&str; 2] = [
-            "Data/INI/MapVictoryRules.ini",
-            "INI/MapVictoryRules.ini",
-        ];
+    async fn load_map_victory_rule_sources(
+        assets: &StartupAssets,
+    ) -> Result<Vec<(&'static str, String)>, String> {
+        const SOURCES: [&str; 2] = ["Data/INI/MapVictoryRules.ini", "INI/MapVictoryRules.ini"];
         let mut ordered = Vec::new();
         for path in SOURCES {
-            match Self::load_startup_ini_texts(&[path]).await {
+            match Self::load_startup_ini_texts(&[path], Some(assets)).await {
                 Ok(mut sources) => ordered.append(&mut sources),
                 // The previous loose-file loader warned and continued when an
                 // individual rule file could not be read or decoded. Keep that
@@ -27,12 +27,14 @@ impl CnCGameEngine {
     pub(super) async fn load_promotion_definitions(
         game_data: &[(&str, String)],
         image_exists: &dyn Fn(&str) -> bool,
+        assets: &StartupAssets,
     ) -> Result<crate::game_logic::promotion_definitions::PromotionDefinitions, String> {
         // Original GameAudio::init loads MiscAudio.ini; Anim2DCollection::init
         // loads Animation2D.ini. No runtime global collection is consulted.
-        let misc = Self::load_startup_ini_texts(&["Data/INI/MiscAudio.ini"]).await?;
+        let misc = Self::load_startup_ini_texts(&["Data/INI/MiscAudio.ini"], Some(assets)).await?;
         #[cfg(feature = "game_client")]
-        let animations = Self::load_startup_ini_texts(&["Data/INI/Animation2D.ini"]).await?;
+        let animations =
+            Self::load_startup_ini_texts(&["Data/INI/Animation2D.ini"], Some(assets)).await?;
         #[cfg(not(feature = "game_client"))]
         let animations = Vec::new(); // No native Anim2D collection in this configuration.
         crate::game_logic::promotion_definitions::PromotionDefinitions::from_ordered_sources(
@@ -44,44 +46,53 @@ impl CnCGameEngine {
     }
     /// One application-boundary loose-file/archive resolver; constructors
     /// consume private parsed content and never select ambient game data.
-    pub(super) async fn load_startup_game_data_texts() -> Result<Vec<(&'static str, String)>, String>
-    {
+    pub(super) async fn load_startup_game_data_texts(
+        assets: Option<&StartupAssets>,
+    ) -> Result<Vec<(&'static str, String)>, String> {
         let mut paths = vec!["Data/INI/Default/GameData.ini", "Data/INI/GameData.ini"];
         #[cfg(any(debug_assertions, feature = "internal"))]
         paths.push("Data/INI/GameDataDebug.ini");
-        Self::load_startup_ini_texts(&paths).await
+        Self::load_startup_ini_texts(&paths, assets).await
     }
-    pub(super) async fn load_production_energy_baseline()
-    -> Result<game_engine::common::ini::ini_game_data::ProductionEnergyRules, String> {
+    pub(super) async fn load_production_energy_baseline(
+        assets: &StartupAssets,
+    ) -> Result<game_engine::common::ini::ini_game_data::ProductionEnergyRules, String> {
         let mut rules = game_engine::common::ini::ini_game_data::ProductionEnergyRules::default();
-        for (path, text) in Self::load_startup_game_data_texts().await? {
+        for (path, text) in Self::load_startup_game_data_texts(Some(assets)).await? {
             rules = rules
                 .overlay_ini_text(&text)
                 .map_err(|err| format!("{path}: {err}"))?;
         }
         Ok(rules)
     }
-    pub(super) async fn load_application_terrain_definitions()
-    -> Result<Arc<game_engine::common::ini::ini_terrain::TerrainTypes>, String> {
-        let sources =
-            Self::load_startup_ini_texts(&["Data/INI/Default/Terrain.ini", "Data/INI/Terrain.ini"])
-                .await?;
+    pub(super) async fn load_application_terrain_definitions(
+        assets: &StartupAssets,
+    ) -> Result<Arc<game_engine::common::ini::ini_terrain::TerrainTypes>, String> {
+        let sources = Self::load_startup_ini_texts(
+            &["Data/INI/Default/Terrain.ini", "Data/INI/Terrain.ini"],
+            Some(assets),
+        )
+        .await?;
         crate::game_logic::terrain_definitions::parse_application_terrain_sources(&sources)
     }
 
-    pub(super) async fn load_application_road_definitions()
-    -> Result<game_engine::common::ini::ini_road::TerrainRoadCollection, String> {
-        let sources =
-            Self::load_startup_ini_texts(&["Data/INI/Default/Roads.ini", "Data/INI/Roads.ini"])
-                .await?;
+    pub(super) async fn load_application_road_definitions(
+        assets: &StartupAssets,
+    ) -> Result<game_engine::common::ini::ini_road::TerrainRoadCollection, String> {
+        let sources = Self::load_startup_ini_texts(
+            &["Data/INI/Default/Roads.ini", "Data/INI/Roads.ini"],
+            Some(assets),
+        )
+        .await?;
         crate::game_logic::terrain_definitions::parse_application_road_sources(&sources)
     }
 
-    pub(super) async fn load_body_damage_baseline()
-    -> Result<crate::game_logic::body_damage_rules::BodyDamagePolicy, String> {
+    pub(super) async fn load_body_damage_baseline(
+        assets: &StartupAssets,
+    ) -> Result<crate::game_logic::body_damage_rules::BodyDamagePolicy, String> {
         use crate::game_logic::body_damage_rules::{BodyDamagePolicy, BodyDamageRules};
         let mut rules = BodyDamageRules::default();
-        for (path, text) in Self::load_startup_game_data_texts().await? {
+        for (path, text) in Self::load_startup_game_data_texts(Some(assets)).await? {
             rules = rules
                 .overlay_ini_text(&text)
                 .map_err(|error| format!("{path}: {error}"))?;
@@ -90,16 +101,19 @@ impl CnCGameEngine {
     }
     pub(super) async fn load_lighting_rules_baseline(
         raw_args: &[String],
+        assets: &StartupAssets,
     ) -> Result<game_engine::common::ini::ini_game_data::LightingContentRules, String> {
         let mut rules = game_engine::common::ini::ini_game_data::LightingContentRules::default();
-        for (path, text) in Self::load_startup_game_data_texts().await? {
+        for (path, text) in Self::load_startup_game_data_texts(Some(assets)).await? {
             rules = rules
                 .overlay_ini_text(&text)
                 .map_err(|error| format!("{path}: {error}"))?;
         }
-        for (path, text) in
-            Self::load_startup_ini_texts(&["Data/INI/Default/Water.ini", "Data/INI/Water.ini"])
-                .await?
+        for (path, text) in Self::load_startup_ini_texts(
+            &["Data/INI/Default/Water.ini", "Data/INI/Water.ini"],
+            Some(assets),
+        )
+        .await?
         {
             rules.water_definitions = rules
                 .water_definitions
@@ -128,13 +142,14 @@ impl CnCGameEngine {
         Ok(rules)
     }
 
-    pub(super) async fn load_physics_rules_baseline()
-    -> Result<game_engine::common::ini::ini_game_data::PhysicsContentRules, String> {
+    pub(super) async fn load_physics_rules_baseline(
+        assets: &StartupAssets,
+    ) -> Result<game_engine::common::ini::ini_game_data::PhysicsContentRules, String> {
         let mut rules =
             game_engine::common::ini::ini_game_data::PhysicsContentRules::from_global_data(
                 &game_engine::common::global_data::GlobalData::default(),
             );
-        for (path, text) in Self::load_startup_game_data_texts().await? {
+        for (path, text) in Self::load_startup_game_data_texts(Some(assets)).await? {
             rules = rules
                 .overlay_ini_text(&text)
                 .map_err(|err| format!("{path}: {err}"))?;
@@ -221,7 +236,7 @@ impl CnCGameEngine {
         command_line: Arc<CommandLineArgs>,
         application_services: &mut crate::subsystem_manager::ApplicationServices,
     ) -> Result<Self> {
-        let startup_sources = Self::load_startup_game_data_texts()
+        let startup_sources = Self::load_startup_game_data_texts(None)
             .await
             .map_err(anyhow::Error::msg)?;
         let application_paths = crate::config::startup_paths::StartupUserData::admit(
@@ -429,20 +444,19 @@ impl CnCGameEngine {
         // can reuse the live archive/definition caches immediately.
         info!("🎨 Initializing C&C Asset Manager during engine setup...");
         let asset_timer = Instant::now();
-        let receiving_object_sources = crate::assets::manager::init_asset_manager_with_sources(
-            graphics_system.device_arc().as_ref(),
-            graphics_system.queue_arc().as_ref(),
-            |manager| {
-                super::object_ini_boot::capture_receiving_object_sources(
-                    manager,
-                    &Self::startup_ini_disk_roots(),
-                )
-                .map_err(anyhow::Error::msg)
-            },
-        )
-        .await?;
-        let application_assets = crate::assets::manager::get_asset_manager()
-            .ok_or_else(|| anyhow::anyhow!("initialized application archive service is absent"))?;
+        let (receiving_object_sources, application_assets) =
+            crate::assets::manager::init_asset_manager_with_sources(
+                graphics_system.device_arc().as_ref(),
+                graphics_system.queue_arc().as_ref(),
+                |manager| {
+                    super::object_ini_boot::capture_receiving_object_sources(
+                        manager,
+                        &Self::startup_ini_disk_roots(),
+                    )
+                    .map_err(anyhow::Error::msg)
+                },
+            )
+            .await?;
         let asset_duration = asset_timer.elapsed();
 
         if let Err(err) = crate::assets::archive::init_big_archive_file_reader() {
@@ -488,13 +502,13 @@ impl CnCGameEngine {
 
         let mut ui_sound_cache: HashMap<String, Arc<[u8]>> = HashMap::new();
         if audio_handle.is_some() {
-            if let Some(manager_arc) = crate::assets::manager::get_asset_manager() {
-                let mut manager = manager_arc.lock().unwrap_or_else(|e| e.into_inner());
+            {
+                let mut manager = application_assets.lock().unwrap_or_else(|e| e.into_inner());
                 for &path in &[
                     crate::ui::sound_files::BUTTON_CLICK,
                     crate::ui::sound_files::BUTTON_HOVER,
                 ] {
-                    match manager.extract_file(path).await {
+                    match manager.extract_file_sync(path) {
                         Ok(data) => {
                             ui_sound_cache
                                 .insert(path.to_string(), Arc::from(data.into_boxed_slice()));
@@ -537,10 +551,10 @@ impl CnCGameEngine {
                 camera_options_path.display()
             );
         }
-        let ocl_sources = Self::load_ocl_application_sources()
+        let ocl_sources = Self::load_ocl_application_sources(&application_assets)
             .await
             .map_err(anyhow::Error::msg)?;
-        let map_victory_rule_sources = Self::load_map_victory_rule_sources()
+        let map_victory_rule_sources = Self::load_map_victory_rule_sources(&application_assets)
             .await
             .map_err(anyhow::Error::msg)?;
         let map_victory_rules = Arc::new(
@@ -548,12 +562,13 @@ impl CnCGameEngine {
                 &map_victory_rule_sources,
             ),
         );
-        let armor_definition_seed = Self::load_application_armor_definitions()
+        let armor_definition_seed = Self::load_application_armor_definitions(&application_assets)
             .await
             .map_err(anyhow::Error::msg)?;
-        let terrain_definition_seed = Self::load_application_terrain_definitions()
-            .await
-            .map_err(anyhow::Error::msg)?;
+        let terrain_definition_seed =
+            Self::load_application_terrain_definitions(&application_assets)
+                .await
+                .map_err(anyhow::Error::msg)?;
         let historic_damage_limit = startup_sources.iter().try_fold(
             game_engine::common::ini::ini_game_data::HistoricDamageLimitRules::default(),
             |rules, (path, text)| {
@@ -588,7 +603,7 @@ impl CnCGameEngine {
             .map_err(anyhow::Error::msg)?;
         game_logic
             .admit_terrain_road_definitions(
-                Self::load_application_road_definitions()
+                Self::load_application_road_definitions(&application_assets)
                     .await
                     .map_err(anyhow::Error::msg)?,
             )
@@ -606,12 +621,12 @@ impl CnCGameEngine {
             .admit_camera_application_rules(camera_rule_base)
             .map_err(anyhow::Error::msg)?;
         game_logic.admit_body_damage_baseline(
-            Self::load_body_damage_baseline()
+            Self::load_body_damage_baseline(&application_assets)
                 .await
                 .map_err(anyhow::Error::msg)?,
         );
         game_logic.admit_lighting_rules_base(
-            Self::load_lighting_rules_baseline(&command_line.raw_args)
+            Self::load_lighting_rules_baseline(&command_line.raw_args, &application_assets)
                 .await
                 .map_err(anyhow::Error::msg)?,
         );
@@ -622,13 +637,13 @@ impl CnCGameEngine {
         );
         game_logic
             .admit_physics_rules_base(
-                Self::load_physics_rules_baseline()
+                Self::load_physics_rules_baseline(&application_assets)
                     .await
                     .map_err(|error| anyhow::anyhow!(error))?,
             )
             .map_err(|error| anyhow::anyhow!(error))?;
         game_logic.admit_production_energy_base(
-            Self::load_production_energy_baseline()
+            Self::load_production_energy_baseline(&application_assets)
                 .await
                 .map_err(|err| anyhow::anyhow!(err))?,
         );
@@ -720,7 +735,7 @@ impl CnCGameEngine {
 
         // C++ GameEngine.cpp:399 initializes authored setup definitions before
         // client UI. Complete this once before the archive worker can run.
-        Self::load_startup_multiplayer_definitions()
+        Self::load_startup_multiplayer_definitions(&application_assets)
             .await
             .map_err(anyhow::Error::msg)?;
 
@@ -1190,9 +1205,11 @@ impl CnCGameEngine {
                     )
                 })
                 .unwrap_or_default();
-        let promotion_definitions = Self::load_promotion_definitions(&startup_sources, &|name| {
-            promotion_images.find(name).is_some()
-        })
+        let promotion_definitions = Self::load_promotion_definitions(
+            &startup_sources,
+            &|name| promotion_images.find(name).is_some(),
+            &engine.application_assets,
+        )
         .await
         .map_err(anyhow::Error::msg)?;
         #[cfg(feature = "game_client")]

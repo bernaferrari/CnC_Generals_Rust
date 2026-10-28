@@ -9,42 +9,40 @@ const MULTIPLAYER_PATHS: &[&str] = &[
 impl CnCGameEngine {
     pub(super) async fn load_startup_ini_texts(
         paths: &[&'static str],
+        application_assets: Option<&Mutex<crate::assets::manager::AssetManager>>,
     ) -> Result<Vec<(&'static str, String)>, String> {
+        if let Some(assets) = application_assets {
+            let mut assets = assets
+                .lock()
+                .map_err(|_| "asset manager poisoned".to_string())?;
+            return assets.read_ordered_ini_sources(paths, Self::read_startup_ini_from_disk);
+        }
+
+        // Before the application service exists, startup has its own archive
+        // reader. It must never adopt another application's published manager.
         let mut texts = Vec::new();
         let mut startup_archive = None;
         for &path in paths {
             let text = if let Some(text) = Self::read_startup_ini_from_disk(path) {
                 Some(text)
             } else {
-                if let Some(manager) = crate::assets::manager::get_asset_manager() {
-                    let mut manager = manager
-                        .lock()
-                        .map_err(|_| "asset manager poisoned".to_string())?;
-                    match manager.extract_file(path).await {
-                        Ok(bytes) => {
-                            Some(String::from_utf8(bytes).map_err(|err| format!("{path}: {err}"))?)
-                        }
-                        Err(_) => None,
+                if startup_archive.is_none() {
+                    let mut archive = crate::assets::archive::ArchiveFileSystem::new();
+                    archive
+                        .init()
+                        .await
+                        .map_err(|error| format!("startup archive admission: {error}"))?;
+                    startup_archive = Some(archive);
+                }
+                match startup_archive
+                    .as_mut()
+                    .expect("local archive initialized")
+                    .open_file_sync(path)
+                {
+                    Ok(bytes) => {
+                        Some(String::from_utf8(bytes).map_err(|error| format!("{path}: {error}"))?)
                     }
-                } else {
-                    if startup_archive.is_none() {
-                        let mut archive = crate::assets::archive::ArchiveFileSystem::new();
-                        archive
-                            .init()
-                            .await
-                            .map_err(|error| format!("startup archive admission: {error}"))?;
-                        startup_archive = Some(archive);
-                    }
-                    match startup_archive
-                        .as_mut()
-                        .expect("local archive initialized")
-                        .open_file_sync(path)
-                    {
-                        Ok(bytes) => Some(
-                            String::from_utf8(bytes).map_err(|error| format!("{path}: {error}"))?,
-                        ),
-                        Err(_) => None,
-                    }
+                    Err(_) => None,
                 }
             };
             if let Some(text) = text {
@@ -54,8 +52,11 @@ impl CnCGameEngine {
         Ok(texts)
     }
 
-    pub(super) async fn load_startup_multiplayer_definitions() -> Result<(), String> {
-        let texts = Self::load_startup_ini_texts(MULTIPLAYER_PATHS).await?;
+    pub(super) async fn load_startup_multiplayer_definitions(
+        application_assets: &Mutex<crate::assets::manager::AssetManager>,
+    ) -> Result<(), String> {
+        let texts =
+            Self::load_startup_ini_texts(MULTIPLAYER_PATHS, Some(application_assets)).await?;
         admit_multiplayer_texts(&texts)
     }
 }
