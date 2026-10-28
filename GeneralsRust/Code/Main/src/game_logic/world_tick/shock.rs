@@ -1,6 +1,54 @@
 //! Host tick `impl GameLogic` — `shock`.
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
+
+fn receiving_shock_splash_relationships(
+    team_factory: &gamelogic::team::TeamFactoryHandle,
+    players: &std::collections::HashMap<u32, crate::game_logic::Player>,
+    source_owner: Option<u32>,
+    source_team_id: Option<u32>,
+    source_team_instance: &str,
+    source_is_defector: bool,
+    victim: &crate::game_logic::object::Object,
+) -> (
+    gamelogic::common::Relationship,
+    gamelogic::common::Relationship,
+) {
+    use gamelogic::common::Relationship;
+
+    // C++ Weapon.cpp uses source->getRelationship(victim) only for
+    // DOESNT_AFFECT_SIMILAR, then reverses the query for the radius mask.
+    let (similar_relationship, mask_relationship) = if source_is_defector {
+        (Relationship::Neutral, Relationship::Allies)
+    } else if victim.is_undetected_defector() {
+        (Relationship::Allies, Relationship::Neutral)
+    } else {
+        (
+            GameLogic::object_relationship_from_identities(
+                team_factory,
+                players,
+                source_owner,
+                source_team_id,
+                source_team_instance,
+                victim.owner_player_id,
+                victim.team_instance_id,
+                &victim.team_instance_name,
+            ),
+            GameLogic::object_relationship_from_identities(
+                team_factory,
+                players,
+                victim.owner_player_id,
+                victim.team_instance_id,
+                &victim.team_instance_name,
+                source_owner,
+                source_team_id,
+                source_team_instance,
+            ),
+        )
+    };
+    (similar_relationship, mask_relationship)
+}
+
 impl GameLogic {
     pub(crate) fn tick_physics_collisions_all(&mut self) -> u32 {
         self.tick_physics_collisions_all_with_effects(&mut Default::default())
@@ -517,18 +565,28 @@ impl GameLogic {
                     .map(host_radius_damage_affects_for_weapon_name)
                     .unwrap_or(WEAPON_AFFECTS_DEFAULT)
             });
-        let (shooter_template, attacker_owner, attacker_team_instance, attacker_producer) = self
+        let (
+            shooter_template,
+            attacker_owner,
+            attacker_team_id,
+            attacker_team_instance,
+            attacker_producer,
+            attacker_is_defector,
+        ) = self
             .objects
             .lookup(&attacker_id)
             .map(|a| {
                 (
                     a.template_name.clone(),
                     a.owner_player_id,
+                    a.team_instance_id,
                     a.team_instance_name.clone(),
                     a.producer_id,
+                    a.is_undetected_defector(),
                 )
             })
             .unwrap_or_default();
+        let source_present = self.objects.lookup(&attacker_id).is_some();
         // C++ Weapon.cpp dealDamageInternal iterates partition-world objects
         // only. Enclosing occupants (tunnel/transport) unRegisterObject on
         // enter, so splash at an entrance must not hit the shared pool.
@@ -558,28 +616,41 @@ impl GameLogic {
                     return None;
                 }
                 let airborne = obj.is_significantly_above_terrain();
-                let same_tmpl = crate::game_logic::weapon_bootstrap::splash_templates_equivalent(
-                    &shooter_template,
-                    &obj.template_name,
-                );
-                let relationship = GameLogic::object_relationship_from_owners(
-                    &self.team_factory,
-                    players,
-                    obj.owner_player_id,
-                    &obj.team_instance_name,
-                    attacker_owner,
-                    &attacker_team_instance,
-                );
-                if !radius_damage_affects_victim(
-                    affects,
-                    relationship,
-                    attacker_id,
-                    *id,
-                    attacker_producer,
-                    airborne,
-                    same_tmpl,
-                ) {
-                    return None;
+                if source_present {
+                    let same_tmpl = crate::game_logic::weapon_bootstrap::receiving_splash_templates_equivalent(
+                        &self.templates,
+                        &shooter_template,
+                        &obj.template_name,
+                    );
+                    let (similar_relationship, mask_relationship) =
+                        receiving_shock_splash_relationships(
+                            &self.team_factory,
+                            players,
+                            attacker_owner,
+                            attacker_team_id,
+                            &attacker_team_instance,
+                            attacker_is_defector,
+                            obj,
+                        );
+                    let doesnt_affect_similar =
+                        crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_DOESNT_AFFECT_SIMILAR;
+                    if (affects & doesnt_affect_similar) != 0
+                        && same_tmpl
+                        && similar_relationship == gamelogic::common::Relationship::Allies
+                    {
+                        return None;
+                    }
+                    if !radius_damage_affects_victim(
+                        affects & !doesnt_affect_similar,
+                        mask_relationship,
+                        attacker_id,
+                        *id,
+                        attacker_producer,
+                        airborne,
+                        false,
+                    ) {
+                        return None;
+                    }
                 }
                 let dist = crate::game_logic::combat::splash_from_bounding_sphere_3d(
                     impact,
@@ -776,18 +847,28 @@ impl GameLogic {
                     .map(host_radius_damage_affects_for_weapon_name)
                     .unwrap_or(WEAPON_AFFECTS_DEFAULT)
             });
-        let (shooter_template, attacker_owner, attacker_team_instance, attacker_producer) = self
+        let (
+            shooter_template,
+            attacker_owner,
+            attacker_team_id,
+            attacker_team_instance,
+            attacker_producer,
+            attacker_is_defector,
+        ) = self
             .objects
             .lookup(&attacker_id)
             .map(|a| {
                 (
                     a.template_name.clone(),
                     a.owner_player_id,
+                    a.team_instance_id,
                     a.team_instance_name.clone(),
                     a.producer_id,
+                    a.is_undetected_defector(),
                 )
             })
             .unwrap_or_default();
+        let source_present = self.objects.lookup(&attacker_id).is_some();
         let players = &self.players;
         let candidates: Vec<(ObjectId, f32)> = self
             .objects
@@ -803,43 +884,66 @@ impl GameLogic {
                     return None;
                 }
                 let airborne = obj.is_significantly_above_terrain();
-                let same_tmpl = crate::game_logic::weapon_bootstrap::splash_templates_equivalent(
-                    &shooter_template,
-                    &obj.template_name,
-                );
-                let mut relationship = GameLogic::object_relationship_from_owners(
-                    &self.team_factory,
-                    players,
-                    obj.owner_player_id,
-                    &obj.team_instance_name,
-                    attacker_owner,
-                    &attacker_team_instance,
-                );
-                // C++ RadiusDamageAffects filters through Object::getRelationship,
-                // which resolves from Teams when no owner provenance exists.
-                // Same team → ALLIES (spared by ENEMIES|NEUTRALS masks).
-                if relationship == gamelogic::common::Relationship::Neutral
-                    && obj.owner_player_id.is_none()
-                    && attacker_owner.is_none()
-                {
-                    relationship = if obj.team == attacker_team {
-                        gamelogic::common::Relationship::Allies
-                    } else if obj.team != Team::Neutral {
-                        gamelogic::common::Relationship::Enemies
-                    } else {
-                        gamelogic::common::Relationship::Neutral
-                    };
-                }
-                if !radius_damage_affects_victim(
-                    affects,
-                    relationship,
-                    attacker_id,
-                    *id,
-                    attacker_producer,
-                    airborne,
-                    same_tmpl,
-                ) {
-                    return None;
+                if source_present {
+                    let same_tmpl = crate::game_logic::weapon_bootstrap::receiving_splash_templates_equivalent(
+                        &self.templates,
+                        &shooter_template,
+                        &obj.template_name,
+                    );
+                    let (mut similar_relationship, mut mask_relationship) =
+                        receiving_shock_splash_relationships(
+                            &self.team_factory,
+                            players,
+                            attacker_owner,
+                            attacker_team_id,
+                            &attacker_team_instance,
+                            attacker_is_defector,
+                            obj,
+                        );
+                    // C++ Team-only fallback when neither object has an owner.
+                    if attacker_owner.is_none()
+                        && obj.owner_player_id.is_none()
+                        && mask_relationship == gamelogic::common::Relationship::Neutral
+                    {
+                        mask_relationship = if obj.team == attacker_team {
+                            gamelogic::common::Relationship::Allies
+                        } else if obj.team != Team::Neutral {
+                            gamelogic::common::Relationship::Enemies
+                        } else {
+                            gamelogic::common::Relationship::Neutral
+                        };
+                    }
+                    if attacker_owner.is_none()
+                        && obj.owner_player_id.is_none()
+                        && similar_relationship == gamelogic::common::Relationship::Neutral
+                    {
+                        similar_relationship = if attacker_team == obj.team {
+                            gamelogic::common::Relationship::Allies
+                        } else if attacker_team != Team::Neutral && obj.team != Team::Neutral {
+                            gamelogic::common::Relationship::Enemies
+                        } else {
+                            gamelogic::common::Relationship::Neutral
+                        };
+                    }
+                    let doesnt_affect_similar =
+                        crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_DOESNT_AFFECT_SIMILAR;
+                    if (affects & doesnt_affect_similar) != 0
+                        && same_tmpl
+                        && similar_relationship == gamelogic::common::Relationship::Allies
+                    {
+                        return None;
+                    }
+                    if !radius_damage_affects_victim(
+                        affects & !doesnt_affect_similar,
+                        mask_relationship,
+                        attacker_id,
+                        *id,
+                        attacker_producer,
+                        airborne,
+                        false,
+                    ) {
+                        return None;
+                    }
                 }
                 let dist = crate::game_logic::combat::splash_from_bounding_sphere_3d(
                     impact,

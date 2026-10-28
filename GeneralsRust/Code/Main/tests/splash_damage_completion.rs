@@ -308,3 +308,205 @@ fn ordinary_library_instant_splash_sink_does_not_promote_source_fx() {
 fn ordinary_library_scatter_splash_sink_does_not_promote_source_fx() {
     run(true, 1, 100.0, true);
 }
+
+fn shock_relationship_world(
+    label: &str,
+    weapon_name: &str,
+    variant_is_reskin: bool,
+    source_to_victim: gamelogic::common::Relationship,
+    victim_to_source: gamelogic::common::Relationship,
+) -> (
+    GameLogic,
+    generals_main::game_logic::ObjectId,
+    generals_main::game_logic::ObjectId,
+    generals_main::game_logic::ObjectId,
+) {
+    let mut world = GameLogic::new();
+    let mut source_player = Player::new(0, Team::USA, &format!("{label}Source"), true);
+    source_player.set_map_relationship(1, source_to_victim);
+    let mut victim_player = Player::new(1, Team::China, &format!("{label}Victim"), true);
+    victim_player.set_map_relationship(0, victim_to_source);
+    world.add_player(source_player);
+    world.add_player(victim_player);
+
+    let variant = if variant_is_reskin {
+        "ObjectReskin ShockRelationshipVariant ShockRelationshipBase\nEnd\n".to_owned()
+    } else {
+        "Object ShockRelationshipVariant\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n  MaxHealth = 500\n  InitialHealth = 500\n End\nEnd\n".to_owned()
+    };
+    world
+        .admit_object_ini_sources([(
+            format!("{label}.ini"),
+            format!(
+                "Object ShockRelationshipBase\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n  MaxHealth = 500\n  InitialHealth = 500\n End\n WeaponSet\n  Conditions = NONE\n  Weapon = PRIMARY {weapon_name}\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n{variant}"
+            ),
+        )])
+        .expect("owner admits its own reskin/equivalence catalogue");
+    let source = world
+        .create_object_for_player("ShockRelationshipBase", 0, Vec3::ZERO)
+        .unwrap();
+    let anchor = world
+        .create_object_for_player("ShockRelationshipVariant", 1, Vec3::new(10.0, 0.0, 0.0))
+        .unwrap();
+    let neighbor_position = if weapon_name == "ShockRelationshipScatterWeapon" {
+        Vec3::new(10.0, 0.0, 10.0)
+    } else {
+        Vec3::new(12.0, 0.0, 0.0)
+    };
+    let neighbor = world
+        .create_object_for_player("ShockRelationshipVariant", 1, neighbor_position)
+        .unwrap();
+    (world, source, anchor, neighbor)
+}
+
+fn fire_shock_relationship_weapon(
+    world: &mut GameLogic,
+    source: generals_main::game_logic::ObjectId,
+    anchor: generals_main::game_logic::ObjectId,
+) {
+    world.set_current_frame(100);
+    let mut attack_output = generals_main::game_logic::host_attack_log::AttackEvents::default();
+    world.objects.get_mut(&source).unwrap().set_target(
+        Some(anchor),
+        &mut attack_output,
+        &mut generals_main::game_logic::ObjectAudio::queue(&mut world.queued_audio_events),
+    );
+    world.update();
+}
+
+#[test]
+fn instant_splash_uses_source_to_victim_similarity_and_receiving_world_relationships() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let _clear = ClearObserver;
+    gamelogic::initialize_weapon_store().unwrap();
+    assert_eq!(
+        register_weapons_from_ini_text(
+            r#"
+Weapon ShockRelationshipWeapon
+ PrimaryDamage = 100
+ PrimaryDamageRadius = 5
+ AttackRange = 200
+ DamageType = SMALL_ARMS
+ RadiusDamageAffects = ENEMIES NOT_SIMILAR
+ ProjectileObject = NONE
+ WeaponSpeed = 30000000
+ DelayBetweenShots = 1000
+ ClipSize = 8
+ ClipReloadTime = 1000
+ PreAttackDelay = 0
+ AntiGround = Yes
+End
+Weapon ShockRelationshipScatterWeapon
+ PrimaryDamage = 100
+ PrimaryDamageRadius = 5
+ AttackRange = 200
+ DamageType = SMALL_ARMS
+ RadiusDamageAffects = ENEMIES NOT_SIMILAR
+ ProjectileObject = NONE
+ WeaponSpeed = 30000000
+ DelayBetweenShots = 1000
+ ClipSize = 8
+ ClipReloadTime = 1000
+ PreAttackDelay = 0
+ AntiGround = Yes
+ ScatterTarget = X:0 Y:10
+ ScatterTargetScalar = 1
+End
+"#
+        ),
+        2
+    );
+
+    let (mut ally_source, ally_id, ally_anchor, ally_neighbor) = shock_relationship_world(
+        "ShockAlly",
+        "ShockRelationshipWeapon",
+        true,
+        gamelogic::common::Relationship::Allies,
+        gamelogic::common::Relationship::Enemies,
+    );
+    let (mut enemy_source, enemy_id, enemy_anchor, enemy_neighbor) = shock_relationship_world(
+        "ShockEnemy",
+        "ShockRelationshipWeapon",
+        false,
+        gamelogic::common::Relationship::Enemies,
+        gamelogic::common::Relationship::Enemies,
+    );
+    assert_eq!(
+        (ally_id, ally_anchor, ally_neighbor),
+        (enemy_id, enemy_anchor, enemy_neighbor)
+    );
+
+    fire_shock_relationship_weapon(&mut ally_source, ally_id, ally_anchor);
+    assert_eq!(
+        ally_source.objects[&ally_neighbor].health.current, 500.0,
+        "the source considers the equivalent victim an ally despite the reverse being enemy"
+    );
+    assert_eq!(enemy_source.objects[&enemy_neighbor].health.current, 500.0);
+
+    fire_shock_relationship_weapon(&mut enemy_source, enemy_id, enemy_anchor);
+    assert_eq!(ally_source.objects[&ally_neighbor].health.current, 500.0);
+    assert_eq!(
+        enemy_source.objects[&enemy_neighbor].health.current, 400.0,
+        "an enemy relationship in both directions admits the receiving world's splash"
+    );
+}
+
+#[test]
+fn scatter_splash_uses_source_to_victim_similarity_and_receiving_world_relationships() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let _clear = ClearObserver;
+    gamelogic::initialize_weapon_store().unwrap();
+    assert_eq!(
+        register_weapons_from_ini_text(
+            r#"
+Weapon ShockRelationshipScatterWeapon
+ PrimaryDamage = 100
+ PrimaryDamageRadius = 5
+ AttackRange = 200
+ DamageType = SMALL_ARMS
+ RadiusDamageAffects = ENEMIES NOT_SIMILAR
+ ProjectileObject = NONE
+ WeaponSpeed = 30000000
+ DelayBetweenShots = 1000
+ ClipSize = 8
+ ClipReloadTime = 1000
+ PreAttackDelay = 0
+ AntiGround = Yes
+ ScatterTarget = X:0 Y:10
+ ScatterTargetScalar = 1
+End
+"#
+        ),
+        1
+    );
+
+    let (mut ally_source, ally_id, ally_anchor, ally_neighbor) = shock_relationship_world(
+        "ScatterAlly",
+        "ShockRelationshipScatterWeapon",
+        true,
+        gamelogic::common::Relationship::Allies,
+        gamelogic::common::Relationship::Enemies,
+    );
+    let (mut enemy_source, enemy_id, enemy_anchor, enemy_neighbor) = shock_relationship_world(
+        "ScatterEnemy",
+        "ShockRelationshipScatterWeapon",
+        false,
+        gamelogic::common::Relationship::Enemies,
+        gamelogic::common::Relationship::Enemies,
+    );
+    assert_eq!(
+        (ally_id, ally_anchor, ally_neighbor),
+        (enemy_id, enemy_anchor, enemy_neighbor)
+    );
+
+    fire_shock_relationship_weapon(&mut ally_source, ally_id, ally_anchor);
+    assert_eq!(ally_source.objects[&ally_neighbor].health.current, 500.0);
+    assert_eq!(enemy_source.objects[&enemy_neighbor].health.current, 500.0);
+
+    fire_shock_relationship_weapon(&mut enemy_source, enemy_id, enemy_anchor);
+    assert_eq!(ally_source.objects[&ally_neighbor].health.current, 500.0);
+    assert_eq!(
+        enemy_source.objects[&enemy_neighbor].health.current, 400.0,
+        "the scatter miss follows source-to-victim similarity before victim-to-source mask"
+    );
+}
