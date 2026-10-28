@@ -18,10 +18,11 @@ pub struct WindowDrawContext<'a> {
     pub receiving_power: Option<Option<ReceivingPowerObservation>>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReceivingPowerObservation {
     pub production: i32,
     pub consumption: i32,
+    pub rules: game_engine::common::ini::ini_game_data::PowerBarRules,
 }
 impl<'a> WindowDrawContext<'a> {
     pub fn new(renderer: Option<&'a mut UIRenderer>, display: DisplayDrawFacts) -> Self {

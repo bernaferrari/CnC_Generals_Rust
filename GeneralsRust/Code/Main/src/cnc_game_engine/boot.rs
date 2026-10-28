@@ -65,6 +65,19 @@ impl CnCGameEngine {
         }
         Ok(rules)
     }
+    /// GameEngine.cpp initializes GlobalData before parsing `-mod`; consume
+    /// the captured startup GameData sources rather than later archive mounts.
+    pub(super) fn load_power_bar_baseline(
+        sources: &[(&str, String)],
+    ) -> Result<game_engine::common::ini::ini_game_data::PowerBarRules, String> {
+        let mut rules = game_engine::common::ini::ini_game_data::PowerBarRules::default();
+        for (path, text) in sources {
+            rules = rules
+                .overlay_ini_text(text)
+                .map_err(|error| format!("{path}: {error}"))?;
+        }
+        Ok(rules)
+    }
     pub(super) async fn load_application_terrain_definitions(
         assets: &StartupAssets,
     ) -> Result<Arc<game_engine::common::ini::ini_terrain::TerrainTypes>, String> {
@@ -651,6 +664,10 @@ impl CnCGameEngine {
             Self::load_production_energy_baseline(&application_assets)
                 .await
                 .map_err(|err| anyhow::anyhow!(err))?,
+        );
+        game_logic.admit_power_bar_base(
+            Self::load_power_bar_baseline(&startup_sources)
+                .map_err(|error| anyhow::anyhow!(error))?,
         );
         let recorder_inputs = Self::capture_recorder_application_inputs(
             game_logic.get_current_map_name().to_owned(),

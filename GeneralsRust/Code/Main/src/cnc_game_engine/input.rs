@@ -2262,6 +2262,7 @@ impl CnCGameEngine {
                     |player| game_client::gui::window_draw_context::ReceivingPowerObservation {
                         production: player.energy_production_at(self.game_logic.frame),
                         consumption: player.power_consumed,
+                        rules: self.game_logic.power_bar_rules(),
                     },
                 );
             let (render_pipeline, graphics_system, game_client) = (

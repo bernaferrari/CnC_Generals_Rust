@@ -472,6 +472,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_definition_catalogs(
     draft: &mut game_engine::common::ini::ini_ai_data::AIDataStore,
     definition_source: &str,
     production_energy: Option<game_engine::common::ini::ini_game_data::ProductionEnergyRules>,
+    power_bar_rules: Option<game_engine::common::ini::ini_game_data::PowerBarRules>,
     physics_rules: Option<game_engine::common::ini::ini_game_data::PhysicsContentRules>,
     camera_rules: Option<game_engine::common::ini::ini_game_data::CameraContentRules>,
     camera_clip_rules: Option<game_engine::common::ini::ini_game_data::CameraClipRules>,
@@ -496,6 +497,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_definition_catalogs(
             camera_shake_rules,
             camera_rules,
             production_energy,
+            power_bar_rules,
             physics_rules,
             ..MapMetadata::default()
         },
@@ -641,6 +643,13 @@ fn parse_map_settings_from_loaded_chunky(
                             .map_err(GameLogicError::Configuration)?,
                     );
                 }
+                if let Some(rules) = meta.power_bar_rules {
+                    meta.power_bar_rules = Some(
+                        rules
+                            .overlay_ini_text(&contents)
+                            .map_err(GameLogicError::Configuration)?,
+                    );
+                }
                 meta.default_starting_cash =
                     parse_map_default_starting_cash(&contents)?.or(meta.default_starting_cash);
                 // C++ GameLogic.cpp:2404-2408 loadMapINI — full block table
@@ -742,6 +751,13 @@ fn parse_map_settings_from_loaded_chunky(
                 }
                 if let Some(rules) = meta.production_energy {
                     meta.production_energy = Some(
+                        rules
+                            .overlay_ini_text(&contents)
+                            .map_err(GameLogicError::Configuration)?,
+                    );
+                }
+                if let Some(rules) = meta.power_bar_rules {
+                    meta.power_bar_rules = Some(
                         rules
                             .overlay_ini_text(&contents)
                             .map_err(GameLogicError::Configuration)?,

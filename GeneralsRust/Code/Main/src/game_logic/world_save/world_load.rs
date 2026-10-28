@@ -549,6 +549,7 @@ impl GameLogic {
                         &mut ai_draft,
                         &definition_source,
                         Some(*self.production_energy_rules()),
+                        Some(self.power_bar_baseline()),
                         Some(self.physics_definitions.effective),
                         Some(self.session_view.camera.settings.current()),
                         Some(self.session_view.camera.clip_policy.current()),
@@ -607,6 +608,9 @@ impl GameLogic {
                             }
                             if let Some(rules) = meta.production_energy {
                                 self.production_energy.effective = rules;
+                            }
+                            if let Some(rules) = meta.power_bar_rules {
+                                self.power_bar_definitions.effective = rules;
                             }
                             Some(meta)
                         }

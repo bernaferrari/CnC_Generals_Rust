@@ -2,11 +2,14 @@ use super::*;
 
 fn power_observation(
     draw_context: &crate::gui::window_draw_context::WindowDrawContext<'_>,
-) -> Option<(i32, i32)> {
+) -> Option<crate::gui::window_draw_context::ReceivingPowerObservation> {
     if let Some(receiving) = draw_context.receiving_power {
-        return receiving.map(|facts| (facts.production, facts.consumption));
+        return receiving;
     }
 
+    let global = get_global_data()?;
+    let rules =
+        game_engine::common::ini::ini_game_data::PowerBarRules::from_global_data(&global.read());
     let list = ThePlayerList().read().ok()?;
     let player_arc = TheControlBar::get_observer_look_at_player_index()
         .and_then(|index| {
@@ -21,7 +24,11 @@ fn power_observation(
     drop(list);
     let player = player_arc.read().ok()?;
     let energy = player.get_energy();
-    Some((energy.production(), energy.consumption()))
+    Some(crate::gui::window_draw_context::ReceivingPowerObservation {
+        production: energy.production(),
+        consumption: energy.consumption(),
+        rules,
+    })
 }
 
 pub fn w3d_power_draw_a(
@@ -31,18 +38,14 @@ pub fn w3d_power_draw_a(
 ) {
     // C++ W3DPowerDrawA (W3DControlBar.cpp:261-440) has no fallback painter:
     // every missing-input branch simply returns and paints nothing.
-    let Some(global) = get_global_data() else {
+    let Some(observation) = power_observation(draw_context) else {
         return;
     };
-    let global = global.read();
-    let power_bar_base = global.power_bar_base.max(2) as f32;
-    let power_bar_intervals = global.power_bar_intervals.max(1.0);
-    let yellow_range = global.power_bar_yellow_range;
-    drop(global);
-
-    let Some((production, consumption)) = power_observation(draw_context) else {
-        return;
-    };
+    let production = observation.production;
+    let consumption = observation.consumption;
+    let power_bar_base = observation.rules.base.max(2) as f32;
+    let power_bar_intervals = observation.rules.intervals.max(1.0);
+    let yellow_range = observation.rules.yellow_range;
 
     let (end_bar, begin_bar, center_bar) =
         if consumption > production - yellow_range && consumption <= production {
@@ -211,18 +214,14 @@ pub fn w3d_power_draw(
 ) {
     // C++ W3DPowerDraw (W3DControlBar.cpp:94-259) has no fallback painter:
     // missing inputs (no player/energy/images) return and paint nothing.
-    let Some(global) = get_global_data() else {
+    let Some(observation) = power_observation(draw_context) else {
         return;
     };
-    let global = global.read();
-    let power_bar_base = global.power_bar_base.max(2) as f32;
-    let power_bar_intervals = global.power_bar_intervals.max(1.0);
-    let yellow_range = global.power_bar_yellow_range;
-    drop(global);
-
-    let Some((production, consumption)) = power_observation(draw_context) else {
-        return;
-    };
+    let production = observation.production;
+    let consumption = observation.consumption;
+    let power_bar_base = observation.rules.base.max(2) as f32;
+    let power_bar_intervals = observation.rules.intervals.max(1.0);
+    let yellow_range = observation.rules.yellow_range;
 
     let center_name = if consumption > production - yellow_range && consumption <= production {
         "PowerPointY"
@@ -320,16 +319,18 @@ mod receiving_power_context_tests {
         first.receiving_power = Some(Some(ReceivingPowerObservation {
             production: 81,
             consumption: 24,
+            rules: Default::default(),
         }));
         let mut second = WindowDrawContext::default();
         second.receiving_power = Some(Some(ReceivingPowerObservation {
             production: 19,
             consumption: 7,
+            rules: Default::default(),
         }));
 
-        assert_eq!(power_observation(&first), Some((81, 24)));
-        assert_eq!(power_observation(&second), Some((19, 7)));
-        assert_eq!(power_observation(&first), Some((81, 24)));
+        assert_eq!(power_observation(&first), first.receiving_power.flatten());
+        assert_eq!(power_observation(&second), second.receiving_power.flatten());
+        assert_eq!(power_observation(&first), first.receiving_power.flatten());
 
         let mut no_receiving_player = WindowDrawContext::default();
         no_receiving_player.receiving_power = Some(None);

@@ -663,12 +663,17 @@ impl GameClient {
             self.subsystem_manager.input_mouse.as_mut(),
         )
     }
-    pub fn draw_receiving_ui(&mut self, facts: crate::display::display_fx::DisplayDrawFacts) {
+    pub fn draw_receiving_ui(
+        &mut self,
+        facts: crate::display::display_fx::DisplayDrawFacts,
+        power: Option<crate::gui::window_draw_context::ReceivingPowerObservation>,
+    ) {
         let mut context = crate::gui::window_draw_context::WindowDrawContext::new(
             self.ui_renderer.as_mut(),
             facts,
         );
         context.ime = Some(&self.ime);
+        context.receiving_power = Some(power);
         self.window_manager_owner
             .with_manager(|manager| manager.draw_all(&mut context));
     }
@@ -676,12 +681,14 @@ impl GameClient {
         &mut self,
         radar: &mut crate::gui::w3d_gadget_draw::RadarDrawContext<'_>,
         facts: crate::display::display_fx::DisplayDrawFacts,
+        power: Option<crate::gui::window_draw_context::ReceivingPowerObservation>,
     ) {
         let mut context = crate::gui::window_draw_context::WindowDrawContext::new(
             self.ui_renderer.as_mut(),
             facts,
         );
         context.ime = Some(&self.ime);
+        context.receiving_power = Some(power);
         self.window_manager_owner
             .with_manager(|manager| manager.draw_all_with_radar(radar, &mut context));
     }

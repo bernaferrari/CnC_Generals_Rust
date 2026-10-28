@@ -125,6 +125,7 @@ impl CnCGameEngine {
                 roads_baseline: self.game_logic.terrain_road_baseline(),
                 combat_bonus_baseline: self.game_logic.combat_bonus_baseline(),
                 body_damage_baseline: self.game_logic.body_damage_baseline(),
+                power_bar_baseline: self.game_logic.power_bar_baseline(),
                 session_sell_percentage: self.game_logic.session_sell_percentage,
             },
             &self.game_logic.weapon_definition_base,

@@ -1348,8 +1348,11 @@ pub use lighting_rules::{LightingContentRules, TerrainTrackRules, TerrainWaterRu
 mod camera_rules;
 #[path = "ini_game_data/physics_rules.rs"]
 mod physics_rules;
+#[path = "ini_game_data/power_bar_rules.rs"]
+mod power_bar_rules;
 pub use camera_rules::CameraContentRules;
 pub use physics_rules::PhysicsContentRules;
+pub use power_bar_rules::PowerBarRules;
 
 fn parse_game_data_block(ini: &mut INI, data: &mut GlobalData) -> INIResult<()> {
     loop {

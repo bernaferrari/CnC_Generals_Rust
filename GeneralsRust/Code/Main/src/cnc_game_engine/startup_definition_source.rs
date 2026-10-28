@@ -34,6 +34,7 @@ pub(super) struct StartupSimulationRules {
     roads: game_engine::common::ini::ini_road::TerrainRoadCollection,
     physics: game_engine::common::ini::ini_game_data::PhysicsContentRules,
     energy: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
+    power_bar: game_engine::common::ini::ini_game_data::PowerBarRules,
     historic_damage_limit: u32,
     sell_percentage: f32,
     combat_bonus: game_engine::common::ini::ini_game_data::CombatBonusRules,
@@ -50,6 +51,7 @@ impl StartupSimulationRules {
             roads: world.terrain_road_baseline().clone(),
             physics: world.physics_rules_baseline(),
             energy: world.production_energy_baseline(),
+            power_bar: world.power_bar_baseline(),
             historic_damage_limit: world.combat_system.historic_damage_limit(),
             sell_percentage: world.session_sell_percentage,
             combat_bonus: world.combat_bonus_baseline().clone(),
@@ -107,6 +109,7 @@ impl StartupSimulationRules {
         world.admit_terrain_road_definitions(self.roads)?;
         world.admit_physics_rules_base(self.physics)?;
         world.admit_production_energy_base(self.energy);
+        world.admit_power_bar_base(self.power_bar);
         world.admit_historic_damage_limit(self.historic_damage_limit);
         world.admit_sell_percentage(self.sell_percentage);
         world.admit_combat_bonus_baseline(self.combat_bonus);

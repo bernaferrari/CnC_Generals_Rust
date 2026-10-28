@@ -96,6 +96,7 @@ impl GameLogic {
             armor_definitions: None,
             weapon_effect_definitions: Default::default(),
             production_energy: Default::default(),
+            power_bar_definitions: Default::default(),
             ai_definitions,
             upgrade_definition_base: upgrade_definitions.clone(),
             upgrade_definitions,
@@ -888,6 +889,7 @@ impl GameLogic {
         self.ai_definitions.reset();
         self.upgrade_definitions = self.upgrade_definition_base.clone();
         self.production_energy.effective = self.production_energy.base;
+        self.power_bar_definitions.effective = self.power_bar_definitions.base;
         self.physics_definitions.effective = self.physics_definitions.base;
         self.restore_projectile_definition_base()
             .expect("previously admitted projectile base must remain valid across reset");

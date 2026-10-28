@@ -72,6 +72,7 @@ pub struct GameLogic {
     pub(super) weapon_effect_definitions:
         super::world_combat::weapon_effect_definitions::WeaponEffectDefinitions,
     pub(crate) production_energy: crate::game_logic::production_energy::ProductionEnergyDefinitions,
+    pub(crate) power_bar_definitions: crate::game_logic::production_energy::PowerBarDefinitions,
     /// Ordered movement observations and completed frame output for this match.
     pub(crate) eva_announcements: crate::game_logic::host_eva_log::HostEvaAnnouncements,
     pub(crate) movement_events: crate::game_logic::movement_events::MovementEvents,

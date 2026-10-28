@@ -120,7 +120,7 @@ fn terrain_source_tiles_read_from_the_receiving_archive_mount() {
 
 #[test]
 fn startup_ini_reads_ordered_sources_from_the_receiving_archive() {
-    use game_engine::common::ini::ini_game_data::ProductionEnergyRules;
+    use game_engine::common::ini::ini_game_data::{PowerBarRules, ProductionEnergyRules};
 
     const DEFAULT: &str = "Data/INI/Default/GameData.ini";
     const OVERRIDE: &str = "Data/INI/GameData.ini";
@@ -139,12 +139,12 @@ fn startup_ini_reads_ordered_sources_from_the_receiving_archive() {
             (
                 "default.big",
                 DEFAULT,
-                format!("GameData\n MaxLineBuildObjects = {default}\nEnd\n").into_bytes(),
+                format!("GameData\n MaxLineBuildObjects = {default}\n PowerBarBase = {default}\n PowerBarIntervals = 4.5\nEnd\n").into_bytes(),
             ),
             (
                 "override.big",
                 OVERRIDE,
-                format!("GameData\n MaxLineBuildObjects = {override_value}\nEnd\n").into_bytes(),
+                format!("GameData\n MaxLineBuildObjects = {override_value}\n PowerBarBase = {override_value}\nEnd\n").into_bytes(),
             ),
             ("invalid.big", INVALID, vec![0xff]),
         ] {
@@ -171,11 +171,33 @@ fn startup_ini_reads_ordered_sources_from_the_receiving_archive() {
             .max_line_build_objects
     }
 
+    fn admitted_power_rules(archive: &mut ArchiveFileSystem) -> PowerBarRules {
+        archive
+            .read_ordered_ini_sources(&[DEFAULT, OVERRIDE], |_| None)
+            .unwrap()
+            .into_iter()
+            .fold(PowerBarRules::default(), |rules, (_, text)| {
+                rules.overlay_ini_text(&text).unwrap()
+            })
+    }
+
     let mut first = pollster::block_on(mounted(first_dir.path(), 11, 19));
     let mut second = pollster::block_on(mounted(second_dir.path(), 23, 37));
     assert_eq!(admitted_limit(&mut first), 19);
     assert_eq!(admitted_limit(&mut second), 37);
     assert_eq!(admitted_limit(&mut first), 19);
+    let first_power = admitted_power_rules(&mut first);
+    let second_power = admitted_power_rules(&mut second);
+    assert_eq!((first_power.base, first_power.intervals), (19, 4.5));
+    assert_eq!((second_power.base, second_power.intervals), (37, 4.5));
+    let map_power = first_power
+        .overlay_ini_text("GameData\nPowerBarBase = 13\nEnd\n")
+        .unwrap()
+        .overlay_ini_text("GameData\nPowerBarYellowRange = 9\nEnd\n")
+        .unwrap();
+    assert_eq!((map_power.base, map_power.yellow_range), (13, 9));
+    assert_eq!(admitted_power_rules(&mut second), second_power);
+    assert_eq!(admitted_power_rules(&mut first), first_power);
     let loose = first
         .read_ordered_ini_sources(&[OVERRIDE], |_| {
             Some("GameData\n MaxLineBuildObjects = 59\nEnd\n".into())

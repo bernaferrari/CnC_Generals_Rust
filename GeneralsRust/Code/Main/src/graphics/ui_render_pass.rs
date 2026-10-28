@@ -23,8 +23,7 @@ pub(crate) struct NativeUiDraw<'a> {
     client_frame: u32,
     loading: bool,
     ui: Option<&'a mut game_client::core::subsystems::InGameUISubsystem>,
-    receiving_power:
-        Option<Option<game_client::gui::window_draw_context::ReceivingPowerObservation>>,
+    receiving_power: Option<game_client::gui::window_draw_context::ReceivingPowerObservation>,
 }
 impl<'a> NativeUiDraw<'a> {
     pub(crate) fn new(
@@ -44,6 +43,8 @@ impl<'a> NativeUiDraw<'a> {
             client_frame: 0,
             loading: false,
             ui: None,
+            // Every NativeUiDraw belongs to Main. Loading screens have no
+            // player rather than a license to inspect the Core singleton.
             receiving_power: None,
         }
     }
@@ -55,13 +56,13 @@ impl<'a> NativeUiDraw<'a> {
         self
     }
     /// Supply player Energy from the exact Main world owning this native UI
-    /// draw. `None` means this is not a hosted game draw; `Some(None)` means
-    /// the hosted world currently has no observer target or local player.
+    /// draw. `None` means the hosted world currently has no observer target
+    /// or local player.
     pub(crate) fn with_receiving_power_observation(
         mut self,
         observation: Option<game_client::gui::window_draw_context::ReceivingPowerObservation>,
     ) -> Self {
-        self.receiving_power = Some(observation);
+        self.receiving_power = observation;
         self
     }
     pub(crate) fn for_load_screen(mut self) -> Self {
@@ -146,7 +147,7 @@ impl<'a> NativeUiDraw<'a> {
                 let mut context =
                     WindowDrawContext::new(Some(&mut *renderer), self.display.clone());
                 context.ime = Some(self.ime);
-                context.receiving_power = self.receiving_power;
+                context.receiving_power = Some(self.receiving_power);
                 context.shell_scheme = shell
                     .is_shell_active()
                     .then(|| shell.shell_menu_scheme_manager());

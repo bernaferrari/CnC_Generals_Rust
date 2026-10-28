@@ -95,6 +95,7 @@ pub struct MapMetadata {
     pub(crate) physics_rules: Option<game_engine::common::ini::ini_game_data::PhysicsContentRules>,
     pub(crate) production_energy:
         Option<game_engine::common::ini::ini_game_data::ProductionEnergyRules>,
+    pub(crate) power_bar_rules: Option<game_engine::common::ini::ini_game_data::PowerBarRules>,
     /// Last GameData DefaultStartingCash from Map.ini then Solo.ini.
     pub default_starting_cash: Option<u32>,
     /// Typed authored decals captured while the decoder owns this Dict key
