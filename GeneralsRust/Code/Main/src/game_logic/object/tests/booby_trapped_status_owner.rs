@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn booby_trapped_mask_updates_canonical_status_and_wire_projection() {
+fn booby_trapped_mask_updates_canonical_status_and_query_projection() {
     use crate::game_logic::host_status_bits_upgrade::{
         object_status_mask_from_names, status_bits_has,
     };
@@ -22,9 +22,7 @@ fn booby_trapped_mask_updates_canonical_status_and_wire_projection() {
         "no writable duplicate bit"
     );
 
-    let residual =
-        super::super::entity_lifecycle_bits_state::StatusBitsResidual::from_object(&object);
-    assert_eq!(residual.bits & bit, bit, "legacy Xfer bit remains present");
+    assert_eq!(object.object_status_mask_for_queries() & bit, bit);
 
     object.apply_status_bits_upgrade_masks(&["BOOBY_TRAPPED"], &["BOOBY_TRAPPED"]);
     assert!(
