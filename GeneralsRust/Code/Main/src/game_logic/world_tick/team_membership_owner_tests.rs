@@ -376,7 +376,9 @@ fn native_death_notification_never_creates_or_retargets_a_same_name_team() {
     camera_create_prototype(&mut world, "MissingResident", false);
     world.host_object_mut(unit).unwrap().team_instance_name = "MissingResident".into();
     world.host_object_mut(unit).unwrap().team_instance_id = None;
-    world.notify_leftover_team_of_host_object_death(unit);
+    world
+        .notify_owned_team_of_object_death_with_effects(unit, None, &mut Default::default())
+        .unwrap();
     assert!(
         world
             .team_factory
@@ -403,7 +405,14 @@ fn native_death_notification_never_creates_or_retargets_a_same_name_team() {
     second.write().unwrap().add_member(unit.0);
     let identity = first.read().unwrap().get_id();
     world.host_object_mut(unit).unwrap().team_instance_id = Some(identity);
-    world.notify_leftover_team_of_host_object_death(unit);
+    world
+        .notify_owned_team_of_object_death_with_effects(unit, None, &mut Default::default())
+        .unwrap();
+    assert!(
+        first.read().unwrap().has_member(unit.0),
+        "onDie keeps the member resident"
+    );
+    world.unlink_retiring_team_host_member(unit, Some(identity));
     assert!(!first.read().unwrap().has_member(unit.0));
     assert!(
         second.read().unwrap().has_member(unit.0),
@@ -411,6 +420,69 @@ fn native_death_notification_never_creates_or_retargets_a_same_name_team() {
     );
     assert_eq!(world.session_view.impulse.intensity, 0.0);
     assert!(world.pending_screen_shakes.is_empty());
+}
+
+#[test]
+fn death_runs_the_resident_team_script_on_the_receiving_world_once() {
+    use game_engine::common::{dict::Dict, well_known_keys::key_team_on_unit_destroyed_script};
+    use gamelogic::scripting::core::{
+        Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList,
+    };
+
+    fn configure(world: &mut GameLogic) -> ObjectId {
+        let mut dict = Dict::new();
+        dict.set_ascii_string(key_team_on_unit_destroyed_script(), "OnMemberDeath");
+        world
+            .team_factory
+            .lock()
+            .unwrap()
+            .init_team_owned(
+                "DeathTeam".into(),
+                "RosterOwner".into(),
+                true,
+                Some(&dict),
+                Some(1),
+            )
+            .unwrap();
+        let member = world
+            .create_object_for_player("RosterUnit", 1, glam::Vec3::ZERO)
+            .unwrap();
+        let object = world.host_object_mut(member).unwrap();
+        object.team_instance_name = "DeathTeam".into();
+        object.team_instance_id = None;
+        world.activate_leftover_team_for_host_object(member);
+
+        let mut action = ScriptAction::new(ScriptActionType::ScreenShake);
+        action
+            .add_parameter(Parameter::with_int(ParameterType::Int, 2))
+            .unwrap();
+        let mut script = Script::new();
+        script.script_name = "OnMemberDeath".into();
+        script.is_subroutine = true;
+        script.action = Some(Box::new(action));
+        let mut list = ScriptList::new();
+        list.append_script(Box::new(script));
+        let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+        engine
+            .set_script_list_for_player(0, Some(Box::new(list)))
+            .unwrap();
+        world.install_owned_script_engine(engine);
+        member
+    }
+
+    let mut world = owner();
+    let mut peer = owner();
+    let member = configure(&mut world);
+    let peer_member = configure(&mut peer);
+    assert_eq!(member, peer_member);
+    world.mark_object_for_destruction(member, None).unwrap();
+    assert_eq!(world.session_view.impulse.intensity, 2.0);
+    assert_eq!(peer.session_view.impulse.intensity, 0.0);
+    world.mark_object_for_destruction(member, None).unwrap();
+    assert_eq!(
+        world.session_view.impulse.intensity, 2.0,
+        "onDie is delivered once"
+    );
 }
 
 #[test]

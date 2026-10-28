@@ -716,14 +716,36 @@ impl GameLogic {
         }
         let presentation_effects = &mut receiving_effects;
 
+        // The same numeric ID can be replaced by a callback. Only the birth
+        // whose onDie starts in this operation can receive the Team callback.
+        let dying_birth = self.objects.get(&id).and_then(|object| {
+            (!object.status.on_die_started)
+                .then(|| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+        });
         self.object_lifecycle_callback_depth += 1;
-        let result = self.begin_object_death_callbacks_with_effects(
+        let mut result = self.begin_object_death_callbacks_with_effects(
             id,
             killer,
             input,
             topple_interpreter,
             presentation_effects,
         );
+        if result.is_ok()
+            && dying_birth.as_ref().is_some_and(|birth| {
+                self.objects.get(&id).is_some_and(|object| {
+                    object.status.on_die_started
+                        && birth.ptr_eq(&std::sync::Arc::downgrade(
+                            &object.visual_draw_identity_token,
+                        ))
+                })
+            })
+        {
+            result = self.notify_owned_team_of_object_death_with_effects(
+                id,
+                topple_interpreter,
+                presentation_effects,
+            );
+        }
         self.object_lifecycle_callback_depth -= 1;
         result
     }

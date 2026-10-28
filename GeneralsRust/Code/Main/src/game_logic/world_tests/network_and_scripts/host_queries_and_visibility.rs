@@ -742,15 +742,31 @@ fn live_host_team_hooks_add_member_and_notify_death_once() {
         );
     }
 
-    logic.notify_leftover_team_of_host_object_death(id);
-    logic.notify_leftover_team_of_host_object_death(id);
+    let team_id = logic.host_object(id).unwrap().team_instance_id;
+    let interpreter = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    logic
+        .notify_owned_team_of_object_death_with_effects(
+            id,
+            Some(&interpreter),
+            &mut Default::default(),
+        )
+        .unwrap();
+    {
+        let mut factory = logic.team_factory.lock().expect("world team factory");
+        let team = factory.find_team("HostHookSquad").expect("leftover team");
+        assert!(
+            team.read().unwrap().has_member(id.0),
+            "onDie retains the resident member"
+        );
+    }
+    logic.unlink_retiring_team_host_member(id, team_id);
     {
         let mut factory = logic.team_factory.lock().expect("world team factory");
         let team = factory.find_team("HostHookSquad").expect("leftover team");
         let guard = team.read().expect("read");
         assert!(
             !guard.has_member(id.0),
-            "onDie unlinks once; second notify is a no-op"
+            "physical retirement unlinks the member"
         );
     }
 }

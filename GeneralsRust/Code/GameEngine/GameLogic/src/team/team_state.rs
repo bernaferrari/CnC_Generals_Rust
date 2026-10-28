@@ -298,6 +298,13 @@ impl Team {
         !self.script_on_unit_destroyed.is_empty()
     }
 
+    /// Script named by this team's template for a member's onDie callback.
+    /// The driving world executes it after releasing the Team borrow.
+    pub fn object_death_script(&self) -> Option<&str> {
+        let name = self.script_on_unit_destroyed.as_str();
+        (!name.is_empty() && name != "<none>").then_some(name)
+    }
+
     /// Notify team of object death
     pub fn notify_team_of_object_death(&mut self) {
         if self.script_on_unit_destroyed.is_empty() {

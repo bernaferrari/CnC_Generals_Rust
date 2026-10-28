@@ -4,6 +4,37 @@ use gamelogic::scripting::engine::ScriptEngine;
 use gamelogic::team::{TeamStateObservation, TeamStateStep};
 
 impl GameLogic {
+    /// Run a Team script with this session's interpreter and calling context
+    /// after the Team borrow has ended.
+    pub(crate) fn run_owned_team_script_with_effects_checked(
+        &mut self,
+        engine: &ScriptEngine,
+        name: &str,
+        team_id: u32,
+        player_id: Option<u32>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let player_name = player_id.and_then(|id| {
+            self.get_player(id)
+                .map(|player| player.map_side.map_player_name.clone())
+        });
+        let context = gamelogic::scripting::executor::ScriptContext::at_frame(self.frame)
+            .with_session_world(self.host_trigger_world.clone());
+        let mut driver = super::script_execution_driver::HostScriptExecutionDriver::with_effects(
+            self,
+            engine,
+            ui.reborrow(),
+        );
+        engine.run_team_script_with_driver(
+            name,
+            team_id,
+            player_name.as_deref(),
+            context,
+            &mut driver,
+        )?;
+        Ok(())
+    }
+
     fn observe_owned_team_state(
         &self,
         members: &[u32],

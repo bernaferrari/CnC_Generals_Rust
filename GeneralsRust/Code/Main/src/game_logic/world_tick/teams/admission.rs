@@ -84,31 +84,53 @@ impl GameLogic {
         }
     }
 
-    /// C++ Object.cpp:4592 `m_team->notifyTeamOfObjectDeath()`.
-    pub fn notify_leftover_team_of_host_object_death(&self, id: ObjectId) {
-        let Some(obj) = self.objects.get(&id) else {
-            return;
+    /// C++ Object::onDie calls the resident Team's script synchronously after
+    /// Die modules. Resolve its identity and script under the receiving owner,
+    /// then release the Team borrow before executing potentially reentrant work.
+    pub(crate) fn notify_owned_team_of_object_death_with_effects(
+        &mut self,
+        id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some(team_id) = self
+            .objects
+            .get(&id)
+            .and_then(|object| object.team_instance_id)
+        else {
+            return Ok(());
         };
-        let Some(identity) = obj.team_instance_id else {
-            return;
+        let callback = {
+            let factory = self
+                .team_factory
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let Some(team) = factory.find_team_by_id(team_id) else {
+                return Ok(());
+            };
+            let team = team.read().unwrap_or_else(|error| error.into_inner());
+            team.object_death_script()
+                .map(|name| (name.to_owned(), team.get_controlling_player_id()))
         };
-        let Ok(factory) = self.team_factory.lock() else {
-            return;
+        let Some((name, player_id)) = callback else {
+            return Ok(());
         };
-        // C++ uses the object's resident team pointer. Death cannot select a
-        // same-name sibling or implicitly create a new team and run scripts.
-        let Some(team) = factory.find_team_by_id(identity) else {
-            return;
-        };
-        if let Ok(mut guard) = team.write() {
-            if !guard.has_member(id.0) {
-                return;
-            }
-            guard.notify_team_of_object_death();
-            guard.remove_member(id.0);
+        if let Some(recipient) = interpreter
+            .map(crate::game_logic::ScriptEventRecipient::new)
+            .or(effects.script_events)
+        {
+            return recipient.run_team_script(self, &name, team_id, player_id, effects);
         }
-        drop(factory);
-        gamelogic::team::flush_pending_team_script_events();
+        self.with_owned_script_engine(|engine, world| {
+            world.run_owned_team_script_with_effects_checked(
+                engine, &name, team_id, player_id, effects,
+            )
+        })
+        .ok_or_else(|| {
+            gamelogic::GameLogicError::Configuration(
+                "team death callback requires the receiving interpreter".into(),
+            )
+        })?
     }
 
     /// C++ Object destructor unlinks only its retained resident team pointer.

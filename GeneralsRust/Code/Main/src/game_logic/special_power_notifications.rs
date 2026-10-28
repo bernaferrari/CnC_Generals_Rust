@@ -14,6 +14,16 @@ impl<'a> ScriptEventRecipient<'a> {
     pub(crate) fn is_game_ending(self) -> bool {
         self.0.is_game_ending()
     }
+    pub(crate) fn run_team_script(
+        self,
+        world: &mut GameLogic,
+        name: &str,
+        team_id: u32,
+        player_id: Option<u32>,
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        world.run_owned_team_script_with_effects_checked(self.0, name, team_id, player_id, effects)
+    }
     fn notify(self, player: usize, power: &str, source: u32, triggered: bool, completed: bool) {
         if triggered {
             self.0
