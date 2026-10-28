@@ -1725,15 +1725,21 @@ fn xfer_diplomacy_briefing_history(
     } else {
         let mut num_entries = 0i32;
         xfer.xfer_int(&mut num_entries).map_err(|e| e.to_string())?;
+        // Decode the complete companion before mutating the receiving UI.
+        // A truncated Xfer must not clear history or publish a partial prefix.
+        let mut entries = Vec::new();
+        for _ in 0..num_entries.max(0) {
+            let mut temp_str = String::new();
+            xfer.xfer_ascii_string(&mut temp_str)
+                .map_err(|e| e.to_string())?;
+            entries.push(temp_str);
+        }
         owner.with_manager(|manager| {
             crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(
                 "", true, manager, diplomacy,
             )
         });
-        for _ in 0..num_entries.max(0) {
-            let mut temp_str = String::new();
-            xfer.xfer_ascii_string(&mut temp_str)
-                .map_err(|e| e.to_string())?;
+        for temp_str in entries {
             owner.with_manager(|manager| {
                 crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(
                     &temp_str, false, manager, diplomacy,
