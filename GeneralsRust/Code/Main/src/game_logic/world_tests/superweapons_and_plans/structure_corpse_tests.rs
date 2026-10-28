@@ -2,6 +2,90 @@
 //! C++ ActiveBody.cpp:641-649,1190-1226; structure updates finish without deletion.
 use super::*;
 
+fn collapse_owner_world(delay: u32, initial_fx: &str) -> (GameLogic, ObjectId) {
+    let mut parser = crate::assets::IniParser::new();
+    parser
+        .parse_ini_content(
+            &format!(
+                "Object SameNameCollapseProbe\n  KindOf = STRUCTURE IMMOBILE\n  MaxHealth = 100\n  Behavior = StructureCollapseUpdate ModuleTag_Sink\n    MinBurstDelay = {delay}\n    MaxBurstDelay = {delay}\n    FXList = INITIAL {initial_fx}\n  End\nEnd\n"
+            ),
+            "collapse-owner-world.ini",
+        )
+        .unwrap();
+    let definition = parser.get_definition("SameNameCollapseProbe").unwrap();
+    let template =
+        GameLogic::build_template_from_object_definition("SameNameCollapseProbe", definition, None);
+    assert!(template.receiving_object_definition.is_some());
+    let mut world = GameLogic::new();
+    ensure_test_player_for_team(&mut world, Team::USA);
+    world
+        .templates
+        .insert("SameNameCollapseProbe".into(), template);
+    let id = world
+        .create_object("SameNameCollapseProbe", Team::USA, Vec3::ZERO)
+        .expect("create admitted structure in this world");
+    (world, id)
+}
+
+#[test]
+fn same_id_worlds_begin_collapse_from_their_admitted_definitions() {
+    let (mut first, first_id) = collapse_owner_world(66, "FX_FirstInitial");
+    let (mut second, second_id) = collapse_owner_world(132, "FX_SecondInitial");
+    assert_eq!(
+        first_id, second_id,
+        "fixture must exercise identical ObjectIds"
+    );
+    assert!(first.try_begin_structure_topple_instead_of_destroy(first_id));
+    assert!(second.try_begin_structure_topple_instead_of_destroy(second_id));
+
+    let first_data = first
+        .host_object(first_id)
+        .unwrap()
+        .structure_collapse_data
+        .as_ref()
+        .unwrap();
+    let second_data = second
+        .host_object(second_id)
+        .unwrap()
+        .structure_collapse_data
+        .as_ref()
+        .unwrap();
+    assert_eq!(first_data.min_burst_delay, 66);
+    assert_eq!(first_data.fx_initial.as_deref(), Some("FX_FirstInitial"));
+    assert_eq!(second_data.min_burst_delay, 132);
+    assert_eq!(second_data.fx_initial.as_deref(), Some("FX_SecondInitial"));
+
+    // Interleaving the independent owners leaves both runtime residuals stable.
+    first
+        .host_object_mut(first_id)
+        .unwrap()
+        .tick_structure_collapse(1);
+    second
+        .host_object_mut(second_id)
+        .unwrap()
+        .tick_structure_collapse(1);
+    assert_eq!(
+        first
+            .host_object(first_id)
+            .unwrap()
+            .structure_collapse_data
+            .as_ref()
+            .unwrap()
+            .min_burst_delay,
+        66
+    );
+    assert_eq!(
+        second
+            .host_object(second_id)
+            .unwrap()
+            .structure_collapse_data
+            .as_ref()
+            .unwrap()
+            .min_burst_delay,
+        132
+    );
+}
+
 fn lethal_owner(collapse: bool) -> (GameLogic, ObjectId, Option<ObjectId>) {
     let mut world = GameLogic::new();
     if !collapse {

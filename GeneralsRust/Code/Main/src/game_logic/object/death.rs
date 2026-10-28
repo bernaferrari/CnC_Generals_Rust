@@ -102,16 +102,20 @@ impl Object {
             .clamp(15.0, 60.0)
             .max(radius * 0.8);
         let template = &self.thing.template;
-        let ini = if let Some(receiving) = &template.receiving_client_template {
-            crate::game_logic::host_structure_collapse::receiving_collapse_ini(
-                receiving,
-                template.receiving_object_definition.as_deref(),
-            )
-        } else {
-            crate::game_logic::host_structure_collapse::collapse_ini_for_template(
-                &self.template_name,
-            )
-        };
+        let ini = template
+            .receiving_client_template
+            .as_ref()
+            .and_then(|receiving| {
+                crate::game_logic::host_structure_collapse::receiving_collapse_ini(
+                    receiving,
+                    template.receiving_object_definition.as_deref(),
+                )
+            })
+            .or_else(|| {
+                template.receiving_object_definition.as_deref().and_then(
+                    crate::game_logic::host_structure_collapse::collapse_ini_from_definition,
+                )
+            });
         if let Some(ini) = ini {
             data.bind_ini(&ini);
         }

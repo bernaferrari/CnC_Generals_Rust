@@ -2156,32 +2156,47 @@ fn structure_collapse_on_lethal() {
 
 #[test]
 fn structure_collapse_binds_and_plays_phase_fx() {
-    use crate::game_logic::host_structure_collapse::{
-        clear_collapse_ini_override_for_tests, collapse_ini_from_behavior_attrs,
-        override_collapse_ini_for_tests,
-    };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let ini = collapse_ini_from_behavior_attrs(&[
-        ("MinBurstDelay", "66"),
-        ("MaxBurstDelay", "66"),
-        (
-            "FXList",
-            "INITIAL FX_DieInitial\nDELAY FX_DieDelay\nBURST FX_DieBurst\nFINAL FX_DieFinal",
-        ),
-    ]);
-    override_collapse_ini_for_tests("CivilianBarn01", ini);
-    let mut t = ThingTemplate::new("CivilianBarn01");
-    t.set_health(100.0);
-    t.add_kind_of(KindOf::Structure);
-    t.authored_structure_collapse = true;
-    let mut b = Object::new(t, ObjectId(1), Team::Neutral);
+    let definition = |delay: u32, phase_fx: &str| {
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                &format!(
+                    "Object CivilianBarn01\n  KindOf = STRUCTURE\n  Behavior = StructureCollapseUpdate ModuleTag_Sink\n    MinBurstDelay = {delay}\n    MaxBurstDelay = {delay}\n    FXList = {phase_fx}\n  End\nEnd\n"
+                ),
+                "collapse-owner.ini",
+            )
+            .unwrap();
+        parser.get_definition("CivilianBarn01").unwrap().clone()
+    };
+    let make_object = |definition| {
+        let mut template = ThingTemplate::new("CivilianBarn01");
+        template.set_health(100.0);
+        template.add_kind_of(KindOf::Structure);
+        template.authored_structure_collapse = true;
+        template.receiving_object_definition = Some(std::sync::Arc::new(definition));
+        Object::new(template, ObjectId(1), Team::Neutral)
+    };
+    let mut b = make_object(definition(
+        66,
+        "INITIAL FX_DieInitial\nDELAY FX_DieDelay\nBURST FX_DieBurst\nFINAL FX_DieFinal",
+    ));
+    let mut other = make_object(definition(
+        132,
+        "INITIAL FX_OtherInitial\nDELAY FX_OtherDelay\nBURST FX_OtherBurst\nFINAL FX_OtherFinal",
+    ));
     assert!(b.begin_structure_collapse(
+        0,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+    ));
+    assert!(other.begin_structure_collapse(
         0,
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     {
         let sc = b.structure_collapse_data.as_ref().unwrap();
         assert!(sc.initial_played);
+        assert_eq!(sc.min_burst_delay, 66);
         assert_eq!(sc.fx_initial.as_deref(), Some("FX_DieInitial"));
         assert_eq!(sc.fx_burst.as_deref(), Some("FX_DieBurst"));
         assert_eq!(sc.fx_delay.as_deref(), Some("FX_DieDelay"));
@@ -2190,6 +2205,12 @@ fn structure_collapse_binds_and_plays_phase_fx() {
             sc.pending_phase_fx.is_empty(),
             "INITIAL dispatched at begin"
         );
+    }
+    {
+        let sc = other.structure_collapse_data.as_ref().unwrap();
+        assert_eq!(sc.min_burst_delay, 132);
+        assert_eq!(sc.fx_initial.as_deref(), Some("FX_OtherInitial"));
+        assert_eq!(sc.fx_burst.as_deref(), Some("FX_OtherBurst"));
     }
     let mut saw_start_burst = false;
     let mut done = false;
@@ -2214,7 +2235,6 @@ fn structure_collapse_binds_and_plays_phase_fx() {
             .map(|d| d.final_played)
             .unwrap_or(false)
     );
-    clear_collapse_ini_override_for_tests();
 }
 
 #[test]

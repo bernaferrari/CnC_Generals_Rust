@@ -19,8 +19,6 @@
 //! - Not full DieMux death-type filters
 
 use serde::{Deserialize, Serialize};
-#[cfg(test)]
-use std::cell::RefCell;
 
 /// C++ COLLAPSE_ACCELERATION uses GlobalData gravity residual.
 pub const STRUCTURE_COLLAPSE_GRAVITY: f32 = -1.0;
@@ -37,12 +35,6 @@ pub const STRUCTURE_COLLAPSE_DEFAULT_HEIGHT: f32 = 35.0;
 pub const STRUCTURE_COLLAPSE_MIN_BURST_DELAY_DEFAULT: u32 = 9999;
 /// Fail-closed burst-timer residual when leftover min/max are unusable.
 pub const STRUCTURE_COLLAPSE_BURST_DELAY_FALLBACK: u32 = 15;
-
-#[cfg(test)]
-thread_local! {
-    static COLLAPSE_INI_OVERRIDE: RefCell<Option<(String, HostStructureCollapseIni)>> =
-        const { RefCell::new(None) };
-}
 
 /// Authored `StructureCollapseUpdate` Object INI peel (frames, first FX name).
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -478,15 +470,6 @@ fn first_named_fx_slot(list: &[Option<gamelogic::effects::FXList>]) -> Option<St
     None
 }
 
-fn leftover_structure_collapse_module_peel(
-    template_name: &str,
-) -> Option<HostStructureCollapseIni> {
-    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
-    let factory = guard.as_ref()?;
-    let tmpl = factory.find_template(template_name, false)?;
-    collapse_ini_from_modules(tmpl.get_behavior_module_info())
-}
-
 fn collapse_ini_from_modules(
     modules: &game_engine::common::thing::thing_template::ModuleInfo,
 ) -> Option<HostStructureCollapseIni> {
@@ -551,14 +534,7 @@ fn collapse_ini_from_modules(
     None
 }
 
-fn asset_manager_collapse_ini(name: &str) -> Option<HostStructureCollapseIni> {
-    let manager = crate::assets::get_asset_manager()?;
-    let manager = manager.lock().ok()?;
-    let definition = manager.get_object_definition(name)?;
-    collapse_ini_from_definition(&definition)
-}
-
-fn collapse_ini_from_definition(
+pub(crate) fn collapse_ini_from_definition(
     definition: &crate::assets::ObjectDefinition,
 ) -> Option<HostStructureCollapseIni> {
     for module in &definition.behavior_modules {
@@ -576,12 +552,6 @@ fn collapse_ini_from_definition(
         return Some(collapse_ini_from_behavior_attrs(&attrs));
     }
     None
-}
-
-fn authored_collapse_ini(name: &str) -> Option<HostStructureCollapseIni> {
-    let leftover = leftover_structure_collapse_module_peel(name);
-    let assets = asset_manager_collapse_ini(name);
-    merge_collapse_ini(leftover, assets)
 }
 
 fn merge_collapse_ini(
@@ -615,37 +585,6 @@ pub(crate) fn receiving_collapse_ini(
     )
 }
 
-/// Test helper: treat `template_name` as authoring StructureCollapseUpdate FX.
-#[cfg(test)]
-pub fn override_collapse_ini_for_tests(template_name: &str, ini: HostStructureCollapseIni) {
-    COLLAPSE_INI_OVERRIDE.with(|slot| {
-        *slot.borrow_mut() = Some((template_name.to_string(), ini));
-    });
-}
-
-#[cfg(test)]
-pub fn clear_collapse_ini_override_for_tests() {
-    COLLAPSE_INI_OVERRIDE.with(|slot| {
-        *slot.borrow_mut() = None;
-    });
-}
-
-/// Live lookup: override (tests) then leftover ThingFactory then Object INI.
-pub fn collapse_ini_for_template(name: &str) -> Option<HostStructureCollapseIni> {
-    #[cfg(test)]
-    {
-        let hit = COLLAPSE_INI_OVERRIDE.with(|slot| {
-            slot.borrow()
-                .as_ref()
-                .and_then(|(n, ini)| n.eq_ignore_ascii_case(name).then(|| ini.clone()))
-        });
-        if hit.is_some() {
-            return hit;
-        }
-    }
-    authored_collapse_ini(name)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -675,9 +614,18 @@ mod tests {
         };
         let first = modules(7);
         let second = modules(19);
-        assert_eq!(collapse_ini_from_modules(&first).unwrap().min_burst_delay, 7);
-        assert_eq!(collapse_ini_from_modules(&second).unwrap().min_burst_delay, 19);
-        assert_eq!(collapse_ini_from_modules(&first).unwrap().min_burst_delay, 7);
+        assert_eq!(
+            collapse_ini_from_modules(&first).unwrap().min_burst_delay,
+            7
+        );
+        assert_eq!(
+            collapse_ini_from_modules(&second).unwrap().min_burst_delay,
+            19
+        );
+        assert_eq!(
+            collapse_ini_from_modules(&first).unwrap().min_burst_delay,
+            7
+        );
     }
 
     #[test]
