@@ -192,7 +192,23 @@ impl Object {
         frame: u32,
         effects: &mut crate::game_logic::script_presentation::ScriptPresentationEffects<'_>,
     ) {
-        self.set_transform_matrix_with_partition_context(transform, frame, effects, None);
+        self.set_transform_matrix_with_partition_context(transform, frame, effects, None, None);
+    }
+
+    pub(crate) fn set_transform_matrix_with_effects_and_team_factory(
+        &mut self,
+        transform: Mat4,
+        frame: u32,
+        effects: &mut crate::game_logic::script_presentation::ScriptPresentationEffects<'_>,
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+    ) {
+        self.set_transform_matrix_with_partition_context(
+            transform,
+            frame,
+            effects,
+            None,
+            Some(team_factory),
+        );
     }
 
     pub(crate) fn set_transform_matrix_with_partition_owner(
@@ -215,10 +231,11 @@ impl Object {
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+        team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) {
         let old_position =
             self.install_transform_matrix_with_partition_context(transform, effects, partition);
-        self.react_to_position_change(old_position, frame, effects, None);
+        self.react_to_position_change(old_position, frame, effects, team_factory);
     }
 
     fn install_transform_matrix_with_partition_context(

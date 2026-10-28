@@ -383,11 +383,12 @@ impl GameLogic {
                             .map(|h| h.is_active())
                             .unwrap_or(false)
                     {
-                        topple_kill = obj.tick_helicopter_slow_death_with_effects(
+                        topple_kill = obj.tick_helicopter_slow_death_with_effects_and_team_factory(
                             self.frame,
                             0.0,
                             &mut presentation_effects
                                 .reborrow_for_object(&mut self.partition_manager),
+                            &self.team_factory,
                         );
                         final_death_destroy = topple_kill;
                     }

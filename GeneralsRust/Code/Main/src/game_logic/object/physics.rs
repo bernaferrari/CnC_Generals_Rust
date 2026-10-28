@@ -593,11 +593,22 @@ impl Object {
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (PhysicsTurningType, f32) {
-        self.rotate_obj_around_loco_pivot_with_effects(
+        self.rotate_towards_position_with_team_factory_context(goal, dt, frame, effects, None)
+    }
+    fn rotate_towards_position_with_team_factory_context(
+        &mut self,
+        goal: glam::Vec3,
+        dt: f32,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+    ) -> (PhysicsTurningType, f32) {
+        self.rotate_obj_around_loco_pivot_with_team_factory_context(
             goal,
             self.maximum_towards_turn(dt),
             frame,
             effects,
+            team_factory,
         )
     }
     fn maximum_towards_turn(&self, dt: f32) -> f32 {
@@ -677,9 +688,30 @@ impl Object {
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (PhysicsTurningType, f32) {
+        self.rotate_obj_around_loco_pivot_with_team_factory_context(
+            goal, max_turn_rate, frame, effects, None,
+        )
+    }
+    fn rotate_obj_around_loco_pivot_with_team_factory_context(
+        &mut self,
+        goal: glam::Vec3,
+        max_turn_rate: f32,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+    ) -> (PhysicsTurningType, f32) {
         let plan = self.plan_loco_pivot(goal, max_turn_rate);
         if let Some(transform) = plan.transform {
-            self.set_transform_matrix_with_effects(transform, frame, effects);
+            if let Some(team_factory) = team_factory {
+                self.set_transform_matrix_with_effects_and_team_factory(
+                    transform,
+                    frame,
+                    effects,
+                    team_factory,
+                );
+            } else {
+                self.set_transform_matrix_with_effects(transform, frame, effects);
+            }
         }
         if let Some(angle) = plan.orientation {
             self.set_orientation_with_effects(angle, effects);
@@ -926,6 +958,34 @@ impl Object {
         surface_y: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
+        self.loco_maintain_appearance_with_team_factory_context(
+            dt, frame, surface_y, effects, None,
+        )
+    }
+    pub(crate) fn loco_maintain_appearance_with_team_factory(
+        &mut self,
+        dt: f32,
+        frame: u32,
+        surface_y: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+    ) -> bool {
+        self.loco_maintain_appearance_with_team_factory_context(
+            dt,
+            frame,
+            surface_y,
+            effects,
+            Some(team_factory),
+        )
+    }
+    fn loco_maintain_appearance_with_team_factory_context(
+        &mut self,
+        dt: f32,
+        frame: u32,
+        surface_y: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+    ) -> bool {
         self.begin_loco_maintain_appearance(frame);
 
         // Appearance-specific maintain residual.
@@ -934,7 +994,12 @@ impl Object {
                 self.motive_frames_remaining = MOTIVE_FRAMES_RESIDUAL.max(1);
                 // 2D circle only. C++ handleBehaviorZ runs after with
                 // getSurfaceHtAtPt (hq-xlays) — not own altitude.
-                self.maintain_position_wings_with_effects(dt.max(1.0 / 30.0), frame, effects);
+                self.maintain_position_wings_with_team_factory_context(
+                    dt.max(1.0 / 30.0),
+                    frame,
+                    effects,
+                    team_factory,
+                );
                 return true;
             }
             LocomotorAppearance::Thrust => {
@@ -1761,6 +1826,15 @@ impl Object {
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        self.maintain_position_wings_with_team_factory_context(dt, frame, effects, None);
+    }
+    fn maintain_position_wings_with_team_factory_context(
+        &mut self,
+        dt: f32,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+    ) {
         self.physics_turning = PhysicsTurningType::TurnNone;
         // C++ maintainCurrentPositionWings: isMotive() && isAboveTerrain().
         if !self.is_motive() || !self.is_above_terrain() {
@@ -1796,12 +1870,22 @@ impl Object {
         // C++ moveTowardsPositionWings(..., m_template->m_minSpeed).
         let spd = self.min_speed.max(0.0);
         self.movement.target_position = Some(desired);
-        let (_t, _rel) = self.rotate_towards_position_with_effects(desired, dt, frame, effects);
+        let (_t, _rel) = self.rotate_towards_position_with_team_factory_context(
+            desired,
+            dt,
+            frame,
+            effects,
+            team_factory,
+        );
         self.apply_forward_speed_force(spd, dt);
         let mut p = self.get_position();
         p.x += self.movement.velocity.x * dt;
         p.z += self.movement.velocity.z * dt;
-        self.set_position_with_effects(p, frame, effects);
+        if let Some(team_factory) = team_factory {
+            self.set_position_with_effects_and_team_factory(p, frame, effects, team_factory);
+        } else {
+            self.set_position_with_effects(p, frame, effects);
+        }
         self.movement.target_position = None;
         // C++ maintainCurrentPositionWings is 2D circling only
         // (Locomotor.cpp:2488-2524). handleBehaviorZ uses terrain.

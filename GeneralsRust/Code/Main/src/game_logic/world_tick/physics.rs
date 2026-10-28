@@ -1094,11 +1094,12 @@ impl GameLogic {
             };
             let pose_frame = self.frame;
             if let Some(bounce) = self.objects.get_mut(&bounce_id) {
-                bounce.apply_parachute_building_bounce_out_with_effects(
+                bounce.apply_parachute_building_bounce_out_with_effects_and_team_factory(
                     imm_center,
                     us_radius,
                     pose_frame,
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.team_factory,
                 );
             }
             return true;
@@ -1607,11 +1608,12 @@ impl GameLogic {
             return false;
         };
         if object.loco_appearance != LocomotorAppearance::Thrust {
-            object.loco_maintain_appearance_with_effects(
+            object.loco_maintain_appearance_with_team_factory(
                 dt,
                 frame,
                 surface_y,
                 &mut effects.reborrow_for_object(&mut self.partition_manager),
+                &self.team_factory,
             );
             return true;
         }

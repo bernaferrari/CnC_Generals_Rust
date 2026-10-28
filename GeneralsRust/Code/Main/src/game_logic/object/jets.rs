@@ -359,6 +359,31 @@ impl Object {
         terrain_height: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
+        self.tick_helicopter_slow_death_with_owner(current_frame, terrain_height, effects, None)
+    }
+
+    pub(crate) fn tick_helicopter_slow_death_with_effects_and_team_factory(
+        &mut self,
+        current_frame: u32,
+        terrain_height: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+    ) -> bool {
+        self.tick_helicopter_slow_death_with_owner(
+            current_frame,
+            terrain_height,
+            effects,
+            Some(team_factory),
+        )
+    }
+
+    fn tick_helicopter_slow_death_with_owner(
+        &mut self,
+        current_frame: u32,
+        terrain_height: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+    ) -> bool {
         let pos = self.get_position();
         let hat = (pos.y - terrain_height).max(0.0);
         let ori = self.get_orientation();
@@ -374,7 +399,16 @@ impl Object {
         np.x += dx;
         np.y = (np.y + dy).max(terrain_height);
         np.z += dz;
-        self.set_position_with_effects(np, current_frame, effects);
+        if let Some(team_factory) = team_factory {
+            self.set_position_with_effects_and_team_factory(
+                np,
+                current_frame,
+                effects,
+                team_factory,
+            );
+        } else {
+            self.set_position_with_effects(np, current_frame, effects);
+        }
         self.set_orientation_with_effects(ori + dori, effects);
         if done {
             // Final phase reports completion; destroyObject owns admission.

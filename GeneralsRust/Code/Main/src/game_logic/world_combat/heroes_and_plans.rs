@@ -510,10 +510,11 @@ impl GameLogic {
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             {}
-            r.set_position_with_effects(
+            r.set_position_with_effects_and_team_factory(
                 eject_pos,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.team_factory,
             );
             {}
             // C++ ParachuteContain::onDie: chute gone, rider setAllowToFall + setIsInFreeFall.

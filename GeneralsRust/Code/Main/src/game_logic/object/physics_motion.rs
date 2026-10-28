@@ -385,6 +385,32 @@ impl Object {
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        self.apply_parachute_building_bounce_out_with_owner(
+            other_center, us_radius, frame, effects, None,
+        );
+    }
+
+    pub(crate) fn apply_parachute_building_bounce_out_with_effects_and_team_factory(
+        &mut self,
+        other_center: glam::Vec3,
+        us_radius: f32,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+    ) {
+        self.apply_parachute_building_bounce_out_with_owner(
+            other_center, us_radius, frame, effects, Some(team_factory),
+        );
+    }
+
+    fn apply_parachute_building_bounce_out_with_owner(
+        &mut self,
+        other_center: glam::Vec3,
+        us_radius: f32,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+    ) {
         use crate::game_logic::host_partition_collision_physics_residual::parachute_bounce_out_distance;
         let us = self.get_position();
         let mut dx = other_center.x - us.x;
@@ -399,7 +425,11 @@ impl Object {
         let mut pos = us;
         pos.x -= bounce * dx / dist;
         pos.z -= bounce * dz / dist;
-        self.set_position_with_effects(pos, frame, effects);
+        if let Some(team_factory) = team_factory {
+            self.set_position_with_effects_and_team_factory(pos, frame, effects, team_factory);
+        } else {
+            self.set_position_with_effects(pos, frame, effects);
+        }
         self.scrub_velocity_2d(0.0);
     }
 
