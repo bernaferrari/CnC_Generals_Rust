@@ -65,7 +65,7 @@ fn world(map: &std::path::Path) -> (GameLogic, ObjectId, ObjectId) {
     world
         .admit_object_ini_sources([(
             "TeamRelations.ini".into(),
-            "Object RelationUnit\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
+            "Object RelationUnit\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = CostModifierUpgrade MergeCost\n TriggeredBy = Upgrade_Veterancy_VETERAN\n EffectKindOf = VEHICLE AIRCRAFT\n Percentage = -10%\n End\nEnd\nObject RelationDualPurchase\n KindOf = VEHICLE AIRCRAFT\n BuildCost = 1000\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
         )])
         .unwrap();
     world.start_new_game(GameMode::SinglePlayer);
@@ -225,6 +225,25 @@ fn player_team_overrides_keep_exact_team_identity_across_worlds_and_saves() {
     } else {
         target
     };
+    owner.host_object_mut(selected).unwrap().name = "MergeCostSource".into();
+    let mut upgrade = ScriptAction::new(ScriptActionType::NamedReceiveUpgrade);
+    upgrade
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "MergeCostSource".into(),
+        ))
+        .unwrap();
+    upgrade
+        .add_parameter(Parameter::with_string(
+            ParameterType::Upgrade,
+            "Upgrade_Veterancy_VETERAN".into(),
+        ))
+        .unwrap();
+    run_action(&mut owner, upgrade);
+    assert_eq!(
+        owner.modified_build_cost_supplies(2, "RelationDualPurchase", 1000),
+        900
+    );
     execute_player_override(
         &mut owner,
         ScriptActionType::PlayerSetOverrideRelationToTeam,
@@ -333,6 +352,23 @@ fn player_team_overrides_keep_exact_team_identity_across_worlds_and_saves() {
     assert_eq!(
         owner.host_object(selected).unwrap().owner_player_id,
         Some(1)
+    );
+    assert_eq!(
+        owner.modified_build_cost_supplies(2, "RelationDualPurchase", 1000),
+        1000
+    );
+    assert_eq!(
+        owner.modified_build_cost_supplies(1, "RelationDualPurchase", 1000),
+        900,
+        "merge must deliver the original onCapture cost-modifier transfer"
+    );
+    assert_eq!(
+        peer.modified_build_cost_supplies(2, "RelationDualPurchase", 1000),
+        1000
+    );
+    assert_eq!(
+        restored.modified_build_cost_supplies(2, "RelationDualPurchase", 1000),
+        900
     );
     assert_eq!(relation(&owner, source, unselected), Relationship::Enemies);
     assert_eq!(

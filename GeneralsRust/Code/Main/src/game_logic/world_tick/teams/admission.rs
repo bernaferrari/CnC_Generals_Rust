@@ -267,39 +267,81 @@ impl GameLogic {
             .read()
             .unwrap_or_else(|error| error.into_inner())
             .get_members()
-            .to_vec();
-        let (name, owner) = {
-            let team = destination
-                .read()
+            .iter()
+            .filter_map(|raw_id| {
+                self.objects.get(&ObjectId(*raw_id)).map(|object| {
+                    (
+                        *raw_id,
+                        std::sync::Arc::downgrade(&object.visual_draw_identity_token),
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        // ScriptActions.cpp:3149-3166 visits the first member twice: its
+        // prefetched next pointer initially still points at that member.
+        // setTeam is then a no-op, but updateTeamAndPlayerStuff still runs.
+        let visits = members.first().cloned().into_iter().chain(members);
+        let mut first_was_visited = false;
+        for (index, (raw_id, birth)) in visits.enumerate() {
+            let identities_match = self
+                .team_factory
+                .with_read_without_flushing(|factory| {
+                    factory
+                        .find_team_by_id(source_id)
+                        .is_some_and(|team| std::sync::Arc::ptr_eq(&team, &source))
+                        && factory
+                            .find_team_by_id(destination_id)
+                            .is_some_and(|team| std::sync::Arc::ptr_eq(&team, &destination))
+                })
                 .unwrap_or_else(|error| error.into_inner());
-            (
-                team.get_name().to_string(),
-                team.get_controlling_player_id(),
-            )
-        };
-        let factory = self.team_factory.clone();
-        for raw_id in members {
+            if !identities_match {
+                return Ok(());
+            }
             let id = ObjectId(raw_id);
-            let Some(object) = self.host_object_mut(id) else {
-                continue;
-            };
-            if object.team_instance_id != Some(source_id) {
+            if !self.object_birth_matches(id, &birth) {
                 continue;
             }
-            object.team_instance_name = name.clone();
-            object.team_instance_id = Some(destination_id);
-            if let Some(owner) = owner {
-                object.owner_player_id = Some(owner);
+            if index == 1 && !first_was_visited {
+                continue;
             }
-            object.apply_named_team_ai_profile(&factory, true);
-            source
-                .write()
-                .unwrap_or_else(|error| error.into_inner())
-                .remove_member(raw_id);
-            destination
-                .write()
-                .unwrap_or_else(|error| error.into_inner())
-                .add_member(raw_id);
+            // The second visit is the prefetched first member; earlier
+            // callbacks may have moved it again. Other visits must still be
+            // members of the source Team, as the original iterator requires.
+            if index != 1
+                && self
+                    .objects
+                    .get(&id)
+                    .and_then(|object| object.team_instance_id)
+                    != Some(source_id)
+            {
+                continue;
+            }
+            if !self.set_host_object_team_with_effects(id, destination_id, ui) {
+                return Err(gamelogic::GameLogicError::Configuration(
+                    "team merge could not transfer its receiving member".into(),
+                ));
+            }
+            if index == 0 {
+                first_was_visited = true;
+            }
+            if self.object_birth_matches(id, &birth) {
+                self.apply_researched_player_upgrades_to_object_with_interpreter(
+                    id,
+                    interpreter,
+                    ui,
+                );
+            }
+        }
+        let source_is_same = self
+            .team_factory
+            .with_read_without_flushing(|factory| {
+                factory
+                    .find_team_by_id(source_id)
+                    .is_some_and(|team| std::sync::Arc::ptr_eq(&team, &source))
+            })
+            .unwrap_or_else(|error| error.into_inner());
+        if !source_is_same {
+            return Ok(());
         }
         // C++ retires source before activating destination. The existing owned
         // destruction path notifies the receiving interpreter/controllers.
