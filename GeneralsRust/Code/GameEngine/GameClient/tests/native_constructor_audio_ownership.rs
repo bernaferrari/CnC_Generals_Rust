@@ -1338,7 +1338,7 @@ fn native_xfer_restore_defers_constructor_audio_and_restarts_only_permanent_ambi
     current
         .restore_from_xfer_bytes_with_receiving_content_and_indicator_colors(
             &bytes,
-            &mut current_content,
+            Some(&mut current_content),
             policy,
             |_| Ok((255, 255, 255)),
         )
@@ -1346,7 +1346,7 @@ fn native_xfer_restore_defers_constructor_audio_and_restarts_only_permanent_ambi
     candidate
         .restore_from_xfer_bytes_with_receiving_content_and_indicator_colors(
             &bytes,
-            &mut candidate_content,
+            Some(&mut candidate_content),
             policy,
             |_| Ok((255, 255, 255)),
         )

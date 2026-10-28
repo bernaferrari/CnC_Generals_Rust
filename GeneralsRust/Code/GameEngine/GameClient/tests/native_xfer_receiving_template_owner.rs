@@ -184,7 +184,7 @@ fn public_native_restore_uses_receiving_color_and_does_not_import_same_id_regist
     receiver
         .restore_from_xfer_bytes_with_receiving_content_and_indicator_colors(
             &bytes,
-            &mut receiving_content,
+            Some(&mut receiving_content),
             policy(),
             |id| {
                 assert_eq!(id, OBJECT_ID);
@@ -224,7 +224,7 @@ fn public_native_restore_uses_receiving_color_and_does_not_import_same_id_regist
     let error = mismatched_receiver
         .restore_from_xfer_bytes_with_receiving_content_and_indicator_colors(
             &mismatched,
-            &mut mismatched_content,
+            Some(&mut mismatched_content),
             policy(),
             |_| Ok((17, 34, 51)),
         )
@@ -238,12 +238,40 @@ fn public_native_restore_uses_receiving_color_and_does_not_import_same_id_regist
         .unwrap_err();
     assert!(error.contains("receiving object resolver is required"));
 
+    let mut no_catalog = GameClient::new().unwrap();
+    let retained = no_catalog
+        .register_drawable(Box::new(BasicDrawable::new(
+            game_client_rust::drawable::DrawableId::INVALID,
+        )))
+        .unwrap();
+    let error = no_catalog
+        .restore_from_xfer_bytes_with_receiving_content_and_indicator_colors(
+            &bytes,
+            None,
+            policy(),
+            |_| Ok((17, 34, 51)),
+        )
+        .unwrap_err();
+    assert!(error.contains("receiving Drawable template catalog was not admitted"));
+    assert!(no_catalog.find_drawable_by_id(retained).is_some());
+
+    let empty_bytes = GameClient::new().unwrap().capture_xfer_bytes().unwrap();
+    let mut empty_receiver = GameClient::new().unwrap();
+    empty_receiver
+        .restore_from_xfer_bytes_with_receiving_content_and_indicator_colors(
+            &empty_bytes,
+            None,
+            policy(),
+            |_| panic!("an empty archive has no attached object"),
+        )
+        .unwrap();
+
     let mut missing_receiver_content = admitted;
     let mut missing_receiver = GameClient::new().unwrap();
     let error = missing_receiver
         .restore_from_xfer_bytes_with_receiving_content_and_indicator_colors(
             &bytes,
-            &mut missing_receiver_content,
+            Some(&mut missing_receiver_content),
             policy(),
             |object_id| Err(format!("missing receiving Object {object_id}")),
         )

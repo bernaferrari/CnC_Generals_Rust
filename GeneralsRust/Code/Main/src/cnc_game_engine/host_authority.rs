@@ -1746,21 +1746,14 @@ impl CnCGameEngine {
                 Some(game_client::system::TimeOfDay::Night)
             );
             let (content, mut color_for_object) = self.game_logic.drawable_restore_inputs(is_night);
-            let restore_result = if let Some(content) = content {
-                self.game_client
-                    .restore_from_xfer_bytes_with_receiving_content_and_indicator_colors(
-                        bytes,
-                        content,
-                        policy,
-                        &mut color_for_object,
-                    )
-            } else {
-                crate::save_load::snapshot::restore_game_client_from_xfer_bytes(
-                    &mut self.game_client,
+            let restore_result = self
+                .game_client
+                .restore_from_xfer_bytes_with_receiving_content_and_indicator_colors(
                     bytes,
-                )
-                .map_err(|err| err.to_string())
-            };
+                    content,
+                    policy,
+                    &mut color_for_object,
+                );
             restore_result.map_err(|err| {
                 format!("failed to restore CHUNK_GameClient after world commit: {err}")
             })?;

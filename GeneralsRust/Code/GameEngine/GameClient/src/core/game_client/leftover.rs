@@ -1841,7 +1841,9 @@ impl GameClient {
     pub fn restore_from_xfer_bytes_with_receiving_content_and_indicator_colors(
         &mut self,
         bytes: &[u8],
-        content: &mut game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
+        content: Option<
+            &mut game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
+        >,
         policy: ReceivingDrawablePolicy,
         mut indicator_color_for_object: impl FnMut(ObjectID) -> Result<(u8, u8, u8), String>,
     ) -> Result<(), String> {
@@ -1852,7 +1854,7 @@ impl GameClient {
         read_game_client_xfer_bytes_with_receiving_content(
             self,
             bytes,
-            Some(content),
+            content,
             Some(policy),
             Some(&mut indicator_color_for_object),
         )
@@ -1949,6 +1951,10 @@ impl GameClient {
             &mut dyn FnMut(ObjectID) -> Result<(u8, u8, u8), String>,
         >,
     ) -> Result<(), String> {
+        // A receiving policy identifies a native restore even when no
+        // template catalog was admitted. Never select the compatibility
+        // factory or registry for that session.
+        let native_receiving = receiving_policy.is_some();
         if xfer.get_xfer_mode() == CommonXferMode::Load {
             self.pending_drawable_post_process_order = None;
             self.invalidate_presentation_shell();
@@ -1977,11 +1983,6 @@ impl GameClient {
         let save_entries = if xfer.is_writing() {
             self.collect_saveable_drawables_excluding_owned(owned)?
         } else {
-            // Actual prior native module/particle/ambient lifetimes must finish
-            // before decoding a replacement roster. Header validation alone is
-            // not permission to drop active native resource identities.
-            self.try_invalidate_presentation_drawable_world()
-                .map_err(|error| error.to_string())?;
             Vec::new()
         };
 
@@ -1992,6 +1993,16 @@ impl GameClient {
 
         xfer.xfer_unsigned_short(&mut drawable_count)
             .map_err(|e| e.to_string())?;
+
+        if xfer.is_reading() {
+            if native_receiving && drawable_count > 0 && receiving_content.is_none() {
+                return Err("receiving Drawable template catalog was not admitted".into());
+            }
+            // Retire prior native resources only after the receiving catalog
+            // needed by this archive has been admitted.
+            self.try_invalidate_presentation_drawable_world()
+                .map_err(|error| error.to_string())?;
+        }
 
         let mut decoded_drawable_order = Vec::new();
         let mut decoded_drawable_ids = std::collections::HashSet::new();
@@ -2053,8 +2064,10 @@ impl GameClient {
                 // Native restore resolves the authored TOC name in the
                 // receiving world's admitted catalog. The compatibility
                 // reader retains the standalone ThingFactory behavior.
-                let template = if let Some(content) = receiving_content.as_deref() {
-                    content
+                let template = if native_receiving {
+                    receiving_content
+                        .as_deref()
+                        .ok_or("receiving Drawable template catalog was not admitted")?
                         .resolve_template(&toc_name)
                         .map(XferDrawableTemplate::Receiving)
                 } else {
@@ -2078,7 +2091,7 @@ impl GameClient {
 
                 // The C++ loader requires attached objects to exist in its
                 // GameLogic before binding or loading their Drawable.
-                let receiving_color = if receiving_content.is_some() && object_id != INVALID_ID {
+                let receiving_color = if native_receiving && object_id != INVALID_ID {
                     let resolve = receiving_indicator_color.as_deref_mut().ok_or_else(|| {
                         format!(
                             "receiving object resolver is required for Drawable object {object_id}"
@@ -2153,7 +2166,7 @@ impl GameClient {
                     self.drawables
                         .owned_laser_order
                         .retain(|owner| *owner != created_id);
-                    if object_id != INVALID_ID && receiving_content.is_none() {
+                    if object_id != INVALID_ID && !native_receiving {
                         created.set_object_id(Some(object_id));
                     }
                     drawable = Some((created, receiving_position));
@@ -2189,7 +2202,7 @@ impl GameClient {
                     self.native_audio_device.as_ref(),
                 )?;
 
-                if receiving_content.is_some() {
+                if native_receiving {
                     let expected_object = (object_id != INVALID_ID).then_some(object_id);
                     if drawable.get_object_id() != expected_object {
                         return Err(format!(
@@ -2231,7 +2244,7 @@ impl GameClient {
                 xfer.end_block().map_err(|e| format!("{:?}", e))?;
                 decoded_drawable_order.push(id);
 
-                if receiving_content.is_none() && object_id != INVALID_ID {
+                if !native_receiving && object_id != INVALID_ID {
                     // Dual-world residual bind only; host uses drawable_object_map.
                     if OBJECT_REGISTRY.get_object(object_id).is_some() {
                         let _ = self.bind_drawable_to_object(id, object_id);
@@ -2249,7 +2262,7 @@ impl GameClient {
         )?;
 
         if xfer.is_reading() {
-            self.load_post_process_with_registry(receiving_content.is_none())?;
+            self.load_post_process_with_registry(!native_receiving)?;
             self.pending_drawable_post_process_order = Some(decoded_drawable_order);
         }
 
