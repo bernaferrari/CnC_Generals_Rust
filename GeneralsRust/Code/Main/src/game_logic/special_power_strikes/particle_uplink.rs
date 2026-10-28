@@ -1145,40 +1145,35 @@ pub fn particle_scorch_radius(spawn_frame: u32, current_frame: u32) -> f32 {
     laser_r * PARTICLE_SCORCH_MARK_SCALAR * particle_width_scalar(spawn_frame, current_frame)
 }
 
-/// C++ `ParticleUplinkCannonUpdate.cpp:603-614`.
+/// Receiving-session variant for headless Main. The scorch is applied to the
+/// same terrain owner that admitted the world, then GroundHitFX is dispatched
+/// synchronously, matching `ParticleUplinkCannonUpdate.cpp:603-614`.
 ///
-/// Leftover `ParticleUplinkCannonUpdate` already calls
-/// `TheGameClient::add_scorch` + `TheFXListStore` GroundHitFX. Live beams are
-/// residual-only (Wave 299 empty dual-world), so replay those leftover client
-/// calls from each due scorch event.
-///
-/// `GameClientRandomValue(SCORCH_1, SCORCH_4)` — C++ `SCORCH_1=0` .. `SCORCH_4=3`.
-/// Host `position` is Y-up; leftover / `addScorch` is Z-up.
-pub fn apply_particle_beam_scorch_and_ground_hit_fx(position: Vec3, scorch_radius: f32) {
-    apply_particle_beam_scorch_and_ground_hit_fx_with_dispatch(
-        position,
-        scorch_radius,
-        &mut |name, pos, secondary, speed, radius, matrix| {
-            crate::game_logic::dispatch_fx_list_at_pos_oriented(
-                name, pos, secondary, speed, radius, matrix,
-            )
-        },
-    );
-}
-
-pub fn apply_particle_beam_scorch_and_ground_hit_fx_with_dispatch(
+/// Returns false when the receiving terrain capability is absent. GroundHitFX
+/// still runs in that case, as it did when the legacy client singleton was
+/// unavailable; no global scorch recipient is consulted.
+pub(crate) fn apply_particle_beam_scorch_and_ground_hit_fx_with_terrain(
     position: Vec3,
     scorch_radius: f32,
+    terrain: &mut Option<&mut dyn crate::game_logic::NativeTerrainEffects>,
+    random: &mut game_engine::common::random_value::RandomState,
     dispatch_fx: &mut dyn FnMut(&str, Vec3, Option<Vec3>, f32, f32, Option<glam::Mat4>) -> bool,
-) {
+) -> bool {
     const SCORCH_1: i32 = 0;
     const SCORCH_4: i32 = 3;
-    let leftover = gamelogic::common::Coord3D::new(position.x, position.z, position.y);
-    if let Some(client) = gamelogic::helpers::TheGameClient::get() {
-        let scorch_id = gamelogic::helpers::game_client_random_value(SCORCH_1, SCORCH_4);
-        client.add_scorch(&leftover, scorch_radius, scorch_id);
-    }
+    let Some(terrain) = terrain.as_mut() else {
+        let _ = dispatch_fx(PARTICLE_GROUND_HIT_FX, position, None, 0.0, 0.0, None);
+        return false;
+    };
+
+    let scorch_id = random.next_int(SCORCH_1, SCORCH_4);
+    terrain.add_scorch(
+        [position.x, position.z, position.y],
+        scorch_radius,
+        scorch_id,
+    );
     let _ = dispatch_fx(PARTICLE_GROUND_HIT_FX, position, None, 0.0, 0.0, None);
+    true
 }
 
 /// Next absolute frame for the next scorch mark (fractional residual).
@@ -1415,7 +1410,7 @@ pub fn apply_particle_beam_scorch_and_ground_hit_fx_with_view(
     scorch_radius: f32,
     view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
 ) {
-    let scorch_id = gamelogic::helpers::game_client_random_value(0, 3);
+    let scorch_id = view.session.client_random.next_int(0, 3);
     view.scorch(
         [position.x, position.z, position.y],
         scorch_radius,
@@ -1479,5 +1474,92 @@ impl ParticleUplinkEffects for crate::game_logic::host_fx_list_dispatch::ObjectF
     }
     fn outer_flares(&mut self, source: ObjectId, position: Vec3, intensity: ParticleIntensity) {
         spawn_particle_outer_node_flares(source, position, intensity, self);
+    }
+}
+
+#[cfg(test)]
+mod receiving_scorch_tests {
+    use super::*;
+    use crate::game_logic::{NativeTerrainEffects, ScriptPresentationEffects};
+
+    #[derive(Default)]
+    struct Terrain {
+        events: std::rc::Rc<std::cell::RefCell<Vec<&'static str>>>,
+        scorch: Vec<([u32; 3], f32, i32)>,
+    }
+    impl NativeTerrainEffects for Terrain {
+        fn oversize_terrain(&mut self, _: i32) {}
+        fn remove_for_construction(&mut self, _: [f32; 3], _: f32, _: f32, _: bool, _: f32) {}
+        fn placement_bib(&mut self, _: u32, _: glam::Mat4, _: f32, _: f32, _: bool) {}
+        fn retain_placement_bibs(&mut self, _: &[u32]) {}
+        fn clear_placement_bibs(&mut self) {}
+        fn add_water_velocity(&mut self, _: f32, _: f32, _: f32, _: f32) {}
+        fn add_scorch(&mut self, location: [f32; 3], radius: f32, kind: i32) {
+            self.events.borrow_mut().push("scorch");
+            self.scorch.push((location.map(f32::to_bits), radius, kind));
+        }
+        fn accepted_height(&mut self, _: gamelogic::terrain::TerrainHeightChange) {}
+        fn water_state(&mut self, _: &gamelogic::terrain_water::WaterGridState) {}
+    }
+
+    fn apply(terrain: &mut Terrain, position: Vec3) {
+        let events = terrain.events.clone();
+        let mut effects = ScriptPresentationEffects {
+            terrain: Some(terrain),
+            ..Default::default()
+        };
+        let applied = apply_particle_beam_scorch_and_ground_hit_fx_with_terrain(
+            position,
+            4.5,
+            &mut effects.terrain,
+            &mut game_engine::common::random_value::RandomState::default(),
+            &mut |name, _, _, _, _, _| {
+                assert_eq!(name, PARTICLE_GROUND_HIT_FX);
+                events.borrow_mut().push("ground-hit-fx");
+                true
+            },
+        );
+        assert!(applied);
+    }
+
+    #[test]
+    fn same_operation_keeps_scorch_and_ground_hit_on_the_receiving_terrain_in_order() {
+        let mut terrain_a = Terrain::default();
+        let mut terrain_b = Terrain::default();
+        apply(&mut terrain_a, Vec3::new(1.0, 2.0, 3.0));
+        apply(&mut terrain_b, Vec3::new(7.0, 8.0, 9.0));
+
+        assert_eq!(terrain_a.scorch.len(), 1);
+        assert_eq!(terrain_b.scorch.len(), 1);
+        assert_eq!(
+            terrain_a.scorch[0].0,
+            [1.0f32.to_bits(), 3.0f32.to_bits(), 2.0f32.to_bits()]
+        );
+        assert_eq!(
+            terrain_b.scorch[0].0,
+            [7.0f32.to_bits(), 9.0f32.to_bits(), 8.0f32.to_bits()]
+        );
+        assert!((0..=3).contains(&terrain_a.scorch[0].2));
+        assert!((0..=3).contains(&terrain_b.scorch[0].2));
+        assert_eq!(*terrain_a.events.borrow(), ["scorch", "ground-hit-fx"]);
+        assert_eq!(*terrain_b.events.borrow(), ["scorch", "ground-hit-fx"]);
+    }
+
+    #[test]
+    fn missing_terrain_is_reported_by_result_but_ground_hit_fx_keeps_its_phase() {
+        let trace = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let trace_in_dispatch = trace.clone();
+        let applied = apply_particle_beam_scorch_and_ground_hit_fx_with_terrain(
+            Vec3::ZERO,
+            2.0,
+            &mut None,
+            &mut game_engine::common::random_value::RandomState::default(),
+            &mut |_, _, _, _, _, _| {
+                trace_in_dispatch.borrow_mut().push("ground-hit-fx");
+                true
+            },
+        );
+        assert!(!applied);
+        assert_eq!(*trace.borrow(), ["ground-hit-fx"]);
     }
 }

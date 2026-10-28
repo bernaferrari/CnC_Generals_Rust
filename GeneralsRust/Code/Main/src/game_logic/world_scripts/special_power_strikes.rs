@@ -2333,10 +2333,25 @@ impl GameLogic {
                 },
             );
             #[cfg(not(feature = "game_client"))]
-            crate::game_logic::special_power_strikes::apply_particle_beam_scorch_and_ground_hit_fx(
-                event.position,
-                event.scorch_radius,
-            );
+            {
+                let applied = crate::game_logic::special_power_strikes::apply_particle_beam_scorch_and_ground_hit_fx_with_terrain(
+                    event.position,
+                    event.scorch_radius,
+                    &mut effects.terrain,
+                    &mut self.session_view.client_random,
+                    &mut |name, pos, secondary, speed, radius, matrix| {
+                        crate::game_logic::dispatch_fx_list_at_pos_oriented(
+                            name, pos, secondary, speed, radius, matrix,
+                        )
+                    },
+                );
+                if !applied {
+                    log::warn!(
+                        "Particle Uplink scorch at {:?} has no receiving terrain owner; GroundHitFX was still dispatched",
+                        event.position
+                    );
+                }
+            }
         }
         if !scorch_events.is_empty() {
             use crate::game_logic::special_power_strikes::PARTICLE_REVEAL_RANGE;
