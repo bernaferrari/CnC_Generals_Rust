@@ -119,3 +119,121 @@ fn two_control_bars_populate_commands_and_required_science_from_their_own_sessio
     assert_eq!(exit.button_image, "RiderImage");
     assert!(exit.button_enabled);
 }
+
+#[test]
+fn process_command_uses_each_receiving_control_bar_upgrade_catalog() {
+    use game_client_rust::gui::control_bar::{
+        CommandSourceType, HostControlBarInputProvenance, SelectedContextFacts,
+    };
+    use game_engine::common::ascii_string::AsciiString;
+    use gamelogic::upgrade::center::UpgradeCenter;
+    use std::sync::Mutex;
+
+    const PLAYER_ID: i32 = 0;
+    const UPGRADE: &str = "Upgrade_ReceivingControlBarCommand";
+    const BUTTON: &str = "Command_ReceivingControlBarUpgrade";
+    const SET: &str = "ReceivingControlBarUpgradeSet";
+    static SERIAL: Mutex<()> = Mutex::new(());
+    let _serial = SERIAL.lock().expect("serialize command queue fixture");
+
+    let source = format!(
+        "CommandButton {BUTTON}\n Command = PLAYER_UPGRADE\n Upgrade = {UPGRADE}\nEnd\n\
+         CommandSet {SET}\n 1 = {BUTTON}\nEnd\n"
+    );
+    let science_store = ScienceStore::new_owned();
+    let facts = ScienceNameFacts::from_store(&science_store);
+    let mut actions = ReceivingActionDefinitions::default();
+    actions
+        .apply_source_with_load_type(&source, &facts, INILoadType::Overwrite)
+        .expect("parse receiving upgrade command");
+    let actions = Arc::new(actions);
+
+    let mut owner_catalog = UpgradeCenter::new();
+    owner_catalog.new_upgrade(AsciiString::from(UPGRADE));
+    let peer_catalog = UpgradeCenter::new();
+    let mut owner = ControlBar::new();
+    let mut peer = ControlBar::new();
+    owner.set_receiving_upgrade_definitions(&owner_catalog, Some(Arc::clone(&actions)));
+    peer.set_receiving_upgrade_definitions(&peer_catalog, Some(actions));
+    owner.apply_presentation_selected_context(SelectedContextFacts {
+        controllable: true,
+        ..Default::default()
+    });
+    peer.apply_presentation_selected_context(SelectedContextFacts {
+        controllable: true,
+        ..Default::default()
+    });
+    owner.sync_command_set_from_presentation(Some(SET));
+    peer.sync_command_set_from_presentation(Some(SET));
+
+    // Public owned update creates the enabled button state consumed by
+    // process_command. No internal fixture access or production API change.
+    let mut emitted = Vec::new();
+    let mut owner_client = game_client_rust::core::GameClient::new().unwrap();
+    let mut peer_client = game_client_rust::core::GameClient::new().unwrap();
+    owner_client.set_in_game_ui_subsystem(Default::default());
+    peer_client.set_in_game_ui_subsystem(Default::default());
+    owner_client.with_window_event_effects(None, |effects| {
+        effects.with_manager(|manager, effects| {
+            owner.update_for_selection_owned(vec![41], manager, effects)
+                .expect("update owner control bar");
+        });
+    });
+    peer_client.with_window_event_effects(None, |effects| {
+        effects.with_manager(|manager, effects| {
+            peer.update_for_selection_owned(vec![41], manager, effects)
+                .expect("update peer control bar");
+        });
+    });
+    let queue_manager = gamelogic::commands::get_command_queue_manager();
+    {
+        let mut manager = queue_manager.lock().expect("command queue manager");
+        manager.clear_all();
+        if manager.get_player_stats(PLAYER_ID).is_none() {
+            manager
+                .initialize_player(PLAYER_ID)
+                .expect("initialize test player queue");
+        }
+    }
+    let mut owner_ui = game_client_rust::core::subsystems::InGameUISubsystem::default();
+    let mut peer_ui = game_client_rust::core::subsystems::InGameUISubsystem::default();
+    assert!(
+        owner
+            .process_command(
+                BUTTON,
+                CommandSourceType::FromUser,
+                &mut emitted,
+                &mut owner_ui,
+                HostControlBarInputProvenance::InjectedOrUnknown,
+            )
+            .expect("process owner command")
+    );
+    let queued_after_owner = queue_manager
+        .lock()
+        .expect("command queue manager")
+        .get_player_stats(PLAYER_ID)
+        .expect("owner player queue")
+        .pending_count;
+    assert_eq!(queued_after_owner, 1);
+
+    assert!(
+        peer.process_command(
+            BUTTON,
+            CommandSourceType::FromUser,
+            &mut emitted,
+            &mut peer_ui,
+            HostControlBarInputProvenance::InjectedOrUnknown,
+        )
+        .expect("process peer command")
+    );
+    let queued_after_peer = queue_manager
+        .lock()
+        .expect("command queue manager")
+        .get_player_stats(PLAYER_ID)
+        .expect("peer player queue")
+        .pending_count;
+    assert_eq!(
+        queued_after_peer, queued_after_owner,
+        "peer must not resolve the owner's same-named upgrade"
+    );
+}

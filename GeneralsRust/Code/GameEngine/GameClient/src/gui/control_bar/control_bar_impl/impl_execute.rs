@@ -243,7 +243,13 @@ impl ControlBar {
         _source: CommandSourceType,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let upgrade_name = button.upgrade.as_str();
-        let upgrade_template = with_upgrade_center(|center| center.find_upgrade(upgrade_name));
+        // Resolve against the catalog admitted by this receiving ControlBar.
+        // A process-global UpgradeCenter can belong to another live session;
+        // without an owner catalog this command cannot be safely resolved.
+        let upgrade_template = self
+            .receiving_upgrade_catalog
+            .as_ref()
+            .and_then(|center| center.find_upgrade(upgrade_name));
         let Some(template) = upgrade_template else {
             return Ok(());
         };
