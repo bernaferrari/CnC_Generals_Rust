@@ -291,12 +291,16 @@ impl GameLogic {
             // controllingPlayer->isLocalPlayer → BaseUnderAttack
             // else getLocalPlayer()->getRelationship(obj->getTeam()) == ALLIES
             // → AllyUnderAttack. Faction Team / alliance_team is not a proxy.
+            // C++ Radar.cpp classifies BaseUnderAttack through the exact
+            // controlling Player's isLocalPlayer() identity. Defeat changes
+            // activity, not the selected local Player pointer, so do not
+            // discard an explicitly admitted owner because it is inactive.
             let owner_id = owner_player_id
-                .filter(|id| self.players.get(id).is_some_and(|player| player.is_alive))
+                .filter(|id| self.players.contains_key(id))
                 .or_else(|| self.unique_player_id_for_team(team));
             let local_owns = owner_id
                 .and_then(|id| self.players.get(&id))
-                .is_some_and(|player| player.is_local && player.is_alive);
+                .is_some_and(|player| player.is_local);
             let local_ally = !local_owns
                 && owner_id.is_some_and(|oid| {
                     self.players.values().any(|player| {

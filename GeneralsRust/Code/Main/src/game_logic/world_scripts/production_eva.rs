@@ -1638,7 +1638,7 @@ impl GameLogic {
                         let local = obj
                             .owner_player_id
                             .and_then(|pid| self.players.get(&pid))
-                            .is_some_and(|p| p.is_local && p.is_alive);
+                            .is_some_and(|p| p.is_local);
                         (obj.get_position(), local)
                     })
                     .unwrap_or((glam::Vec3::ZERO, false));
