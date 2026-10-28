@@ -1308,6 +1308,7 @@ impl GameLogic {
     /// Set an admitted object's immediate movement goal and record the change
     /// in this world's output. Existing velocity and path state are retained.
     pub fn move_object_to(&mut self, id: ObjectId, position: glam::Vec3) -> bool {
+        let frame = self.frame;
         let Some((object, mut movement_events, audio_events)) =
             self.host_object_movement_audio_mut(id)
         else {
@@ -1316,8 +1317,9 @@ impl GameLogic {
         if !object.is_mobile() || !object.is_alive() {
             return false;
         }
-        object.move_to(
+        object.move_to_at_frame(
             position,
+            frame,
             &mut movement_events,
             &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );

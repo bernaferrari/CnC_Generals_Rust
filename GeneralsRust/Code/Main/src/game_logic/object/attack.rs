@@ -1076,10 +1076,34 @@ impl Object {
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
+        self.move_to_inner(position, None, movement_events, audio);
+    }
+
+    pub(crate) fn move_to_at_frame(
+        &mut self,
+        position: Vec3,
+        frame: u32,
+        movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+    ) {
+        self.move_to_inner(position, Some(frame), movement_events, audio);
+    }
+
+    fn move_to_inner(
+        &mut self,
+        position: Vec3,
+        operation_frame: Option<u32>,
+        movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+    ) {
         if self.is_mobile() && self.is_alive() {
             self.movement_goal_object = None;
             self.movement.target_position = Some(position);
-            self.set_ai_state(AIState::Moving, audio);
+            if let Some(frame) = operation_frame {
+                self.set_ai_state_at_frame(AIState::Moving, frame, audio);
+            } else {
+                self.set_ai_state(AIState::Moving, audio);
+            }
             self.set_status_moving(true);
             movement_events.record(self.id, Some([position.x, position.y, position.z]));
         }

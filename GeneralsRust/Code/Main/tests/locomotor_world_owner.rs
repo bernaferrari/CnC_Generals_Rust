@@ -47,7 +47,8 @@ fn world_with_catalog(map: &std::path::Path, catalog: LocomotorStore) -> GameLog
              Object OwnerBike\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL CliffOwnerLoco GroundOwnerLoco\n Locomotor = SET_NORMAL_UPGRADED UpgradedOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = RiderChangeContain RiderTag\n Slots = 1\n Rider1 = OwnerRider RIDER1 WEAPON_RIDER1 STATUS_RIDER1 BikeSet SET_NORMAL\n End\n Behavior = LocomotorSetUpgrade Bonus\n TriggeredBy = Upgrade_Veterancy_VETERAN\n End\nEnd\n\
              Object OwnerRider\n KindOf = SELECTABLE INFANTRY\n IsTrainable = Yes\n ExperienceRequired = 0 60 150 300\n TransportSlotCount = 1\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n\
              Object OwnerJet\n KindOf = SELECTABLE AIRCRAFT\n Locomotor = SET_NORMAL AirOwnerLoco\n Locomotor = SET_TAXIING TaxiOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = JetAIUpdate JetBrain\n End\nEnd\n\
-             Object OwnerTargetProbe\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL ThresholdOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
+             Object OwnerTargetProbe\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL ThresholdOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
+             Object NoLocoActor\n KindOf = SELECTABLE VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
         )])
         .unwrap();
     world.start_new_game(GameMode::SinglePlayer);
@@ -162,6 +163,72 @@ fn accepted_path_and_ai_state_entry_stamp_the_receiving_frame() {
     }
     assert_eq!(owner.host_object(owner_id).unwrap().donut_timer, owner_frame.wrapping_add(75));
     assert_eq!(peer.host_object(peer_id).unwrap().donut_timer, peer_frame.wrapping_add(75));
+}
+
+#[test]
+fn no_selected_locomotor_keeps_source_physics_options_and_blocked_order() {
+    use generals_main::game_logic::object::LocoGoalType;
+    let mut map = DataChunkOutput::new();
+    map.open_data_chunk("HeightMapData", 3);
+    for value in [21, 21, 1, 441] {
+        map.write_int(value);
+    }
+    for _ in 0..441 {
+        map.write_byte(8);
+    }
+    map.close_data_chunk();
+    map.open_data_chunk("ObjectsList", 3);
+    map.close_data_chunk();
+    let root = tempfile::tempdir().unwrap();
+    let map_path = root.path().join("NoLoco.map");
+    std::fs::write(&map_path, map.into_ckmp_bytes()).unwrap();
+
+    let mut logic = world(&map_path, 20, 3);
+    let id = logic
+        .create_object_for_player("NoLocoActor", 42, glam::Vec3::new(80.0, 0.0, 80.0))
+        .unwrap();
+    let angle_id = logic
+        .create_object_for_player("NoLocoActor", 42, glam::Vec3::new(100.0, 0.0, 80.0))
+        .unwrap();
+    for (object_id, angle_goal) in [(id, false), (angle_id, true)] {
+        let actor = logic.host_object_mut(object_id).unwrap();
+        assert!(actor.has_ai_update_interface());
+        assert!(actor.cur_locomotor_name.is_none());
+        actor.extra_friction = 3.5;
+        actor.apply_friction_2d_when_airborne = true;
+        actor.is_blocked = true;
+        actor.num_frames_blocked = 2;
+        if angle_goal {
+            actor.locomotor_goal_type = LocoGoalType::Angle;
+            actor.locomotor_goal_angle = 1.0;
+        }
+    }
+    let poses = [
+        logic.host_object(id).unwrap().get_position(),
+        logic.host_object(angle_id).unwrap().get_position(),
+    ];
+
+    assert_eq!(logic.update_with_dt(1.0 / 30.0).steps_run, 1);
+    // Movement registrations first wake at source frame 1; the first update
+    // only advances frame 0. The second drives doLocomotor itself.
+    assert_eq!(logic.host_object(id).unwrap().num_frames_blocked, 2);
+    assert_eq!(logic.host_object(angle_id).unwrap().num_frames_blocked, 2);
+    // The preceding physics phase clears the transient collision flag. Model
+    // a fresh collision immediately before the registered movement callback.
+    for object_id in [id, angle_id] {
+        logic.host_object_mut(object_id).unwrap().is_blocked = true;
+    }
+    assert_eq!(logic.update_with_dt(1.0 / 30.0).steps_run, 1);
+    for (object_id, position) in [(id, poses[0]), (angle_id, poses[1])] {
+        let actor = logic.host_object(object_id).unwrap();
+        assert_eq!(actor.extra_friction, 3.5);
+        assert!(actor.apply_friction_2d_when_airborne);
+        assert_eq!(actor.num_frames_blocked, 3);
+        assert!(!actor.is_blocked);
+        // Physics may reconcile terrain height independently of doLocomotor.
+        assert_eq!(actor.get_position().x, position.x);
+        assert_eq!(actor.get_position().z, position.z);
+    }
 }
 
 #[test]
@@ -565,4 +632,51 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
         first.host_object(first_id).unwrap().movement.max_speed,
         40.0
     );
+}
+
+#[test]
+fn public_move_object_to_stamps_each_receiving_world_frame() {
+    let mut map = DataChunkOutput::new();
+    map.open_data_chunk("HeightMapData", 3);
+    for value in [21, 21, 1, 441] {
+        map.write_int(value);
+    }
+    for _ in 0..441 {
+        map.write_byte(8);
+    }
+    map.close_data_chunk();
+    map.open_data_chunk("ObjectsList", 3);
+    map.close_data_chunk();
+    let root = tempfile::tempdir().unwrap();
+    let map_path = root.path().join("MoveObjectToOwner.map");
+    std::fs::write(&map_path, map.into_ckmp_bytes()).unwrap();
+
+    let mut owner = world(&map_path, 20, 3);
+    let mut peer = world(&map_path, 60, 7);
+    for _ in 0..7 {
+        owner.update_with_dt(1.0 / 30.0);
+    }
+    for _ in 0..19 {
+        peer.update_with_dt(1.0 / 30.0);
+    }
+    let owner_id = owner
+        .create_object_for_player("OwnerMover", 42, glam::Vec3::new(80.0, 0.0, 80.0))
+        .unwrap();
+    let peer_id = peer
+        .create_object_for_player("OwnerMover", 42, glam::Vec3::new(80.0, 0.0, 80.0))
+        .unwrap();
+    assert_eq!(owner_id, peer_id);
+    let owner_frame = owner.get_frame();
+    let peer_frame = peer.get_frame();
+    assert_ne!(owner_frame, peer_frame);
+
+    for (logic, id, offset) in [(&mut owner, owner_id, 0.0), (&mut peer, peer_id, 12.0)] {
+        logic.host_object_mut(id).unwrap().donut_timer = 0;
+        assert!(logic.move_object_to(
+            id,
+            glam::Vec3::new(120.0 + offset, 0.0, 80.0),
+        ));
+    }
+    assert_eq!(owner.host_object(owner_id).unwrap().donut_timer, owner_frame.wrapping_add(75));
+    assert_eq!(peer.host_object(peer_id).unwrap().donut_timer, peer_frame.wrapping_add(75));
 }

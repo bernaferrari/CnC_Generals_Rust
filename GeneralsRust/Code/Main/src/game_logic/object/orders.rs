@@ -54,13 +54,15 @@ impl Object {
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        self.set_destination_with_operation(
-            destination,
-            movement_events,
+        let _ = self.takeoff_from_airfield_parking_with_operation(
             audio,
             0,
             &mut Default::default(),
-        )
+        );
+        if self.status.deployed {
+            self.set_deployed(false, audio);
+        }
+        self.move_to(destination, movement_events, audio);
     }
 
     pub(crate) fn set_destination_with_operation(
@@ -80,7 +82,7 @@ impl Object {
         if self.status.deployed {
             self.set_deployed(false, audio);
         }
-        self.move_to(destination, movement_events, audio);
+        self.move_to_at_frame(destination, operation_frame, movement_events, audio);
     }
 
     pub fn clear_target(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {

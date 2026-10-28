@@ -1159,8 +1159,15 @@ impl GameLogic {
                             cell_type,
                             self.locomotor_definitions.as_ref(),
                         );
-                        obj.set_locomotor_physics_options();
                         obj.tick_do_locomotor_blocked_frames();
+                        // C++ doLocomotor still advances blocked bookkeeping
+                        // when chooseGoodLocomotorFromCurrentSet leaves no
+                        // current member, but member physics and movement are
+                        // inside `if (m_curLocomotor)`.
+                        if obj.selected_locomotor_definition.is_none() {
+                            break 'unit;
+                        }
+                        obj.set_locomotor_physics_options();
                         obj.do_final_position = false;
                         obj.maintain_pos_valid = false;
                         if obj.min_speed > 0.0 {
@@ -1290,8 +1297,14 @@ impl GameLogic {
                             cell_type,
                             self.locomotor_definitions.as_ref(),
                         );
-                        obj.set_locomotor_physics_options();
                         obj.tick_do_locomotor_blocked_frames();
+                        // Match AIUpdateInterface::doLocomotor: selection and
+                        // blocked bookkeeping precede a nullable member gate;
+                        // setPhysicsOptions and the remainder require a loco.
+                        if obj.selected_locomotor_definition.is_none() {
+                            break 'unit;
+                        }
+                        obj.set_locomotor_physics_options();
                     }
                     obj.is_blocked = false;
                     if obj.waiting_for_path

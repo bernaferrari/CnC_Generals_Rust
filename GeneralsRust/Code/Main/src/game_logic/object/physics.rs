@@ -1036,6 +1036,7 @@ impl Object {
             .cur_locomotor_name
             .as_deref()
             .is_some_and(|cur| cur.eq_ignore_ascii_case(&name))
+            && self.selected_locomotor_definition.is_some()
         {
             return;
         }
@@ -1050,9 +1051,8 @@ impl Object {
         self.no_slow_down_as_approaching_dest = false;
         self.ultra_accurate = false;
         // C++ setUltraAccurate(FALSE) only clears the flag (Locomotor.h:333).
-        // doLocomotor then setPhysicsOptions (AIUpdate.cpp:2132) and must not
-        // keep the +0.5 that apply wrote while the old flag was still true.
-        self.set_locomotor_physics_options();
+        // The owning doLocomotor applies physics options after blocked-frame
+        // bookkeeping, and only if this selection left a current member.
     }
 
     /// C++ `Locomotor::moveTowardsPositionHover` OVER_WATER (Locomotor.cpp:1868-1886).
