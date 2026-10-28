@@ -44,6 +44,3 @@ pub mod host_field_object_expire_log;
 
 #[path = "host_fire_spread_log.rs"]
 pub mod host_fire_spread_log;
-
-#[path = "host_hacker_income_log.rs"]
-pub mod host_hacker_income_log;

@@ -579,95 +579,6 @@ impl GameLogic {
         }
     }
 
-    /// China Hacker / Internet Center residual cash (HackInternetAIUpdate residual).
-    ///
-    /// Retail ChinaInfantry.ini HackInternetAIUpdate:
-    /// CashUpdateDelay=2000 ms → 60 frames field; CashUpdateDelayFast=1800 ms → 54
-    /// frames inside Internet Center; Regular/Vet/Elite/Heroic = 5/6/8/10.
-    /// InternetHackContain residual: hackers contained in FSInternetCenter auto-hack.
-    /// Fail-closed: unpack uses authored frames (variation 1.0); pack is cash-stop.
-    pub(crate) fn apply_hacker_income_event(
-        &mut self,
-        ev: crate::game_logic::host_hacker_income_log::HackerIncomeEvent,
-    ) {
-        use crate::game_logic::host_hacker_income::{
-            HostHackerFloatingText, internet_center_floating_text_scatter,
-            should_display_hacker_floating_cash,
-        };
-
-        if ev.amount == 0 {
-            return;
-        }
-        let frame = self.frame;
-        self.hacker_income.mark_hacking(ev.id);
-        self.hacker_income
-            .set_next_deposit(ev.id, ev.next_deposit_frame);
-        let deposited =
-            self.hacker_income
-                .force_record_deposit(ev.id, ev.amount, ev.in_internet_center);
-        if deposited == 0 {
-            return;
-        }
-        let owner_player_id = self.player_owner_for_event(ev.owner_player_id, ev.team);
-        if let Some(pid) = owner_player_id {
-            if let Some((player, economy_events)) = self.player_and_economy_events_mut(pid) {
-                player.credit_supplies(deposited, economy_events);
-                player.add_money_earned(deposited);
-            }
-        }
-        // C++ awards XP to the hacker, not to a fixed retail template.  The
-        // shadow event carries its exact parsed `XpPerCashUpdate` value.
-        let health_bonus = self.veterancy_health_bonus;
-        self.with_object_veterancy_feedback_and_locomotors(
-            ev.id,
-            |hacker, audio, feedback, locomotors| {
-                hacker.gain_experience_with_health_bonus_table(
-                    ev.xp_per_cash_update,
-                    &health_bonus,
-                    audio,
-                    feedback,
-                    locomotors,
-                );
-            },
-        );
-        let is_local = owner_player_id
-            .map(|pid| self.is_local_player(pid))
-            .unwrap_or(false);
-        let show = should_display_hacker_floating_cash(
-            ev.stealthed,
-            ev.detected,
-            is_local,
-            ev.in_internet_center,
-            false,
-            false,
-            is_local,
-        );
-        let mut float_pos = ev.pos;
-        float_pos.y += 10.0;
-        if show {
-            if ev.in_internet_center && ev.container_radius > 0.0 {
-                let (dx, dz) = internet_center_floating_text_scatter(
-                    ev.id.0.wrapping_add(frame),
-                    ev.container_radius,
-                    ev.container_radius,
-                );
-                float_pos.x += dx;
-                float_pos.z += dz;
-                self.hacker_income.record_ic_scatter();
-            }
-            self.hacker_income
-                .record_floating_text(HostHackerFloatingText::new(
-                    ev.id,
-                    float_pos,
-                    deposited,
-                    frame,
-                    ev.in_internet_center,
-                ));
-        } else {
-            self.hacker_income.record_floating_text_suppressed();
-        }
-    }
-
     /// C++ `ActiveBody::onSubdualChange` passenger walk (leftover
     /// `order_all_passengers_to_idle` / `order_all_passengers_to_hack_internet`).
     pub(crate) fn flush_subdual_passenger_orders_with_effects(
@@ -785,9 +696,9 @@ impl GameLogic {
         // Collect residual hackers with container / legal gates.
         struct HackerSnap {
             id: ObjectId,
+            birth: std::sync::Weak<()>,
             team: Team,
             owner_player_id: Option<u32>,
-            pos: Vec3,
             level: crate::game_logic::VeterancyLevel,
             metadata: crate::game_logic::HackInternetAIUpdateMetadata,
             in_ic: bool,
@@ -795,14 +706,6 @@ impl GameLogic {
             alive: bool,
             neutral: bool,
             disabled_hacked: bool,
-            stealthed: bool,
-            detected: bool,
-            container_id: Option<ObjectId>,
-            container_stealthed: bool,
-            container_detected: bool,
-            container_team: Team,
-            container_owner_player_id: Option<u32>,
-            container_radius: f32,
             container_subdued: bool,
             moving: bool,
             ai_state: AIState,
@@ -825,25 +728,14 @@ impl GameLogic {
                             && self.normal_enter_controller_matches(obj, target)
                     })
                 });
-                let (c_stealthed, c_detected, c_team, c_owner_player_id, c_radius, c_subdued) =
-                    container
-                        .and_then(|cid| self.objects.get(&cid))
-                        .map(|c| {
-                            (
-                                c.status.stealthed,
-                                c.status.detected,
-                                c.team,
-                                c.owner_player_id,
-                                c.thing().geometry.radius,
-                                c.status.disabled_subdued,
-                            )
-                        })
-                        .unwrap_or((false, false, Team::Neutral, None, 0.0, false));
+                let c_subdued = container
+                    .and_then(|cid| self.objects.get(&cid))
+                    .is_some_and(|object| object.status.disabled_subdued);
                 Some(HackerSnap {
                     id: *id,
+                    birth: std::sync::Arc::downgrade(&obj.visual_draw_identity_token),
                     team: obj.team,
                     owner_player_id: obj.owner_player_id,
-                    pos: obj.get_position(),
                     level: obj.experience.level,
                     metadata,
                     in_ic,
@@ -855,14 +747,6 @@ impl GameLogic {
                     alive: obj.is_alive(),
                     neutral: obj.team == Team::Neutral,
                     disabled_hacked: obj.status.disabled_hacked,
-                    stealthed: obj.status.stealthed,
-                    detected: obj.status.detected,
-                    container_id: container,
-                    container_stealthed: c_stealthed,
-                    container_detected: c_detected,
-                    container_team: c_team,
-                    container_owner_player_id: c_owner_player_id,
-                    container_radius: c_radius,
                     container_subdued: c_subdued,
                     moving: obj.status.moving,
                     ai_state: obj.ai_state().clone(),
@@ -882,6 +766,16 @@ impl GameLogic {
         }
 
         for h in &hackers {
+            // Earlier hacker XP/upgrade callbacks can synchronously remove or
+            // replace a later Object with the same ID. Retain this snapshot's
+            // identity and never deposit or award against a replacement.
+            if !self.objects.get(&h.id).is_some_and(|object| {
+                h.birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &object.visual_draw_identity_token,
+                ))
+            }) {
+                continue;
+            }
             if !h.alive {
                 self.hacker_income.forget(h.id);
                 continue;
@@ -940,47 +834,118 @@ impl GameLogic {
                     player.add_money_earned(deposited);
                 }
             }
-            // Residual XpPerCashUpdate.
-            let health_bonus = self.veterancy_health_bonus;
-            self.with_object_veterancy_feedback_and_locomotors(
-                h.id,
-                |object, audio, feedback, locomotors| {
-                    object.gain_experience_with_health_bonus_table(
+            // HackInternetAIUpdate::doCashUpdate calls the normal Experience
+            // tracker, including receiving-world Veterancy Upgrade callbacks.
+            // Keep the exact authored XP amount; pass this world's interpreter
+            // when present so callbacks cannot fall through to another session.
+            let xp_award = if self.owned_script_engine.is_some() {
+                self.with_owned_script_engine(|interpreter, world| {
+                    world.award_experience_with_effects_and_interpreter(
+                        h.id,
                         h.metadata.xp_per_cash_update,
-                        &health_bonus,
-                        audio,
-                        feedback,
-                        locomotors,
-                    );
-                },
-            );
-            // STEALTHED local display gate residual (owner + containedBy).
-            let owner_local = owner_player_id
+                        Some(interpreter),
+                        effects,
+                    )
+                })
+            } else {
+                None
+            };
+            if let Some(result) = xp_award {
+                result?;
+            } else {
+                self.award_experience_with_effects_and_interpreter(
+                    h.id,
+                    h.metadata.xp_per_cash_update,
+                    None,
+                    effects,
+                )?;
+            }
+            // The promotion callback may mutate this object or its container.
+            // C++ rereads both before deciding visibility and text placement.
+            let Some((position, team, owner, stealthed, detected, container)) = self
+                .objects
+                .get(&h.id)
+                .filter(|object| {
+                    h.birth.ptr_eq(&std::sync::Arc::downgrade(
+                        &object.visual_draw_identity_token,
+                    ))
+                })
+                .map(|object| {
+                    let container = object
+                        .container_id()
+                        .and_then(|id| self.objects.get(&id))
+                        .map(|container| {
+                            let geometry = *container.geometry_info();
+                            let (width, depth) = if geometry.authored {
+                                (geometry.major_radius, geometry.minor_radius)
+                            } else {
+                                (
+                                    container.thing().geometry.radius,
+                                    container.thing().geometry.radius,
+                                )
+                            };
+                            (
+                                container.team,
+                                container.owner_player_id,
+                                container.status.stealthed,
+                                container.status.detected,
+                                width,
+                                depth,
+                                container.thing().template.contain_module.kind
+                                    == crate::game_logic::ContainModuleKind::InternetHack,
+                            )
+                        });
+                    (
+                        object.get_position(),
+                        object.team,
+                        object.owner_player_id,
+                        object.status.stealthed,
+                        object.status.detected,
+                        container,
+                    )
+                })
+            else {
+                continue;
+            };
+            let owner_local = self
+                .player_owner_for_event(owner, team)
                 .map(|pid| self.is_local_player(pid))
                 .unwrap_or(false);
-            let container_local = self
-                .player_owner_for_event(h.container_owner_player_id, h.container_team)
-                .map(|pid| self.is_local_player(pid))
-                .unwrap_or(false);
+            let (container_stealthed, container_detected, container_local, width, depth, in_ic) =
+                container.map_or(
+                    (false, false, false, 0.0, 0.0, false),
+                    |(team, owner, stealth, detected, width, depth, in_ic)| {
+                        (
+                            stealth,
+                            detected,
+                            self.player_owner_for_event(owner, team)
+                                .map(|pid| self.is_local_player(pid))
+                                .unwrap_or(false),
+                            width,
+                            depth,
+                            in_ic,
+                        )
+                    },
+                );
             use crate::game_logic::host_hacker_income::{
                 internet_center_floating_text_scatter, should_display_hacker_floating_cash,
             };
             let show = should_display_hacker_floating_cash(
-                h.stealthed,
-                h.detected,
+                stealthed,
+                detected,
                 owner_local,
-                h.container_id.is_some() && h.in_ic,
-                h.container_stealthed,
-                h.container_detected,
+                container.is_some(),
+                container_stealthed,
+                container_detected,
                 container_local,
             );
             if show {
-                let mut float_pos = h.pos;
-                if h.in_ic && h.container_radius > 0.0 {
+                let mut float_pos = position;
+                if container.is_some() {
                     let (dx, dz) = internet_center_floating_text_scatter(
                         h.id.0.wrapping_add(frame),
-                        h.container_radius,
-                        h.container_radius,
+                        width,
+                        depth,
                     );
                     float_pos.x += dx;
                     float_pos.z += dz;
@@ -988,7 +953,7 @@ impl GameLogic {
                 }
                 self.hacker_income.record_floating_text(
                     crate::game_logic::host_hacker_income::HostHackerFloatingText::new(
-                        h.id, float_pos, deposited, frame, h.in_ic,
+                        h.id, float_pos, deposited, frame, in_ic,
                     ),
                 );
             } else {

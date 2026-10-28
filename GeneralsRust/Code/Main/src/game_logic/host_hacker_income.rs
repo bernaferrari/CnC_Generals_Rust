@@ -511,35 +511,6 @@ impl HostHackerIncomeRegistry {
         self.next_deposit_frame.get(&hacker_id).copied()
     }
 
-    /// Force-set next deposit frame (GW writeback residual).
-    pub fn set_next_deposit(&mut self, hacker_id: ObjectId, frame: u32) {
-        self.next_deposit_frame.insert(hacker_id, frame);
-    }
-
-    /// Ensure hacker is marked active without rescheduling.
-    pub fn mark_hacking(&mut self, hacker_id: ObjectId) {
-        self.active_hackers.insert(hacker_id);
-    }
-
-    /// Record a deposit without schedule gate (GW already advanced next frame).
-    pub fn force_record_deposit(
-        &mut self,
-        hacker_id: ObjectId,
-        amount: u32,
-        in_internet_center: bool,
-    ) -> u32 {
-        if amount == 0 {
-            return 0;
-        }
-        self.active_hackers.insert(hacker_id);
-        self.deposits = self.deposits.saturating_add(1);
-        self.cash_total = self.cash_total.saturating_add(amount);
-        if in_internet_center {
-            self.internet_center_deposits = self.internet_center_deposits.saturating_add(1);
-        }
-        amount
-    }
-
     /// Record residual HackInternet floating cash text presentation.
     pub fn record_floating_text(&mut self, text: HostHackerFloatingText) {
         self.floating_texts_total = self.floating_texts_total.saturating_add(1);
