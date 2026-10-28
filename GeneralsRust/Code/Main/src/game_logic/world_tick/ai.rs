@@ -493,6 +493,13 @@ impl GameLogic {
                         )
                     })
                     .unwrap_or((glam::Vec3::ZERO, 0.0, String::new(), 1.0));
+                // Keep an incarnation receipt across each synchronous effect.
+                // A callback may remove the victim; a later queued slot must
+                // not silently bind to a different object with the same ID.
+                let transition_owner_identity = self
+                    .objects
+                    .get(&object_id)
+                    .map(|object| self.live_draw_playback_identity(object));
                 #[cfg(feature = "game_client")]
                 let fx_operation_environment = self.observe_object_fx_environment();
                 let (transition_evs, death_fx, death_audio, death_audio_stop, death_killer) =
@@ -540,11 +547,57 @@ impl GameLogic {
                         );
                     }
                     for ocl in ev.ocl_names {
-                        crate::game_logic::host_transition_damage_fx::play_authored_transition_ocl(
+                        let Some(expected_identity) = transition_owner_identity.as_ref() else {
+                            break;
+                        };
+                        let Some((team, veterancy, orientation, velocity)) = self
+                            .objects
+                            .get(&object_id)
+                            .filter(|object| {
+                                self.live_draw_playback_identity(object) == *expected_identity
+                            })
+                            .map(|object| {
+                                (
+                                    object.team,
+                                    object.experience.level,
+                                    object.get_orientation(),
+                                    object.movement.velocity,
+                                )
+                            })
+                        else {
+                            break;
+                        };
+                        // Replace the Core-global OCL bridge with the existing
+                        // synchronous receiving-session dispatcher. Preserve
+                        // this caller's authored owner position and effect order.
+                        let _ = self.execute_parsed_weapon_ocl_at_with_effects(
                             &ocl,
-                            object_id.0,
+                            Some(object_id),
+                            team,
+                            veterancy,
+                            orientation,
+                            velocity,
                             pos,
+                            presentation_effects,
                         );
+                        if !self.objects.get(&object_id).is_some_and(|object| {
+                            self.live_draw_playback_identity(object) == *expected_identity
+                        }) {
+                            break;
+                        }
+                    }
+                    // The inner loop stops after an OCL removes/replaces its
+                    // owner. Stop the entire event sequence before clearing
+                    // old receipts or applying later slots to an equal-ID peer.
+                    if !transition_owner_identity
+                        .as_ref()
+                        .is_some_and(|expected_identity| {
+                            self.objects.get(&object_id).is_some_and(|object| {
+                                self.live_draw_playback_identity(object) == *expected_identity
+                            })
+                        })
+                    {
+                        break;
                     }
                     if let Some(old) = ev.clear_old_state {
                         #[cfg(feature = "game_client")]
@@ -581,6 +634,16 @@ impl GameLogic {
                             cfg.store_attached_ids(ev.new_state, ids);
                         }
                     }
+                }
+                // The death callbacks below were drained from the same
+                // incarnation as the transition events. A reentrant OCL may
+                // have retired it and admitted a new object with the same ID.
+                if transition_owner_identity.as_ref().is_some_and(|expected| {
+                    !self.objects.get(&object_id).is_some_and(|object| {
+                        self.live_draw_playback_identity(object) == *expected
+                    })
+                }) {
+                    continue;
                 }
                 if let Some(a) = death_audio {
                     let mut req = AudioEventRequest::new(&a)

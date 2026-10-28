@@ -120,41 +120,45 @@ fn host_world_receiving(
     object: &crate::game_logic::Object,
     loc: Option<&HostTransitionLoc>,
     random: &game_engine::common::random_value::SessionRandom,
+    source: Option<&crate::game_logic::NativeSlaveSource>,
+    effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
 ) -> glam::Vec3 {
     let local = loc
-        .map(|loc| host_local_receiving(object, &loc.as_particle(), random))
+        .map(|loc| host_local_receiving(&loc.as_particle(), random, source, effects))
         .unwrap_or_default();
     object.get_transform_matrix().transform_point3(local)
 }
 
 fn host_local_receiving(
-    object: &crate::game_logic::Object,
     definition: &HostTransitionParticle,
     random: &game_engine::common::random_value::SessionRandom,
+    source: Option<&crate::game_logic::NativeSlaveSource>,
+    effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
 ) -> glam::Vec3 {
-    let model = object
-        .get_template()
-        .model_name_for_conditions(object.model_condition_bits);
-    let scale = object.get_template().asset_scale;
     let position =
         gamelogic::common::Coord3D::new(definition.loc[0], definition.loc[1], definition.loc[2]);
     let local = match definition.bone.as_deref() {
         None => position,
         Some(bone) if !definition.random_bone => {
-            gamelogic::object::draw::lookup_pristine_bone_translation(&model, scale, bone)
-                .unwrap_or(position)
+            receiving_pristine_bone_translation(source, bone, 0, effects).unwrap_or_else(|error| {
+                log::warn!("receiving transition bone {bone} unavailable: {error}");
+                position
+            })
         }
         Some(bone) => {
-            let mut positions = Vec::new();
-            for index in 1..=32 {
-                let name = format!("{bone}{index:02}");
-                match gamelogic::object::draw::lookup_pristine_bone_translation(
-                    &model, scale, &name,
-                ) {
-                    Some(position) => positions.push(position),
-                    None => break,
-                }
-            }
+            let mut positions =
+                match receiving_pristine_bone_transforms(source, bone, 1, 32, effects) {
+                    Ok(positions) => positions
+                        .into_iter()
+                        .map(leftover_translation_from_pristine_transform)
+                        .collect::<Vec<_>>(),
+                    Err(error) => {
+                        log::warn!(
+                            "receiving transition random-bone prefix {bone} unavailable: {error}"
+                        );
+                        Vec::new()
+                    }
+                };
             if positions.is_empty() {
                 position
             } else {
@@ -165,6 +169,52 @@ fn host_local_receiving(
         }
     };
     leftover_to_host_local(local)
+}
+
+fn receiving_pristine_bone_transforms(
+    source: Option<&crate::game_logic::NativeSlaveSource>,
+    bone: &str,
+    start: i32,
+    limit: usize,
+    effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+) -> Result<Vec<glam::Mat4>, String> {
+    let source = source.ok_or_else(|| "receiving Draw source unavailable".to_string())?;
+    if let Some(assets) = effects.pristine_bones {
+        return assets.pristine_bone_transforms(source, bone, start, limit);
+    }
+    #[cfg(feature = "game_client")]
+    {
+        return effects
+            .view
+            .as_deref_mut()
+            .ok_or_else(|| "receiving pristine-bone capability unavailable".to_string())?
+            .pristine_client_bone_transforms(source, bone, start, limit);
+    }
+    #[cfg(not(feature = "game_client"))]
+    Err("receiving pristine-bone capability unavailable".to_string())
+}
+
+fn receiving_pristine_bone_translation(
+    source: Option<&crate::game_logic::NativeSlaveSource>,
+    bone: &str,
+    start: i32,
+    effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+) -> Result<gamelogic::common::Coord3D, String> {
+    let transform = receiving_pristine_bone_transforms(source, bone, start, 1, effects)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("pristine bone {bone} has no receiving transform"))?;
+    Ok(leftover_translation_from_pristine_transform(transform))
+}
+
+/// PristineBoneAssets returns source model-local C++ Z-up matrices. Keep the
+/// components in C++ Coord3D order here; `leftover_to_host_local` performs the
+/// one required Y/Z swap at the host boundary.
+fn leftover_translation_from_pristine_transform(
+    transform: glam::Mat4,
+) -> gamelogic::common::Coord3D {
+    let translation = transform.w_axis.truncate();
+    gamelogic::common::Coord3D::new(translation.x, translation.y, translation.z)
 }
 
 #[cfg(feature = "game_client")]
@@ -231,11 +281,20 @@ impl crate::game_logic::GameLogic {
             }
             match effect {
                 TransitionSlotEffect::Fx { name, loc, .. } => {
-                    let Some(position) = self
-                        .objects
-                        .get(&victim_id)
-                        .map(|object| host_world_receiving(object, loc, &self.logic_random))
-                    else {
+                    let source_player =
+                        player.unwrap_or_else(|| self.local_player_id().unwrap_or(0));
+                    let pose_source = self
+                        .current_native_slave_source(victim_id, source_player)
+                        .ok();
+                    let Some(position) = self.objects.get(&victim_id).map(|object| {
+                        host_world_receiving(
+                            object,
+                            loc,
+                            &self.logic_random,
+                            pose_source.as_ref(),
+                            effects,
+                        )
+                    }) else {
                         return;
                     };
                     Self::with_object_fx_services(
@@ -255,10 +314,21 @@ impl crate::game_logic::GameLogic {
                     );
                 }
                 TransitionSlotEffect::Ocl { name, loc, .. } => {
+                    let source_player =
+                        player.unwrap_or_else(|| self.local_player_id().unwrap_or(0));
+                    let pose_source = self
+                        .current_native_slave_source(victim_id, source_player)
+                        .ok();
                     let Some((position, team, veterancy, orientation, velocity)) =
                         self.objects.get(&victim_id).map(|object| {
                             (
-                                host_world_receiving(object, loc, &self.logic_random),
+                                host_world_receiving(
+                                    object,
+                                    loc,
+                                    &self.logic_random,
+                                    pose_source.as_ref(),
+                                    effects,
+                                ),
                                 object.team,
                                 object.experience.level,
                                 object.get_orientation(),
@@ -289,12 +359,22 @@ impl crate::game_logic::GameLogic {
                     );
                 }
                 TransitionSlotEffect::Particle { slot, definition } => {
+                    let source_player =
+                        player.unwrap_or_else(|| self.local_player_id().unwrap_or(0));
+                    let pose_source = self
+                        .current_native_slave_source(victim_id, source_player)
+                        .ok();
                     let Some((position, orientation, local, is_shrouded)) =
                         self.objects.get(&victim_id).map(|object| {
                             (
                                 object.get_position(),
                                 object.get_orientation(),
-                                host_local_receiving(object, definition, &self.logic_random),
+                                host_local_receiving(
+                                    definition,
+                                    &self.logic_random,
+                                    pose_source.as_ref(),
+                                    effects,
+                                ),
                                 Self::host_fx_visibility_for(player, &shroud, victim_id.0),
                             )
                         })
@@ -493,20 +573,38 @@ impl crate::game_logic::GameLogic {
             }
             match effect {
                 TransitionSlotEffect::Fx { name, loc, .. } => {
-                    let Some(position) = self
-                        .objects
-                        .get(&victim_id)
-                        .map(|object| host_world_receiving(object, loc, &self.logic_random))
-                    else {
+                    let source_player = self.local_player_id().unwrap_or(0);
+                    let pose_source = self
+                        .current_native_slave_source(victim_id, source_player)
+                        .ok();
+                    let Some(position) = self.objects.get(&victim_id).map(|object| {
+                        host_world_receiving(
+                            object,
+                            loc,
+                            &self.logic_random,
+                            pose_source.as_ref(),
+                            effects,
+                        )
+                    }) else {
                         return;
                     };
                     let _ = crate::game_logic::dispatch_fx_list_at_pos(name, position);
                 }
                 TransitionSlotEffect::Ocl { name, loc, .. } => {
+                    let source_player = self.local_player_id().unwrap_or(0);
+                    let pose_source = self
+                        .current_native_slave_source(victim_id, source_player)
+                        .ok();
                     let Some((position, team, veterancy, orientation, velocity)) =
                         self.objects.get(&victim_id).map(|object| {
                             (
-                                host_world_receiving(object, loc, &self.logic_random),
+                                host_world_receiving(
+                                    object,
+                                    loc,
+                                    &self.logic_random,
+                                    pose_source.as_ref(),
+                                    effects,
+                                ),
                                 object.team,
                                 object.experience.level,
                                 object.get_orientation(),
@@ -549,6 +647,18 @@ impl crate::game_logic::GameLogic {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn receiving_pristine_bone_translation_swaps_y_and_z_once() {
+        let transform = glam::Mat4::from_translation(glam::Vec3::new(11.0, 22.0, 33.0));
+        let leftover = leftover_translation_from_pristine_transform(transform);
+        assert_eq!((leftover.x, leftover.y, leftover.z), (11.0, 22.0, 33.0));
+        assert_eq!(
+            leftover_to_host_local(leftover),
+            glam::Vec3::new(11.0, 33.0, 22.0)
+        );
+    }
+
     #[test]
     fn sparse_slots_keep_fx_ocl_particle_interleaving_and_locations() {
         let event = HostTransitionDamageFxEvent {
