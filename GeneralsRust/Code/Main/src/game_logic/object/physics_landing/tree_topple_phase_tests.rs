@@ -31,7 +31,7 @@ fn world() -> GameLogic {
     object.selection_radius = 8.0;
     object.crusher_level = 2;
     object.movement.velocity = glam::Vec3::new(4.0, 0.0, 0.0);
-    object.attach_host_trigger_world(&world.host_trigger_world);
+    object.attach_host_trigger_world(&world.host_trigger_world, &world.team_factory);
     world.objects.insert(object.id, object);
     world.frame = 37;
     world

@@ -302,6 +302,7 @@ impl GameLogic {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         trigger_world.set_current_frame(self.frame);
+        let mut teams_with_edges = Vec::new();
         for (id, object) in objects.registered() {
             let skip = object.is_kind_of(crate::game_logic::KindOf::Projectile)
                 || object.is_kind_of(crate::game_logic::KindOf::Inert);
@@ -310,14 +311,27 @@ impl GameLogic {
             } else {
                 Some(object.team_instance_name.as_str())
             };
-            trigger_world.update_object_flags(
+            if trigger_world.update_object_flags_and_report(
                 id.0,
                 object.get_position().x,
                 object.get_position().z,
                 self.frame,
                 skip,
                 team,
-            );
+            ) {
+                if let Some(team_id) = object.team_instance_id {
+                    teams_with_edges.push(team_id);
+                }
+            }
+        }
+        drop(trigger_world);
+
+        // The synchronous pose callback normally marks Team at the source
+        // event. This reconciliation path also admits edges discovered during
+        // initial projection or trigger-owner restore. Keep the event on the
+        // receiving Team so it survives roster edits and follows Team xfer.
+        for team_id in teams_with_edges {
+            self.team_factory.mark_team_entered_exited(team_id);
         }
     }
 

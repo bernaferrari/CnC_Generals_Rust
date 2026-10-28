@@ -898,8 +898,22 @@ impl HostTriggerWorld {
         skip: bool,
         team_name: Option<&str>,
     ) {
+        let _ = self.update_object_flags_and_report(object_id, x, z, frame, skip, team_name);
+    }
+
+    /// Update the receiving object trigger slots and report whether this call
+    /// observed an enter/exit, so Main can set its owning Team flag immediately.
+    pub fn update_object_flags_and_report(
+        &mut self,
+        object_id: u32,
+        x: f32,
+        z: f32,
+        frame: u32,
+        skip: bool,
+        team_name: Option<&str>,
+    ) -> bool {
         if skip {
-            return;
+            return false;
         }
         let new_x = x as i32;
         let new_y = z as i32;
@@ -918,7 +932,7 @@ impl HostTriggerWorld {
         // zero active areas. Required so load can restore m_iPos and skip
         // a fresh ENTERED_AREA edge.
         if !pos_changed {
-            return;
+            return false;
         }
         if state.entered_or_exited_frame != 0 && state.entered_or_exited_frame != frame {
             state.slots.retain(|slot| slot.is_inside);
@@ -927,6 +941,7 @@ impl HostTriggerWorld {
                 slot.exited = false;
             }
         }
+        let mut trigger_event = false;
         let old = crate::common::ICoord3D::new(state.i_x, state.i_y, 0);
         for slot in &mut state.slots {
             let Some(trigger) = triggers.iter().find(|t| t.get_id() == slot.trigger_id) else {
@@ -936,6 +951,7 @@ impl HostTriggerWorld {
                 slot.is_inside = false;
                 slot.exited = true;
                 state.entered_or_exited_frame = frame;
+                trigger_event = true;
             }
         }
         state.i_x = new_x;
@@ -962,12 +978,14 @@ impl HostTriggerWorld {
                 exited: false,
             });
             state.entered_or_exited_frame = frame;
+            trigger_event = true;
         }
-        if state.entered_or_exited_frame == frame {
+        if trigger_event {
             if let Some(name) = team_name.filter(|name| !name.is_empty()) {
                 self.team_entered_or_exited.insert(name.to_string(), frame);
             }
         }
+        trigger_event
     }
 
     pub fn clear(&mut self) {

@@ -130,7 +130,7 @@ impl GameLogic {
         // A cloned Object may still hold a weak handle to its source world's
         // trigger owner. Rebind it on admission without touching pose/flags;
         // load restoration and the C++ cell no-op depend on preserving those.
-        object.attach_host_trigger_world(&self.host_trigger_world);
+        object.attach_host_trigger_world(&self.host_trigger_world, &self.team_factory);
         object.visual_object_generation = self.allocate_visual_object_generation();
         object.visual_draw_identity_token = std::sync::Arc::new(());
         object.partition_namespace = Default::default();

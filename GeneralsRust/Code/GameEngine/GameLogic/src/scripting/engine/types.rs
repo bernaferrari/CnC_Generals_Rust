@@ -25,6 +25,14 @@ pub enum ScriptOwnerQuery<T> {
     Present(T),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptTeamAreaTransition {
+    AllEntered,
+    PartiallyEntered,
+    AllExited,
+    PartiallyExited,
+}
+
 /// The three CPP player-area census operations share geometry and ownership,
 /// while retaining their distinct liveness, crate and cache rules.
 pub enum ScriptPlayerAreaQuery<'a> {
@@ -1417,6 +1425,21 @@ pub trait ScriptExecutionDriver {
     }
 
     fn team_status(&self, _id: TeamID) -> ScriptOwnerQuery<ScriptTeamStatus> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    /// C++ Team::didAllEnter/didPartialEnter/didAllExit/didPartialExit. The
+    /// receiving world owns team membership and trigger edge slots.
+    fn team_area_transition(
+        &self,
+        _transition: ScriptTeamAreaTransition,
+        _team: &str,
+        _area: &str,
+        _current_player: Option<&str>,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+        _surfaces_allowed: u32,
+    ) -> ScriptOwnerQuery<bool> {
         ScriptOwnerQuery::Unavailable
     }
 

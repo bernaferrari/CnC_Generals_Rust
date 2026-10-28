@@ -131,6 +131,49 @@ impl TeamFactoryHandle {
         self.inner.try_lock()
     }
 
+    /// Inspect this factory without draining its deferred callbacks. Ordinary
+    /// `lock` owns a callback boundary; an observation must not create one.
+    pub fn with_read_without_flushing<R>(
+        &self,
+        read: impl FnOnce(&TeamFactory) -> R,
+    ) -> LockResult<R> {
+        match self.inner.inner.lock() {
+            Ok(factory) => Ok(read(&factory)),
+            Err(poisoned) => Err(PoisonError::new(read(&poisoned.into_inner()))),
+        }
+    }
+
+    /// Resolve a team without constructing `TeamFactoryGuard`: its Drop
+    /// intentionally drains queued factory callbacks after unlocking.
+    fn resolve_team_without_flushing(&self, team_id: TeamID) -> Option<Arc<RwLock<Team>>> {
+        self.with_read_without_flushing(|factory| factory.find_team_by_id(team_id))
+            .unwrap_or_else(|error| error.into_inner())
+    }
+
+    /// Mark a team's trigger-area edge flag without flushing factory callbacks.
+    /// Returns false when the team ID is not present.
+    pub fn mark_team_entered_exited(&self, team_id: TeamID) -> bool {
+        let Some(team) = self.resolve_team_without_flushing(team_id) else {
+            return false;
+        };
+        let mut team = match team.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        team.set_entered_exited();
+        true
+    }
+
+    /// Read a team's trigger-area edge flag without flushing factory callbacks.
+    pub fn team_entered_or_exited(&self, team_id: TeamID) -> Option<bool> {
+        let team = self.resolve_team_without_flushing(team_id)?;
+        let team = match team.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        Some(team.did_enter_or_exit())
+    }
+
     /// Copy only real available definitions for a detached logical restore.
     /// This is a read, so it must not drain callbacks like TeamFactoryGuard.
     pub fn detached_definition_catalog(
@@ -338,5 +381,47 @@ mod detached_definition_tests {
             MAX_GENERIC_SCRIPTS
         );
         assert!(!after.production_condition_always_false());
+    }
+
+    #[test]
+    fn edge_flag_access_does_not_flush_pending_factory_callbacks() {
+        let handle = TeamFactoryHandle::new();
+        let team_id = 17;
+        {
+            let mut factory = handle.inner.inner.lock().unwrap();
+            let team = Arc::new(RwLock::new(Team::new("OwnedTeam".into(), team_id)));
+            factory.teams.insert(team_id, Arc::clone(&team));
+            factory.instance_order.push(team_id);
+            factory
+                .pending_create_action_scripts
+                .push("pending create callback".into());
+            factory
+                .pending_generic_script_evals
+                .push(PendingTeamGenericScriptEval {
+                    team,
+                    prototype: Arc::new(TeamPrototype::new("OwnedPrototype".into())),
+                    team_name: "OwnedTeam".into(),
+                    script_name: "PendingGeneric".into(),
+                    script_index: 0,
+                    current_player_name: None,
+                });
+        }
+
+        assert_eq!(handle.team_entered_or_exited(team_id), Some(false));
+        assert!(handle.mark_team_entered_exited(team_id));
+        assert_eq!(handle.team_entered_or_exited(team_id), Some(true));
+        assert_eq!(handle.team_entered_or_exited(team_id + 1), None);
+        assert!(!handle.mark_team_entered_exited(team_id + 1));
+
+        let factory = handle.inner.inner.lock().unwrap();
+        assert_eq!(
+            factory.pending_create_action_scripts,
+            ["pending create callback"]
+        );
+        assert_eq!(factory.pending_generic_script_evals.len(), 1);
+        assert_eq!(
+            factory.pending_generic_script_evals[0].script_name,
+            "PendingGeneric"
+        );
     }
 }

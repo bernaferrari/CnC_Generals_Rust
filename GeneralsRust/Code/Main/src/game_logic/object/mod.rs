@@ -411,6 +411,10 @@ pub struct Object {
     pub(super) host_trigger_world: runtime_attachment::RuntimeAttachment<
         std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>,
     >,
+    /// Explicit receiving team factory used at the synchronous trigger-edge
+    /// callback. Observation clones are detached until world admission.
+    #[serde(skip)]
+    pub(super) team_factory: runtime_attachment::TeamFactoryRuntimeAttachment,
 
     /// Team ownership
     pub team: Team,

@@ -49,7 +49,7 @@ fn borrowed_pose_tree_callback_uses_receiving_frame_source_coordinates_and_prece
         .unwrap()
         .set_current_frame(37);
     let mut mover = object(801, &[KindOf::Vehicle]);
-    mover.attach_host_trigger_world(&world.host_trigger_world);
+    mover.attach_host_trigger_world(&world.host_trigger_world, &world.team_factory);
     mover.selection_radius = 8.0;
     mover.crusher_level = 2;
     mover.set_orientation(std::f32::consts::FRAC_PI_2);

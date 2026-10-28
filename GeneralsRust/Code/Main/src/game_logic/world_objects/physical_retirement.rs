@@ -55,6 +55,7 @@ impl GameLogic {
         self.partition_manager.unregister_object(id.0);
         object.partition_namespace = Default::default();
         object.host_trigger_world = Default::default();
+        object.team_factory.clear();
         // Object.cpp635-640 module destruction, after actor Drawable/team/
         // partition teardown and before script destruction notification.
         if let Err(reason) = self.retire_jet_lockon_for_object(&mut object, effects) {

@@ -33,57 +33,55 @@ impl GameLogic {
         if let Some(error) = self.team_creation_error() {
             return Err(error);
         }
-        let factory = self
-            .team_factory
-            .lock()
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
-        let contextual = if raw_team == gamelogic::scripting::core::THIS_TEAM {
-            calling_team.or(condition_team)
-        } else {
-            let mut selected = None;
-            for id in [calling_team, condition_team].into_iter().flatten() {
-                let Some(team) = factory.find_team_by_id(id) else {
-                    continue;
-                };
-                let team = team
-                    .read()
-                    .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
-                if team.get_name().as_str() == raw_team {
-                    selected = Some(id);
-                    break;
+        self.team_factory.with_read_without_flushing(|factory| {
+            let contextual = if raw_team == gamelogic::scripting::core::THIS_TEAM {
+                calling_team.or(condition_team)
+            } else {
+                let mut selected = None;
+                for id in [calling_team, condition_team].into_iter().flatten() {
+                    let Some(team) = factory.find_team_by_id(id) else {
+                        continue;
+                    };
+                    let team = team
+                        .read()
+                        .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                    if team.get_name().as_str() == raw_team {
+                        selected = Some(id);
+                        break;
+                    }
                 }
-            }
-            selected
-        };
-        let team = if let Some(id) = contextual {
-            factory.find_team_by_id(id)
-        } else if raw_team == gamelogic::scripting::core::THIS_TEAM {
-            None
-        } else {
-            let Some(prototype) = factory.find_team_prototype(raw_team) else {
-                return Ok(None);
+                selected
             };
-            let Some(team) = factory.find_team_instances(raw_team).into_iter().next() else {
-                return Ok(None);
+            let team = if let Some(id) = contextual {
+                factory.find_team_by_id(id)
+            } else if raw_team == gamelogic::scripting::core::THIS_TEAM {
+                None
+            } else {
+                let Some(prototype) = factory.find_team_prototype(raw_team) else {
+                    return Ok(None);
+                };
+                let Some(team) = factory.find_team_instances(raw_team).into_iter().next() else {
+                    return Ok(None);
+                };
+                if prototype.is_singleton()
+                    && !team
+                        .read()
+                        .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+                        .is_active()
+                {
+                    return Ok(None);
+                }
+                Some(team)
             };
-            if prototype.is_singleton()
-                && !team
-                    .read()
-                    .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
-                    .is_active()
-            {
-                return Ok(None);
+            let Some(team) = team else { return Ok(None) };
+            let team = team
+                .read()
+                .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+            if let Some(reason) = team.creation_failure() {
+                return Err(gamelogic::GameLogicError::TeamCreationFailed(reason.into()));
             }
-            Some(team)
-        };
-        let Some(team) = team else { return Ok(None) };
-        let team = team
-            .read()
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
-        if let Some(reason) = team.creation_failure() {
-            return Err(gamelogic::GameLogicError::TeamCreationFailed(reason.into()));
-        }
-        Ok(Some((team.get_id(), team.get_members().to_vec())))
+            Ok(Some((team.get_id(), team.get_members().to_vec())))
+        }).map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
     }
 
     pub(super) fn apply_owned_team_guard(

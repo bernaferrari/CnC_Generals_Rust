@@ -2852,6 +2852,86 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         })
     }
 
+    fn team_area_transition(
+        &self,
+        transition: gamelogic::scripting::engine::ScriptTeamAreaTransition,
+        team: &str,
+        area: &str,
+        current_player: Option<&str>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+        surfaces_allowed: u32,
+    ) -> ScriptOwnerQuery<bool> {
+        use gamelogic::scripting::engine::ScriptTeamAreaTransition as Transition;
+        let Some((team_id, members)) = self
+            .world
+            .resolve_owned_script_team(team, calling, condition)
+            .expect("owned team trigger transition query")
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let Some(area_name) = self.qualified_area(area, current_player) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let Some(team_entered_or_exited) = self.world.team_factory.team_entered_or_exited(team_id) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        // Drop the receiving Team read guard before querying trigger slots;
+        // no TeamFactory or Team lock is nested beneath the trigger owner.
+        let now = self.world.frame;
+        // C++ Team::m_enteredOrExited gates the query and is cleared by the
+        // existing update_team_states hook after the sides finish.
+        if !team_entered_or_exited {
+            return ScriptOwnerQuery::Present(false);
+        }
+        let trigger_world = self
+            .world
+            .host_trigger_world
+            .lock()
+            .expect("owned team trigger transitions");
+        let Some(trigger) = trigger_world.trigger_area_by_canonical_name(&area_name) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let surfaces = (surfaces_allowed & 0x01) | ((surfaces_allowed & 0x02) << 2);
+        let (mut any_considered, mut any_entered, mut any_outside) = (false, false, false);
+        let (mut any_exited, mut any_inside) = (false, false);
+        for id in members {
+            let Some(object) = self.world.host_object(ObjectId(id)) else {
+                continue;
+            };
+            let object_surfaces = if object.has_ai_update_interface() {
+                object.locomotor_surfaces
+            } else {
+                gamelogic::path::SURFACE_GROUND
+            };
+            if (object_surfaces & surfaces) == 0
+                || Self::status(object).effectively_dead
+                || object.is_kind_of(KindOf::Inert)
+            {
+                continue;
+            }
+            any_considered = true;
+            let entered = trigger_world.did_enter(id, &trigger, now);
+            let exited = trigger_world.did_exit(id, &trigger, now);
+            match transition {
+                Transition::AllEntered | Transition::PartiallyEntered => {
+                    any_entered |= entered;
+                    any_outside |= !entered && !trigger_world.is_inside(id, &trigger);
+                }
+                Transition::AllExited | Transition::PartiallyExited => {
+                    any_exited |= exited;
+                    any_inside |= !exited && trigger_world.is_inside(id, &trigger);
+                }
+            }
+        }
+        ScriptOwnerQuery::Present(match transition {
+            Transition::AllEntered => any_entered && !any_outside,
+            Transition::PartiallyEntered => any_entered,
+            Transition::AllExited => any_considered && any_exited && !any_inside,
+            Transition::PartiallyExited => any_exited,
+        })
+    }
+
     fn bridge_status(
         &self,
         name: &str,
@@ -3336,3 +3416,7 @@ mod named_cache_ability_actions;
 #[cfg(test)]
 #[path = "named_cache_condition_owner_tests.rs"]
 mod named_cache_condition_owner_tests;
+
+#[cfg(test)]
+#[path = "team_area_transition_owner_tests.rs"]
+mod team_area_transition_owner_tests;

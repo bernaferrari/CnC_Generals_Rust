@@ -30,8 +30,10 @@ impl Object {
     pub(crate) fn attach_host_trigger_world(
         &mut self,
         world: &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
+        teams: &gamelogic::team::TeamFactoryHandle,
     ) {
         self.host_trigger_world.bind(world);
+        self.team_factory.bind(teams);
     }
 
     pub(crate) fn validate_partition_namespace(&self, namespace: &std::sync::Arc<()>) {
@@ -65,6 +67,7 @@ impl Object {
         }
         self.partition_namespace = std::mem::take(&mut original.partition_namespace);
         self.host_trigger_world = std::mem::take(&mut original.host_trigger_world);
+        self.team_factory.take_from(&mut original.team_factory);
         Ok(())
     }
 
@@ -280,17 +283,27 @@ impl Object {
         // Reread team and trigger owner after tree FX, like the original callback.
         let team =
             (!self.team_instance_name.is_empty()).then_some(self.team_instance_name.as_str());
-        if let Some(world) = self.host_trigger_world.upgrade() {
+        let edge = if let Some(world) = self.host_trigger_world.upgrade() {
             let mut world = world.lock().unwrap_or_else(|error| error.into_inner());
             let frame = world.current_frame();
-            world.update_object_flags(
+            let skip = self.is_kind_of(crate::game_logic::KindOf::Projectile)
+                || self.is_kind_of(crate::game_logic::KindOf::Inert);
+            world.update_object_flags_and_report(
                 self.id.0,
                 reaction.position.x,
                 reaction.position.z,
                 frame,
-                false,
+                skip,
                 team,
-            );
+            )
+        } else {
+            false
+        };
+        // Release the trigger owner before acquiring the receiving team lock.
+        // The team bit is persisted by Team::xfer and remains set through the
+        // script observation phase, even if this object leaves the roster.
+        if edge {
+            self.team_factory.mark_entered_exited(self.team_instance_id);
         }
     }
 

@@ -317,15 +317,17 @@ impl GameLogic {
 impl GameLogic {
     /// Derived from canonical Team state; no competing session failure slot.
     pub(crate) fn team_creation_error(&self) -> Option<gamelogic::GameLogicError> {
-        let factory = match self.team_factory.lock() {
-            Ok(factory) => factory,
+        let teams = match self
+            .team_factory
+            .with_read_without_flushing(|factory| factory.get_all_teams())
+        {
+            Ok(teams) => teams,
             Err(_) => {
                 return Some(gamelogic::GameLogicError::Configuration(
                     "receiving Team owner is unavailable".into(),
                 ));
             }
         };
-        let teams = factory.get_all_teams();
         teams.into_iter().find_map(|team| {
             team.read()
                 .unwrap_or_else(|error| error.into_inner())

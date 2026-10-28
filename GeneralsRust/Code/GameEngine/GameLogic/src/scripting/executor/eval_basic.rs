@@ -291,6 +291,41 @@ impl ScriptConditionEvaluator<'_> {
             }
         }
 
+        if matches!(
+            condition_type,
+            ConditionType::TeamEnteredAreaEntirely
+                | ConditionType::TeamEnteredAreaPartially
+                | ConditionType::TeamExitedAreaEntirely
+                | ConditionType::TeamExitedAreaPartially
+        ) {
+            use crate::scripting::engine::{ScriptOwnerQuery, ScriptTeamAreaTransition};
+            let team = self.get_condition_string_param(condition, 0)?;
+            let area = self.get_condition_string_param(condition, 1)?;
+            let surfaces = self.get_condition_int_param(condition, 2).unwrap_or(0) as u32;
+            let engine = self.context.borrowed_engine();
+            let transition = match condition_type {
+                ConditionType::TeamEnteredAreaEntirely => ScriptTeamAreaTransition::AllEntered,
+                ConditionType::TeamEnteredAreaPartially => {
+                    ScriptTeamAreaTransition::PartiallyEntered
+                }
+                ConditionType::TeamExitedAreaEntirely => ScriptTeamAreaTransition::AllExited,
+                _ => ScriptTeamAreaTransition::PartiallyExited,
+            };
+            match driver.team_area_transition(
+                transition,
+                &team,
+                &area,
+                engine.get_current_player_name().as_deref(),
+                engine.get_calling_team_id(),
+                engine.get_condition_team_id(),
+                surfaces,
+            ) {
+                ScriptOwnerQuery::Present(value) => return Ok(bool_result(value)),
+                ScriptOwnerQuery::Missing => return Ok(bool_result(false)),
+                ScriptOwnerQuery::Unavailable => {}
+            }
+        }
+
         // These edge-triggered events select their player/source owner before
         // standalone token resolution or ambient player/object discovery.
         if let Some(result) = self.eval_player_event(condition, driver)? {
