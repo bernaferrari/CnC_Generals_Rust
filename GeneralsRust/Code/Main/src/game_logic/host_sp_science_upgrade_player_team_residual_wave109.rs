@@ -1308,125 +1308,10 @@ pub const ALLOW_PLAYER_RELATIONSHIP_NAME_TABLE_WAVE109: &[&str] = &[
 pub const SPECIAL_POWER_READY_TIMER_DEFAULT_READY_FRAME: u32 = 0xffff_ffff;
 pub const SPECIAL_POWER_READY_TIMER_DEFAULT_TEMPLATE_ID: u32 = INVALID_ID_RESIDUAL;
 
-/// C++ Player ctor residual deepen (beyond Wave 95 skill/rank zeros).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PlayerCtorResidualWave109 {
-    pub player_index: i32,
-    pub player_type: u32,
-    pub skill_points_modifier: f32,
-    pub rank_level: i32,
-    pub skill_points: i32,
-    pub science_purchase_points: i32,
-    pub is_local: bool,
-}
-
-/// Ctor residual for a non-neutral human local player at index 1.
-pub fn player_human_local_ctor_residual(player_index: i32) -> PlayerCtorResidualWave109 {
-    PlayerCtorResidualWave109 {
-        player_index,
-        player_type: PLAYER_TYPE_HUMAN,
-        skill_points_modifier: 1.0,
-        rank_level: 0,
-        skill_points: 0,
-        science_purchase_points: 0,
-        is_local: true,
-    }
-}
-
-/// Ctor residual for computer AI player.
-pub fn player_computer_ctor_residual(player_index: i32) -> PlayerCtorResidualWave109 {
-    PlayerCtorResidualWave109 {
-        player_index,
-        player_type: PLAYER_TYPE_COMPUTER,
-        skill_points_modifier: 1.0,
-        rank_level: 0,
-        skill_points: 0,
-        science_purchase_points: 0,
-        is_local: false,
-    }
-}
-
 /// C++ player mask residual: `1 << playerIndex`.
 #[inline]
 pub fn player_mask_wave109(player_index: u32) -> u32 {
     1u32 << player_index
-}
-
-/// Host PlayerList residual: fixed MAX_PLAYER_COUNT slots, neutral at 0.
-#[derive(Debug, Clone)]
-pub struct HostPlayerListResidualWave109 {
-    pub players: [Option<PlayerCtorResidualWave109>; PLAYER_MAX_COUNT_WAVE109],
-    pub player_count: usize,
-    pub local_index: Option<usize>,
-}
-
-impl HostPlayerListResidualWave109 {
-    pub fn new_with_neutral() -> Self {
-        let mut players = [None; PLAYER_MAX_COUNT_WAVE109];
-        // Neutral at index 0 residual.
-        players[0] = Some(PlayerCtorResidualWave109 {
-            player_index: 0,
-            player_type: PLAYER_TYPE_COMPUTER,
-            skill_points_modifier: 1.0,
-            rank_level: 0,
-            skill_points: 0,
-            science_purchase_points: 0,
-            is_local: false,
-        });
-        Self {
-            players,
-            player_count: 1,
-            local_index: None,
-        }
-    }
-
-    pub fn get_neutral(&self) -> Option<&PlayerCtorResidualWave109> {
-        self.players[PLAYER_NEUTRAL_INDEX_WAVE109].as_ref()
-    }
-
-    pub fn set_local(&mut self, index: usize) {
-        if index < PLAYER_MAX_COUNT_WAVE109 && self.players[index].is_some() {
-            // Clear previous local.
-            if let Some(prev) = self.local_index {
-                if let Some(p) = self.players[prev].as_mut() {
-                    p.is_local = false;
-                }
-            }
-            if let Some(p) = self.players[index].as_mut() {
-                p.is_local = true;
-            }
-            self.local_index = Some(index);
-        } else {
-            // C++ setLocalPlayer(null) → neutral.
-            self.local_index = Some(PLAYER_NEUTRAL_INDEX_WAVE109);
-            if let Some(p) = self.players[PLAYER_NEUTRAL_INDEX_WAVE109].as_mut() {
-                p.is_local = true;
-            }
-        }
-    }
-
-    pub fn add_player(&mut self, p: PlayerCtorResidualWave109) -> Option<usize> {
-        if self.player_count >= PLAYER_MAX_COUNT_WAVE109 {
-            return None;
-        }
-        let idx = self.player_count;
-        self.players[idx] = Some(p);
-        self.player_count += 1;
-        Some(idx)
-    }
-
-    pub fn get_local(&self) -> Option<&PlayerCtorResidualWave109> {
-        self.local_index.and_then(|i| self.players[i].as_ref())
-    }
-
-    pub fn get_player_from_mask(&self, mask: u32) -> Option<&PlayerCtorResidualWave109> {
-        for i in 0..self.player_count {
-            if player_mask_wave109(i as u32) == mask {
-                return self.players[i].as_ref();
-            }
-        }
-        None
-    }
 }
 
 /// SpecialPowerReadyTimer residual clear defaults.
@@ -1441,7 +1326,7 @@ pub fn special_power_ready_timer_clear_residual() -> (u32, u32) {
 /// Wave 109 honesty: Player residual deepen pack.
 ///
 /// Freezes PlayerType, PLAYER_INDEX_INVALID, hotkey squads, AllowPlayerRelationship
-/// bits, SpecialPowerReadyTimer clear residual, PlayerList neutral/local residual.
+/// bits and SpecialPowerReadyTimer clear residual.
 /// Fail-closed: not full science purchase / energy matrix residual.
 
 // ---------------------------------------------------------------------------
