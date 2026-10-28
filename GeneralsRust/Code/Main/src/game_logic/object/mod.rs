@@ -171,7 +171,7 @@ pub(crate) mod parachute_contain;
 pub(crate) mod turret_runtime;
 pub(crate) mod turret_runtime_persist;
 mod turret_spawn;
-use turret_spawn::turret_spawn_for_receiving_definition;
+use turret_spawn::turret_spawn_for_thing_template;
 pub(crate) use turret_spawn::{
     TurretSpawnSpec, turret_deg_per_sec_to_rad_per_frame, turret_ms_to_frames,
     turret_spawn_for_template,

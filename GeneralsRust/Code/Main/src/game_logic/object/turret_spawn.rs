@@ -98,6 +98,20 @@ pub fn turret_spawn_for_template(template_name: &str) -> TurretSpawnSpec {
     turret_spawn_from_name_honesty(template_name)
 }
 
+/// Resolve one Object's turret spawn facts from its receiving definition when
+/// present. Only hand-built/non-receiving templates may use the compatibility
+/// asset lookup and name fallback. Shared by normal and snapshot construction
+/// so the two lifecycle routes cannot select different configuration owners.
+pub(super) fn turret_spawn_for_thing_template(
+    template: &crate::game_logic::ThingTemplate,
+) -> TurretSpawnSpec {
+    template
+        .receiving_object_definition
+        .as_deref()
+        .map(turret_spawn_for_receiving_definition)
+        .unwrap_or_else(|| turret_spawn_for_template(&template.name))
+}
+
 fn turret_spawn_from_object_definition(template_name: &str) -> Option<TurretSpawnSpec> {
     let manager = crate::assets::get_asset_manager()?;
     let guard = manager.lock().ok()?;
@@ -452,10 +466,12 @@ mod receiving_definition_tests {
             turret_spawn_for_receiving_definition(&second).turn_rate_rad,
             turret_deg_per_sec_to_rad_per_frame(90.0)
         );
-        assert!(!turret_spawn_for_receiving_definition(
-            &crate::assets::ObjectDefinition::new("AmericaVehicleHumvee".into())
-        )
-        .has_turret);
+        assert!(
+            !turret_spawn_for_receiving_definition(&crate::assets::ObjectDefinition::new(
+                "AmericaVehicleHumvee".into()
+            ))
+            .has_turret
+        );
     }
 }
 
