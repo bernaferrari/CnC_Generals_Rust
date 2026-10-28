@@ -323,13 +323,18 @@ impl CnCGameEngine {
                 player,
                 facts.as_ref(),
             );
+            let random = &mut self.game_logic.session_view.client_random;
+            let mut selection = crate::game_logic::SessionAudioSelection {
+                logic: &self.game_logic.logic_random,
+                audio: &mut self.game_logic.session_view.audio_random,
+            };
             let mut playback = super::native_audio_effects::NativeEvaPlayback {
                 service: super::native_audio_effects::NativeAudioService::receiving(
                     &mut self.subsystem_manager,
                 ),
                 locality,
+                selection: &mut selection,
             };
-            let random = &mut self.game_logic.session_view.client_random;
             self.eva_recipient.speaker.update_with_playback(
                 &pres.eva_context,
                 &mut playback,

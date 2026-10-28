@@ -47,6 +47,8 @@ impl<'a> NativeAudioService<'a> {
 pub(super) struct NativeEvaPlayback<'a> {
     pub(super) service: Option<NativeAudioService<'a>>,
     pub(super) locality: AudioSubmissionLocality,
+    pub(super) selection:
+        &'a mut dyn game_engine::common::audio::audio_event_rts::AudioEventSelection,
 }
 
 #[cfg(feature = "game_client")]
@@ -87,7 +89,11 @@ impl game_client::eva::EvaPlayback for NativeEvaPlayback<'_> {
             if let Some(info) = device.find_audio_event_info(speech.get_event_name()) {
                 speech.set_audio_event_info(info);
             }
-            device.add_audio_event_with_locality(&speech, &self.locality)
+            device.add_audio_event_with_locality_and_selection(
+                &speech,
+                &self.locality,
+                self.selection,
+            )
         };
         service.record(handle);
         handle
