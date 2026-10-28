@@ -171,7 +171,6 @@ impl GameLogic {
                     }
                     if let Some(enemy_id) = self.scan_guard_inner_target(
                         object_id,
-                        team,
                         scan_anchor,
                         acquire_radius,
                         flying_only,
@@ -270,7 +269,6 @@ impl GameLogic {
                     if enter_guard {
                         if let Some(enemy_id) = self.scan_guard_inner_target(
                             object_id,
-                            team,
                             guard_anchor,
                             acquire_radius,
                             flying_only,
@@ -315,7 +313,6 @@ impl GameLogic {
                         }
                         if let Some(enemy_id) = self.scan_guard_inner_target(
                             object_id,
-                            team,
                             guard_anchor,
                             acquire_radius,
                             flying_only,

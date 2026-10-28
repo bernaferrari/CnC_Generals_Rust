@@ -305,6 +305,89 @@ fn strategic_ai_uses_each_players_exact_default_team() {
     assert_eq!(no_default_ai.enemy_player_id, None);
 }
 
+#[test]
+fn guard_acquires_by_exact_team_identity_in_each_world() {
+    use generals_main::game_logic::Weapon;
+
+    fn prepare(
+        world: &mut GameLogic,
+        guard: ObjectId,
+        target: ObjectId,
+        first_is_enemy: bool,
+    ) -> ObjectId {
+        {
+            let object = world.host_object_mut(guard).unwrap();
+            object.team_instance_name = "SourceRoster".into();
+            object.vision_range = 120.0;
+            object.weapon = Some(Weapon {
+                range: 120.0,
+                damage: 1.0,
+                ..Default::default()
+            });
+        }
+        world.activate_leftover_team_for_host_object(guard);
+        let (sibling, sibling_team) = same_named_team_member(
+            world,
+            2,
+            "TargetRoster",
+            "RelationUnit",
+            Vec3::new(35.0, 0.0, 30.0),
+        );
+        let original_team = team_id_for_member(world, target);
+        let player = world.get_player_mut(1).unwrap();
+        player.set_team_relationship_override(
+            original_team,
+            if first_is_enemy {
+                Relationship::Enemies
+            } else {
+                Relationship::Allies
+            },
+        );
+        player.set_team_relationship_override(
+            sibling_team,
+            if first_is_enemy {
+                Relationship::Allies
+            } else {
+                Relationship::Enemies
+            },
+        );
+        assert!(world.unit_command_guard_position(guard, Vec3::new(10.0, 0.0, 30.0)));
+        sibling
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut owner, guard, target) = world(&map);
+    let (mut peer, peer_guard, peer_target) = world(&map);
+    let sibling = prepare(&mut owner, guard, target, false);
+    let peer_sibling = prepare(&mut peer, peer_guard, peer_target, true);
+    assert_eq!(
+        (guard, target, sibling),
+        (peer_guard, peer_target, peer_sibling)
+    );
+
+    let mut owner_found = false;
+    let mut peer_found = false;
+    for _ in 0..120 {
+        peer.update();
+        owner.update();
+        owner_found |= owner
+            .host_object(guard)
+            .is_some_and(|object| object.target == Some(sibling));
+        peer_found |= peer
+            .host_object(peer_guard)
+            .is_some_and(|object| object.target == Some(peer_target));
+        if owner_found && peer_found {
+            break;
+        }
+    }
+    assert!(
+        owner_found,
+        "owner guard must acquire the enemy sibling Team"
+    );
+    assert!(peer_found, "peer guard must acquire its own enemy Team");
+}
+
 fn team_id_for_member(world: &GameLogic, member: ObjectId) -> u32 {
     use generals_main::save_load::snapshot::stamp_player_team_chunks;
 

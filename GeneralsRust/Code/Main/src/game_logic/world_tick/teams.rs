@@ -298,10 +298,6 @@ impl GameLogic {
     /// computer-owned scans.
     fn scan_guard_retaliate_inner(&self, unit_id: ObjectId) -> Option<ObjectId> {
         let me = self.objects.get(&unit_id)?;
-        let team = me.team;
-        let owner_player = me.owner_player_id;
-        let owner_inst = me.team_instance_name.clone();
-        let owner_undetected = me.is_undetected_defector();
         let anchor = me
             .guard_retaliate_anchor
             .or(me.active_guard_position())
@@ -345,13 +341,7 @@ impl GameLogic {
                 continue;
             }
             use gamelogic::common::Relationship;
-            let rel = self.host_guard_leftover_relationship(
-                owner_player,
-                &owner_inst,
-                team,
-                owner_undetected,
-                cand,
-            );
+            let rel = self.host_guard_relationship(me, cand);
             if enter_guard {
                 if hijack_guard {
                     if rel != Relationship::Enemies || !self.can_hijack_vehicle(unit_id, cand) {

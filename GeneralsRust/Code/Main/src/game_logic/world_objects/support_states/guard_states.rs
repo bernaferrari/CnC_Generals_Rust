@@ -90,52 +90,38 @@ impl GameLogic {
         trigger.point_in_trigger(&gamelogic::common::Coord2D::new(pos.x, pos.z))
     }
 
-    /// Leftover `Object::relationship_to` / C++ `PartitionFilterRelationship`.
-    /// Owner ids use leftover `object_relationship`. Missing owners keep the
-    /// faction residual, but Neutral is never Enemies (`ALLOW_ENEMIES`).
-    /// C++ `Object::getRelationship` undetected-defector overrides apply first.
-    pub(crate) fn host_guard_leftover_relationship(
+    /// C++ PartitionFilterRelationship borrows its owner and asks that exact
+    /// object's relationship to each candidate. Missing owner provenance still
+    /// retains the existing unbound-fixture faction fallback.
+    pub(crate) fn host_guard_relationship(
         &self,
-        owner_player: Option<u32>,
-        owner_inst: &str,
-        owner_team: Team,
-        owner_undetected_defector: bool,
+        owner: &Object,
         cand: &Object,
     ) -> gamelogic::common::Relationship {
         use gamelogic::common::Relationship;
-        if owner_undetected_defector {
+        if owner.owner_player_id.is_some() && cand.owner_player_id.is_some() {
+            return self.object_relationship(owner, cand);
+        }
+        if owner.is_undetected_defector() {
             return Relationship::Neutral;
         }
         if cand.is_undetected_defector() {
             return Relationship::Allies;
         }
-        match (owner_player, cand.owner_player_id) {
-            (Some(_), Some(_)) => Self::object_relationship_from_owners(
-                &self.team_factory,
-                &self.players,
-                owner_player,
-                owner_inst,
-                cand.owner_player_id,
-                &cand.team_instance_name,
-            ),
-            _ => {
-                if owner_team == cand.team && owner_team != Team::Neutral {
-                    Relationship::Allies
-                } else if owner_team == Team::Neutral || cand.team == Team::Neutral {
-                    Relationship::Neutral
-                } else {
-                    Relationship::Enemies
-                }
-            }
+        if owner.team == cand.team && owner.team != Team::Neutral {
+            Relationship::Allies
+        } else if owner.team == Team::Neutral || cand.team == Team::Neutral {
+            Relationship::Neutral
+        } else {
+            Relationship::Enemies
         }
     }
 
     /// C++ `lookForInnerTarget` residual: polygon + flying + `ALLOW_ENEMIES`
-    /// (EnterGuard: `ALLOW_NEUTRAL` + can-enter). Leftover `relationship_to`.
+    /// (EnterGuard: `ALLOW_NEUTRAL` + can-enter), using this world’s Teams.
     pub(super) fn scan_guard_inner_target(
         &self,
         object_id: ObjectId,
-        team: Team,
         scan_anchor: glam::Vec3,
         acquire_radius: f32,
         flying_only: bool,
@@ -159,18 +145,8 @@ impl GameLogic {
             }
         }
         let (world_min, world_max) = self.world_bounds();
-        let (owner_off, owner_player, owner_inst, owner_undetected) = self
-            .objects
-            .get(&object_id)
-            .map(|o| {
-                (
-                    host_same_map_status_off(o.get_position(), world_min, world_max),
-                    o.owner_player_id,
-                    o.team_instance_name.clone(),
-                    o.is_undetected_defector(),
-                )
-            })
-            .unwrap_or((false, None, String::new(), false));
+        let owner = self.objects.get(&object_id)?;
+        let owner_off = host_same_map_status_off(owner.get_position(), world_min, world_max);
         let radius_sq = acquire_radius * acquire_radius;
         let mut best: Option<(ObjectId, f32)> = None;
         for (cand_id, cand) in self.objects.registered() {
@@ -194,13 +170,7 @@ impl GameLogic {
                 continue;
             }
             use gamelogic::common::Relationship;
-            let rel = self.host_guard_leftover_relationship(
-                owner_player,
-                &owner_inst,
-                team,
-                owner_undetected,
-                cand,
-            );
+            let rel = self.host_guard_relationship(owner, cand);
             if enter_guard {
                 if hijack_guard {
                     if rel != Relationship::Enemies || !self.can_hijack_vehicle(object_id, cand) {

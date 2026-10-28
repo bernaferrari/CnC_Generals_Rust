@@ -484,7 +484,7 @@ impl GameLogic {
     pub(crate) fn scan_guard_inner_target_for_test(
         &self,
         object_id: ObjectId,
-        team: Team,
+        _team: Team,
         scan_anchor: glam::Vec3,
         acquire_radius: f32,
         flying_only: bool,
@@ -494,7 +494,6 @@ impl GameLogic {
     ) -> Option<ObjectId> {
         self.scan_guard_inner_target(
             object_id,
-            team,
             scan_anchor,
             acquire_radius,
             flying_only,
