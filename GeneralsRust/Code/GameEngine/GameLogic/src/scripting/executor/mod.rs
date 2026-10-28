@@ -10,25 +10,25 @@
 
 use super::core::*;
 use super::engine::{
-    CanonicalScriptExecutionDriver, ScriptExecutionDriver, TFade, get_area_tracker,
-    get_named_object_tracker,
+    get_area_tracker, get_named_object_tracker, CanonicalScriptExecutionDriver,
+    ScriptExecutionDriver, TFade,
 };
-use crate::ai::integration::{IntegratedAiPlayer, with_ai_integration_mut};
+use crate::ai::integration::{with_ai_integration_mut, IntegratedAiPlayer};
 use crate::ai::{
     AiCommandInterface, AiCommandParams, AiCommandType, AiGroup, AttitudeType, GuardMode,
 };
 use crate::commands::{
-    Command, CommandPriority, CommandType, QueuedCommand, get_command_queue_manager,
+    get_command_queue_manager, Command, CommandPriority, CommandType, QueuedCommand,
 };
 use crate::common::{
-    AsciiString, Color, CommandSourceType, Coord3D, INVALID_ID, LOGICFRAMES_PER_SECOND, ObjectID,
-    Relationship, WaypointID,
+    AsciiString, Color, CommandSourceType, Coord3D, ObjectID, Relationship, WaypointID, INVALID_ID,
+    LOGICFRAMES_PER_SECOND,
 };
 use crate::control_bar::{get_control_bar_bridge, set_command_set_slot_override};
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::{
-    TheAudio, TheGameLogic, ThePartitionManager, TheVictoryConditions, get_game_logic_random_value,
-    get_game_logic_random_value_real,
+    get_game_logic_random_value, get_game_logic_random_value_real, TheAudio, TheGameLogic,
+    ThePartitionManager, TheVictoryConditions,
 };
 use crate::modules::AIAttitudeType;
 use crate::object::behavior::auto_heal_behavior::parse_kind_of;
@@ -39,7 +39,7 @@ use crate::object::update::special_power_update::SpecialPowerCommandOption;
 use crate::object_creation_list::nuggets::INVALID_ANGLE;
 use crate::object_manager::get_object_manager;
 use crate::path::PATHFIND_CELL_SIZE_F;
-use crate::player::{PlayerType, player_list};
+use crate::player::{player_list, PlayerType};
 use crate::system::game_logic::TheObjectFactory;
 use crate::team::get_team_factory;
 use crate::terrain::get_terrain_logic;
@@ -48,8 +48,8 @@ use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::audio::AudioAffect as EngineAudioAffect;
 use game_engine::common::global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::rts::{SCIENCE_INVALID, ScienceType, get_science_store};
-use game_engine::common::system::radar::{RadarEventType, get_radar_system};
+use game_engine::common::rts::{get_science_store, ScienceType, SCIENCE_INVALID};
+use game_engine::common::system::radar::{get_radar_system, RadarEventType};
 use once_cell::sync::Lazy;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -1158,8 +1158,8 @@ pub fn request_host_team_partial_command_button(req: HostScriptTeamPartialComman
     HOST_TEAM_PARTIAL_COMMAND_BUTTON_REQUESTS.with(|q| q.borrow_mut().push(req));
 }
 
-pub fn take_host_team_partial_command_button_requests()
--> Vec<HostScriptTeamPartialCommandButtonRequest> {
+pub fn take_host_team_partial_command_button_requests(
+) -> Vec<HostScriptTeamPartialCommandButtonRequest> {
     HOST_TEAM_PARTIAL_COMMAND_BUTTON_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
 
@@ -1318,6 +1318,7 @@ pub enum ScriptConditionResult {
 ///
 /// C++ Reference: ScriptActions class member variables
 /// This provides access to all game systems needed for script execution
+#[derive(Clone)]
 pub struct ScriptContext {
     // Game system references (reserved for tighter integration points)
     pub game_logic_id: u32,

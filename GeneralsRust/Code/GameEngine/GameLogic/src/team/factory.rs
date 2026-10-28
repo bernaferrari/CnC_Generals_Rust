@@ -125,7 +125,11 @@ impl TeamFactory {
                 })),
                 execute_actions_on_create: definition.execute_actions_on_create,
                 team_generic_scripts: definition.team_generic_scripts.clone(),
-                generic_script_runtime: Arc::new(Mutex::new(vec![None; MAX_GENERIC_SCRIPTS])),
+                generic_script_runtime: Arc::new(Mutex::new(
+                    (0..MAX_GENERIC_SCRIPTS)
+                        .map(|_| GenericScriptRuntimeSlot::Empty)
+                        .collect(),
+                )),
                 attack_priority_name: definition.attack_priority_name.clone(),
                 units_info: definition.units_info,
                 num_units_info: definition.num_units_info,
@@ -704,6 +708,23 @@ impl TeamFactory {
         self.owned_team_prototypes_for_controller(controller)
             .into_iter()
             .flat_map(|prototype| self.find_team_instances(prototype.get_name().as_str()))
+            .collect()
+    }
+
+    /// Return the receiving controller's prototype and live-instance pairs in
+    /// C++ Player::iterateObjects order. The caller executes callbacks only
+    /// after this detached list has been collected and the factory unlocked.
+    pub(crate) fn owned_team_generic_script_entries(
+        &self,
+        controller: u32,
+    ) -> Vec<(Arc<TeamPrototype>, Arc<RwLock<Team>>)> {
+        self.owned_team_prototypes_for_controller(controller)
+            .into_iter()
+            .flat_map(|prototype| {
+                self.find_team_instances(prototype.get_name().as_str())
+                    .into_iter()
+                    .map(move |team| (Arc::clone(&prototype), team))
+            })
             .collect()
     }
 
@@ -1318,14 +1339,24 @@ fn execute_pending_team_generic_script_evals_with_engine(
             Ok(team) if team.should_attempt_generic_script(pending.script_index) => team.get_id(),
             Ok(_) | Err(_) => continue,
         };
-        let Some(mut script) = pending
+        let mut script = match pending
             .prototype
-            .take_or_load_generic_script_runtime(pending.script_index, script_engine)
-        else {
-            if let Ok(mut team_guard) = pending.team.write() {
-                team_guard.disable_generic_script_attempt(pending.script_index);
+            .take_or_load_generic_script_runtime_checked(pending.script_index, script_engine)
+        {
+            Ok(Some(script)) => script,
+            Err(GenericScriptRuntimeBusy::InFlight) => {
+                log::warn!(
+                    "Team generic script '{}' was reentered while its runtime was active",
+                    pending.script_name
+                );
+                continue;
             }
-            continue;
+            Ok(None) => {
+                if let Ok(mut team_guard) = pending.team.write() {
+                    team_guard.disable_generic_script_attempt(pending.script_index);
+                }
+                continue;
+            }
         };
 
         let saved_context = match script_engine.write() {
@@ -1336,9 +1367,6 @@ fn execute_pending_team_generic_script_evals_with_engine(
         };
 
         let Some(saved_context) = saved_context else {
-            pending
-                .prototype
-                .store_generic_script_runtime(pending.script_index, Some(script));
             continue;
         };
 
@@ -1379,10 +1407,6 @@ fn execute_pending_team_generic_script_evals_with_engine(
                 );
             }
         }
-
-        pending
-            .prototype
-            .store_generic_script_runtime(pending.script_index, Some(script));
     }
 }
 

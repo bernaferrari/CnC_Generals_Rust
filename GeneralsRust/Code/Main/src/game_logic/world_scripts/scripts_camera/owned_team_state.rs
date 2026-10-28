@@ -4,6 +4,38 @@ use gamelogic::scripting::engine::ScriptEngine;
 use gamelogic::team::{TeamStateObservation, TeamStateStep};
 
 impl GameLogic {
+    /// Execute one Player::update generic Team-script phase with this match's
+    /// interpreter, factory and synchronous script driver.
+    pub(crate) fn update_owned_team_generic_scripts_for_player_with_effects(
+        &mut self,
+        player_id: u32,
+        engine: &ScriptEngine,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some(player_name) = self
+            .get_player(player_id)
+            .map(|player| player.map_side.map_player_name.clone())
+        else {
+            return Ok(());
+        };
+        let frame = self.frame;
+        let context = gamelogic::scripting::executor::ScriptContext::at_frame(frame)
+            .with_session_world(Arc::clone(&self.host_trigger_world));
+        let team_factory = self.team_factory.clone();
+        let mut driver = super::script_execution_driver::HostScriptExecutionDriver::with_effects(
+            self,
+            engine,
+            ui.reborrow(),
+        );
+        team_factory.update_generic_scripts_for_controller_with_driver(
+            player_id,
+            Some(&player_name),
+            engine,
+            context,
+            &mut driver,
+        )
+    }
+
     /// Run a Team script with this session's interpreter and calling context
     /// after the Team borrow has ended.
     pub(crate) fn run_owned_team_script_with_effects_checked(

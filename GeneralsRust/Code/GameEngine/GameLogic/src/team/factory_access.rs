@@ -143,6 +143,172 @@ impl TeamFactoryHandle {
         }
     }
 
+    /// Run one controller's Team generic-script phase with the receiving
+    /// interpreter and driver. This deliberately bypasses TeamFactoryGuard:
+    /// generic callbacks execute synchronously in caller order, after the
+    /// factory lock is released, and never drain unrelated factory callbacks.
+    pub fn update_generic_scripts_for_controller_with_driver(
+        &self,
+        controller: u32,
+        current_player_name: Option<&str>,
+        script_engine: &crate::scripting::engine::ScriptEngine,
+        context: crate::scripting::executor::ScriptContext,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
+    ) -> crate::GameLogicResult<()> {
+        let entries = self
+            .with_read_without_flushing(|factory| {
+                factory.owned_team_generic_script_entries(controller)
+            })
+            .unwrap_or_else(|error| error.into_inner());
+
+        for (prototype, team) in entries {
+            let team_id = match team.read() {
+                Ok(team) => team.get_id(),
+                Err(error) => error.into_inner().get_id(),
+            };
+            for script_index in 0..MAX_GENERIC_SCRIPTS {
+                if !self.owns_generic_entry(controller, &prototype, &team) {
+                    break;
+                }
+                let should_attempt = match team.read() {
+                    Ok(team) => team.should_attempt_generic_script(script_index),
+                    Err(error) => error
+                        .into_inner()
+                        .should_attempt_generic_script(script_index),
+                };
+                if !should_attempt {
+                    continue;
+                }
+
+                let script_name = prototype
+                    .get_generic_script(script_index)
+                    .map(|name| name.to_string())
+                    .unwrap_or_default();
+                if script_name.is_empty() {
+                    match team.write() {
+                        Ok(mut team) => team.disable_generic_script_attempt(script_index),
+                        Err(error) => error
+                            .into_inner()
+                            .disable_generic_script_attempt(script_index),
+                    }
+                    continue;
+                }
+
+                let mut script = match prototype
+                    .take_or_load_generic_script_runtime_owned(script_index, script_engine)
+                {
+                    Ok(Some(script)) => script,
+                    Err(crate::team::GenericScriptRuntimeBusy::InFlight) => {
+                        return Err(crate::GameLogicError::Configuration(format!(
+                            "Team generic script '{}' was reentered while its runtime was active",
+                            script_name
+                        )));
+                    }
+                    Ok(None) => {
+                        match team.write() {
+                            Ok(mut team) => team.disable_generic_script_attempt(script_index),
+                            Err(error) => error
+                                .into_inner()
+                                .disable_generic_script_attempt(script_index),
+                        }
+                        continue;
+                    }
+                };
+
+                // Team generic hooks call evaluateConditions directly. They
+                // bypass executeScript's root active/difficulty/periodic gates.
+                let condition_true = match script_engine.evaluate_conditions_with_driver_checked(
+                    &mut script,
+                    Some(team_id),
+                    current_player_name,
+                    context.clone(),
+                    driver,
+                ) {
+                    Ok(condition_true) => condition_true,
+                    Err(error) => {
+                        log::warn!(
+                            "Team generic script '{}' evaluation failed for team '{}': {}",
+                            script_name,
+                            prototype.get_name(),
+                            error
+                        );
+                        continue;
+                    }
+                };
+
+                let still_eligible = match team.read() {
+                    Ok(team) => team.should_attempt_generic_script(script_index),
+                    Err(error) => error
+                        .into_inner()
+                        .should_attempt_generic_script(script_index),
+                };
+                if condition_true
+                    && still_eligible
+                    && self.owns_generic_entry(controller, &prototype, &team)
+                {
+                    if script.is_one_shot() {
+                        // C++ consumes a one-shot before the synchronous action.
+                        match team.write() {
+                            Ok(mut team) => team.disable_generic_script_attempt(script_index),
+                            Err(error) => error
+                                .into_inner()
+                                .disable_generic_script_attempt(script_index),
+                        }
+                    }
+                    if let Some(action) = script.get_action().cloned() {
+                        script_engine.friend_execute_action_with_driver_checked(
+                            &action,
+                            Some(team_id),
+                            context.clone(),
+                            driver,
+                        )?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether an admitted eligible slot has a non-empty definition and thus
+    /// requires the receiving session's interpreter for its scheduled phase.
+    pub fn generic_scripts_require_interpreter_for_controller(&self, controller: u32) -> bool {
+        self.with_read_without_flushing(|factory| {
+            factory
+                .owned_team_generic_script_entries(controller)
+                .into_iter()
+                .any(|(prototype, team)| {
+                    let team = match team.read() {
+                        Ok(team) => team,
+                        Err(error) => error.into_inner(),
+                    };
+                    (0..MAX_GENERIC_SCRIPTS).any(|index| {
+                        team.should_attempt_generic_script(index)
+                            && prototype
+                                .get_generic_script(index)
+                                .is_some_and(|name| !name.is_empty())
+                    })
+                })
+        })
+        .unwrap_or_else(|error| error.into_inner())
+    }
+
+    fn owns_generic_entry(
+        &self,
+        controller: u32,
+        prototype: &Arc<TeamPrototype>,
+        team: &Arc<RwLock<Team>>,
+    ) -> bool {
+        self.with_read_without_flushing(|factory| {
+            factory
+                .owned_team_generic_script_entries(controller)
+                .iter()
+                .any(|(current_prototype, current_team)| {
+                    Arc::ptr_eq(current_prototype, prototype) && Arc::ptr_eq(current_team, team)
+                })
+        })
+        .unwrap_or_else(|error| error.into_inner())
+    }
+
     /// Resolve a team without constructing `TeamFactoryGuard`: its Drop
     /// intentionally drains queued factory callbacks after unlocking.
     fn resolve_team_without_flushing(&self, team_id: TeamID) -> Option<Arc<RwLock<Team>>> {
@@ -374,7 +540,11 @@ mod detached_definition_tests {
             .lock()
             .unwrap()
             .always_false = false;
-        after.generic_script_runtime.lock().unwrap().push(None);
+        after
+            .generic_script_runtime
+            .lock()
+            .unwrap()
+            .push(GenericScriptRuntimeSlot::Empty);
         assert!(before.production_condition_always_false());
         assert_eq!(
             before.generic_script_runtime.lock().unwrap().len(),

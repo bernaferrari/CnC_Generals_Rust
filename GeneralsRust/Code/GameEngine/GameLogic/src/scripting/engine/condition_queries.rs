@@ -15,6 +15,20 @@ impl ScriptEngine {
         context: ScriptContext,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> bool {
+        self.evaluate_conditions_with_driver_checked(script, team_id, player_name, context, driver)
+            .unwrap_or(false)
+    }
+
+    /// Checked form used by synchronous owner callbacks that preserve the
+    /// original condition-error logging and continuation policy.
+    pub(crate) fn evaluate_conditions_with_driver_checked(
+        &self,
+        script: &mut Script,
+        team_id: Option<TeamID>,
+        player_name: Option<&str>,
+        context: ScriptContext,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<bool, String> {
         let restore = self.with_inner(|inner| CallingContextRestore {
             engine: self,
             calling_team: inner.calling_team,
@@ -29,7 +43,7 @@ impl ScriptEngine {
                 }
                 ScriptOwnerQuery::Missing | ScriptOwnerQuery::Unavailable => {
                     log::warn!("Condition evaluation has no driving controller for team {id}");
-                    return false;
+                    return Ok(false);
                 }
             }
         } else {
@@ -43,12 +57,14 @@ impl ScriptEngine {
             inner.current_player = player;
         }
         let state = std::cell::RefCell::new(context);
-        let result = script.condition.as_deref_mut().is_some_and(|condition| {
+        let result = if let Some(condition) = script.condition.as_deref_mut() {
             ScriptConditionEvaluator::new(self, &state)
                 .evaluate_or_condition_with_driver(condition, driver)
-                .unwrap_or(false)
-        });
+                .map_err(|error| error.to_string())?
+        } else {
+            false
+        };
         drop(restore);
-        result
+        Ok(result)
     }
 }

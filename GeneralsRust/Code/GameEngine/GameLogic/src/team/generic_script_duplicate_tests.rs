@@ -216,7 +216,7 @@ fn generic_cached_runtime_mutations_survive_retrieval_and_do_not_cross_receiving
     condition.custom_data = 1;
     condition.custom_frame = 42;
     condition.parameters[0].as_mut().unwrap().int_value = 101;
-    own_prototype.store_generic_script_runtime(0, Some(runtime));
+    drop(runtime);
     let returned = own_prototype
         .take_or_load_generic_script_runtime(0, &own)
         .unwrap();
@@ -230,6 +230,7 @@ fn generic_cached_runtime_mutations_survive_retrieval_and_do_not_cross_receiving
         .unwrap();
     assert_eq!((condition.custom_data, condition.custom_frame), (1, 42));
     assert_eq!(condition.get_parameter(0).unwrap().int_value, 101);
+    drop(returned);
     let peer_runtime = peer_prototype
         .take_or_load_generic_script_runtime(0, &peer)
         .unwrap();
@@ -244,4 +245,49 @@ fn generic_cached_runtime_mutations_survive_retrieval_and_do_not_cross_receiving
         .unwrap();
     assert_eq!((condition.custom_data, condition.custom_frame), (0, 0));
     assert_eq!(condition.get_parameter(0).unwrap().int_value, 73);
+    drop(peer_runtime);
+}
+
+#[test]
+fn taking_a_generic_runtime_marks_it_in_flight_for_reentrant_evaluation() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    let mut prototype = TeamPrototype::new("InFlightGeneric".into());
+    prototype.set_generic_script(0, "InFlightScript".into());
+    let mut script = Script::new();
+    script.set_name("InFlightScript".into());
+    script.comment = "original-runtime".into();
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(script));
+    let mut engine = ScriptEngine::new().unwrap();
+    engine
+        .set_script_list_for_player(0, Some(Box::new(list)))
+        .unwrap();
+    let engine = ScriptEngineHandle::from_engine(engine);
+
+    let mut outer = prototype
+        .take_or_load_generic_script_runtime_checked(0, &engine)
+        .unwrap()
+        .unwrap();
+    outer.comment = "mutated-runtime".into();
+    assert!(matches!(
+        prototype.take_or_load_generic_script_runtime_checked(0, &engine),
+        Err(GenericScriptRuntimeBusy::InFlight)
+    ));
+    assert!(catch_unwind(AssertUnwindSafe(|| {
+        let mut outer = outer;
+        outer.comment = "panic-restored-runtime".into();
+        panic!("exercise generic runtime lease unwind restoration");
+    }))
+    .is_err());
+
+    let returned = prototype
+        .take_or_load_generic_script_runtime_checked(0, &engine)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        returned.comment, "panic-restored-runtime",
+        "nested evaluation cannot duplicate runtime state, and unwind restores it"
+    );
+    drop(returned);
 }

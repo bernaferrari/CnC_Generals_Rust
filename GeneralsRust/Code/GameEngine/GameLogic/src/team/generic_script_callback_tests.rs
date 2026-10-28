@@ -201,9 +201,7 @@ fn generic_local_absent_interpreter_returns_cached_runtime_without_consuming_lat
         .take_or_load_generic_script_runtime(0, &engine)
         .unwrap();
     cached.comment = "runtime-only marker".into();
-    pending
-        .prototype
-        .store_generic_script_runtime(0, Some(cached));
+    drop(cached);
     let saved_engine = engine.write().unwrap().take().unwrap();
     let mut factory = factory_for(&pending);
     factory.update();
@@ -211,43 +209,35 @@ fn generic_local_absent_interpreter_returns_cached_runtime_without_consuming_lat
         factory.drain_pending_generic_script_evals(),
         &engine,
     );
-    assert!(
-        pending
-            .team
-            .read()
-            .unwrap()
-            .should_attempt_generic_script(0)
-    );
+    assert!(pending
+        .team
+        .read()
+        .unwrap()
+        .should_attempt_generic_script(0));
     // This lookup cannot reload a definition: the exact local handle is None.
     let returned = pending
         .prototype
         .take_or_load_generic_script_runtime(0, &engine)
         .unwrap();
     assert_eq!(returned.comment, "runtime-only marker");
-    pending
-        .prototype
-        .store_generic_script_runtime(0, Some(returned));
+    drop(returned);
     *engine.write().unwrap() = Some(saved_engine);
     factory.update();
     execute_pending_team_generic_script_evals_with_engine(
         factory.drain_pending_generic_script_evals(),
         &engine,
     );
-    assert!(
-        pending
-            .team
-            .read()
-            .unwrap()
-            .should_attempt_generic_script(0)
-    );
-    assert_eq!(
-        pending
-            .prototype
-            .take_or_load_generic_script_runtime(0, &engine)
-            .unwrap()
-            .comment,
-        "runtime-only marker"
-    );
+    assert!(pending
+        .team
+        .read()
+        .unwrap()
+        .should_attempt_generic_script(0));
+    let returned = pending
+        .prototype
+        .take_or_load_generic_script_runtime(0, &engine)
+        .unwrap();
+    assert_eq!(returned.comment, "runtime-only marker");
+    drop(returned);
 }
 
 #[test]
@@ -269,9 +259,7 @@ fn generic_local_condition_error_restores_context_and_returns_runtime() {
         .is_err(),
         "malformed Counter must execute the evaluator error branch"
     );
-    pending
-        .prototype
-        .store_generic_script_runtime(0, Some(cached));
+    drop(cached);
     engine
         .write()
         .unwrap()
@@ -284,13 +272,11 @@ fn generic_local_condition_error_restores_context_and_returns_runtime() {
         factory.drain_pending_generic_script_evals(),
         &engine,
     );
-    assert!(
-        pending
-            .team
-            .read()
-            .unwrap()
-            .should_attempt_generic_script(0)
-    );
+    assert!(pending
+        .team
+        .read()
+        .unwrap()
+        .should_attempt_generic_script(0));
     let guard = engine.read().unwrap();
     let actual = guard.as_ref().unwrap();
     assert_eq!(
@@ -300,12 +286,10 @@ fn generic_local_condition_error_restores_context_and_returns_runtime() {
     assert_eq!(actual.get_condition_team_id(), Some(29));
     assert_eq!(actual.get_calling_team_id(), None);
     drop(guard);
-    assert_eq!(
-        pending
-            .prototype
-            .take_or_load_generic_script_runtime(0, &engine)
-            .unwrap()
-            .comment,
-        "error runtime marker"
-    );
+    let returned = pending
+        .prototype
+        .take_or_load_generic_script_runtime(0, &engine)
+        .unwrap();
+    assert_eq!(returned.comment, "error runtime marker");
+    drop(returned);
 }

@@ -140,7 +140,7 @@ fn actual_generic_conditions_ignore_root_future_frame_without_mutating_it() {
         .take_or_load_generic_script_runtime(0, &own.engine)
         .unwrap();
     runtime.frame_to_evaluate_at = u32::MAX;
-    own.prototype.store_generic_script_runtime(0, Some(runtime));
+    drop(runtime);
     own.update();
     assert_eq!(*own.visits.0.lock().unwrap(), ["FutureFrame"]);
     let runtime = own
@@ -148,7 +148,7 @@ fn actual_generic_conditions_ignore_root_future_frame_without_mutating_it() {
         .take_or_load_generic_script_runtime(0, &own.engine)
         .unwrap();
     assert_eq!(runtime.frame_to_evaluate_at, u32::MAX);
-    own.prototype.store_generic_script_runtime(0, Some(runtime));
+    drop(runtime);
 }
 #[test]
 fn actual_generic_repeatable_delay_does_not_write_root_periodic_deadline() {
@@ -163,7 +163,7 @@ fn actual_generic_repeatable_delay_does_not_write_root_periodic_deadline() {
     // Isolate periodic scheduling from randomized root admission offsets.
     before.frame_to_evaluate_at = 0;
     let deadline = before.frame_to_evaluate_at;
-    own.prototype.store_generic_script_runtime(0, Some(before));
+    drop(before);
     own.update();
     own.update();
     assert_eq!(
@@ -177,5 +177,5 @@ fn actual_generic_repeatable_delay_does_not_write_root_periodic_deadline() {
         .unwrap();
     assert_eq!(runtime.frame_to_evaluate_at, deadline);
     assert_eq!(runtime.delay_evaluation_seconds, 7);
-    own.prototype.store_generic_script_runtime(0, Some(runtime));
+    drop(runtime);
 }

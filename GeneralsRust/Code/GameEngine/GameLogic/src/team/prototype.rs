@@ -11,6 +11,58 @@ struct ProductionConditionRuntime {
     script: Option<Script>,
 }
 
+/// A generic script runtime can be entered only once at a time. In-flight
+/// state lives in the same slot as the runtime so a nested evaluation cannot
+/// clone or replace mutable condition/action state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GenericScriptRuntimeBusy {
+    InFlight,
+}
+
+#[derive(Debug)]
+pub(crate) enum GenericScriptRuntimeSlot {
+    Empty,
+    Ready(Script),
+    InFlight,
+}
+
+/// Exclusive mutable borrow of one generic script cache entry. Drop restores
+/// the runtime even when a synchronous action unwinds.
+pub(crate) struct GenericScriptRuntimeLease {
+    runtime: Arc<Mutex<Vec<GenericScriptRuntimeSlot>>>,
+    index: usize,
+    script: Option<Script>,
+}
+
+impl std::ops::Deref for GenericScriptRuntimeLease {
+    type Target = Script;
+
+    fn deref(&self) -> &Self::Target {
+        self.script.as_ref().expect("generic script lease is empty")
+    }
+}
+
+impl std::ops::DerefMut for GenericScriptRuntimeLease {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.script.as_mut().expect("generic script lease is empty")
+    }
+}
+
+impl Drop for GenericScriptRuntimeLease {
+    fn drop(&mut self) {
+        let Some(script) = self.script.take() else {
+            return;
+        };
+        let mut runtime = self
+            .runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(slot @ GenericScriptRuntimeSlot::InFlight) = runtime.get_mut(self.index) {
+            *slot = GenericScriptRuntimeSlot::Ready(script);
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TeamPrototype {
     // Identity
@@ -45,7 +97,7 @@ pub struct TeamPrototype {
     production_condition_runtime: Arc<Mutex<ProductionConditionRuntime>>,
     execute_actions_on_create: Bool,
     team_generic_scripts: [AsciiString; MAX_GENERIC_SCRIPTS],
-    generic_script_runtime: Arc<Mutex<Vec<Option<Script>>>>,
+    generic_script_runtime: Arc<Mutex<Vec<GenericScriptRuntimeSlot>>>,
 
     // Attack priority
     attack_priority_name: AsciiString,
@@ -99,7 +151,11 @@ impl TeamPrototype {
             )),
             execute_actions_on_create: false,
             team_generic_scripts: std::array::from_fn(|_| String::new().into()),
-            generic_script_runtime: Arc::new(Mutex::new(vec![None; MAX_GENERIC_SCRIPTS])),
+            generic_script_runtime: Arc::new(Mutex::new(
+                (0..MAX_GENERIC_SCRIPTS)
+                    .map(|_| GenericScriptRuntimeSlot::Empty)
+                    .collect(),
+            )),
             attack_priority_name: String::new().into(),
             units_info: [CreateUnitsInfo::new(); MAX_UNIT_TYPES],
             num_units_info: 0,
@@ -473,40 +529,87 @@ impl TeamPrototype {
         }
     }
 
-    fn take_or_load_generic_script_runtime(
+    fn take_generic_script_runtime_with_loader(
+        &self,
+        index: usize,
+        load: impl FnOnce() -> Option<Script>,
+    ) -> Result<Option<GenericScriptRuntimeLease>, GenericScriptRuntimeBusy> {
+        let mut runtime = self
+            .generic_script_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(slot) = runtime.get_mut(index) else {
+            return Ok(None);
+        };
+        let script = match slot {
+            GenericScriptRuntimeSlot::Empty => {
+                let Some(script) = load() else {
+                    return Ok(None);
+                };
+                *slot = GenericScriptRuntimeSlot::InFlight;
+                script
+            }
+            GenericScriptRuntimeSlot::Ready(_) => {
+                match std::mem::replace(slot, GenericScriptRuntimeSlot::InFlight) {
+                    GenericScriptRuntimeSlot::Ready(script) => script,
+                    _ => unreachable!("generic runtime slot changed while locked"),
+                }
+            }
+            GenericScriptRuntimeSlot::InFlight => {
+                return Err(GenericScriptRuntimeBusy::InFlight);
+            }
+        };
+        Ok(Some(GenericScriptRuntimeLease {
+            runtime: Arc::clone(&self.generic_script_runtime),
+            index,
+            script: Some(script),
+        }))
+    }
+
+    pub(crate) fn take_or_load_generic_script_runtime(
         &self,
         index: usize,
         script_engine: &crate::scripting::engine::ScriptEngineHandle,
-    ) -> Option<Script> {
-        let script_name = self.get_generic_script(index)?.to_string();
+    ) -> Option<GenericScriptRuntimeLease> {
+        self.take_or_load_generic_script_runtime_checked(index, script_engine)
+            .ok()
+            .flatten()
+    }
+
+    pub(crate) fn take_or_load_generic_script_runtime_checked(
+        &self,
+        index: usize,
+        script_engine: &crate::scripting::engine::ScriptEngineHandle,
+    ) -> Result<Option<GenericScriptRuntimeLease>, GenericScriptRuntimeBusy> {
+        let Some(script_name) = self.get_generic_script(index).map(ToString::to_string) else {
+            return Ok(None);
+        };
         if script_name.is_empty() {
-            return None;
+            return Ok(None);
         }
-
-        let mut runtime = self.generic_script_runtime.lock().ok()?;
-        if index >= runtime.len() {
-            return None;
-        }
-
-        if runtime[index].is_none() {
-            let script = script_engine.read().ok().and_then(|engine_guard| {
+        self.take_generic_script_runtime_with_loader(index, || {
+            script_engine.read().ok().and_then(|engine_guard| {
                 engine_guard
                     .as_ref()
                     .and_then(|engine| engine.find_script_duplicate_by_name(&script_name))
-            })?;
-            runtime[index] = Some(script);
-        }
-
-        runtime[index].take()
+            })
+        })
     }
 
-    fn store_generic_script_runtime(&self, index: usize, script: Option<Script>) {
-        let Ok(mut runtime) = self.generic_script_runtime.lock() else {
-            return;
+    pub(crate) fn take_or_load_generic_script_runtime_owned(
+        &self,
+        index: usize,
+        script_engine: &crate::scripting::engine::ScriptEngine,
+    ) -> Result<Option<GenericScriptRuntimeLease>, GenericScriptRuntimeBusy> {
+        let Some(script_name) = self.get_generic_script(index).map(ToString::to_string) else {
+            return Ok(None);
         };
-        if let Some(slot) = runtime.get_mut(index) {
-            *slot = script;
+        if script_name.is_empty() {
+            return Ok(None);
         }
+        self.take_generic_script_runtime_with_loader(index, || {
+            script_engine.find_script_duplicate_by_name(&script_name)
+        })
     }
 
     pub fn set_units_info(&mut self, index: usize, info: CreateUnitsInfo) {

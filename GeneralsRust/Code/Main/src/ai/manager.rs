@@ -99,7 +99,13 @@ impl AIManager {
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         let ai_data = AiDataView::from_world(game_logic);
-        let ids: Vec<_> = game_logic.ai_manager.ai_players.keys().copied().collect();
+        // C++ PlayerList::update visits numeric player slots, including human
+        // and inactive-AI players. Generic Team hooks are a Player::update
+        // tail, so iterating only AIManager keys silently omits those slots.
+        let mut ids: Vec<_> = game_logic.get_players().keys().copied().collect();
+        ids.extend(game_logic.ai_manager.ai_players.keys().copied());
+        ids.sort_unstable();
+        ids.dedup();
         let destroyed = game_logic.take_ai_team_destroy_notifications();
         for ai in game_logic.ai_manager.ai_players.values_mut() {
             for (id, name) in &destroyed {
@@ -107,44 +113,73 @@ impl AIManager {
             }
         }
         for id in ids {
-            game_logic.initialize_owned_skirmish_ai_with_effects(id, &ai_data, ui);
-            if game_logic.team_creation_error().is_some() {
-                return Ok(());
+            if game_logic.ai_manager.ai_players.contains_key(&id) {
+                game_logic.initialize_owned_skirmish_ai_with_effects(id, &ai_data, ui);
+                if game_logic.team_creation_error().is_some() {
+                    return Ok(());
+                }
+                let peers = game_logic
+                    .ai_manager
+                    .ai_players
+                    .iter()
+                    .map(|(&id, ai)| (id, ai.enemy_player_id))
+                    .collect();
+                if let Some(mut ai) = game_logic.ai_manager.ai_players.remove(&id) {
+                    let active = ai.is_active;
+                    if active {
+                        ai.peer_ai_targets = peers;
+                        ai.last_update_time = current_time;
+                        ai.update_enemy_assessment(game_logic, current_time);
+                        ai.purge_destroyed_or_wiped_queued_teams(game_logic);
+                    }
+                    game_logic.ai_manager.ai_players.insert(id, ai);
+                    if active {
+                        game_logic.update_owned_ai_economy_with_effects(
+                            id,
+                            current_time,
+                            &ai_data,
+                            ui,
+                        )?;
+                        if game_logic.team_creation_error().is_some() {
+                            return Ok(());
+                        }
+                        game_logic.check_owned_ai_ready_teams(id);
+                        game_logic.check_owned_ai_queued_teams_with_effects(id, current_time, ui);
+                        if game_logic.team_creation_error().is_some() {
+                            return Ok(());
+                        }
+                        game_logic.update_owned_ai_military_with_effects(
+                            id,
+                            current_time,
+                            &ai_data,
+                            ui,
+                        )?;
+                        if game_logic.team_creation_error().is_some() {
+                            return Ok(());
+                        }
+                        game_logic.update_owned_ai_postmilitary(id, current_time, &ai_data);
+                    }
+                }
             }
-            let peers = game_logic
-                .ai_manager
-                .ai_players
-                .iter()
-                .map(|(&id, ai)| (id, ai.enemy_player_id))
-                .collect();
-            let Some(mut ai) = game_logic.ai_manager.ai_players.remove(&id) else {
-                continue;
-            };
-            let active = ai.is_active;
-            if active {
-                ai.peer_ai_targets = peers;
-                ai.last_update_time = current_time;
-                ai.update_enemy_assessment(game_logic, current_time);
-                ai.purge_destroyed_or_wiped_queued_teams(game_logic);
+
+            // CPP Player::update invokes generic Team hooks after that
+            // player's optional AI update. Use the receiving session's
+            // interpreter and run actions synchronously before advancing to
+            // the next numeric player.
+            let requires_interpreter = game_logic
+                .team_factory
+                .generic_scripts_require_interpreter_for_controller(id);
+            match game_logic.with_owned_script_engine(|engine, world| {
+                world.update_owned_team_generic_scripts_for_player_with_effects(id, engine, ui)
+            }) {
+                Some(result) => result?,
+                None if requires_interpreter => {
+                    return Err(gamelogic::GameLogicError::Configuration(format!(
+                        "Team generic scripts for player {id} have no receiving ScriptEngine"
+                    )));
+                }
+                None => {}
             }
-            game_logic.ai_manager.ai_players.insert(id, ai);
-            if !active {
-                continue;
-            }
-            game_logic.update_owned_ai_economy_with_effects(id, current_time, &ai_data, ui)?;
-            if game_logic.team_creation_error().is_some() {
-                return Ok(());
-            }
-            game_logic.check_owned_ai_ready_teams(id);
-            game_logic.check_owned_ai_queued_teams_with_effects(id, current_time, ui);
-            if game_logic.team_creation_error().is_some() {
-                return Ok(());
-            }
-            game_logic.update_owned_ai_military_with_effects(id, current_time, &ai_data, ui)?;
-            if game_logic.team_creation_error().is_some() {
-                return Ok(());
-            }
-            game_logic.update_owned_ai_postmilitary(id, current_time, &ai_data);
         }
         Ok(())
     }
@@ -1211,10 +1246,10 @@ mod aidata_owner_tests {
         if run_isolated("explicit_ai_data_target_keeps_interleaved_catalogs_separate") {
             return;
         }
-        use game_engine::common::ini::INI;
         use game_engine::common::ini::ini_ai_data::{
-            AIDataStore, install_ai_data_store, uninstall_ai_data_store_if_current,
+            install_ai_data_store, uninstall_ai_data_store_if_current, AIDataStore,
         };
+        use game_engine::common::ini::INI;
         use std::sync::{Arc, RwLock};
 
         // Run this test in an isolated/serial harness: it temporarily exercises the
