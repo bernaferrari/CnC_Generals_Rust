@@ -67,7 +67,7 @@ fn world(map: &std::path::Path) -> (GameLogic, ObjectId, ObjectId) {
     world
         .admit_object_ini_sources([(
             "TeamRelations.ini".into(),
-            "Object RelationUnit\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = CostModifierUpgrade MergeCost\n TriggeredBy = Upgrade_Veterancy_VETERAN\n EffectKindOf = VEHICLE AIRCRAFT\n Percentage = -10%\n End\nEnd\nObject RelationDualPurchase\n KindOf = VEHICLE AIRCRAFT\n BuildCost = 1000\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
+            "Object RelationUnit\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = CostModifierUpgrade MergeCost\n TriggeredBy = Upgrade_Veterancy_VETERAN\n EffectKindOf = VEHICLE AIRCRAFT\n Percentage = -10%\n End\nEnd\nObject RelationDualPurchase\n KindOf = VEHICLE AIRCRAFT\n BuildCost = 1000\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject ChinaTankECM\n KindOf = VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 300\n InitialHealth = 300\n End\nEnd\nObject AmericaTankCrusader\n KindOf = VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 400\n InitialHealth = 400\n End\nEnd\n".into(),
         )])
         .unwrap();
     let mut player_templates = PlayerTemplateStore::new_owned();
@@ -182,6 +182,7 @@ fn same_named_team_member(
     world: &mut GameLogic,
     player: u32,
     team_name: &str,
+    template: &str,
     position: Vec3,
 ) -> (ObjectId, u32) {
     use generals_main::save_load::snapshot::{
@@ -189,7 +190,7 @@ fn same_named_team_member(
     };
 
     let member = world
-        .create_object_for_player("RelationUnit", player, position)
+        .create_object_for_player(template, player, position)
         .unwrap();
     let mut chunks = stamp_player_team_chunks(world).unwrap();
     let teams = chunks.teams.as_mut().unwrap();
@@ -235,9 +236,7 @@ fn team_id_for_member(world: &GameLogic, member: ObjectId) -> u32 {
 
 fn contextual_action_engine(action: ScriptAction, condition_team: &str) -> ScriptEngine {
     let mut branch = OrCondition::new();
-    branch.set_first_and_condition(Some(Box::new(Condition::new(
-        ConditionType::ConditionTrue,
-    ))));
+    branch.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
     let mut script = Script::new();
     script.script_name = format!("ContextualRelationship_{condition_team}");
     script.condition_team_name = condition_team.into();
@@ -634,10 +633,20 @@ fn contextual_relationship_actions_use_live_team_ids_and_reset_per_world() {
 
     // Same-name Team instances have distinct live IDs. The script walk below
     // visits each instance and the production driver supplies its condition ID.
-    let (source_sibling, source_sibling_team) =
-        same_named_team_member(&mut owner, 1, "SourceRoster", Vec3::new(12.0, 0.0, 30.0));
-    let (peer_source_sibling, peer_source_sibling_team) =
-        same_named_team_member(&mut peer, 1, "SourceRoster", Vec3::new(12.0, 0.0, 30.0));
+    let (source_sibling, source_sibling_team) = same_named_team_member(
+        &mut owner,
+        1,
+        "SourceRoster",
+        "RelationUnit",
+        Vec3::new(12.0, 0.0, 30.0),
+    );
+    let (peer_source_sibling, peer_source_sibling_team) = same_named_team_member(
+        &mut peer,
+        1,
+        "SourceRoster",
+        "RelationUnit",
+        Vec3::new(12.0, 0.0, 30.0),
+    );
     assert_eq!(source_sibling, peer_source_sibling);
     assert_eq!(source_sibling_team, peer_source_sibling_team);
 
@@ -655,7 +664,10 @@ fn contextual_relationship_actions_use_live_team_ids_and_reset_per_world() {
         .add_parameter(Parameter::with_int(ParameterType::Int, 1))
         .unwrap();
     visited
-        .add_parameter(Parameter::with_string(ParameterType::Counter, "Visited".into()))
+        .add_parameter(Parameter::with_string(
+            ParameterType::Counter,
+            "Visited".into(),
+        ))
         .unwrap();
     contextual_team_action.next_action = Some(Box::new(visited));
     let owner_team_script = contextual_action_engine(contextual_team_action, "SourceRoster");
@@ -693,10 +705,20 @@ fn contextual_relationship_actions_use_live_team_ids_and_reset_per_world() {
     // Add same-name target siblings after the Team-to-Team scripts above so
     // the authored target name has one unambiguous receiver. Player overrides
     // below exercise exact condition-Team identity with the duplicate names.
-    let (target_sibling, target_sibling_team) =
-        same_named_team_member(&mut owner, 2, "TargetRoster", Vec3::new(32.0, 0.0, 30.0));
-    let (peer_target_sibling, peer_target_sibling_team) =
-        same_named_team_member(&mut peer, 2, "TargetRoster", Vec3::new(32.0, 0.0, 30.0));
+    let (target_sibling, target_sibling_team) = same_named_team_member(
+        &mut owner,
+        2,
+        "TargetRoster",
+        "RelationUnit",
+        Vec3::new(32.0, 0.0, 30.0),
+    );
+    let (peer_target_sibling, peer_target_sibling_team) = same_named_team_member(
+        &mut peer,
+        2,
+        "TargetRoster",
+        "RelationUnit",
+        Vec3::new(32.0, 0.0, 30.0),
+    );
     assert_eq!(target_sibling, peer_target_sibling);
     assert_eq!(target_sibling_team, peer_target_sibling_team);
 
@@ -829,5 +851,110 @@ fn restored_same_named_teams_keep_distinct_relationship_owners() {
         relation(&world, second, target),
         Relationship::Enemies,
         "a same-name sibling must not inherit another Team's override"
+    );
+}
+
+#[test]
+fn ecm_field_uses_exact_same_named_target_team_in_each_world() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut first_world, _, _) = world(&map);
+    let (mut second_world, _, _) = world(&map);
+
+    fn scenario(world: &mut GameLogic) -> (ObjectId, ObjectId, ObjectId, ObjectId) {
+        let jammer = world
+            .create_object_for_player("ChinaTankECM", 2, Vec3::new(0.0, 0.0, 30.0))
+            .unwrap();
+        world.host_object_mut(jammer).unwrap().team_instance_name = "TargetRoster".into();
+        world.activate_leftover_team_for_host_object(jammer);
+        let (far_jammer, _) = same_named_team_member(
+            world,
+            2,
+            "TargetRoster",
+            "ChinaTankECM",
+            Vec3::new(500.0, 0.0, 30.0),
+        );
+
+        let allied = world
+            .create_object_for_player("AmericaTankCrusader", 1, Vec3::new(40.0, 0.0, 30.0))
+            .unwrap();
+        world.host_object_mut(allied).unwrap().team_instance_name = "SourceRoster".into();
+        world.activate_leftover_team_for_host_object(allied);
+
+        let enemy = world
+            .create_object_for_player("AmericaTankCrusader", 1, Vec3::new(540.0, 0.0, 30.0))
+            .unwrap();
+        world.host_object_mut(enemy).unwrap().team_instance_name = "SourceRoster".into();
+        world.activate_leftover_team_for_host_object(enemy);
+        (jammer, far_jammer, allied, enemy)
+    }
+
+    let (first_jammer, first_far_jammer, first_ally, first_enemy) = scenario(&mut first_world);
+    let (second_jammer, second_far_jammer, second_ally, second_enemy) = scenario(&mut second_world);
+    assert_eq!(
+        (first_jammer, first_far_jammer, first_ally, first_enemy),
+        (second_jammer, second_far_jammer, second_ally, second_enemy),
+        "the worlds deliberately reuse the same numeric IDs"
+    );
+
+    let first_near_team = team_id_for_member(&first_world, first_jammer);
+    let first_far_team = team_id_for_member(&first_world, first_far_jammer);
+    first_world
+        .get_player_mut(1)
+        .unwrap()
+        .set_team_relationship_override(first_near_team, Relationship::Allies);
+    first_world
+        .get_player_mut(1)
+        .unwrap()
+        .set_team_relationship_override(first_far_team, Relationship::Enemies);
+
+    let second_near_team = team_id_for_member(&second_world, second_jammer);
+    let second_far_team = team_id_for_member(&second_world, second_far_jammer);
+    second_world
+        .get_player_mut(1)
+        .unwrap()
+        .set_team_relationship_override(second_near_team, Relationship::Enemies);
+    second_world
+        .get_player_mut(1)
+        .unwrap()
+        .set_team_relationship_override(second_far_team, Relationship::Allies);
+
+    assert_eq!(
+        relation(&first_world, first_ally, first_jammer),
+        Relationship::Allies
+    );
+    assert_eq!(
+        relation(&first_world, first_enemy, first_far_jammer),
+        Relationship::Enemies
+    );
+    assert_eq!(
+        relation(&second_world, second_ally, second_jammer),
+        Relationship::Enemies
+    );
+    assert_eq!(
+        relation(&second_world, second_enemy, second_far_jammer),
+        Relationship::Allies
+    );
+
+    first_world.update_ecm_jam_field();
+    second_world.update_ecm_jam_field();
+    assert_eq!(
+        first_world.host_object(first_ally).unwrap().subdual_damage,
+        0.0
+    );
+    assert!(first_world.host_object(first_enemy).unwrap().subdual_damage > 0.0);
+    assert!(
+        second_world
+            .host_object(second_ally)
+            .unwrap()
+            .subdual_damage
+            > 0.0
+    );
+    assert_eq!(
+        second_world
+            .host_object(second_enemy)
+            .unwrap()
+            .subdual_damage,
+        0.0
     );
 }
