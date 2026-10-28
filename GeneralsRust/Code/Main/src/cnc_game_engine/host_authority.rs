@@ -141,6 +141,7 @@ mod restore_viewport_owner_tests;
 pub(super) struct RestoreTemplateCatalog<'a> {
     body_damage_baseline: crate::game_logic::body_damage_rules::BodyDamagePolicy,
     power_bar_baseline: game_engine::common::ini::ini_game_data::PowerBarRules,
+    body_auto_particle_baseline: &'a game_engine::common::ini::ini_game_data::BodyAutoParticleRules,
     session_sell_percentage: f32,
     lighting_baseline: &'a crate::game_logic::lighting_rules::LightingContentRules,
     static_lod_level: Option<game_engine::common::ini::ini_game_lod::StaticGameLODLevel>,
@@ -170,6 +171,7 @@ impl<'a> RestoreTemplateCatalog<'a> {
             combat_bonus_baseline: world.combat_bonus_baseline(),
             body_damage_baseline: world.body_damage_baseline(),
             power_bar_baseline: world.power_bar_baseline(),
+            body_auto_particle_baseline: world.body_auto_particle_baseline(),
             session_sell_percentage: world.session_sell_percentage,
         }
     }
@@ -2285,6 +2287,7 @@ impl CnCGameEngine {
                 combat_bonus_baseline: live.combat_bonus_baseline(),
                 body_damage_baseline: live.body_damage_baseline(),
                 power_bar_baseline: live.power_bar_baseline(),
+                body_auto_particle_baseline: live.body_auto_particle_baseline(),
                 session_sell_percentage: live.session_sell_percentage,
             },
             &live.weapon_definition_base,
@@ -2433,6 +2436,7 @@ impl CnCGameEngine {
             candidate.set_ai_definition_base(live.ai_definitions.baseline().clone());
             candidate.admit_production_energy_base(live.production_energy_baseline());
             candidate.admit_power_bar_base(live.power_bar_baseline());
+            candidate.admit_body_auto_particle_baseline(live.body_auto_particle_baseline().clone());
             candidate.admit_historic_damage_limit(live.combat_system.historic_damage_limit());
             candidate.admit_sell_percentage(live.session_sell_percentage);
             candidate.admit_combat_bonus_baseline(live.combat_bonus_baseline().clone());
@@ -2726,6 +2730,8 @@ impl CnCGameEngine {
         staged.set_ai_definition_base(ai_definition_base.clone());
         staged.admit_production_energy_base(production_energy_base);
         staged.admit_power_bar_base(template_catalog.power_bar_baseline);
+        staged
+            .admit_body_auto_particle_baseline(template_catalog.body_auto_particle_baseline.clone());
         staged.admit_historic_damage_limit(historic_damage_limit);
         staged.admit_sell_percentage(template_catalog.session_sell_percentage);
         staged.admit_combat_bonus_baseline(template_catalog.combat_bonus_baseline.clone());
@@ -3000,6 +3006,7 @@ impl CnCGameEngine {
                     combat_bonus_baseline: self.game_logic.combat_bonus_baseline(),
                     body_damage_baseline: self.game_logic.body_damage_baseline(),
                     power_bar_baseline: self.game_logic.power_bar_baseline(),
+                    body_auto_particle_baseline: self.game_logic.body_auto_particle_baseline(),
                     session_sell_percentage: self.game_logic.session_sell_percentage,
                 },
                 &self.game_logic.weapon_definition_base,
@@ -3048,6 +3055,7 @@ impl CnCGameEngine {
                 combat_bonus_baseline: self.game_logic.combat_bonus_baseline(),
                 body_damage_baseline: self.game_logic.body_damage_baseline(),
                 power_bar_baseline: self.game_logic.power_bar_baseline(),
+                body_auto_particle_baseline: self.game_logic.body_auto_particle_baseline(),
                 session_sell_percentage: self.game_logic.session_sell_percentage,
             },
             &self.game_logic.weapon_definition_base,

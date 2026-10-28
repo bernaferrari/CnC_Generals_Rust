@@ -81,11 +81,30 @@ pub struct CombatParticleRegistry {
     /// expiry sweep in `clear_frame_events` measures elapsed lifetimes
     /// against it.
     current_frame: u32,
+    /// Immutable application GameData baseline plus the current map projection.
+    body_auto_particle_base: game_engine::common::ini::ini_game_data::BodyAutoParticleRules,
+    body_auto_particle_effective: game_engine::common::ini::ini_game_data::BodyAutoParticleRules,
 }
 
 impl Default for CombatParticleRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl super::GameLogic {
+    pub(crate) fn body_auto_particle_baseline(
+        &self,
+    ) -> &game_engine::common::ini::ini_game_data::BodyAutoParticleRules {
+        self.combat_particles.body_auto_particle_baseline()
+    }
+
+    pub(crate) fn admit_body_auto_particle_baseline(
+        &mut self,
+        rules: game_engine::common::ini::ini_game_data::BodyAutoParticleRules,
+    ) {
+        self.combat_particles
+            .admit_body_auto_particle_baseline(rules);
     }
 }
 
@@ -99,7 +118,41 @@ impl CombatParticleRegistry {
             spawned_this_frame: Vec::new(),
             muzzle_flash_until: HashMap::new(),
             current_frame: 0,
+            body_auto_particle_base: Default::default(),
+            body_auto_particle_effective: Default::default(),
         }
+    }
+
+    pub(crate) fn admit_body_auto_particle_baseline(
+        &mut self,
+        rules: game_engine::common::ini::ini_game_data::BodyAutoParticleRules,
+    ) {
+        self.body_auto_particle_base = rules.clone();
+        self.body_auto_particle_effective = rules;
+    }
+
+    pub(crate) fn body_auto_particle_baseline(
+        &self,
+    ) -> &game_engine::common::ini::ini_game_data::BodyAutoParticleRules {
+        &self.body_auto_particle_base
+    }
+
+    /// Effective Body particle definitions for this receiving session.
+    pub fn body_auto_particle_rules(
+        &self,
+    ) -> &game_engine::common::ini::ini_game_data::BodyAutoParticleRules {
+        &self.body_auto_particle_effective
+    }
+
+    pub(crate) fn apply_body_auto_particle_map_rules(
+        &mut self,
+        rules: game_engine::common::ini::ini_game_data::BodyAutoParticleRules,
+    ) {
+        self.body_auto_particle_effective = rules;
+    }
+
+    pub(crate) fn reset_body_auto_particle_map_rules(&mut self) {
+        self.body_auto_particle_effective = self.body_auto_particle_base.clone();
     }
 
     pub(crate) fn can_clear(&self) -> bool {
@@ -1114,7 +1167,6 @@ impl CombatParticleRegistry {
         owner: ObjectId,
         position: Vec3,
         frame: u32,
-        body_ordinal: u8,
         aflame: bool,
         pose: BodyAutoParticlePose<'_>,
         particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
@@ -1124,7 +1176,6 @@ impl CombatParticleRegistry {
             owner,
             position,
             frame,
-            body_ordinal,
             aflame,
             pose.yaw,
             pose.is_shrouded,
@@ -1140,7 +1191,6 @@ impl CombatParticleRegistry {
         owner: ObjectId,
         position: Vec3,
         frame: u32,
-        body_ordinal: u8,
         aflame: bool,
         prefix_bones: &[(String, Vec<Vec3>)],
         particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
@@ -1150,7 +1200,6 @@ impl CombatParticleRegistry {
             owner,
             position,
             frame,
-            body_ordinal,
             aflame,
             0.0,
             None,
@@ -1171,7 +1220,6 @@ impl CombatParticleRegistry {
         owner: ObjectId,
         position: Vec3,
         frame: u32,
-        body_ordinal: u8,
         aflame: bool,
         yaw: f32,
         is_shrouded: Option<bool>,
@@ -1195,11 +1243,7 @@ impl CombatParticleRegistry {
         for id in stale {
             self.deactivate(id, particle_owner);
         }
-        // Pristine models typically have no FIRESMALL/SMOKESMALL bones.
-        if body_ordinal == 0 && !aflame {
-            return;
-        }
-        for spec in body_auto_particle_specs(aflame) {
+        for spec in body_auto_particle_specs(aflame, &self.body_auto_particle_effective) {
             let Some(template) = usable_particle_template_name(spec.template.as_str()) else {
                 continue;
             };
@@ -1365,208 +1409,78 @@ struct BodyAutoParticleSpec {
 }
 
 /// C++ `ActiveBody::updateBodyParticleSystems` Small+Medium+Large + aflame swap.
-fn body_auto_particle_specs(aflame: bool) -> Vec<BodyAutoParticleSpec> {
+fn body_auto_particle_specs(
+    aflame: bool,
+    data: &game_engine::common::ini::ini_game_data::BodyAutoParticleRules,
+) -> Vec<BodyAutoParticleSpec> {
     let count_modifier = if aflame { 2i32 } else { 1i32 };
-    let named = match game_engine::common::global_data::read_safe() {
-        Ok(data) => BodyAutoParticleNames {
-            fire_small: first_nonempty(&[
-                if aflame {
-                    data.auto_fire_particle_medium_system.as_str()
-                } else {
-                    data.auto_fire_particle_small_system.as_str()
-                },
-                if aflame { "FireMedium" } else { "FireSmall" },
-            ]),
-            fire_medium: first_nonempty(&[
-                if aflame {
-                    data.auto_fire_particle_large_system.as_str()
-                } else {
-                    data.auto_fire_particle_medium_system.as_str()
-                },
-                if aflame { "FireLarge" } else { "FireMedium" },
-            ]),
-            fire_large: first_nonempty(&[
-                data.auto_fire_particle_large_system.as_str(),
-                "FireLarge",
-            ]),
-            smoke_small: first_nonempty(&[
-                if aflame {
-                    data.auto_fire_particle_small_system.as_str()
-                } else {
-                    data.auto_smoke_particle_small_system.as_str()
-                },
-                if aflame { "FireSmall" } else { "SmokeSmall" },
-            ]),
-            smoke_medium: first_nonempty(&[
-                if aflame {
-                    data.auto_fire_particle_small_system.as_str()
-                } else {
-                    data.auto_smoke_particle_medium_system.as_str()
-                },
-                if aflame { "FireSmall" } else { "SmokeMedium" },
-            ]),
-            smoke_large: first_nonempty(&[
-                if aflame {
-                    data.auto_fire_particle_small_system.as_str()
-                } else {
-                    data.auto_smoke_particle_large_system.as_str()
-                },
-                if aflame { "FireSmall" } else { "SmokeLarge" },
-            ]),
-            aflame: first_nonempty(&[
-                data.auto_aflame_particle_system.as_str(),
-                crate::game_logic::host_fire_spread::AUTO_AFLAME_PARTICLE,
-            ]),
-            fire_small_prefix: prefix_or(&data.auto_fire_particle_small_prefix, "FIRESMALL"),
-            fire_medium_prefix: prefix_or(&data.auto_fire_particle_medium_prefix, "FIREMEDIUM"),
-            fire_large_prefix: prefix_or(&data.auto_fire_particle_large_prefix, "FIRELARGE"),
-            smoke_small_prefix: prefix_or(&data.auto_smoke_particle_small_prefix, "SMOKESMALL"),
-            smoke_medium_prefix: prefix_or(&data.auto_smoke_particle_medium_prefix, "SMOKEMEDIUM"),
-            smoke_large_prefix: prefix_or(&data.auto_smoke_particle_large_prefix, "SMOKELARGE"),
-            aflame_prefix: prefix_or(&data.auto_aflame_particle_prefix, "AFLAME"),
-            fire_small_max: capped_body_max(data.auto_fire_particle_small_max),
-            fire_medium_max: capped_body_max(data.auto_fire_particle_medium_max),
-            fire_large_max: capped_body_max(data.auto_fire_particle_large_max),
-            smoke_small_max: capped_body_max(data.auto_smoke_particle_small_max),
-            smoke_medium_max: capped_body_max(data.auto_smoke_particle_medium_max),
-            smoke_large_max: capped_body_max(data.auto_smoke_particle_large_max),
-            aflame_max: capped_body_max(data.auto_aflame_particle_max),
-        },
-        Err(_) => BodyAutoParticleNames::fallback(aflame),
-    };
     let mut specs = vec![
         BodyAutoParticleSpec {
             kind: CombatParticleKind::BodyFire,
-            prefix: named.fire_small_prefix,
-            template: named.fire_small,
-            max_systems: named.fire_small_max.saturating_mul(count_modifier),
+            prefix: data.fire_small_prefix.clone(),
+            template: if aflame {
+                data.fire_medium_system.clone()
+            } else {
+                data.fire_small_system.clone()
+            },
+            max_systems: data.fire_small_max.saturating_mul(count_modifier),
         },
         BodyAutoParticleSpec {
             kind: CombatParticleKind::BodyFire,
-            prefix: named.fire_medium_prefix,
-            template: named.fire_medium,
-            max_systems: named.fire_medium_max.saturating_mul(count_modifier),
+            prefix: data.fire_medium_prefix.clone(),
+            template: if aflame {
+                data.fire_large_system.clone()
+            } else {
+                data.fire_medium_system.clone()
+            },
+            max_systems: data.fire_medium_max.saturating_mul(count_modifier),
         },
         BodyAutoParticleSpec {
             kind: CombatParticleKind::BodyFire,
-            prefix: named.fire_large_prefix,
-            template: named.fire_large,
-            max_systems: named.fire_large_max.saturating_mul(count_modifier),
+            prefix: data.fire_large_prefix.clone(),
+            template: data.fire_large_system.clone(),
+            max_systems: data.fire_large_max.saturating_mul(count_modifier),
         },
         BodyAutoParticleSpec {
             kind: CombatParticleKind::BodySmoke,
-            prefix: named.smoke_small_prefix,
-            template: named.smoke_small,
-            max_systems: named.smoke_small_max.saturating_mul(count_modifier),
+            prefix: data.smoke_small_prefix.clone(),
+            template: if aflame {
+                data.fire_small_system.clone()
+            } else {
+                data.smoke_small_system.clone()
+            },
+            max_systems: data.smoke_small_max.saturating_mul(count_modifier),
         },
         BodyAutoParticleSpec {
             kind: CombatParticleKind::BodySmoke,
-            prefix: named.smoke_medium_prefix,
-            template: named.smoke_medium,
-            max_systems: named.smoke_medium_max.saturating_mul(count_modifier),
+            prefix: data.smoke_medium_prefix.clone(),
+            template: if aflame {
+                data.fire_small_system.clone()
+            } else {
+                data.smoke_medium_system.clone()
+            },
+            max_systems: data.smoke_medium_max.saturating_mul(count_modifier),
         },
         BodyAutoParticleSpec {
             kind: CombatParticleKind::BodySmoke,
-            prefix: named.smoke_large_prefix,
-            template: named.smoke_large,
-            max_systems: named.smoke_large_max.saturating_mul(count_modifier),
+            prefix: data.smoke_large_prefix.clone(),
+            template: if aflame {
+                data.fire_small_system.clone()
+            } else {
+                data.smoke_large_system.clone()
+            },
+            max_systems: data.smoke_large_max.saturating_mul(count_modifier),
         },
     ];
     if aflame {
         specs.push(BodyAutoParticleSpec {
             kind: CombatParticleKind::BodyFire,
-            prefix: named.aflame_prefix,
-            template: named.aflame,
-            max_systems: named.aflame_max.saturating_mul(count_modifier),
+            prefix: data.aflame_prefix.clone(),
+            template: data.aflame_system.clone(),
+            max_systems: data.aflame_max.saturating_mul(count_modifier),
         });
     }
     specs
-}
-
-struct BodyAutoParticleNames {
-    fire_small: String,
-    fire_medium: String,
-    fire_large: String,
-    smoke_small: String,
-    smoke_medium: String,
-    smoke_large: String,
-    aflame: String,
-    fire_small_prefix: String,
-    fire_medium_prefix: String,
-    fire_large_prefix: String,
-    smoke_small_prefix: String,
-    smoke_medium_prefix: String,
-    smoke_large_prefix: String,
-    aflame_prefix: String,
-    fire_small_max: i32,
-    fire_medium_max: i32,
-    fire_large_max: i32,
-    smoke_small_max: i32,
-    smoke_medium_max: i32,
-    smoke_large_max: i32,
-    aflame_max: i32,
-}
-
-impl BodyAutoParticleNames {
-    fn fallback(aflame: bool) -> Self {
-        Self {
-            fire_small: if aflame {
-                "FireMedium".to_string()
-            } else {
-                "FireSmall".to_string()
-            },
-            fire_medium: if aflame {
-                "FireLarge".to_string()
-            } else {
-                "FireMedium".to_string()
-            },
-            fire_large: "FireLarge".to_string(),
-            smoke_small: if aflame {
-                "FireSmall".to_string()
-            } else {
-                "SmokeSmall".to_string()
-            },
-            smoke_medium: if aflame {
-                "FireSmall".to_string()
-            } else {
-                "SmokeMedium".to_string()
-            },
-            smoke_large: if aflame {
-                "FireSmall".to_string()
-            } else {
-                "SmokeLarge".to_string()
-            },
-            aflame: crate::game_logic::host_fire_spread::AUTO_AFLAME_PARTICLE.to_string(),
-            fire_small_prefix: "FIRESMALL".to_string(),
-            fire_medium_prefix: "FIREMEDIUM".to_string(),
-            fire_large_prefix: "FIRELARGE".to_string(),
-            smoke_small_prefix: "SMOKESMALL".to_string(),
-            smoke_medium_prefix: "SMOKEMEDIUM".to_string(),
-            smoke_large_prefix: "SMOKELARGE".to_string(),
-            aflame_prefix: "AFLAME".to_string(),
-            fire_small_max: MAX_BODY_PARTICLE_BONES as i32,
-            fire_medium_max: MAX_BODY_PARTICLE_BONES as i32,
-            fire_large_max: MAX_BODY_PARTICLE_BONES as i32,
-            smoke_small_max: MAX_BODY_PARTICLE_BONES as i32,
-            smoke_medium_max: MAX_BODY_PARTICLE_BONES as i32,
-            smoke_large_max: MAX_BODY_PARTICLE_BONES as i32,
-            aflame_max: MAX_BODY_PARTICLE_BONES as i32,
-        }
-    }
-}
-
-fn prefix_or(value: &str, fallback: &str) -> String {
-    usable_particle_template_name(value)
-        .map(str::to_string)
-        .unwrap_or_else(|| fallback.to_string())
-}
-
-fn capped_body_max(value: i32) -> i32 {
-    if value > 0 {
-        value.min(MAX_BODY_PARTICLE_BONES as i32)
-    } else {
-        MAX_BODY_PARTICLE_BONES as i32
-    }
 }
 
 fn cpp_bone_to_host_local(bone: gamelogic::common::Coord3D) -> Vec3 {
@@ -1759,51 +1673,164 @@ fn spawn_body_systems_on_bones(
     }
 }
 
-fn first_nonempty(names: &[&str]) -> String {
-    names
-        .iter()
-        .find(|name| usable_particle_template_name(name).is_some())
-        .unwrap_or(&names[names.len() - 1])
-        .to_string()
+/// C++ current-state `ParticleSysBone` list for a live host object.
+/// Resolve current-state ParticleSysBone rows from an already admitted
+/// receiving Object projection. `None` is an explicit miss; callers must not
+/// select another world's process AssetManager catalog.
+pub fn particle_sys_bones_for_receiving_definition(
+    definition: Option<&crate::assets::ObjectDefinition>,
+    _template_name: &str,
+    condition_bits: u128,
+) -> Vec<(String, String)> {
+    definition
+        .map(|definition| definition.particle_sys_bones_for_conditions(condition_bits))
+        .unwrap_or_default()
 }
 
-/// C++ current-state `ParticleSysBone` list for a live host object.
+fn standalone_particle_sys_bone_fallback(template_name: &str) -> Vec<(String, String)> {
+    let mut bones = Vec::new();
+    if template_name.contains("RepairVehiclesInArea") {
+        bones.push((
+            "NONE".to_string(),
+            crate::game_logic::host_emergency_repair::EMERGENCY_REPAIR_CLOUD_PARTICLE.to_string(),
+        ));
+    }
+    if template_name.contains("Frenzy") && template_name.contains("Marker") {
+        bones.push((
+            "NONE".to_string(),
+            crate::game_logic::host_frenzy::FRENZY_CLOUD_PARTICLE.to_string(),
+        ));
+    }
+    bones
+}
+
+/// Unadmitted standalone compatibility route. Live admitted sessions call
+/// `particle_sys_bones_for_receiving_definition` against their own projection.
 pub fn particle_sys_bones_for_template(
     template_name: &str,
     condition_bits: u128,
 ) -> Vec<(String, String)> {
-    let mut bones = Vec::new();
-    if let Some(manager) = crate::assets::get_asset_manager() {
-        if let Ok(guard) = manager.lock() {
-            if let Some(definition) = guard
+    let definition = crate::assets::get_asset_manager().and_then(|manager| {
+        manager.lock().ok().and_then(|guard| {
+            guard
                 .get_object_definition(template_name)
                 .or_else(|| guard.resolve_object_definition(template_name, None))
-            {
-                bones.extend(definition.particle_sys_bones_for_conditions(condition_bits));
-            }
-        }
-    }
+                .cloned()
+        })
+    });
+    let bones = particle_sys_bones_for_receiving_definition(
+        definition.as_ref(),
+        template_name,
+        condition_bits,
+    );
     if bones.is_empty() {
-        if template_name.contains("RepairVehiclesInArea") {
-            bones.push((
-                "NONE".to_string(),
-                crate::game_logic::host_emergency_repair::EMERGENCY_REPAIR_CLOUD_PARTICLE
-                    .to_string(),
-            ));
-        }
-        if template_name.contains("Frenzy") && template_name.contains("Marker") {
-            bones.push((
-                "NONE".to_string(),
-                crate::game_logic::host_frenzy::FRENZY_CLOUD_PARTICLE.to_string(),
-            ));
-        }
+        standalone_particle_sys_bone_fallback(template_name)
+    } else {
+        bones
     }
-    bones
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn registry_with_body_particles() -> CombatParticleRegistry {
+        use game_engine::common::ini::ini_game_data::BodyAutoParticleRules;
+        let mut rules = BodyAutoParticleRules::default();
+        rules.fire_small_prefix = "FIRESMALL".into();
+        rules.fire_small_system = "FireSmall".into();
+        rules.fire_medium_system = "FireMedium".into();
+        rules.fire_large_prefix = "FIRELARGE".into();
+        rules.fire_large_system = "FireLarge".into();
+        rules.smoke_small_prefix = "SMOKESMALL".into();
+        rules.smoke_small_system = "SmokeSmall".into();
+        rules.aflame_prefix = "AFLAME".into();
+        rules.aflame_system = "AutoAflame".into();
+        let mut registry = CombatParticleRegistry::new();
+        registry.admit_body_auto_particle_baseline(rules);
+        registry
+    }
+
+    #[test]
+    fn pristine_body_still_resolves_authored_auto_particle_bones() {
+        use game_engine::common::ini::ini_game_data::BodyAutoParticleRules;
+        let mut rules = BodyAutoParticleRules::default();
+        rules.fire_small_prefix = "FIRESMALL".into();
+        rules.fire_small_system = "PristineFireWitness".into();
+        rules.fire_small_max = 1;
+        let mut registry = CombatParticleRegistry::new();
+        registry.admit_body_auto_particle_baseline(rules);
+        let owner = ObjectId(901);
+        registry.replace_body_auto_particles_with_bones(
+            owner,
+            Vec3::ZERO,
+            7,
+            false,
+            &[("FIRESMALL".into(), vec![Vec3::new(1.0, 0.0, 0.0)])],
+            &mut (),
+            &mut Default::default(),
+        );
+        assert!(
+            registry
+                .systems_of_kind(CombatParticleKind::BodyFire)
+                .iter()
+                .any(|entry| entry.source_object == Some(owner)
+                    && entry.template_name == "PristineFireWitness")
+        );
+        registry.clear().unwrap();
+    }
+
+    #[test]
+    fn body_particle_rules_follow_each_registry_and_map_reset_uses_its_baseline() {
+        use game_engine::common::ini::ini_game_data::BodyAutoParticleRules;
+        let mut a_rules = BodyAutoParticleRules::default();
+        a_rules.fire_small_prefix = "FIRESMALL".into();
+        a_rules.fire_small_system = "WorldAFire".into();
+        a_rules.fire_small_max = 1;
+        let mut b_rules = BodyAutoParticleRules::default();
+        b_rules.fire_small_prefix = "FIRESMALL".into();
+        b_rules.fire_small_system = "WorldBFire".into();
+        b_rules.fire_small_max = 2;
+
+        let mut a = CombatParticleRegistry::new();
+        let mut b = CombatParticleRegistry::new();
+        a.admit_body_auto_particle_baseline(a_rules.clone());
+        b.admit_body_auto_particle_baseline(b_rules.clone());
+        let map_rules = a_rules
+            .clone()
+            .overlay_ini_text("GameData\nAutoFireParticleSmallSystem = WorldAMapFire\nEnd")
+            .unwrap();
+        a.apply_body_auto_particle_map_rules(map_rules);
+
+        let a_map = body_auto_particle_specs(false, &a.body_auto_particle_effective);
+        let b_live = body_auto_particle_specs(false, &b.body_auto_particle_effective);
+        assert_eq!(a_map[0].template, "WorldAMapFire");
+        assert_eq!(b_live[0].template, "WorldBFire");
+        a.reset_body_auto_particle_map_rules();
+        let a_reset = body_auto_particle_specs(false, &a.body_auto_particle_effective);
+        assert_eq!(a_reset[0].template, "WorldAFire");
+        assert_eq!(b_live[0].template, "WorldBFire");
+    }
+
+    #[test]
+    fn body_particle_specs_preserve_empty_templates_prefixes_and_nonpositive_counts() {
+        use game_engine::common::ini::ini_game_data::BodyAutoParticleRules;
+        let mut rules = BodyAutoParticleRules::default();
+        rules.fire_small_prefix.clear();
+        rules.fire_small_system.clear();
+        rules.fire_small_max = 0;
+        rules.fire_medium_prefix = "AuthoredMediumBone".into();
+        rules.fire_medium_system = "None".into();
+        rules.fire_medium_max = -3;
+
+        let specs = body_auto_particle_specs(false, &rules);
+        assert_eq!(specs[0].prefix, "");
+        assert_eq!(specs[0].template, "");
+        assert_eq!(specs[0].max_systems, 0);
+        assert_eq!(specs[1].prefix, "AuthoredMediumBone");
+        assert_eq!(specs[1].template, "None");
+        assert_eq!(specs[1].max_systems, -3);
+    }
 
     #[test]
     fn leftover_manager_feed_swizzles_host_y_up_to_z_up() {
@@ -2238,7 +2265,7 @@ mod tests {
 
     #[test]
     fn particle_sys_bones_and_body_fire_attach() {
-        let mut reg = CombatParticleRegistry::new();
+        let mut reg = registry_with_body_particles();
         let owner = ObjectId(11);
         let pos = Vec3::new(2.0, 0.0, 3.0);
         reg.sync_particle_sys_bones(
@@ -2261,7 +2288,6 @@ mod tests {
             owner,
             pos,
             5,
-            1,
             false,
             &[
                 ("FIRESMALL".to_string(), vec![fire_bone]),
@@ -2308,7 +2334,6 @@ mod tests {
             owner,
             pos,
             6,
-            2,
             true,
             &[
                 (
@@ -2361,7 +2386,6 @@ mod tests {
             owner,
             pos,
             7,
-            0,
             false,
             BodyAutoParticlePose::new("", 1.0, 0.0),
             &mut (),
@@ -2450,14 +2474,13 @@ mod tests {
 
     #[test]
     fn attached_fire_follows_parent_times_local_yaw() {
-        let mut reg = CombatParticleRegistry::new();
+        let mut reg = registry_with_body_particles();
         let owner = ObjectId(3);
         let origin = Vec3::new(0.0, 0.0, 0.0);
         let fire_bone = Vec3::new(5.0, 2.0, 0.0);
         reg.replace_body_auto_particles_with_bones(
             owner,
             origin,
-            1,
             1,
             false,
             &[("FIRESMALL".to_string(), vec![fire_bone])],

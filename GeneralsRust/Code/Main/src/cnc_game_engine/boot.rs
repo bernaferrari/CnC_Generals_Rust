@@ -669,6 +669,17 @@ impl CnCGameEngine {
             Self::load_power_bar_baseline(&startup_sources)
                 .map_err(|error| anyhow::anyhow!(error))?,
         );
+        let body_auto_particle_rules = startup_sources.iter().try_fold(
+            game_engine::common::ini::ini_game_data::BodyAutoParticleRules::default(),
+            |rules, (path, text)| {
+                rules
+                    .overlay_ini_text(text)
+                    .map_err(|error| anyhow::anyhow!("{path}: {error}"))
+            },
+        )?;
+        // The live session needs this baseline even if its startup worker is
+        // cancelled before the prepared map can be installed.
+        game_logic.admit_body_auto_particle_baseline(body_auto_particle_rules);
         let recorder_inputs = Self::capture_recorder_application_inputs(
             game_logic.get_current_map_name().to_owned(),
             game_logic.logic_base_seed,

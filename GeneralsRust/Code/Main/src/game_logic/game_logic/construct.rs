@@ -894,6 +894,7 @@ impl GameLogic {
         self.restore_projectile_definition_base()
             .expect("previously admitted projectile base must remain valid across reset");
         self.body_damage_definitions.effective = self.body_damage_definitions.base;
+        self.combat_particles.reset_body_auto_particle_map_rules();
         self.lighting_definitions.effective = self.lighting_definitions.base.clone();
         self.terrain_road_definitions.effective = self.terrain_road_definitions.base.clone();
         self.reset_ocl_map_definitions();

@@ -1334,6 +1334,10 @@ impl ProductionEnergyRules {
     }
 }
 
+#[path = "ini_game_data/body_auto_particle_rules.rs"]
+mod body_auto_particle_rules;
+pub use body_auto_particle_rules::BodyAutoParticleRules;
+
 #[path = "ini_game_data/body_damage_rules.rs"]
 mod body_damage_rules;
 pub use body_damage_rules::BodyDamageRules;
@@ -2375,14 +2379,22 @@ mod tests {
         .unwrap();
         assert_eq!(data.hot_key_text_alpha, 32);
         assert_eq!(data.prison_bounty_text_alpha, 255);
-        assert_eq!(data.hot_key_text_color, RGBColor::new(64.0 / 255.0, 128.0 / 255.0, 1.0));
+        assert_eq!(
+            data.hot_key_text_color,
+            RGBColor::new(64.0 / 255.0, 128.0 / 255.0, 1.0)
+        );
         let mut runtime = runtime_global_data::GlobalData::default();
         apply_to_runtime_global_data(&data, &mut runtime);
         assert_eq!(runtime.hot_key_text_color[3], 32.0 / 255.0);
         assert!(parse_color_int(&["G:1", "R:2", "B:3"]).is_err());
         assert!(parse_color_int(&["R:1", "G:2", "B:3", "A:256"]).is_err());
         assert!(parse_color_int(&["R:1", "G:2", "B:3", "X:4"]).is_err());
-        assert_eq!(parse_color_int(&["R", "1", "G:", "2", "B:3", "a:4"]).unwrap().1, 4);
+        assert_eq!(
+            parse_color_int(&["R", "1", "G:", "2", "B:3", "a:4"])
+                .unwrap()
+                .1,
+            4
+        );
     }
 
     #[test]

@@ -160,7 +160,11 @@ impl GameLogic {
             .as_ref()
             .map(|engine| engine.get_global_difficulty());
         self.load_map_with_script_difficulty_and_native_checked(
-            map_name, difficulty, campaign_context, progress, native,
+            map_name,
+            difficulty,
+            campaign_context,
+            progress,
+            native,
         )
     }
 
@@ -209,7 +213,13 @@ impl GameLogic {
         let services = Arc::clone(&self.world_services);
         gamelogic::system::engine_stores::with_world_services(&services, || {
             self.load_map_with_definition_source_and_progress_checked(
-                map_name, None, difficulty, None, native, campaign_context, progress,
+                map_name,
+                None,
+                difficulty,
+                None,
+                native,
+                campaign_context,
+                progress,
             )
         })
     }
@@ -385,6 +395,7 @@ impl GameLogic {
             return Ok(false);
         }
         self.body_damage_definitions.effective = self.body_damage_definitions.base;
+        self.combat_particles.reset_body_auto_particle_map_rules();
         self.restore_combat_bonus_baseline();
         self.lighting_definitions.effective = self.lighting_definitions.base.clone();
         self.terrain_road_definitions.effective = self.terrain_road_definitions.base.clone();
@@ -550,6 +561,7 @@ impl GameLogic {
                         &definition_source,
                         Some(*self.production_energy_rules()),
                         Some(self.power_bar_baseline()),
+                        Some(self.combat_particles.body_auto_particle_baseline().clone()),
                         Some(self.physics_definitions.effective),
                         Some(self.session_view.camera.settings.current()),
                         Some(self.session_view.camera.clip_policy.current()),
@@ -611,6 +623,10 @@ impl GameLogic {
                             }
                             if let Some(rules) = meta.power_bar_rules {
                                 self.power_bar_definitions.effective = rules;
+                            }
+                            if let Some(rules) = &meta.body_auto_particle_rules {
+                                self.combat_particles
+                                    .apply_body_auto_particle_map_rules(rules.clone());
                             }
                             Some(meta)
                         }

@@ -21,6 +21,8 @@ impl Clone for CombatParticleRegistry {
             spawned_this_frame: self.spawned_this_frame.clone(),
             muzzle_flash_until: self.muzzle_flash_until.clone(),
             current_frame: self.current_frame,
+            body_auto_particle_base: self.body_auto_particle_base.clone(),
+            body_auto_particle_effective: self.body_auto_particle_effective.clone(),
         }
     }
 }

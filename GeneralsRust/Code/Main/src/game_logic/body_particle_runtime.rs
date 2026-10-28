@@ -45,7 +45,6 @@ pub(crate) fn update_body_auto_particles(
         object.id,
         position,
         frame,
-        body_state.ordinal(),
         aflame,
         pose,
         particle_owner,

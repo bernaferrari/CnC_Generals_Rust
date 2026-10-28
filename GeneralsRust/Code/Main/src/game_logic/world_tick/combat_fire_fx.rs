@@ -152,6 +152,33 @@ impl GameLogic {
         );
     }
 
+    /// Select the exact admitted Object definition for this world. Admission
+    /// is explicit: an admitted catalog miss stays empty instead of falling
+    /// through to the application AssetManager.
+    fn receiving_particle_sys_bones(
+        &self,
+        template_name: &str,
+        condition_bits: u128,
+    ) -> Vec<(String, String)> {
+        if self.receiving_module_content.is_some() {
+            let definition = self
+                .receiving_object_definitions
+                .as_ref()
+                .and_then(|definitions| definitions.get(template_name))
+                .map(std::sync::Arc::as_ref);
+            crate::game_logic::combat_particles::particle_sys_bones_for_receiving_definition(
+                definition,
+                template_name,
+                condition_bits,
+            )
+        } else {
+            crate::game_logic::combat_particles::particle_sys_bones_for_template(
+                template_name,
+                condition_bits,
+            )
+        }
+    }
+
     /// C++ `recalcBonesForClientParticleSystems` on create.
     pub(crate) fn spawn_particle_sys_bones_for_object(
         &mut self,
@@ -161,10 +188,7 @@ impl GameLogic {
         let Some(obj) = self.objects.get(&object_id) else {
             return;
         };
-        let bones = crate::game_logic::combat_particles::particle_sys_bones_for_template(
-            &obj.template_name,
-            obj.model_condition_bits,
-        );
+        let bones = self.receiving_particle_sys_bones(&obj.template_name, obj.model_condition_bits);
         let pos = obj.get_position();
         let model = obj
             .thing()
@@ -209,21 +233,16 @@ impl GameLogic {
                     obj.thing().template.asset_scale,
                     obj.get_orientation(),
                     obj.model_condition_bits,
-                    obj.body_damage_state.ordinal(),
-                    obj.has_object_status_bit("AFLAME")
-                        || obj.fire_spread.as_ref().is_some_and(|f| f.is_aflame()),
                 )
             })
             .collect();
-        for (id, pos, template, model, scale, yaw, bits, ordinal, aflame) in snapshots {
+        for (id, pos, template, model, scale, yaw, bits) in snapshots {
             if gamelogic::object::update::leftover_template_uses_animated_particle_sys_bones(
                 &template,
             ) {
                 gamelogic::object::update::tick_live_host_animated_particle_sys_bones(id.0);
             }
-            let bones = crate::game_logic::combat_particles::particle_sys_bones_for_template(
-                &template, bits,
-            );
+            let bones = self.receiving_particle_sys_bones(&template, bits);
             let pose = crate::game_logic::combat_particles::BodyAutoParticlePose::with_visibility(
                 &model,
                 scale,
@@ -238,33 +257,69 @@ impl GameLogic {
                 pose,
                 particle_owner,
             );
-            let wants_body = ordinal > 0 || aflame;
-            let has_body = self.combat_particles.has_body_particles(id);
-            if wants_body && !has_body {
-                self.combat_particles.replace_body_auto_particles(
-                    id,
-                    pos,
-                    frame,
-                    ordinal,
-                    aflame,
-                    pose,
-                    particle_owner,
-                    &mut self.session_view.client_random,
-                );
-            } else if !wants_body && has_body {
-                self.combat_particles.replace_body_auto_particles(
-                    id,
-                    pos,
-                    frame,
-                    0,
-                    false,
-                    pose,
-                    particle_owner,
-                    &mut self.session_view.client_random,
-                );
-            }
+            // ActiveBody replaces its auto particles at its own visual and
+            // AFLAME callbacks, not by reconciling Body state each frame.
             self.combat_particles
                 .follow_attached_body_particles(id, pos, yaw);
         }
+    }
+}
+
+#[cfg(test)]
+mod particle_sys_bone_owner_tests {
+    use super::*;
+
+    fn world_with_receiving_template(particle: &str) -> GameLogic {
+        let source = format!(
+            "Object SharedFxOwner\nDraw = W3DModelDraw OwnerDraw\nDefaultConditionState\nModel = SharedFxOwner.w3d\nParticleSysBone = fire {particle}\nEnd\nEnd\nEnd"
+        );
+        let content = crate::assets::ReceivingObjectContent::from_sources([(
+            "owner-test.ini".to_owned(),
+            source,
+        )])
+        .unwrap();
+        let (modules, definitions) = content.into_parts();
+        let mut world = GameLogic::new();
+        world.receiving_module_content = Some(modules);
+        world.receiving_object_definitions = Some(definitions);
+        world
+    }
+
+    fn world_with_empty_receiving_template(name: &str) -> GameLogic {
+        let content = crate::assets::ReceivingObjectContent::from_sources([(
+            "owner-test-empty.ini".to_owned(),
+            format!("Object {name}\nEnd"),
+        )])
+        .unwrap();
+        let (modules, definitions) = content.into_parts();
+        let mut world = GameLogic::new();
+        world.receiving_module_content = Some(modules);
+        world.receiving_object_definitions = Some(definitions);
+        world
+    }
+
+    #[test]
+    fn live_bone_lookup_uses_each_receiving_catalog_and_keeps_admitted_misses_empty() {
+        let a = world_with_receiving_template("WorldAFire");
+        let b = world_with_receiving_template("WorldBFire");
+        assert_eq!(
+            a.receiving_particle_sys_bones("SharedFxOwner", 0),
+            vec![("fire".to_owned(), "WorldAFire".to_owned())]
+        );
+        assert_eq!(
+            b.receiving_particle_sys_bones("SharedFxOwner", 0),
+            vec![("fire".to_owned(), "WorldBFire".to_owned())]
+        );
+        assert!(
+            a.receiving_particle_sys_bones("MissingInReceivingCatalog", 0)
+                .is_empty()
+        );
+        let empty = world_with_empty_receiving_template("RepairVehiclesInAreaMarker");
+        assert!(
+            empty
+                .receiving_particle_sys_bones("RepairVehiclesInAreaMarker", 0)
+                .is_empty(),
+            "admitted empty definitions do not select legacy global or name fallback"
+        );
     }
 }

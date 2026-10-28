@@ -23,7 +23,9 @@ fn map_power_rules_belong_to_the_receiving_world_through_reset() {
         std::fs::write(&path, &bytes).unwrap();
         std::fs::write(
             dir.join("Map.ini"),
-            format!("GameData\nPowerBarBase = {base}\nPowerBarIntervals = {intervals}\nEnd\n"),
+            format!(
+                "GameData\nPowerBarBase = {base}\nPowerBarIntervals = {intervals}\nAutoFireParticleSmallSystem = {name}\nEnd\n"
+            ),
         )
         .unwrap();
         path
@@ -34,7 +36,7 @@ fn map_power_rules_belong_to_the_receiving_world_through_reset() {
     std::fs::write(empty_map.parent().unwrap().join("Map.ini"), "").unwrap();
     std::fs::write(
         first_map.parent().unwrap().join("Solo.ini"),
-        "GameData\nPowerBarYellowRange = 9\nEnd\n",
+        "GameData\nPowerBarYellowRange = 9\nAutoFireParticleSmallMax = 3\nEnd\n",
     )
     .unwrap();
 
@@ -49,6 +51,7 @@ fn map_power_rules_belong_to_the_receiving_world_through_reset() {
     let mut first = make_world();
     let mut peer = make_world();
     let baseline = first.power_bar_rules();
+    let particle_baseline = first.combat_particles().body_auto_particle_rules().clone();
     assert!(first.load_map(first_map.to_str().unwrap()));
     assert!(peer.load_map(peer_map.to_str().unwrap()));
     assert_eq!(
@@ -67,12 +70,47 @@ fn map_power_rules_belong_to_the_receiving_world_through_reset() {
         ),
         (31, 6.0, baseline.yellow_range)
     );
+    assert_eq!(
+        first
+            .combat_particles()
+            .body_auto_particle_rules()
+            .fire_small_system,
+        "first"
+    );
+    assert_eq!(
+        first
+            .combat_particles()
+            .body_auto_particle_rules()
+            .fire_small_max,
+        3
+    );
+    assert_eq!(
+        peer.combat_particles()
+            .body_auto_particle_rules()
+            .fire_small_system,
+        "peer"
+    );
     peer.reset();
     assert_eq!(peer.power_bar_rules(), baseline);
+    assert_eq!(
+        peer.combat_particles().body_auto_particle_rules(),
+        &particle_baseline
+    );
     drop(peer);
     assert_eq!(first.power_bar_rules().base, 11);
+    assert_eq!(
+        first
+            .combat_particles()
+            .body_auto_particle_rules()
+            .fire_small_system,
+        "first"
+    );
     assert!(first.load_map(empty_map.to_str().unwrap()));
     assert_eq!(first.power_bar_rules(), baseline);
+    assert_eq!(
+        first.combat_particles().body_auto_particle_rules(),
+        &particle_baseline
+    );
     first.reset();
     assert_eq!(first.power_bar_rules(), baseline);
 }

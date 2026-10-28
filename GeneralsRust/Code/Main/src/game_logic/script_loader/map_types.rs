@@ -83,8 +83,7 @@ pub struct MapMetadata {
         Option<std::sync::Arc<gamelogic::object::armor::ArmorDefinitions>>,
     pub(crate) terrain_definitions:
         Option<std::sync::Arc<game_engine::common::ini::ini_terrain::TerrainTypes>>,
-    pub(crate) road_definitions:
-        Option<game_engine::common::ini::ini_road::TerrainRoadCollection>,
+    pub(crate) road_definitions: Option<game_engine::common::ini::ini_road::TerrainRoadCollection>,
     pub(crate) camera_clip_rules: Option<game_engine::common::ini::ini_game_data::CameraClipRules>,
     pub(crate) camera_shake_rules:
         Option<game_engine::common::ini::ini_game_data::CameraShakeRules>,
@@ -96,6 +95,8 @@ pub struct MapMetadata {
     pub(crate) production_energy:
         Option<game_engine::common::ini::ini_game_data::ProductionEnergyRules>,
     pub(crate) power_bar_rules: Option<game_engine::common::ini::ini_game_data::PowerBarRules>,
+    pub(crate) body_auto_particle_rules:
+        Option<game_engine::common::ini::ini_game_data::BodyAutoParticleRules>,
     /// Last GameData DefaultStartingCash from Map.ini then Solo.ini.
     pub default_starting_cash: Option<u32>,
     /// Typed authored decals captured while the decoder owns this Dict key
