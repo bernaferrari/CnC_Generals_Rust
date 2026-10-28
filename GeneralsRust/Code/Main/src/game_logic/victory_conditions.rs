@@ -4,12 +4,9 @@
 */
 
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
-
 use bitflags::bitflags;
 use game_engine::common::rts::player_template::PlayerTemplateStore;
 use log::{debug, warn};
-use std::sync::OnceLock;
 
 use crate::config::{ConfigValue, IniParser, LoadMode};
 
@@ -620,9 +617,10 @@ pub fn victory_rules_for_map(
     map_name: &str,
     campaign_context: Option<&crate::save_load::CampaignMapContext>,
 ) -> VictoryType {
-    let rules = MAP_VICTORY_RULES
-        .get_or_init(MapVictoryRules::load)
-        .victory_for(map_name);
+    let rules = campaign_context
+        .and_then(|context| context.base_victory_rules.as_deref())
+        .map(|rules| rules.victory_for(map_name))
+        .unwrap_or_default();
 
     if rules != VictoryType::default() {
         return rules;
@@ -631,30 +629,25 @@ pub fn victory_rules_for_map(
     campaign_victory_override(map_name, campaign_context).unwrap_or(rules)
 }
 
-struct MapVictoryRules {
+#[derive(Debug, Clone, Default)]
+pub struct MapVictoryRules {
     default: VictoryType,
     overrides: HashMap<String, VictoryType>,
 }
 
 impl MapVictoryRules {
-    fn load() -> Self {
+    /// Parse source texts in the same order used by the application loader.
+    /// The caller owns content resolution; this value is immutable after admission.
+    pub fn from_ordered_sources(sources: &[(&str, String)]) -> Self {
         let mut parser = IniParser::new();
         let mut loaded = false;
-        const SEARCH_PATHS: [&str; 2] = ["Data/INI/MapVictoryRules.ini", "INI/MapVictoryRules.ini"];
-        for path in SEARCH_PATHS {
-            let path_ref = Path::new(path);
-            if !path_ref.exists() {
-                continue;
-            }
-            match parser.load_file(path_ref, LoadMode::MultiFile) {
+        for (path, text) in sources {
+            match parser.load_from_string(text, LoadMode::MultiFile) {
                 Ok(_) => {
-                    debug!("Loaded map victory rules from {}", path_ref.display());
+                    debug!("Loaded map victory rules from {path}");
                     loaded = true;
                 }
-                Err(err) => warn!(
-                    "Failed to load map victory rules {}: {err}",
-                    path_ref.display()
-                ),
+                Err(err) => warn!("Failed to load map victory rules {path}: {err}"),
             }
         }
 
@@ -761,8 +754,6 @@ fn parse_victory_string(value: &ConfigValue) -> Option<VictoryType> {
         _ => None,
     }
 }
-
-static MAP_VICTORY_RULES: OnceLock<MapVictoryRules> = OnceLock::new();
 
 fn campaign_victory_override(
     map_name: &str,

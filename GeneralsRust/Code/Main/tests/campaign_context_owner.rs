@@ -1,10 +1,11 @@
 use game_engine::common::system::DataChunkOutput;
 use generals_main::game_logic::{GameLogic, GameMode, VictoryType};
+use generals_main::game_logic::victory_conditions::MapVictoryRules;
 use generals_main::save_load::{
     CampaignId, CampaignManager, MissionInfo, MissionObjective, ObjectiveTarget, ObjectiveType,
 };
 
-fn mission(objective_id: &str, victory_rule: &str) -> MissionInfo {
+fn mission(objective_id: &str, victory_rule: Option<&str>) -> MissionInfo {
     MissionInfo {
         id: objective_id.into(),
         campaign_id: CampaignId::USACampaign,
@@ -25,7 +26,7 @@ fn mission(objective_id: &str, victory_rule: &str) -> MissionInfo {
         starting_units: Vec::new(),
         tech_restrictions: Vec::new(),
         special_rules: Vec::new(),
-        victory_rule: Some(victory_rule.into()),
+        victory_rule: victory_rule.map(str::to_owned),
         primary_objectives: vec![MissionObjective {
             id: objective_id.into(),
             description: objective_id.into(),
@@ -69,13 +70,21 @@ fn accepted_same_map_admissions_keep_campaign_context_with_each_session() {
     campaign_b.init().unwrap();
     campaign_a.mission_definitions.insert(
         "session_a".into(),
-        mission("objective_from_a", "NoUnits"),
+        mission("objective_from_a", None),
     );
     campaign_b.mission_definitions.insert(
         "session_b".into(),
-        mission("objective_from_b", "NoBuildings"),
+        mission("objective_from_b", None),
     );
     assert_ne!(campaign_dir_a, campaign_dir_b);
+    let rules_a = std::sync::Arc::new(MapVictoryRules::from_ordered_sources(&[(
+        "first/MapVictoryRules.ini",
+        "[default]\nVictory = NoUnits\n".to_string(),
+    )]));
+    let rules_b = std::sync::Arc::new(MapVictoryRules::from_ordered_sources(&[(
+        "second/MapVictoryRules.ini",
+        "[default]\nVictory = NoBuildings\n".to_string(),
+    )]));
 
     let map_root = tempfile::tempdir().unwrap();
     let map_path = map_root.path().join("SharedCampaignMap.map");
@@ -88,11 +97,15 @@ fn accepted_same_map_admissions_keep_campaign_context_with_each_session() {
     session_b.start_new_game(GameMode::SinglePlayer);
     assert!(session_a.load_map_with_campaign_context(
         map,
-        campaign_a.map_context_for(map),
+        campaign_a
+            .map_context_for(map)
+            .with_base_victory_rules(rules_a),
     ));
     assert!(session_b.load_map_with_campaign_context(
         map,
-        campaign_b.map_context_for(map),
+        campaign_b
+            .map_context_for(map)
+            .with_base_victory_rules(rules_b),
     ));
 
     assert!(session_a
@@ -105,4 +118,25 @@ fn accepted_same_map_admissions_keep_campaign_context_with_each_session() {
         .any(|objective| objective.id.as_deref() == Some("objective_from_b")));
     assert_eq!(session_a.victory_type(), VictoryType::NO_UNITS);
     assert_eq!(session_b.victory_type(), VictoryType::NO_BUILDINGS);
+
+    // Campaign overrides remain the fallback when the receiving base source
+    // provides no non-default rule. The distinct receiving defaults above
+    // take priority over campaign rules.
+    campaign_a
+        .mission_definitions
+        .get_mut("session_a")
+        .unwrap()
+        .victory_rule = Some("NoBuildings".into());
+    let mut campaign_override_session = GameLogic::new();
+    campaign_override_session.start_new_game(GameMode::SinglePlayer);
+    assert!(campaign_override_session.load_map_with_campaign_context(
+        map,
+        campaign_a
+            .map_context_for(map)
+            .with_base_victory_rules(std::sync::Arc::new(MapVictoryRules::default())),
+    ));
+    assert_eq!(
+        campaign_override_session.victory_type(),
+        VictoryType::NO_BUILDINGS
+    );
 }

@@ -114,6 +114,7 @@ fn stage(
         m,
         slot,
         GameMode::Skirmish,
+        std::sync::Arc::new(crate::game_logic::victory_conditions::MapVictoryRules::default()),
         RestoreTemplateCatalog::from_world(w),
         &w.weapon_definition_base,
         &w.projectile_definitions,

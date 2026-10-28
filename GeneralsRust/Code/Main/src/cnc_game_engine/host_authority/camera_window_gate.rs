@@ -112,6 +112,7 @@ impl CnCGameEngine {
             &mut self.save_file_manager,
             slot,
             mode,
+            Arc::clone(&self.map_victory_rules),
             RestoreTemplateCatalog {
                 templates: &catalog,
                 modules: &self.game_logic.receiving_module_content,

@@ -239,7 +239,7 @@ pub struct GameLogic {
 
     /// Host combat particle registry (kill/fire → observably registered systems).
     /// Residual hq-gq7n: not full W3D GPU parity; PresentationFrame can observe entries.
-    pub(super) combat_particles: CombatParticleRegistry,
+    pub(in crate::game_logic) combat_particles: CombatParticleRegistry,
 
     /// Host superweapon strike residual (DaisyCutter / A10 / ScudStorm / ParticleCannon /
     /// NuclearMissile / AnthraxBomb / SpectreGunship / CarpetBomb / ArtilleryBarrage /

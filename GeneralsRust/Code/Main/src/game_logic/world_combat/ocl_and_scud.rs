@@ -30,6 +30,26 @@ fn supports_host_weapon_generic_ocl(
         && !nugget.requires_live_player
 }
 
+fn unsupported_host_ocl_nugget_name(
+    nugget: &dyn gamelogic::object_creation_list::ObjectCreationNugget,
+) -> &'static str {
+    let nugget = nugget.as_any();
+    use gamelogic::object_creation_list::advanced_nuggets::{
+        ApplyRandomForceNugget, AttackNugget, DeliverPayloadNugget, FireWeaponNugget,
+    };
+    if nugget.is::<FireWeaponNugget>() {
+        "FireWeapon"
+    } else if nugget.is::<DeliverPayloadNugget>() {
+        "DeliverPayload"
+    } else if nugget.is::<AttackNugget>() {
+        "Attack"
+    } else if nugget.is::<ApplyRandomForceNugget>() {
+        "ApplyRandomForce"
+    } else {
+        "other"
+    }
+}
+
 fn usable_ocl_particle_sys_name(name: &str) -> Option<&str> {
     let name = name.trim();
     (!name.is_empty() && !name.eq_ignore_ascii_case("none")).then_some(name)
@@ -124,6 +144,9 @@ impl GameLogic {
         }
 
         let Some(ocl) = self.object_creation_list_definition(ocl_name) else {
+            log::warn!(
+                "receiving OCL `{ocl_name}` was not admitted for this GameLogic; no global fallback was used"
+            );
             return Vec::new();
         };
 
@@ -136,9 +159,19 @@ impl GameLogic {
                 .as_any()
                 .downcast_ref::<GenericObjectCreationNugget>()
             else {
+                log::warn!(
+                    "receiving OCL `{ocl_name}` skipped unsupported {} nugget; no Core OCL fallback was used",
+                    unsupported_host_ocl_nugget_name(nugget.as_ref())
+                );
                 continue;
             };
+            if generic.debris_to_generate == 0 {
+                continue;
+            }
             if !supports_host_weapon_generic_ocl(generic) {
+                log::warn!(
+                    "receiving OCL `{ocl_name}` skipped unsupported GenericObjectCreationNugget configuration"
+                );
                 continue;
             }
 
@@ -178,6 +211,9 @@ impl GameLogic {
                 // the match. A missing name cannot be recovered from another
                 // application's asset manager or a decorative fallback.
                 if !self.templates.contains_key(template_name) {
+                    log::warn!(
+                        "receiving OCL `{ocl_name}` references unadmitted object template `{template_name}`"
+                    );
                     continue;
                 }
 

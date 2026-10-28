@@ -26,7 +26,7 @@
 
 //! Wave 957: host_object/host_objects authority dual-read seal.
 use crate::game_logic::script_loader::{find_map_file, load_map_scripts};
-use crate::game_logic::victory_conditions::{VictoryType, victory_rules_for_map};
+use crate::game_logic::victory_conditions::{MapVictoryRules, VictoryType, victory_rules_for_map};
 use crate::game_logic::{GameLogic, GameMode, Resources};
 use crate::map_frame_scenario::resolve_first_map;
 use crate::save_load::SaveLoadManager;
@@ -35,6 +35,7 @@ use crate::save_load::campaign::{
     MissionObjective, MissionStatus, ObjectiveReward, ObjectiveTarget, ObjectiveType,
 };
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Preferred real campaign / challenge map identities (scripts + metadata).
@@ -291,6 +292,14 @@ pub fn run_golden_campaign_ex(
 ) -> gamelogic::GameLogicResult<GoldenCampaignResult> {
     let frames = frames.max(1);
     let _ = std::fs::create_dir_all(SaveLoadManager::default_save_directory().join("Campaign"));
+    // Preserve the demo's legacy loose-file source order without an ambient
+    // OnceLock. Production engines receive the same ordered texts through the
+    // startup archive/content loader.
+    let map_victory_sources = ["Data/INI/MapVictoryRules.ini", "INI/MapVictoryRules.ini"]
+        .into_iter()
+        .filter_map(|path| std::fs::read_to_string(path).ok().map(|text| (path, text)))
+        .collect::<Vec<_>>();
+    let map_victory_rules = Arc::new(MapVictoryRules::from_ordered_sources(&map_victory_sources));
 
     // --- Campaign progression manager (local production API) ---
     let mut progression = CampaignManager::new();
@@ -358,18 +367,24 @@ pub fn run_golden_campaign_ex(
     // Victory rule must be visible before map configure.
     let victory_rule_applied = victory_rules_for_map(
         &victory_map_key,
-        Some(&progression.map_context_for(&victory_map_key)),
+        Some(&progression
+            .map_context_for(&victory_map_key)
+            .with_base_victory_rules(Arc::clone(&map_victory_rules))),
     ) == VictoryType::NO_UNITS
         || campaign_resolved
             .as_ref()
             .map(|(id, path)| {
                 victory_rules_for_map(
                     id,
-                    Some(&progression.map_context_for(id)),
+                    Some(&progression
+                        .map_context_for(id)
+                        .with_base_victory_rules(Arc::clone(&map_victory_rules))),
                 ) == VictoryType::NO_UNITS
                     || victory_rules_for_map(
                         path.to_str().unwrap_or(id),
-                        Some(&progression.map_context_for(path.to_str().unwrap_or(id))),
+                        Some(&progression
+                            .map_context_for(path.to_str().unwrap_or(id))
+                            .with_base_victory_rules(Arc::clone(&map_victory_rules))),
                     ) == VictoryType::NO_UNITS
                     || path
                         .file_stem()
@@ -377,7 +392,9 @@ pub fn run_golden_campaign_ex(
                         .map(|stem| {
                             victory_rules_for_map(
                                 stem,
-                                Some(&progression.map_context_for(stem)),
+                                Some(&progression
+                                    .map_context_for(stem)
+                                    .with_base_victory_rules(Arc::clone(&map_victory_rules))),
                             ) == VictoryType::NO_UNITS
                         })
                         .unwrap_or(false)
@@ -395,7 +412,9 @@ pub fn run_golden_campaign_ex(
             let loaded = logic
                 .load_map_with_campaign_context_and_progress_and_native_checked(
                     path_str,
-                    progression.map_context_for(path_str),
+                    progression
+                        .map_context_for(path_str)
+                        .with_base_victory_rules(Arc::clone(&map_victory_rules)),
                     |_, _, _, _| Ok(()),
                     None,
                 )
@@ -403,7 +422,9 @@ pub fn run_golden_campaign_ex(
                 || logic
                     .load_map_with_campaign_context_and_progress_and_native_checked(
                         id,
-                        progression.map_context_for(id),
+                        progression
+                            .map_context_for(id)
+                            .with_base_victory_rules(Arc::clone(&map_victory_rules)),
                         |_, _, _, _| Ok(()),
                         None,
                     )

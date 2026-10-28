@@ -1,6 +1,27 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
 impl CnCGameEngine {
+    async fn load_map_victory_rule_sources() -> Result<Vec<(&'static str, String)>, String> {
+        const SOURCES: [&str; 2] = [
+            "Data/INI/MapVictoryRules.ini",
+            "INI/MapVictoryRules.ini",
+        ];
+        let mut ordered = Vec::new();
+        for path in SOURCES {
+            match Self::load_startup_ini_texts(&[path]).await {
+                Ok(mut sources) => ordered.append(&mut sources),
+                // The previous loose-file loader warned and continued when an
+                // individual rule file could not be read or decoded. Keep that
+                // tolerance while allowing archive/asset-owner failures through.
+                Err(error) if error.starts_with(&format!("{path}:")) => {
+                    warn!("Skipping unreadable map victory rules {path}: {error}");
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(ordered)
+    }
+
     /// Called after this application's mapped images have been admitted.
     /// GameData texts are the already captured default/retail/debug startup order.
     pub(super) async fn load_promotion_definitions(
@@ -519,6 +540,14 @@ impl CnCGameEngine {
         let ocl_sources = Self::load_ocl_application_sources()
             .await
             .map_err(anyhow::Error::msg)?;
+        let map_victory_rule_sources = Self::load_map_victory_rule_sources()
+            .await
+            .map_err(anyhow::Error::msg)?;
+        let map_victory_rules = Arc::new(
+            crate::game_logic::victory_conditions::MapVictoryRules::from_ordered_sources(
+                &map_victory_rule_sources,
+            ),
+        );
         let armor_definition_seed = Self::load_application_armor_definitions()
             .await
             .map_err(anyhow::Error::msg)?;
@@ -880,6 +909,7 @@ impl CnCGameEngine {
 
             game_logic,
             campaign_manager,
+            map_victory_rules,
             camera_rule_base,
             default_starting_cash: crate::game_logic::Player::DEFAULT_STARTING_MONEY,
             presentation_terrain_cache: PresentationTerrainCache::default(),

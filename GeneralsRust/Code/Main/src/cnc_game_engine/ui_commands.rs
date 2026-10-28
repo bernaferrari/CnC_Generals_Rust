@@ -1337,10 +1337,14 @@ impl CnCGameEngine {
             game_client::gui::load_screen::LoadScreenPresentationPump::for_native(
                 &mut present_load,
             );
-        let requested_campaign_context = self.campaign_manager.map_context_for(map_name);
+        let requested_campaign_context = self
+            .campaign_manager
+            .map_context_for(map_name)
+            .with_base_victory_rules(Arc::clone(&self.map_victory_rules));
         let fallback_campaign_context = self
             .campaign_manager
-            .map_context_for(DEFAULT_SKIRMISH_MAP);
+            .map_context_for(DEFAULT_SKIRMISH_MAP)
+            .with_base_victory_rules(Arc::clone(&self.map_victory_rules));
         let loaded = if self.game_logic.game_mode() == GameMode::Shell {
             self.game_logic
                 .load_map_with_campaign_context_and_progress_and_native_checked(

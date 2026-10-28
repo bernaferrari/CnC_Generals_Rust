@@ -117,6 +117,20 @@ pub struct MissionInfo {
 pub struct CampaignMapContext {
     pub mission: Option<MissionInfo>,
     pub victory_rule_candidates: Vec<String>,
+    /// Immutable application rules admitted by the receiving engine. Campaign
+    /// metadata remains writable only on CampaignManager.
+    pub base_victory_rules:
+        Option<std::sync::Arc<crate::game_logic::victory_conditions::MapVictoryRules>>,
+}
+
+impl CampaignMapContext {
+    pub fn with_base_victory_rules(
+        mut self,
+        rules: std::sync::Arc<crate::game_logic::victory_conditions::MapVictoryRules>,
+    ) -> Self {
+        self.base_victory_rules = Some(rules);
+        self
+    }
 }
 
 /// Mission objective
@@ -452,6 +466,7 @@ impl CampaignManager {
         CampaignMapContext {
             mission,
             victory_rule_candidates,
+            base_victory_rules: None,
         }
     }
 

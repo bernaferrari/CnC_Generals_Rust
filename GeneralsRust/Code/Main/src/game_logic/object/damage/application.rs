@@ -168,6 +168,71 @@ impl DamageApplication {
         );
     }
 
+    /// Receiving owner variant: yield the authored transition at its original
+    /// Body callback point so GameLogic can run synchronous OCL while the
+    /// victim remains installed and unborrowed from the object store.
+    pub(in crate::game_logic) fn complete_body_state_callbacks_yield_transition(
+        &mut self,
+        victim: &mut Object,
+        source: Option<&HostDamageFxVictim>,
+        random: &game_engine::common::random_value::SessionRandom,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+    ) -> Option<crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent> {
+        let (victim_id, old_body_state, frame, fear) = match self {
+            Self::Active(tail) => (tail.victim_id, tail.old_body_state.take(), tail.frame, true),
+            Self::Healing(tail) => (
+                tail.victim_id,
+                tail.old_body_state.take(),
+                tail.frame,
+                false,
+            ),
+            Self::Complete(_) => return None,
+        };
+        assert_eq!(
+            victim_id, victim.id,
+            "body callback victim identity changed"
+        );
+        let Some(old_body_state) = old_body_state else {
+            return None;
+        };
+        let transition = victim.react_to_body_damage_state_change_yield_transition(
+            old_body_state,
+            source,
+            frame,
+            body_fx,
+            true,
+        );
+        if transition.is_none() && fear {
+            if let Some(request) = victim.voice_fear_request(|| {
+                crate::game_logic::host_transition_damage_fx::take_voice_fear_roll_from_session(
+                    random,
+                )
+            }) {
+                body_fx(victim, BodyStateFx::VoiceFear(request), source);
+            }
+        }
+        transition
+    }
+
+    pub(in crate::game_logic) fn finish_body_state_callbacks_after_transition(
+        &mut self,
+        victim: &mut Object,
+        source: Option<&HostDamageFxVictim>,
+        random: &game_engine::common::random_value::SessionRandom,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+    ) {
+        victim.rebuild_model_condition_bits();
+        if matches!(self, Self::Active(_)) {
+            if let Some(request) = victim.voice_fear_request(|| {
+                crate::game_logic::host_transition_damage_fx::take_voice_fear_roll_from_session(
+                    random,
+                )
+            }) {
+                body_fx(victim, BodyStateFx::VoiceFear(request), source);
+            }
+        }
+    }
+
     fn complete_body_state_callbacks_with_voice_roll(
         &mut self,
         victim: &mut Object,

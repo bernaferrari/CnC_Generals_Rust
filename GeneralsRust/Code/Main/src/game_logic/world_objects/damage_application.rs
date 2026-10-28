@@ -636,6 +636,7 @@ impl GameLogic {
         // Release the body loan before forceFireWeapon can damage other owners
         // or reenter this same object; every next hit resolves it afresh.
         let mut reaction_callback_ran = false;
+        let mut transition_callback_ran = false;
         let has_installed_reaction_weapons = self
             .objects
             .get(&victim_id)
@@ -733,6 +734,8 @@ impl GameLogic {
         #[cfg(feature = "game_client")]
         let fx_operation_environment = self.observe_object_fx_environment();
         #[cfg(feature = "game_client")]
+        let mut transition_yield = None;
+        #[cfg(feature = "game_client")]
         Self::with_object_fx_services(
             &mut self.session_view,
             self.queued_audio_events.policy().clone(),
@@ -744,7 +747,7 @@ impl GameLogic {
             &self.logic_random,
             |view| {
                 if let Some(victim) = self.objects.get_mut(&victim_id) {
-                    application.complete_body_state_callbacks_with_body_fx_and_random(
+                    transition_yield = application.complete_body_state_callbacks_yield_transition(
                         victim,
                         callback_source.as_ref(),
                         &self.logic_random,
@@ -767,10 +770,66 @@ impl GameLogic {
             },
         );
         #[cfg(feature = "game_client")]
+        if let Some(event) = transition_yield.take() {
+            transition_callback_ran = true;
+            self.execute_receiving_transition_damage_fx(
+                victim_id,
+                &victim_identity,
+                event,
+                callback_source.as_ref(),
+                self.frame,
+                callback_player,
+                effects,
+            );
+            if !self
+                .objects
+                .get(&victim_id)
+                .is_some_and(|object| self.live_draw_playback_identity(object) == victim_identity)
+            {
+                return None;
+            }
+            let environment = self.observe_object_fx_environment();
+            Self::with_object_fx_services(
+                &mut self.session_view,
+                self.queued_audio_events.policy().clone(),
+                callback_player,
+                self.world_services.shroud(),
+                effects,
+                &environment,
+                self.world_services.terrain(),
+                &self.logic_random,
+                |view| {
+                    if let Some(victim) = self.objects.get_mut(&victim_id) {
+                        application.finish_body_state_callbacks_after_transition(
+                            victim,
+                            callback_source.as_ref(),
+                            &self.logic_random,
+                            &mut |object, effect, source| {
+                                Self::execute_body_state_fx_with_view(
+                                    object,
+                                    effect,
+                                    source,
+                                    callback_secondary.as_ref(),
+                                    callback_player,
+                                    self.world_services.shroud(),
+                                    &mut self.combat_particles,
+                                    &mut self.queued_audio_events,
+                                    self.frame,
+                                    view,
+                                );
+                            },
+                        );
+                    }
+                },
+            );
+        }
+        #[cfg(feature = "game_client")]
         let fx_operation_environment = self.observe_object_fx_environment();
         #[cfg(not(feature = "game_client"))]
+        let mut transition_yield = None;
+        #[cfg(not(feature = "game_client"))]
         if let Some(victim) = self.objects.get_mut(&victim_id) {
-            application.complete_body_state_callbacks_with_body_fx_and_random(
+            transition_yield = application.complete_body_state_callbacks_yield_transition(
                 victim,
                 callback_source.as_ref(),
                 &self.logic_random,
@@ -785,19 +844,62 @@ impl GameLogic {
                 },
             );
         }
+        #[cfg(not(feature = "game_client"))]
+        if let Some(event) = transition_yield.take() {
+            transition_callback_ran = true;
+            self.execute_receiving_transition_damage_fx(
+                victim_id,
+                &victim_identity,
+                event,
+                callback_source.as_ref(),
+                self.frame,
+                None,
+                effects,
+            );
+            if !self
+                .objects
+                .get(&victim_id)
+                .is_some_and(|object| self.live_draw_playback_identity(object) == victim_identity)
+            {
+                return None;
+            }
+            let same_victim = self
+                .objects
+                .get(&victim_id)
+                .is_some_and(|victim| self.live_draw_playback_identity(victim) == victim_identity);
+            if same_victim {
+                if let Some(victim) = self.objects.get_mut(&victim_id) {
+                    application.finish_body_state_callbacks_after_transition(
+                        victim,
+                        callback_source.as_ref(),
+                        &self.logic_random,
+                        &mut |object, effect, source| {
+                            Self::execute_body_state_fx_without_view(
+                                object,
+                                effect,
+                                source,
+                                &mut self.queued_audio_events,
+                                &self.logic_random,
+                            )
+                        },
+                    );
+                }
+            }
+        }
         // Original ActiveBody rereads live health after synchronous callbacks.
-        let killed = if (bridge_callbacks.is_some() || reaction_callback_ran)
-            && damage_type != crate::game_logic::combat::DamageType::Healing
-        {
-            before_hp > 0.0
-                && self
-                    .objects
-                    .get(&victim_id)
-                    .is_some_and(|o| o.health.current <= 0.0)
-        } else {
-            application.killed()
-        };
-        if bridge_callbacks.is_some() || reaction_callback_ran {
+        let killed =
+            if (bridge_callbacks.is_some() || reaction_callback_ran || transition_callback_ran)
+                && damage_type != crate::game_logic::combat::DamageType::Healing
+            {
+                before_hp > 0.0
+                    && self
+                        .objects
+                        .get(&victim_id)
+                        .is_some_and(|o| o.health.current <= 0.0)
+            } else {
+                application.killed()
+            };
+        if bridge_callbacks.is_some() || reaction_callback_ran || transition_callback_ran {
             application.set_killed_after_callbacks(killed);
         }
         if killed {

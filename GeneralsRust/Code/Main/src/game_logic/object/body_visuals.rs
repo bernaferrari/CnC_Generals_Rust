@@ -248,6 +248,23 @@ impl Object {
         frame: u32,
         body_fx: &mut BodyStateFxReceiver<'_>,
     ) {
+        let _ = self.react_to_body_damage_state_change_yield_transition(
+            old_state, source, frame, body_fx, false,
+        );
+    }
+
+    /// Run the native state callback up to TransitionDamageFX and optionally
+    /// yield that event to the owning GameLogic before model-condition rebuild.
+    /// The owner resumes the event synchronously, then calls
+    /// `rebuild_model_condition_bits` at the original callback boundary.
+    pub(super) fn react_to_body_damage_state_change_yield_transition(
+        &mut self,
+        old_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+        frame: u32,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+        yield_transition: bool,
+    ) -> Option<crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent> {
         use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
         let state = self.body_damage_state;
 
@@ -264,6 +281,7 @@ impl Object {
         // OBJECT_STATUS_UNDER_CONSTRUCTION (no damaged-art health visuals).
         let show_health_visuals = !self.status.under_construction || self.status.destroyed;
         // C++ BoneFXDamage::onBodyDamageStateChange residual.
+        let mut yielded = None;
         if old_state != state && show_health_visuals {
             if self.bone_fx_damage.is_none() {
                 self.bone_fx_damage =
@@ -305,12 +323,19 @@ impl Object {
                         self.last_damage_info_type.map(|d| d.to_store()),
                     )
                 {
-                    body_fx(self, BodyStateFx::Transition(ev), source);
+                    if yield_transition {
+                        yielded = Some(ev);
+                    } else {
+                        body_fx(self, BodyStateFx::Transition(ev), source);
+                    }
                 }
             }
         }
 
-        self.rebuild_model_condition_bits();
+        if yielded.is_none() {
+            self.rebuild_model_condition_bits();
+        }
+        yielded
     }
 }
 

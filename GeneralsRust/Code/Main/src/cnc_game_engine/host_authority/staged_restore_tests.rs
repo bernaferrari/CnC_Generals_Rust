@@ -133,6 +133,7 @@ fn staged_restore_rejects_unavailable_map_before_snapshot_restore() {
                 &mut saves,
                 "missing_map",
                 GameMode::Shell,
+                std::sync::Arc::new(crate::game_logic::victory_conditions::MapVictoryRules::default()),
                 RestoreTemplateCatalog {
                     templates: &catalog,
                     modules: &source.receiving_module_content,
@@ -314,6 +315,7 @@ fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
                 &mut saves,
                 "valid_map",
                 GameMode::Shell,
+                std::sync::Arc::new(crate::game_logic::victory_conditions::MapVictoryRules::default()),
                 RestoreTemplateCatalog {
                     templates: &catalog,
                     modules: &source.receiving_module_content,
@@ -1165,6 +1167,7 @@ fn staged_restore_continues_logic_rng_stream_from_save_point() {
                 &mut saves,
                 "rng_continue",
                 GameMode::Shell,
+                std::sync::Arc::new(crate::game_logic::victory_conditions::MapVictoryRules::default()),
                 RestoreTemplateCatalog {
                     templates: &catalog,
                     modules: &source.receiving_module_content,

@@ -2126,6 +2126,7 @@ impl CnCGameEngine {
         save_file_manager: &mut SaveFileManager,
         slot: &str,
         active_mode: crate::game_logic::GameMode,
+        map_victory_rules: Arc<crate::game_logic::victory_conditions::MapVictoryRules>,
         template_catalog: RestoreTemplateCatalog<'_>,
         weapon_catalog: &Option<
             std::collections::HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>,
@@ -2151,7 +2152,8 @@ impl CnCGameEngine {
             save_file_manager,
             slot,
             active_mode,
-            crate::save_load::CampaignMapContext::default(),
+            crate::save_load::CampaignMapContext::default()
+                .with_base_victory_rules(map_victory_rules),
             template_catalog,
             weapon_catalog,
             projectile_definitions,
@@ -2964,7 +2966,10 @@ impl CnCGameEngine {
                 .host_restart_mission_from_save(slot, save_info)
                 .map_err(HostLoadFailure::Staging);
         }
-        let campaign_context = self.campaign_manager.map_context_for(&save_info.map_name);
+        let campaign_context = self
+            .campaign_manager
+            .map_context_for(&save_info.map_name)
+            .with_base_victory_rules(Arc::clone(&self.map_victory_rules));
 
         // Keep the current world untouched until the save metadata, exact map,
         // and snapshot all restore successfully in a staging world.
