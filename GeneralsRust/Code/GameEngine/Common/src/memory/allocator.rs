@@ -49,19 +49,30 @@ impl<T> Slab<T> {
             return Err(format!("Slab alignment {align} is not a power of 2"));
         }
         let raw_size = mem::size_of::<SlotEntry<T>>().max(1);
-        let stride = raw_size.next_multiple_of(align);
+        let stride = raw_size
+            .checked_add(align - 1)
+            .map(|rounded| rounded & !(align - 1))
+            .ok_or_else(|| format!("Slab stride overflows for alignment {align}"))?;
         Ok((align, stride))
+    }
+
+    /// Validate the complete allocation layout without allocating.
+    fn checked_layout(capacity: usize, alignment: usize) -> Result<(usize, usize, Layout), String> {
+        if capacity == 0 {
+            return Err("Slab capacity cannot be zero".to_string());
+        }
+        let (align, slot_stride) = Self::slot_layout(alignment)?;
+        let size = slot_stride
+            .checked_mul(capacity)
+            .ok_or_else(|| format!("Slab size overflows for capacity {capacity}"))?;
+        let layout = Layout::from_size_align(size, align)
+            .map_err(|e| format!("Invalid slab layout: {e}"))?;
+        Ok((align, slot_stride, layout))
     }
 
     /// Allocate a new slab with the given capacity and alignment.
     pub fn new(capacity: usize, alignment: usize) -> Result<Self, String> {
-        if capacity == 0 {
-            return Err("Slab capacity cannot be zero".to_string());
-        }
-
-        let (align, slot_stride) = Self::slot_layout(alignment)?;
-        let layout = Layout::from_size_align(slot_stride * capacity, align)
-            .map_err(|e| format!("Invalid slab layout: {}", e))?;
+        let (align, slot_stride, layout) = Self::checked_layout(capacity, alignment)?;
 
         // SAFETY: We just validated the layout
         let ptr = unsafe {
@@ -232,21 +243,60 @@ impl<T> PoolAllocator<T> {
 
     /// Grow the pool by allocating a new slab.
     pub(crate) fn grow(&mut self, additional: usize) -> Result<usize, String> {
-        // Check max capacity
+        if additional == 0 {
+            return Err("Slab capacity cannot be zero".to_string());
+        }
+        let alignment = self.config.alignment();
+        // Do all fallible arithmetic before allocating the slab or changing
+        // pool state. The capacity is an exclusive bound, so it may contain
+        // u32::MAX as the final valid slot index.
+        let new_capacity = self.total_capacity.checked_add(additional).ok_or_else(|| {
+            format!(
+                "Pool capacity overflows (current: {}, requested: {additional})",
+                self.total_capacity
+            )
+        })?;
+        let max_indexable_capacity = (u32::MAX as usize).checked_add(1).unwrap_or(usize::MAX);
+        if new_capacity > max_indexable_capacity {
+            return Err(format!(
+                "Pool capacity {new_capacity} exceeds u32 slot index range"
+            ));
+        }
+        let base_index = u32::try_from(self.total_capacity)
+            .map_err(|_| format!("Pool base index {} exceeds u32", self.total_capacity))?;
+        let last_index = u32::try_from(new_capacity - 1)
+            .map_err(|_| format!("Last pool index {} exceeds u32", new_capacity - 1))?;
+        if base_index > last_index {
+            return Err("Pool growth produced an empty or reversed slot range".to_string());
+        }
         if let Some(max_cap) = self.config.max_capacity {
-            if self.total_capacity + additional > max_cap {
+            if new_capacity > max_cap {
                 return Err(format!(
                     "Cannot grow pool beyond max capacity {} (current: {}, requested: {})",
                     max_cap, self.total_capacity, additional
                 ));
             }
         }
+        // Validate stride × capacity even before any allocation. This is
+        // intentionally separate from Slab::new so hostile capacities fail
+        // without invoking the allocator.
+        Slab::<T>::checked_layout(additional, alignment)?;
+        let generation_reserve = new_capacity.saturating_sub(self.generations.len());
+        let occupied_reserve = new_capacity.saturating_sub(self.occupied.len());
+        self.slabs
+            .try_reserve(1)
+            .map_err(|e| format!("Cannot reserve slab metadata: {e}"))?;
+        self.generations
+            .try_reserve(generation_reserve)
+            .map_err(|e| format!("Cannot reserve generation metadata: {e}"))?;
+        self.occupied
+            .try_reserve(occupied_reserve)
+            .map_err(|e| format!("Cannot reserve occupancy metadata: {e}"))?;
 
-        let alignment = self.config.alignment();
         let mut slab = Slab::new(additional, alignment)?;
 
-        // Initialize free list for new slab
-        let base_index = self.total_capacity as u32;
+        // Initialize free list for new slab. Preflight above proved every
+        // `base_index + i` and the final successor fit in u32.
         for i in 0..additional {
             let index = base_index + i as u32;
             let next_free = if i < additional - 1 {
@@ -273,7 +323,7 @@ impl<T> PoolAllocator<T> {
 
         // Update free list head to point to first slot in new slab
         self.free_list_head = Some(base_index);
-        self.total_capacity += additional;
+        self.total_capacity = new_capacity;
         self.slabs.push(slab);
 
         Ok(additional)
@@ -669,6 +719,57 @@ mod tests {
         assert!(slab.is_ok());
         let slab = slab.unwrap();
         assert_eq!(slab.capacity(), 10);
+    }
+
+    #[test]
+    fn slab_layout_rejects_stride_and_total_size_overflow_without_allocating() {
+        let huge_alignment = 1usize << (usize::BITS - 1);
+        assert!(Slab::<u8>::checked_layout(1, huge_alignment).is_err());
+
+        assert!(Slab::<u8>::checked_layout(usize::MAX, 1).is_err());
+    }
+
+    #[test]
+    fn grow_rejects_index_and_capacity_overflow_without_losing_existing_slots() {
+        let config = PoolConfigBuilder::new("Test")
+            .with_initial_capacity(1)
+            .with_grow_by(1)
+            .build();
+        let mut allocator = PoolAllocator::new(config).unwrap();
+        let live = allocator.alloc(42_u64).unwrap();
+
+        // With one existing slot, adding 2^32 slots would require a slot
+        // index beyond u32::MAX. This is representable as usize on 64-bit
+        // targets and checked out as `None` on 32-bit targets.
+        if let Some(additional) = (u32::MAX as usize).checked_add(1) {
+            assert!(allocator.grow(additional).is_err());
+        }
+        assert!(allocator.grow(usize::MAX).is_err());
+
+        assert_eq!(allocator.capacity(), 1);
+        assert_eq!(allocator.len(), 1);
+        assert_eq!(allocator.get(live), Some(&42));
+        assert_eq!(allocator.dealloc(live).unwrap(), 42);
+        assert_eq!(allocator.alloc(7).unwrap(), live);
+    }
+
+    #[test]
+    fn max_capacity_failure_keeps_pool_usable() {
+        let config = PoolConfigBuilder::new("Test")
+            .with_initial_capacity(1)
+            .with_max_capacity(1)
+            .fixed_size()
+            .build();
+        let mut allocator = PoolAllocator::new(config).unwrap();
+        let live = allocator.alloc(11_u64).unwrap();
+
+        assert!(allocator.grow(1).is_err());
+        assert_eq!(allocator.capacity(), 1);
+        assert_eq!(allocator.get(live), Some(&11));
+        assert_eq!(
+            allocator.alloc(12),
+            Err("Pool is full and cannot grow".to_string())
+        );
     }
 
     #[test]
