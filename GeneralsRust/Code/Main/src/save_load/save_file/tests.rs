@@ -614,6 +614,20 @@ fn game_state_map_round_trips_live_game_mode() {
         write_game_state_map_block(&mut xfer, &info, Path::new("Save"), None, CPP_GAME_SKIRMISH)
             .expect("write map");
     }
+    // Independently pin the native v2 wire layout: version byte, two
+    // length-prefixed ASCII paths, then the four-byte little-endian mode.
+    // This does not rely on map_admission::read_source to locate the field.
+    assert_eq!(payload.first(), Some(&2), "GameStateMap version");
+    let mut mode_offset = 1usize;
+    for _ in 0..2 {
+        let length = *payload.get(mode_offset).expect("ASCII length byte") as usize;
+        mode_offset += 1 + length;
+    }
+    assert_eq!(
+        payload.get(mode_offset..mode_offset + 4),
+        Some(&CPP_GAME_SKIRMISH.to_le_bytes()[..]),
+        "v2 mode i32 immediately follows map and pristine-map strings"
+    );
     let mode = map_admission::read_source(&payload)
         .map(|(mode, _)| mode)
         .ok();
@@ -622,6 +636,20 @@ fn game_state_map_round_trips_live_game_mode() {
         Some(CPP_GAME_SKIRMISH),
         "CHUNK_GameStateMap v2 must persist TheGameLogic game mode"
     );
+}
+
+#[test]
+fn legacy_v1_map_header_keeps_the_declared_single_player_mode_default() {
+    // GameStateMap v1 predates the mode integer. Keep the historical reader
+    // default explicit while v2 writes the receiving mode at its native slot.
+    let mut payload = vec![1, 0, 0]; // version + two empty ASCII path strings
+    payload.extend_from_slice(&0u32.to_le_bytes()); // empty embedded map
+    payload.extend_from_slice(&1u32.to_le_bytes()); // ObjectID counter
+    payload.extend_from_slice(&1u32.to_le_bytes()); // DrawableID counter
+
+    let (mode, source) = map_admission::read_source(&payload).expect("read legacy v1 header");
+    assert_eq!(mode, CPP_GAME_SINGLE_PLAYER);
+    assert!(source.is_none());
 }
 
 #[test]
