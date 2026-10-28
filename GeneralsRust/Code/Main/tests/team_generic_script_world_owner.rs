@@ -21,6 +21,14 @@ const SCRIPT: &str = "ReceivingGenericGive";
 const UNIT: &str = "ReceivingGenericUnit";
 
 fn map_file(root: &std::path::Path, amount: i32) -> std::path::PathBuf {
+    map_file_with_condition(root, amount, ConditionType::ConditionTrue)
+}
+
+fn map_file_with_condition(
+    root: &std::path::Path,
+    amount: i32,
+    condition: ConditionType,
+) -> std::path::PathBuf {
     let mut sides = SidesList::new();
     let mut player = Dict::new();
     player.set_ascii_string(key_player_name(), "Owner");
@@ -50,7 +58,7 @@ fn map_file(root: &std::path::Path, amount: i32) -> std::path::PathBuf {
         .add_parameter(Parameter::with_int(ParameterType::Int, amount))
         .unwrap();
     let mut branch = OrCondition::new();
-    branch.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    branch.set_first_and_condition(Some(Box::new(Condition::new(condition))));
     let mut script = Script::new();
     script.script_name = SCRIPT.into();
     // Team generic hooks evaluate conditions directly, even on inactive root
@@ -612,5 +620,56 @@ fn transfer_moves_prototype_owner_and_two_worlds_continue_independently() {
         peer.host_object(peer_member).unwrap().owner_player_id,
         Some(1),
         "resetting the receiving world leaves the peer's same-ID team intact"
+    );
+}
+
+#[test]
+fn map_authored_generic_team_camera_condition_uses_receiving_view_completion() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file_with_condition(root.path(), 31, ConditionType::CameraMovementFinished);
+    let (mut moving, moving_member) = world(&map);
+    let (mut finished, finished_member) = world(&map);
+    assert_eq!(
+        moving_member, finished_member,
+        "both admitted maps reuse the same object ID"
+    );
+
+    // Start a real receiving camera motion before Player::update reaches its
+    // generic Team hook. The peer's same-name world remains stationary.
+    let mut move_camera = ScriptAction::new(ScriptActionType::MoveCameraTo);
+    for parameter in [
+        Parameter::with_coord(
+            ParameterType::Coord3D,
+            gamelogic::common::Coord3D::new(300.0, 0.0, 300.0),
+        ),
+        Parameter::with_real(ParameterType::Real, 10.0),
+        Parameter::with_real(ParameterType::Real, 0.0),
+        Parameter::with_real(ParameterType::Real, 0.0),
+        Parameter::with_real(ParameterType::Real, 0.0),
+    ] {
+        move_camera.add_parameter(parameter).unwrap();
+    }
+    moving
+        .update_local_script_engine_with_owner(&single_action_engine(
+            "StartReceivingCamera",
+            move_camera,
+        ))
+        .expect("start camera motion through the receiving world");
+
+    let moving_before = moving.get_player(1).unwrap().resources.supplies;
+    let finished_before = finished.get_player(1).unwrap().resources.supplies;
+    moving.update();
+    finished.update();
+    moving.update();
+
+    assert_eq!(
+        moving.get_player(1).unwrap().resources.supplies,
+        moving_before,
+        "CAMERA_MOVEMENT_FINISHED returns real false while this world is moving"
+    );
+    assert_eq!(
+        finished.get_player(1).unwrap().resources.supplies,
+        finished_before + 31,
+        "the same authored Team hook sees the peer world's finished camera"
     );
 }
