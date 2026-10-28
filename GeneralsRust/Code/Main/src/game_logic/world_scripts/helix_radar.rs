@@ -413,6 +413,23 @@ impl GameLogic {
         position_request: StickyBombInitPosition,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
+        self.spawn_booby_trap_special_object_with_owner_effects(
+            planter_id, team, structure_id, position_request, Some(planter_id), effects,
+        )
+    }
+
+    /// `xp_sink` is set only by SpecialAbilityUpdate::createSpecialObject.
+    /// ScriptActions::newObject(target->getTeam()) uses the target's Team but
+    /// does not assign an experience sink.
+    pub(crate) fn spawn_booby_trap_special_object_with_owner_effects(
+        &mut self,
+        planter_id: ObjectId,
+        team: Team,
+        structure_id: ObjectId,
+        position_request: StickyBombInitPosition,
+        xp_sink: Option<ObjectId>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         use crate::game_logic::KindOf;
         use crate::game_logic::host_booby_trap::BOOBY_TRAP_OBJECT;
         use game_engine::common::thing::module::ModuleData;
@@ -453,7 +470,7 @@ impl GameLogic {
         if !charge_template.kind_of.contains(&KindOf::BoobyTrap) {
             return None;
         }
-        let (target_birth, planter_birth, initial_position) = {
+        let (target_birth, planter_birth, owner_team, owner_team_name, owner_team_id) = {
             // C++ initStickyBomb requires a live Object pointer, not an alive
             // body. Ability callers own their own alive/targeting predicates.
             let target = self.objects.get(&structure_id)?;
@@ -461,17 +478,14 @@ impl GameLogic {
             (
                 std::sync::Arc::downgrade(&target.visual_draw_identity_token),
                 std::sync::Arc::downgrade(&planter.visual_draw_identity_token),
-                // C++ SpecialAbilityUpdate::createSpecialObject initializes at
-                // the planter pose before initStickyBomb moves it to the target.
-                if !matches!(position_request, StickyBombInitPosition::Target) {
-                    // Named/team script actions use ThingFactory::newObject,
-                    // which has no createSpecialObject initial planter pose.
-                    glam::Vec3::ZERO
-                } else {
-                    planter.get_position()
-                },
+                planter.team,
+                planter.team_instance_name.clone(),
+                planter.team_instance_id?,
             )
         };
+        if owner_team != team || owner_team_name.is_empty() {
+            return None;
+        }
         let owner_player_id = {
             let planter = self.objects.get(&planter_id)?;
             if planter.owner_player_id.is_some() {
@@ -480,11 +494,14 @@ impl GameLogic {
                 None
             }
         };
-        let creation = self.create_object_for_owner_or_team_with_birth_checked(
+        let creation = self.create_object_for_exact_team_with_birth_checked(
             BOOBY_TRAP_OBJECT,
-            team,
+            owner_team,
             owner_player_id,
-            initial_position,
+            &owner_team_name,
+            owner_team_id,
+            // C++ newObject(thing, Team*) returns before callers set any pose.
+            glam::Vec3::ZERO,
             None,
             effects,
         );
@@ -512,15 +529,64 @@ impl GameLogic {
             let _ = self.destroy_object_if_birth_matches_with_effects(bid, &charge_birth, effects);
             return None;
         }
+        if let Some(sink) = xp_sink {
+            if !self.object_birth_matches(sink, &planter_birth) {
+                let _ = self.destroy_object_if_birth_matches_with_effects(bid, &charge_birth, effects);
+                return None;
+            }
+            // SpecialAbilityUpdate::createSpecialObject calls setPosition,
+            // setOrientation, then ExperienceTracker::setExperienceSink after
+            // newObject (and its factory callbacks) returns. Re-read the
+            // planter between pose operations because pose callbacks can run.
+            let initial_position = self.objects.get(&planter_id)?.get_position();
+            if let Some(charge) = self.objects.get_mut(&bid) {
+                charge.set_position_with_effects_and_pose_owners(
+                    initial_position,
+                    self.frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.host_trigger_world,
+                    &self.team_factory,
+                );
+            } else {
+                return None;
+            }
+            if !self.object_birth_matches(structure_id, &target_birth)
+                || !self.object_birth_matches(planter_id, &planter_birth)
+                || !self.object_birth_matches(bid, &charge_birth)
+            {
+                let _ = self.destroy_object_if_birth_matches_with_effects(bid, &charge_birth, effects);
+                return None;
+            }
+            let initial_orientation = self.objects.get(&planter_id)?.get_orientation();
+            if let Some(charge) = self.objects.get_mut(&bid) {
+                charge.set_orientation_with_partition_owner(
+                    initial_orientation,
+                    &mut self.partition_manager,
+                );
+            } else {
+                return None;
+            }
+            if !self.object_birth_matches(structure_id, &target_birth)
+                || !self.object_birth_matches(planter_id, &planter_birth)
+                || !self.object_birth_matches(bid, &charge_birth)
+            {
+                let _ = self.destroy_object_if_birth_matches_with_effects(bid, &charge_birth, effects);
+                return None;
+            }
+            if let Some(charge) = self.objects.get_mut(&bid) {
+                charge.set_experience_sink(Some(sink));
+            } else {
+                return None;
+            }
+        }
 
-        let (target_immobile, target_position, bomber_position, bomber_orientation) = {
+        let (target_immobile, target_position, bomber_position) = {
             let target = self.objects.get(&structure_id)?;
             let planter = self.objects.get(&planter_id)?;
             (
                 target.is_kind_of(KindOf::Immobile),
                 target.get_position(),
                 planter.get_position(),
-                planter.get_orientation(),
             )
         };
         let mut position = match position_request {
@@ -561,12 +627,6 @@ impl GameLogic {
             o.booby_trap_attached_to = Some(structure_id);
             // StickyBombUpdate::initStickyBomb sets ProducerID to its target.
             o.producer_id = Some(structure_id);
-            if matches!(position_request, StickyBombInitPosition::Target) {
-                o.set_orientation_with_partition_owner(
-                    bomber_orientation,
-                    &mut self.partition_manager,
-                );
-            }
         }
         if !self.object_birth_matches(bid, &charge_birth) {
             return None;
@@ -2892,5 +2952,60 @@ mod cash_hack_target_tests {
                 .iter()
                 .any(|e| e.event_type == CASH_HACK_ACTIVATE_AUDIO)
         );
+    }
+}
+
+#[cfg(test)]
+mod sticky_bomb_exact_team_tests {
+    use super::*;
+    use crate::game_logic::{GameLogic, GameMode, Player, Team};
+    use glam::Vec3;
+
+    #[test]
+    fn ability_charge_keeps_nondefault_same_player_team_and_xp_sink() {
+        const SOURCE: &str = "Object BoobyTrap\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 37\n InitialHealth = 19\n Behavior = StickyBombUpdate Sticky\n End\nEnd\nObject Target\n KindOf = STRUCTURE IMMOBILE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\nObject Planter\n KindOf = INFANTRY\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\n";
+        let mut game = GameLogic::new();
+        game.admit_object_ini_sources([("ExactSticky.ini".into(), SOURCE.into())])
+            .unwrap();
+        game.start_new_game(GameMode::SinglePlayer);
+        game.add_player(Player::new(0, Team::GLA, "GLA", false));
+        game.add_player(Player::new(1, Team::USA, "USA", false));
+        let planter = game
+            .create_object_for_player("Planter", 0, Vec3::ZERO)
+            .unwrap();
+        let target = game
+            .create_object_for_player("Target", 1, Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+        let (name, identity) = {
+            let mut factory = game.team_factory.lock().unwrap();
+            factory
+                .init_team_owned("AlternateGLAChargeTeam".into(), "GLA".into(), false, None, Some(0))
+                .unwrap();
+            let (team, _) = factory
+                .create_inactive_team_with_owned_effects("AlternateGLAChargeTeam")
+                .unwrap();
+            let team = team.read().unwrap();
+            (team.get_name().as_str().to_owned(), team.get_id())
+        };
+        {
+            let planter = game.objects.get_mut(&planter).unwrap();
+            planter.team_instance_name = name.clone();
+            planter.team_instance_id = Some(identity);
+        }
+        let mut effects = Default::default();
+        let charge = game
+            .spawn_booby_trap_special_object_with_effects(
+                planter,
+                Team::GLA,
+                target,
+                StickyBombInitPosition::Target,
+                &mut effects,
+            )
+            .expect("charge retains exact alternate Team");
+        let charge = game.objects.get(&charge).unwrap();
+        assert_eq!(charge.team_instance_name, name);
+        assert_eq!(charge.team_instance_id, Some(identity));
+        assert_eq!(charge.owner_player_id, Some(0));
+        assert_eq!(charge.experience_sink, Some(planter));
     }
 }

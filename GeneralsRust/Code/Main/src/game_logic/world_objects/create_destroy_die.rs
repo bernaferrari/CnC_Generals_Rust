@@ -1605,6 +1605,14 @@ impl GameLogic {
             ui,
             Some(&mut birth),
         );
+        self.complete_birth_checked_creation(creation, birth)
+    }
+
+    fn complete_birth_checked_creation(
+        &mut self,
+        creation: gamelogic::GameLogicResult<Option<ObjectId>>,
+        birth: Option<(ObjectId, std::sync::Weak<()>)>,
+    ) -> Result<Option<(ObjectId, std::sync::Weak<()>)>, CheckedFactoryError> {
         let id = match creation {
             Ok(Some(id)) => id,
             Ok(None) => return Ok(None),
@@ -1645,6 +1653,35 @@ impl GameLogic {
             });
         }
         Ok(Some((id, birth)))
+    }
+
+    /// Create through the receiving world's factory while retaining the
+    /// caller's exact Team instance. C++ ThingFactory::newObject(thing, Team*)
+    /// carries more identity than a faction plus controlling player.
+    pub(crate) fn create_object_for_exact_team_with_birth_checked(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        team_name: &str,
+        team_identity: u32,
+        position: Vec3,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Result<Option<(ObjectId, std::sync::Weak<()>)>, CheckedFactoryError> {
+        let mut birth = None;
+        let creation = self.create_object_with_initial_team_and_ui_birth_checked(
+            template_name,
+            team,
+            owner_player_id,
+            position,
+            FactoryCreationPurpose::AtCreation,
+            Some((team_name, team_identity, true)),
+            interpreter,
+            ui,
+            Some(&mut birth),
+        );
+        self.complete_birth_checked_creation(creation, birth)
     }
 
     /// ProductionUpdate calls onCreate at allocation, but onBuildComplete

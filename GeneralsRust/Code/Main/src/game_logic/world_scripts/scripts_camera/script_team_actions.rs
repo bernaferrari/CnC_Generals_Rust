@@ -549,11 +549,12 @@ impl GameLogic {
         let frame = self.frame;
 
         let charge = if thing.eq_ignore_ascii_case(BOOBY_TRAP_OBJECT) {
-            self.spawn_booby_trap_special_object_with_effects(
+            self.spawn_booby_trap_special_object_with_owner_effects(
                 target_id,
                 team,
                 target_id,
                 super::super::StickyBombInitPosition::ScriptPerimeter,
+                None,
                 effects,
             )
         } else if self.templates.contains_key(thing) {

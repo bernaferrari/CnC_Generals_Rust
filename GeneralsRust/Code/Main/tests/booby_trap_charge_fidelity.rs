@@ -1,6 +1,7 @@
 use gamelogic::common::Relationship;
 use generals_main::game_logic::host_booby_trap::HostBoobyTrapRegistry;
 use generals_main::game_logic::{GameLogic, GameMode, ObjectId, Player, Team};
+use generals_main::save_load::snapshot::{apply_pending_player_team_chunks, stamp_player_team_chunks};
 use glam::Vec3;
 
 const TRAP_SOURCE: &str = "Object BoobyTrap\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 37\n InitialHealth = 19\n End\n Behavior = StickyBombUpdate Sticky\n  OffsetZ = 17\n End\n UnitSpecificSounds\n  StickyBombCreated = StickyCreated\n End\nEnd\nObject BoobyTrapWithoutUpdate\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 1\n InitialHealth = 1\nEnd\nEnd\nObject TrapPlanter\n KindOf = INFANTRY SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\nObject TrapTarget\n KindOf = STRUCTURE IMMOBILE SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\nEnd\nEnd\nObject TrapMobileTarget\n KindOf = STRUCTURE SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\nEnd\nEnd\nObject TrapVictim\n KindOf = INFANTRY SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\n";
@@ -38,6 +39,29 @@ fn world_with_positions(
     (game, planter_id, target_id)
 }
 
+fn move_into_same_named_team(game: &mut GameLogic, member: ObjectId) -> u32 {
+    let mut chunks = stamp_player_team_chunks(game).expect("capture Team continuation");
+    let teams = chunks.teams.as_mut().unwrap();
+    let source_index = teams
+        .teams
+        .iter()
+        .position(|team| team.members.as_ref().is_some_and(|members| members.contains(&member.0)))
+        .expect("member's current Team");
+    let mut sibling = teams.teams[source_index].clone();
+    let sibling_id = teams.unique_team_id;
+    teams.unique_team_id += 1;
+    sibling.team_id = sibling_id;
+    sibling.members = Some(vec![member.0]);
+    teams.teams[source_index]
+        .members
+        .as_mut()
+        .unwrap()
+        .retain(|&id| id != member.0);
+    teams.teams.push(sibling);
+    apply_pending_player_team_chunks(game, &chunks).expect("install same-name Team sibling");
+    sibling_id
+}
+
 #[test]
 fn public_sticky_bomb_init_uses_each_worlds_pose_owner_and_authored_sound() {
     let (mut first, first_planter, first_target) =
@@ -45,6 +69,8 @@ fn public_sticky_bomb_init_uses_each_worlds_pose_owner_and_authored_sound() {
     let (mut peer, peer_planter, peer_target) =
         world_with_positions(Vec3::new(77.0, 20.0, 14.0), Vec3::new(8.0, 0.0, 0.0));
     assert_eq!((first_planter, first_target), (peer_planter, peer_target));
+    let first_exact_team = move_into_same_named_team(&mut first, first_planter);
+    let peer_exact_team = move_into_same_named_team(&mut peer, peer_planter);
     first.queued_audio_events.drain_requests();
     peer.queued_audio_events.drain_requests();
 
@@ -65,8 +91,41 @@ fn public_sticky_bomb_init_uses_each_worlds_pose_owner_and_authored_sound() {
         Some(0)
     );
     assert_eq!(
+        first.host_object(first_charge).unwrap().team_instance_name,
+        first.host_object(first_planter).unwrap().team_instance_name,
+        "charge joins the planter's exact Team instance"
+    );
+    let first_teams = stamp_player_team_chunks(&first).unwrap();
+    assert!(first_teams.teams.unwrap().teams.iter().any(|team| {
+        team.team_id == first_exact_team
+            && team.members.as_ref().is_some_and(|members| {
+                members.contains(&first_planter.0) && members.contains(&first_charge.0)
+            })
+    }), "charge joins the exact same-name Team instance as its planter");
+    assert_eq!(
+        first.host_object(first_charge).unwrap().experience_sink,
+        Some(first_planter),
+        "SpecialAbilityUpdate sinks charge XP to its planter"
+    );
+    assert_eq!(
         peer.host_object(peer_charge).unwrap().owner_player_id,
         Some(0)
+    );
+    assert_eq!(
+        peer.host_object(peer_charge).unwrap().team_instance_name,
+        peer.host_object(peer_planter).unwrap().team_instance_name,
+        "peer charge uses the peer world's planter Team"
+    );
+    let peer_teams = stamp_player_team_chunks(&peer).unwrap();
+    assert!(peer_teams.teams.unwrap().teams.iter().any(|team| {
+        team.team_id == peer_exact_team
+            && team.members.as_ref().is_some_and(|members| {
+                members.contains(&peer_planter.0) && members.contains(&peer_charge.0)
+            })
+    }), "peer charge joins its receiving world's exact Team instance");
+    assert_eq!(
+        peer.host_object(peer_charge).unwrap().experience_sink,
+        Some(peer_planter)
     );
     assert_eq!(
         first.host_object(first_charge).unwrap().health.maximum,
