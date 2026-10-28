@@ -1214,7 +1214,20 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::TeamRemoveOverrideRelationToPlayer => {
                 self.do_team_remove_override_relation_to_player(action)
             }
-            ScriptActionType::TeamLoadTransports => self.do_team_load_transports(action),
+            ScriptActionType::TeamLoadTransports => {
+                let team = self.get_string_param(action, 0)?;
+                let engine = self.context.borrowed_engine();
+                if let Some(result) = driver.team_load_transports(
+                    &team,
+                    engine.get_calling_team_id(),
+                    engine.get_condition_team_id(),
+                ) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_team_load_transports(action)
+                }
+            }
             ScriptActionType::TeamEnterNamed => self.do_team_enter_named(action),
             ScriptActionType::TeamExitAll => self.do_team_exit_all(action),
             ScriptActionType::TeamGarrisonSpecificBuilding => {

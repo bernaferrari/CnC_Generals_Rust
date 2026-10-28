@@ -361,13 +361,6 @@ impl ScriptActionDispatcher<'_> {
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::info!("Team '{}' loading transports", team_name);
-        // Live leftover Team members are host IDs, but leftover TheGameLogic
-        // lookup is empty on the player path. Queue leftover BinPartitionSolver
-        // + aiEnter for the live host drain.
-        if super::dual_world_registry_unavailable() {
-            crate::scripting::request_host_script_load_transports(&team_name);
-            return Ok(ScriptActionResult::Success);
-        }
         let team_arc = self.get_team_by_name(&team_name)?;
         let members = team_arc
             .read()

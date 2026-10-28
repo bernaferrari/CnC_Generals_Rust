@@ -957,14 +957,24 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     ) -> Option<gamelogic::GameLogicResult<()>> {
         Some(self.world.apply_owned_team_hunt(team, calling, condition))
     }
+    fn team_load_transports(
+        &mut self,
+        team: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(
+            self.world
+                .apply_owned_team_load_transports(team, calling, condition),
+        )
+    }
     fn team_capture_nearest_unowned_faction_unit(
         &mut self,
         team: &str,
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        if team == gamelogic::scripting::core::TEAM_THE_PLAYER
-            && self.world.is_challenge_session()
+        if team == gamelogic::scripting::core::TEAM_THE_PLAYER && self.world.is_challenge_session()
         {
             let result = (|| {
                 let Some(player_id) = self.world.local_player_id() else {

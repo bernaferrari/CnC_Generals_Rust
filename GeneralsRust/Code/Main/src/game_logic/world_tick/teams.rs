@@ -1125,7 +1125,6 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         self.apply_host_team_factory_script_requests();
         self.apply_host_merge_team_script_requests_with_effects(effects);
-        self.apply_host_load_transports_script_requests()?;
         self.apply_host_named_fire_weapon_path_script_requests_with_effects(effects);
         Ok(())
     }
@@ -1644,34 +1643,41 @@ impl GameLogic {
         }
         Ok(())
     }
-    /// C++ `ScriptActions::doLoadAllTransports` live drain.
-    /// Leftover BinPartitionSolver + `chooseLocomotorSet(NORMAL)` + `aiEnter`.
-    pub fn apply_host_load_transports_script_requests(&mut self) -> gamelogic::GameLogicResult<()> {
-        for req in gamelogic::scripting::take_host_script_load_transports_requests() {
-            self.host_script_team_load_transports(&req.team)?;
-        }
-        Ok(())
+    /// C++ ScriptActions::doLoadAllTransports resolves the Team in the active
+    /// script context, then walks that Team's roster before solving the loads.
+    pub(crate) fn apply_owned_team_load_transports(
+        &mut self,
+        raw_team: &str,
+        calling_team: Option<u32>,
+        condition_team: Option<u32>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some((_, members)) =
+            self.resolve_owned_script_team(raw_team, calling_team, condition_team)?
+        else {
+            return Ok(());
+        };
+        self.host_script_team_load_transport_roster(members)
     }
 
-    /// C++ team member walk → leftover `PartitionSolver(PREFER_FAST)` → enter.
-    fn host_script_team_load_transports(
+    fn host_script_team_load_transport_roster(
         &mut self,
-        team_name: &str,
+        members: Vec<u32>,
     ) -> gamelogic::GameLogicResult<()> {
         use game_engine::common::partition_solver::{
             BinPartitionSolver, EntriesVec, SolutionType, SpacesVec,
         };
 
-        let members = self.host_script_team_census_member_ids(team_name);
         let mut units = EntriesVec::new();
         let mut transports = SpacesVec::new();
+        let mut births = std::collections::HashMap::new();
         for id in members {
             let Some(obj) = self.host_object(ObjectId(id)) else {
                 continue;
             };
-            if obj.status.destroyed {
-                continue;
-            }
+            births.insert(
+                id,
+                std::sync::Arc::downgrade(&obj.visual_draw_identity_token),
+            );
             if obj.is_kind_of(KindOf::Transport) {
                 transports.push((id, obj.max_transport as u32));
             } else {
@@ -1684,17 +1690,45 @@ impl GameLogic {
         for (unit_id, transport_id) in solver.get_solution() {
             let unit = ObjectId(*unit_id);
             let trans = ObjectId(*transport_id);
+            let Some(unit_birth) = births.get(unit_id) else {
+                continue;
+            };
+            let Some(transport_birth) = births.get(transport_id) else {
+                continue;
+            };
+            if !self.object_birth_matches(unit, unit_birth)
+                || !self.object_birth_matches(trans, transport_birth)
+                || !self
+                    .host_object(unit)
+                    .is_some_and(|obj| obj.has_ai_update_interface())
+            {
+                continue;
+            }
+            let _ = self.apply_unit_locomotor_set(unit, "normal");
+            if !self.object_birth_matches(unit, unit_birth)
+                || !self.object_birth_matches(trans, transport_birth)
+            {
+                continue;
+            }
+            self.unit_command_stop_moving_order_target(unit, Some(trans))?;
+            if !self.object_birth_matches(unit, unit_birth)
+                || !self.object_birth_matches(trans, transport_birth)
+            {
+                continue;
+            }
             let Some(pos) = self.host_object(trans).map(|obj| obj.get_position()) else {
                 continue;
             };
-            let _ = self.apply_unit_locomotor_set(unit, "normal");
-            self.unit_command_stop_moving_order_target(unit, Some(trans))?;
-            if !self.unit_command_path_with_state_ignoring(
+            let path_requested = self.unit_command_path_with_state_ignoring(
                 unit,
                 pos,
                 AIState::Entering,
                 Some(trans),
-            )? {
+            )?;
+            if !path_requested
+                && self.object_birth_matches(unit, unit_birth)
+                && self.object_birth_matches(trans, transport_birth)
+            {
                 if let Some((obj, audio_events)) = self.host_object_and_audio_events_mut(unit) {
                     obj.ignored_obstacle_id = Some(trans);
                     obj.set_ai_state(
@@ -1809,9 +1843,8 @@ impl GameLogic {
         let Some(definitions) = definitions else {
             let slot = obj.find_waypoint_following_capable_weapon_slot()?;
             let name = obj.weapon_name_for_slot(slot)?.to_string();
-            let projectile = crate::game_logic::weapon_bootstrap::host_projectile_name_for_weapon_name(
-                &name,
-            );
+            let projectile =
+                crate::game_logic::weapon_bootstrap::host_projectile_name_for_weapon_name(&name);
             return Some(projectile);
         };
 
@@ -2990,13 +3023,6 @@ mod tests {
     #[test]
     fn team_load_transports_enters_live_transport() {
         use crate::game_logic::AIState;
-        use gamelogic::object::registry::OBJECT_REGISTRY;
-        use gamelogic::scripting::{
-            request_host_script_load_transports, take_host_script_load_transports_requests,
-        };
-
-        OBJECT_REGISTRY.clear();
-        let _ = take_host_script_load_transports_requests();
 
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
@@ -3035,8 +3061,9 @@ mod tests {
             obj.max_transport = 8;
         }
 
-        request_host_script_load_transports("USA_Convoy");
-        logic.apply_host_load_transports_script_requests().unwrap();
+        logic
+            .host_script_team_load_transport_roster(vec![infantry.0, transport.0])
+            .unwrap();
 
         let infantry = logic.host_object(infantry).expect("infantry after");
         assert_eq!(
