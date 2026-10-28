@@ -183,10 +183,10 @@ fn explicit_attack_before_first_mood_tick(f: &mut Fixture, target: ObjectId) {
     f.logic.process_commands();
     assert_eq!(f.logic.get_frame(), frame);
     let center = f.logic.host_object(f.center).unwrap();
-    assert_eq!(center.ai_state, AIState::Attacking);
+    assert_eq!(center.ai_state(), AIState::Attacking);
     assert_eq!(center.target, Some(target));
     assert_eq!(center.turret_target_id, Some(target));
-    assert_eq!(center.attack_substate, AttackSubState::AimAtTarget);
+    assert_eq!(center.attack_substate(), AttackSubState::AimAtTarget);
     assert_eq!(center.turret_substate, TurretSubState::Aim);
     assert!(center.status.attacking && center.status.is_aiming_weapon);
     assert!(!center.turret_mood_target);
@@ -264,7 +264,7 @@ fn observe(f: &mut Fixture, target: ObjectId, label: &str) -> Outcome {
                 "desired_yaw":center.relative_angle_2d_to(victim.get_position()).to_degrees(),
                 "pitch":center.turret_pitch_deg,"mood":center.turret_mood_target,
                 "target":center.target.map(|id|id.0),"turret_target":center.turret_target_id.map(|id|id.0),
-                "ai":format!("{:?}",center.ai_state),"attack_substate":format!("{:?}",center.attack_substate),
+                "ai":format!("{:?}",center.ai_state()),"attack_substate":format!("{:?}",center.attack_substate()),
                 "turret_substate":format!("{:?}",center.turret_substate),
                 "attacking":center.status.attacking,"aiming":center.status.is_aiming_weapon,
                 "firing":center.status.is_firing_weapon,"disabled":center.is_disabled(),
@@ -285,7 +285,7 @@ fn observe(f: &mut Fixture, target: ObjectId, label: &str) -> Outcome {
             && (outcome.first_damage_frame.is_none()
                 || outcome.first_damage_frame == processed_frame)
         {
-            assert_eq!(center.ai_state, AIState::Attacking);
+            assert_eq!(center.ai_state(), AIState::Attacking);
             assert_eq!(center.target, Some(target));
             assert_eq!(center.turret_target_id, Some(target));
             assert!(
@@ -646,7 +646,7 @@ fn generic_aim_control(mode: GenericAimControl) {
     assert!(source.is_within_attack_range_for_slot(slot, target));
     assert!(source.is_within_attack_range_pos_for_slot(slot, target.get_position()));
     assert!(!logic.out_of_weapon_range_object(attacker, victim));
-    assert_eq!(source.ai_state, AIState::Idle);
+    assert_eq!(source.ai_state(), AIState::Idle);
     assert!(source.target.is_none() && source.turret_target_id.is_none());
     assert_eq!(source.owner_player_id, Some(0));
     assert_eq!(source.get_position(), Vec3::ZERO);
@@ -698,8 +698,8 @@ fn generic_aim_control(mode: GenericAimControl) {
             GenericAimControl::Turning | GenericAimControl::ZeroTurn
         )
     );
-    assert_eq!(admitted.ai_state, AIState::Attacking);
-    assert_eq!(admitted.attack_substate, AttackSubState::AimAtTarget);
+    assert_eq!(admitted.ai_state(), AIState::Attacking);
+    assert_eq!(admitted.attack_substate(), AttackSubState::AimAtTarget);
     assert_eq!(admitted.target, Some(victim));
     assert!(admitted.status.is_aiming_weapon);
     assert!(!logic.out_of_weapon_range_object(attacker, victim));
@@ -734,7 +734,7 @@ fn generic_aim_control(mode: GenericAimControl) {
             "rate":authored_rate,"slot":source.selected_weapon_slot(),"slot_on_turret":source.is_weapon_slot_on_turret(slot),
             "target":source.target.map(|id|id.0),"turret_target":source.turret_target_id.map(|id|id.0),
             "mood":source.turret_mood_target,"sequence":source.weapon_discharge_marker().sequence,
-            "health":target.health.current,"attack_state":format!("{:?}",source.attack_substate),
+            "health":target.health.current,"attack_state":format!("{:?}",source.attack_substate()),
             "turret_state":format!("{:?}",source.turret_substate)})
         );
         assert_eq!(source.owner_player_id, Some(0));
@@ -747,12 +747,12 @@ fn generic_aim_control(mode: GenericAimControl) {
         assert_eq!(logic.host_object(anchor).unwrap().health.current, 1000.0);
         if mode == GenericAimControl::Turning {
             assert_ne!(
-                source.attack_substate,
+                source.attack_substate(),
                 AttackSubState::ApproachTarget,
                 "stationary aim witness unexpectedly entered approach"
             );
             assert_ne!(
-                source.attack_substate,
+                source.attack_substate(),
                 AttackSubState::ChaseTarget,
                 "stationary aim witness unexpectedly entered chase"
             );

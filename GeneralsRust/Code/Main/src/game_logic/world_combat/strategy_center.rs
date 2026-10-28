@@ -121,7 +121,11 @@ impl GameLogic {
             || !strategy_center_gun_in_range(distance)
             || distance < weapon.min_range
             || distance > weapon.range
-            || !attacker.is_within_attack_range_for_slot(0, victim)
+            || !attacker.is_within_attack_range_for_slot_with_solo_set(
+                0,
+                victim,
+                &self.solo_weapon_bonus_set,
+            )
         {
             return AttackFireResult::Failure;
         }
