@@ -122,6 +122,17 @@ impl ShadowDecal {
 #[derive(Clone, Debug)]
 pub struct ShadowHandle(Arc<Mutex<ShadowDecal>>);
 
+/// One completed presentation terrain decal, applied by a receiving client's
+/// borrowed projected-shadow owner.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LiveTerrainDecalSpec {
+    pub texture: String,
+    pub radius: Real,
+    pub position: [Real; 3],
+    pub color: [u8; 3],
+    pub opacity: Real,
+}
+
 impl ShadowHandle {
     pub fn set_angle(&self, angle: Real) {
         self.0.lock().set_angle(angle);

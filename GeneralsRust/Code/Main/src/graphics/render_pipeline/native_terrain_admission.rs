@@ -1,6 +1,24 @@
 //! Detached receiving-map preparation, followed by same-owner GPU hydration.
 use super::*;
 impl RenderPipeline {
+    /// Apply C++ `setTerrainTracksDetail` to this receiving pipeline's visual.
+    /// The call is intentionally unconditional: Custom LOD is reapplied on
+    /// every accept and clears live tread geometry even when values repeat.
+    pub(crate) fn set_native_terrain_track_detail(
+        &mut self,
+        rules: &game_engine::common::ini::ini_game_data::TerrainTrackRules,
+    ) {
+        if let Some(terrain) = self.native_terrain.as_mut() {
+            let current = terrain.terrain_tracks().config();
+            let mut config = game_client::terrain::TerrainTracksConfig::from_rules(rules);
+            // MaxTerrainTracks and MakeTrackMarks come from the receiving
+            // map's GameData, not from StaticGameLOD's three edge controls.
+            config.max_terrain_tracks = current.max_terrain_tracks;
+            config.make_track_marks = current.make_track_marks;
+            terrain.set_terrain_tracks_detail_with_config(config);
+        }
+    }
+
     /// Convert the receiving presentation's C++ terrain-light records to the
     /// Y-up values used by terrain geometry, retaining the original light order.
     pub(crate) fn static_terrain_lighting(

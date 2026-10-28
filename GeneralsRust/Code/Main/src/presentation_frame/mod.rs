@@ -25,6 +25,7 @@ mod apply;
 #[cfg(test)]
 mod authored_model_owner_tests;
 mod build;
+pub(crate) use build::{LiveTerrainDecalSpec, live_terrain_decal_specs};
 mod camera_terrain;
 mod draw_conditions;
 mod events;

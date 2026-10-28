@@ -1166,7 +1166,6 @@ impl PresentationFrame {
             });
             objects.push(renderable);
         }
-        sync_live_terrain_decals(&objects, local_team);
         #[cfg(feature = "game_client")]
         let host_physics_visuals = {
             let capture = super::physics_visual_host::HostPhysicsVisualState::capture(logic);
@@ -2534,74 +2533,70 @@ impl PresentationFrame {
     }
 }
 
-fn sync_live_terrain_decals(objects: &[RenderableObject], local_team: crate::game_logic::Team) {
-    #[cfg(feature = "game_client")]
-    {
-        use crate::game_logic::host_battlemaster::{
-            TERRAIN_DECAL_NONE, TERRAIN_DECAL_SHADOW_TEXTURE,
-            leftover_infantry_horde_decal_size_or_bbox, terrain_decal_texture_name,
-        };
-        use game_client::radius_decal::{ShadowHandle, enqueue_delivery_decal};
-        use std::sync::Mutex;
-        static HANDLES: Mutex<Vec<ShadowHandle>> = Mutex::new(Vec::new());
-        let Ok(mut handles) = HANDLES.lock() else {
-            return;
-        };
-        for handle in handles.drain(..) {
-            handle.release();
-        }
-        for obj in objects {
-            if obj.terrain_decal_type == TERRAIN_DECAL_NONE || obj.terrain_decal_opacity <= 0.0 {
-                continue;
-            }
-            if obj.terrain_decal_type == TERRAIN_DECAL_SHADOW_TEXTURE
-                && obj.team != local_team
-                && obj.team != crate::game_logic::Team::Neutral
-            {
-                continue;
-            }
-            let texture = terrain_decal_texture_name(obj.terrain_decal_type);
-            if texture.is_empty() {
-                continue;
-            }
-            let size = if obj.terrain_decal_size > 0.0 {
-                obj.terrain_decal_size
-            } else {
-                // C++ W3DProjectedShadow::addDecal: bbox Extent*2 when ShadowSize 0.
-                leftover_infantry_horde_decal_size_or_bbox(
-                    0.0,
-                    0.0,
-                    obj.selection_radius,
-                    obj.selection_radius,
-                )
-            };
-            if size <= 0.0 {
-                continue;
-            }
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct LiveTerrainDecalSpec {
+    pub texture: String,
+    pub radius: f32,
+    pub position: [f32; 3],
+    pub color: [u8; 3],
+    pub opacity: f32,
+}
 
-            let color = match obj.terrain_decal_type {
-                5 => [255, 210, 64],
-                7 => [64, 220, 96],
-                TERRAIN_DECAL_SHADOW_TEXTURE => [16, 16, 16],
-                _ => [255, 255, 255],
-            };
-            if let Some(handle) = enqueue_delivery_decal(
-                texture,
-                size * 0.5,
-                obj.position.x,
-                obj.position.y,
-                obj.position.z,
-                color,
-                obj.terrain_decal_opacity,
-            ) {
-                handles.push(handle);
-            }
+/// Freeze the existing per-frame terrain decal roster without choosing a
+/// projected-shadow manager. The receiving client applies it through its own
+/// borrowed DrawableWorld at the render boundary.
+pub(crate) fn live_terrain_decal_specs(
+    objects: &[RenderableObject],
+    local_team: crate::game_logic::Team,
+) -> Vec<LiveTerrainDecalSpec> {
+    use crate::game_logic::host_battlemaster::{
+        TERRAIN_DECAL_NONE, TERRAIN_DECAL_SHADOW_TEXTURE,
+        leftover_infantry_horde_decal_size_or_bbox, terrain_decal_texture_name,
+    };
+    let mut specs = Vec::new();
+    for obj in objects {
+        if obj.terrain_decal_type == TERRAIN_DECAL_NONE || obj.terrain_decal_opacity <= 0.0 {
+            continue;
         }
+        if obj.terrain_decal_type == TERRAIN_DECAL_SHADOW_TEXTURE
+            && obj.team != local_team
+            && obj.team != crate::game_logic::Team::Neutral
+        {
+            continue;
+        }
+        let texture = terrain_decal_texture_name(obj.terrain_decal_type);
+        if texture.is_empty() {
+            continue;
+        }
+        let size = if obj.terrain_decal_size > 0.0 {
+            obj.terrain_decal_size
+        } else {
+            // C++ W3DProjectedShadow::addDecal: bbox Extent*2 when ShadowSize 0.
+            leftover_infantry_horde_decal_size_or_bbox(
+                0.0,
+                0.0,
+                obj.selection_radius,
+                obj.selection_radius,
+            )
+        };
+        if size <= 0.0 {
+            continue;
+        }
+        let color = match obj.terrain_decal_type {
+            5 => [255, 210, 64],
+            7 => [64, 220, 96],
+            TERRAIN_DECAL_SHADOW_TEXTURE => [16, 16, 16],
+            _ => [255, 255, 255],
+        };
+        specs.push(LiveTerrainDecalSpec {
+            texture: texture.to_owned(),
+            radius: size * 0.5,
+            position: [obj.position.x, obj.position.y, obj.position.z],
+            color,
+            opacity: obj.terrain_decal_opacity,
+        });
     }
-    #[cfg(not(feature = "game_client"))]
-    {
-        let _ = (objects, local_team);
-    }
+    specs
 }
 
 #[cfg(test)]

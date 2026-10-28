@@ -322,6 +322,7 @@ impl GameClient {
     fn try_invalidate_presentation_drawable_world(&mut self) -> GameClientResult<()> {
         self.retire_native_drawable_particles(None)?;
         self.drawables.finish_native_retirement();
+        self.drawables.clear_live_terrain_decal_handles();
         self.invalidate_presentation_shell();
         for drawable in self.drawables.drawable_map.values_mut() {
             drawable.reset_volatile_shroud_state();

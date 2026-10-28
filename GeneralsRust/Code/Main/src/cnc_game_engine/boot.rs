@@ -92,6 +92,18 @@ impl CnCGameEngine {
             Self::allow_debug_startup_flags(),
         );
         rules.show_client_physics &= cli.show_client_physics;
+        // GameLOD init runs before receiving session creation. Capture its
+        // effective application track controls into this session baseline;
+        // later user changes arrive as typed HostOptionsRequest effects.
+        if let Some(global) = game_engine::common::ini::ini_game_data::get_global_data() {
+            let applied =
+                game_engine::common::ini::ini_game_data::TerrainTrackRules::from_global_data(
+                    &global.read(),
+                );
+            rules.terrain_tracks.max_tank_track_edges = applied.max_tank_track_edges;
+            rules.terrain_tracks.max_tank_track_opaque_edges = applied.max_tank_track_opaque_edges;
+            rules.terrain_tracks.max_tank_track_fade_delay = applied.max_tank_track_fade_delay;
+        }
         Ok(rules)
     }
 
@@ -562,6 +574,11 @@ impl CnCGameEngine {
             Self::load_lighting_rules_baseline(&command_line.raw_args)
                 .await
                 .map_err(anyhow::Error::msg)?,
+        );
+        game_logic.admit_static_lod_level(
+            game_engine::common::ini::ini_game_lod::StaticGameLODLevel::from_str(
+                &game_engine::common::game_lod::get_static_lod(),
+            ),
         );
         game_logic
             .admit_physics_rules_base(

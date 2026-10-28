@@ -75,6 +75,13 @@ impl NativeDrawableWorld {
         }
     }
 }
+impl GameClient {
+    /// Borrow this client's actual DrawableWorld for one synchronous native
+    /// presentation operation.
+    pub fn borrow_native_drawable_owner(&mut self) -> NativeDrawableOwner<'_> {
+        self.drawables.borrow_native()
+    }
+}
 impl NativeDrawableOwner<'_> {
     /// Original receiving Drawable visitation includes objectless auxiliary nodes.
     pub fn visit_owned_ambient_audio_handles(&self, visit: &mut dyn FnMut(u32)) {
@@ -1108,6 +1115,34 @@ impl GameClient {
 }
 
 impl NativeDrawableOwner<'_> {
+    /// Replace the Main presentation frame's live terrain decal roster on this
+    /// receiving DrawableWorld. Preserve the legacy release-before-create and
+    /// input visitation order while keeping every handle on this client's
+    /// projected-shadow manager.
+    pub fn replace_live_terrain_decals(
+        &mut self,
+        specs: &[crate::radius_decal::LiveTerrainDecalSpec],
+    ) {
+        self.drawables.clear_live_terrain_decal_handles();
+        for spec in specs {
+            let color = ((spec.color[0] as u32) << 16)
+                | ((spec.color[1] as u32) << 8)
+                | spec.color[2] as u32;
+            if let Some(handle) = crate::radius_decal::enqueue_delivery_decal_argb_with_owner(
+                &mut self.drawables.projected_decals.manager,
+                &spec.texture,
+                spec.radius,
+                spec.position[0],
+                spec.position[1],
+                spec.position[2],
+                color,
+                spec.opacity,
+            ) {
+                self.drawables.live_terrain_decal_handles.push(handle);
+            }
+        }
+    }
+
     pub fn collect_projected_decal_items(
         &self,
         use_shadow_decals: bool,

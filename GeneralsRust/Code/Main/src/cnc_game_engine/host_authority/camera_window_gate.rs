@@ -120,6 +120,7 @@ impl CnCGameEngine {
                 locomotors: &self.game_logic.locomotor_definition_base,
                 baseline: &self.game_logic.receiving_template_baseline,
                 lighting_baseline: self.game_logic.lighting_rules_baseline(),
+                static_lod_level: self.game_logic.current_static_lod_level(),
                 roads_baseline: self.game_logic.terrain_road_baseline(),
                 combat_bonus_baseline: self.game_logic.combat_bonus_baseline(),
                 body_damage_baseline: self.game_logic.body_damage_baseline(),

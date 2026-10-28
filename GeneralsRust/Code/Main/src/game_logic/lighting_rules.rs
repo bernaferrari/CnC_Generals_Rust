@@ -5,6 +5,9 @@ use game_engine::common::ini::ini_game_data::{TIME_OF_DAY_FIRST, TerrainLighting
 pub(crate) struct LightingDefinitions {
     pub(crate) base: LightingContentRules,
     pub(crate) effective: LightingContentRules,
+    /// Last static LOD applied to this receiving session. The application
+    /// GameLODManager is shared legacy preference state, not this authority.
+    pub(crate) static_lod_level: Option<game_engine::common::ini::ini_game_lod::StaticGameLODLevel>,
 }
 /// Exact LightingData payload after version expansion; no native side effects.
 #[derive(Debug, Clone)]
@@ -26,6 +29,7 @@ impl super::GameLogic {
         self.lighting_definitions = LightingDefinitions {
             base: rules.clone(),
             effective: rules,
+            static_lod_level: self.lighting_definitions.static_lod_level.clone(),
         };
     }
     pub(crate) fn lighting_rules_baseline(&self) -> &LightingContentRules {
@@ -47,6 +51,58 @@ impl super::GameLogic {
     }
     pub(crate) fn set_receiving_time_of_day(&mut self, time: TimeOfDay) {
         self.lighting_definitions.effective.time_of_day = time;
+    }
+    /// Admit an application LOD change into this session's presentation rules.
+    /// The user preference is shared application input; the effective rules
+    /// consumed by this world remain owned by this GameLogic instance.
+    pub(crate) fn admit_terrain_track_rules(
+        &mut self,
+        rules: game_engine::common::ini::ini_game_data::TerrainTrackRules,
+    ) {
+        let receiving = &mut self.lighting_definitions.effective.terrain_tracks;
+        receiving.max_tank_track_edges = rules.max_tank_track_edges;
+        receiving.max_tank_track_opaque_edges = rules.max_tank_track_opaque_edges;
+        receiving.max_tank_track_fade_delay = rules.max_tank_track_fade_delay;
+    }
+    pub(crate) fn admit_static_lod_level(
+        &mut self,
+        level: Option<game_engine::common::ini::ini_game_lod::StaticGameLODLevel>,
+    ) {
+        self.lighting_definitions.static_lod_level = level;
+    }
+    pub(crate) fn current_static_lod_level(
+        &self,
+    ) -> Option<game_engine::common::ini::ini_game_lod::StaticGameLODLevel> {
+        self.lighting_definitions.static_lod_level
+    }
+    /// Apply the selected application preset to this receiving session. A
+    /// repeated Custom always clears tread geometry; a repeated non-Custom
+    /// level is suppressed using this world's level, never Common's global.
+    /// Apply an application static-LOD selection to this receiving world.
+    /// Returns true when the owner must synchronously reset its terrain-track
+    /// renderer. Equal non-Custom levels are a no-op per world; Custom always
+    /// resets while retaining the receiving world's track rules.
+    pub fn apply_receiving_static_lod(
+        &mut self,
+        selected_level: game_engine::common::ini::ini_game_lod::StaticGameLODLevel,
+        rules: game_engine::common::ini::ini_game_data::TerrainTrackRules,
+    ) -> bool {
+        use game_engine::common::ini::ini_game_lod::StaticGameLODLevel;
+        let custom = selected_level == StaticGameLODLevel::Custom;
+        if !custom && self.lighting_definitions.static_lod_level == Some(selected_level) {
+            return false;
+        }
+        if !custom {
+            self.admit_terrain_track_rules(rules);
+        }
+        self.admit_static_lod_level(Some(selected_level));
+        true
+    }
+    /// Current effective terrain-track rules admitted by this world.
+    pub fn effective_terrain_track_rules(
+        &self,
+    ) -> game_engine::common::ini::ini_game_data::TerrainTrackRules {
+        self.lighting_definitions.effective.terrain_tracks
     }
     /// A rejected companion draft never partially mutates the receiving owner.
     pub(crate) fn admit_lighting_companion_sources(

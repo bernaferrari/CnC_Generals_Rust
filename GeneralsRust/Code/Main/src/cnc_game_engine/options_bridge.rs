@@ -76,6 +76,22 @@ impl CnCGameEngine {
                 HostOptionsRequest::DrawRmbScrollAnchor { enabled } => {
                     self.draw_rmb_scroll_anchor = enabled;
                 }
+                HostOptionsRequest::TerrainTrackRules {
+                    selected_level,
+                    rules,
+                } => {
+                    if self
+                        .game_logic
+                        .apply_receiving_static_lod(selected_level, rules)
+                    {
+                        let receiving_rules = self.game_logic.lighting_rules().terrain_tracks;
+                        self.render_pipeline
+                            .set_native_terrain_track_detail(&receiving_rules);
+                    }
+                }
+                HostOptionsRequest::StaticLodMarkerOnly { level } => {
+                    self.game_logic.admit_static_lod_level(Some(level));
+                }
             }
         }
     }

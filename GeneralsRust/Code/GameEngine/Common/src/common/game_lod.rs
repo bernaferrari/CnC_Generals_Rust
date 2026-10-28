@@ -105,6 +105,19 @@ thread_local! {
 }
 static SKIP_OPTIONS_PERSIST: AtomicBool = AtomicBool::new(false);
 
+/// Result delivered to a receiving session after the application LOD request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionStaticLodResult {
+    /// Apply these preset-owned track controls to the receiving session.
+    Apply {
+        level: StaticGameLODLevel,
+        rules: crate::common::ini::ini_game_data::TerrainTrackRules,
+    },
+    /// Static LOD is disabled. C++ changes current level to Custom without
+    /// applying settings or rebuilding tracks, so update only the owner marker.
+    MarkerOnly { level: StaticGameLODLevel },
+}
+
 fn canonical_static_lod_name(value: &str) -> Option<&'static str> {
     match value.trim().to_ascii_lowercase().as_str() {
         "low" => Some("Low"),
@@ -203,36 +216,92 @@ pub fn get_dynamic_lod() -> String {
 }
 
 pub fn set_static_lod_from_string(value: &str) {
+    let _ = apply_static_lod_from_string(value, true);
+}
+
+/// Apply the application-selected static LOD and report its receiving-session
+/// effect. Preset levels return only their three edge controls; Custom is a
+/// reapply signal so Main preserves the receiving world's own rules.
+///
+/// The legacy terrain callback is intentionally not invoked here: Main owns
+/// native terrain per render pipeline and must receive the effect explicitly.
+pub fn set_static_lod_from_string_for_session(value: &str) -> Option<SessionStaticLodResult> {
+    apply_static_lod_from_string(value, false)
+}
+
+fn apply_static_lod_from_string(
+    value: &str,
+    invoke_legacy_terrain_hook: bool,
+) -> Option<SessionStaticLodResult> {
     let Some(mapped) = canonical_static_lod_name(value) else {
-        return;
+        return None;
     };
     let level = StaticGameLODLevel::from_str(mapped).expect("canonical StaticGameLOD level");
-    if get_global_data().is_some_and(|data| !data.read().enable_static_lod) {
+    let global_data = get_global_data()?;
+    if !global_data.read().enable_static_lod {
         get_game_lod_manager_mut().set_current_static_lod_level(StaticGameLODLevel::Custom);
-        return;
+        return (!invoke_legacy_terrain_hook).then_some(SessionStaticLodResult::MarkerOnly {
+            level: StaticGameLODLevel::Custom,
+        });
     }
     if level == StaticGameLODLevel::Unknown
         || (level != StaticGameLODLevel::Custom
             && get_game_lod_manager().get_static_lod_level() == level)
     {
-        return;
+        // The application preset may already be active because another
+        // receiving world selected it. Resolve the immutable preset anyway;
+        // the receiving world performs its own same-level check.
+        if !invoke_legacy_terrain_hook && level != StaticGameLODLevel::Unknown {
+            return resolve_session_track_rules(level)
+                .map(|rules| SessionStaticLodResult::Apply { level, rules });
+        }
+        return None;
     }
     // A synchronous callback may query this same manager. No manager loan
     // survives apply, and the original current level commits after callbacks.
-    apply_static_lod_level(mapped);
+    apply_static_lod_level(mapped, invoke_legacy_terrain_hook)?;
     get_game_lod_manager_mut().set_current_static_lod_level(level);
+    if invoke_legacy_terrain_hook {
+        None
+    } else {
+        resolve_session_track_rules(level)
+            .map(|rules| SessionStaticLodResult::Apply { level, rules })
+    }
+}
+
+/// Extract only preset-owned track edge controls. The receiving session keeps
+/// its own MaxTerrainTracks/MakeTrackMarks values. Custom returns a signal
+/// payload; Main deliberately ignores those placeholder fields and reapplies
+/// its current receiving rules.
+fn resolve_session_track_rules(
+    level: StaticGameLODLevel,
+) -> Option<crate::common::ini::ini_game_data::TerrainTrackRules> {
+    use crate::common::ini::ini_game_data::TerrainTrackRules;
+    if level == StaticGameLODLevel::Custom {
+        return Some(TerrainTrackRules::default());
+    }
+    let index = level.to_index()?;
+    let preset = get_game_lod_manager().static_game_lod_info[index].clone();
+    let mut rules = TerrainTrackRules::default();
+    rules.max_tank_track_edges = preset.max_tank_track_edges;
+    rules.max_tank_track_opaque_edges = preset.max_tank_track_opaque_edges;
+    rules.max_tank_track_fade_delay = preset.max_tank_track_fade_delay;
+    Some(rules)
 }
 
 /// Apply StaticGameLOD settings to GlobalData.
 /// Matches C++ GameLODManager::applyStaticLODLevel().
-fn apply_static_lod_level(level_name: &str) {
+fn apply_static_lod_level(
+    level_name: &str,
+    invoke_legacy_terrain_hook: bool,
+) -> Option<crate::common::ini::ini_game_data::TerrainTrackRules> {
     let level = match StaticGameLODLevel::from_str(level_name) {
         Some(l) => l,
-        None => return,
+        None => return None,
     };
     let index = match level.to_index() {
         Some(i) => i,
-        None => return,
+        None => return None,
     };
 
     if level == StaticGameLODLevel::Custom {
@@ -255,7 +324,7 @@ fn apply_static_lod_level(level_name: &str) {
     };
 
     let Some(global_data) = get_global_data() else {
-        return;
+        return None;
     };
     let mut global = global_data.write();
 
@@ -284,6 +353,8 @@ fn apply_static_lod_level(level_name: &str) {
     if !did_mem_pass() || is_really_low_mhz() {
         global.shell_map_on = false;
     }
+    let track_rules =
+        crate::common::ini::ini_game_data::TerrainTrackRules::from_global_data(&global);
     drop(global);
     sync_writable_shadow_decals(lod_info.use_shadow_volumes, lod_info.use_shadow_decals);
 
@@ -305,9 +376,12 @@ fn apply_static_lod_level(level_name: &str) {
             hook();
         }
     }
-    if let Some(hook) = REBUILD_TANK_TRACKS.get() {
-        hook();
+    if invoke_legacy_terrain_hook {
+        if let Some(hook) = REBUILD_TANK_TRACKS.get() {
+            hook();
+        }
     }
+    Some(track_rules)
 }
 
 fn recommended_texture_reduction(requested_level: StaticGameLODLevel) -> i32 {

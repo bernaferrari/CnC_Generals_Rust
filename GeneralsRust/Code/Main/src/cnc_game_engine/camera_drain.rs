@@ -1397,6 +1397,10 @@ impl CnCGameEngine {
                 })?;
             match progress.map_err(|error| error.to_string())? {
                 PropagationProgress::Complete(messages) => {
+                    // OptionsMenu WND callbacks can finish without emitting a
+                    // translated message. Drain their typed LOD effect at the
+                    // same completed-client boundary as emitted commands.
+                    self.host_tick_options_bridge();
                     let result = self
                         .game_logic
                         .replay_pending

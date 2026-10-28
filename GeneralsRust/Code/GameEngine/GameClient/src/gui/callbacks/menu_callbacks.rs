@@ -1858,7 +1858,32 @@ impl OptionsMenu {
             }
         }
 
-        game_engine::common::game_lod::set_static_lod_from_string(detail_name);
+        if effects.menu_host.is_some() {
+            if let Some(result) =
+                game_engine::common::game_lod::set_static_lod_from_string_for_session(detail_name)
+            {
+                match result {
+                    game_engine::common::game_lod::SessionStaticLodResult::Apply {
+                        level,
+                        rules,
+                    } => publish_host_option(
+                        effects,
+                        HostOptionsRequest::TerrainTrackRules {
+                            selected_level: level,
+                            rules,
+                        },
+                    ),
+                    game_engine::common::game_lod::SessionStaticLodResult::MarkerOnly { level } => {
+                        publish_host_option(
+                            effects,
+                            HostOptionsRequest::StaticLodMarkerOnly { level },
+                        )
+                    }
+                }
+            }
+        } else {
+            game_engine::common::game_lod::set_static_lod_from_string(detail_name);
+        }
         game_engine::common::game_lod::set_ideal_static_lod_from_string(detail_name);
 
         let audio = TheAudio;

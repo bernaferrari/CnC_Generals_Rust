@@ -1,4 +1,5 @@
 use super::*;
+use crate::common::ini::ini_game_data::TerrainTrackRules;
 
 fn isolated(name: &str, body: impl FnOnce()) {
     match crate::test_process::run_bounded(module_path!(), name) {
@@ -23,6 +24,91 @@ fn static_lod_parser_tracks_current_and_ideal_low_detail() {
             set_static_lod_from_string("High");
             set_ideal_static_lod_from_string("Low");
             assert!(prefers_low_res_movies());
+        },
+    );
+}
+
+#[test]
+fn session_static_lod_reports_only_real_applications_and_reapplies_custom() {
+    isolated(
+        "session_static_lod_reports_only_real_applications_and_reapplies_custom",
+        || {
+            reset_static_lod_state_for_tests();
+            crate::common::ini::ini_game_data::init_global_data();
+            let global = get_global_data().expect("global data initialized");
+            {
+                let mut manager = get_game_lod_manager_mut();
+                manager.set_current_static_lod_level(StaticGameLODLevel::High);
+                let high =
+                    &mut manager.static_game_lod_info[StaticGameLODLevel::High.to_index().unwrap()];
+                high.max_tank_track_edges = 29;
+                high.max_tank_track_opaque_edges = 8;
+                high.max_tank_track_fade_delay = 456;
+            }
+            {
+                let mut data = global.write();
+                data.max_tank_track_edges = 23;
+                data.max_tank_track_opaque_edges = 7;
+                data.max_tank_track_fade_delay = 321;
+            }
+
+            let Some(SessionStaticLodResult::Apply {
+                rules: already_applied,
+                ..
+            }) = set_static_lod_from_string_for_session("High")
+            else {
+                panic!("session B still needs the current app preset snapshot");
+            };
+            assert_eq!(already_applied.max_tank_track_edges, 29);
+            assert_eq!(already_applied.max_tank_track_opaque_edges, 8);
+            assert_eq!(already_applied.max_tank_track_fade_delay, 456);
+            let Some(SessionStaticLodResult::Apply { rules: first, .. }) =
+                set_static_lod_from_string_for_session("Custom")
+            else {
+                panic!("Custom is applied even when it is already selected");
+            };
+            assert_eq!(first, TerrainTrackRules::default());
+            global.write().max_tank_track_edges = 11;
+            let Some(SessionStaticLodResult::Apply {
+                rules: repeated, ..
+            }) = set_static_lod_from_string_for_session("Custom")
+            else {
+                panic!("repeated Custom reapplies updated current settings");
+            };
+            assert_eq!(repeated, TerrainTrackRules::default());
+        },
+    );
+}
+
+#[test]
+fn disabled_static_lod_updates_only_the_session_marker_before_reenable() {
+    isolated(
+        "disabled_static_lod_updates_only_the_session_marker_before_reenable",
+        || {
+            reset_static_lod_state_for_tests();
+            crate::common::ini::ini_game_data::init_global_data();
+            let global = get_global_data().expect("global data initialized");
+            get_game_lod_manager_mut().set_current_static_lod_level(StaticGameLODLevel::High);
+            global.write().enable_static_lod = false;
+
+            assert_eq!(
+                set_static_lod_from_string_for_session("High"),
+                Some(SessionStaticLodResult::MarkerOnly {
+                    level: StaticGameLODLevel::Custom
+                })
+            );
+            assert_eq!(
+                get_game_lod_manager().get_static_lod_level(),
+                StaticGameLODLevel::Custom
+            );
+
+            global.write().enable_static_lod = true;
+            let Some(SessionStaticLodResult::Apply { level, .. }) =
+                set_static_lod_from_string_for_session("High")
+            else {
+                panic!("High must apply after disabled LOD reset the current level to Custom");
+            };
+            assert_eq!(level, StaticGameLODLevel::High);
         },
     );
 }

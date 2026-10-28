@@ -144,6 +144,7 @@ pub(super) struct RestoreTemplateCatalog<'a> {
     body_damage_baseline: crate::game_logic::body_damage_rules::BodyDamagePolicy,
     session_sell_percentage: f32,
     lighting_baseline: &'a crate::game_logic::lighting_rules::LightingContentRules,
+    static_lod_level: Option<game_engine::common::ini::ini_game_lod::StaticGameLODLevel>,
     roads_baseline: &'a game_engine::common::ini::ini_road::TerrainRoadCollection,
     combat_bonus_baseline: &'a game_engine::common::ini::ini_game_data::CombatBonusRules,
     templates: &'a std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
@@ -165,6 +166,7 @@ impl<'a> RestoreTemplateCatalog<'a> {
             locomotors: &world.locomotor_definition_base,
             baseline: &world.receiving_template_baseline,
             lighting_baseline: world.lighting_rules_baseline(),
+            static_lod_level: world.current_static_lod_level(),
             roads_baseline: world.terrain_road_baseline(),
             combat_bonus_baseline: world.combat_bonus_baseline(),
             body_damage_baseline: world.body_damage_baseline(),
@@ -2297,6 +2299,7 @@ impl CnCGameEngine {
                 locomotors: &live.locomotor_definition_base,
                 baseline: &live.receiving_template_baseline,
                 lighting_baseline: live.lighting_rules_baseline(),
+                static_lod_level: live.current_static_lod_level(),
                 roads_baseline: live.terrain_road_baseline(),
                 combat_bonus_baseline: live.combat_bonus_baseline(),
                 body_damage_baseline: live.body_damage_baseline(),
@@ -2453,6 +2456,7 @@ impl CnCGameEngine {
             candidate.admit_physics_rules_base(live.physics_rules_baseline())?;
             candidate.admit_body_damage_baseline(live.body_damage_baseline());
             candidate.admit_lighting_rules_base(live.lighting_rules_baseline().clone());
+            candidate.admit_static_lod_level(live.current_static_lod_level());
             candidate.admit_terrain_road_definitions(live.terrain_road_baseline().clone())?;
             candidate
                 .admit_terrain_definitions(Arc::clone(live.effective_terrain_definitions()))?;
@@ -2741,6 +2745,7 @@ impl CnCGameEngine {
         staged.admit_physics_rules_base(physics_rules_base)?;
         staged.admit_body_damage_baseline(template_catalog.body_damage_baseline);
         staged.admit_lighting_rules_base(template_catalog.lighting_baseline.clone());
+        staged.admit_static_lod_level(template_catalog.static_lod_level);
         staged.admit_terrain_road_definitions(template_catalog.roads_baseline.clone())?;
         staged.admit_terrain_definitions(Arc::clone(terrain_definition_seed))?;
         if let Some(catalog) = armor_definition_seed {
@@ -2998,6 +3003,7 @@ impl CnCGameEngine {
                     locomotors: &self.game_logic.locomotor_definition_base,
                     baseline: &self.game_logic.receiving_template_baseline,
                     lighting_baseline: self.game_logic.lighting_rules_baseline(),
+                    static_lod_level: self.game_logic.current_static_lod_level(),
                     roads_baseline: self.game_logic.terrain_road_baseline(),
                     combat_bonus_baseline: self.game_logic.combat_bonus_baseline(),
                     body_damage_baseline: self.game_logic.body_damage_baseline(),
@@ -3043,6 +3049,7 @@ impl CnCGameEngine {
                 locomotors: &self.game_logic.locomotor_definition_base,
                 baseline: &self.game_logic.receiving_template_baseline,
                 lighting_baseline: self.game_logic.lighting_rules_baseline(),
+                static_lod_level: self.game_logic.current_static_lod_level(),
                 roads_baseline: self.game_logic.terrain_road_baseline(),
                 combat_bonus_baseline: self.game_logic.combat_bonus_baseline(),
                 body_damage_baseline: self.game_logic.body_damage_baseline(),

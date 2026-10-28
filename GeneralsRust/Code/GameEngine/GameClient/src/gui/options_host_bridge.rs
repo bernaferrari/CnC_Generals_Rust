@@ -15,6 +15,17 @@ pub enum HostOptionsRequest {
     /// Match C++ `DrawRMBScrollAnchor`: render the active RMB drag anchor as
     /// the retail green/black cross in Main's presentation path.
     DrawRmbScrollAnchor { enabled: bool },
+    /// Applied static LOD track controls for the receiving Main world. This
+    /// is an effect of one accepted Options event, not ambient Common state.
+    TerrainTrackRules {
+        selected_level: game_engine::common::ini::ini_game_lod::StaticGameLODLevel,
+        rules: game_engine::common::ini::ini_game_data::TerrainTrackRules,
+    },
+    /// C++ disabled-static-LOD behavior: update only the session comparison
+    /// marker and do not mutate track rules or reset its visual.
+    StaticLodMarkerOnly {
+        level: game_engine::common::ini::ini_game_lod::StaticGameLODLevel,
+    },
 }
 
 /// Plain per-client delivery state. Construction has no publication effects.
@@ -55,5 +66,38 @@ mod tests {
             vec![HostOptionsRequest::AlternateMouse { enabled: true }]
         );
         assert!(a.take_requests().is_empty());
+    }
+
+    #[test]
+    fn session_track_rule_effects_stay_in_the_receiving_options_mailbox() {
+        let mut a = HostOptionsBridge::default();
+        let mut b = HostOptionsBridge::default();
+        let mut first = game_engine::common::ini::ini_game_data::TerrainTrackRules::default();
+        first.max_tank_track_edges = 19;
+        let mut second = first;
+        second.max_tank_track_edges = 7;
+        a.publish(HostOptionsRequest::TerrainTrackRules {
+            selected_level: game_engine::common::ini::ini_game_lod::StaticGameLODLevel::High,
+            rules: first,
+        });
+        b.publish(HostOptionsRequest::TerrainTrackRules {
+            selected_level: game_engine::common::ini::ini_game_lod::StaticGameLODLevel::Low,
+            rules: second,
+        });
+
+        assert_eq!(
+            a.take_requests(),
+            vec![HostOptionsRequest::TerrainTrackRules {
+                selected_level: game_engine::common::ini::ini_game_lod::StaticGameLODLevel::High,
+                rules: first
+            }]
+        );
+        assert_eq!(
+            b.take_requests(),
+            vec![HostOptionsRequest::TerrainTrackRules {
+                selected_level: game_engine::common::ini::ini_game_lod::StaticGameLODLevel::Low,
+                rules: second
+            }]
+        );
     }
 }

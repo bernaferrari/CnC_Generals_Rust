@@ -60,6 +60,9 @@ pub struct DrawableState {
     /// Survives world invalidation so reused IDs do not inherit old bindings.
     pub(super) next_presentation_direct_binding_generation: u64,
     pub(super) text_bearing_drawables: Vec<DrawableId>,
+    /// Handles emitted for the current frozen Main presentation frame. They
+    /// are released before the next frame's roster is applied.
+    pub(super) live_terrain_decal_handles: Vec<crate::radius_decal::ShadowHandle>,
     // Last field: Drawable destructors run before their resource manager clears.
     pub(super) projected_decals: super::native_projected_resources::NativeProjectedDecals,
 }
@@ -77,7 +80,14 @@ impl DrawableState {
             presentation_direct_drawable_bindings: HashMap::new(),
             next_presentation_direct_binding_generation: 1,
             text_bearing_drawables: Vec::new(),
+            live_terrain_decal_handles: Vec::new(),
             projected_decals: Default::default(),
+        }
+    }
+
+    pub(super) fn clear_live_terrain_decal_handles(&mut self) {
+        for handle in self.live_terrain_decal_handles.drain(..) {
+            handle.release();
         }
     }
 

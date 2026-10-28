@@ -4,7 +4,9 @@ use game_client_rust::system::SubsystemInterface;
 use game_client_rust::terrain::HeightMap;
 use game_client_rust::terrain::chunk::TerrainStaticLighting;
 use game_client_rust::terrain::terrain_visual::TerrainVisualImpl;
-use game_engine::common::ini::ini_game_data::{LightingContentRules, RGBColor, TimeOfDay};
+use game_engine::common::ini::ini_game_data::{
+    LightingContentRules, RGBColor, TerrainTrackRules, TimeOfDay,
+};
 use game_engine::common::ini::ini_terrain::TerrainTypes;
 use glam::{Vec3, camera::rh::view::look_at_mat4};
 use std::sync::Arc;
@@ -184,6 +186,109 @@ fn terrain_track_pools_use_each_worlds_ini_settings() {
             .bind_track(1.0, 1.0, "after-reset")
             .is_some()
     );
+}
+
+#[test]
+fn repeated_custom_track_detail_resets_only_the_receiving_visual() {
+    use game_client_rust::terrain::{TerrainTrackHeightProvider, TerrainTracksConfig};
+    struct Flat;
+    impl TerrainTrackHeightProvider for Flat {
+        fn ground_height_and_normal(&self, _x: f32, _y: f32) -> (f32, Vec3) {
+            (0.0, Vec3::Y)
+        }
+    }
+
+    let first_rules = TerrainTrackRules {
+        max_terrain_tracks: 2,
+        max_tank_track_edges: 6,
+        max_tank_track_opaque_edges: 2,
+        max_tank_track_fade_delay: 90,
+        make_track_marks: true,
+    };
+    let peer_rules = TerrainTrackRules {
+        max_terrain_tracks: 2,
+        max_tank_track_edges: 3,
+        max_tank_track_opaque_edges: 1,
+        max_tank_track_fade_delay: 30,
+        make_track_marks: false,
+    };
+    let mut first = TerrainVisualImpl::new_with_track_rules(&first_rules);
+    let mut peer = TerrainVisualImpl::new_with_track_rules(&peer_rules);
+    let ground = Flat;
+    let first_track = first
+        .terrain_tracks_mut()
+        .bind_track(2.0, 6.0, "first")
+        .unwrap();
+    let peer_track = peer
+        .terrain_tracks_mut()
+        .bind_track(2.0, 6.0, "peer")
+        .unwrap();
+    first
+        .terrain_tracks_mut()
+        .add_edge_to_track(first_track, &ground, 0.0, 0.0, 0);
+    first
+        .terrain_tracks_mut()
+        .add_edge_to_track(first_track, &ground, 20.0, 0.0, 1);
+    peer.terrain_tracks_mut()
+        .add_edge_to_track(peer_track, &ground, 0.0, 0.0, 0);
+    peer.terrain_tracks_mut()
+        .add_edge_to_track(peer_track, &ground, 20.0, 0.0, 1);
+    assert_eq!(
+        first
+            .terrain_tracks()
+            .track(first_track)
+            .unwrap()
+            .active_edge_count(),
+        1
+    );
+    assert_eq!(
+        peer.terrain_tracks()
+            .track(peer_track)
+            .unwrap()
+            .active_edge_count(),
+        1
+    );
+
+    // C++ non-Custom levels are suppressed when already current; Custom is
+    // reapplied and clears tracks on each accepted Options event.
+    let custom = TerrainTracksConfig::from_rules(&first_rules);
+    first.set_terrain_tracks_detail_with_config(custom);
+    assert_eq!(
+        first
+            .terrain_tracks()
+            .track(first_track)
+            .unwrap()
+            .active_edge_count(),
+        0
+    );
+    assert_eq!(
+        peer.terrain_tracks()
+            .track(peer_track)
+            .unwrap()
+            .active_edge_count(),
+        1
+    );
+    first
+        .terrain_tracks_mut()
+        .add_edge_to_track(first_track, &ground, 30.0, 0.0, 2);
+    first.set_terrain_tracks_detail_with_config(custom);
+    assert_eq!(
+        first
+            .terrain_tracks()
+            .track(first_track)
+            .unwrap()
+            .active_edge_count(),
+        0
+    );
+    assert_eq!(
+        peer.terrain_tracks()
+            .track(peer_track)
+            .unwrap()
+            .active_edge_count(),
+        1
+    );
+    assert_eq!(first.terrain_tracks().config().max_tank_track_edges, 6);
+    assert_eq!(peer.terrain_tracks().config().max_tank_track_edges, 3);
 }
 
 #[test]
