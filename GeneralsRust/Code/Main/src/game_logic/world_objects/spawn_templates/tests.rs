@@ -2366,6 +2366,7 @@ Object ProbeHealContainBarracks
   Behavior = HealContain ModuleTag_Heal
     ContainMax = 10
     TimeForFullHeal = 2000
+    PassengersInTurret = Yes
     AllowInsideKindOf = INFANTRY
     AllowAlliesInside = Yes
     AllowEnemiesInside = No
@@ -2376,6 +2377,7 @@ Object ProbeCaveContain
   KindOf = STRUCTURE SELECTABLE
   Behavior = CaveContain ModuleTag_Cave
     ContainMax = 10
+    PassengersInTurret = No
     CaveIndex = 4
   End
 End
@@ -2413,6 +2415,7 @@ End
         );
         assert_eq!(barracks.contain_module.kind, ContainModuleKind::Heal);
         assert_eq!(barracks.contain_module.slots, Some(10));
+        assert!(barracks.contain_module.passengers_in_turret);
         assert_eq!(barracks.contain_module.frames_for_full_heal, Some(60));
         assert_eq!(
             barracks.contain_module.admission,
@@ -2429,6 +2432,7 @@ End
             None,
         );
         assert_eq!(cave.contain_module.kind, ContainModuleKind::Cave);
+        assert!(!cave.contain_module.passengers_in_turret);
         assert_eq!(cave.contain_module.slots, Some(10));
         assert_eq!(cave.contain_module.cave_index, 4);
 
@@ -2438,6 +2442,7 @@ End
             None,
         );
         assert_eq!(tunnel.contain_module.kind, ContainModuleKind::Tunnel);
+        assert!(!tunnel.contain_module.passengers_in_turret);
         assert_eq!(tunnel.contain_module.frames_for_full_heal, Some(150));
 
         let mut logic = GameLogic::new();
@@ -3958,5 +3963,46 @@ End
             .insert("ThreatValue".to_string(), "0".to_string());
         let zero = GameLogic::build_template_from_object_definition("Prop", &zero, None);
         assert_eq!(zero.threat_value, 0);
+    }
+
+    #[test]
+    fn passengers_in_turret_is_admitted_per_receiving_world() {
+        const TEMPLATE: &str = r#"
+Object ProbeTurretContain
+  KindOf = STRUCTURE SELECTABLE
+  Behavior = HealContain ModuleTag_Contain
+    ContainMax = 4
+    PassengersInTurret = Yes
+  End
+End
+"#;
+        let mut turret_world = GameLogic::new();
+        admit_fixture_source(
+            &mut turret_world,
+            "turret_world.ini",
+            TEMPLATE,
+            &["ProbeTurretContain"],
+        );
+
+        let mut chassis_world = GameLogic::new();
+        admit_fixture_source(
+            &mut chassis_world,
+            "chassis_world.ini",
+            &TEMPLATE.replace("PassengersInTurret = Yes", "PassengersInTurret = No"),
+            &["ProbeTurretContain"],
+        );
+
+        assert!(
+            turret_world.templates["ProbeTurretContain"]
+                .contain_module
+                .passengers_in_turret
+        );
+        assert!(
+            !chassis_world.templates["ProbeTurretContain"]
+                .contain_module
+                .passengers_in_turret
+        );
+        assert!(turret_world.receiving_module_content.is_some());
+        assert!(chassis_world.receiving_module_content.is_some());
     }
 }

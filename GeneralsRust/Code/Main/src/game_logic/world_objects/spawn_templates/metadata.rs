@@ -745,6 +745,10 @@ impl GameLogic {
                 let candidate = ContainModuleMetadata {
                     kind,
                     slots,
+                    passengers_in_turret: module
+                        .attribute("PassengersInTurret")
+                        .and_then(parse_bool)
+                        .unwrap_or(false),
                     parachute,
                     damage_percent_to_units: Some(
                         module

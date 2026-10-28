@@ -332,6 +332,10 @@ pub struct ContainModuleMetadata {
     pub door_open_time: u32,
     #[serde(default)]
     pub parachute: Option<ParachuteContainMetadata>,
+    /// C++ OpenContainModuleData::m_passengersInTurret (default false).
+    /// When true, FIREPOINT must be resolved against the current turret pose.
+    #[serde(default)]
+    pub passengers_in_turret: bool,
 }
 
 /// Immutable source ParachuteContainModuleData. Runtime lives on the receiving object.
@@ -417,6 +421,7 @@ impl Default for ContainModuleMetadata {
         Self {
             kind: ContainModuleKind::None,
             slots: None,
+            passengers_in_turret: false,
             damage_percent_to_units: None,
             burned_death_to_units: true,
             destroy_riders_who_are_not_free_to_exit: false,
