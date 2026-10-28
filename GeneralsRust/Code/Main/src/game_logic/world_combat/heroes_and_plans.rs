@@ -510,10 +510,11 @@ impl GameLogic {
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             {}
-            r.set_position_with_effects_and_team_factory(
+            r.set_position_with_effects_and_pose_owners(
                 eject_pos,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.host_trigger_world,
                 &self.team_factory,
             );
             {}

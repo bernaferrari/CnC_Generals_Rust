@@ -1099,6 +1099,7 @@ impl GameLogic {
                     us_radius,
                     pose_frame,
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.host_trigger_world,
                     &self.team_factory,
                 );
             }
@@ -1613,6 +1614,7 @@ impl GameLogic {
                 frame,
                 surface_y,
                 &mut effects.reborrow_for_object(&mut self.partition_manager),
+                &self.host_trigger_world,
                 &self.team_factory,
             );
             return true;

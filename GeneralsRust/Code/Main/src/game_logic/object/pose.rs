@@ -126,6 +126,26 @@ impl Object {
         );
     }
 
+    /// Synchronous registered pose callback with both receiving runtime
+    /// owners supplied by the driving GameLogic. This avoids discovering the
+    /// trigger world and team factory through Object attachments.
+    pub(crate) fn set_position_with_effects_and_pose_owners(
+        &mut self,
+        position: Vec3,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        trigger_world: &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+    ) {
+        let old_position = self.install_position_with_partition_context(position, effects, None);
+        let reaction = self.prepare_position_reaction(old_position, frame, effects, false);
+        if let Some(team_id) =
+            self.finish_position_reaction_with_trigger_world(reaction, trigger_world)
+        {
+            team_factory.mark_team_entered_exited(team_id);
+        }
+    }
+
     pub(crate) fn set_position_with_partition_owner(
         &mut self,
         position: Vec3,
@@ -209,6 +229,24 @@ impl Object {
             None,
             Some(team_factory),
         );
+    }
+
+    pub(crate) fn set_transform_matrix_with_effects_and_pose_owners(
+        &mut self,
+        transform: Mat4,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        trigger_world: &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+    ) {
+        let old_position =
+            self.install_transform_matrix_with_partition_context(transform, effects, None);
+        let reaction = self.prepare_position_reaction(old_position, frame, effects, false);
+        if let Some(team_id) =
+            self.finish_position_reaction_with_trigger_world(reaction, trigger_world)
+        {
+            team_factory.mark_team_entered_exited(team_id);
+        }
     }
 
     pub(crate) fn set_transform_matrix_with_partition_owner(
@@ -316,7 +354,7 @@ impl Object {
         reaction: PositionReaction,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) {
-        if let Some(team_id) = self.finish_position_reaction_without_team_factory(reaction) {
+        if let Some(team_id) = self.finish_position_reaction_with_trigger_owner(reaction, None) {
             if let Some(team_factory) = team_factory {
                 team_factory.mark_team_entered_exited(team_id);
             } else {
@@ -325,13 +363,20 @@ impl Object {
         }
     }
 
-    /// Complete the object-owned half of a position reaction and return the
-    /// receiving team's identity when the trigger edge changed. World-owned
-    /// continuations use this after reentrant presentation callbacks, then
-    /// mutate the borrowed GameLogic team factory after this Object borrow ends.
-    pub(in crate::game_logic) fn finish_position_reaction_without_team_factory(
+    fn finish_position_reaction_with_trigger_world(
         &mut self,
         reaction: PositionReaction,
+        trigger_world: &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
+    ) -> Option<u32> {
+        self.finish_position_reaction_with_trigger_owner(reaction, Some(trigger_world))
+    }
+
+    fn finish_position_reaction_with_trigger_owner(
+        &mut self,
+        reaction: PositionReaction,
+        trigger_owner: Option<
+            &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
+        >,
     ) -> Option<u32> {
         assert!(
             reaction.still_applies(self),
@@ -340,13 +385,22 @@ impl Object {
         if !reaction.trigger {
             return None;
         }
-        // Reread team and trigger owner after tree FX, like the original callback.
         let team =
             (!self.team_instance_name.is_empty()).then_some(self.team_instance_name.as_str());
-        let edge = if let Some(world) = self.host_trigger_world.upgrade() {
+        let edge = if let Some(world) = trigger_owner {
             let mut world = world.lock().unwrap_or_else(|error| error.into_inner());
             let frame = world.current_frame();
-            // Eligibility was captured before the tree callback, as in C++.
+            world.update_object_flags_and_report(
+                self.id.0,
+                reaction.position.x,
+                reaction.position.z,
+                frame,
+                false,
+                team,
+            )
+        } else if let Some(world) = self.host_trigger_world.upgrade() {
+            let mut world = world.lock().unwrap_or_else(|error| error.into_inner());
+            let frame = world.current_frame();
             world.update_object_flags_and_report(
                 self.id.0,
                 reaction.position.x,
@@ -358,9 +412,6 @@ impl Object {
         } else {
             false
         };
-        // Release the trigger owner before acquiring the receiving team lock.
-        // The team bit is persisted by Team::xfer and remains set through the
-        // script observation phase, even if this object leaves the roster.
         if edge { self.team_instance_id } else { None }
     }
 
@@ -1625,10 +1676,11 @@ impl crate::game_logic::GameLogic {
         let Some(object) = self.objects.get_mut(&id) else {
             return false;
         };
-        object.set_position_with_effects_and_team_factory(
+        object.set_position_with_effects_and_pose_owners(
             position,
             frame,
             &mut effects.reborrow_for_object(&mut self.partition_manager),
+            &self.host_trigger_world,
             &self.team_factory,
         );
         true
@@ -1679,7 +1731,7 @@ impl crate::game_logic::GameLogic {
             if !reaction.still_applies(object) {
                 return false;
             }
-            object.finish_position_reaction_without_team_factory(reaction)
+            object.finish_position_reaction_with_trigger_world(reaction, &self.host_trigger_world)
         };
         // C++ sets the Team edge bit immediately after the object trigger
         // notification. The reentrant tree FX continuation has completed and

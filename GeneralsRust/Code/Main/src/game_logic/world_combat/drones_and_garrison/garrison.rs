@@ -198,10 +198,11 @@ impl GameLogic {
                 .is_some_and(|c| !c.is_enclosing_garrison_container());
             if pin_station {
                 if let Some(occ) = self.objects.get_mut(&garrisoned_id) {
-                    occ.set_position_with_effects_and_team_factory(
+                    occ.set_position_with_effects_and_pose_owners(
                         fire_pos,
                         self.frame,
                         &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                        &self.host_trigger_world,
                         &self.team_factory,
                     );
                 }
@@ -394,10 +395,11 @@ impl GameLogic {
                     .objects
                     .get_mut(&containment_actor_id)
                     .expect("containment operation preserves this birth");
-                occupant.set_position_with_effects_and_team_factory(
+                occupant.set_position_with_effects_and_pose_owners(
                     position,
                     self.frame,
                     &mut ui.reborrow_for_object(&mut self.partition_manager),
+                    &self.host_trigger_world,
                     &self.team_factory,
                 );
                 occupant.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
@@ -1219,10 +1221,11 @@ impl GameLogic {
         });
         if let Some(gid) = gun_id {
             if let Some(gun) = self.objects.get_mut(&gid) {
-                gun.set_position_with_effects_and_team_factory(
+                gun.set_position_with_effects_and_pose_owners(
                     pos,
                     self.frame,
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.host_trigger_world,
                     &self.team_factory,
                 );
                 if let Some(target) = aim_at {

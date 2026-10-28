@@ -593,7 +593,7 @@ impl Object {
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (PhysicsTurningType, f32) {
-        self.rotate_towards_position_with_team_factory_context(goal, dt, frame, effects, None)
+        self.rotate_towards_position_with_team_factory_context(goal, dt, frame, effects, None, None)
     }
     fn rotate_towards_position_with_team_factory_context(
         &mut self,
@@ -601,6 +601,9 @@ impl Object {
         dt: f32,
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        trigger_world: Option<
+            &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
+        >,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) -> (PhysicsTurningType, f32) {
         self.rotate_obj_around_loco_pivot_with_team_factory_context(
@@ -608,6 +611,7 @@ impl Object {
             self.maximum_towards_turn(dt),
             frame,
             effects,
+            trigger_world,
             team_factory,
         )
     }
@@ -689,7 +693,12 @@ impl Object {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (PhysicsTurningType, f32) {
         self.rotate_obj_around_loco_pivot_with_team_factory_context(
-            goal, max_turn_rate, frame, effects, None,
+            goal,
+            max_turn_rate,
+            frame,
+            effects,
+            None,
+            None,
         )
     }
     fn rotate_obj_around_loco_pivot_with_team_factory_context(
@@ -698,17 +707,30 @@ impl Object {
         max_turn_rate: f32,
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        trigger_world: Option<
+            &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
+        >,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) -> (PhysicsTurningType, f32) {
         let plan = self.plan_loco_pivot(goal, max_turn_rate);
         if let Some(transform) = plan.transform {
             if let Some(team_factory) = team_factory {
-                self.set_transform_matrix_with_effects_and_team_factory(
-                    transform,
-                    frame,
-                    effects,
-                    team_factory,
-                );
+                if let Some(trigger_world) = trigger_world {
+                    self.set_transform_matrix_with_effects_and_pose_owners(
+                        transform,
+                        frame,
+                        effects,
+                        trigger_world,
+                        team_factory,
+                    );
+                } else {
+                    self.set_transform_matrix_with_effects_and_team_factory(
+                        transform,
+                        frame,
+                        effects,
+                        team_factory,
+                    );
+                }
             } else {
                 self.set_transform_matrix_with_effects(transform, frame, effects);
             }
@@ -959,7 +981,7 @@ impl Object {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         self.loco_maintain_appearance_with_team_factory_context(
-            dt, frame, surface_y, effects, None,
+            dt, frame, surface_y, effects, None, None,
         )
     }
     pub(crate) fn loco_maintain_appearance_with_team_factory(
@@ -968,6 +990,7 @@ impl Object {
         frame: u32,
         surface_y: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        trigger_world: &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
         team_factory: &gamelogic::team::TeamFactoryHandle,
     ) -> bool {
         self.loco_maintain_appearance_with_team_factory_context(
@@ -975,6 +998,7 @@ impl Object {
             frame,
             surface_y,
             effects,
+            Some(trigger_world),
             Some(team_factory),
         )
     }
@@ -984,6 +1008,9 @@ impl Object {
         frame: u32,
         surface_y: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        trigger_world: Option<
+            &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
+        >,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) -> bool {
         self.begin_loco_maintain_appearance(frame);
@@ -998,6 +1025,7 @@ impl Object {
                     dt.max(1.0 / 30.0),
                     frame,
                     effects,
+                    trigger_world,
                     team_factory,
                 );
                 return true;
@@ -1826,13 +1854,16 @@ impl Object {
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        self.maintain_position_wings_with_team_factory_context(dt, frame, effects, None);
+        self.maintain_position_wings_with_team_factory_context(dt, frame, effects, None, None);
     }
     fn maintain_position_wings_with_team_factory_context(
         &mut self,
         dt: f32,
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        trigger_world: Option<
+            &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
+        >,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) {
         self.physics_turning = PhysicsTurningType::TurnNone;
@@ -1875,13 +1906,22 @@ impl Object {
             dt,
             frame,
             effects,
+            trigger_world,
             team_factory,
         );
         self.apply_forward_speed_force(spd, dt);
         let mut p = self.get_position();
         p.x += self.movement.velocity.x * dt;
         p.z += self.movement.velocity.z * dt;
-        if let Some(team_factory) = team_factory {
+        if let (Some(trigger_world), Some(team_factory)) = (trigger_world, team_factory) {
+            self.set_position_with_effects_and_pose_owners(
+                p,
+                frame,
+                effects,
+                trigger_world,
+                team_factory,
+            );
+        } else if let Some(team_factory) = team_factory {
             self.set_position_with_effects_and_team_factory(p, frame, effects, team_factory);
         } else {
             self.set_position_with_effects(p, frame, effects);

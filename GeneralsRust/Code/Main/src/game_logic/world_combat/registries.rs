@@ -1312,10 +1312,11 @@ impl GameLogic {
                 .get_mut(&containment_actor_id)
                 .expect("containment operation preserves this birth");
             p.target = drop_target;
-            p.set_position_with_effects_and_team_factory(
+            p.set_position_with_effects_and_pose_owners(
                 hover,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.host_trigger_world,
                 &self.team_factory,
             );
             let dest = glam::Vec3::new(hover.x, dest_y, hover.z);
@@ -1423,10 +1424,11 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&pid) {
             let mut p = obj.get_position();
             p.y = new_y;
-            obj.set_position_with_effects_and_team_factory(
+            obj.set_position_with_effects_and_pose_owners(
                 p,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.host_trigger_world,
                 &self.team_factory,
             );
             obj.movement.velocity = glam::Vec3::new(0.0, -speed, 0.0);
@@ -1647,10 +1649,11 @@ impl GameLogic {
                 .expect("containment operation preserves this birth");
             obj.target = Some(bldg_id);
             if enclosing {
-                obj.set_position_with_effects_and_team_factory(
+                obj.set_position_with_effects_and_pose_owners(
                     container_pos,
                     self.frame,
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.host_trigger_world,
                     &self.team_factory,
                 );
             }
@@ -1696,10 +1699,11 @@ impl GameLogic {
         end.z -= 20.0;
         end.y = self.terrain_height_at(end).unwrap_or(end.y);
         if let Some(obj) = self.objects.get_mut(&pid) {
-            obj.set_position_with_effects_and_team_factory(
+            obj.set_position_with_effects_and_pose_owners(
                 start,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.host_trigger_world,
                 &self.team_factory,
             );
             obj.set_orientation_with_partition_owner(exit_angle, &mut self.partition_manager);
@@ -2386,10 +2390,11 @@ impl GameLogic {
             };
             let (new_pos, vel, at_exit) = data.tick_transport(pos);
             drop(data);
-            o.set_position_with_effects_and_team_factory(
+            o.set_position_with_effects_and_pose_owners(
                 new_pos,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.host_trigger_world,
                 &self.team_factory,
             );
             o.movement.velocity = vel;
@@ -2739,10 +2744,11 @@ impl GameLogic {
             if should_drop {
                 o.kill_delivery_radius_decal();
             }
-            o.set_position_with_effects_and_team_factory(
+            o.set_position_with_effects_and_pose_owners(
                 new_pos,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.host_trigger_world,
                 &self.team_factory,
             );
             o.movement.velocity = vel;
@@ -3151,10 +3157,11 @@ impl GameLogic {
                 let step = speed.min(dist);
                 new_pos.x += dx / dist * step;
                 new_pos.z += dz / dist * step;
-                o.set_position_with_effects_and_team_factory(
+                o.set_position_with_effects_and_pose_owners(
                     new_pos,
                     self.frame,
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.host_trigger_world,
                     &self.team_factory,
                 );
                 o.movement.velocity = new_pos - pos;
@@ -3388,10 +3395,11 @@ impl GameLogic {
                 let step = speed.min(dist);
                 new_pos.x += dx / dist * step;
                 new_pos.z += dz / dist * step;
-                o.set_position_with_effects_and_team_factory(
+                o.set_position_with_effects_and_pose_owners(
                     new_pos,
                     self.frame,
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.host_trigger_world,
                     &self.team_factory,
                 );
                 o.movement.velocity = new_pos - pos;
@@ -3647,10 +3655,11 @@ impl GameLogic {
             if should_drop {
                 o.kill_delivery_radius_decal();
             }
-            o.set_position_with_effects_and_team_factory(
+            o.set_position_with_effects_and_pose_owners(
                 new_pos,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.host_trigger_world,
                 &self.team_factory,
             );
             o.movement.velocity = vel;

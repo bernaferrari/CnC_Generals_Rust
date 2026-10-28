@@ -552,10 +552,11 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&unit_id) {
                 obj.pathfind_goal_cell = new_cell;
                 if let Some(goal) = goal {
-                    obj.set_position_with_effects_and_team_factory(
+                    obj.set_position_with_effects_and_pose_owners(
                         goal,
                         self.frame,
                         &mut effects.reborrow_for_object(&mut self.partition_manager),
+                        &self.host_trigger_world,
                         &self.team_factory,
                     );
                     snapped = Some((

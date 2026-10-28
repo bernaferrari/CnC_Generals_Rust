@@ -1067,6 +1067,7 @@ impl Object {
             operation_frame,
             operation_effects,
             None,
+            None,
         )
     }
 
@@ -1075,12 +1076,14 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         operation_frame: u32,
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        trigger_world: &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
         team_factory: &gamelogic::team::TeamFactoryHandle,
     ) -> Option<ObjectId> {
         self.takeoff_from_airfield_parking_with_operation_owner(
             audio,
             operation_frame,
             operation_effects,
+            Some(trigger_world),
             Some(team_factory),
         )
     }
@@ -1090,6 +1093,9 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         operation_frame: u32,
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        trigger_world: Option<
+            &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
+        >,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) -> Option<ObjectId> {
         if !(self.is_kind_of(KindOf::Aircraft) || self.object_type == ObjectType::Aircraft) {
@@ -1113,7 +1119,15 @@ impl Object {
             let mut pos = self.get_position();
             if pos.y < PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT {
                 pos.y = PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT;
-                if let Some(team_factory) = team_factory {
+                if let (Some(trigger_world), Some(team_factory)) = (trigger_world, team_factory) {
+                    self.set_position_with_effects_and_pose_owners(
+                        pos,
+                        operation_frame,
+                        operation_effects,
+                        trigger_world,
+                        team_factory,
+                    );
+                } else if let Some(team_factory) = team_factory {
                     self.set_position_with_effects_and_team_factory(
                         pos,
                         operation_frame,

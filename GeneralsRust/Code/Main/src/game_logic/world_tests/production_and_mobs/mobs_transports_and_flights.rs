@@ -3058,3 +3058,87 @@ fn combat_chinook_residual_enter_sets_docked_and_upgrades_weapon_set() {
         "weapon-set upgrade residual honesty"
     );
 }
+
+#[test]
+fn a10_transport_pose_uses_the_receiving_world_after_id_collision() {
+    use crate::game_logic::special_power_strikes::A10StrikeScienceTier;
+    use gamelogic::common::{AsciiString, ICoord3D};
+    use gamelogic::polygon_trigger::PolygonTrigger;
+
+    fn make_world(
+        trigger_id: i32,
+        min_x: i32,
+    ) -> (GameLogic, crate::game_logic::ObjectId, PolygonTrigger) {
+        let mut logic = GameLogic::new();
+        logic.override_world_size(4000.0, 4000.0);
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let trigger = PolygonTrigger::new(
+            trigger_id,
+            AsciiString::from(format!("A10PoseArea{trigger_id}")),
+            vec![
+                ICoord3D::new(min_x, -10, 0),
+                ICoord3D::new(min_x + 20, -10, 0),
+                ICoord3D::new(min_x + 20, 10, 0),
+                ICoord3D::new(min_x, 10, 0),
+            ],
+        );
+        logic
+            .host_trigger_world
+            .lock()
+            .expect("trigger owner")
+            .set_trigger_areas(&[trigger.clone()]);
+        let mut command_center = ThingTemplate::new("AmericaCommandCenter");
+        command_center
+            .add_kind_of(crate::game_logic::KindOf::Structure)
+            .set_health(5000.0);
+        logic
+            .templates
+            .insert("AmericaCommandCenter".into(), command_center);
+        let source = logic
+            .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("command center");
+        let jet = logic
+            .spawn_a10_strike_flight(
+                source,
+                Vec3::new(1200.0, 0.0, 0.0),
+                A10StrikeScienceTier::Level1,
+            )
+            .expect("A10 transport");
+        (logic, jet, trigger)
+    }
+
+    let (mut receiving, receiving_jet, receiving_area) = make_world(19101, 20);
+    let (mut peer, peer_jet, peer_area) = make_world(19102, 500);
+    assert_eq!(
+        receiving_jet, peer_jet,
+        "world-local actor IDs intentionally collide"
+    );
+
+    // Simulate a stale cloned Object attachment. The actual production A10
+    // update must use the driving GameLogic's trigger world instead.
+    receiving
+        .host_object_mut(receiving_jet)
+        .expect("receiving transport")
+        .attach_host_trigger_world(&peer.host_trigger_world, &peer.team_factory);
+
+    receiving.frame = 1;
+    receiving.update_a10_strike_flights();
+    let moved = receiving
+        .host_object(receiving_jet)
+        .expect("transport survives first movement")
+        .get_position();
+    assert!(
+        (moved.x - 22.0).abs() < 0.01,
+        "unexpected first A10 step: {moved:?}"
+    );
+    assert!(receiving
+        .host_trigger_world
+        .lock()
+        .expect("receiving trigger owner")
+        .did_enter(receiving_jet.0, &receiving_area, receiving.frame));
+    assert!(!peer
+        .host_trigger_world
+        .lock()
+        .expect("peer trigger owner")
+        .did_enter(peer_jet.0, &peer_area, receiving.frame));
+}

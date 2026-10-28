@@ -2513,10 +2513,11 @@ impl GameLogic {
                     .get_mut(&containment_actor_id)
                     .expect("containment operation preserves this birth");
                 p.target = None;
-                p.set_position_with_effects_and_team_factory(
+                p.set_position_with_effects_and_pose_owners(
                     hull,
                     self.frame,
                     &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.host_trigger_world,
                     &self.team_factory,
                 );
                 p.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
@@ -2699,10 +2700,11 @@ impl GameLogic {
         unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         ));
-        unit.set_position_with_effects_and_team_factory(
+        unit.set_position_with_effects_and_pose_owners(
             drop_position,
             self.frame,
             &mut effects.reborrow_for_object(&mut self.partition_manager),
+            &self.host_trigger_world,
             &self.team_factory,
         );
         let containment_actor_id = unit.id;

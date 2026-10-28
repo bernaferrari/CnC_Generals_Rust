@@ -359,7 +359,13 @@ impl Object {
         terrain_height: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
-        self.tick_helicopter_slow_death_with_owner(current_frame, terrain_height, effects, None)
+        self.tick_helicopter_slow_death_with_owner(
+            current_frame,
+            terrain_height,
+            effects,
+            None,
+            None,
+        )
     }
 
     pub(crate) fn tick_helicopter_slow_death_with_effects_and_team_factory(
@@ -367,12 +373,14 @@ impl Object {
         current_frame: u32,
         terrain_height: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        trigger_world: &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
         team_factory: &gamelogic::team::TeamFactoryHandle,
     ) -> bool {
         self.tick_helicopter_slow_death_with_owner(
             current_frame,
             terrain_height,
             effects,
+            Some(trigger_world),
             Some(team_factory),
         )
     }
@@ -382,6 +390,9 @@ impl Object {
         current_frame: u32,
         terrain_height: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        trigger_world: Option<
+            &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
+        >,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) -> bool {
         let pos = self.get_position();
@@ -399,7 +410,15 @@ impl Object {
         np.x += dx;
         np.y = (np.y + dy).max(terrain_height);
         np.z += dz;
-        if let Some(team_factory) = team_factory {
+        if let (Some(trigger_world), Some(team_factory)) = (trigger_world, team_factory) {
+            self.set_position_with_effects_and_pose_owners(
+                np,
+                current_frame,
+                effects,
+                trigger_world,
+                team_factory,
+            );
+        } else if let Some(team_factory) = team_factory {
             self.set_position_with_effects_and_team_factory(
                 np,
                 current_frame,

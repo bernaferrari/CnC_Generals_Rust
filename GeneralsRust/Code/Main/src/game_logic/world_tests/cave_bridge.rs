@@ -253,6 +253,87 @@ fn bridge_rubble_restamps_and_splat_kills() {
     assert!(logic.bridge_behavior.honesty_rubble_ok());
 }
 
+#[test]
+fn bridge_scaffold_pose_uses_receiving_world_after_same_id_attachment_mismatch() {
+    use crate::game_logic::host_bridge_behavior::BRIDGE_SCAFFOLD_RISE_FRAMES;
+    use gamelogic::common::{AsciiString, ICoord3D};
+    use gamelogic::polygon_trigger::PolygonTrigger;
+
+    fn area(id: i32, name: &str, min_x: i32, max_x: i32) -> PolygonTrigger {
+        PolygonTrigger::new(
+            id,
+            AsciiString::from(name),
+            vec![
+                ICoord3D::new(min_x, -10, 0),
+                ICoord3D::new(max_x, -10, 0),
+                ICoord3D::new(max_x, 10, 0),
+                ICoord3D::new(min_x, 10, 0),
+            ],
+        )
+    }
+
+    let receiving_area = area(27131, "ReceivingScaffoldPath", -19, -18);
+    let foreign_area = area(27132, "ForeignScaffoldPath", 100, 102);
+    let mut receiving = GameLogic::new();
+    let mut foreign = GameLogic::new();
+    let (receiving_span, _, _) = spawn_linked_bridge(&mut receiving);
+    let (foreign_span, _, _) = spawn_linked_bridge(&mut foreign);
+    assert_eq!(
+        receiving_span, foreign_span,
+        "world-local bridge IDs collide"
+    );
+    for (world, trigger) in [(&receiving, &receiving_area), (&foreign, &foreign_area)] {
+        let mut trigger_world = world.host_trigger_world.lock().unwrap();
+        trigger_world.set_trigger_areas(&[trigger.clone()]);
+        trigger_world.set_current_frame(41);
+    }
+    receiving.spawn_bridge_scaffolding(receiving_span);
+    foreign.spawn_bridge_scaffolding(foreign_span);
+    let scaffold_id = receiving
+        .bridge_behavior
+        .span(receiving_span)
+        .and_then(|span| {
+            span.scaffold_anims
+                .iter()
+                .find(|anim| {
+                    anim.create_pos.x == -20.0 && (-15.0..-10.0).contains(&anim.build_pos.x)
+                })
+                .map(|anim| anim.id)
+        })
+        .expect("left-end bridge scaffold");
+    assert_eq!(
+        receiving.host_object(scaffold_id).unwrap().get_position(),
+        foreign.host_object(scaffold_id).unwrap().get_position(),
+        "same-ID bridge scaffolds start at matching poses"
+    );
+    receiving
+        .host_object_mut(scaffold_id)
+        .unwrap()
+        .attach_host_trigger_world(&foreign.host_trigger_world, &foreign.team_factory);
+
+    for _ in 0..(BRIDGE_SCAFFOLD_RISE_FRAMES + 5) {
+        receiving.sync_host_bridge_rubble_and_scaffolds();
+    }
+    let moved = receiving.host_object(scaffold_id).unwrap().get_position();
+    assert!(
+        moved.x > -19.0 && moved.x < -18.0,
+        "actual scaffold crossed test region: {moved:?}"
+    );
+    assert!(receiving.host_trigger_world.lock().unwrap().did_enter(
+        scaffold_id.0,
+        &receiving_area,
+        41
+    ));
+    assert!(
+        !foreign
+            .host_trigger_world
+            .lock()
+            .unwrap()
+            .did_enter(scaffold_id.0, &foreign_area, 41),
+        "stale same-ID attachment must not redirect the bridge pose callback"
+    );
+}
+
 fn ensure_bridge_span_and_tower(logic: &mut GameLogic) {
     if !logic.templates.contains_key("TestBridgeSpan") {
         let mut span = ThingTemplate::new("TestBridgeSpan");

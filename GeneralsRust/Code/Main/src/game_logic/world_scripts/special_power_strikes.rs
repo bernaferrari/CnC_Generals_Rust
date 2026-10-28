@@ -1278,10 +1278,11 @@ impl GameLogic {
                     obj.set_orientation_with_partition_owner(angle, &mut self.partition_manager);
                 }
                 if let Some(p) = apply_pos {
-                    obj.set_position_with_effects_and_team_factory(
+                    obj.set_position_with_effects_and_pose_owners(
                         p,
                         tree_move_frame,
                         &mut effects.reborrow_for_object(&mut self.partition_manager),
+                        &self.host_trigger_world,
                         &self.team_factory,
                     );
                 }

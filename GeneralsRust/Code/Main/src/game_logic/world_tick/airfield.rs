@@ -2660,6 +2660,7 @@ impl GameLogic {
                 self.frame,
                 &mut crate::game_logic::ScriptPresentationEffects::default()
                     .reborrow_for_object(&mut self.partition_manager),
+                &self.host_trigger_world,
                 &self.team_factory,
             );
             let containment_actor_id = jet.id;

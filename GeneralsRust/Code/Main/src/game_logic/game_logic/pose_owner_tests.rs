@@ -140,6 +140,107 @@ fn pose_physics_translation_notifies_own_trigger_before_census_case() {
     assert_eq!((saved.i_x, saved.i_y), trigger_pose(&a, aid));
 }
 
+fn explicit_pose_owner_ignores_stale_object_attachments_case() {
+    let area_a = trigger(27111, "PoseOwnerReceivingArea");
+    let area_b = PolygonTrigger::new(
+        27112,
+        AsciiString::from("PoseOwnerForeignArea"),
+        vec![
+            ICoord3D::new(200, 0, 0),
+            ICoord3D::new(230, 0, 0),
+            ICoord3D::new(230, 30, 0),
+            ICoord3D::new(200, 30, 0),
+        ],
+    );
+    let (mut receiving, id) = fixture(&area_a);
+    let (foreign, foreign_id) = fixture(&area_b);
+    assert_eq!(id, foreign_id, "world-local IDs collide by construction");
+
+    // A stale/foreign Object attachment must not choose the callback owner.
+    receiving
+        .objects
+        .get_mut(&id)
+        .unwrap()
+        .attach_host_trigger_world(&foreign.host_trigger_world, &foreign.team_factory);
+    let mut effects = crate::game_logic::ScriptPresentationEffects::default();
+    {
+        let GameLogic {
+            objects,
+            partition_manager,
+            host_trigger_world,
+            team_factory,
+            ..
+        } = &mut receiving;
+        objects
+            .get_mut(&id)
+            .unwrap()
+            .set_position_with_effects_and_pose_owners(
+                Vec3::new(110.0, 0.0, 10.0),
+                37,
+                &mut effects.reborrow_for_object(partition_manager),
+                host_trigger_world,
+                team_factory,
+            );
+    }
+    assert!(receiving
+        .host_trigger_world
+        .lock()
+        .unwrap()
+        .did_enter(id.0, &area_a, 37));
+    assert!(
+        !foreign
+            .host_trigger_world
+            .lock()
+            .unwrap()
+            .did_enter(foreign_id.0, &area_b, 37),
+        "same-ID foreign world must not receive this synchronous edge"
+    );
+}
+
+fn owned_position_completion_uses_receiving_trigger_world_case() {
+    let area_a = trigger(27121, "OwnedPositionReceivingArea");
+    let area_b = PolygonTrigger::new(
+        27122,
+        AsciiString::from("OwnedPositionForeignArea"),
+        vec![
+            ICoord3D::new(200, 0, 0),
+            ICoord3D::new(230, 0, 0),
+            ICoord3D::new(230, 30, 0),
+            ICoord3D::new(200, 30, 0),
+        ],
+    );
+    let (mut receiving, id) = fixture(&area_a);
+    let (foreign, foreign_id) = fixture(&area_b);
+    assert_eq!(id, foreign_id, "world-local IDs collide by construction");
+    receiving
+        .objects
+        .get_mut(&id)
+        .unwrap()
+        .attach_host_trigger_world(&foreign.host_trigger_world, &foreign.team_factory);
+
+    assert!(receiving.set_owned_object_position_with_effects(
+        id,
+        Vec3::new(110.0, 0.0, 10.0),
+        37,
+        &mut crate::game_logic::ScriptPresentationEffects::default(),
+    ));
+    assert!(
+        receiving
+            .host_trigger_world
+            .lock()
+            .unwrap()
+            .did_enter(id.0, &area_a, 37)
+    );
+    assert!(
+        !foreign
+            .host_trigger_world
+            .lock()
+            .unwrap()
+            .did_enter(foreign_id.0, &area_b, 37),
+        "owner completion after presentation must use the driving world"
+    );
+}
+
 #[test]
 fn owned_position_marks_same_id_teams_through_the_receiving_factory_after_trigger_edge() {
     isolated_at(
@@ -369,6 +470,24 @@ fn pose_default_public_update_keeps_transform_and_saved_geometry_coherent() {
         || {
             pose_default_public_update_keeps_transform_and_saved_geometry_coherent_case();
         },
+    );
+}
+
+#[test]
+fn explicit_pose_uses_receiving_trigger_and_team_owners_not_object_attachments() {
+    isolated_at(
+        module_path!(),
+        "explicit_pose_uses_receiving_trigger_and_team_owners_not_object_attachments",
+        explicit_pose_owner_ignores_stale_object_attachments_case,
+    );
+}
+
+#[test]
+fn owned_position_completion_uses_receiving_trigger_world() {
+    isolated_at(
+        module_path!(),
+        "owned_position_completion_uses_receiving_trigger_world",
+        owned_position_completion_uses_receiving_trigger_world_case,
     );
 }
 

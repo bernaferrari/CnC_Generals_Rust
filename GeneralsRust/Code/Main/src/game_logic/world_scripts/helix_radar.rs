@@ -450,10 +450,11 @@ impl GameLogic {
         }
         for (cid, pos) in moves {
             if let Some(o) = self.objects.get_mut(&cid) {
-                o.set_position_with_effects_and_team_factory(
+                o.set_position_with_effects_and_pose_owners(
                     pos,
                     tree_move_frame,
                     &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.host_trigger_world,
                     &self.team_factory,
                 );
             }

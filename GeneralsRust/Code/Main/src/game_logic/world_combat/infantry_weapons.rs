@@ -736,10 +736,11 @@ impl GameLogic {
             // Preferred altitude residual.
             let mut p = g.get_position();
             p.y = plan.spawn_pos.y;
-            g.set_position_with_effects_and_team_factory(
+            g.set_position_with_effects_and_pose_owners(
                 p,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.host_trigger_world,
                 &self.team_factory,
             );
             // C++ SpectreGunshipUpdate::initiateIntent: INSERTING, doors CLOSING,
@@ -877,10 +878,11 @@ impl GameLogic {
                 players,
                 presentation_effects,
             );
-            o.set_position_with_effects_and_team_factory(
+            o.set_position_with_effects_and_pose_owners(
                 tick.pos,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.host_trigger_world,
                 &self.team_factory,
             );
             o.movement.velocity = tick.vel;
@@ -1522,10 +1524,11 @@ impl GameLogic {
             if deliver.start_at_preferred_height {
                 let mut pos = p;
                 pos.y = pos.y.max(120.0);
-                t.set_position_with_effects_and_team_factory(
+                t.set_position_with_effects_and_pose_owners(
                     pos,
                     self.frame,
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.host_trigger_world,
                     &self.team_factory,
                 );
             }
@@ -1604,10 +1607,11 @@ impl GameLogic {
                     plan.target_coord,
                 );
             if let Some(t) = self.objects.get_mut(&transport_id) {
-                t.set_position_with_effects_and_team_factory(
+                t.set_position_with_effects_and_pose_owners(
                     edge,
                     self.frame,
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.host_trigger_world,
                     &self.team_factory,
                 );
                 let yaw = flight.dir_z.atan2(flight.dir_x);

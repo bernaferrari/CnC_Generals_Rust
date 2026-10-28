@@ -370,10 +370,11 @@ impl GameLogic {
                 Some(value) => value,
                 None => return Ok(None),
             });
-            object.set_position_with_effects_and_team_factory(
+            object.set_position_with_effects_and_pose_owners(
                 position,
                 self.frame,
                 &mut ui.reborrow_for_object(&mut self.partition_manager),
+                &self.host_trigger_world,
                 &self.team_factory,
             );
             object.set_orientation_with_partition_owner(orientation, &mut self.partition_manager);

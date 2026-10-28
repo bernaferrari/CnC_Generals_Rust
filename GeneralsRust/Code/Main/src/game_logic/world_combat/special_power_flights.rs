@@ -58,10 +58,11 @@ impl GameLogic {
             if should_drop {
                 o.kill_delivery_radius_decal();
             }
-            o.set_position_with_effects_and_team_factory(
+            o.set_position_with_effects_and_pose_owners(
                 new_pos,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.host_trigger_world,
                 &self.team_factory,
             );
             o.movement.velocity = vel;
@@ -393,10 +394,11 @@ impl GameLogic {
             if should_drop {
                 o.kill_delivery_radius_decal();
             }
-            o.set_position_with_effects_and_team_factory(
+            o.set_position_with_effects_and_pose_owners(
                 new_pos,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.host_trigger_world,
                 &self.team_factory,
             );
             o.movement.velocity = vel;
@@ -856,10 +858,11 @@ impl GameLogic {
             if should_drop {
                 o.kill_delivery_radius_decal();
             }
-            o.set_position_with_effects_and_team_factory(
+            o.set_position_with_effects_and_pose_owners(
                 new_pos,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.host_trigger_world,
                 &self.team_factory,
             );
             o.movement.velocity = vel;
@@ -1484,10 +1487,11 @@ impl GameLogic {
                 let mut p = o.get_position();
                 p.x += dx;
                 p.z += dz;
-                o.set_position_with_effects_and_team_factory(
+                o.set_position_with_effects_and_pose_owners(
                     p,
                     self.frame,
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.host_trigger_world,
                     &self.team_factory,
                 );
             }
@@ -2448,16 +2452,41 @@ impl GameLogic {
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        let moved = self.bridge_behavior.tick_scaffolds();
-        for (sid, pos, finished_sink) in moved {
+        // Each move belongs to the scaffold birth observed before any of the
+        // destruction or pose callbacks below can reuse another scaffold ID.
+        let moved: Vec<_> = self
+            .bridge_behavior
+            .tick_scaffolds()
+            .into_iter()
+            .filter_map(|(id, position, finished)| {
+                self.objects.get(&id).map(|object| {
+                    (
+                        id,
+                        position,
+                        finished,
+                        std::sync::Arc::downgrade(&object.visual_draw_identity_token),
+                    )
+                })
+            })
+            .collect();
+        for (sid, pos, finished_sink, birth) in moved {
+            let is_original = |world: &Self| {
+                world.objects.get(&sid).is_some_and(|object| {
+                    birth.ptr_eq(&std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+                })
+            };
+            if !is_original(self) {
+                continue;
+            }
             if finished_sink {
                 self.destroy_object_with_effects(sid, presentation_effects)?;
             }
-            if let Some(obj) = self.objects.get_mut(&sid) {
-                obj.set_position_with_effects(
+            if is_original(self) {
+                let _ = self.set_owned_object_position_with_effects(
+                    sid,
                     pos,
                     self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    presentation_effects,
                 );
             }
         }
@@ -3256,10 +3285,11 @@ impl GameLogic {
                 hunter.set_status_moving(false);
                 hunter.set_status_attacking(false);
                 hunter.target = None;
-                hunter.set_position_with_effects_and_team_factory(
+                hunter.set_position_with_effects_and_pose_owners(
                     position,
                     self.frame,
                     &mut ui.reborrow_for_object(&mut self.partition_manager),
+                    &self.host_trigger_world,
                     &self.team_factory,
                 );
                 {}
@@ -3412,10 +3442,11 @@ impl GameLogic {
                 guard.set_status_moving(false);
                 guard.set_status_attacking(false);
                 guard.target = None;
-                guard.set_position_with_effects_and_team_factory(
+                guard.set_position_with_effects_and_pose_owners(
                     position,
                     self.frame,
                     &mut ui.reborrow_for_object(&mut self.partition_manager),
+                    &self.host_trigger_world,
                     &self.team_factory,
                 );
                 {}
@@ -3503,10 +3534,11 @@ impl GameLogic {
                 unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
-                unit.set_position_with_effects_and_team_factory(
+                unit.set_position_with_effects_and_pose_owners(
                     crawler_pos + offset,
                     self.frame,
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.host_trigger_world,
                     &self.team_factory,
                 );
                 {}

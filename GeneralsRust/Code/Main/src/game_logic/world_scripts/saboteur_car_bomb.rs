@@ -441,10 +441,11 @@ impl GameLogic {
                     let cp = chute.get_position();
                     let open = chute.is_parachute_open();
                     if let Some(r) = self.objects.get_mut(&pilot_id) {
-                        r.set_position_with_effects_and_team_factory(
+                        r.set_position_with_effects_and_pose_owners(
                             cp,
                             self.frame,
                             &mut effects.reborrow_for_object(&mut self.partition_manager),
+                            &self.host_trigger_world,
                             &self.team_factory,
                         );
                         {}
@@ -548,10 +549,11 @@ impl GameLogic {
             if landed {
                 p.y = ground;
             }
-            obj.set_position_with_effects_and_team_factory(
+            obj.set_position_with_effects_and_pose_owners(
                 p,
                 self.frame,
                 &mut effects.reborrow_for_object(&mut self.partition_manager),
+                &self.host_trigger_world,
                 &self.team_factory,
             );
             {}
@@ -581,10 +583,11 @@ impl GameLogic {
                 .unwrap_or_default();
             for rid in ids {
                 if let Some(r) = self.objects.get_mut(&rid) {
-                    r.set_position_with_effects_and_team_factory(
+                    r.set_position_with_effects_and_pose_owners(
                         land_pos,
                         self.frame,
                         &mut effects.reborrow_for_object(&mut self.partition_manager),
+                        &self.host_trigger_world,
                         &self.team_factory,
                     );
                     {}
@@ -623,10 +626,11 @@ impl GameLogic {
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     {}
-                    r.set_position_with_effects_and_team_factory(
+                    r.set_position_with_effects_and_pose_owners(
                         land_pos,
                         self.frame,
                         &mut effects.reborrow_for_object(&mut self.partition_manager),
+                        &self.host_trigger_world,
                         &self.team_factory,
                     );
                     {}

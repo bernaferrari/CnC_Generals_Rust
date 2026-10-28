@@ -246,7 +246,7 @@ impl GameLogic {
             // the same actual actor after callbacks, including changed pose,
             // target and velocity. The vertical helper is evaluated on a local
             // enum solely for its numeric result; canonical state advanced once.
-            let at_exit = self
+            let transport_step = self
                 .objects
                 .get_mut(&id)
                 .filter(|o| same_actor(o) && o.is_alive())
@@ -269,21 +269,41 @@ impl GameLogic {
                     let (mut next, mut velocity, at_exit) = data.tick_transport(position);
                     next.y = vertical.new_y;
                     velocity.y = next.y - position.y;
-                    object.set_position_with_effects(
-                        next,
-                        self.frame,
-                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                    );
-                    object.movement.velocity = velocity;
-                    if velocity.length_squared() > 1e-6 {
-                        object.set_orientation_with_partition_owner(
-                            velocity.z.atan2(velocity.x),
-                            &mut self.partition_manager,
-                        );
-                    }
-                    Some(at_exit)
+                    Some((next, velocity, at_exit))
                 });
-            if at_exit == Some(true) {
+            let Some((next, velocity, at_exit)) = transport_step else {
+                continue;
+            };
+            // C++ parent AI movement installs the pose synchronously before
+            // physics velocity/orientation are finalized. Run the pose
+            // continuation through this receiving GameLogic so trigger and
+            // Team callbacks cannot follow stale Object attachments.
+            if !self.set_owned_object_position_with_effects(
+                id,
+                next,
+                self.frame,
+                presentation_effects,
+            ) {
+                continue;
+            }
+            // Position callbacks may retire or replace this ID. Do not apply
+            // the old lifetime's velocity/orientation or exit action to its
+            // replacement.
+            let Some(object) = self
+                .objects
+                .get_mut(&id)
+                .filter(|object| same_actor(object) && object.is_alive())
+            else {
+                continue;
+            };
+            object.movement.velocity = velocity;
+            if velocity.length_squared() > 1e-6 {
+                object.set_orientation_with_partition_owner(
+                    velocity.z.atan2(velocity.x),
+                    &mut self.partition_manager,
+                );
+            }
+            if at_exit {
                 self.a10_strike_flight_reg.note_transport_exit(delivery, id);
                 self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
             }

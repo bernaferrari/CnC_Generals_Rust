@@ -1306,10 +1306,11 @@ impl GameLogic {
                         // C++ onContaining snaps enclosing occupants to the building
                         // origin. Fire Base (IsEnclosingContainer=No) stays at stations.
                         if enclosing_garrison || !container_is_structure {
-                            obj.set_position_with_effects_and_team_factory(
+                            obj.set_position_with_effects_and_pose_owners(
                                 container_pos,
                                 tree_move_frame,
                                 &mut effects.reborrow_for_object(&mut self.partition_manager),
+                                &self.host_trigger_world,
                                 &self.team_factory,
                             );
                             {}
@@ -3331,11 +3332,12 @@ impl GameLogic {
                                         let mut pos = obj.get_position();
                                         pos.x += dx;
                                         pos.z += dz;
-                                        obj.set_position_with_effects_and_team_factory(
+                                        obj.set_position_with_effects_and_pose_owners(
                                             pos,
                                             tree_move_frame,
                                             &mut effects
                                                 .reborrow_for_object(&mut self.partition_manager),
+                                            &self.host_trigger_world,
                                             &self.team_factory,
                                         );
                                     }
@@ -4077,10 +4079,11 @@ impl GameLogic {
                             .objects
                             .get_mut(&containment_actor_id)
                             .expect("containment operation preserves this birth");
-                        obj.set_position_with_effects_and_team_factory(
+                        obj.set_position_with_effects_and_pose_owners(
                             pin_pos,
                             tree_move_frame,
                             &mut effects.reborrow_for_object(&mut self.partition_manager),
+                            &self.host_trigger_world,
                             &self.team_factory,
                         );
                         {}

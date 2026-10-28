@@ -30,7 +30,7 @@ impl GameLogic {
             self.update_countermeasure_flare_objects_with_effects(presentation_effects);
         }
 
-        self.propagate_hacked_to_spawn_slaves();
+        self.propagate_hacked_to_spawn_slaves(presentation_effects)?;
 
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP; // Convert frame to seconds
         let game_phase = GamePhase::from_time(current_time);
@@ -385,6 +385,7 @@ impl GameLogic {
                             0.0,
                             &mut presentation_effects
                                 .reborrow_for_object(&mut self.partition_manager),
+                            &self.host_trigger_world,
                             &self.team_factory,
                         );
                         final_death_destroy = topple_kill;
@@ -1076,25 +1077,76 @@ impl GameLogic {
     }
 
     /// C++ Object::setDisabledUntil orderSlavesDisabledUntil for spawn-weapon sites.
-    fn propagate_hacked_to_spawn_slaves(&mut self) {
-        let sites: Vec<(ObjectId, u32)> = self
+    fn propagate_hacked_to_spawn_slaves(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let sites: Vec<_> = self
             .objects
             .registered_values()
             .filter(|o| o.status.disabled_hacked && o.is_spawns_are_the_weapons())
-            .map(|o| (o.id, o.status.disabled_hacked_until_frame))
+            .map(|o| {
+                (
+                    o.id,
+                    std::sync::Arc::downgrade(&o.visual_draw_identity_token),
+                    o.status.disabled_hacked_until_frame,
+                )
+            })
             .collect();
-        for (site_id, until) in sites {
-            let child_ids: Vec<ObjectId> = self
+        for (site_id, site_birth, until) in sites {
+            if !self.host_object(site_id).is_some_and(|site| {
+                site_birth.ptr_eq(&std::sync::Arc::downgrade(&site.visual_draw_identity_token))
+            }) {
+                continue;
+            }
+            // Capture this site's roster before its first callback. Preserve
+            // the existing per-site observation point while rejecting later
+            // objects that reuse a captured child's ID.
+            let children: Vec<_> = self
                 .objects
                 .registered_values()
-                .filter(|o| {
-                    o.producer_id == Some(site_id)
-                        && (!o.status.disabled_hacked
-                            || (until > 0 && until > o.status.disabled_hacked_until_frame))
+                .filter(|child| {
+                    child.producer_id == Some(site_id)
+                        && (!child.status.disabled_hacked
+                            || (until > 0 && until > child.status.disabled_hacked_until_frame))
                 })
-                .map(|o| o.id)
+                .map(|child| {
+                    (
+                        child.id,
+                        std::sync::Arc::downgrade(&child.visual_draw_identity_token),
+                    )
+                })
                 .collect();
-            for child_id in child_ids {
+            for (child_id, child_birth) in children {
+                let site_is_original = self.host_object(site_id).is_some_and(|site| {
+                    site_birth.ptr_eq(&std::sync::Arc::downgrade(&site.visual_draw_identity_token))
+                });
+                let child_is_original = self.host_object(child_id).is_some_and(|child| {
+                    child_birth.ptr_eq(&std::sync::Arc::downgrade(
+                        &child.visual_draw_identity_token,
+                    )) && child.producer_id == Some(site_id)
+                        && (!child.status.disabled_hacked
+                            || (until > 0 && until > child.status.disabled_hacked_until_frame))
+                });
+                if !site_is_original || !child_is_original {
+                    continue;
+                }
+                // C++ SpawnBehavior::orderSlavesDisabledUntil calls the
+                // child's virtual aiIdle(CMD_FROM_AI) before setDisabledUntil.
+                // Keep that synchronous source dispatch on this GameLogic and
+                // release its Object loan before re-entering the world.
+                self.unit_command_ai_idle_owned_with_effects(child_id, effects)?;
+                let site_is_original = self.host_object(site_id).is_some_and(|site| {
+                    site_birth.ptr_eq(&std::sync::Arc::downgrade(&site.visual_draw_identity_token))
+                });
+                let child_is_original = self.host_object(child_id).is_some_and(|child| {
+                    child_birth.ptr_eq(&std::sync::Arc::downgrade(
+                        &child.visual_draw_identity_token,
+                    )) && child.producer_id == Some(site_id)
+                });
+                if !site_is_original || !child_is_original {
+                    continue;
+                }
                 if let Some(child) = self.objects.get_mut(&child_id) {
                     child.apply_disabled_hacked(
                         until,
@@ -1105,6 +1157,7 @@ impl GameLogic {
                 self.admit_host_radar_disabled_edges(child_id);
             }
         }
+        Ok(())
     }
 }
 

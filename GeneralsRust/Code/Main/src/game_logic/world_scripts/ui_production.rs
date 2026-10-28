@@ -1711,10 +1711,11 @@ impl GameLogic {
         // Source order remains flatten -> snap -> pathfinder admission.
         if let Some(h) = snapped_height.or_else(|| self.terrain_height_at(pos)) {
             if let Some(obj) = self.objects.get_mut(&id) {
-                obj.set_position_with_effects_and_team_factory(
+                obj.set_position_with_effects_and_pose_owners(
                     glam::Vec3::new(pos.x, h, pos.z),
                     self.frame,
                     &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.host_trigger_world,
                     &self.team_factory,
                 );
             }

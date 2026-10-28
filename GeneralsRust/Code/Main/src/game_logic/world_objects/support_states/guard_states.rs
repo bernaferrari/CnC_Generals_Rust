@@ -687,10 +687,11 @@ impl GameLogic {
             self.objects
                 .get_mut(&id)
                 .unwrap()
-                .set_position_with_effects_and_team_factory(
+                .set_position_with_effects_and_pose_owners(
                     goal,
                     frame,
                     &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.host_trigger_world,
                     &self.team_factory,
                 );
         }
