@@ -731,7 +731,7 @@ impl GameLogic {
                     let has_team = container.team_instance_id.is_some();
                     building.original_team = has_team.then_some(container.team);
                     building.original_garrison_player_id =
-                        has_team.then_some(container.owner_player_id).flatten();
+                        container.team_instance_id.and(container.owner_player_id);
                     building.original_team_instance_id = container.team_instance_id;
                     building.original_team_instance_name = container
                         .team_instance_id
@@ -763,7 +763,7 @@ impl GameLogic {
                     let has_team = container.team_instance_id.is_some();
                     bd.original_team = has_team.then_some(container.team);
                     bd.original_garrison_player_id =
-                        has_team.then_some(container.owner_player_id).flatten();
+                        container.team_instance_id.and(container.owner_player_id);
                     bd.original_team_instance_id = container.team_instance_id;
                     bd.original_team_instance_name = container
                         .team_instance_id
