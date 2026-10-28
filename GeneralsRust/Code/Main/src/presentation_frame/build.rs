@@ -675,7 +675,7 @@ impl PresentationFrame {
                     .as_ref()
                     .map(|b| b.production_paused)
                     .unwrap_or(false),
-                rally_point: obj.building_data.as_ref().and_then(|b| b.rally_point),
+                rally_point: obj.rally_point_for_exit(),
                 guard_position: obj.active_guard_position(),
                 // Freeze every containment roster, not only structure
                 // garrisons.  TransportContain capacity is weighted by each

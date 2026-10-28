@@ -756,6 +756,16 @@ pub struct ProductionExitMetadata {
     pub grant_temporary_stealth_frames: u32,
 }
 
+/// Live `Object::getObjectExitInterface` destination for rally commands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RallyPointExitOwner {
+    Production,
+    Parking,
+    OtherBehavior,
+    OpenContain,
+    None,
+}
+
 impl ProductionExitMetadata {
     #[inline]
     pub const fn is_queue(self) -> bool {

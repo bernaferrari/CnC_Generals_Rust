@@ -905,6 +905,44 @@ pub struct ThingTemplate {
 }
 
 impl ThingTemplate {
+    /// C++ Object::getObjectExitInterface checks behavior modules in authored
+    /// order before falling back to the OpenContain interface.
+    pub(crate) fn rally_point_exit_owner(&self) -> RallyPointExitOwner {
+        if let Some(definition) = self.receiving_object_definition.as_deref() {
+            for module in &definition.behavior_modules {
+                let class = module.class_name.as_str();
+                if [
+                    "QueueProductionExitUpdate",
+                    "DefaultProductionExitUpdate",
+                    "SupplyCenterProductionExitUpdate",
+                ]
+                .iter()
+                .any(|name| class.eq_ignore_ascii_case(name))
+                {
+                    return RallyPointExitOwner::Production;
+                }
+                if class.eq_ignore_ascii_case("ParkingPlaceBehavior") {
+                    return RallyPointExitOwner::Parking;
+                }
+                if ["SpawnPointProductionExitUpdate", "FlightDeckBehavior"]
+                .iter()
+                .any(|name| class.eq_ignore_ascii_case(name))
+                {
+                    return RallyPointExitOwner::OtherBehavior;
+                }
+            }
+        } else if self.production_exit_metadata.is_some() {
+            // Programmatic templates have no authored declaration list.
+            return RallyPointExitOwner::Production;
+        }
+
+        if self.contain_module.kind != ContainModuleKind::None {
+            RallyPointExitOwner::OpenContain
+        } else {
+            RallyPointExitOwner::None
+        }
+    }
+
     /// Whether the exact admitted source marks this template as a bridge.
     pub(crate) fn receiving_bridge(&self) -> Option<bool> {
         if let Some(typed) = &self.receiving_client_template {

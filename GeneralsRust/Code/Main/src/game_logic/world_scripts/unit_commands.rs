@@ -2304,9 +2304,6 @@ impl GameLogic {
         if !obj.is_kind_of(crate::game_logic::KindOf::AutoRallypoint) {
             return false;
         }
-        if obj.building_data.is_none() {
-            return false;
-        }
         // C++ GameLogicDispatch.cpp:156-161 format(GUI:RallyPointSet, displayName).
         let display_name = obj.get_display_name();
         let from = obj.get_position();
@@ -2321,13 +2318,6 @@ impl GameLogic {
             self.play_ui_sound("UnableToSetRallyPoint");
             return false;
         }
-        let Some(obj) = self.objects.get_mut(&id) else {
-            return false;
-        };
-        let Some(building) = obj.building_data.as_mut() else {
-            return false;
-        };
-        building.rally_point = Some(location);
         #[cfg(feature = "game_client")]
         {
             let formatted = format_rally_point_set_message(
@@ -2339,6 +2329,13 @@ impl GameLogic {
             }
         }
         self.play_ui_sound("RallyPointSet");
+        // C++ GameLogicDispatch.cpp:177-183 resolves and updates the winning
+        // ExitInterface only after the feedback/UI/audio side effects above.
+        if let Some(obj) = self.objects.get_mut(&id) {
+            obj.set_rally_point_for_exit(location);
+        } else {
+            return false;
+        }
         true
     }
 
@@ -3630,6 +3627,16 @@ mod tests {
             .expect("rally factory");
         let obj = logic.host_object_mut(id).expect("factory mut");
         obj.building_data = Some(BuildingData::new(BuildingType::WarFactory));
+        obj.thing_mut().template.production_exit_metadata = Some(ProductionExitMetadata {
+            style: ProductionExitStyle::Default,
+            unit_create_point: [0.0; 3],
+            natural_rally_point: [0.0; 3],
+            exit_delay_frames: 0,
+            allow_airborne_creation: false,
+            initial_burst: 0,
+            use_spawn_rally_point: false,
+            grant_temporary_stealth_frames: 0,
+        });
         (logic, id)
     }
 
@@ -3658,6 +3665,42 @@ mod tests {
         let obj = logic.host_object_mut(id).expect("plant mut");
         obj.building_data = Some(BuildingData::new(BuildingType::PowerPlant));
         assert!(!logic.unit_command_set_rally_point(id, glam::Vec3::new(10.0, 0.0, 10.0)));
+    }
+
+    #[test]
+    fn set_rally_point_uses_open_contain_owner_without_building_data() {
+        let mut logic = GameLogic::new();
+        let mut template = ThingTemplate::new("RallyTransport");
+        template.add_kind_of(KindOf::AutoRallypoint);
+        template.contain_module.kind = ContainModuleKind::Transport;
+        template.contain_module.slots = Some(4);
+        logic.templates.insert(template.name.clone(), template);
+        let id = logic
+            .create_object("RallyTransport", Team::USA, glam::Vec3::ZERO)
+            .expect("transport");
+        let dest = glam::Vec3::new(40.0, 0.0, 12.0);
+
+        assert!(logic.unit_command_set_rally_point(id, dest));
+        let object = logic.host_object(id).expect("transport remains admitted");
+        assert_eq!(object.open_contain_rally_point, Some(dest));
+        assert!(object.building_data.is_none());
+    }
+
+    #[test]
+    fn production_exit_interface_keeps_priority_over_open_contain() {
+        let (mut logic, id) = rally_factory_logic();
+        let object = logic.host_object_mut(id).expect("factory");
+        object.thing_mut().template.contain_module.kind = ContainModuleKind::Transport;
+        object.thing_mut().template.contain_module.slots = Some(4);
+        let dest = glam::Vec3::new(40.0, 0.0, 12.0);
+
+        assert!(logic.unit_command_set_rally_point(id, dest));
+        let object = logic.host_object(id).expect("factory");
+        assert_eq!(
+            object.building_data.as_ref().and_then(|b| b.rally_point),
+            Some(dest)
+        );
+        assert_eq!(object.open_contain_rally_point, None);
     }
 
     /// hq-9fqep: player attack/move replaces AI_HUNT; hunt does not resume.

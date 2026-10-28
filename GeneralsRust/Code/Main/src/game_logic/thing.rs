@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 mod template_metadata;
+pub(crate) use template_metadata::RallyPointExitOwner;
 pub(crate) use template_metadata::vary_pack_unpack_duration_ms;
 pub use template_metadata::{
     CapturePowerKind, ChargePlantAbilityMetadata, ContainAdmission, ContainDeathRules,

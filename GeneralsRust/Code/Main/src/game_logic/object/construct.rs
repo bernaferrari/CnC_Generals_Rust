@@ -1130,6 +1130,7 @@ impl Object {
 
             frame_exit_not_busy: 0,
             which_exit_path: 0,
+            open_contain_rally_point: None,
             pathfind_layer: 1,
             door_close_countdown: 0,
             last_load_sound_frame: 0,
@@ -2074,6 +2075,7 @@ impl Object {
 
             frame_exit_not_busy: 0,
             which_exit_path: 0,
+            open_contain_rally_point: None,
             pathfind_layer: 1,
             door_close_countdown: 0,
             last_load_sound_frame: 0,

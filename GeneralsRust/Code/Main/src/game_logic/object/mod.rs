@@ -167,6 +167,7 @@ pub(crate) fn default_turret_turn_rate() -> f32 {
     0.01
 }
 
+mod open_contain_rally;
 pub(crate) mod parachute_contain;
 pub(crate) mod turret_runtime;
 pub(crate) mod turret_runtime_persist;
@@ -1601,6 +1602,11 @@ pub struct Object {
     /// C++ OpenContain::m_whichExitPath (1-based ExitStart/End cycle).
     #[serde(default)]
     pub which_exit_path: u8,
+    /// C++ OpenContain::m_rallyPoint / m_rallyPointExists. This belongs to
+    /// the object's containment exit interface, including mobile containers
+    /// that have no ProductionUpdate/BuildingData owner.
+    #[serde(default)]
+    pub open_contain_rally_point: Option<glam::Vec3>,
     /// C++ `Object::m_layer` — bridge/deck vs ground. Copied onto riders at exit.
     #[serde(default = "default_pathfind_layer_ground")]
     pub pathfind_layer: u8,

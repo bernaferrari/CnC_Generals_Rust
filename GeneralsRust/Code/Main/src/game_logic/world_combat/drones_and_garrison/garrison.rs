@@ -859,7 +859,9 @@ impl GameLogic {
         let keep_velocity = container.transport_keep_container_velocity_on_exit();
         let hull_vel = keep_velocity.then_some(container.movement.velocity);
         let yaw = container.get_orientation();
-        let rally = container.building_data.as_ref().and_then(|b| b.rally_point);
+        // OpenContain::exitObjectViaDoor reads its own rally state, even
+        // when another behavior wins Object::getObjectExitInterface.
+        let rally = container.open_contain_rally_point;
         let is_garrison = container.is_garrison_contain();
         let container_layer = container.pathfind_layer;
         let door_open_time = container.thing().template.contain_module.door_open_time;

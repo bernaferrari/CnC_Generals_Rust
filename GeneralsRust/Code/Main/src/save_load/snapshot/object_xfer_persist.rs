@@ -36,7 +36,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const OXOB_MAGIC: &[u8; 4] = b"OXOB";
-const OXOB_VERSION: u32 = 17;
+const OXOB_VERSION: u32 = 18;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectXferPersistPayload {
@@ -46,6 +46,24 @@ struct ObjectXferPersistPayload {
     damage_info: Vec<ObjectDamageInfoPersist>,
     transport: Vec<TransportMovementPersist>,
     body_history: Vec<body_damage_history_persist::BodyDamageHistoryPersist>,
+    open_contain_rallies: Vec<OpenContainRallyPersist>,
+}
+
+/// V17 retains the exact payload immediately before OpenContain rally state.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectXferPersistPayloadV17 {
+    objects: Vec<ObjectXferPersist>,
+    script_status: Vec<ObjectScriptStatusPersist>,
+    structures: Vec<StructureTopplePersist>,
+    damage_info: Vec<ObjectDamageInfoPersist>,
+    transport: Vec<TransportMovementPersist>,
+    body_history: Vec<body_damage_history_persist::BodyDamageHistoryPersist>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OpenContainRallyPersist {
+    object_id: u32,
+    point: [f32; 3],
 }
 
 /// V16 retains its exact positional Body-history records.
@@ -1622,10 +1640,10 @@ pub(super) fn saved_kill_experience_receipts(
         return Ok(Default::default());
     };
     let version = take_u32(&mut rest)?;
-    if version < OXOB_VERSION {
+    if version < 17 {
         return Ok(Default::default());
     }
-    if version != OXOB_VERSION {
+    if version > OXOB_VERSION {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown OXOB suffix version {version}"
         )));
@@ -1634,10 +1652,16 @@ pub(super) fn saved_kill_experience_receipts(
     let bytes = rest
         .get(..length)
         .ok_or_else(|| SaveLoadError::Corrupted("OXOB payload truncated".into()))?;
-    let payload: ObjectXferPersistPayload = bincode_legacy::deserialize(bytes)
-        .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))?;
-    Ok(payload
-        .body_history
+    let body_history = if version == 17 {
+        bincode_legacy::deserialize::<ObjectXferPersistPayloadV17>(bytes)
+            .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))?
+            .body_history
+    } else {
+        bincode_legacy::deserialize::<ObjectXferPersistPayload>(bytes)
+            .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))?
+            .body_history
+    };
+    Ok(body_history
         .into_iter()
         .filter(|record| record.kill_experience_awarded)
         .map(|record| ObjectId(record.object_id))
@@ -1667,6 +1691,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
         && version != 14
         && version != 15
         && version != 16
+        && version != 17
         && version != OXOB_VERSION
     {
         return Err(SaveLoadError::Corrupted(format!(
@@ -1694,6 +1719,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             damage_info: Vec::new(),
             transport: Vec::new(),
             body_history: Vec::new(),
+            open_contain_rallies: Vec::new(),
         }
     } else if version == 2 {
         let old: ObjectXferPersistPayloadV2 = bincode_legacy::deserialize(encoded)
@@ -1709,6 +1735,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             damage_info: Vec::new(),
             transport: Vec::new(),
             body_history: Vec::new(),
+            open_contain_rallies: Vec::new(),
         }
     } else if version == 3 {
         let old: ObjectXferPersistPayloadV3 = bincode_legacy::deserialize(encoded)
@@ -1724,6 +1751,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             damage_info: Vec::new(),
             transport: Vec::new(),
             body_history: Vec::new(),
+            open_contain_rallies: Vec::new(),
         }
     } else if version == 4 {
         let old: ObjectXferPersistPayloadV4 = bincode_legacy::deserialize(encoded)
@@ -1739,6 +1767,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             damage_info: Vec::new(),
             transport: Vec::new(),
             body_history: Vec::new(),
+            open_contain_rallies: Vec::new(),
         }
     } else if version == 5 {
         let old: ObjectXferPersistPayloadV5 = bincode_legacy::deserialize(encoded)
@@ -1754,6 +1783,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             damage_info: Vec::new(),
             transport: Vec::new(),
             body_history: Vec::new(),
+            open_contain_rallies: Vec::new(),
         }
     } else if version == 6 {
         let old: ObjectXferPersistPayloadV6 = bincode_legacy::deserialize(encoded)
@@ -1769,6 +1799,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             damage_info: Vec::new(),
             transport: Vec::new(),
             body_history: Vec::new(),
+            open_contain_rallies: Vec::new(),
         }
     } else if version == 7 {
         let old: ObjectXferPersistPayloadV7 = bincode_legacy::deserialize(encoded)
@@ -1784,6 +1815,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             damage_info: Vec::new(),
             transport: Vec::new(),
             body_history: Vec::new(),
+            open_contain_rallies: Vec::new(),
         }
     } else if version == 8 {
         let old: ObjectXferPersistPayloadV8 = bincode_legacy::deserialize(encoded)
@@ -1799,6 +1831,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             damage_info: Vec::new(),
             transport: Vec::new(),
             body_history: Vec::new(),
+            open_contain_rallies: Vec::new(),
         }
     } else if version == 9 {
         let old: ObjectXferPersistPayloadV9 = bincode_legacy::deserialize(encoded)
@@ -1814,6 +1847,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             damage_info: Vec::new(),
             transport: Vec::new(),
             body_history: Vec::new(),
+            open_contain_rallies: Vec::new(),
         }
     } else if version == 10 {
         let old: ObjectXferPersistPayloadV10 = bincode_legacy::deserialize(encoded)
@@ -1829,6 +1863,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             damage_info: Vec::new(),
             transport: Vec::new(),
             body_history: Vec::new(),
+            open_contain_rallies: Vec::new(),
         }
     } else if version == 11 {
         let old: ObjectXferPersistPayloadV11 = bincode_legacy::deserialize(encoded)
@@ -1840,6 +1875,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             damage_info: Vec::new(),
             transport: Vec::new(),
             body_history: Vec::new(),
+            open_contain_rallies: Vec::new(),
         }
     } else if version == 12 {
         let old: ObjectXferPersistPayloadV12 = bincode_legacy::deserialize(encoded)
@@ -1851,6 +1887,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             damage_info: Vec::new(),
             transport: Vec::new(),
             body_history: Vec::new(),
+            open_contain_rallies: Vec::new(),
         }
     } else if version == 13 {
         let old: ObjectXferPersistPayloadV13 = bincode_legacy::deserialize(encoded)
@@ -1862,6 +1899,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             damage_info: Vec::new(),
             transport: Vec::new(),
             body_history: Vec::new(),
+            open_contain_rallies: Vec::new(),
         }
     } else if version == 14 {
         let old: ObjectXferPersistPayloadV14 = bincode_legacy::deserialize(encoded)
@@ -1873,6 +1911,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             damage_info: old.damage_info,
             transport: Vec::new(),
             body_history: Vec::new(),
+            open_contain_rallies: Vec::new(),
         }
     } else if version == 15 {
         let old: ObjectXferPersistPayloadV15 = bincode_legacy::deserialize(encoded)
@@ -1884,6 +1923,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             damage_info: old.damage_info,
             transport: old.transport,
             body_history: Vec::new(),
+            open_contain_rallies: Vec::new(),
         }
     } else if version == 16 {
         let old: ObjectXferPersistPayloadV16 = bincode_legacy::deserialize(encoded)
@@ -1895,12 +1935,26 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             damage_info: old.damage_info,
             transport: old.transport,
             body_history: body_damage_history_persist::migrate_v16(game_logic, old.body_history)?,
+            open_contain_rallies: Vec::new(),
+        }
+    } else if version == 17 {
+        let old: ObjectXferPersistPayloadV17 = bincode_legacy::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
+        ObjectXferPersistPayload {
+            objects: old.objects,
+            script_status: old.script_status,
+            structures: old.structures,
+            damage_info: old.damage_info,
+            transport: old.transport,
+            body_history: old.body_history,
+            open_contain_rallies: Vec::new(),
         }
     } else {
         bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?
     };
     body_damage_history_persist::validate(game_logic, &payload.body_history)?;
+    validate_open_contain_rallies(game_logic, &payload.open_contain_rallies)?;
     if version >= 16 && payload.body_history.len() != game_logic.host_objects().registered_len() {
         return Err(SaveLoadError::Corrupted(
             "incomplete saved body history owners".into(),
@@ -2061,6 +2115,19 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
         })
         .collect();
     damage_info.sort_by_key(|entry| entry.object_id);
+    let mut open_contain_rallies: Vec<_> = game_logic
+        .host_objects()
+        .registered()
+        .filter_map(|(id, object)| {
+            object
+                .open_contain_rally_point
+                .map(|point| OpenContainRallyPersist {
+                    object_id: id.0,
+                    point: point.to_array(),
+                })
+        })
+        .collect();
+    open_contain_rallies.sort_by_key(|entry| entry.object_id);
     ObjectXferPersistPayload {
         objects,
         script_status,
@@ -2068,6 +2135,7 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
         damage_info,
         transport: transport_movement_persist::capture(game_logic),
         body_history: body_damage_history_persist::capture(game_logic),
+        open_contain_rallies,
     }
 }
 
@@ -2132,6 +2200,32 @@ fn validate_structure_records(
     Ok(())
 }
 
+fn validate_open_contain_rallies(
+    game_logic: &GameLogic,
+    records: &[OpenContainRallyPersist],
+) -> SaveLoadResult<()> {
+    let mut ids = std::collections::HashSet::new();
+    for entry in records {
+        let object = game_logic
+            .host_object(ObjectId(entry.object_id))
+            .ok_or_else(|| {
+                SaveLoadError::Corrupted("saved OpenContain rally owner is absent".into())
+            })?;
+        if object.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::None
+        {
+            return Err(SaveLoadError::Corrupted(
+                "saved OpenContain rally owner has no receiving contain module".into(),
+            ));
+        }
+        if !ids.insert(entry.object_id) {
+            return Err(SaveLoadError::Corrupted(
+                "duplicate saved OpenContain rally owner".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn reset_object_xfer(game_logic: &mut GameLogic) {
     transport_movement_persist::reset(game_logic);
     body_damage_history_persist::apply(game_logic, Vec::new());
@@ -2170,6 +2264,7 @@ fn reset_object_xfer(game_logic: &mut GameLogic) {
         object.weapon_bonus_solo = 0;
         object.is_receiving_difficulty_bonus = false;
         object.which_exit_path = 0;
+        object.open_contain_rally_point = None;
         object.cheer_timer = 0.0;
         set_object_special_cheering(object, false);
         object.weapon_scatter_targets_unused = Default::default();
@@ -2194,6 +2289,24 @@ fn reset_object_xfer(game_logic: &mut GameLogic) {
 fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) {
     transport_movement_persist::apply(game_logic, payload.transport);
     body_damage_history_persist::apply(game_logic, payload.body_history);
+    let object_ids: Vec<ObjectId> = game_logic
+        .host_objects()
+        .registered_keys()
+        .copied()
+        .collect();
+    for id in object_ids {
+        if let Some(object) = game_logic.host_objects_mut().get_mut(&id) {
+            object.open_contain_rally_point = None;
+        }
+    }
+    for entry in payload.open_contain_rallies {
+        if let Some(object) = game_logic
+            .host_objects_mut()
+            .get_mut(&ObjectId(entry.object_id))
+        {
+            object.open_contain_rally_point = Some(glam::Vec3::from_array(entry.point));
+        }
+    }
     // Original Object::xfer restores raw status; it does not replay mask or
     // script commands. The receiving world already owns these exact objects.
     for entry in payload.damage_info {
