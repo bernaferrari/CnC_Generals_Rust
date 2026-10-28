@@ -376,12 +376,13 @@ impl GameLogic {
             if !queued {
                 return false;
             }
+            let frame = self.frame;
             let mut entered_move = false;
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 unit.waiting_for_path = true;
                 unit.movement.target_position = None;
                 unit.movement.velocity = glam::Vec3::ZERO;
-                unit.start_move_at_frame(self.frame);
+                unit.start_move_at_frame(frame);
                 entered_move = !matches!(
                     unit.ai_state(),
                     AIState::Constructing
@@ -403,15 +404,16 @@ impl GameLogic {
                         | AIState::Panic
                 );
                 if entered_move {
-                    unit.set_ai_state(
+                    unit.set_ai_state_at_frame(
                         AIState::Moving,
+                        frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
                 unit.set_status_moving(true);
             }
             self.movement_events.record(
-                self.frame,
+                frame,
                 unit_id,
                 Some([destination.x, destination.y, destination.z]),
             );

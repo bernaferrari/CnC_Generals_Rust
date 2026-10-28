@@ -237,9 +237,11 @@ impl GameLogic {
             });
         }
         if self.assign_unit_path(id, origin, &[]) {
+            let frame = self.frame;
             if let Some((object, audio_events)) = self.host_object_and_audio_events_mut(id) {
-                object.set_ai_state(
+                object.set_ai_state_at_frame(
                     AIState::Moving,
+                    frame,
                     &mut crate::game_logic::ObjectAudio::queue(audio_events),
                 );
             }
