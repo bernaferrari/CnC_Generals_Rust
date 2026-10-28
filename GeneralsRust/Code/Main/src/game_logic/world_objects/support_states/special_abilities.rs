@@ -1474,22 +1474,17 @@ impl GameLogic {
         &mut self,
         planter_id: ObjectId,
         target_id: ObjectId,
-        planter_team: crate::game_logic::Team,
+        _planter_team: crate::game_logic::Team,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         let trap_position = self.objects.get(&target_id).map(|t| t.get_position());
-        let planter_ally = self
-            .booby_trap
-            .plant(target_id)
-            .map(|plant| plant.planter_team == planter_team)
-            .unwrap_or(false);
-        let target_is_trapped = self.booby_trap.is_booby_trapped(target_id)
-            || self
-                .objects
-                .get(&target_id)
-                .map(|t| t.status.booby_trapped)
-                .unwrap_or(false);
-        if planter_ally || !target_is_trapped {
+        // C++ Object::checkAndDetonateBoobyTrap gates on the object's status
+        // bit. The registry carries planter/charge metadata, not trap authority.
+        let target_is_trapped = self
+            .objects
+            .get(&target_id)
+            .is_some_and(|target| target.status.booby_trapped);
+        if !target_is_trapped {
             return false;
         }
         if let Some(trap_position) = trap_position {
@@ -2941,29 +2936,23 @@ impl GameLogic {
         let Some(power_type) = power.special_power_type() else {
             return false;
         };
-        let Some(source_team) = self.objects.get(&object_id).map(|object| object.team) else {
+        // Preserve the original capture source lookup before the trap can
+        // detonate; a stale/reentrantly removed capturer must not trigger it.
+        if !self.objects.contains_key(&object_id) {
             return false;
-        };
-
+        }
         // C++ checks/detonates a hostile trap when preparation begins, before
         // it marks the SpecialPower as triggered or begins its progress bar.
         let trap_position = self
             .objects
             .get(&target_id)
             .map(|target| target.get_position());
-        let planter_is_ally = self
-            .booby_trap
-            .plant(target_id)
-            .map(|plant| plant.planter_team == source_team)
-            .unwrap_or(false);
         if let Some(trap_position) = trap_position {
-            let target_is_trapped = self.booby_trap.is_booby_trapped(target_id)
-                || self
-                    .objects
-                    .get(&target_id)
-                    .map(|target| target.status.booby_trapped)
-                    .unwrap_or(false);
-            if !planter_is_ally && target_is_trapped {
+            let target_is_trapped = self
+                .objects
+                .get(&target_id)
+                .is_some_and(|target| target.status.booby_trapped);
+            if target_is_trapped {
                 let _ = self.detonate_booby_trap_at_with_effects(
                     target_id,
                     trap_position,

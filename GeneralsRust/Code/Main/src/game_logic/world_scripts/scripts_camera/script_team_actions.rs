@@ -548,12 +548,12 @@ impl GameLogic {
         let pos = glam::Vec3::new(p.x, p.y + 8.0, p.z);
         let frame = self.frame;
 
-        let charge = if self.templates.contains_key(thing) {
+        let charge = if thing.eq_ignore_ascii_case(BOOBY_TRAP_OBJECT) {
+            self.spawn_booby_trap_special_object_with_effects(target_id, team, target_id, effects)
+        } else if self.templates.contains_key(thing) {
             self.create_object_for_owner_or_team_with_effects(
                 thing, team, owner, pos, None, effects,
             )
-        } else if thing.eq_ignore_ascii_case(BOOBY_TRAP_OBJECT) {
-            self.spawn_booby_trap_special_object_with_effects(target_id, team, target_id, effects)
         } else {
             None
         };
@@ -809,9 +809,7 @@ impl GameLogic {
             return actions
                 .buttons
                 .find_command_button_resolved(ability)
-                .map(|button| {
-                    SpecialPowerCommandOption::from_bits_truncate(button.options_bits)
-                })
+                .map(|button| SpecialPowerCommandOption::from_bits_truncate(button.options_bits))
                 .unwrap_or_else(|| SpecialPowerCommandOption::from_bits_truncate(0));
         }
         if let Some(bar) = gamelogic::control_bar::get_control_bar_bridge() {

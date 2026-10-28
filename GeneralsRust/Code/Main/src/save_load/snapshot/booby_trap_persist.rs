@@ -17,7 +17,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const BTRY_MAGIC: &[u8; 4] = b"BTRY";
-const BTRY_VERSION: u32 = 1;
+const BTRY_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct BoobyTrapPersistPayload {
@@ -52,7 +52,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
-    if version != BTRY_VERSION {
+    if version != 1 && version != BTRY_VERSION {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown BTRY suffix version {version}"
         )));
@@ -65,7 +65,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     }
     let payload: BoobyTrapPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("BTRY payload decode: {err}")))?;
-    apply_payload(game_logic, payload);
+    apply_payload(game_logic, payload, version == 1);
     Ok(())
 }
 
@@ -93,13 +93,35 @@ fn capture(game_logic: &GameLogic) -> BoobyTrapPersistPayload {
     }
 }
 
-fn apply_payload(game_logic: &mut GameLogic, payload: BoobyTrapPersistPayload) {
-    let mut trapped: std::collections::HashSet<u32> = payload.trapped_ids.into_iter().collect();
-    for plant in payload.registry.plants() {
-        trapped.insert(plant.structure_id.0);
+fn apply_payload(
+    game_logic: &mut GameLogic,
+    payload: BoobyTrapPersistPayload,
+    legacy_v1_status_union: bool,
+) {
+    // V1 predates canonical status serialization and repaired BOOBY_TRAPPED
+    // from registry rows. Preserve that historical load behavior. V2 carries
+    // an exact status list, independent from registry plant metadata.
+    let mut trapped_ids = payload.trapped_ids;
+    if legacy_v1_status_union {
+        trapped_ids.extend(payload.registry.plants().map(|plant| plant.structure_id.0));
+    } else {
+        // V2 stores the exact set of status-bearing objects. Clear stale
+        // receiving-world bits before applying that set, so restore cannot
+        // preserve status that was absent from the saved state.
+        let mut object_ids: Vec<ObjectId> = game_logic
+            .host_objects()
+            .registered_keys()
+            .copied()
+            .collect();
+        object_ids.sort();
+        for id in object_ids {
+            if let Some(object) = game_logic.host_object_mut(id) {
+                object.set_status_booby_trapped(false);
+            }
+        }
     }
     game_logic.restore_booby_traps(payload.registry, payload.objects_spawned);
-    for id in trapped {
+    for id in trapped_ids {
         let Some(object) = game_logic.host_object_mut(ObjectId(id)) else {
             continue;
         };
@@ -264,5 +286,127 @@ mod tests {
                 .status
                 .booby_trapped
         );
+    }
+
+    #[test]
+    fn registry_only_plant_save_does_not_repair_missing_object_status_on_restore() {
+        let mut receiving = GameLogic::new();
+        receiving
+            .templates
+            .insert("GLABarracks".to_string(), ThingTemplate::new("GLABarracks"));
+        receiving.add_player(Player::new(0, Team::GLA, "GLA", true));
+        let structure = receiving
+            .create_object("GLABarracks", Team::GLA, Vec3::ZERO)
+            .expect("barracks");
+        assert!(
+            !receiving
+                .host_object(structure)
+                .unwrap()
+                .has_object_status_bit("BOOBY_TRAPPED")
+        );
+
+        let mut registry = HostBoobyTrapRegistry::new();
+        registry.install(
+            structure,
+            ObjectId(7),
+            Team::GLA,
+            30,
+            8.0,
+            Some(ObjectId(99)),
+        );
+        receiving.restore_booby_traps(registry, 1);
+        let mut suffix = Vec::new();
+        append_to_lifecycle_tail(&mut suffix, &receiving);
+        // Start from a fresh registry while retaining the target object; this
+        // executes the actual BTRY serialization and restore route.
+        receiving.restore_booby_traps(HostBoobyTrapRegistry::new(), 0);
+        apply_from_lifecycle_tail(&suffix, &mut receiving).expect("BTRY restore");
+
+        assert!(receiving.booby_trap_residual().is_booby_trapped(structure));
+        assert!(
+            !receiving
+                .host_object(structure)
+                .unwrap()
+                .has_object_status_bit("BOOBY_TRAPPED"),
+            "BTRY metadata must not synthesize the C++ status gate"
+        );
+    }
+
+    #[test]
+    fn v2_restore_clears_receiving_only_status_bits() {
+        let mut source = GameLogic::new();
+        source
+            .templates
+            .insert("GLABarracks".to_string(), ThingTemplate::new("GLABarracks"));
+        source.add_player(Player::new(0, Team::GLA, "GLA", true));
+        let source_id = source
+            .create_object("GLABarracks", Team::GLA, Vec3::ZERO)
+            .expect("source barracks");
+        let mut registry = HostBoobyTrapRegistry::new();
+        registry.install(source_id, ObjectId(7), Team::GLA, 30, 8.0, None);
+        source.restore_booby_traps(registry, 1);
+        let mut bytes = Vec::new();
+        append_to_lifecycle_tail(&mut bytes, &source);
+        assert!(!bytes.is_empty(), "v2 payload should encode registry metadata");
+
+        let mut receiving = GameLogic::new();
+        receiving
+            .templates
+            .insert("GLABarracks".to_string(), ThingTemplate::new("GLABarracks"));
+        receiving.add_player(Player::new(0, Team::GLA, "GLA", true));
+        let receiving_id = receiving
+            .create_object("GLABarracks", Team::GLA, Vec3::ZERO)
+            .expect("receiving barracks");
+        assert_eq!(source_id, receiving_id);
+        receiving
+            .host_object_mut(receiving_id)
+            .unwrap()
+            .apply_status_bits_upgrade_masks(&["BOOBY_TRAPPED"], &[]);
+
+        apply_from_lifecycle_tail(&bytes, &mut receiving).expect("v2 restore");
+        assert!(
+            !receiving
+                .host_object(receiving_id)
+                .unwrap()
+                .has_object_status_bit("BOOBY_TRAPPED"),
+            "v2 exact status list clears receiving-only status"
+        );
+    }
+
+    #[test]
+    fn legacy_v1_registry_status_union_remains_compatible() {
+        let mut game = GameLogic::new();
+        game.templates
+            .insert("GLABarracks".to_string(), ThingTemplate::new("GLABarracks"));
+        game.add_player(Player::new(0, Team::GLA, "GLA", true));
+        let structure = game
+            .create_object("GLABarracks", Team::GLA, Vec3::ZERO)
+            .expect("barracks");
+        let mut registry = HostBoobyTrapRegistry::new();
+        registry.install(
+            structure,
+            ObjectId(7),
+            Team::GLA,
+            30,
+            8.0,
+            Some(ObjectId(99)),
+        );
+        let payload = BoobyTrapPersistPayload {
+            registry,
+            objects_spawned: 1,
+            trapped_ids: Vec::new(),
+        };
+        let encoded = bincode_legacy::serialize(&payload).expect("legacy BTRY payload");
+        let mut suffix = Vec::new();
+        suffix.extend_from_slice(BTRY_MAGIC);
+        append_u32(&mut suffix, 1);
+        append_u32(&mut suffix, encoded.len() as u32);
+        suffix.extend_from_slice(&encoded);
+
+        apply_from_lifecycle_tail(&suffix, &mut game).expect("legacy v1 restore");
+        assert!(game
+            .host_object(structure)
+            .unwrap()
+            .has_object_status_bit("BOOBY_TRAPPED"));
     }
 }

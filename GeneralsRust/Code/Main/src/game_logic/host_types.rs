@@ -239,6 +239,8 @@ pub enum KindOf {
     SpawnsAreTheWeapons,
     /// C++ KINDOF_PORTABLE_STRUCTURE (bit52); append-only host capability.
     PortableStructure,
+    /// C++ KINDOF_BOOBY_TRAP (bit97); append-only host capability.
+    BoobyTrap,
 }
 
 impl KindOf {
@@ -339,6 +341,7 @@ impl KindOf {
         KindOf::RejectUnmanned,
         KindOf::SpawnsAreTheWeapons,
         KindOf::PortableStructure,
+        KindOf::BoobyTrap,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -433,6 +436,7 @@ impl KindOf {
             Self::RejectUnmanned => "RejectUnmanned",
             Self::SpawnsAreTheWeapons => "SpawnsAreTheWeapons",
             Self::PortableStructure => "PortableStructure",
+            Self::BoobyTrap => "BoobyTrap",
         }
     }
 
@@ -473,6 +477,7 @@ impl KindOf {
             "REJECT_UNMANNED" | "REJECTUNMANNED" => Some(Self::RejectUnmanned),
             "SPAWNS_ARE_THE_WEAPONS" | "SPAWNSARETHEWEAPONS" => Some(Self::SpawnsAreTheWeapons),
             "PORTABLE_STRUCTURE" | "PORTABLESTRUCTURE" => Some(Self::PortableStructure),
+            "BOOBY_TRAP" | "BOOBYTRAP" => Some(Self::BoobyTrap),
 
             "DRONE" => Some(Self::Drone),
             _ => None,
@@ -984,7 +989,7 @@ mod tests {
             1u128 << 15,
         );
         assert!(KindOf::ALL_KIND_OF.contains(&KindOf::LineBuild));
-        assert_eq!(KindOf::ALL_KIND_OF.last(), Some(&KindOf::PortableStructure));
+        assert_eq!(KindOf::ALL_KIND_OF.last(), Some(&KindOf::BoobyTrap));
         // Existing serde discriminants remain stable even where Xfer uses a
         // different established order (CliffJumper precedes CleanupHazard).
         for (kind, ordinal) in [
@@ -996,6 +1001,7 @@ mod tests {
             (KindOf::RejectUnmanned, 87),
             (KindOf::SpawnsAreTheWeapons, 88),
             (KindOf::PortableStructure, 89),
+            (KindOf::BoobyTrap, 90),
         ] {
             let bytes = bincode_legacy::serialize(&kind).unwrap();
             assert_eq!(bytes, ordinal.to_le_bytes());

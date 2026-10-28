@@ -175,6 +175,9 @@ impl GameLogic {
         if has_kind("portable_structure") {
             template.add_kind_of(KindOf::PortableStructure);
         }
+        if has_kind("booby_trap") {
+            template.add_kind_of(KindOf::BoobyTrap);
+        }
         if has_kind("mob_nexus") {
             template.add_kind_of(KindOf::MobNexus);
         }

@@ -1,6 +1,17 @@
 //! Behavior suite extracted from `pilots_and_movement`.
 use super::*;
 
+fn admit_test_sticky_bomb_charge(game: &mut GameLogic) {
+    game.admit_receiving_module_content(
+        crate::assets::ReceivingObjectContent::from_sources([(
+            "booby-trap-charge.ini".into(),
+            "Object BoobyTrap\nKindOf = IMMOBILE BOOBY_TRAP\nBody = ActiveBody BodyTag\nMaxHealth = 1\nInitialHealth = 1\nEnd\nBehavior = StickyBombUpdate Sticky\nEnd\nEnd\n".into(),
+        )])
+        .expect("typed StickyBombUpdate charge content"),
+    )
+    .expect("admit typed StickyBombUpdate charge content");
+}
+
 #[test]
 fn pilot_recrew_rejects_manned_vehicle() {
     use crate::command_system::{CommandType, GameCommand};
@@ -267,6 +278,7 @@ fn booby_trap_plant_spawns_special_object() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
+    admit_test_sticky_bomb_charge(&mut logic);
     let mut rebel = ThingTemplate::new("GLAInfantryRebel");
     rebel.add_kind_of(KindOf::Infantry).set_health(100.0);
     logic.templates.insert("GLAInfantryRebel".into(), rebel);
@@ -305,7 +317,7 @@ fn booby_trap_plant_spawns_special_object() {
     assert_eq!(charge.template_name, BOOBY_TRAP_OBJECT);
     assert!(charge.booby_trap_special);
     assert_eq!(charge.booby_trap_attached_to, Some(structure));
-    assert_eq!(charge.producer_id, Some(planter));
+    assert_eq!(charge.producer_id, Some(structure));
 
     // Follow sticky attachment.
     if let Some((s, fixture_partition_s)) = logic.host_object_and_partition_mut(structure) {
@@ -332,6 +344,154 @@ fn booby_trap_plant_spawns_special_object() {
     );
     assert!(!logic.booby_trap.is_booby_trapped(structure));
     let _ = BOOBY_MAX_SPECIAL_OBJECTS;
+}
+
+#[test]
+fn booby_trap_registry_does_not_override_cpp_status_gate() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    admit_test_sticky_bomb_charge(&mut logic);
+    let mut planter_template = ThingTemplate::new("TrapPlanter");
+    planter_template
+        .add_kind_of(KindOf::Infantry)
+        .set_health(100.0);
+    logic
+        .templates
+        .insert("TrapPlanter".to_string(), planter_template);
+    let mut target_template = ThingTemplate::new("TrapTarget");
+    target_template
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0);
+    logic
+        .templates
+        .insert("TrapTarget".to_string(), target_template);
+
+    let planter = logic
+        .create_object("TrapPlanter", Team::GLA, Vec3::ZERO)
+        .expect("planter");
+    let target = logic
+        .create_object("TrapTarget", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+        .expect("target");
+    logic
+        .booby_trap
+        .install(target, planter, Team::GLA, logic.frame, 8.0, None);
+    let charge = logic
+        .spawn_booby_trap_special_object(planter, Team::GLA, target)
+        .expect("actual booby-trap producer");
+    logic.booby_trap.set_charge_object(target, charge);
+
+    // Deliberately create inconsistent state: metadata and real producer exist,
+    // but the canonical C++ Object status gate is clear.
+    let object = logic.host_object_mut(target).expect("target object");
+    object.set_status_booby_trapped(false);
+    let health_before = object.health.current;
+    let hits = logic.detonate_booby_trap_at(target, Vec3::ZERO, None, false, true);
+
+    assert_eq!(hits, 0, "registry metadata alone cannot trigger the plant");
+    assert_eq!(
+        logic.host_object(target).unwrap().health.current,
+        health_before,
+        "a rejected trigger must not apply trap damage"
+    );
+    assert!(logic.booby_trap.is_booby_trapped(target));
+    assert!(logic.host_object(charge).unwrap().is_alive());
+
+    // Once the actual object status is set, the retained registry metadata
+    // supplies planter/charge data and the same authored producer detonates.
+    logic
+        .host_object_mut(target)
+        .unwrap()
+        .set_status_booby_trapped(true);
+    let _ = logic.detonate_booby_trap_at(target, Vec3::ZERO, None, false, true);
+    assert!(!logic.booby_trap.is_booby_trapped(target));
+    assert!(
+        logic
+            .host_object(charge)
+            .is_none_or(|object| !object.is_alive() || object.status.destroyed)
+    );
+}
+
+#[test]
+fn booby_trap_detonation_rejects_missing_wrong_and_reused_charge_ids() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+    for case in ["missing", "wrong-producer", "reused-id"] {
+        let mut logic = GameLogic::new();
+        admit_test_sticky_bomb_charge(&mut logic);
+        let mut planter_template = ThingTemplate::new("TrapPlanter");
+        planter_template
+            .add_kind_of(KindOf::Infantry)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("TrapPlanter".to_string(), planter_template);
+        let mut target_template = ThingTemplate::new("TrapTarget");
+        target_template
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1000.0);
+        logic
+            .templates
+            .insert("TrapTarget".to_string(), target_template);
+        let mut decoy_template = ThingTemplate::new("ReusedChargeIdDecoy");
+        decoy_template
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("ReusedChargeIdDecoy".to_string(), decoy_template);
+
+        let planter = logic
+            .create_object("TrapPlanter", Team::GLA, Vec3::ZERO)
+            .expect("planter");
+        let target = logic
+            .create_object("TrapTarget", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("target");
+        let charge = logic
+            .spawn_booby_trap_special_object(planter, Team::GLA, target)
+            .expect("actual StickyBombUpdate charge");
+        logic
+            .booby_trap
+            .install(target, planter, Team::GLA, logic.frame, 8.0, Some(charge));
+        logic
+            .host_object_mut(target)
+            .unwrap()
+            .set_status_booby_trapped(true);
+
+        match case {
+            "missing" => {
+                logic.booby_trap.plant_mut(target).unwrap().charge_object_id =
+                    Some(ObjectId(u32::MAX));
+            }
+            "wrong-producer" => {
+                logic.host_object_mut(charge).unwrap().producer_id = Some(planter);
+            }
+            "reused-id" => {
+                assert!(logic.objects.remove(&charge).is_some());
+                let replacement = crate::game_logic::Object::new(
+                    logic.templates["ReusedChargeIdDecoy"].clone(),
+                    charge,
+                    Team::USA,
+                );
+                assert!(logic.objects.insert(charge, replacement).is_none());
+            }
+            _ => unreachable!(),
+        }
+
+        let hits = logic.detonate_booby_trap_at(target, Vec3::ZERO, None, false, true);
+        assert_eq!(hits, 0, "{case} charge metadata cannot trigger damage");
+        assert!(logic.booby_trap.is_booby_trapped(target), "{case}");
+        assert!(
+            logic
+                .host_object(target)
+                .unwrap()
+                .has_object_status_bit("BOOBY_TRAPPED"),
+            "failed C++ charge lookup leaves status set ({case})"
+        );
+    }
 }
 
 #[test]

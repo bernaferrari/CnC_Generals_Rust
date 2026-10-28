@@ -407,7 +407,7 @@ impl GameLogic {
 
                 // GLA Rebel BoobyTrap residual: structure death detonates trap.
                 // C++ Object::checkAndDetonateBoobyTrap(NULL) on die path.
-                if obj.status.booby_trapped || self.booby_trap.is_booby_trapped(event.id) {
+                if obj.status.booby_trapped {
                     let _ = self.detonate_booby_trap_at_with_effects(
                         event.id,
                         death_pos,

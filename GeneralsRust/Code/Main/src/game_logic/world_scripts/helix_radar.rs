@@ -325,6 +325,26 @@ impl GameLogic {
         )
     }
 
+    fn booby_trap_template_has_sticky_bomb_update(&self, template_name: &str) -> bool {
+        use game_engine::common::thing::module::ModuleData;
+
+        self.receiving_module_content
+            .as_ref()
+            .and_then(|content| content.admitted_template(template_name))
+            .is_some_and(|template| {
+                template.behavior_modules().iter().any(|module| {
+                    module
+                        .name
+                        .as_str()
+                        .eq_ignore_ascii_case("StickyBombUpdate")
+                        && module
+                            .data
+                            .as_any()
+                            .is::<gamelogic::object::behavior::StickyBombUpdateModuleData>()
+                })
+            })
+    }
+
     pub(crate) fn spawn_booby_trap_special_object_with_effects(
         &mut self,
         planter_id: ObjectId,
@@ -332,24 +352,33 @@ impl GameLogic {
         structure_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
+        use crate::game_logic::KindOf;
         use crate::game_logic::host_booby_trap::{BOOBY_TRAP_MAX_HEALTH, BOOBY_TRAP_OBJECT};
-        use crate::game_logic::{KindOf, ThingTemplate};
 
-        if !self.templates.contains_key(BOOBY_TRAP_OBJECT) {
-            let mut t = ThingTemplate::new(BOOBY_TRAP_OBJECT);
-            t.add_kind_of(KindOf::Immobile)
-                .set_health(BOOBY_TRAP_MAX_HEALTH)
-                .set_cost(0, 0);
-            self.templates.insert(BOOBY_TRAP_OBJECT.to_string(), t);
+        // C++ SpecialAbilityUpdate refuses to plant when the charge template
+        // lacks its required StickyBombUpdate module.
+        if !self.booby_trap_template_has_sticky_bomb_update(BOOBY_TRAP_OBJECT) {
+            return None;
         }
-        let pos = self
-            .objects
-            .get(&structure_id)
-            .map(|o| {
-                let p = o.get_position();
-                glam::Vec3::new(p.x, p.y + 8.0, p.z)
-            })
-            .unwrap_or(glam::Vec3::ZERO);
+        // A typed receiving module definition is insufficient if the host
+        // object's admitted template was not installed. Do not invent a
+        // competing ThingTemplate here.
+        let Some(charge_template) = self.templates.get(BOOBY_TRAP_OBJECT) else {
+            return None;
+        };
+        if !charge_template.kind_of.contains(&KindOf::BoobyTrap) {
+            return None;
+        }
+        let (target_birth, pos) = {
+            // C++ initStickyBomb requires a live Object pointer, not an alive
+            // body. Ability callers own their own alive/targeting predicates.
+            let target = self.objects.get(&structure_id)?;
+            let position = target.get_position();
+            (
+                std::sync::Arc::downgrade(&target.visual_draw_identity_token),
+                glam::Vec3::new(position.x, position.y + 8.0, position.z),
+            )
+        };
         let owner_player_id = {
             let planter = self.objects.get(&planter_id)?;
             if planter.owner_player_id.is_some() {
@@ -358,18 +387,33 @@ impl GameLogic {
                 None
             }
         };
-        let bid = self.create_object_for_owner_or_team_with_effects(
+        let creation = self.create_object_for_owner_or_team_with_birth_checked(
             BOOBY_TRAP_OBJECT,
             team,
             owner_player_id,
             pos,
             None,
             effects,
-        )?;
+        );
+        let (bid, charge_birth) = match creation {
+            Ok(Some(receipt)) => receipt,
+            Ok(None) => return None,
+            Err(error) => {
+                if let Some((created_id, created_birth)) = error.committed {
+                    if self.object_birth_matches(created_id, &created_birth) {
+                        let _ = self
+                            .mark_object_for_destruction_with_effects(created_id, None, effects);
+                    }
+                }
+                log::error!("Failed to create StickyBombUpdate charge: {}", error.error);
+                return None;
+            }
+        };
         if let Some(o) = self.objects.get_mut(&bid) {
             o.booby_trap_special = true;
             o.booby_trap_attached_to = Some(structure_id);
-            o.producer_id = Some(planter_id);
+            // StickyBombUpdate::initStickyBomb sets ProducerID to its target.
+            o.producer_id = Some(structure_id);
             o.health.maximum = BOOBY_TRAP_MAX_HEALTH;
             Self::write_object_health_authority_aware(
                 o,
@@ -379,6 +423,20 @@ impl GameLogic {
             o.movement.max_speed = 0.0;
             o.weapon = None;
             o.secondary_weapon = None;
+        }
+        // StickyBombUpdate::initStickyBomb sets the target status after the
+        // charge producer/position initialization and before its create sound.
+        // Factory callbacks can reenter and replace the target, so verify its
+        // birth before writing status and destroy only this charge birth.
+        let target_still_valid = self.object_birth_matches(structure_id, &target_birth);
+        if !target_still_valid {
+            if self.object_birth_matches(bid, &charge_birth) {
+                self.destroy_booby_trap_special_object_with_effects(bid, effects);
+            }
+            return None;
+        }
+        if let Some(target) = self.objects.get_mut(&structure_id) {
+            target.set_status_booby_trapped(true);
         }
         self.booby_trap_objects_spawned = self.booby_trap_objects_spawned.saturating_add(1);
         Some(bid)
@@ -437,11 +495,15 @@ impl GameLogic {
         let mut moves = Vec::new();
         for (cid, sid) in pairs {
             let Some(structure) = self.objects.get(&sid) else {
+                let _ = self.booby_trap.take_plant(sid);
                 destroy.push(cid);
                 continue;
             };
             if !structure.is_alive() || structure.status.destroyed {
-                // Death detonate path handles registry; just drop orphan special object.
+                // If C++ status was clear, its death detonation gate did not
+                // consume the trap. The dying target still destroys its charge;
+                // discard only the now-orphaned registry metadata here.
+                let _ = self.booby_trap.take_plant(sid);
                 destroy.push(cid);
                 continue;
             }
@@ -500,47 +562,114 @@ impl GameLogic {
     ) -> u32 {
         use crate::game_logic::host_booby_trap::{
             BOOBY_GEOMETRY_DAMAGE_FX, booby_trap_damage_at, booby_trap_splash_radius,
-            is_legal_booby_victim, is_planter_ally,
+            is_legal_booby_victim,
         };
 
-        let Some(plant) = self.booby_trap.take_plant(structure_id) else {
-            // Status may lag registry — clear flag only.
-            if let Some(obj) = self.objects.get_mut(&structure_id) {
-                obj.set_status_booby_trapped(false);
-            }
+        // C++ Object::checkAndDetonateBoobyTrap returns before looking up its
+        // sticky-bomb charge when OBJECT_STATUS_BOOBY_TRAPPED is clear.
+        // Registry records carry plant metadata and cannot authorize a trigger.
+        let Some((target_birth, target_pos, scan_radius)) =
+            self.objects.get(&structure_id).and_then(|object| {
+                object.status.booby_trapped.then(|| {
+                    (
+                        std::sync::Arc::downgrade(&object.visual_draw_identity_token),
+                        object.get_position(),
+                        crate::game_logic::host_booby_trap::BOOBY_TRAP_SCAN_RANGE
+                            + (*object.geometry_info()).bounding_circle_radius(),
+                    )
+                })
+            })
+        else {
             return 0;
         };
 
-        // Allies of planter do not trigger (C++ checkAndDetonateBoobyTrap).
+        if self.booby_trap.plant(structure_id).is_none() {
+            return 0;
+        }
+        let mut nearby_charges = Vec::new();
+        for charge_id in self.objects.registered_keys().copied() {
+            let Some(charge) = self.objects.get(&charge_id) else {
+                continue;
+            };
+            if !charge.is_alive()
+                || charge.status.destroyed
+                || charge.status.effectively_dead
+                || !charge.is_kind_of(crate::game_logic::KindOf::BoobyTrap)
+                || charge.producer_id != Some(structure_id)
+            {
+                continue;
+            }
+            // Match the host's horizontal X/Z plane, and retain C++'s
+            // ITER_SORTED_NEAR_TO_FAR candidate order for equal distances.
+            let position = charge.get_position();
+            let dx = position.x - target_pos.x;
+            let dz = position.z - target_pos.z;
+            let distance = (dx * dx + dz * dz).sqrt();
+            if distance <= scan_radius {
+                nearby_charges.push((
+                    distance,
+                    charge_id,
+                    std::sync::Arc::downgrade(&charge.visual_draw_identity_token),
+                ));
+            }
+        }
+        nearby_charges.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let Some((_, charge_id, charge_birth)) = nearby_charges.into_iter().next() else {
+            // C++ leaves status intact when it cannot find the required charge
+            // and update module in the scan range.
+            return 0;
+        };
+        let Some(charge) = self.objects.get(&charge_id) else {
+            return 0;
+        };
+        if !self.booby_trap_template_has_sticky_bomb_update(&charge.template_name) {
+            // C++ selects one nearest in-range charge first and only then
+            // checks that object's StickyBombUpdate; a farther valid charge
+            // cannot substitute for the nearest invalid one.
+            return 0;
+        }
+        // C++ next scans for KINDOF_BOOBY_TRAP with ProducerID == target ID,
+        // keeps the nearest eligible charge, then requires StickyBombUpdate.
+        // The registry's stored charge ID is bookkeeping only; it cannot
+        // change the engine's scan result or authorize a nonexistent charge.
+        // C++ Object.cpp:938 tests the selected charge owner's relationship to
+        // the trigger object before detonation, not planter faction identity.
         if let Some(tid) = trigger_unit {
-            if let Some(trigger) = self.objects.get(&tid) {
-                if is_planter_ally(plant.planter_team, trigger.team) {
-                    // Re-install — ally touch should not consume trap.
-                    self.booby_trap.install(
-                        structure_id,
-                        plant.planter_id,
-                        plant.planter_team,
-                        plant.plant_frame,
-                        plant.geometry_radius,
-                        plant.charge_object_id,
-                    );
-                    return 0;
-                }
+            let Some(trigger) = self.objects.get(&tid) else {
+                return 0;
+            };
+            let trigger_team_name = if trigger.team_instance_name.is_empty() {
+                self.default_host_team_instance_name(trigger.owner_player_id, trigger.team)
+            } else {
+                trigger.team_instance_name.clone()
+            };
+            let charge_owner_relationship = Self::object_relationship_from_owners(
+                &self.team_factory,
+                &self.players,
+                charge.owner_player_id,
+                "",
+                trigger.owner_player_id,
+                &trigger_team_name,
+            );
+            if charge_owner_relationship == gamelogic::common::Relationship::Allies {
+                return 0;
             }
         }
 
-        if let Some(obj) = self.objects.get_mut(&structure_id) {
-            obj.set_status_booby_trapped(false);
-        }
-        if let Some(cid) = plant.charge_object_id {
-            self.destroy_booby_trap_special_object_with_effects(cid, effects);
-        }
+        let Some(plant) = self.booby_trap.take_plant(structure_id) else {
+            return 0;
+        };
 
         let max_r = booby_trap_splash_radius(plant.geometry_radius);
         let mut hits = 0u32;
-        let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+        let mut destroy_ids: Vec<(ObjectId, Team, std::sync::Weak<()>)> = Vec::new();
         let victim_ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         for vid in victim_ids {
+            if !self.object_birth_matches(structure_id, &target_birth)
+                || !self.object_birth_matches(charge_id, &charge_birth)
+            {
+                return hits;
+            }
             let Some(victim) = self.objects.get(&vid) else {
                 continue;
             };
@@ -558,6 +687,7 @@ impl GameLogic {
             ) {
                 continue;
             }
+            let victim_birth = std::sync::Arc::downgrade(&victim.visual_draw_identity_token);
             let vpos = victim.get_position();
             let dist = {
                 let dx = vpos.x - structure_pos.x;
@@ -591,8 +721,15 @@ impl GameLogic {
                         effects,
                     )
                 } {
-                    destroy_ids.push((vid, plant.planter_team));
+                    destroy_ids.push((vid, plant.planter_team, victim_birth));
                 }
+            }
+            // Damage can synchronously invoke owner callbacks. Never continue
+            // the stale detonation against a replacement at either object ID.
+            if !self.object_birth_matches(structure_id, &target_birth)
+                || !self.object_birth_matches(charge_id, &charge_birth)
+            {
+                return hits;
             }
         }
 
@@ -628,8 +765,27 @@ impl GameLogic {
             );
         }
 
-        for (vid, killer) in destroy_ids {
-            self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
+        // FX dispatch may also reenter gameplay; validate before the later
+        // status clear and charge destruction.
+        if !self.object_birth_matches(structure_id, &target_birth)
+            || !self.object_birth_matches(charge_id, &charge_birth)
+        {
+            return hits;
+        }
+
+        // C++ StickyBombUpdate clears the target status after damage and FX,
+        // immediately before killing the charge object.
+        if let Some(obj) = self.objects.get_mut(&structure_id) {
+            obj.set_status_booby_trapped(false);
+        }
+        if self.object_birth_matches(charge_id, &charge_birth) {
+            self.destroy_booby_trap_special_object_with_effects(charge_id, effects);
+        }
+
+        for (vid, killer, birth) in destroy_ids {
+            if self.object_birth_matches(vid, &birth) {
+                self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
+            }
         }
         hits
     }

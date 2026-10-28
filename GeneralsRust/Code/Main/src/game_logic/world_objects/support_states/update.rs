@@ -1656,18 +1656,11 @@ impl GameLogic {
                     // C++ checks an enemy trap again at trigger; one planted
                     // during the visible preparation bar can still interrupt
                     // the actual defection.
-                    let planter_ally = self
-                        .booby_trap
-                        .plant(capture_target_id)
-                        .map(|plant| plant.planter_team == team)
-                        .unwrap_or(false);
-                    let target_is_trapped = self.booby_trap.is_booby_trapped(capture_target_id)
-                        || self
-                            .objects
-                            .get(&capture_target_id)
-                            .map(|target| target.status.booby_trapped)
-                            .unwrap_or(false);
-                    if !planter_ally && target_is_trapped {
+                    let target_is_trapped = self
+                        .objects
+                        .get(&capture_target_id)
+                        .is_some_and(|target| target.status.booby_trapped);
+                    if target_is_trapped {
                         let _ = self.detonate_booby_trap_at_with_effects(
                             capture_target_id,
                             target_position,
@@ -3090,11 +3083,10 @@ impl GameLogic {
                                 self.pending_special_abilities.remove(&object_id);
                                 continue;
                             }
-                            let still_trapped = self.booby_trap.is_booby_trapped(special_target_id)
-                                || self
-                                    .objects
-                                    .get(&special_target_id)
-                                    .is_some_and(|target| target.status.booby_trapped);
+                            let still_trapped = self
+                                .objects
+                                .get(&special_target_id)
+                                .is_some_and(|target| target.status.booby_trapped);
                             if still_trapped {
                                 self.pending_special_abilities.remove(&object_id);
                                 if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -3145,9 +3137,10 @@ impl GameLogic {
                                     )
                                 {
                                     self.booby_trap.set_charge_object(special_target_id, cid);
-                                }
-                                if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                    target.set_status_booby_trapped(true);
+                                } else {
+                                    // C++ StickyBombUpdate sets the object bit
+                                    // only after the charge object exists.
+                                    let _ = self.booby_trap.take_plant(special_target_id);
                                 }
                                 self.queue_audio_event(
                                     AudioEventRequest::new(BOOBY_TRAP_INSTALL_AUDIO)

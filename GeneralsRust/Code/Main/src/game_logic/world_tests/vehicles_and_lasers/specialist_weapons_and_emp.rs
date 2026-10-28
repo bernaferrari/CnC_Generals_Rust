@@ -1,6 +1,17 @@
 //! Behavior tests extracted from the original hero/weapons/airfields suite.
 use super::*;
 
+fn admit_test_sticky_bomb_charge(game: &mut GameLogic) {
+    game.admit_receiving_module_content(
+        crate::assets::ReceivingObjectContent::from_sources([(
+            "booby-trap-charge.ini".into(),
+            "Object BoobyTrap\nKindOf = IMMOBILE BOOBY_TRAP\nBody = ActiveBody BodyTag\nMaxHealth = 1\nInitialHealth = 1\nEnd\nBehavior = StickyBombUpdate Sticky\nEnd\nEnd\n".into(),
+        )])
+        .expect("typed StickyBombUpdate charge content"),
+    )
+    .expect("admit typed StickyBombUpdate charge content");
+}
+
 #[test]
 fn colonel_burton_residual_sniper_and_knife() {
     use crate::game_logic::host_colonel_burton::{
@@ -341,6 +352,7 @@ fn rebel_booby_trap_plant_and_capture_detonate_residual() {
     use crate::game_logic::host_upgrades::HostUpgradeKind;
 
     let mut game_logic = GameLogic::new();
+    admit_test_sticky_bomb_charge(&mut game_logic);
     game_logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     game_logic.add_player(Player::new(1, Team::USA, "USA", false));
 
@@ -457,6 +469,12 @@ fn rebel_booby_trap_plant_and_capture_detonate_residual() {
             geom,
             None,
         );
+        let charge = game_logic
+            .spawn_booby_trap_special_object(rebel_id, Team::GLA, building_id)
+            .expect("admitted StickyBombUpdate charge");
+        game_logic
+            .booby_trap
+            .set_charge_object(building_id, charge);
         if let Some(b) = game_logic.host_object_mut(building_id) {
             b.set_status_booby_trapped(true);
         }
@@ -510,6 +528,7 @@ fn booby_trap_detonates_enemy_and_refuses_replace() {
     use crate::game_logic::host_booby_trap::UPGRADE_GLA_REBEL_BOOBY_TRAP;
 
     let mut game_logic = GameLogic::new();
+    admit_test_sticky_bomb_charge(&mut game_logic);
     game_logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     game_logic.add_player(Player::new(1, Team::USA, "USA", false));
 
@@ -598,6 +617,12 @@ fn booby_trap_detonates_enemy_and_refuses_replace() {
             geom,
             None,
         );
+        let charge = game_logic
+            .spawn_booby_trap_special_object(ally_id, Team::GLA, building_id)
+            .expect("admitted StickyBombUpdate charge");
+        game_logic
+            .booby_trap
+            .set_charge_object(building_id, charge);
         if let Some(b) = game_logic.host_object_mut(building_id) {
             b.set_status_booby_trapped(true);
         }
