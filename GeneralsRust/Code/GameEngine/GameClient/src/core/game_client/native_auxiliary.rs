@@ -154,6 +154,23 @@ impl NativeDrawableOwner<'_> {
         birth: NativeDrawableBirthContext,
         logic_frame: u32,
         sync_ms: u32,
+        observe: impl FnMut(NativeAuxiliaryMutation<'_>) -> GameClientResult<()>,
+    ) -> GameClientResult<NativeAuxiliaryReceipt> {
+        self.create_auxiliary_drawable_with_locality(
+            plan, content, scale, policy, birth, logic_frame, sync_ms, None, observe,
+        )
+    }
+
+    pub fn create_auxiliary_drawable_with_locality(
+        &mut self,
+        plan: Arc<AdmittedReceivingTemplate>,
+        content: &mut game_engine::common::thing::module_factory::ModuleFactory,
+        scale: f32,
+        policy: ReceivingDrawablePolicy,
+        birth: NativeDrawableBirthContext,
+        logic_frame: u32,
+        sync_ms: u32,
+        locality: Option<&game_engine::common::audio::AudioSubmissionLocality>,
         mut observe: impl FnMut(NativeAuxiliaryMutation<'_>) -> GameClientResult<()>,
     ) -> GameClientResult<NativeAuxiliaryReceipt> {
         self.particles
@@ -206,11 +223,25 @@ impl NativeDrawableOwner<'_> {
                     policy,
                     logic_frame,
                 )?;
-                draw.finish_native_constructor_ambient_at(
-                    birth.loading_map,
-                    birth.in_load_game,
-                    tod,
-                );
+                if let Some(audio_device) = self.audio_device {
+                    let locality = locality.ok_or_else(|| {
+                        GameClientError::InvalidOperation(
+                            "bound receiving audio requires auxiliary Drawable locality".into(),
+                        )
+                    })?;
+                    let mut audio = audio_device.lock().map_err(|_| {
+                        GameClientError::SubsystemError(
+                            "receiving audio manager lock poisoned during auxiliary Drawable construction".into(),
+                        )
+                    })?;
+                    draw.finish_native_constructor_ambient_with_audio(
+                        birth.loading_map, birth.in_load_game, tod, &mut audio, locality,
+                    ).map_err(GameClientError::InvalidOperation)?;
+                } else {
+                    draw.finish_native_constructor_ambient_at(
+                        birth.loading_map, birth.in_load_game, tod,
+                    );
+                }
                 let flags = draw.get_model_condition_flags();
                 let bits = (0..128.min(flags.get_bit_names().len()))
                     .fold(0u128, |bits, i| bits | ((flags.test(i) as u128) << i));
@@ -225,7 +256,11 @@ impl NativeDrawableOwner<'_> {
             Err(payload) => {
                 if let Err(error) = self
                     .drawables
-                    .try_remove_for_map_attempt(id, Some(&mut *self.particles))
+                    .try_remove_for_map_attempt_with_audio(
+                        id,
+                        Some(&mut *self.particles),
+                        self.audio_device,
+                    )
                 {
                     log::error!("auxiliary constructor panic cleanup failed: {error}");
                 }
@@ -244,7 +279,11 @@ impl NativeDrawableOwner<'_> {
         if let Err(error) = result {
             let cleanup = self
                 .drawables
-                .try_remove_for_map_attempt(id, Some(&mut *self.particles));
+                .try_remove_for_map_attempt_with_audio(
+                    id,
+                    Some(&mut *self.particles),
+                    self.audio_device,
+                );
             let renderer = observe(NativeAuxiliaryMutation::Destroyed { receipt: &receipt });
             return Err(GameClientError::InvalidOperation(format!(
                 "objectless constructor: {error}; cleanup={cleanup:?}; renderer={renderer:?}"
@@ -325,7 +364,11 @@ impl NativeDrawableOwner<'_> {
             ));
         }
         self.drawables
-            .try_remove_for_map_attempt(receipt.id, Some(&mut *self.particles))?;
+            .try_remove_for_map_attempt_with_audio(
+                receipt.id,
+                Some(&mut *self.particles),
+                self.audio_device,
+            )?;
         observe(NativeAuxiliaryMutation::Destroyed { receipt })
     }
 }

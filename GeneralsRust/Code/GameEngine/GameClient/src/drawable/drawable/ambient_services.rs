@@ -203,17 +203,9 @@ impl BasicDrawable {
         audio: &mut AudioManager,
         locality: &AudioSubmissionLocality,
     ) -> Result<(), String> {
-        if !loading_map
-            && !in_load_game
-            && self.ambient_sound_enabled
-            && self.ambient_sound_enabled_from_script
-        {
-            self.start_ambient_sound_for_state_with_audio(
-                BodyDamageType::Pristine,
-                time_of_day,
-                false,
-                audio,
-                locality,
+        if !loading_map && !in_load_game {
+            self.start_ambient_sound_current_state_with_audio(
+                false, time_of_day, audio, locality,
             )?;
         }
         Ok(())

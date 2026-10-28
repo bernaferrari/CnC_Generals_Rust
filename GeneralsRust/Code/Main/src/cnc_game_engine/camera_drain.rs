@@ -1992,6 +1992,9 @@ impl CnCGameEngine {
                 game_client::core::game_client::PresentationDrawableSync {
                     receiving_science_player: pres.receiving_science_player.clone(),
                     object_id: o.id.0,
+                    ambient_audio_locality: Some(self.game_logic.receiving_audio_locality_for_player(
+                        o.owner_player_id.map(|owner| owner as i32).unwrap_or(-1),
+                    )),
                     host_epoch,
                     // The direct-host roster was frozen from actual host
                     // ownership. It deliberately remains resident through

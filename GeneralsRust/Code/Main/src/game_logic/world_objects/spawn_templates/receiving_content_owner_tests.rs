@@ -314,6 +314,7 @@ fn client_entry(
             .unwrap()
             .client_admission(),
         object_id: id.0,
+        ambient_audio_locality: None,
         host_epoch: 1,
         resident: direct.resident,
         visual_template_name: direct.visual_template_name.clone(),

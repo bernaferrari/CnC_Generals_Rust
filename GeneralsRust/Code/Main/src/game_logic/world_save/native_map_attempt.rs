@@ -73,7 +73,7 @@ impl GameLogic {
             )?;
             if accepted && kind.is_new() {
                 if let Some(native) = native.as_mut() {
-                    native.on_level_start()?;
+                    native.on_level_start(self)?;
                 }
             }
             if accepted {
@@ -164,7 +164,7 @@ mod loading_gate_failure_tests {
             self.effects_seen_at_discard.push(self.effects_calls);
             Err("receiving retirement rejected".into())
         }
-        fn on_level_start(&mut self) -> Result<(), String> {
+        fn on_level_start(&mut self, _: &GameLogic) -> Result<(), String> {
             panic!("failed admission cannot start level")
         }
         fn prepare(

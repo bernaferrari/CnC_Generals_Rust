@@ -335,7 +335,7 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let menu_audio = {
             let mut owner = super::menu_audio::NativeMenuAudioService::default();
-            owner.bind(native_audio_device);
+            owner.bind(std::sync::Arc::clone(&native_audio_device));
             owner
         };
         // C++ GameClient::init loads Data/INI/Eva.ini into TheEva (Eva.cpp:43-57).
@@ -774,9 +774,10 @@ impl CnCGameEngine {
 
         // C++ GameEngine.cpp:399 initializes authored setup definitions before
         // client UI. Complete this once before the archive worker can run.
-        let max_beacons_per_player = Self::load_startup_multiplayer_definitions(&application_assets)
-            .await
-            .map_err(anyhow::Error::msg)?;
+        let max_beacons_per_player =
+            Self::load_startup_multiplayer_definitions(&application_assets)
+                .await
+                .map_err(anyhow::Error::msg)?;
         game_logic.admit_max_beacons_per_player(max_beacons_per_player);
 
         let startup_load_state = if build_map_cache || audio_startup_requires_quit {
@@ -954,10 +955,13 @@ impl CnCGameEngine {
                 // interactions into its typed host bridge rather than the
                 // separate legacy GameLogic global queue.
 
-                game_client::core::game_client::GameClient::new_with_input_authority(
-                    game_client::core::game_client::ClientInputAuthority::NativeHosted,
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to create GameClient: {e}"))?
+                let mut client =
+                    game_client::core::game_client::GameClient::new_with_input_authority(
+                        game_client::core::game_client::ClientInputAuthority::NativeHosted,
+                    )
+                    .map_err(|e| anyhow::anyhow!("Failed to create GameClient: {e}"))?;
+                client.bind_native_audio_device(std::sync::Arc::clone(&native_audio_device));
+                client
             },
             #[cfg(feature = "game_client")]
             control_bar: game_client::gui::control_bar::ControlBar::new(),

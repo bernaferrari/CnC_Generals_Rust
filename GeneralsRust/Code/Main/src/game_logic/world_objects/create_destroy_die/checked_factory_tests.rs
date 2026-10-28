@@ -239,7 +239,10 @@ fn actual_map_rejects_nested_garrison_body_error_before_later_objects() {
                     self.retirement_counts_at_discard.push(self.retired.len());
                     Ok(())
                 }
-                fn on_level_start(&mut self) -> Result<(), String> {
+                fn on_level_start(
+                    &mut self,
+                    _: &crate::game_logic::GameLogic,
+                ) -> Result<(), String> {
                     panic!("rejected map must not publish level start")
                 }
                 fn prepare(

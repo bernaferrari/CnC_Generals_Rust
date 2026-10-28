@@ -1394,6 +1394,21 @@ pub struct CnCGameEngine {
     pub(crate) victory_summary: Option<VictorySummary>,
 }
 
+#[cfg(feature = "game_client")]
+impl Drop for CnCGameEngine {
+    fn drop(&mut self) {
+        // ApplicationServices retires the shared AudioManager after the engine
+        // is dropped. Destroy native Drawables now so their queued ambient
+        // stops precede AudioManagerSubsystem receipt retirement.
+        if let Err(error) = self
+            .game_client
+            .retire_native_drawables_for_application_shutdown()
+        {
+            log::error!("Native Drawable retirement before audio shutdown failed: {error}");
+        }
+    }
+}
+
 /// C++ SAGE engine VertexFormatXYZNDUV2 equivalent - matches original vertex declarations
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]

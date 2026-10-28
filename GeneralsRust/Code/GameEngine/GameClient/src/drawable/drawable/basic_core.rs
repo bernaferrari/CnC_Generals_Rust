@@ -136,6 +136,29 @@ impl BasicDrawable {
         self.start_ambient_sound_for_state(state, tod, only_if_permanent);
     }
 
+    /// Receiving-owner counterpart to `start_ambient_sound_at`. Preserve its
+    /// enable checks, stop-before-state-selection order, and current damage state.
+    pub(crate) fn start_ambient_sound_current_state_with_audio(
+        &mut self,
+        only_if_permanent: bool,
+        tod: TimeOfDay,
+        audio: &mut game_engine::common::audio::AudioManager,
+        locality: &game_engine::common::audio::AudioSubmissionLocality,
+    ) -> Result<(), String> {
+        if !self.ambient_sound_enabled || !self.ambient_sound_enabled_from_script {
+            return Ok(());
+        }
+        self.stop_ambient_sound_with_audio(audio);
+        let state = self.current_body_damage_type();
+        self.start_ambient_sound_for_state_with_audio(
+            state,
+            tod,
+            only_if_permanent,
+            audio,
+            locality,
+        )
+    }
+
     pub(crate) fn on_level_start_at(&mut self, tod: TimeOfDay) {
         if self.receiving_template.is_some() {
             self.admit_receiving_time_of_day(Some(tod));
@@ -149,6 +172,31 @@ impl BasicDrawable {
         {
             self.start_ambient_sound_at(false, tod);
         }
+    }
+
+    /// Start this drawable using its receiving application's audio service.
+    pub(crate) fn on_level_start_with_audio_at(
+        &mut self,
+        tod: TimeOfDay,
+        audio: Option<&mut game_engine::common::audio::AudioManager>,
+        locality: &game_engine::common::audio::AudioSubmissionLocality,
+    ) -> Result<(), String> {
+        if self.receiving_template.is_none() {
+            return Ok(());
+        }
+        self.admit_receiving_time_of_day(Some(tod));
+        let needs_start = self.ambient_sound_event.as_ref().is_none_or(|event| {
+            !event.get_event_name().is_empty()
+                && !audio
+                    .as_ref()
+                    .is_some_and(|device| device.is_currently_playing(event.get_playing_handle()))
+        });
+        if self.ambient_sound_enabled && self.ambient_sound_enabled_from_script && needs_start {
+            if let Some(audio) = audio {
+                self.start_ambient_sound_current_state_with_audio(false, tod, audio, locality)?;
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn finish_native_constructor_ambient_at(

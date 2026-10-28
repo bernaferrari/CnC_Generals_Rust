@@ -328,6 +328,7 @@ impl GameClient {
         NativeRenderReceiver::new(
             &mut self.drawables.state,
             &mut self.native_particle_capability_gaps,
+            self.native_audio_device.as_ref(),
             self.subsystem_manager.in_game_ui.as_mut(),
             self.frame,
             self.local_player_id,
@@ -1501,8 +1502,11 @@ impl Drop for GameClient {
 
         // Clear all drawables (they'll be dropped automatically)
         self.drawable_manager.clear_drawables();
-        self.drawables.drawable_map.clear();
-        self.drawables.native_drawable_order.clear();
+        if let Err(error) = self.retire_native_drawables_for_application_shutdown() {
+            // Drop cannot report the poisoned-device failure. Keep it visible;
+            // explicit world retirement remains fallible and must be preferred.
+            log::error!("Native Drawable audio retirement failed during Drop: {error}");
+        }
         self.drawables.ray_effects.reset();
         self.drawables.owned_laser_order.clear();
 

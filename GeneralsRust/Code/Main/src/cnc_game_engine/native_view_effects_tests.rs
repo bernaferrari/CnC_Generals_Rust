@@ -61,6 +61,7 @@ fn entry(unit: &crate::presentation_frame::UnitRenderInput) -> PresentationDrawa
     PresentationDrawableSync {
         receiving_science_player: None,
         object_id: ID.0,
+        ambient_audio_locality: None,
         host_epoch: EPOCH,
         resident: true,
         visual_template_name: unit.template_name.clone(),

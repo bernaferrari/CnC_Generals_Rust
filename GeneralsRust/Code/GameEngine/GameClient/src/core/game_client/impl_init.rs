@@ -108,6 +108,7 @@ impl GameClient {
             last_native_draw_frame: u32::MAX,
             native_particle_capability_gaps: Vec::new(),
             local_player_id: 0,
+            native_audio_device: None,
             visual_world: None,
             last_applied_military_caption: None,
             last_applied_military_caption_remaining_ms: None,
@@ -144,6 +145,16 @@ impl GameClient {
         };
 
         Ok(client)
+    }
+
+    /// Bind the native application's shared audio device to this receiving
+    /// client. Construction remains inert; callers invoke this during app
+    /// startup after the application audio service has been created.
+    pub fn bind_native_audio_device(
+        &mut self,
+        device: std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+    ) {
+        self.native_audio_device = Some(device);
     }
 
     /// Initializes all subsystems and resources
@@ -322,7 +333,8 @@ impl GameClient {
 
     fn try_invalidate_presentation_drawable_world(&mut self) -> GameClientResult<()> {
         self.retire_native_drawable_particles(None)?;
-        self.drawables.finish_native_retirement();
+        self.drawables
+            .finish_native_retirement_with_device(self.native_audio_device.as_ref())?;
         self.drawables.clear_live_terrain_decal_handles();
         self.invalidate_presentation_shell();
         for drawable in self.drawables.drawable_map.values_mut() {
@@ -349,6 +361,19 @@ impl GameClient {
         // Particle/native retirement has succeeded; clear both playback and
         // transport now, before another world can be installed or rendered.
         self.clear_world_animation_runtime_after_retirement()?;
+        Ok(())
+    }
+
+    /// Retire the native Drawable roster before the application audio owner is
+    /// shut down. Each ambient stop enters the bound AudioManager's request
+    /// queue in the same module-destruction order as ordinary removal.
+    pub fn retire_native_drawables_for_application_shutdown(&mut self) -> GameClientResult<()> {
+        self.drawables
+            .finish_native_retirement_with_device(self.native_audio_device.as_ref())?;
+        self.drawables.drawable_map.clear();
+        self.drawables.native_drawable_order.clear();
+        self.drawables.drawable_object_map.clear();
+        self.drawables.owned_laser_order.clear();
         Ok(())
     }
 
@@ -822,6 +847,9 @@ impl GameClient {
         if self.subsystem_manager.audio.is_none() {
             let mut audio = AudioSubsystem::new()
                 .map_err(|e| GameClientError::SubsystemError(format!("Audio init failed: {e}")))?;
+            if let Some(device) = self.native_audio_device.as_ref() {
+                audio.bind_common_audio_device(std::sync::Arc::clone(device));
+            }
             audio.init()?;
             let audio_arc = Arc::new(Mutex::new(audio));
             let hook_audio = Arc::clone(&audio_arc);

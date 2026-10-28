@@ -189,13 +189,23 @@ impl<'a> NativeRendererViewEffects<'a> {
         self.policy.use_tree_sway = world.lighting_rules().use_tree_sway;
         self.policy.time_of_day = world.native_lighting_time_of_day();
     }
-    pub(super) fn on_level_start(&mut self) -> Result<(), String> {
+    pub(super) fn on_level_start(
+        &mut self,
+        world: &crate::game_logic::GameLogic,
+    ) -> Result<(), String> {
         let tod = self
             .policy
             .time_of_day
             .ok_or_else(|| "native level start requires receiving time of day".to_owned())?;
         self.drawables
-            .on_level_start_at(tod)
+            .on_level_start_with_audio_at(tod, |object_id| {
+                let source = object_id
+                    .and_then(|id| world.host_object(crate::game_logic::ObjectId(id)))
+                    .and_then(|object| object.owner_player_id)
+                    .map(|id| id as i32)
+                    .unwrap_or(-1);
+                world.receiving_audio_locality_for_player(source)
+            })
             .map_err(|error| error.to_string())
     }
 }
@@ -217,7 +227,7 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
         let graphics = &mut *self.graphics;
         let sync = poses.current_animation_sync_ms();
         self.drawables
-            .create_auxiliary_drawable(
+            .create_auxiliary_drawable_with_locality(
                 std::sync::Arc::clone(&source.template),
                 content,
                 source.scale,
@@ -225,6 +235,7 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
                 source.birth,
                 source.frame,
                 sync,
+                Some(&source.ambient_audio_locality),
                 |mutation| admit_auxiliary_mutation(poses, graphics, source, mutation),
             )
             .map_err(|error| error.to_string())

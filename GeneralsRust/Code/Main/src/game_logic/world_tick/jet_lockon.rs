@@ -67,6 +67,7 @@ impl GameLogic {
     fn prepare_jet_lockon_source(
         &self,
         cursor: &str,
+        owner_player_id: Option<u32>,
     ) -> Result<Option<NativeAuxiliarySource>, String> {
         let Some(template) = self.templates.get(cursor) else {
             return Ok(None);
@@ -89,6 +90,9 @@ impl GameLogic {
             scale: template.asset_scale,
             frame: self.frame,
             birth: self.native_drawable_birth_context(),
+            ambient_audio_locality: self.receiving_audio_locality_for_player(
+                owner_player_id.map(|owner| owner as i32).unwrap_or(-1),
+            ),
         }))
     }
 
@@ -165,7 +169,7 @@ impl GameLogic {
                         return Ok(false);
                     };
                     let Some(source) = self
-                        .prepare_jet_lockon_source(&cursor)
+                        .prepare_jet_lockon_source(&cursor, jet.owner_player_id)
                         .map_err(Configuration)?
                     else {
                         return Ok(false);
@@ -321,7 +325,7 @@ impl GameLogic {
                 let actor = self.live_draw_playback_identity(object);
                 let cursor = object.jet_ai.lockon_drawable_template.clone().unwrap();
                 let Some(source) = self
-                    .prepare_jet_lockon_source(&cursor)
+                    .prepare_jet_lockon_source(&cursor, object.owner_player_id)
                     .map_err(Configuration)?
                 else {
                     self.objects

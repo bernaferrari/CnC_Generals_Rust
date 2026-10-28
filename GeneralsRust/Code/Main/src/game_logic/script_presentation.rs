@@ -1,7 +1,7 @@
 //! Ephemeral loans for one synchronous script/callback walk, never world state.
 use crate::assets::LiveDrawPlaybackIdentity;
 #[derive(Clone, Debug)]
-pub(crate) struct NativeSlaveSource {
+pub struct NativeSlaveSource {
     pub(crate) identity: LiveDrawPlaybackIdentity,
     pub(crate) template_name: String,
     pub(crate) receiving_draw_models: std::sync::Arc<crate::game_logic::thing::ReceivingDrawModels>,
@@ -25,6 +25,7 @@ pub(crate) struct NativeAuxiliarySource {
     pub(crate) scale: f32,
     pub(crate) frame: u32,
     pub(crate) birth: game_client::core::game_client::NativeDrawableBirthContext,
+    pub(crate) ambient_audio_locality: game_engine::common::audio::AudioSubmissionLocality,
 }
 
 #[cfg(feature = "game_client")]
@@ -37,6 +38,7 @@ impl PartialEq for NativeAuxiliarySource {
             && self.scale == other.scale
             && self.frame == other.frame
             && self.birth == other.birth
+            && self.ambient_audio_locality == other.ambient_audio_locality
     }
 }
 
@@ -427,7 +429,7 @@ pub(crate) trait NativeMapAdmission {
     fn discard_attempt(&mut self) -> Result<(), String>;
     /// Actual receiving Drawable prepend roster, before the driving map gate
     /// closes. Saved-map foundation never invokes this new-level callback.
-    fn on_level_start(&mut self) -> Result<(), String>;
+    fn on_level_start(&mut self, world: &super::GameLogic) -> Result<(), String>;
     fn prepare(
         &mut self,
         world: &super::GameLogic,

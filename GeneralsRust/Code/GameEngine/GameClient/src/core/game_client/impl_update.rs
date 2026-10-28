@@ -340,6 +340,7 @@ impl GameClient {
             NativeRenderReceiver::new(
                 state,
                 &mut self.native_particle_capability_gaps,
+                self.native_audio_device.as_ref(),
                 self.subsystem_manager.in_game_ui.as_mut(),
                 self.frame,
                 self.local_player_id,
@@ -596,6 +597,7 @@ impl GameClient {
                 draw_physics: Default::default(),
                 draw_velocity_magnitude_squared: 0.,
                 object_id: id,
+                ambient_audio_locality: None,
                 host_epoch: 0,
                 resident: true,
                 visual_template_name: tmpl.clone(),
@@ -889,7 +891,7 @@ impl GameClient {
                     .remove(&drawable_id);
             }
 
-            self.drawables.borrow_native().admit_fresh_drawable(
+            self.borrow_native_drawable_owner().admit_fresh_drawable(
                 &e,
                 sync_ms,
                 content.as_deref_mut(),

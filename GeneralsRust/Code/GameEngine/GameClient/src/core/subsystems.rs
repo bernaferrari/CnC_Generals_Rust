@@ -2084,13 +2084,26 @@ pub enum RadarPingKind {
 /// backend; diagnostic state belongs to this subsystem's client.
 pub struct AudioSubsystem {
     debug_state: AudioDebugState,
+    /// Bound application service for this receiving GameClient. Standalone
+    /// compatibility clients retain the TheAudio adapter when no service was
+    /// supplied by their host.
+    common_audio_device:
+        Option<std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>>,
 }
 
 impl AudioSubsystem {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
             debug_state: AudioDebugState::new(),
+            common_audio_device: None,
         })
+    }
+
+    pub fn bind_common_audio_device(
+        &mut self,
+        device: std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+    ) {
+        self.common_audio_device = Some(device);
     }
 
     pub fn debug_snapshot(&self) -> AudioDebugSnapshot {
@@ -2127,7 +2140,15 @@ impl SubsystemInterface for AudioSubsystem {
     }
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(audio) = TheAudio::get() {
+        if let Some(device) = self.common_audio_device.as_ref() {
+            let mut audio = device.lock().map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "receiving Common AudioManager lock poisoned",
+                )
+            })?;
+            audio.update();
+        } else if let Some(audio) = TheAudio::get() {
             audio.update();
         }
         Ok(())

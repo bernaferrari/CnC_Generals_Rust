@@ -958,6 +958,7 @@ mod tests {
             draw_velocity_magnitude_squared: 0.0,
             draw_logic_frame: 0,
             object_id,
+            ambient_audio_locality: None,
             host_epoch,
             resident,
             visual_template_name: visual_template_name.to_string(),

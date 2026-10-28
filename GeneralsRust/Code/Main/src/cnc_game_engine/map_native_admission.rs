@@ -14,6 +14,9 @@ pub(crate) struct NativeMapCandidate {
     retirement: CandidateRetirement,
     audio: super::native_audio_effects::PendingNativeAudio,
     #[cfg(feature = "game_client")]
+    audio_device:
+        Option<std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>>,
+    #[cfg(feature = "game_client")]
     drawables: game_client::core::game_client::NativeDrawableWorld,
     draw: crate::graphics::render_pipeline::native_draw_world::NativeDrawWorld,
     // Allocated by the driving application before factory birth, never inferred
@@ -128,7 +131,7 @@ impl NativeMapCandidate {
 impl crate::game_logic::NativeMapAdmission for NativeMapCandidate {
     fn discard_attempt(&mut self) -> Result<(), String> {
         self.drawables
-            .borrow_native()
+            .borrow_native_with_audio(self.audio_device.as_ref())
             .try_clear_for_map_attempt(None)
             .map_err(|error| error.to_string())?;
         self.draw = Default::default();
@@ -146,19 +149,26 @@ impl crate::game_logic::NativeMapAdmission for NativeMapCandidate {
             return Err("saved object Drawables require the lexical native map attempt".into());
         }
         self.drawables
-            .borrow_native()
+            .borrow_native_with_audio(self.audio_device.as_ref())
             .try_clear_for_map_attempt(None)
             .map_err(|error| error.to_string())?;
         self.draw = Default::default();
         Ok(())
     }
-    fn on_level_start(&mut self) -> Result<(), String> {
+    fn on_level_start(&mut self, world: &crate::game_logic::GameLogic) -> Result<(), String> {
         let tod = self
             .time_of_day
             .ok_or_else(|| "native candidate requires receiving time of day".to_owned())?;
         self.drawables
-            .borrow_native()
-            .on_level_start_at(tod)
+            .borrow_native_with_audio(self.audio_device.as_ref())
+            .on_level_start_with_audio_at(tod, |object_id| {
+                let source = object_id
+                    .and_then(|id| world.host_object(crate::game_logic::ObjectId(id)))
+                    .and_then(|object| object.owner_player_id)
+                    .map(|id| id as i32)
+                    .unwrap_or(-1);
+                world.receiving_audio_locality_for_player(source)
+            })
             .map_err(|error| error.to_string())
     }
     fn prepare(
@@ -371,12 +381,14 @@ impl NativeMapCandidate {
         let epoch = self
             .epoch
             .ok_or("map birth requires a reserved candidate epoch")?;
-        self.audio.capture_sound_service(audio_device);
+        self.audio.capture_sound_service(audio_device.clone());
+        self.audio_device = audio_device;
         let poses = services.bind_world(&mut self.draw);
         let view = super::native_view_effects::NativeRendererViewEffects::new(
             poses,
             graphics,
-            self.drawables.borrow_native(),
+            self.drawables
+                .borrow_native_with_audio(self.audio_device.as_ref()),
             epoch,
             local_player_id,
             policy,
@@ -425,11 +437,11 @@ impl crate::game_logic::NativeMapAdmission for NativeMapAttempt<'_> {
         }
         self.view.admit_restored_object_drawables(world)
     }
-    fn on_level_start(&mut self) -> Result<(), String> {
+    fn on_level_start(&mut self, world: &crate::game_logic::GameLogic) -> Result<(), String> {
         if !matches!(*self.retirement, CandidateRetirement::Failed) {
             *self.retirement = CandidateRetirement::MayOwnResources;
         }
-        self.view.on_level_start()
+        self.view.on_level_start(world)
     }
     fn prepare(
         &mut self,

@@ -14,6 +14,7 @@ fn sync_entry(
     game_client::core::PresentationDrawableSync {
         receiving_science_player: None,
         object_id,
+        ambient_audio_locality: None,
         host_epoch,
         resident,
         visual_template_name: visual_template_name.to_string(),

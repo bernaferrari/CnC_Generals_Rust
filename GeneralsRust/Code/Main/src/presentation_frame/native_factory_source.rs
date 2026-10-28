@@ -126,6 +126,9 @@ impl GameLogic {
             draw_velocity_magnitude_squared: speed_squared,
             draw_logic_frame: frame,
             object_id: id.0,
+            ambient_audio_locality: Some(self.receiving_audio_locality_for_player(
+                object.owner_player_id.map(|owner| owner as i32).unwrap_or(-1),
+            )),
             host_epoch,
             resident: true,
             visual_template_name: template.name.clone(),

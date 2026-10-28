@@ -83,6 +83,10 @@ pub struct GameClient {
     presentation_shell_generation: u64,
     native_particle_capability_gaps: Vec<NativeParticleCapabilityGap>,
     local_player_id: i32,
+    /// Application audio service handed in by the native host. Drawable
+    /// retirement appends stops to this service's existing request queue.
+    pub(crate) native_audio_device:
+        Option<std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>>,
     /// Presentation companion for the driving GameLogic instance. Bound by
     /// the engine only when a world becomes active, never by construction.
     visual_world: Option<gamelogic::helpers::ClientVisualHandle>,

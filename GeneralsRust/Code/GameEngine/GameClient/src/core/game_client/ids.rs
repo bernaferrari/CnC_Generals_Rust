@@ -165,6 +165,8 @@ pub struct PresentationDrawableSync {
     pub draw_velocity_magnitude_squared: f32,
     pub draw_logic_frame: u32,
     pub object_id: u32,
+    /// Audio locality frozen by the receiving simulation for this object's owner.
+    pub ambient_audio_locality: Option<game_engine::common::audio::AudioSubmissionLocality>,
     /// Runtime host-world identity supplied by Main for this direct visual.
     pub host_epoch: u64,
     /// Whether the host still owns this visual resident.  This is the only

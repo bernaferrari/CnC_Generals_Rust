@@ -659,13 +659,15 @@ impl GameClient {
         NativeDrawableOwner<'_>,
     ) {
         let identity = std::ptr::from_mut(self) as usize;
+        let mut drawable_owner = self.drawables.borrow_native();
+        drawable_owner.audio_device = self.native_audio_device.as_ref();
         (
             ClientFrameWriter {
                 frame: &mut self.frame,
                 identity,
             },
             &mut self.snow,
-            self.drawables.borrow_native(),
+            drawable_owner,
         )
     }
     pub fn split_frame_snow_drawable_and_campaign(
@@ -677,13 +679,15 @@ impl GameClient {
         &mut crate::gui::campaign_manager::CampaignManager,
     ) {
         let identity = std::ptr::from_mut(self) as usize;
+        let mut drawable_owner = self.drawables.borrow_native();
+        drawable_owner.audio_device = self.native_audio_device.as_ref();
         (
             ClientFrameWriter {
                 frame: &mut self.frame,
                 identity,
             },
             &mut self.snow,
-            self.drawables.borrow_native(),
+            drawable_owner,
             &mut self.campaign_manager,
         )
     }
@@ -697,13 +701,15 @@ impl GameClient {
         &mut crate::gui::command_hints::CommandHintState,
     ) {
         let identity = std::ptr::from_mut(self) as usize;
+        let mut drawable_owner = self.drawables.borrow_native();
+        drawable_owner.audio_device = self.native_audio_device.as_ref();
         (
             ClientFrameWriter {
                 frame: &mut self.frame,
                 identity,
             },
             &mut self.snow,
-            self.drawables.borrow_native(),
+            drawable_owner,
             &mut self.campaign_manager,
             &mut self.command_hints,
         )
@@ -724,6 +730,8 @@ impl GameClient {
     ) {
         let client_frame = self.frame;
         let identity = std::ptr::from_mut(self) as usize;
+        let mut drawable_owner = self.drawables.borrow_native();
+        drawable_owner.audio_device = self.native_audio_device.as_ref();
         self.script_display
             .bind(self.subsystem_manager.display.as_ref());
         (
@@ -732,7 +740,7 @@ impl GameClient {
                 identity,
             },
             &mut self.snow,
-            self.drawables.borrow_native(),
+            drawable_owner,
             &mut self.command_hints,
             crate::gui::game_window::WindowEventEffects {
                 cursor_mouse: self.subsystem_manager.input_mouse.as_mut(),

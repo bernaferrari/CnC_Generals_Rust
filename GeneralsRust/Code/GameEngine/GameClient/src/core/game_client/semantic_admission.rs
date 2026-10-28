@@ -65,6 +65,8 @@ pub struct NativeDrawableOwner<'a> {
     auxiliary_identity: &'a std::sync::Arc<()>,
     drawables: &'a mut drawable_world::DrawableState,
     particles: &'a mut crate::effects::particle_manager::ParticleSystemManager,
+    audio_device:
+        Option<&'a std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>>,
 }
 impl NativeDrawableWorld {
     pub fn borrow_native(&mut self) -> NativeDrawableOwner<'_> {
@@ -72,14 +74,30 @@ impl NativeDrawableWorld {
             auxiliary_identity: &self.auxiliary_identity,
             drawables: &mut self.state,
             particles: &mut self.particles,
+            audio_device: None,
         }
+    }
+
+    /// Borrow a detached candidate world with the application manager that
+    /// will own every ambient handle admitted by this candidate.
+    pub fn borrow_native_with_audio<'a>(
+        &'a mut self,
+        audio_device: Option<
+            &'a std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+        >,
+    ) -> NativeDrawableOwner<'a> {
+        let mut owner = self.borrow_native();
+        owner.audio_device = audio_device;
+        owner
     }
 }
 impl GameClient {
     /// Borrow this client's actual DrawableWorld for one synchronous native
     /// presentation operation.
     pub fn borrow_native_drawable_owner(&mut self) -> NativeDrawableOwner<'_> {
-        self.drawables.borrow_native()
+        let mut owner = self.drawables.borrow_native();
+        owner.audio_device = self.native_audio_device.as_ref();
+        owner
     }
 }
 impl NativeDrawableOwner<'_> {
@@ -138,6 +156,7 @@ impl NativeDrawableOwner<'_> {
             auxiliary_identity: self.auxiliary_identity,
             drawables: &mut *self.drawables,
             particles: &mut *self.particles,
+            audio_device: self.audio_device,
         }
     }
     pub fn particle_systems(&self) -> &crate::effects::particle_manager::ParticleSystemManager {
@@ -372,16 +391,21 @@ impl NativeDrawableOwner<'_> {
         self.particles
             .admit_effective_definitions()
             .map_err(|error| GameClientError::SubsystemError(error.to_string()))?;
+        let constructor_audio_suppressed = matches!(
+            &ambient,
+            NativeConstructorAmbientPolicy::Observed(birth)
+                if birth.loading_map || birth.in_load_game
+        );
         let receiving_tod = if e.module_admission.authored_template().is_some() {
-            Some(
-                policy
-                    .and_then(|policy| policy.time_of_day)
-                    .ok_or_else(|| {
-                        GameClientError::InvalidOperation(
-                            "authored Drawable requires receiving time of day".into(),
-                        )
-                    })?,
-            )
+            match policy.and_then(|policy| policy.time_of_day) {
+                Some(tod) => Some(tod),
+                None if constructor_audio_suppressed => None,
+                None => {
+                    return Err(GameClientError::InvalidOperation(
+                        "authored Drawable requires receiving time of day".into(),
+                    ));
+                }
+            }
         } else {
             None
         };
@@ -460,7 +484,36 @@ impl NativeDrawableOwner<'_> {
             }
             match ambient {
                 NativeConstructorAmbientPolicy::Observed(birth) => {
-                    if let Some(tod) = receiving_tod {
+                    if birth.loading_map || birth.in_load_game {
+                        // C++ suppresses constructor ambient audio for map and
+                        // save/load construction. Do not acquire an owner or
+                        // require presentation-only TOD/locality in this phase.
+                    } else if let Some(audio_device) = self.audio_device {
+                        let tod = receiving_tod.ok_or_else(|| {
+                            GameClientError::InvalidOperation(
+                                "bound receiving audio requires Drawable time of day".into(),
+                            )
+                        })?;
+                        let locality = e.ambient_audio_locality.as_ref().ok_or_else(|| {
+                            GameClientError::InvalidOperation(
+                                "bound receiving audio requires per-object locality".into(),
+                            )
+                        })?;
+                        let mut audio = audio_device.lock().map_err(|_| {
+                            GameClientError::SubsystemError(
+                                "receiving audio manager lock poisoned during Drawable construction".into(),
+                            )
+                        })?;
+                        drawable
+                            .finish_native_constructor_ambient_with_audio(
+                                birth.loading_map,
+                                birth.in_load_game,
+                                tod,
+                                &mut audio,
+                                locality,
+                            )
+                            .map_err(GameClientError::InvalidOperation)?;
+                    } else if let Some(tod) = receiving_tod {
                         drawable.finish_native_constructor_ambient_at(
                             birth.loading_map,
                             birth.in_load_game,
@@ -476,7 +529,35 @@ impl NativeDrawableOwner<'_> {
                 NativeConstructorAmbientPolicy::PresentationStartup => {
                     // Keep the existing late presentation startup behavior.
                     // This is not a claim about an unobserved factory phase.
-                    if let Some(tod) = receiving_tod {
+                    if self.audio_device.is_some()
+                        && e.module_admission.authored_template().is_none()
+                    {
+                        // A compatibility visual has no receiving template
+                        // from which to select ambient audio. It can still be
+                        // drawn, but must not discover another world's audio.
+                    } else if let Some(audio_device) = self.audio_device {
+                        let tod = receiving_tod.ok_or_else(|| {
+                            GameClientError::InvalidOperation(
+                                "bound receiving audio requires Drawable time of day".into(),
+                            )
+                        })?;
+                        let locality = e.ambient_audio_locality.as_ref().ok_or_else(|| {
+                            GameClientError::InvalidOperation(
+                                "bound receiving audio requires per-object locality".into(),
+                            )
+                        })?;
+                        let mut audio = audio_device.lock().map_err(|_| {
+                            GameClientError::SubsystemError(
+                                "receiving audio manager lock poisoned during Drawable startup"
+                                    .into(),
+                            )
+                        })?;
+                        drawable
+                            .start_ambient_sound_current_state_with_audio(
+                                false, tod, &mut audio, locality,
+                            )
+                            .map_err(GameClientError::InvalidOperation)?;
+                    } else if let Some(tod) = receiving_tod {
                         drawable.start_ambient_sound_at(false, tod);
                     } else {
                         drawable.start_ambient_sound(false);
@@ -593,6 +674,7 @@ mod semantic_admission_tests {
     use game_engine::common::name_key_generator::NameKeyNamespace;
     use game_engine::common::thing::module::StaticGameLodLevel;
     use game_engine::common::thing::module_factory::ModuleFactory;
+    use game_engine::common::thing::receiving_module_content::ReceivingModuleContent;
     use game_engine::common::thing::thing_template::{ObjectIniFields, ReceivingTemplateKind};
 
     fn content(
@@ -618,6 +700,29 @@ mod semantic_admission_tests {
             .unwrap();
         (factory, Arc::new(plan))
     }
+    fn content_with_ambient() -> (
+        ReceivingModuleContent,
+        Arc<game_engine::common::thing::thing_template::AdmittedReceivingTemplate>,
+    ) {
+        let mut factory = ModuleFactory::new_receiving(NameKeyNamespace::new());
+        gamelogic::contain_module_overrides::register_native_module_overrides(&mut factory)
+            .unwrap();
+        let source = "Object SemanticTank\nSoundAmbient = MapAmbient\nDraw = W3DTankDraw TankTag\nTreadAnimationRate = 2.0\nEnd\nEnd";
+        let mut content = ReceivingModuleContent::new(factory);
+        content
+            .load_ini_text(source, INILoadType::Overwrite)
+            .unwrap();
+        let plan = content.admitted_template("SemanticTank").unwrap();
+        assert_eq!(
+            plan.audio_event(
+                game_engine::common::thing::thing_template::ThingTemplateAudioType::SoundAmbient
+            )
+            .unwrap()
+            .get_event_name(),
+            "MapAmbient"
+        );
+        (content, plan)
+    }
     fn policy() -> ReceivingDrawablePolicy {
         ReceivingDrawablePolicy {
             time_of_day: Some(crate::system::TimeOfDay::Afternoon),
@@ -625,6 +730,64 @@ mod semantic_admission_tests {
             static_game_lod: StaticGameLodLevel::High,
             use_tree_sway: true,
         }
+    }
+    #[test]
+    fn map_loading_constructor_needs_no_tod_or_audio_submission() {
+        use game_engine::common::audio::audio_event_rts::{AC_LOOP, ST_GLOBAL};
+        use game_engine::common::audio::{AudioEventInfo, AudioManager};
+
+        let (mut catalog, plan) = content_with_ambient();
+        let device = std::sync::Arc::new(std::sync::Mutex::new({
+            let mut audio = AudioManager::new();
+            audio.init();
+            audio.register_audio_event_info(AudioEventInfo {
+                audio_name: "MapAmbient".into(),
+                sounds: vec!["map_ambient_sample".into()],
+                type_field: ST_GLOBAL,
+                control: AC_LOOP,
+                loop_count: 0,
+                ..Default::default()
+            });
+            audio
+        }));
+        let mut world = NativeDrawableWorld::new();
+        let mut owner = world.borrow_native();
+        owner.audio_device = Some(&device);
+        let key = owner
+            .admit_semantic_drawable_with_content(
+                entry(52, plan),
+                NativeDrawableBirthContext {
+                    loading_map: true,
+                    in_load_game: false,
+                },
+                0,
+                catalog.module_factory_mut(),
+                ReceivingDrawablePolicy {
+                    time_of_day: None,
+                    ..policy()
+                },
+                &mut NativeParticleRetirementService,
+                |_| Ok(()),
+            )
+            .expect("map-load constructor does not need presentation TOD/locality");
+        drop(owner);
+        let draw = world
+            .state
+            .drawable_map
+            .get(&key.drawable_id)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<BasicDrawable>()
+            .unwrap();
+        assert!(draw.ambient_sound_enabled && draw.ambient_sound_enabled_from_script);
+        assert!(draw.ambient_sound_event.is_none());
+        assert_eq!(
+            device
+                .lock()
+                .unwrap()
+                .pending_play_request_count_for("MapAmbient"),
+            0
+        );
     }
     fn entry(
         id: u32,

@@ -93,6 +93,7 @@ impl GameClient {
         NativeRenderReceiver::new(
             state,
             &mut self.native_particle_capability_gaps,
+            self.native_audio_device.as_ref(),
             self.subsystem_manager.in_game_ui.as_mut(),
             self.frame,
             self.local_player_id,
@@ -264,6 +265,19 @@ impl drawable_world::DrawableState {
         id: DrawableId,
         mut particles: Option<&mut crate::effects::particle_manager::ParticleSystemManager>,
     ) -> GameClientResult<()> {
+        self.try_remove_for_map_attempt_with_audio(id, particles, None)
+    }
+
+    pub(crate) fn try_remove_for_map_attempt_with_audio(
+        &mut self,
+        id: DrawableId,
+        mut particles: Option<&mut crate::effects::particle_manager::ParticleSystemManager>,
+        audio_device: Option<
+            &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+        >,
+    ) -> GameClientResult<()> {
+        BasicDrawable::preflight_native_audio_device(audio_device)
+            .map_err(GameClientError::InvalidOperation)?;
         let required = self.native_particle_retirement_required(Some(id))?;
         if required && particles.is_none() {
             return Err(GameClientError::SubsystemError(
@@ -293,8 +307,10 @@ impl drawable_world::DrawableState {
             };
             // C++ Drawable destructor: module deletion before ambient stop.
             // Finish even if an unexpected post-effect retirement error occurs.
-            basic.finish_native_retirement();
-            result
+            let audio_result = basic
+                .finish_native_retirement_with_device(audio_device)
+                .map_err(GameClientError::InvalidOperation);
+            result.and(audio_result)
         } else {
             Ok(())
         };
@@ -307,6 +323,18 @@ impl drawable_world::DrawableState {
         &mut self,
         mut particles: Option<&mut crate::effects::particle_manager::ParticleSystemManager>,
     ) -> GameClientResult<()> {
+        self.try_clear_for_map_attempt_with_audio(particles, None)
+    }
+
+    fn try_clear_for_map_attempt_with_audio(
+        &mut self,
+        mut particles: Option<&mut crate::effects::particle_manager::ParticleSystemManager>,
+        audio_device: Option<
+            &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+        >,
+    ) -> GameClientResult<()> {
+        BasicDrawable::preflight_native_audio_device(audio_device)
+            .map_err(GameClientError::InvalidOperation)?;
         let required = self.native_particle_retirement_required(None)?;
         if required && particles.is_none() {
             return Err(GameClientError::SubsystemError(
@@ -316,7 +344,11 @@ impl drawable_world::DrawableState {
         let order = self.native_drawable_order.clone();
         let mut first_error = None;
         for known in order {
-            if let Err(error) = self.try_remove_for_map_attempt(known, particles.as_deref_mut()) {
+            if let Err(error) = self.try_remove_for_map_attempt_with_audio(
+                known,
+                particles.as_deref_mut(),
+                audio_device,
+            ) {
                 first_error.get_or_insert(error);
             }
         }
@@ -329,15 +361,30 @@ impl drawable_world::DrawableState {
     }
 
     fn finish_native_retirement(&mut self) {
+        self.finish_native_retirement_with_device(None)
+            .expect("legacy Drawable retirement has no fallible audio loan");
+    }
+
+    fn finish_native_retirement_with_device(
+        &mut self,
+        audio_device: Option<
+            &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+        >,
+    ) -> GameClientResult<()> {
+        BasicDrawable::preflight_native_audio_device(audio_device)
+            .map_err(GameClientError::InvalidOperation)?;
         for &known in &self.native_drawable_order {
             let draw = self
                 .drawable_map
                 .get_mut(&known)
                 .expect("native Drawable roster references a live receiver");
             if let Some(basic) = draw.as_any_mut().downcast_mut::<BasicDrawable>() {
-                basic.finish_native_retirement();
+                basic
+                    .finish_native_retirement_with_device(audio_device)
+                    .map_err(GameClientError::InvalidOperation)?;
             }
         }
+        Ok(())
     }
 }
 impl NativeDrawableOwner<'_> {
@@ -383,6 +430,48 @@ impl NativeDrawableOwner<'_> {
         Ok(())
     }
 
+    /// Start each drawable on this owner's audio service, using the receiving
+    /// world's player locality instead of discovering an active world.
+    pub fn on_level_start_with_audio_at(
+        &mut self,
+        tod: crate::system::TimeOfDay,
+        mut locality_for_object: impl FnMut(
+            Option<u32>,
+        )
+            -> game_engine::common::audio::AudioSubmissionLocality,
+    ) -> GameClientResult<()> {
+        let mut audio = self
+            .audio_device
+            .map(|device| {
+                device.lock().map_err(|_| {
+                    GameClientError::InvalidOperation(
+                        "receiving audio service lock poisoned".into(),
+                    )
+                })
+            })
+            .transpose()?;
+        for &id in &self.drawables.native_drawable_order {
+            let drawable = self
+                .drawables
+                .drawable_map
+                .get_mut(&id)
+                .expect("native Drawable roster references a live receiver");
+            let basic = drawable
+                .as_any_mut()
+                .downcast_mut::<BasicDrawable>()
+                .ok_or_else(|| {
+                    GameClientError::InvalidOperation(
+                        "native onLevelStart requires its actual BasicDrawable receiver".into(),
+                    )
+                })?;
+            let locality = locality_for_object(basic.object_id());
+            basic
+                .on_level_start_with_audio_at(tod, audio.as_deref_mut(), &locality)
+                .map_err(GameClientError::InvalidOperation)?;
+        }
+        Ok(())
+    }
+
     /// Failed constructor retirement selects only its actual Drawable identity.
     /// Required service validation precedes unlink; unrelated peers survive.
     pub fn try_remove_for_map_attempt(
@@ -390,7 +479,8 @@ impl NativeDrawableOwner<'_> {
         id: DrawableId,
         particles: Option<&mut crate::effects::particle_manager::ParticleSystemManager>,
     ) -> GameClientResult<()> {
-        self.drawables.try_remove_for_map_attempt(id, particles)
+        self.drawables
+            .try_remove_for_map_attempt_with_audio(id, particles, self.audio_device)
     }
 
     /// Retire the actual detached map world with an explicit receiving manager.
@@ -399,7 +489,8 @@ impl NativeDrawableOwner<'_> {
         &mut self,
         particles: Option<&mut crate::effects::particle_manager::ParticleSystemManager>,
     ) -> GameClientResult<()> {
-        self.drawables.try_clear_for_map_attempt(particles)?;
+        self.drawables
+            .try_clear_for_map_attempt_with_audio(particles, self.audio_device)?;
         self.particles.reset_runtime();
         Ok(())
     }

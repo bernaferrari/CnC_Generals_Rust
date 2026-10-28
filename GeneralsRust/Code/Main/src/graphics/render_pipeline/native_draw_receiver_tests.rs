@@ -95,6 +95,7 @@ fn entry(unit: &UnitRenderInput) -> PresentationDrawableSync {
     PresentationDrawableSync {
         receiving_science_player: None,
         object_id: ID.0,
+        ambient_audio_locality: None,
         host_epoch: 19,
         resident: true,
         visual_template_name: unit.template_name.clone(),

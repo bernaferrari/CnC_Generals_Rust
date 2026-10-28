@@ -2,7 +2,7 @@
 use super::*;
 use game_engine::common::audio::audio_event_rts::{AC_LOOP, ST_GLOBAL};
 use game_engine::common::audio::game_audio::AudioLocalityRelationship;
-use game_engine::common::audio::{AudioEventInfo, AudioLocalityResolver};
+use game_engine::common::audio::{AudioEventInfo, AudioLocalityResolver, SoundPlaybackHook};
 use game_engine::common::ini::INILoadType;
 use game_engine::common::name_key_generator::NameKeyNamespace;
 use game_engine::common::thing::module_factory::ModuleFactory;
@@ -65,6 +65,99 @@ fn make_audio() -> AudioManager {
         });
     }
     audio
+}
+
+#[derive(Clone)]
+struct RecordingPlayback(std::sync::Arc<std::sync::Mutex<Vec<(char, u32)>>>);
+impl SoundPlaybackHook for RecordingPlayback {
+    fn play(&self, event: &AudioEventRts) -> Result<(), String> {
+        self.0
+            .lock()
+            .unwrap()
+            .push(('P', event.get_playing_handle()));
+        Ok(())
+    }
+    fn stop(&self, handle: u32) {
+        self.0.lock().unwrap().push(('S', handle));
+    }
+    fn pause(&self, _: u32) {}
+    fn resume(&self, _: u32) {}
+    fn is_playing(&self, _: u32) -> bool {
+        true
+    }
+}
+
+fn make_recording_audio(
+    events: std::sync::Arc<std::sync::Mutex<Vec<(char, u32)>>>,
+) -> AudioManager {
+    let mut audio = AudioManager::with_playback_hook(Box::new(RecordingPlayback(events)));
+    audio.init();
+    audio.register_audio_event_info(AudioEventInfo {
+        audio_name: "OwnedPristine".into(),
+        sounds: vec!["owned_sample".into()],
+        type_field: ST_GLOBAL,
+        control: AC_LOOP,
+        loop_count: 0,
+        ..Default::default()
+    });
+    audio
+}
+
+#[test]
+fn native_retirement_queues_stop_on_the_bound_application_audio_owner() {
+    let events_a = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let events_b = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let device_a = std::sync::Arc::new(std::sync::Mutex::new(make_recording_audio(
+        std::sync::Arc::clone(&events_a),
+    )));
+    let device_b = std::sync::Arc::new(std::sync::Mutex::new(make_recording_audio(
+        std::sync::Arc::clone(&events_b),
+    )));
+    let locality = AudioSubmissionLocality::from_resolver(1, &Players);
+    let mut actor_a = make_actor(17);
+    let mut actor_b = make_actor(17);
+    for (actor, device, tod) in [
+        (&mut actor_a, &device_a, TimeOfDay::Night),
+        (&mut actor_b, &device_b, TimeOfDay::Morning),
+    ] {
+        let mut audio = device.lock().unwrap();
+        actor
+            .finish_native_constructor_ambient_with_audio(false, false, tod, &mut audio, &locality)
+            .unwrap();
+        audio.process_request_list();
+    }
+    let handle_a = actor_a
+        .ambient_sound_event
+        .as_ref()
+        .unwrap()
+        .get_playing_handle();
+    let handle_b = actor_b
+        .ambient_sound_event
+        .as_ref()
+        .unwrap()
+        .get_playing_handle();
+    assert_eq!(
+        handle_a, handle_b,
+        "peer audio managers reuse local handles"
+    );
+
+    actor_a
+        .finish_native_retirement_with_device(Some(&device_a))
+        .unwrap();
+    assert_eq!(events_a.lock().unwrap().as_slice(), &[('P', handle_a)]);
+    device_a.lock().unwrap().process_request_list();
+
+    assert_eq!(
+        events_a.lock().unwrap().as_slice(),
+        &[('P', handle_a), ('S', handle_a)],
+        "Drawable retirement must enqueue and deliver its stop through its bound owner"
+    );
+    assert_eq!(
+        events_b.lock().unwrap().as_slice(),
+        &[('P', handle_b)],
+        "same-ID/same-handle peer audio stays alive"
+    );
+    assert!(actor_b.ambient_sound_event.is_some());
 }
 #[test]
 fn receiving_body_transition_and_snapshot_restamps_have_distinct_audio_effects() {
@@ -206,6 +299,25 @@ fn explicit_constructor_load_gates_and_missing_resources_do_not_invent_audio() {
         actor.ambient_sound_event.is_none(),
         "missing resource is not owner failure"
     );
+}
+
+#[test]
+fn explicit_constructor_audio_preserves_ambient_enable_gates() {
+    let locality = AudioSubmissionLocality::from_resolver(1, &Players);
+    let mut actor = make_actor(21);
+    actor.ambient_sound_enabled_from_script = false;
+    let mut audio = make_audio();
+    actor
+        .finish_native_constructor_ambient_with_audio(
+            false,
+            false,
+            TimeOfDay::Night,
+            &mut audio,
+            &locality,
+        )
+        .unwrap();
+    assert!(actor.ambient_sound_event.is_none());
+    assert_eq!(audio.pending_play_request_count(), 0);
 }
 #[test]
 fn receiving_state_fallback_rubble_and_custom_off_follow_original_selection() {

@@ -3,6 +3,8 @@
 struct NativeRenderReceiver<'a> {
     drawables: &'a mut drawable_world::DrawableState,
     native_particle_capability_gaps: &'a mut Vec<NativeParticleCapabilityGap>,
+    audio_device:
+        Option<&'a std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>>,
     ui: Option<&'a mut InGameUISubsystem>,
     frame: u32,
     local_player_id: i32,
@@ -12,6 +14,9 @@ impl<'a> NativeRenderReceiver<'a> {
     fn new(
         drawables: &'a mut drawable_world::DrawableState,
         native_particle_capability_gaps: &'a mut Vec<NativeParticleCapabilityGap>,
+        audio_device: Option<
+            &'a std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+        >,
         ui: Option<&'a mut InGameUISubsystem>,
         frame: u32,
         local_player_id: i32,
@@ -20,6 +25,7 @@ impl<'a> NativeRenderReceiver<'a> {
         Self {
             drawables,
             native_particle_capability_gaps,
+            audio_device,
             ui,
             frame,
             local_player_id,
@@ -338,6 +344,8 @@ impl<'a> NativeRenderReceiver<'a> {
         id: DrawableId,
         mut particles: Option<&mut crate::effects::particle_manager::ParticleSystemManager>,
     ) -> GameClientResult<()> {
+        BasicDrawable::preflight_native_audio_device(self.audio_device)
+            .map_err(GameClientError::InvalidOperation)?;
         let mut laser_particles = false;
         let mut state_particles = 0;
         if let Some(basic) = self
@@ -408,7 +416,9 @@ impl<'a> NativeRenderReceiver<'a> {
             .as_mut()
             .and_then(|draw| draw.as_any_mut().downcast_mut::<BasicDrawable>())
         {
-            basic.finish_native_retirement();
+            basic
+                .finish_native_retirement_with_device(self.audio_device)
+                .map_err(GameClientError::InvalidOperation)?;
         }
         self.drawables.ray_effects.delete(id);
         drop(removed);
@@ -547,6 +557,7 @@ impl GameClient {
         NativeRenderReceiver::new(
             &mut self.drawables.state,
             &mut self.native_particle_capability_gaps,
+            self.native_audio_device.as_ref(),
             self.subsystem_manager.in_game_ui.as_mut(),
             self.frame,
             self.local_player_id,
@@ -571,7 +582,10 @@ impl GameClient {
         &mut crate::render_bridge::RenderBridge,
         NativeDrawableOwner<'_>,
     ) {
-        (&mut self.render_bridge, self.drawables.borrow_native())
+        let audio_device = self.native_audio_device.as_ref();
+        let mut drawables = self.drawables.borrow_native();
+        drawables.audio_device = audio_device;
+        (&mut self.render_bridge, drawables)
     }
 }
 
@@ -655,6 +669,7 @@ impl GameClient {
                 auxiliary_identity: &self.drawables.auxiliary_identity,
                 drawables: &mut self.drawables.state,
                 particles: &mut self.drawables.particles,
+                audio_device: self.native_audio_device.as_ref(),
             },
             self.ui_renderer.as_mut(),
             &self.window_manager_owner,

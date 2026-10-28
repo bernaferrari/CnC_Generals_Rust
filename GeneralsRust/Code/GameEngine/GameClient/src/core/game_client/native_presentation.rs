@@ -115,6 +115,7 @@ impl GameClient {
         NativeRenderReceiver::new(
             state,
             &mut self.native_particle_capability_gaps,
+            self.native_audio_device.as_ref(),
             self.subsystem_manager.in_game_ui.as_mut(),
             self.frame,
             self.local_player_id,
