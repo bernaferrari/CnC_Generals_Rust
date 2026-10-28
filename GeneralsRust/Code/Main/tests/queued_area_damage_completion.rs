@@ -814,11 +814,11 @@ fn ordinary_library_queued_area_secondary_and_sphere_boundary() {
         "ENEMIES NEUTRALS",
         "SecondaryDamage = 25\n SecondaryDamageRadius = 10",
     );
-    f.world
-        .objects
-        .get_mut(&f.victim)
-        .unwrap()
-        .set_position(Vec3::new(16.0, 0.0, 0.0)); // sphere edge distance 5
+    // Sphere edge distance 5.
+    assert!(
+        f.world
+            .set_registered_object_position(f.victim, Vec3::new(16.0, 0.0, 0.0))
+    );
     let secondary = f
         .world
         .create_object_for_player("QueuedVictim", 1, Vec3::new(21.0, 0.0, 0.0))
@@ -844,9 +844,11 @@ fn ordinary_library_queued_area_secondary_and_sphere_boundary() {
 #[test]
 fn ordinary_library_queued_area_elevation_uses_3d_sphere() {
     let mut f = fixture("Elevation", 200.0, false, 30000000, 1, 10.0);
-    let victim = f.world.objects.get_mut(&f.victim).unwrap();
-    victim.set_position(Vec3::new(11.0, 20.0, 0.0));
-    victim.status.airborne_target = true;
+    assert!(
+        f.world
+            .set_registered_object_position(f.victim, Vec3::new(11.0, 20.0, 0.0))
+    );
+    f.world.objects.get_mut(&f.victim).unwrap().status.airborne_target = true;
     f.accept();
     assert!(f.world.objects[&f.victim].get_position().y > 10.0);
     assert_eq!(f.world.objects[&f.victim].health.current, 200.0);
@@ -922,11 +924,10 @@ fn ordinary_library_queued_area_secondary_dual_threshold_is_preserved() {
         "ENEMIES NEUTRALS",
         "SecondaryDamage = 25\n SecondaryDamageRadius = 5.0005",
     );
-    f.world
-        .objects
-        .get_mut(&f.victim)
-        .unwrap()
-        .set_position(Vec3::new(16.00025, 0.0, 0.0));
+    assert!(
+        f.world
+            .set_registered_object_position(f.victim, Vec3::new(16.00025, 0.0, 0.0))
+    );
     f.accept();
     assert_eq!(f.world.objects[&f.victim].health.current, 200.0);
     assert!(f.take_fx().is_empty());
