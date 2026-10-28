@@ -6,7 +6,7 @@ use generals_main::save_load::snapshot::{
 };
 use glam::Vec3;
 
-const TRAP_SOURCE: &str = "Object BoobyTrap\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 37\n InitialHealth = 19\n End\n Behavior = StickyBombUpdate Sticky\n  OffsetZ = 17\n  GeometryBasedDamageWeapon = TrapBlast\n End\n UnitSpecificSounds\n  StickyBombCreated = StickyCreated\n End\nEnd\nObject AuthoredStickyCharge\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 31\n InitialHealth = 17\n End\n Behavior = StickyBombUpdate Sticky\n End\nEnd\nObject PlainAuthoredCharge\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 29\n InitialHealth = 13\nEnd\nEnd\nObject BoobyTrapWithoutUpdate\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 1\n InitialHealth = 1\nEnd\nEnd\nObject TrapPlanter\n KindOf = INFANTRY SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\nObject TrapTarget\n KindOf = STRUCTURE IMMOBILE SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\nEnd\nEnd\nObject TrapMobileTarget\n KindOf = STRUCTURE SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\nEnd\nEnd\nObject TrapVictim\n KindOf = INFANTRY SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\n";
+const TRAP_SOURCE: &str = "Object BoobyTrap\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 37\n InitialHealth = 19\n End\n Behavior = StickyBombUpdate Sticky\n  OffsetZ = 17\n  GeometryBasedDamageWeapon = TrapBlast\n End\n UnitSpecificSounds\n  StickyBombCreated = StickyCreated\n End\nEnd\nObject AuthoredStickyCharge\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 31\n InitialHealth = 17\n End\n Behavior = StickyBombUpdate Sticky\n End\nEnd\nObject PlainAuthoredCharge\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 29\n InitialHealth = 13\nEnd\nEnd\nObject BoobyTrapWithoutUpdate\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 1\n InitialHealth = 1\nEnd\nEnd\nObject TrapExperiencePlanter\n KindOf = INFANTRY SELECTABLE SCORE\n IsTrainable = Yes\n ExperienceRequired = 0 100 250 450\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject TrapExperienceVictim\n KindOf = INFANTRY SELECTABLE SCORE\n ExperienceValue = 125 125 125 125\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject TrapPlanter\n KindOf = INFANTRY SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\nObject TrapTarget\n KindOf = STRUCTURE IMMOBILE SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\nEnd\nEnd\nObject TrapMobileTarget\n KindOf = STRUCTURE SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\nEnd\nEnd\nObject TrapVictim\n KindOf = INFANTRY SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\n";
 
 fn admit_trap_blast(game: &mut GameLogic) {
     let mut blast = gamelogic::weapon::WeaponTemplate::new("TrapBlast".into());
@@ -944,4 +944,75 @@ fn public_booby_charge_scan_keeps_nearest_invalid_and_rejects_missing_charge() {
             .unwrap()
             .has_object_status_bit("BOOBY_TRAPPED")
     );
+}
+
+#[test]
+fn sticky_charge_retains_exact_team_and_experience_sink_after_save() {
+    use generals_main::game_logic::VeterancyLevel;
+    use generals_main::save_load::snapshot::{SnapshotBuilder, WorldSnapshot};
+
+    fn prepare(game: &mut GameLogic, target: ObjectId) -> (ObjectId, ObjectId, ObjectId, u32) {
+        let planter = game
+            .create_object_for_player("TrapExperiencePlanter", 0, Vec3::new(100.0, 0.0, 100.0))
+            .unwrap();
+        let victim = game
+            .create_object_for_player("TrapExperienceVictim", 1, Vec3::new(8.0, 0.0, 0.0))
+            .unwrap();
+        let team = move_into_same_named_team(game, planter);
+        let charge = game
+            .spawn_booby_trap_special_object(planter, Team::GLA, target)
+            .unwrap();
+        install_public_registry(game, planter, target, Some(charge));
+        game.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        (planter, victim, charge, team)
+    }
+
+    let (mut source, _, target) = world();
+    let (mut peer, _, peer_target) = world();
+    let (planter, victim, charge, team) = prepare(&mut source, target);
+    let (peer_planter, peer_victim, peer_charge, peer_team) = prepare(&mut peer, peer_target);
+    assert_eq!(
+        (target, planter, victim, charge, team),
+        (
+            peer_target,
+            peer_planter,
+            peer_victim,
+            peer_charge,
+            peer_team
+        )
+    );
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).unwrap();
+    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+    let decoded: WorldSnapshot = bincode_legacy::deserialize(&bytes).unwrap();
+    let (mut restored, _, _) = world();
+    builder
+        .restore_from_snapshot(&decoded, &mut restored)
+        .unwrap();
+    assert_eq!(
+        restored.host_object(charge).unwrap().experience_sink,
+        Some(planter)
+    );
+    let chunks = stamp_player_team_chunks(&restored).unwrap();
+    assert!(chunks.teams.unwrap().teams.iter().any(|entry| {
+        entry.team_id == team
+            && entry
+                .members
+                .as_ref()
+                .is_some_and(|members| members.contains(&planter.0) && members.contains(&charge.0))
+    }));
+
+    restored.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true);
+    assert!(!restored.host_object(victim).unwrap().is_alive());
+    assert_eq!(
+        restored.host_object(planter).unwrap().experience.level,
+        VeterancyLevel::Veteran,
+        "the charge forwards the kill's XP to its saved planter"
+    );
+    assert_eq!(
+        peer.host_object(peer_planter).unwrap().experience.level,
+        VeterancyLevel::Rookie
+    );
+    assert!(peer.host_object(peer_victim).unwrap().is_alive());
 }
