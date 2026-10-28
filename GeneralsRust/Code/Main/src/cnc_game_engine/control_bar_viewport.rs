@@ -6,20 +6,33 @@ impl CnCGameEngine {
     pub(super) fn receiving_observer_roster(
         &self,
     ) -> Option<game_client::gui::control_bar::control_bar_observer::NativeObserverRoster> {
+        let recorder = self.game_logic.replay_pending.recorder_owned();
+        // A live match has not started a replay recording yet: C++ still has
+        // its selected lobby GameInfo, while this Recorder's header remains
+        // empty until start_recording consumes pending_lobby. Project only
+        // the admitted slot/team facts needed by the observer UI from this
+        // exact match. Playback without a native admission keeps its file
+        // header as the source.
+        let admitted_game_info = self
+            .game_logic
+            .initial_skirmish_admission
+            .as_deref()
+            .map(crate::skirmish_config::replay_admission::observer_game_info);
+        let game_info = admitted_game_info
+            .as_ref()
+            .or(Some(recorder.get_game_info()));
         receiving_observer_roster_from_world(
             &self.game_logic,
-            self.game_logic
-                .replay_pending
-                .recorder_owned()
-                .is_multiplayer_for_game_mode(match self.game_logic.game_mode() {
-                    crate::game_logic::GameMode::SinglePlayer => 0,
-                    crate::game_logic::GameMode::Skirmish => 2,
-                    crate::game_logic::GameMode::Replay => 3,
-                    crate::game_logic::GameMode::Shell => 4,
-                    crate::game_logic::GameMode::None => 6,
-                    crate::game_logic::GameMode::Internet => 5,
-                    _ => 1,
-                }),
+            recorder.is_multiplayer_for_game_mode(match self.game_logic.game_mode() {
+                crate::game_logic::GameMode::SinglePlayer => 0,
+                crate::game_logic::GameMode::Skirmish => 2,
+                crate::game_logic::GameMode::Replay => 3,
+                crate::game_logic::GameMode::Shell => 4,
+                crate::game_logic::GameMode::None => 6,
+                crate::game_logic::GameMode::Internet => 5,
+                _ => 1,
+            }),
+            game_info,
         )
     }
     pub(super) fn receiving_observer_look_at_player(&self) -> Option<i32> {
@@ -668,6 +681,7 @@ fn receiving_local_player_is_observer(world: &crate::game_logic::GameLogic) -> b
 fn receiving_observer_roster_from_world(
     world: &crate::game_logic::GameLogic,
     multiplayer: bool,
+    game_info: Option<&game_engine::common::recorder::ReplayGameInfo>,
 ) -> Option<game_client::gui::control_bar::control_bar_observer::NativeObserverRoster> {
     use game_client::gui::control_bar::control_bar_observer::{
         NativeObserverPlayer, NativeObserverRoster,
@@ -687,16 +701,107 @@ fn receiving_observer_roster_from_world(
                     .find(|p| p.map_side.map_player_name == name)
             })
             .collect();
+    } else if world.prepared_map_sides.get_num_sides() > 0 {
+        // C++ getNthPlayer order is SidesList admission order. Main's player
+        // map is keyed by host id, so recover that sequence from the admitted
+        // side dicts before appending any non-side runtime players.
+        let mut ordered = Vec::with_capacity(players.len());
+        let mut admitted = std::collections::HashSet::new();
+        for side_index in 0..world.prepared_map_sides.get_num_sides() {
+            let Some(side) = world.prepared_map_sides.get_side_info(side_index) else {
+                continue;
+            };
+            let name = side
+                .get_dict()
+                .get_ascii_string(game_engine::common::well_known_keys::key_player_name());
+            if name.is_empty() {
+                continue;
+            }
+            if let Some(player) = players.iter().copied().find(|player| {
+                !admitted.contains(&player.id) && player.map_side.map_player_name == name
+            }) {
+                admitted.insert(player.id);
+                ordered.push(player);
+            }
+        }
+        ordered.extend(
+            players
+                .into_iter()
+                .filter(|player| !admitted.contains(&player.id)),
+        );
+        players = ordered;
     }
+    let mut compact_button = 0usize;
     Some(NativeObserverRoster {
         players: players
             .into_iter()
             .map(|p| {
+                let template = world
+                    .player_template_identity(p.id)
+                    .and_then(|identity| world.resolve_player_template_identity(identity));
+                let color = p.color_rgb;
+                let count = |required: u128, forbidden: u128| {
+                    world
+                        .get_objects()
+                        .registered_values()
+                        .filter(|object| {
+                            world.player_owner_for_host_object(object) == Some(p.id)
+                                && object.is_kind_of_multi(required, forbidden)
+                        })
+                        .count() as i32
+                };
+                const SCORE: u128 = 1u128 << 35;
+                const STRUCTURE: u128 = 1u128 << 7;
+                const SCORE_CREATE: u128 = 1u128 << 36;
+                const SCORE_DESTROY: u128 = 1u128 << 37;
+                let team_key = if multiplayer && !p.is_observer {
+                    let compact_index = compact_button;
+                    compact_button += 1;
+                    game_info
+                        .and_then(|info| info.get_slot(compact_index))
+                        .map(|slot| {
+                            if slot.is_occupied && !slot.is_human && slot.team == -1 {
+                                "Team:AI".to_string()
+                            } else {
+                                format!("Team:{}", slot.team + 1)
+                            }
+                        })
+                } else {
+                    None
+                };
                 Some(NativeObserverPlayer {
                     index: i32::try_from(p.id).ok()?,
+                    slot_index: p
+                        .map_side
+                        .map_player_name
+                        .strip_prefix("player")
+                        .and_then(|slot| slot.parse::<i32>().ok())
+                        .unwrap_or_else(|| i32::try_from(p.id).unwrap_or(i32::MAX)),
+                    team_key,
                     observer: p.is_observer,
                     human: p.is_human,
                     display_name: p.name.clone(),
+                    color_rgba: 0xFF00_0000
+                        | ((color.0 as u32) << 16)
+                        | ((color.1 as u32) << 8)
+                        | color.2 as u32,
+                    enabled_image: template
+                        .as_ref()
+                        .map(|template| template.get_enabled_image().to_string())
+                        .unwrap_or_default(),
+                    flag_water_mark: template
+                        .as_ref()
+                        .map(|template| template.get_flag_water_mark().to_string())
+                        .unwrap_or_default(),
+                    money: p.resources.supplies as i32,
+                    power_produced: p.energy_production_at(world.frame),
+                    power_consumed: p.power_consumed,
+                    num_units: count(SCORE, STRUCTURE),
+                    num_buildings: count(SCORE | STRUCTURE, 0)
+                        + count(SCORE_CREATE | STRUCTURE, 0)
+                        + count(SCORE_DESTROY | STRUCTURE, 0),
+                    units_killed: p.statistics.score_keeper().get_total_units_destroyed(),
+                    units_lost: p.statistics.score_keeper().get_total_units_lost(),
                 })
             })
             .collect::<Option<Vec<_>>>()?,
@@ -704,6 +809,7 @@ fn receiving_observer_roster_from_world(
         frame: world.frame,
     })
 }
+
 #[cfg(not(feature = "game_client"))]
 impl CnCGameEngine {
     pub(super) fn receiving_observer_look_at_player(&self) -> Option<i32> {
@@ -727,12 +833,23 @@ mod receiving_observer_roster_tests {
             let mut human = Player::new(2, Team::USA, name, true);
             human.is_human = true;
             human.map_side.map_player_name = "player0".into();
+            human.resources.supplies = if name == "Receiving" { 500 } else { 900 };
+            let mut infantry_score = game_engine::common::rts::score_keeper::KindOfMaskType::new();
+            infantry_score.set(game_engine::common::rts::score_keeper::KindOf::Infantry);
+            human
+                .statistics
+                .record_destroyed("FixtureInfantry", &infantry_score, 0, false);
+            if name == "Foreign" {
+                human
+                    .statistics
+                    .record_destroyed("FixtureInfantry2", &infantry_score, 0, false);
+            }
             world.add_player(ai);
             world.add_player(observer);
             world.add_player(human);
         }
-        let roster = receiving_observer_roster_from_world(&owner, false).unwrap();
-        let other = receiving_observer_roster_from_world(&peer, false).unwrap();
+        let roster = receiving_observer_roster_from_world(&owner, false, None).unwrap();
+        let other = receiving_observer_roster_from_world(&peer, false, None).unwrap();
         assert_eq!(
             roster
                 .selectable()
@@ -747,11 +864,17 @@ mod receiving_observer_roster_tests {
                 .collect::<Vec<_>>(),
             vec![(2, "Foreign")]
         );
+        let receiving_player = roster.players.iter().find(|p| p.index == 2).unwrap();
+        let foreign_player = other.players.iter().find(|p| p.index == 2).unwrap();
+        assert_eq!(receiving_player.money, 500);
+        assert_eq!(foreign_player.money, 900);
+        assert_eq!(receiving_player.units_killed, 1);
+        assert_eq!(foreign_player.units_killed, 2);
         let mut bar = game_client::gui::control_bar::ControlBar::new();
         bar.set_observer_mode(true);
         bar.admit_observer_button_owned(Some(2), &roster);
         peer.get_player_mut(2).unwrap().is_observer = true;
-        let peer_changed = receiving_observer_roster_from_world(&peer, false).unwrap();
+        let peer_changed = receiving_observer_roster_from_world(&peer, false, None).unwrap();
         assert!(peer_changed.selectable().next().is_none());
         assert_eq!(bar.observer_target_owned(&roster), Some(2));
         game_client::gui::control_bar::control_bar_observer::set_observer_look_at_player(Some(999));
@@ -763,13 +886,74 @@ mod receiving_observer_roster_tests {
             Some(999)
         );
         game_client::gui::control_bar::control_bar_observer::set_observer_look_at_player(None);
-        let multi = receiving_observer_roster_from_world(&owner, true).unwrap();
+        let multi = receiving_observer_roster_from_world(&owner, true, None).unwrap();
         assert_eq!(
             multi.selectable().map(|p| p.index).collect::<Vec<_>>(),
             vec![2]
         );
         bar.clear_observer_target_owned();
         assert_eq!(bar.observer_target_owned(&roster), None);
+    }
+
+    #[test]
+    fn native_observer_roster_preserves_sides_order_and_cpp_compact_game_info_team_slot() {
+        use crate::game_logic::{GameLogic, Player, Team};
+        use game_engine::common::dict::Dict;
+        use game_engine::common::recorder::ReplayGameInfo;
+        use game_engine::common::well_known_keys::key_player_name;
+
+        let mut world = GameLogic::new();
+        let mut second = Player::new(12, Team::USA, "Second", true);
+        second.is_human = true;
+        second.map_side.map_player_name = "SecondSide".into();
+        let mut first = Player::new(2, Team::USA, "First", true);
+        first.is_human = true;
+        first.map_side.map_player_name = "FirstSide".into();
+        world.add_player(first);
+        world.add_player(second);
+
+        let mut second_side = Dict::new();
+        second_side.set_ascii_string(key_player_name(), "SecondSide");
+        let mut first_side = Dict::new();
+        first_side.set_ascii_string(key_player_name(), "FirstSide");
+        world.prepared_map_sides.add_side(&second_side);
+        world.prepared_map_sides.add_side(&first_side);
+        let single_player = receiving_observer_roster_from_world(&world, false, None).unwrap();
+        assert_eq!(
+            single_player
+                .selectable()
+                .map(|player| player.index)
+                .collect::<Vec<_>>(),
+            vec![12],
+            "C++ getNthPlayer order follows SidesList admission, not host id"
+        );
+
+        let mut observer = Player::new(0, Team::Neutral, "ReplayObserver", false);
+        observer.is_observer = true;
+        observer.map_side.map_player_name = "player0".into();
+        let mut multiplayer_player = Player::new(1, Team::USA, "Recorded", true);
+        multiplayer_player.is_human = true;
+        multiplayer_player.map_side.map_player_name = "player1".into();
+        world.add_player(observer);
+        world.add_player(multiplayer_player);
+        let mut game_info = ReplayGameInfo::new();
+        let first_slot = game_info.get_slot_mut(0).unwrap();
+        first_slot.is_occupied = true;
+        first_slot.is_human = false;
+        first_slot.team = -1;
+        let second_slot = game_info.get_slot_mut(1).unwrap();
+        second_slot.is_occupied = true;
+        second_slot.is_human = true;
+        second_slot.team = 4;
+        let multiplayer =
+            receiving_observer_roster_from_world(&world, true, Some(&game_info)).unwrap();
+        let selected = multiplayer.selectable().next().unwrap();
+        assert_eq!(selected.index, 1);
+        assert_eq!(
+            selected.team_key.as_deref(),
+            Some("Team:AI"),
+            "C++ uses compact currentButton to read GameInfo slot team, even after skipping player0"
+        );
     }
 }
 

@@ -348,20 +348,18 @@ impl ControlBar {
         &mut self,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.update_observer_portrait_preserving_target(false, receiving_manager)
+        self.update_observer_portrait_preserving_target(None, receiving_manager)
     }
     fn update_observer_portrait_preserving_target(
         &mut self,
-        native_target: bool,
+        native_roster: Option<&super::control_bar_observer::NativeObserverRoster>,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if !self
-            .current_frame
-            .is_multiple_of(LOGICFRAMES_PER_SECOND / 2)
-        {
+        let frame = native_roster.map_or(self.current_frame, |roster| roster.frame);
+        if !frame.is_multiple_of(LOGICFRAMES_PER_SECOND / 2) {
             return Ok(());
         }
-        self.update_context_observer_preserving_target(native_target, receiving_manager)?;
+        self.update_context_observer_preserving_target(native_roster, receiving_manager)?;
 
         let obj_id = { self.context.selected_objects.first().copied() };
         if let Some(id) = obj_id {
@@ -960,6 +958,76 @@ impl ControlBar {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod native_observer_roster_portrait_tests {
+    use super::*;
+    use crate::gui::control_bar::control_bar_observer::{
+        NativeObserverPlayer, NativeObserverRoster,
+    };
+    use gamelogic::player::{Player as CorePlayer, PlayerList, player_list};
+    use std::sync::{Arc, RwLock};
+
+    #[test]
+    fn hosted_observer_portrait_uses_receiving_roster_over_conflicting_core_player() {
+        struct RestorePlayers(Option<PlayerList>);
+        impl Drop for RestorePlayers {
+            fn drop(&mut self) {
+                *player_list().write().unwrap() = self.0.take().unwrap();
+            }
+        }
+        let saved = std::mem::replace(&mut *player_list().write().unwrap(), PlayerList::new());
+        let _restore = RestorePlayers(Some(saved));
+        let mut ambient = CorePlayer::new(5);
+        ambient.get_money_mut().set_money(990);
+        let mut ambient_score = game_engine::common::rts::score_keeper::KindOfMaskType::new();
+        ambient_score.set(game_engine::common::rts::score_keeper::KindOf::Infantry);
+        ambient.get_score_keeper_mut().add_object_destroyed(
+            "AmbientCorePlayer",
+            &ambient_score,
+            1,
+            false,
+        );
+        player_list()
+            .write()
+            .unwrap()
+            .add_player(Arc::new(RwLock::new(ambient)));
+
+        let roster = NativeObserverRoster {
+            players: vec![NativeObserverPlayer {
+                index: 5,
+                slot_index: 0,
+                team_key: None,
+                observer: false,
+                human: true,
+                display_name: "ReceivingSession".into(),
+                color_rgba: 0xFF12_3456,
+                enabled_image: "ReceivingEnabledImage".into(),
+                flag_water_mark: "ReceivingFlag".into(),
+                money: 123,
+                power_produced: 41,
+                power_consumed: 17,
+                num_units: 4,
+                num_buildings: 2,
+                units_killed: 7,
+                units_lost: 3,
+            }],
+            multiplayer: false,
+            frame: 30,
+        };
+        let mut bar = ControlBar::new();
+        bar.set_observer_mode(true);
+        bar.admit_observer_button_owned(Some(5), &roster);
+        let mut manager = crate::gui::window_manager::WindowManager::new();
+        bar.update_observer_portrait_preserving_target(Some(&roster), &mut manager)
+            .unwrap();
+
+        assert_eq!(
+            bar.get_context().observer_player_stats,
+            vec![("ReceivingSession".to_owned(), 123, 4, 2, 7, 3,)]
+        );
     }
 }
 

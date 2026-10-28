@@ -301,16 +301,19 @@ impl ControlBar {
         // C++ InGameUI.cpp:1776-1815 writes MoneyDisplay / PowerWindow hide
         // immediately before TheControlBar->update(). Live host ticks ControlBar
         // from presentation apply, so this is the live InGameUI money path.
-        self.update_money_and_power_windows_with_target(
-            native_roster.map(|_| self.observer_target_index_owned()),
-            receiving_manager,
-        );
+        let native_observer_values = native_roster.map(|roster| {
+            self.observer_target_index_owned().and_then(|target| {
+                roster
+                    .players
+                    .iter()
+                    .find(|player| player.index == target && !player.observer)
+                    .map(|player| (player.money, player.power_produced, player.power_consumed))
+            })
+        });
+        self.update_money_and_power_windows_with_target(native_observer_values, receiving_manager);
 
         if self.observer_mode {
-            self.update_observer_portrait_preserving_target(
-                native_roster.is_some(),
-                receiving_manager,
-            )?;
+            self.update_observer_portrait_preserving_target(native_roster, receiving_manager)?;
             return Ok(());
         }
 
@@ -409,10 +412,7 @@ impl ControlBar {
                 self.update_context_ocl_timer(delta_time, receiving_manager)?;
             }
             ControlBarState::Observer => {
-                self.update_context_observer_preserving_target(
-                    native_roster.is_some(),
-                    receiving_manager,
-                )?;
+                self.update_context_observer_preserving_target(native_roster, receiving_manager)?;
             }
             ControlBarState::MultiSelect => {
                 self.update_context_multi_select(receiving_manager)?;
@@ -463,36 +463,40 @@ impl ControlBar {
     }
     fn update_money_and_power_windows_with_target(
         &mut self,
-        native_target: Option<Option<i32>>,
+        native_observer_values: Option<Option<(i32, i32, i32)>>,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) {
-        let money_player = if self.observer_mode {
-            native_target
-                .unwrap_or_else(|| self.get_observer_look_at_player_index())
-                .and_then(|idx| {
+        let (crate_money, crate_power) = if let Some(native) = native_observer_values {
+            native.map_or((None, None), |(money, produced, consumed)| {
+                (Some(money), Some((produced, consumed)))
+            })
+        } else {
+            let money_player = if self.observer_mode {
+                self.get_observer_look_at_player_index().and_then(|idx| {
                     logic_player_list()
                         .read()
                         .ok()
                         .and_then(|list| list.get_player(idx as PlayerIndex).cloned())
                 })
-        } else {
-            logic_player_list()
-                .read()
-                .ok()
-                .and_then(|list| list.get_local_player().cloned())
+            } else {
+                logic_player_list()
+                    .read()
+                    .ok()
+                    .and_then(|list| list.get_local_player().cloned())
+            };
+
+            let money = money_player
+                .as_ref()
+                .and_then(|player| player.read().ok())
+                .map(|player| player.get_money().count_money() as i32);
+            let power = money_player.as_ref().and_then(|player| {
+                player.read().ok().map(|guard| {
+                    let energy = guard.get_energy();
+                    (energy.production(), energy.consumption())
+                })
+            });
+            (money, power)
         };
-
-        let crate_money = money_player
-            .as_ref()
-            .and_then(|player| player.read().ok())
-            .map(|player| player.get_money().count_money() as i32);
-
-        let crate_power = money_player.as_ref().and_then(|player| {
-            player.read().ok().map(|guard| {
-                let energy = guard.get_energy();
-                (energy.production(), energy.consumption())
-            })
-        });
 
         (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
             let money_win = receiving_manager.find_window_by_name("ControlBar.wnd:MoneyDisplay");
@@ -500,7 +504,12 @@ impl ControlBar {
             // The host freeze stands in for C++ moneyPlayer while the legacy
             // PlayerList is empty. A recreated WND can still contain its
             // authored $$$ even when the cash amount has not changed.
-            let money = crate_money.or(self.presentation_money);
+            let money = crate_money.or_else(|| {
+                native_observer_values
+                    .is_none()
+                    .then_some(self.presentation_money)
+                    .flatten()
+            });
             if let Some(win) = money_win.as_ref() {
                 if let Some(money) = money {
                     let text = Self::format_control_bar_money_display(money);
@@ -515,11 +524,13 @@ impl ControlBar {
             if let Some(win) = power_win.as_ref() {
                 let presentation = self.presentation_power;
                 let (produced, consumed) = match crate_power {
+                    Some(power) if native_observer_values.is_some() => power,
                     Some((produced, consumed))
                         if produced != 0 || consumed != 0 || presentation == (0, 0) =>
                     {
                         (produced, consumed)
                     }
+                    _ if native_observer_values.is_some() => (0, 0),
                     _ => presentation,
                 };
                 let text = Self::format_control_bar_power_display(produced, consumed);

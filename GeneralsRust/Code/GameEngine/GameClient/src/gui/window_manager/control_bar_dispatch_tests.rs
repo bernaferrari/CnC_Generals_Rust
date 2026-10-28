@@ -362,12 +362,14 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
                 observer: false,
                 human: true,
                 display_name: "Receiving".into(),
+                ..Default::default()
             },
             NativeObserverPlayer {
                 index: 13,
                 observer: false,
                 human: true,
                 display_name: "OtherValidReceivingPlayer".into(),
+                ..Default::default()
             },
         ],
         multiplayer: false,
@@ -379,6 +381,7 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
             observer: false,
             human: true,
             display_name: "Foreign".into(),
+            ..Default::default()
         }],
         multiplayer: false,
         frame: 30,

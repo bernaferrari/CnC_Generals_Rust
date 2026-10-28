@@ -12,7 +12,7 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use gamelogic::control_bar::get_control_bar_bridge;
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::player::{PlayerType, player_list as logic_player_list};
-use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicI32, Ordering};
 
 const MAX_OBSERVER_BUTTONS: usize = 8;
 
@@ -24,7 +24,6 @@ const KINDOF_SCORE_CREATE: u128 = 1u128 << 36;
 const KINDOF_SCORE_DESTROY: u128 = 1u128 << 37;
 
 static OBSERVER_LOOK_AT: AtomicI32 = AtomicI32::new(-1);
-static OBSERVER_CONTROLS_READY: AtomicU32 = AtomicU32::new(0);
 
 /// Populate observer-specific commands.
 ///
@@ -96,11 +95,6 @@ pub fn init_observer_controls(receiving_manager: &mut crate::gui::window_manager
             let _ = NameKeyGenerator::name_to_key(&format!("ControlBar.wnd:ButtonPlayer{i}"));
         }
     })(receiving_manager);
-    OBSERVER_CONTROLS_READY.store(1, Ordering::Relaxed);
-}
-
-pub fn observer_controls_ready() -> bool {
-    OBSERVER_CONTROLS_READY.load(Ordering::Relaxed) != 0
 }
 
 pub fn set_observer_look_at_player(index: Option<i32>) {
@@ -191,9 +185,7 @@ fn apply_enabled_image(
 
 /// C++ `ControlBar::populateObserverList`.
 pub fn populate_observer_list(receiving_manager: &mut crate::gui::window_manager::WindowManager) {
-    if !observer_controls_ready() {
-        init_observer_controls(receiving_manager);
-    }
+    init_observer_controls(receiving_manager);
 
     hide_named(
         "ControlBar.wnd:ObserverPlayerInfoWindow",
@@ -321,9 +313,7 @@ pub(crate) fn populate_observer_info_window_for_target(
     target: Option<i32>,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) {
-    if !observer_controls_ready() {
-        init_observer_controls(receiving_manager);
-    }
+    init_observer_controls(receiving_manager);
 
     let info_hidden = (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
         receiving_manager
@@ -558,7 +548,7 @@ pub fn simulate_init_observer_controls(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) -> bool {
     init_observer_controls(receiving_manager);
-    observer_controls_ready()
+    true
 }
 
 /// Residual: C++ `populateObserverList` name latch.
@@ -579,12 +569,24 @@ pub fn simulate_populate_observer_info_window(
 
 /// Immutable receiving roster admitted for one native UI operation. It is never
 /// retained by ControlBar or published through the standalone Core observer.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct NativeObserverPlayer {
     pub index: i32,
+    pub slot_index: i32,
+    pub team_key: Option<String>,
     pub observer: bool,
     pub human: bool,
     pub display_name: String,
+    pub color_rgba: u32,
+    pub enabled_image: String,
+    pub flag_water_mark: String,
+    pub money: i32,
+    pub power_produced: i32,
+    pub power_consumed: i32,
+    pub num_units: i32,
+    pub num_buildings: i32,
+    pub units_killed: i32,
+    pub units_lost: i32,
 }
 #[derive(Clone, Debug)]
 pub struct NativeObserverRoster {
@@ -621,6 +623,16 @@ pub(crate) fn refresh_observer_windows_in_manager(
             let _ = window.borrow_mut().hide(hidden, receiving_manager);
         }
     }
+    if target.is_none() {
+        for name in [
+            "ControlBar.wnd:CommandWindow",
+            "ControlBar.wnd:BeaconWindow",
+            "ControlBar.wnd:UnderConstructionWindow",
+            "ControlBar.wnd:OCLTimerWindow",
+        ] {
+            hide_named(name, true, receiving_manager);
+        }
+    }
     for slot in 0..MAX_OBSERVER_BUTTONS {
         let player = roster.selectable().nth(slot);
         if let Some(button) =
@@ -639,14 +651,192 @@ pub(crate) fn refresh_observer_windows_in_manager(
         {
             let mut text = text.borrow_mut();
             let _ = text.hide(player.is_none(), receiving_manager);
-            // Multiplayer labels also include actual GameInfo team metadata.
-            // Preserve the existing compatibility label until that UI adapter
-            // is explicitly migrated; do not replace it with a fabricated name.
-            if !roster.multiplayer {
-                if let Some(player) = player {
-                    let _ = text.set_text(&player.display_name);
-                }
+            if let Some(player) = player {
+                let label = if roster.multiplayer {
+                    let team = player
+                        .team_key
+                        .as_deref()
+                        .map(GameText::fetch)
+                        .unwrap_or_else(|| {
+                            GameText::fetch(&format!("Team:{}", player.slot_index + 1))
+                        });
+                    format_observer_player_label(
+                        &GameText::fetch("CONTROLBAR:ObsPlayerLabel"),
+                        &player.display_name,
+                        &team,
+                    )
+                } else {
+                    player.display_name.clone()
+                };
+                let _ = text.set_text(&label);
+                text.set_enabled_text_colors(player.color_rgba, 0xFF00_0000);
             }
+        }
+        if let Some(player) = player {
+            apply_enabled_image(
+                &format!("ControlBar.wnd:ButtonPlayer{slot}"),
+                &player.enabled_image,
+                receiving_manager,
+            );
+        }
+    }
+}
+
+/// Fill the observer information pane from the immutable receiving-session roster.
+pub(crate) fn populate_observer_info_from_roster(
+    roster: &NativeObserverRoster,
+    target: i32,
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    init_observer_controls(receiving_manager);
+    let hidden = receiving_manager
+        .find_window_by_name("ControlBar.wnd:ObserverPlayerInfoWindow")
+        .map(|window| window.borrow().is_hidden())
+        .unwrap_or(true);
+    if hidden {
+        return;
+    }
+    let Some(player) = roster
+        .players
+        .iter()
+        .find(|player| player.index == target && !player.observer)
+    else {
+        return;
+    };
+    for (name, value) in [
+        ("ControlBar.wnd:StaticTextNumberOfUnits", player.num_units),
+        (
+            "ControlBar.wnd:StaticTextNumberOfBuildings",
+            player.num_buildings,
+        ),
+        (
+            "ControlBar.wnd:StaticTextNumberOfUnitsKilled",
+            player.units_killed,
+        ),
+        (
+            "ControlBar.wnd:StaticTextNumberOfUnitsLost",
+            player.units_lost,
+        ),
+    ] {
+        set_named_text(name, &value.to_string(), receiving_manager);
+    }
+    set_named_text(
+        "ControlBar.wnd:StaticTextPlayerName",
+        &player.display_name,
+        receiving_manager,
+    );
+    (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
+        if let Some(name) =
+            receiving_manager.find_window_by_name("ControlBar.wnd:StaticTextPlayerName")
+        {
+            name.borrow_mut()
+                .set_enabled_text_colors(player.color_rgba, 0xFF00_0000);
+        }
+        if let Some(portrait) =
+            receiving_manager.find_window_by_name("ControlBar.wnd:WinGeneralPortrait")
+        {
+            let _ = portrait.borrow_mut().hide(false, receiving_manager);
+        }
+    })(receiving_manager);
+    apply_enabled_image(
+        "ControlBar.wnd:WinFlag",
+        &player.flag_water_mark,
+        receiving_manager,
+    );
+}
+
+fn format_observer_player_label(format: &str, display_name: &str, team: &str) -> String {
+    if format.is_empty() || format == "CONTROLBAR:ObsPlayerLabel" {
+        return format!("{display_name} {team}");
+    }
+    let values = [display_name, team];
+    let mut value_index = 0;
+    let mut output = String::with_capacity(format.len() + display_name.len() + team.len());
+    let mut chars = format.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '%' {
+            output.push(ch);
+            continue;
+        }
+        match chars.peek().copied() {
+            Some('%') => {
+                chars.next();
+                output.push('%');
+            }
+            Some('s') if value_index < values.len() => {
+                chars.next();
+                output.push_str(values[value_index]);
+                value_index += 1;
+            }
+            _ => output.push('%'),
+        }
+    }
+    output
+}
+
+#[cfg(test)]
+mod native_observer_label_tests {
+    use super::{
+        NativeObserverRoster, format_observer_player_label, refresh_observer_windows_in_manager,
+    };
+
+    #[test]
+    fn native_observer_label_replaces_cpp_string_arguments_in_order() {
+        assert_eq!(
+            format_observer_player_label("%s — %s", "Alice", "Team:3"),
+            "Alice — Team:3"
+        );
+        assert_eq!(
+            format_observer_player_label("%s (%s) %%", "Alice", "Team:3"),
+            "Alice (Team:3) %"
+        );
+    }
+
+    #[test]
+    fn native_observer_list_hides_same_non_observer_windows_as_cpp_fallback() {
+        let mut manager = crate::gui::window_manager::WindowManager::new();
+        let names = [
+            "ControlBar.wnd:ObserverPlayerInfoWindow",
+            "ControlBar.wnd:ObserverPlayerListWindow",
+            "ControlBar.wnd:CommandWindow",
+            "ControlBar.wnd:BeaconWindow",
+            "ControlBar.wnd:UnderConstructionWindow",
+            "ControlBar.wnd:OCLTimerWindow",
+        ];
+        for name in names {
+            let window = manager.create_window(None, 0, 0, 1, 1).unwrap();
+            window.borrow_mut().set_name(name);
+            let _ = window.borrow_mut().hide(false, &mut manager);
+        }
+        let roster = NativeObserverRoster {
+            players: Vec::new(),
+            multiplayer: false,
+            frame: 0,
+        };
+        refresh_observer_windows_in_manager(&mut manager, &roster, None);
+        assert!(
+            manager
+                .find_window_by_name("ControlBar.wnd:ObserverPlayerInfoWindow")
+                .unwrap()
+                .borrow()
+                .is_hidden()
+        );
+        assert!(
+            !manager
+                .find_window_by_name("ControlBar.wnd:ObserverPlayerListWindow")
+                .unwrap()
+                .borrow()
+                .is_hidden()
+        );
+        for name in &names[2..] {
+            assert!(
+                manager
+                    .find_window_by_name(name)
+                    .unwrap()
+                    .borrow()
+                    .is_hidden(),
+                "{name} must be hidden in observer-list context"
+            );
         }
     }
 }

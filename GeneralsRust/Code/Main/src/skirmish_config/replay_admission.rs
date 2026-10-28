@@ -115,6 +115,30 @@ fn config_from_recorded_info_in(
     }))
 }
 
+/// Observer presentation needs only the slot identity/team facts; unlike a
+/// replay header, these remain available for valid native admissions that
+/// cannot be serialized as GENREP.
+pub(crate) fn observer_game_info(
+    admission: &saved_admission::SavedSkirmishAdmission,
+) -> ReplayGameInfo {
+    use super::SkirmishPlayerTemplateSelection;
+
+    let mut info = ReplayGameInfo::new();
+    for source in &admission.config.slots {
+        let Some(slot) = info.get_slot_mut(source.slot_index) else {
+            continue;
+        };
+        slot.is_occupied = source.is_active;
+        slot.is_human = source.is_human;
+        slot.is_observer = matches!(
+            &source.player_template,
+            &SkirmishPlayerTemplateSelection::Observer
+        );
+        slot.team = source.team;
+    }
+    info
+}
+
 /// Freeze the actual resolved start admission, never reconstruct from live players.
 pub(crate) fn recording_info(
     admission: &saved_admission::SavedSkirmishAdmission,

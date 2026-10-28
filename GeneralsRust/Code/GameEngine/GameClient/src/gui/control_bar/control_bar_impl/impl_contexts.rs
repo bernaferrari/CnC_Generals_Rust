@@ -164,35 +164,70 @@ impl ControlBar {
         &mut self,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.update_context_observer_preserving_target(false, receiving_manager)
+        self.update_context_observer_preserving_target(None, receiving_manager)
     }
     fn update_context_observer_preserving_target(
         &mut self,
-        native_target: bool,
+        native_roster: Option<&super::control_bar_observer::NativeObserverRoster>,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let frame = if native_target {
-            self.current_frame
-        } else {
-            TheGameLogic::get_frame()
-        };
+        let native_target = native_roster.is_some();
+        let frame = native_roster.map_or_else(TheGameLogic::get_frame, |roster| roster.frame);
         if !frame.is_multiple_of(15) {
             return Ok(());
         }
 
         super::control_bar_observer::init_observer_controls(receiving_manager);
-        let target = if native_target {
+        let target = if let Some(roster) = native_roster {
             self.observer_target_index_owned()
+                .filter(|index| roster.contains_target(*index))
         } else {
             super::control_bar_observer::observer_look_at_player_index()
         };
-        if target.is_some() {
+        if let (Some(roster), Some(target)) = (native_roster, target) {
+            super::control_bar_observer::refresh_observer_windows_in_manager(
+                receiving_manager,
+                roster,
+                Some(target),
+            );
+            super::control_bar_observer::populate_observer_info_from_roster(
+                roster,
+                target,
+                receiving_manager,
+            );
+        } else if target.is_some() {
             super::control_bar_observer::populate_observer_info_window_for_target(
                 target,
                 receiving_manager,
             );
+        } else if let Some(roster) = native_roster {
+            super::control_bar_observer::refresh_observer_windows_in_manager(
+                receiving_manager,
+                roster,
+                None,
+            );
         } else {
             super::control_bar_observer::populate_observer_list(receiving_manager);
+        }
+
+        if let Some(roster) = native_roster {
+            let observer_stats = roster
+                .players
+                .iter()
+                .filter(|player| !player.observer)
+                .map(|player| {
+                    (
+                        player.display_name.clone(),
+                        player.money,
+                        player.num_units,
+                        player.num_buildings,
+                        player.units_killed,
+                        player.units_lost,
+                    )
+                })
+                .collect();
+            self.context.observer_player_stats = observer_stats;
+            return Ok(());
         }
 
         let player_list = logic_player_list();
