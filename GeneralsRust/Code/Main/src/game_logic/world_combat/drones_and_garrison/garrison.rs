@@ -728,11 +728,14 @@ impl GameLogic {
                 // records the now-restored current Team again. Keep that
                 // exact identity as the empty-container postcondition too.
                 if let Some(building) = container.building_data.as_mut() {
-                    building.original_team = Some(container.team);
-                    building.original_garrison_player_id = container.owner_player_id;
+                    let has_team = container.team_instance_id.is_some();
+                    building.original_team = has_team.then_some(container.team);
+                    building.original_garrison_player_id =
+                        has_team.then_some(container.owner_player_id).flatten();
                     building.original_team_instance_id = container.team_instance_id;
-                    building.original_team_instance_name =
-                        Some(container.team_instance_name.clone());
+                    building.original_team_instance_name = container
+                        .team_instance_id
+                        .map(|_| container.team_instance_name.clone());
                     building.hide_garrisoned_state = false;
                 }
             }
@@ -757,10 +760,14 @@ impl GameLogic {
         if let Some(container) = self.objects.get_mut(&container_id) {
             if let Some(bd) = container.building_data.as_mut() {
                 if bd.original_team.is_none() {
-                    bd.original_team = Some(container.team);
-                    bd.original_garrison_player_id = container.owner_player_id;
+                    let has_team = container.team_instance_id.is_some();
+                    bd.original_team = has_team.then_some(container.team);
+                    bd.original_garrison_player_id =
+                        has_team.then_some(container.owner_player_id).flatten();
                     bd.original_team_instance_id = container.team_instance_id;
-                    bd.original_team_instance_name = Some(container.team_instance_name.clone());
+                    bd.original_team_instance_name = container
+                        .team_instance_id
+                        .map(|_| container.team_instance_name.clone());
                 }
                 bd.hide_garrisoned_state = hide;
             }
