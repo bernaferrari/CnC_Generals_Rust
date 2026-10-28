@@ -1099,8 +1099,8 @@ impl ScriptActionDispatcher<'_> {
                     self.do_create_reinforcement_team(action)
                 }
             }
-            ScriptActionType::TeamWander => self.do_team_wander(action),
-            ScriptActionType::TeamWanderInPlace => self.do_team_wander_in_place(action),
+            ScriptActionType::TeamWander => self.do_team_wander(action, driver),
+            ScriptActionType::TeamWanderInPlace => self.do_team_wander_in_place(action, driver),
             ScriptActionType::TeamPanic => self.do_team_panic(action, driver),
             ScriptActionType::TeamStop => self.do_team_stop(action),
             ScriptActionType::TeamStopAndDisband => {

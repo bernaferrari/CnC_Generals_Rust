@@ -781,7 +781,9 @@ impl GameLogic {
     pub fn ensure_ai_faction_templates(&mut self, team: Team) {
         // Prefer real WeaponStore / LocomotorStore stats (seeded/INI).
         let _ = super::super::weapon_bootstrap::ensure_host_weapon_store();
-        let _ = super::super::locomotor_bootstrap::ensure_host_locomotor_store();
+        if self.locomotor_definitions.is_none() {
+            let _ = super::super::locomotor_bootstrap::ensure_host_locomotor_store();
+        }
         // `vision` is the retail Object INI VisionRange for the object
         // (FactionBuilding.ini / faction unit INIs). Buildings author
         // ShroudClearingRange == VisionRange; units leave it at the -1

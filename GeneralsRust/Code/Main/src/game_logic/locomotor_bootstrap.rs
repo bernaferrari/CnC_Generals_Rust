@@ -279,6 +279,8 @@ pub struct HostLocomotorBinding {
     pub wander_width_factor: f32,
     /// C++ LocomotorTemplate::m_wanderLengthFactor (phase increment divisor).
     pub wander_length_factor: f32,
+    /// C++ AIWanderInPlaceState reads this from the current locomotor.
+    pub wander_about_point_radius: f32,
     pub stick_to_ground: bool,
     /// C++ LocomotorTemplate::m_closeEnoughDist (default 1.0).
     pub close_enough_dist: f32,
@@ -1049,6 +1051,7 @@ pub(crate) fn host_locomotor_binding_from_template(
         } else {
             t.wander_length_factor
         },
+        wander_about_point_radius: t.wander_about_point_radius,
         stick_to_ground: t.stick_to_ground,
         close_enough_dist: if t.close_enough_dist.is_finite() && t.close_enough_dist >= 0.0 {
             t.close_enough_dist
@@ -1133,6 +1136,7 @@ fn same_host_locomotor_behavior(left: &HostLocomotorBinding, right: &HostLocomot
         && left.turn_pivot_offset == right.turn_pivot_offset
         && left.wander_width_factor == right.wander_width_factor
         && left.wander_length_factor == right.wander_length_factor
+        && left.wander_about_point_radius == right.wander_about_point_radius
         && left.stick_to_ground == right.stick_to_ground
         && left.close_enough_dist == right.close_enough_dist
         && left.close_enough_dist_3d == right.close_enough_dist_3d

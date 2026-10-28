@@ -1,7 +1,6 @@
 //! Authored TEAM_PANIC state, collision, and save continuation gates.
 use super::*;
 use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
-use gamelogic::scripting::{request_host_team_loco_set, take_host_team_loco_set_requests};
 use gamelogic::system::map_loader::{ICoord2D, MapData, MapWaypoint};
 use glam::Vec3;
 
@@ -116,14 +115,7 @@ fn issue_authored_team_panic(logic: &mut GameLogic) {
 }
 
 fn issue_authored_team_panic_for(logic: &mut GameLogic, path_label: &str) {
-    let _ = take_host_team_loco_set_requests();
-    request_host_team_loco_set("GLA", "panic", Some(path_label));
-    assert_eq!(
-        take_host_team_loco_set_requests(),
-        vec![("GLA".into(), "panic".into(), Some(path_label.into()))],
-        "the authored TEAM_PANIC request carries the path label"
-    );
-    request_host_team_loco_set("GLA", "panic", Some(path_label));
+    logic.host_script_apply_team_wander_panic("GLA", "panic", Some(path_label));
     logic.apply_host_loco_set_script_requests();
 }
 

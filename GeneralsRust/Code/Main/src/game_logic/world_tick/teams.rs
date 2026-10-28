@@ -71,38 +71,12 @@ fn leftover_wander_has_repulsor(logic: &GameLogic, id: ObjectId, vision: f32) ->
     logic.find_closest_repulsor(id, vision).is_some()
 }
 
-/// C++ `AIWanderInPlaceState::chooseNewGoal` delta (cells).
-/// Loco template present: `floor(WanderAboutPointRadius / cell + 0.5)`.
-/// No loco / unknown template: C++ fallback of 3.
-fn host_wander_radius_for_name(name: &str) -> Option<f32> {
-    let store = game_engine::common::ini::ini_locomotor::get_locomotor_store();
-    if let Some(template) = store.find_template(name) {
-        return Some(template.wander_about_point_radius);
-    }
-    gamelogic::locomotor::ini_bridge::convert_named(name).map(|t| t.wander_about_point_radius)
-}
-
+/// C++ AIWanderInPlaceState reads the currently selected locomotor, with a
+/// three-cell fallback only when the object has no locomotor.
 fn host_wander_about_point_delta(obj: &crate::game_logic::object::Object) -> i32 {
-    use crate::game_logic::host_upgrade_module_residuals::{
-        HostLocomotorSetKind, locomotor_name_for_set_kind,
-    };
-    let wander_set = obj
-        .get_cur_locomotor_set_token()
-        .is_some_and(|s| s.eq_ignore_ascii_case("SET_WANDER"));
-    let name = if wander_set {
-        locomotor_name_for_set_kind(&obj.template_name, HostLocomotorSetKind::Wander)
-            .map(str::to_string)
-            .or_else(|| obj.cur_locomotor_name.clone())
-    } else {
-        obj.cur_locomotor_name.clone()
-    };
-    let Some(name) = name else {
-        return 3;
-    };
-    match host_wander_radius_for_name(&name) {
-        Some(radius) => ((radius / HOST_WANDER_CELL) + 0.5).floor() as i32,
-        None => 3,
-    }
+    obj.selected_locomotor_definition.map_or(3, |binding| {
+        ((binding.wander_about_point_radius / HOST_WANDER_CELL) + 0.5).floor() as i32
+    })
 }
 
 fn host_wander_choose_hop(
@@ -1138,9 +1112,8 @@ impl GameLogic {
         self.apply_unit_locomotor_set(id, "panic")
     }
 
-    /// Drain leftover TEAM_PANIC / TEAM_WANDER / named-unit set swaps.
-    /// C++ `doTeamWander` / `doTeamPanic` / `doTeamWanderInPlace`: chooseLocomotorSet
-    /// then `aiWander` / `aiPanic` / `aiWanderInPlace` (`CMD_FROM_SCRIPT`).
+    /// Apply the remaining script-side team operations and advance wandering.
+    /// TEAM_PANIC and TEAM_WANDER execute synchronously on the borrowed driver.
     pub fn apply_host_loco_set_script_requests(&mut self) {
         self.apply_host_loco_set_script_requests_with_effects(&mut Default::default())
             .expect("locomotor script requests failed");
@@ -1155,21 +1128,14 @@ impl GameLogic {
         self.apply_host_capture_nearest_unowned_script_requests()?;
         self.apply_host_load_transports_script_requests()?;
         self.apply_host_named_fire_weapon_path_script_requests_with_effects(effects);
-        for (team_name, set, waypoint) in gamelogic::scripting::take_host_team_loco_set_requests() {
-            self.host_script_apply_team_wander_panic(&team_name, &set, waypoint.as_deref());
-        }
-        for (unit_name, set) in gamelogic::scripting::take_host_unit_loco_set_requests() {
-            if let Some(id) = self.find_object_id_by_name(&unit_name) {
-                let _ = self.apply_unit_locomotor_set(id, &set);
-            }
-        }
         self.tick_host_wander_in_place();
         Ok(())
     }
 
     /// C++ `doTeamWander` / `doTeamPanic` member loop: closest waypoint on path,
     /// then wander/panic locomotor + follow. Missing path returns like C++.
-    fn host_script_apply_team_wander_panic(
+    #[cfg(test)]
+    pub(in crate::game_logic) fn host_script_apply_team_wander_panic(
         &mut self,
         team_name: &str,
         set: &str,
@@ -1223,7 +1189,7 @@ impl GameLogic {
     }
 
     /// C++ `TheTerrainLogic->getClosestWaypointOnPath` then `link[0]` chain.
-    fn host_wander_waypoint_path_from(
+    pub(in crate::game_logic) fn host_wander_waypoint_path_from(
         &self,
         path_label: &str,
         from: glam::Vec3,
@@ -1258,7 +1224,11 @@ impl GameLogic {
 
     /// C++ `aiWander` / `aiPanic` follow the waypoint path as individuals.
     /// Leftover `update_group_offset` spreads the issued dest by WanderWidthFactor.
-    fn host_wander_issue_path(&mut self, id: ObjectId, waypoints: &[glam::Vec3]) {
+    pub(in crate::game_logic) fn host_wander_issue_path(
+        &mut self,
+        id: ObjectId,
+        waypoints: &[glam::Vec3],
+    ) {
         if waypoints.is_empty() {
             return;
         }
@@ -1298,7 +1268,7 @@ impl GameLogic {
     }
 
     /// C++ `AIWanderInPlaceState::chooseNewGoal` — loco radius, re-pick each hop.
-    fn host_wander_in_place(&mut self, id: ObjectId, origin: glam::Vec3) {
+    pub(in crate::game_logic) fn host_wander_in_place(&mut self, id: ObjectId, origin: glam::Vec3) {
         let Some(object) = self.host_object(id) else {
             return;
         };

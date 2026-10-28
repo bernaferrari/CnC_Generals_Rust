@@ -1343,12 +1343,17 @@ impl GameLogic {
             if !is_gla_worker_template(&obj.template_name) {
                 continue;
             }
+            let residual_speed = obj.thing().template.receiving_object_definition.is_none();
             if obj.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES) || obj.has_upgrade_tag(upgrade_name) {
                 // Already applied — refresh speed residual only.
-                obj.movement.max_speed = worker_residual_speed(true);
+                if residual_speed {
+                    obj.movement.max_speed = worker_residual_speed(true);
+                }
                 continue;
             }
-            obj.movement.max_speed = worker_residual_speed(true);
+            if residual_speed {
+                obj.movement.max_speed = worker_residual_speed(true);
+            }
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_GLA_WORKER_SHOES);
             affected = affected.saturating_add(1);
@@ -1379,13 +1384,18 @@ impl GameLogic {
             if !is_nuclear_tanks_eligible(&obj.template_name) {
                 continue;
             }
+            let residual_speed = obj.thing().template.receiving_object_definition.is_none();
             if has_nuclear_tanks_upgrade(&obj.applied_upgrades) || obj.has_upgrade_tag(upgrade_name)
             {
                 // Refresh speed residual only.
-                obj.movement.max_speed = nuclear_tanks_residual_speed(&obj.template_name);
+                if residual_speed {
+                    obj.movement.max_speed = nuclear_tanks_residual_speed(&obj.template_name);
+                }
                 continue;
             }
-            obj.movement.max_speed = nuclear_tanks_residual_speed(&obj.template_name);
+            if residual_speed {
+                obj.movement.max_speed = nuclear_tanks_residual_speed(&obj.template_name);
+            }
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_CHINA_NUCLEAR_TANKS);
             affected = affected.saturating_add(1);

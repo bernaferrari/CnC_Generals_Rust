@@ -836,12 +836,24 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_team_wander(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let waypoint_path_label = self.get_string_param(action, 1)?;
-        if super::dual_world_registry_unavailable() {
-            super::request_host_team_loco_set(&team_name, "wander", Some(&waypoint_path_label));
+        let engine = self.context.borrowed_engine();
+        if let Some(result) = driver.team_wander(
+            &team_name,
+            Some(&waypoint_path_label),
+            engine.get_calling_team_id(),
+            engine.get_condition_team_id(),
+        ) {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
             return Ok(ScriptActionResult::Success);
+        }
+        if super::dual_world_registry_unavailable() {
+            return Err(ScriptError::ExecutionFailed(
+                "Team wander requires its receiving world".into(),
+            ));
         }
         log::info!(
             "Team '{}' wandering on path '{}'",
@@ -900,11 +912,23 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_team_wander_in_place(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
-        if super::dual_world_registry_unavailable() {
-            super::request_host_team_loco_set(&team_name, "wander", None);
+        let engine = self.context.borrowed_engine();
+        if let Some(result) = driver.team_wander(
+            &team_name,
+            None,
+            engine.get_calling_team_id(),
+            engine.get_condition_team_id(),
+        ) {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
             return Ok(ScriptActionResult::Success);
+        }
+        if super::dual_world_registry_unavailable() {
+            return Err(ScriptError::ExecutionFailed(
+                "Team wander requires its receiving world".into(),
+            ));
         }
         log::info!("Team '{}' wandering in place", team_name);
 
@@ -960,14 +984,13 @@ impl ScriptActionDispatcher<'_> {
             engine.get_calling_team_id(),
             engine.get_condition_team_id(),
         ) {
-            if let Err(error) = result {
-                log::warn!("Owned team panic failed: {error}");
-            }
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
             return Ok(ScriptActionResult::Success);
         }
         if super::dual_world_registry_unavailable() {
-            super::request_host_team_loco_set(&team_name, "panic", Some(&waypoint_path_label));
-            return Ok(ScriptActionResult::Success);
+            return Err(ScriptError::ExecutionFailed(
+                "Team panic requires its receiving world".into(),
+            ));
         }
         log::debug!(
             "Team '{}' panicking on path '{}'",

@@ -112,6 +112,41 @@ impl GameLogic {
 }
 
 impl GameLogic {
+    pub(super) fn apply_owned_team_wander(
+        &mut self,
+        team: &str,
+        path: Option<&str>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
+            return Ok(());
+        };
+        for id in members {
+            let id = ObjectId(id);
+            let Some(position) = self
+                .host_object(id)
+                .filter(|object| object.has_ai_update_interface())
+                .map(|object| object.get_position())
+            else {
+                continue;
+            };
+            if let Some(label) = path {
+                // C++ chooses the closest waypoint before switching this
+                // member's locomotor; a missing path aborts the remaining team.
+                let Some(waypoints) = self.host_wander_waypoint_path_from(label, position) else {
+                    return Ok(());
+                };
+                let _ = self.apply_unit_locomotor_set(id, "wander");
+                self.host_wander_issue_path(id, &waypoints);
+            } else {
+                let _ = self.apply_unit_locomotor_set(id, "wander");
+                self.host_wander_in_place(id, position);
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn apply_owned_team_panic(
         &mut self,
         team: &str,

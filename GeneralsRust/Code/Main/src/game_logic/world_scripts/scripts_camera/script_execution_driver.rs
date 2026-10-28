@@ -1033,6 +1033,18 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 .apply_owned_team_panic(team, path, calling, condition),
         )
     }
+    fn team_wander(
+        &mut self,
+        team: &str,
+        path: Option<&str>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(
+            self.world
+                .apply_owned_team_wander(team, path, calling, condition),
+        )
+    }
     fn skirmish_approach_path(
         &mut self,
         team: &str,
@@ -2667,7 +2679,7 @@ mod water_owner_tests;
 impl GameLogic {
     /// Execute an acceptance interpreter through the actual borrowed Main driver.
     /// No driver or engine is installed into process state.
-    pub(crate) fn update_local_script_engine_with_owner(
+    pub fn update_local_script_engine_with_owner(
         &mut self,
         engine: &gamelogic::scripting::engine::ScriptEngine,
     ) -> gamelogic::GameLogicResult<()> {

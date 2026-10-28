@@ -2231,7 +2231,8 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
             .then(|| entry.cur_locomotor_name.as_deref())
             .flatten()
             .and_then(|name| game_logic.resolve_receiving_locomotor(name));
-        if let Some(object) = game_logic.host_objects_mut().get_mut(&id) {
+        let locomotors = game_logic.locomotor_definitions.as_ref();
+        if let Some(object) = game_logic.objects.get_mut(&id) {
             object.status.disabled_held = entry.disabled_held;
             object.single_use_command_used = entry.single_use_command_used;
             object.ai_attitude = entry.ai_attitude;
@@ -2331,9 +2332,11 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
                     if let Some(kind) = crate::game_logic::host_upgrade_module_residuals::locomotor_set_kind_from_token(&token)
                     {
                         object.jet_ai.cur_locomotor_set = None;
-                        crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_kind(
+                        crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_kind_for_surfaces_in(
                             object,
                             kind,
+                            0,
+                            locomotors,
                         );
                         object.jet_ai.cur_locomotor_set = Some(token);
                     }

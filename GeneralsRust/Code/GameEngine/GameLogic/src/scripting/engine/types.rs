@@ -1126,6 +1126,15 @@ pub trait ScriptExecutionDriver {
     ) -> Option<GameLogicResult<()>> {
         None
     }
+    fn team_wander(
+        &mut self,
+        _team: &str,
+        _path: Option<&str>,
+        _calling: Option<u32>,
+        _condition: Option<u32>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
     fn skirmish_approach_path(
         &mut self,
         _team: &str,

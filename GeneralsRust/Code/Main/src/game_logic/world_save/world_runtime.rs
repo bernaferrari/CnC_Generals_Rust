@@ -365,12 +365,14 @@ impl GameLogic {
         if seeded > 0 {
             log::info!("Host WeaponStore bootstrap registered {} templates", seeded);
         }
-        let loco_seeded = super::locomotor_bootstrap::ensure_host_locomotor_store();
-        if loco_seeded > 0 {
-            log::info!(
-                "Host LocomotorStore bootstrap registered {} templates",
-                loco_seeded
-            );
+        if self.locomotor_definitions.is_none() {
+            let loco_seeded = super::locomotor_bootstrap::ensure_host_locomotor_store();
+            if loco_seeded > 0 {
+                log::info!(
+                    "Host LocomotorStore bootstrap registered {} templates",
+                    loco_seeded
+                );
+            }
         }
         if self.receiving_module_content.is_some() {
             let Some(baseline) = &self.receiving_template_baseline else {

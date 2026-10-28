@@ -1802,7 +1802,9 @@ impl GameLogic {
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        crate::game_logic::locomotor_bootstrap::ensure_spy_drone_locomotor();
+        if self.locomotor_definitions.is_none() {
+            crate::game_logic::locomotor_bootstrap::ensure_spy_drone_locomotor();
+        }
 
         {
             let tpl = self
@@ -1881,6 +1883,10 @@ impl GameLogic {
         let spawn_ok = spawned_id.is_some();
         let frame = self.frame;
         let start_radius = spy_drone_scan_radius_after_updates(0);
+        let spy_locomotor = spawned_id
+            .and_then(|id| self.host_object(id))
+            .filter(|object| object.movement.max_speed <= 10.01)
+            .and_then(|_| self.resolve_receiving_locomotor(SPY_DRONE_LOCOMOTOR));
         if let Some(id) = spawned_id {
             if let Some((obj, health_events, partition)) = self.host_object_health_partition_mut(id)
             {
@@ -1900,11 +1906,7 @@ impl GameLogic {
                 obj.vision_range = SPY_DRONE_VISION_RANGE;
                 obj.set_shroud_clearing_range_with_partition_owner(start_radius, partition);
                 if obj.movement.max_speed <= 10.01 {
-                    if let Some(binding) =
-                        crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(
-                            SPY_DRONE_LOCOMOTOR,
-                        )
-                    {
+                    if let Some(binding) = spy_locomotor {
                         crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(
                             obj, &binding,
                         );
