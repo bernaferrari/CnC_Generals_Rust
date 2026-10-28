@@ -47,4 +47,21 @@ fn public_drone_spawn_uses_each_receiving_world_for_same_ids() {
         china_child.get_position().x - china.host_object(china_master).unwrap().get_position().x,
         usa_child.get_position().x - usa.host_object(usa_master).unwrap().get_position().x
     );
+
+    // Retiring and reusing B's identities must not redirect the still-live A
+    // master/slave relationship through the shared ObjectId values.
+    china.reset();
+    drop(china);
+    let (mut replacement, replacement_master) = world(Team::China, Vec3::new(480.0, 0.0, 690.0));
+    assert_eq!(replacement_master, usa_master);
+    let replacement_drone = replacement
+        .residual_attach_slave_drone(replacement_master, SlaveDroneKind::Scout)
+        .expect("replacement session creates its own slave after ID reuse");
+    assert_eq!(replacement_drone, usa_drone);
+    let replacement_child = replacement.host_object(replacement_drone).unwrap();
+    assert_eq!(replacement_child.producer_id, Some(replacement_master));
+    assert_eq!(replacement_child.team, Team::China);
+    let retained_usa_child = usa.host_object(usa_drone).unwrap();
+    assert_eq!(retained_usa_child.producer_id, Some(usa_master));
+    assert_eq!(retained_usa_child.team, Team::USA);
 }
