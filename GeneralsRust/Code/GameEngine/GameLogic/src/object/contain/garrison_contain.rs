@@ -3131,6 +3131,16 @@ impl ContainModuleInterface for GarrisonContain {
         GarrisonContain::is_valid_container_for(self, obj, check_capacity)
     }
 
+    fn is_valid_container_for_with_world(
+        &self,
+        obj: &Object,
+        owner: &Object,
+        check_capacity: bool,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> bool {
+        self.admits_with_world(obj, owner, check_capacity, world)
+    }
+
     fn is_valid_container_for_with_owner(
         &self,
         obj: &Object,

@@ -24,6 +24,21 @@ impl GarrisonContain {
             && self.admits_after_open(passenger, owner, check_capacity)
     }
 
+    pub(super) fn admits_with_world(
+        &self,
+        passenger: &Object,
+        owner: &Object,
+        check_capacity: bool,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> bool {
+        // The native AI Enter route supplies the receiving world's exact
+        // relationship service. Keep OpenContain's kind/relationship gates
+        // first, then apply the Garrison body and derived checks.
+        self.base
+            .is_valid_container_for_with_world(passenger, owner, check_capacity, world)
+            && self.admits_after_open(passenger, owner, check_capacity)
+    }
+
     fn admits_after_open(&self, passenger: &Object, owner: &Object, check_capacity: bool) -> bool {
         let Some(body) = owner.get_body_module() else {
             return false;

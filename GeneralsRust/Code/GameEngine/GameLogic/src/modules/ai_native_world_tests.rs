@@ -150,6 +150,40 @@ fn transport_template() -> Arc<dyn ThingTemplate> {
     })
 }
 
+fn garrison_template() -> Arc<dyn ThingTemplate> {
+    crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+    let mut base = DefaultThingTemplate::new("NativeEnterGarrison".into());
+    base.add_kind_of(KindOf::Structure);
+    let mut body = crate::object::body::active_body::ActiveBodyModuleData::default();
+    body.max_health = 100.0;
+    body.initial_health = 100.0;
+    let mut garrison =
+        crate::object::contain::garrison_contain::GarrisonContainModuleData::default();
+    garrison.base.contain_max = 2;
+    garrison.base.allow_allies_inside = true;
+    garrison.base.allow_enemies_inside = false;
+    garrison.base.allow_neutral_inside = false;
+    Arc::new(EntryTemplate {
+        base,
+        modules: vec![
+            TemplateModuleInfo {
+                name: "ActiveBody".into(),
+                module_tag: "NativeEnterGarrisonBody".into(),
+                data: Arc::new(body),
+                interface_mask: ModuleInterfaceType::BODY,
+            },
+            TemplateModuleInfo {
+                name: "GarrisonContain".into(),
+                module_tag: "NativeEnterGarrisonContain".into(),
+                data: Arc::new(
+                    crate::contain_module_overrides::ContainModuleDataAdapter::new(garrison),
+                ),
+                interface_mask: ModuleInterfaceType::CONTAIN,
+            },
+        ],
+    })
+}
+
 /// Audio delivery reads this fixture's actual player list, never a singleton.
 struct LocalPlayers<'a>(&'a PlayerList);
 impl AudioLocalityResolver for LocalPlayers<'_> {
@@ -572,6 +606,57 @@ fn cached_native_enter_boards_only_its_factory_target() {
     assert!(
         !source.is_disabled_by_type(crate::common::DisabledType::Held),
         "OpenContain has no TransportContain onContaining HELD effect"
+    );
+}
+
+#[test]
+fn cached_native_garrison_admission_uses_each_same_id_world_owner() {
+    let template = garrison_template();
+    let mut allied = NativeMatch::with_target_owner(50.0, template.clone(), false);
+    let mut enemy = NativeMatch::with_target_owner(50.0, template, true);
+    assert_eq!(
+        allied.source.read().unwrap().get_id(),
+        enemy.source.read().unwrap().get_id()
+    );
+    assert_eq!(
+        allied.target.read().unwrap().get_id(),
+        enemy.target.read().unwrap().get_id()
+    );
+    let source = allied.source.clone();
+    let target = allied.target.clone();
+    let allied_admitted = allied.operate(33, |world| {
+        let source = source.read().unwrap();
+        let target = target.read().unwrap();
+        world.can_enter(
+            &source,
+            &target,
+            CommandSourceType::FromAI,
+            crate::action_manager::CanEnterType::CheckCapacity,
+        )
+    });
+    assert!(
+        allied_admitted,
+        "allied admission uses this factory's owner"
+    );
+
+    // The hostile world has the same object IDs but a different owning Team
+    // relation. It must reject against its own borrowed owner through the
+    // production AI Enter admission path.
+    let source = enemy.source.clone();
+    let target = enemy.target.clone();
+    let enemy_admitted = enemy.operate(33, |world| {
+        let source = source.read().unwrap();
+        let target = target.read().unwrap();
+        world.can_enter(
+            &source,
+            &target,
+            CommandSourceType::FromAI,
+            crate::action_manager::CanEnterType::CheckCapacity,
+        )
+    });
+    assert!(
+        !enemy_admitted,
+        "enemy admission uses this factory's relationship and remains outside"
     );
 }
 
