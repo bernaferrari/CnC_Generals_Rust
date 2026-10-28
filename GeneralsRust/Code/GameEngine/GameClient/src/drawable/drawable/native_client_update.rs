@@ -136,6 +136,28 @@ impl BasicDrawable {
     }
 
     pub(crate) fn update_after_client_modules(&mut self, logic_frame: u32) {
+        let _ = self.update_after_client_modules_inner(logic_frame, None, None);
+    }
+
+    pub(crate) fn update_after_client_modules_with_ambient(
+        &mut self,
+        logic_frame: u32,
+        ambient: &mut crate::drawable::drawable::NativeAmbientUpdate<'_>,
+        audio_device: Option<
+            &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+        >,
+    ) -> Result<(), String> {
+        self.update_after_client_modules_inner(logic_frame, Some(ambient), audio_device)
+    }
+
+    fn update_after_client_modules_inner(
+        &mut self,
+        logic_frame: u32,
+        mut ambient: Option<&mut crate::drawable::drawable::NativeAmbientUpdate<'_>>,
+        audio_device: Option<
+            &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+        >,
+    ) -> Result<(), String> {
         self.update_fade();
 
         if self.terrain_decal_type != TerrainDecalType::None {
@@ -170,7 +192,7 @@ impl BasicDrawable {
         // uses Logic time and returns before flash and tint. The caller owns
         // retirement; the receiving Client clock below still drives flashing.
         if self.is_expired(logic_frame) {
-            return;
+            return Ok(());
         }
 
         if self.flash_count > 0 && self.current_frame.is_multiple_of(DRAWABLE_FRAMES_PER_FLASH) {
@@ -194,7 +216,12 @@ impl BasicDrawable {
         }
 
         self.publish_wheel_info_to_logic();
-        self.apply_pending_time_of_day();
-        self.restart_ambient_if_dropped();
+        if let Some(ambient) = ambient.as_deref_mut() {
+            ambient.update_after_client_modules(self, audio_device)?;
+        } else {
+            self.apply_pending_time_of_day();
+            self.restart_ambient_if_dropped();
+        }
+        Ok(())
     }
 }

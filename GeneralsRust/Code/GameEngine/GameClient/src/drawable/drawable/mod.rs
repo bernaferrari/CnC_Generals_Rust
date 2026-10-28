@@ -16,7 +16,7 @@ use gamelogic::object::registry::OBJECT_REGISTRY;
 
 mod ambient_services;
 mod basic_core;
-pub use ambient_services::NativeAmbientAudio;
+pub use ambient_services::{NativeAmbientAudio, NativeAmbientUpdate};
 mod basic_drawable_trait;
 mod basic_modules;
 mod basic_overlay;
@@ -149,6 +149,11 @@ pub struct BasicDrawable {
     pending_time_of_day: AtomicU8,
     // Presentation copy of the receiving session policy, never a simulation owner.
     receiving_time_of_day: Option<crate::system::TimeOfDay>,
+    /// Value-only TOD restamp awaiting the original update-time ambient refresh.
+    ambient_tod_changed: bool,
+    /// Complete owner-local setTimeOfDay transition retained across temporary
+    /// receiving audio-service unavailability.
+    pending_ambient_tod: Option<PendingAmbientTod>,
 
     current_frame: u32,
     /// C++ `m_isModelDirty` (`DIRTY_CONDITION_FLAGS`).
@@ -233,6 +238,21 @@ pub struct BasicDrawable {
     bone_data: Option<BoneData>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AmbientTodRestartKind {
+    /// Drawable::setTimeOfDay's queued explicit command.
+    DrawableCommand,
+    /// A changed receiving world TOD projected onto an existing Drawable.
+    ReceivingWorldTransition,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PendingAmbientTod {
+    kind: AmbientTodRestartKind,
+    body_state: gamelogic::common::types::BodyDamageType,
+    target: crate::system::TimeOfDay,
+}
+
 impl DrawableDowncast for BasicDrawable {
     fn as_any(&self) -> &dyn Any {
         self
@@ -310,6 +330,8 @@ impl BasicDrawable {
             ambient_sound_event: None,
             pending_time_of_day: AtomicU8::new(0),
             receiving_time_of_day: None,
+            ambient_tod_changed: false,
+            pending_ambient_tod: None,
 
             current_frame: 0,
             is_model_dirty: true,

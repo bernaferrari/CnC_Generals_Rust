@@ -70,18 +70,62 @@ fn audio() -> AudioManager {
 }
 
 #[derive(Clone)]
-struct Playback(Arc<Mutex<Vec<(char, u32)>>>);
+struct Playback {
+    events: Arc<Mutex<Vec<(char, u32)>>>,
+    is_playing: bool,
+}
 impl SoundPlaybackHook for Playback {
     fn play(&self, event: &game_engine::common::audio::AudioEventRts) -> Result<(), String> {
-        self.0
+        self.events
             .lock()
             .unwrap()
             .push(('P', event.get_playing_handle()));
         Ok(())
     }
     fn stop(&self, handle: u32) {
-        self.0.lock().unwrap().push(('S', handle));
+        self.events.lock().unwrap().push(('S', handle));
     }
+    fn pause(&self, _: u32) {}
+    fn resume(&self, _: u32) {}
+    fn is_playing(&self, _: u32) -> bool {
+        self.is_playing
+    }
+}
+
+fn recording_audio(events: Arc<Mutex<Vec<(char, u32)>>>) -> AudioManager {
+    recording_audio_with_state(events, true)
+}
+
+fn recording_audio_with_state(
+    events: Arc<Mutex<Vec<(char, u32)>>>,
+    is_playing: bool,
+) -> AudioManager {
+    let mut audio = AudioManager::with_playback_hook(Box::new(Playback { events, is_playing }));
+    audio.init();
+    for (name, sample) in [
+        ("OwnedPristine", "owned_sample"),
+        ("OwnedDamaged", "owned_damaged_sample"),
+    ] {
+        audio.register_audio_event_info(AudioEventInfo {
+            audio_name: name.into(),
+            sounds: vec![sample.into()],
+            type_field: ST_GLOBAL,
+            control: AC_LOOP,
+            loop_count: 0,
+            ..Default::default()
+        });
+    }
+    audio
+}
+
+#[derive(Clone)]
+struct TodPlayback(Arc<Mutex<Vec<game_engine::common::audio::audio_event_rts::TimeOfDay>>>);
+impl SoundPlaybackHook for TodPlayback {
+    fn play(&self, event: &game_engine::common::audio::AudioEventRts) -> Result<(), String> {
+        self.0.lock().unwrap().push(event.get_time_of_day());
+        Ok(())
+    }
+    fn stop(&self, _: u32) {}
     fn pause(&self, _: u32) {}
     fn resume(&self, _: u32) {}
     fn is_playing(&self, _: u32) -> bool {
@@ -89,8 +133,10 @@ impl SoundPlaybackHook for Playback {
     }
 }
 
-fn recording_audio(events: Arc<Mutex<Vec<(char, u32)>>>) -> AudioManager {
-    let mut audio = AudioManager::with_playback_hook(Box::new(Playback(events)));
+fn tod_recording_audio(
+    played: Arc<Mutex<Vec<game_engine::common::audio::audio_event_rts::TimeOfDay>>>,
+) -> AudioManager {
+    let mut audio = AudioManager::with_playback_hook(Box::new(TodPlayback(played)));
     audio.init();
     for (name, sample) in [
         ("OwnedPristine", "owned_sample"),
@@ -444,6 +490,210 @@ fn map_loading_owner_starts_at_level_start_and_retires_on_same_manager() {
         &[('P', handle_a), ('S', handle_a)]
     );
     assert_eq!(events_b.lock().unwrap().as_slice(), &[('P', handle_b)]);
+}
+
+#[test]
+fn native_update_restarts_dropped_ambient_on_each_receiving_manager() {
+    let events_a = Arc::new(Mutex::new(Vec::new()));
+    let events_b = Arc::new(Mutex::new(Vec::new()));
+    let device_a = Arc::new(Mutex::new(recording_audio_with_state(
+        Arc::clone(&events_a),
+        false,
+    )));
+    let device_b = Arc::new(Mutex::new(recording_audio_with_state(
+        Arc::clone(&events_b),
+        false,
+    )));
+    let mut a = client(Arc::clone(&device_a));
+    let mut b = client(Arc::clone(&device_b));
+    let (mut content_a, plan_a) = admitted();
+    let (mut content_b, plan_b) = admitted();
+    let policy = ReceivingDrawablePolicy {
+        time_of_day: Some(game_client_rust::system::TimeOfDay::Night),
+        use_draw_module_lod: true,
+        static_game_lod: StaticGameLodLevel::High,
+        use_tree_sway: true,
+    };
+    for (client, content, plan) in [
+        (&mut a, &mut content_a, Arc::clone(&plan_a)),
+        (&mut b, &mut content_b, Arc::clone(&plan_b)),
+    ] {
+        client
+            .sync_presentation_drawables_observed_with_content(
+                [entry(plan)],
+                0,
+                content.module_factory_mut(),
+                policy,
+                |_| {},
+            )
+            .unwrap();
+    }
+    assert_eq!(a.get_drawable_for_object(77), b.get_drawable_for_object(77));
+    device_a.lock().unwrap().process_request_list();
+    device_b.lock().unwrap().process_request_list();
+
+    let locality = game_engine::common::audio::AudioSubmissionLocality::from_resolver(1, &Players);
+    let mut locality_a = |_| locality;
+    let mut locality_b = |_| locality;
+    let mut ambient_a = game_client_rust::drawable::drawable::NativeAmbientUpdate::new(
+        Some(game_client_rust::system::TimeOfDay::Night),
+        &mut locality_a,
+    );
+    let mut ambient_b = game_client_rust::drawable::drawable::NativeAmbientUpdate::new(
+        Some(game_client_rust::system::TimeOfDay::Night),
+        &mut locality_b,
+    );
+    let frames = game_client_rust::core::game_client::NativeParticleFrames {
+        logic_frame: 1,
+        client_frame: 0,
+    };
+    a.update_drawables_local_with_ambient(0.0, frames, &mut ambient_a)
+        .unwrap();
+    b.update_drawables_local_with_ambient(0.0, frames, &mut ambient_b)
+        .unwrap();
+    device_a.lock().unwrap().process_request_list();
+    device_b.lock().unwrap().process_request_list();
+
+    assert_eq!(
+        events_a
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(kind, _)| *kind)
+            .collect::<Vec<_>>(),
+        vec!['P', 'S', 'P']
+    );
+    assert_eq!(
+        events_b
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(kind, _)| *kind)
+            .collect::<Vec<_>>(),
+        vec!['P', 'S', 'P']
+    );
+
+    let evening = ReceivingDrawablePolicy {
+        time_of_day: Some(game_client_rust::system::TimeOfDay::Evening),
+        ..policy
+    };
+    for (client, content, plan) in [
+        (&mut a, &mut content_a, Arc::clone(&plan_a)),
+        (&mut b, &mut content_b, Arc::clone(&plan_b)),
+    ] {
+        client
+            .sync_presentation_drawables_observed_with_content(
+                [entry(plan)],
+                0,
+                content.module_factory_mut(),
+                evening,
+                |_| {},
+            )
+            .unwrap();
+    }
+    let mut locality_a = |_| locality;
+    let mut locality_b = |_| locality;
+    let mut ambient_a = game_client_rust::drawable::drawable::NativeAmbientUpdate::new(
+        evening.time_of_day,
+        &mut locality_a,
+    );
+    let mut ambient_b = game_client_rust::drawable::drawable::NativeAmbientUpdate::new(
+        evening.time_of_day,
+        &mut locality_b,
+    );
+    a.update_drawables_local_with_ambient(0.0, frames, &mut ambient_a)
+        .unwrap();
+    b.update_drawables_local_with_ambient(0.0, frames, &mut ambient_b)
+        .unwrap();
+    device_a.lock().unwrap().process_request_list();
+    device_b.lock().unwrap().process_request_list();
+    assert_eq!(
+        events_a
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(kind, _)| *kind)
+            .collect::<Vec<_>>(),
+        vec!['P', 'S', 'P', 'S', 'P']
+    );
+    assert_eq!(
+        events_b
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(kind, _)| *kind)
+            .collect::<Vec<_>>(),
+        vec!['P', 'S', 'P', 'S', 'P']
+    );
+}
+
+#[test]
+fn public_tick_retry_keeps_queued_tod_when_receiving_context_changes() {
+    let mut client =
+        GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted).unwrap();
+    client.particle_systems_mut().finish_definition_admission();
+    let (mut content, plan) = admitted();
+    let mut source = entry(plan);
+    source.ambient_audio_locality = None;
+    let policy = ReceivingDrawablePolicy {
+        time_of_day: None,
+        use_draw_module_lod: true,
+        static_game_lod: StaticGameLodLevel::High,
+        use_tree_sway: true,
+    };
+    client
+        .borrow_native_drawable_owner()
+        .admit_semantic_drawable_with_content(
+            source,
+            NativeDrawableBirthContext {
+                loading_map: true,
+                in_load_game: false,
+            },
+            0,
+            content.module_factory_mut(),
+            policy,
+            &mut NativeParticleRetirementService,
+            |_| Ok(()),
+        )
+        .unwrap();
+    let drawable_id = client.get_drawable_for_object(77).unwrap();
+    client
+        .find_drawable_by_id(drawable_id)
+        .unwrap()
+        .set_time_of_day(game_client_rust::system::TimeOfDay::Night)
+        .unwrap();
+
+    let frames = game_client_rust::core::game_client::NativeParticleFrames {
+        logic_frame: 1,
+        client_frame: client.get_frame(),
+    };
+    let locality = game_engine::common::audio::AudioSubmissionLocality::from_resolver(1, &Players);
+    let mut locality_for_object = |_| locality;
+    let mut no_device = game_client_rust::drawable::drawable::NativeAmbientUpdate::new(
+        Some(game_client_rust::system::TimeOfDay::Night),
+        &mut locality_for_object,
+    );
+    client
+        .update_drawables_local_with_ambient(0.0, frames, &mut no_device)
+        .unwrap();
+
+    let played = Arc::new(Mutex::new(Vec::new()));
+    let device = Arc::new(Mutex::new(tod_recording_audio(Arc::clone(&played))));
+    client.bind_native_audio_device(Arc::clone(&device));
+    let mut locality_for_object = |_| locality;
+    let mut retry = game_client_rust::drawable::drawable::NativeAmbientUpdate::new(
+        Some(game_client_rust::system::TimeOfDay::Morning),
+        &mut locality_for_object,
+    );
+    client
+        .update_drawables_local_with_ambient(0.0, frames, &mut retry)
+        .unwrap();
+    device.lock().unwrap().process_request_list();
+
+    assert_eq!(
+        played.lock().unwrap().as_slice(),
+        &[game_engine::common::audio::audio_event_rts::TimeOfDay::Night]
+    );
 }
 
 #[test]

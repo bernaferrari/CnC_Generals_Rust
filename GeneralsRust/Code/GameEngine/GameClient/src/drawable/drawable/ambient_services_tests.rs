@@ -302,6 +302,149 @@ fn explicit_constructor_load_gates_and_missing_resources_do_not_invent_audio() {
 }
 
 #[test]
+fn native_ambient_tod_restart_retries_after_missing_owner_facts() {
+    let mut actor = make_actor(22);
+    actor.model_condition_flags.set(
+        game_engine::common::bit_flags::ModelConditionFlags::DAMAGED,
+        true,
+    );
+    actor.set_time_of_day(TimeOfDay::Night).unwrap();
+    let locality = AudioSubmissionLocality::from_resolver(1, &Players);
+    let mut locality_for_object = |_| locality.clone();
+
+    // Model-condition timing still occurs on the first update, while the
+    // missing manager leaves the audio restart obligation pending.
+    let mut no_device = NativeAmbientUpdate::new(Some(TimeOfDay::Night), &mut locality_for_object);
+    no_device
+        .update_after_client_modules(&mut actor, None)
+        .unwrap();
+    assert!(
+        actor
+            .model_condition_flags
+            .test(game_engine::common::bit_flags::ModelConditionFlags::NIGHT)
+    );
+    assert_eq!(
+        actor
+            .pending_time_of_day
+            .load(std::sync::atomic::Ordering::Relaxed),
+        0
+    );
+    assert!(actor.ambient_tod_changed);
+    let pending = actor.pending_ambient_tod.unwrap();
+    assert_eq!(pending.kind, AmbientTodRestartKind::DrawableCommand);
+    assert_eq!(pending.body_state, BodyDamageType::Damaged);
+    assert_eq!(pending.target, TimeOfDay::Night);
+
+    // A later receiver reports a different TOD. The queued command still owns
+    // Night, so its target must survive the unavailable-service frame.
+    let device = std::sync::Arc::new(std::sync::Mutex::new(make_audio()));
+    // Simulate a later body transition before services return. C++'s queued
+    // setTimeOfDay used the body state observed before its NIGHT replacement.
+    actor.model_condition_flags.set(
+        game_engine::common::bit_flags::ModelConditionFlags::DAMAGED,
+        false,
+    );
+    let mut ready = NativeAmbientUpdate::new(Some(TimeOfDay::Morning), &mut locality_for_object);
+    ready
+        .update_after_client_modules(&mut actor, Some(&device))
+        .unwrap();
+    assert!(!actor.ambient_tod_changed);
+    assert!(actor.pending_ambient_tod.is_none());
+    assert!(actor.ambient_sound_is_active());
+    assert_eq!(
+        actor
+            .ambient_sound_event
+            .as_ref()
+            .unwrap()
+            .get_time_of_day(),
+        game_engine::common::audio::audio_event_rts::TimeOfDay::Night
+    );
+    assert_eq!(
+        device
+            .lock()
+            .unwrap()
+            .pending_play_request_count_for("OwnedDamaged"),
+        1
+    );
+    assert_eq!(
+        device
+            .lock()
+            .unwrap()
+            .pending_play_request_count_for("OwnedPristine"),
+        0
+    );
+}
+
+#[test]
+fn queued_tod_restart_bypasses_ambient_enable_gates() {
+    let mut actor = make_actor(23);
+    actor.ambient_sound_enabled = false;
+    actor.ambient_sound_enabled_from_script = false;
+    actor.set_time_of_day(TimeOfDay::Evening).unwrap();
+    let locality = AudioSubmissionLocality::from_resolver(1, &Players);
+    let mut locality_for_object = |_| locality.clone();
+    let device = std::sync::Arc::new(std::sync::Mutex::new(make_audio()));
+    let mut ambient = NativeAmbientUpdate::new(Some(TimeOfDay::Evening), &mut locality_for_object);
+
+    // C++ setTimeOfDay calls the explicit startAmbientSound(dt, tod) overload,
+    // which bypasses enableAmbientSound's convenience-overload gates.
+    ambient
+        .update_after_client_modules(&mut actor, Some(&device))
+        .unwrap();
+    assert!(actor.ambient_sound_is_active());
+    assert_eq!(
+        device
+            .lock()
+            .unwrap()
+            .pending_play_request_count_for("OwnedPristine"),
+        1
+    );
+    assert!(!actor.ambient_tod_changed);
+}
+
+#[test]
+fn receiving_world_tod_transition_is_not_a_passive_snapshot_restamp() {
+    let mut actor = make_actor(24);
+    actor.admit_receiving_time_of_day(Some(TimeOfDay::Afternoon));
+    actor.model_condition_flags.set(
+        game_engine::common::bit_flags::ModelConditionFlags::DAMAGED,
+        true,
+    );
+    actor.ambient_sound_enabled = false;
+    actor.ambient_sound_enabled_from_script = false;
+    actor.admit_receiving_time_of_day(Some(TimeOfDay::Night));
+    assert_eq!(
+        actor.pending_ambient_tod.unwrap().kind,
+        AmbientTodRestartKind::ReceivingWorldTransition
+    );
+
+    let locality = AudioSubmissionLocality::from_resolver(1, &Players);
+    let mut locality_for_object = |_| locality.clone();
+    let device = std::sync::Arc::new(std::sync::Mutex::new(make_audio()));
+    let mut ambient = NativeAmbientUpdate::new(Some(TimeOfDay::Night), &mut locality_for_object);
+    ambient
+        .update_after_client_modules(&mut actor, Some(&device))
+        .unwrap();
+
+    // Main transfers the local TOD request into GameLogic, then projects the
+    // changed world policy onto existing Drawables. That is C++ GameClient's
+    // setTimeOfDay operation, so it updates audio and NIGHT even with gates off.
+    assert!(actor.ambient_sound_is_active());
+    assert!(
+        actor
+            .model_condition_flags
+            .test(game_engine::common::bit_flags::ModelConditionFlags::NIGHT)
+    );
+    assert_eq!(
+        device
+            .lock()
+            .unwrap()
+            .pending_play_request_count_for("OwnedDamaged"),
+        1
+    );
+}
+
+#[test]
 fn explicit_constructor_audio_preserves_ambient_enable_gates() {
     let locality = AudioSubmissionLocality::from_resolver(1, &Players);
     let mut actor = make_actor(21);

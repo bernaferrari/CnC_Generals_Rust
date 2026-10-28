@@ -1,6 +1,6 @@
 // Disjoint native render loan: mutable Drawable state and immutable render assets
 // remain under the same receiving client without taking either owner out of it.
-struct NativeRenderReceiver<'a> {
+struct NativeRenderReceiver<'a, 'ambient> {
     drawables: &'a mut drawable_world::DrawableState,
     native_particle_capability_gaps: &'a mut Vec<NativeParticleCapabilityGap>,
     audio_device:
@@ -9,8 +9,9 @@ struct NativeRenderReceiver<'a> {
     frame: u32,
     local_player_id: i32,
     input_authority: ClientInputAuthority,
+    ambient_update: Option<&'a mut crate::drawable::drawable::NativeAmbientUpdate<'ambient>>,
 }
-impl<'a> NativeRenderReceiver<'a> {
+impl<'a, 'ambient> NativeRenderReceiver<'a, 'ambient> {
     fn new(
         drawables: &'a mut drawable_world::DrawableState,
         native_particle_capability_gaps: &'a mut Vec<NativeParticleCapabilityGap>,
@@ -30,7 +31,33 @@ impl<'a> NativeRenderReceiver<'a> {
             frame,
             local_player_id,
             input_authority,
+            ambient_update: None,
         }
+    }
+
+    fn new_with_ambient(
+        drawables: &'a mut drawable_world::DrawableState,
+        native_particle_capability_gaps: &'a mut Vec<NativeParticleCapabilityGap>,
+        audio_device: Option<
+            &'a std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+        >,
+        ui: Option<&'a mut InGameUISubsystem>,
+        frame: u32,
+        local_player_id: i32,
+        input_authority: ClientInputAuthority,
+        ambient_update: &'a mut crate::drawable::drawable::NativeAmbientUpdate<'ambient>,
+    ) -> Self {
+        let mut receiver = Self::new(
+            drawables,
+            native_particle_capability_gaps,
+            audio_device,
+            ui,
+            frame,
+            local_player_id,
+            input_authority,
+        );
+        receiver.ambient_update = Some(ambient_update);
+        receiver
     }
     fn run_native_views_with_keys(
         &mut self,
@@ -319,7 +346,17 @@ impl<'a> NativeRenderReceiver<'a> {
                 basic
                     .update_native_client_modules(particles.as_deref_mut(), host_projection, assets)
                     .map_err(GameClientError::InvalidOperation)?;
-                basic.update_after_client_modules(frames.logic_frame);
+                if let Some(ambient) = self.ambient_update.as_deref_mut() {
+                    basic
+                        .update_after_client_modules_with_ambient(
+                            frames.logic_frame,
+                            ambient,
+                            self.audio_device,
+                        )
+                        .map_err(GameClientError::InvalidOperation)?;
+                } else {
+                    basic.update_after_client_modules(frames.logic_frame);
+                }
             } else {
                 drawable.update(delta_time, frames.logic_frame);
             }
@@ -553,7 +590,7 @@ impl drawable_world::DrawableState {
 }
 
 impl GameClient {
-    fn native_render_receiver(&mut self) -> NativeRenderReceiver<'_> {
+    fn native_render_receiver(&mut self) -> NativeRenderReceiver<'_, '_> {
         NativeRenderReceiver::new(
             &mut self.drawables.state,
             &mut self.native_particle_capability_gaps,

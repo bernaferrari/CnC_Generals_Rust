@@ -321,12 +321,37 @@ impl GameClient {
         Ok(())
     }
 
+    /// Native hosted shell tick with receiving TOD/locality supplied by Main.
+    /// The already-bound client audio device remains the only playback owner.
+    pub fn update_drawables_local_with_ambient(
+        &mut self,
+        delta_time: f32,
+        frames: NativeParticleFrames,
+        ambient: &mut crate::drawable::drawable::NativeAmbientUpdate<'_>,
+    ) -> GameClientResult<()> {
+        if frames.client_frame != self.frame {
+            return Err(GameClientError::InvalidOperation(
+                "Drawable Client frame does not match receiving owner".into(),
+            ));
+        }
+        self.tick_mapped_drawables_with_ambient(frames, delta_time, Some(ambient))
+    }
+
     /// C++ `GameClient` drawable walk: stamp the client frame, `updateDrawable`,
     /// then `destroyDrawable` when the expiration date is reached this frame.
     fn tick_mapped_drawables(
         &mut self,
         frames: NativeParticleFrames,
         delta_time: f32,
+    ) -> GameClientResult<()> {
+        self.tick_mapped_drawables_with_ambient(frames, delta_time, None)
+    }
+
+    fn tick_mapped_drawables_with_ambient(
+        &mut self,
+        frames: NativeParticleFrames,
+        delta_time: f32,
+        ambient: Option<&mut crate::drawable::drawable::NativeAmbientUpdate<'_>>,
     ) -> GameClientResult<()> {
         // This is the existing native manager boundary, borrowed once. Installed
         // CU/bone callbacks receive the receiver and never relock this parent.
@@ -337,21 +362,41 @@ impl GameClient {
                 .admit_effective_definitions()
                 .map_err(|error| GameClientError::SubsystemError(error.to_string()))?;
             let (state, particles) = (&mut self.drawables.state, &mut self.drawables.particles);
-            NativeRenderReceiver::new(
-                state,
-                &mut self.native_particle_capability_gaps,
-                self.native_audio_device.as_ref(),
-                self.subsystem_manager.in_game_ui.as_mut(),
-                self.frame,
-                self.local_player_id,
-                self.input_authority,
-            )
-            .tick_mapped_drawables_with_particles(
-                frames,
-                delta_time,
-                Some(particles),
-                Some(assets),
-            )?
+            let ui = self.subsystem_manager.in_game_ui.as_mut();
+            if let Some(ambient) = ambient {
+                NativeRenderReceiver::new_with_ambient(
+                    state,
+                    &mut self.native_particle_capability_gaps,
+                    self.native_audio_device.as_ref(),
+                    ui,
+                    self.frame,
+                    self.local_player_id,
+                    self.input_authority,
+                    ambient,
+                )
+                .tick_mapped_drawables_with_particles(
+                    frames,
+                    delta_time,
+                    Some(particles),
+                    Some(assets),
+                )?
+            } else {
+                NativeRenderReceiver::new(
+                    state,
+                    &mut self.native_particle_capability_gaps,
+                    self.native_audio_device.as_ref(),
+                    ui,
+                    self.frame,
+                    self.local_player_id,
+                    self.input_authority,
+                )
+                .tick_mapped_drawables_with_particles(
+                    frames,
+                    delta_time,
+                    Some(particles),
+                    Some(assets),
+                )?
+            }
         };
         Ok(())
     }
@@ -1810,7 +1855,34 @@ impl GameClient {
         game_mode: i32,
     ) -> GameClientResult<PreparedPresentationShell> {
         self.validate_material_observations(materials)?;
-        self.begin_presentation_shell_observing(delta_time, particle_frames, observe, game_mode)
+        self.begin_presentation_shell_observing(
+            delta_time,
+            particle_frames,
+            observe,
+            game_mode,
+            None,
+        )
+    }
+
+    /// Native Main supplies the receiving world's TOD and per-object audio
+    /// locality for the final ambient phase of each Drawable update.
+    pub fn try_begin_presentation_shell_with_owned_visual_time_and_ambient(
+        &mut self,
+        delta_time: f32,
+        particle_frames: NativeParticleFrames,
+        materials: &[NativeMaterialObservation],
+        observe: impl FnOnce() -> GameClientResult<NativeVisualTime>,
+        game_mode: i32,
+        ambient: &mut crate::drawable::drawable::NativeAmbientUpdate<'_>,
+    ) -> GameClientResult<PreparedPresentationShell> {
+        self.validate_material_observations(materials)?;
+        self.begin_presentation_shell_observing(
+            delta_time,
+            particle_frames,
+            observe,
+            game_mode,
+            Some(ambient),
+        )
     }
 
     fn begin_presentation_shell(
@@ -1824,6 +1896,7 @@ impl GameClient {
             particle_frames,
             || Ok(legacy_visual_time_observation()),
             game_mode,
+            None,
         )
     }
 
@@ -1833,6 +1906,7 @@ impl GameClient {
         particle_frames: NativeParticleFrames,
         observe: impl FnOnce() -> GameClientResult<NativeVisualTime>,
         game_mode: i32,
+        mut ambient: Option<&mut crate::drawable::drawable::NativeAmbientUpdate<'_>>,
     ) -> GameClientResult<PreparedPresentationShell> {
         if particle_frames.client_frame != self.frame {
             return Err(GameClientError::InvalidOperation(
@@ -1955,7 +2029,11 @@ impl GameClient {
 
         // Local drawable client modules only (no OBJECT_REGISTRY shroud bind).
         // Eva residual runs via update_post_draw_ui (no dual OS input ownership).
-        self.update_drawables_local(visual_delta, particle_frames)?;
+        if let Some(ambient) = ambient.as_deref_mut() {
+            self.update_drawables_local_with_ambient(visual_delta, particle_frames, ambient)?;
+        } else {
+            self.update_drawables_local(visual_delta, particle_frames)?;
+        }
         if self.should_skip_visual_updates_for_no_draw() {
             self.rendered_object_count = 0;
             // Wave 876: Main owns frame pacing — no shell dual-sleep.

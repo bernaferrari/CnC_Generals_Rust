@@ -332,6 +332,8 @@ impl GameClient {
     }
 
     fn try_invalidate_presentation_drawable_world(&mut self) -> GameClientResult<()> {
+        BasicDrawable::preflight_native_audio_device(self.native_audio_device.as_ref())
+            .map_err(GameClientError::InvalidOperation)?;
         self.retire_native_drawable_particles(None)?;
         self.drawables
             .finish_native_retirement_with_device(self.native_audio_device.as_ref())?;

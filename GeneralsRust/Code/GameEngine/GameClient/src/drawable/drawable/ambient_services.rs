@@ -6,6 +6,210 @@ use crate::system::TimeOfDay;
 use game_engine::common::audio::{AudioManager, AudioSubmissionLocality};
 use gamelogic::common::types::BodyDamageType;
 
+/// Synchronous receiving audio facts for the end of one native Drawable
+/// update. The borrowed service stays outside Drawable state and is only used
+/// after client-update callbacks have completed.
+pub struct NativeAmbientUpdate<'a> {
+    time_of_day: Option<TimeOfDay>,
+    locality_for_object: &'a mut dyn FnMut(Option<u32>) -> AudioSubmissionLocality,
+}
+
+impl<'a> NativeAmbientUpdate<'a> {
+    pub fn new(
+        time_of_day: Option<TimeOfDay>,
+        locality_for_object: &'a mut dyn FnMut(Option<u32>) -> AudioSubmissionLocality,
+    ) -> Self {
+        Self {
+            time_of_day,
+            locality_for_object,
+        }
+    }
+
+    pub(crate) fn update_after_client_modules(
+        &mut self,
+        drawable: &mut BasicDrawable,
+        audio_device: Option<&std::sync::Arc<std::sync::Mutex<AudioManager>>>,
+    ) -> Result<(), String> {
+        use game_engine::common::bit_flags::{ModelConditionFlags, create_model_condition_flags};
+
+        // C++ setTimeOfDay queues a local transition; an admitted receiving
+        // TOD remains authoritative over compatibility/Core messages.
+        let pending_tod = if drawable.receiving_time_of_day.is_some() {
+            drawable
+                .pending_time_of_day
+                .store(0, std::sync::atomic::Ordering::Relaxed);
+            None
+        } else {
+            match drawable
+                .pending_time_of_day
+                .swap(0, std::sync::atomic::Ordering::Relaxed)
+            {
+                1 => Some(TimeOfDay::Morning),
+                2 => Some(TimeOfDay::Afternoon),
+                3 => Some(TimeOfDay::Evening),
+                4 => Some(TimeOfDay::Night),
+                _ => None,
+            }
+        };
+        // A queued Core TOD is consumed for model-condition timing below, but
+        // its audio restart remains owed until a receiving service can apply it.
+        if pending_tod.is_some() {
+            drawable.ambient_tod_changed = true;
+            let previous_body_state = drawable
+                .pending_ambient_tod
+                .map(|pending| pending.body_state)
+                .unwrap_or_else(|| drawable.current_body_damage_type());
+            drawable.pending_ambient_tod = pending_tod.map(|target| PendingAmbientTod {
+                kind: AmbientTodRestartKind::DrawableCommand,
+                body_state: previous_body_state,
+                target,
+            });
+        }
+        let model_tod =
+            pending_tod.or_else(|| drawable.pending_ambient_tod.map(|pending| pending.target));
+        let apply_pending_model_tod = |drawable: &mut BasicDrawable| {
+            if let Some(tod) = model_tod {
+                let mut clear = create_model_condition_flags();
+                let mut set = create_model_condition_flags();
+                clear.set(ModelConditionFlags::NIGHT, true);
+                set.set(ModelConditionFlags::NIGHT, matches!(tod, TimeOfDay::Night));
+                drawable.clear_and_set_model_condition_flags(&clear, &set);
+            }
+        };
+
+        let time_of_day = pending_tod
+            .or_else(|| drawable.pending_ambient_tod.map(|pending| pending.target))
+            .or(drawable.receiving_time_of_day)
+            .or(self.time_of_day);
+        let event = drawable.ambient_sound_event.as_ref().map(|event| {
+            (
+                event.get_event_name().is_empty(),
+                event.get_playing_handle(),
+                event.get_time_of_day(),
+                event
+                    .get_audio_event_info()
+                    .map(|info| info.is_permanent_sound())
+                    .unwrap_or(true),
+            )
+        });
+        let Some((audio_device, time_of_day)) = audio_device.zip(time_of_day) else {
+            // Keep the obligation: a later native tick may have the owner's
+            // TOD and audio device even though this one does not. Apply the
+            // visual TOD now, retaining the body state for later audio parity.
+            apply_pending_model_tod(drawable);
+            return Ok(());
+        };
+        let event_time_of_day = |tod| {
+            use game_engine::common::audio::audio_event_rts::TimeOfDay as AudioTimeOfDay;
+            match tod {
+                TimeOfDay::Morning => AudioTimeOfDay::Morning,
+                TimeOfDay::Afternoon => AudioTimeOfDay::Afternoon,
+                TimeOfDay::Evening => AudioTimeOfDay::Evening,
+                TimeOfDay::Night => AudioTimeOfDay::Night,
+            }
+        };
+        let explicit_tod_transition = drawable.pending_ambient_tod.is_some();
+        let time_changed = explicit_tod_transition
+            || pending_tod.is_some()
+            || (drawable.ambient_tod_changed
+                && event.is_none_or(|(_, _, event_tod, _)| {
+                    event_tod != event_time_of_day(time_of_day)
+                }));
+        if !explicit_tod_transition
+            && (!drawable.ambient_sound_enabled || !drawable.ambient_sound_enabled_from_script)
+        {
+            apply_pending_model_tod(drawable);
+            drawable.ambient_tod_changed = false;
+            drawable.pending_ambient_tod = None;
+            return Ok(());
+        }
+
+        // C++ Drawable::setTimeOfDay starts the ambient event before replacing
+        // NIGHT. If we deferred for missing services, use the body state
+        // captured before applying NIGHT on that earlier update.
+        if explicit_tod_transition {
+            let locality = (self.locality_for_object)(drawable.object_id);
+            let mut audio = match audio_device.lock() {
+                Ok(audio) => audio,
+                Err(_) => {
+                    apply_pending_model_tod(drawable);
+                    return Err(
+                        "receiving audio manager lock poisoned during Drawable ambient refresh"
+                            .to_owned(),
+                    );
+                }
+            };
+            let state = drawable
+                .pending_ambient_tod
+                .map(|pending| pending.body_state)
+                .unwrap_or_else(|| drawable.current_body_damage_type());
+            let restart = drawable.start_ambient_sound_for_state_with_audio(
+                state,
+                time_of_day,
+                false,
+                &mut audio,
+                &locality,
+            );
+            apply_pending_model_tod(drawable);
+            restart?;
+            drawable.ambient_tod_changed = false;
+            drawable.pending_ambient_tod = None;
+            return Ok(());
+        }
+
+        let Some((event_name_empty, handle, _, permanent)) = event else {
+            if !time_changed {
+                apply_pending_model_tod(drawable);
+                drawable.ambient_tod_changed = false;
+                drawable.pending_ambient_tod = None;
+                return Ok(());
+            }
+            let locality = (self.locality_for_object)(drawable.object_id);
+            let mut audio = audio_device.lock().map_err(|_| {
+                "receiving audio manager lock poisoned during Drawable ambient refresh".to_owned()
+            })?;
+            let state = drawable.current_body_damage_type();
+            let restart = drawable.start_ambient_sound_for_state_with_audio(
+                state,
+                time_of_day,
+                false,
+                &mut audio,
+                &locality,
+            );
+            apply_pending_model_tod(drawable);
+            restart?;
+            drawable.ambient_tod_changed = false;
+            drawable.pending_ambient_tod = None;
+            return Ok(());
+        };
+        if event_name_empty {
+            apply_pending_model_tod(drawable);
+            drawable.ambient_tod_changed = false;
+            drawable.pending_ambient_tod = None;
+            return Ok(());
+        }
+
+        let locality = (self.locality_for_object)(drawable.object_id);
+        let mut audio = audio_device.lock().map_err(|_| {
+            "receiving audio manager lock poisoned during Drawable ambient refresh".to_owned()
+        })?;
+        if time_changed || (!audio.is_currently_playing(handle) && permanent) {
+            let state = drawable.current_body_damage_type();
+            drawable.start_ambient_sound_for_state_with_audio(
+                state,
+                time_of_day,
+                false,
+                &mut audio,
+                &locality,
+            )?;
+        }
+        apply_pending_model_tod(drawable);
+        drawable.ambient_tod_changed = false;
+        drawable.pending_ambient_tod = None;
+        Ok(())
+    }
+}
+
 /// A lexical loan of the existing application audio service. Implementations may
 /// synchronize a real mixer boundary; no service handle belongs to a Drawable.
 pub trait NativeAmbientAudio {
@@ -204,9 +408,7 @@ impl BasicDrawable {
         locality: &AudioSubmissionLocality,
     ) -> Result<(), String> {
         if !loading_map && !in_load_game {
-            self.start_ambient_sound_current_state_with_audio(
-                false, time_of_day, audio, locality,
-            )?;
+            self.start_ambient_sound_current_state_with_audio(false, time_of_day, audio, locality)?;
         }
         Ok(())
     }

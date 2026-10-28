@@ -3003,9 +3003,23 @@ impl CnCGameEngine {
         let native_mode = self.receiving_menu_world_facts().game_mode;
         let logic = &self.game_logic;
         let paused = self.game_paused;
+        let ambient_policy =
+            super::native_view_effects::receiving_native_drawable_policy_for(logic);
+        let mut ambient_locality = |object_id: Option<u32>| {
+            let source = object_id
+                .and_then(|id| logic.host_object(crate::game_logic::ObjectId(id)))
+                .and_then(|object| object.owner_player_id)
+                .map(|id| id as i32)
+                .unwrap_or(-1);
+            logic.receiving_audio_locality_for_player(source)
+        };
+        let mut ambient_update = game_client::drawable::drawable::NativeAmbientUpdate::new(
+            ambient_policy.time_of_day,
+            &mut ambient_locality,
+        );
         match self
             .game_client
-            .try_begin_presentation_shell_with_owned_visual_time(
+            .try_begin_presentation_shell_with_owned_visual_time_and_ambient(
                 visual_delta,
                 frames,
                 &material_observations,
@@ -3016,6 +3030,7 @@ impl CnCGameEngine {
                         .map_err(game_client::core::GameClientError::InvalidOperation)
                 },
                 native_mode,
+                &mut ambient_update,
             ) {
             Ok(step) => {
                 if let Err(error) = self.native_display.queue_shell(

@@ -248,7 +248,7 @@ impl BasicDrawable {
         self.ambient_from_common_template(dt)
     }
 
-    fn current_body_damage_type(&self) -> gamelogic::common::types::BodyDamageType {
+    pub(super) fn current_body_damage_type(&self) -> gamelogic::common::types::BodyDamageType {
         use gamelogic::common::types::BodyDamageType;
         // Authored native Drawables already carry the receiving object's condition
         // state. A compatibility Core registry may belong to a different world.
@@ -285,7 +285,32 @@ impl BasicDrawable {
     }
 
     pub(crate) fn admit_receiving_time_of_day(&mut self, tod: Option<TimeOfDay>) {
-        // Value-only presentation restamp. Repeated snapshots never restart audio.
+        // Repeated receiving projections are inert. A change between two
+        // admitted values is a live world TOD transition, not initial admission.
+        if self.receiving_time_of_day != tod {
+            self.ambient_tod_changed = true;
+            if let (Some(_), Some(target)) = (self.receiving_time_of_day, tod) {
+                match self.pending_ambient_tod {
+                    Some(mut pending)
+                        if pending.kind == AmbientTodRestartKind::ReceivingWorldTransition =>
+                    {
+                        pending.target = target;
+                        self.pending_ambient_tod = Some(pending);
+                    }
+                    Some(_) => {
+                        // A previously queued explicit Drawable command keeps
+                        // precedence over a later receiving policy restamp.
+                    }
+                    None => {
+                        self.pending_ambient_tod = Some(PendingAmbientTod {
+                            kind: AmbientTodRestartKind::ReceivingWorldTransition,
+                            body_state: self.current_body_damage_type(),
+                            target,
+                        });
+                    }
+                }
+            }
+        }
         self.receiving_time_of_day = tod;
     }
 
