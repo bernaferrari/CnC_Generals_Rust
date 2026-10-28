@@ -75,7 +75,8 @@ fn world(map: &Path, position: [f32; 3]) -> (GameLogic, generals_main::game_logi
         .admit_object_ini_sources([(
             "TeamAreaTransition.ini".into(),
             "Object OwnedTeamEdgeUnit\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL TeamEdgeLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n\
-             Object BorrowedEdgeGarrison\n KindOf = STRUCTURE SELECTABLE\n Geometry = BOX\n GeometryMajorRadius = 20\n GeometryMinorRadius = 10\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = GarrisonContain GarrisonTag\n ContainMax = 5\n End\nEnd\n".into(),
+             Object BorrowedEdgeGarrison\n KindOf = STRUCTURE SELECTABLE\n Geometry = BOX\n GeometryMajorRadius = 20\n GeometryMinorRadius = 10\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = GarrisonContain GarrisonTag\n ContainMax = 5\n End\nEnd\n\
+             Object ChinaStandardMine\n KindOf = IMMOBILE MINE\n Body = ActiveBody MineBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
         )])
         .unwrap();
     world.start_new_game(GameMode::SinglePlayer);
@@ -496,4 +497,48 @@ fn public_capture_ejection_marks_only_the_receiving_team_synchronously() {
     };
     assert_eq!(observe(&mut owner, "CaptureOwnerEdge", cases()), [1, 1]);
     assert_eq!(observe(&mut peer, "CapturePeerControl", cases()), [0, 0]);
+}
+
+#[test]
+fn public_land_mine_scoot_marks_only_the_receiving_team() {
+    let owner_root = tempfile::tempdir().unwrap();
+    let peer_root = tempfile::tempdir().unwrap();
+    let owner_map = map_file(owner_root.path(), &[]);
+    let peer_map = map_file(peer_root.path(), &[]);
+    let (mut owner, owner_unit) = world(&owner_map, [80.0, 0.0, 80.0]);
+    let (mut peer, peer_unit) = world(&peer_map, [80.0, 0.0, 80.0]);
+    assert_eq!(owner_unit, peer_unit);
+    owner.inject_host_script_query_snapshot();
+    peer.inject_host_script_query_snapshot();
+
+    let mine = owner
+        .place_land_mine_named(
+            "ChinaStandardMine",
+            Team::USA,
+            glam::Vec3::new(20.0, 0.0, 20.0),
+            Some(owner_unit),
+        )
+        .expect("named mine is admitted");
+    owner.host_object_mut(mine).unwrap().locomotor_surfaces = 1;
+    let entered_cases = || {
+        vec![(
+            transition_condition(
+                ConditionType::TeamEnteredAreaPartially,
+                "teamOwner",
+                "OwnerTransitionArea",
+            ),
+            "mine_partial_enter".into(),
+        )]
+    };
+    // Clear the creation/reposition edge. The named mine now scoots from the
+    // producer outside the polygon back to its authored target inside it.
+    let _ = observe(&mut owner, "MineBeforeScoot", entered_cases());
+    for _ in 0..240 {
+        owner.update_mines_and_demo_traps();
+    }
+    owner.inject_host_script_query_snapshot();
+    peer.inject_host_script_query_snapshot();
+
+    assert_eq!(observe(&mut owner, "MineOwnerEdge", entered_cases()), [1]);
+    assert_eq!(observe(&mut peer, "MinePeerControl", entered_cases()), [0]);
 }

@@ -2070,10 +2070,11 @@ impl GameLogic {
             return;
         }
         let spawn = md.set_scoot_parms(start, dest, ground_y);
-        obj.set_position_with_effects(
+        obj.set_position_with_effects_and_team_factory(
             spawn,
             tree_move_frame,
             &mut effects.reborrow_for_object(&mut self.partition_manager),
+            &self.team_factory,
         );
     }
 
@@ -2104,10 +2105,11 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&id) {
                 if let Some(md) = obj.mine_data.as_mut() {
                     if let Some(next) = md.tick_scoot(pos, ground_y) {
-                        obj.set_position_with_effects(
+                        obj.set_position_with_effects_and_team_factory(
                             next,
                             tree_move_frame,
                             &mut effects.reborrow_for_object(&mut self.partition_manager),
+                            &self.team_factory,
                         );
                     }
                 }
@@ -2349,10 +2351,11 @@ impl GameLogic {
                 if let Some(start) = producer_pos {
                     if let Some(md) = obj.mine_data.as_mut() {
                         let spawn = md.set_scoot_parms(start, position, dest_ground);
-                        obj.set_position_with_effects(
+                        obj.set_position_with_effects_and_team_factory(
                             spawn,
                             tree_move_frame,
                             &mut effects.reborrow_for_object(&mut self.partition_manager),
+                            &self.team_factory,
                         );
                     }
                 }
@@ -2499,10 +2502,11 @@ impl GameLogic {
 
         for (charge_id, pos) in moves {
             if let Some(obj) = self.objects.get_mut(&charge_id) {
-                obj.set_position_with_effects(
+                obj.set_position_with_effects_and_team_factory(
                     pos,
                     tree_move_frame,
                     &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.team_factory,
                 );
             }
             self.sticky_bomb_follow_ticks = self.sticky_bomb_follow_ticks.saturating_add(1);
@@ -2569,10 +2573,11 @@ impl GameLogic {
                 .unwrap_or(0.0);
             if let Some(pos) = self.booby_trap.immobile_follow_pos(sid, ground_y) {
                 if let Some(obj) = self.objects.get_mut(&cid) {
-                    obj.set_position_with_effects(
+                    obj.set_position_with_effects_and_team_factory(
                         pos,
                         tree_move_frame,
                         &mut effects.reborrow_for_object(&mut self.partition_manager),
+                        &self.team_factory,
                     );
                 }
             }
