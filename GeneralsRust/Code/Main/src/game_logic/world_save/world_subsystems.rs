@@ -750,6 +750,14 @@ impl GameLogic {
     pub(crate) fn is_underwater_at(&self, world_pos: Vec3) -> bool {
         let owner = self.world_services.terrain();
         let terrain = owner.read().unwrap_or_else(|e| e.into_inner());
+        self.is_underwater_with_terrain_logic(world_pos, &terrain)
+    }
+
+    fn is_underwater_with_terrain_logic(
+        &self,
+        world_pos: Vec3,
+        terrain: &gamelogic::terrain::TerrainLogic,
+    ) -> bool {
         if terrain.has_height_map() || terrain.get_water_handle(world_pos.x, world_pos.z).is_some()
         {
             return terrain.is_underwater(world_pos.x, world_pos.z, None, None);
@@ -762,6 +770,14 @@ impl GameLogic {
     pub(crate) fn water_surface_at(&self, world_pos: Vec3) -> Option<f32> {
         let owner = self.world_services.terrain();
         let terrain = owner.read().unwrap_or_else(|e| e.into_inner());
+        self.water_surface_with_terrain_logic(world_pos, &terrain)
+    }
+
+    fn water_surface_with_terrain_logic(
+        &self,
+        world_pos: Vec3,
+        terrain: &gamelogic::terrain::TerrainLogic,
+    ) -> Option<f32> {
         if terrain.get_water_handle(world_pos.x, world_pos.z).is_some() {
             let mut height = 0.0;
             terrain.is_underwater(world_pos.x, world_pos.z, Some(&mut height), None);
@@ -775,14 +791,18 @@ impl GameLogic {
             .and_then(|t| t.water_surface_at_world(world_pos))
     }
 
-    /// C++ `Locomotor::getSurfaceHtAtPt` — water surface when underwater, else terrain.
+    /// C++ `Locomotor::getSurfaceHtAtPt` — use one receiving terrain read
+    /// loan for the underwater, water-surface, and ground decisions. This
+    /// keeps the three samples on one world state and avoids re-locking it.
     pub fn surface_ht_at(&self, world_pos: Vec3) -> Option<f32> {
-        if self.is_underwater_at(world_pos) {
-            if let Some(water_y) = self.water_surface_at(world_pos) {
+        let owner = self.world_services.terrain();
+        let terrain = owner.read().unwrap_or_else(|e| e.into_inner());
+        if self.is_underwater_with_terrain_logic(world_pos, &terrain) {
+            if let Some(water_y) = self.water_surface_with_terrain_logic(world_pos, &terrain) {
                 return Some(water_y);
             }
         }
-        self.terrain_height_at(world_pos)
+        self.terrain_height_at_with_terrain_logic(world_pos, Some(&terrain))
     }
 
     /// C++ `PartitionManager::getGroundOrStructureHeight` (`PartitionManager.cpp:4674`).

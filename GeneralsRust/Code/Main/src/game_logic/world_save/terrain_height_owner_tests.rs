@@ -24,6 +24,7 @@ fn loaded_core_ground_and_raw_ground_ignore_detached_height_copies() {
     assert_eq!(logic.terrain_ground_height_at(position), Some(5.));
     assert_eq!(logic.raw_terrain_ground_height_at(position), 5.);
     assert_eq!(logic.terrain_height_at(position), Some(5.));
+    assert_eq!(logic.surface_ht_at(position), Some(5.));
     logic
         .world_services
         .terrain()
@@ -32,6 +33,7 @@ fn loaded_core_ground_and_raw_ground_ignore_detached_height_copies() {
         .apply_logic_height_map_bytes(&[16; 16]);
     assert_eq!(logic.terrain_ground_height_at(position), Some(10.));
     assert_eq!(logic.raw_terrain_ground_height_at(position), 10.);
+    assert_eq!(logic.surface_ht_at(position), Some(10.));
 }
 
 #[test]
