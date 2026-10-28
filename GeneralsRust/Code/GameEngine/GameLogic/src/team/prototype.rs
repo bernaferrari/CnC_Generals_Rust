@@ -409,6 +409,19 @@ impl TeamPrototype {
     /// Loads/caches the productionCondition script, gates on player difficulty flags,
     /// honors delay-eval frame, and evaluates conditions for the controlling player.
     pub fn evaluate_production_condition(&self) -> Bool {
+        // Standalone/Core compatibility adapter. Instance-owned callers should
+        // supply their observed frame to `evaluate_production_condition_at_frame`.
+        self.evaluate_production_condition_at_frame_impl(None)
+    }
+
+    /// Evaluate production conditions against the caller's observed GameLogic
+    /// frame. Main's receiving-world AI path must use this entry so nested
+    /// script conditions do not reacquire the process-selected clock.
+    pub fn evaluate_production_condition_at_frame(&self, current_frame: u32) -> Bool {
+        self.evaluate_production_condition_at_frame_impl(Some(current_frame))
+    }
+
+    fn evaluate_production_condition_at_frame_impl(&self, driving_frame: Option<u32>) -> Bool {
         let Ok(mut rt) = self.production_condition_runtime.lock() else {
             return false;
         };
@@ -418,7 +431,8 @@ impl TeamPrototype {
 
         // Already have a local script copy — periodic / immediate eval.
         if rt.script.is_some() {
-            let current_frame = crate::helpers::TheGameLogic::get_frame();
+            let current_frame =
+                driving_frame.unwrap_or_else(crate::helpers::TheGameLogic::get_frame);
             if let Some(script) = rt.script.as_mut() {
                 if current_frame < script.frame_to_evaluate_at {
                     return false;
@@ -483,7 +497,7 @@ impl TeamPrototype {
         }
 
         let player_name = self.controlling_player_name();
-        let current_frame = crate::helpers::TheGameLogic::get_frame();
+        let current_frame = driving_frame.unwrap_or_else(crate::helpers::TheGameLogic::get_frame);
         let result =
             engine.evaluate_conditions(&mut script, None, player_name.as_deref(), current_frame);
         rt.script = Some(script);

@@ -945,7 +945,11 @@ impl ScriptConditionEvaluator<'_> {
             if let Some(obj) = crate::scripting::host_script_query_object(&unit_name) {
                 let object_id = obj.id;
                 let num_peeps = obj.contain_count as usize;
-                let frame = TheGameLogic::get_frame();
+                // A condition can run inside a receiving script operation
+                // while another world owns the compatibility GameLogic slot.
+                // Use the operation's supplied clock, matching the Main
+                // driver and C++'s per-game-instance clock.
+                let frame = self.context.with_state(|state| state.current_frame);
                 let Ok(mut statuses) = TRANSPORT_STATUSES.write() else {
                     return Ok(ScriptConditionResult::False);
                 };
@@ -974,7 +978,7 @@ impl ScriptConditionEvaluator<'_> {
             .get_contain()
             .and_then(|contain| contain.lock().ok().map(|c| c.get_contained_count()))
             .unwrap_or(0);
-        let frame = TheGameLogic::get_frame();
+        let frame = self.context.with_state(|state| state.current_frame);
 
         let Ok(mut statuses) = TRANSPORT_STATUSES.write() else {
             return Ok(ScriptConditionResult::False);
@@ -1692,7 +1696,7 @@ impl ScriptConditionEvaluator<'_> {
         condition: &mut Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
         // C++ evaluateSkirmishSupplySourceSafe: cache for 2*LOGICFRAMES_PER_SECOND.
-        let frame = TheGameLogic::get_frame();
+        let frame = self.context.with_state(|state| state.current_frame);
         if frame <= condition.custom_frame {
             if condition.custom_data == -1 {
                 return Ok(ScriptConditionResult::False);

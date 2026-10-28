@@ -1731,7 +1731,9 @@ impl AIPlayer {
             .lock()
             .ok()
             .and_then(|factory| factory.find_team_prototype(team_name))
-            .is_some_and(|prototype| prototype.evaluate_production_condition());
+            .is_some_and(|prototype| {
+                prototype.evaluate_production_condition_at_frame(game_logic.logic_frame())
+            });
         self.is_a_good_idea_with_condition(game_logic, team_name, ai_data, allowed)
     }
 

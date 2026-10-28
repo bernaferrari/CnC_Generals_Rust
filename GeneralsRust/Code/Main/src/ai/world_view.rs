@@ -53,6 +53,12 @@ pub(super) struct AiWorldView<'a> {
 pub(super) trait AiReadSource {
     fn ai_view(&self) -> AiWorldView<'_>;
 
+    /// Logic frame observed from this exact simulation owner. Condition
+    /// evaluation must receive it as data rather than resolving TheGameLogic.
+    fn logic_frame(&self) -> u32 {
+        self.ai_view().world.frame
+    }
+
     fn local_player_id(&self) -> Option<u32> {
         self.ai_view().world.local_player_id()
     }
