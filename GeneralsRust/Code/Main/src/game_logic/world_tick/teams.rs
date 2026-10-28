@@ -1520,62 +1520,112 @@ impl GameLogic {
         calling_team: Option<u32>,
         condition_team: Option<u32>,
     ) -> gamelogic::GameLogicResult<()> {
-        let Some((_, roster)) =
+        let Some((team_id, roster)) =
             self.resolve_owned_script_team(team_name, calling_team, condition_team)?
         else {
             return Ok(());
         };
-        self.apply_owned_team_capture_nearest_roster(roster)
+        self.apply_owned_team_capture_nearest_roster(team_id, roster)
     }
 
     pub(crate) fn apply_owned_team_capture_nearest_roster(
         &mut self,
+        team_id: u32,
         roster: Vec<u32>,
     ) -> gamelogic::GameLogicResult<()> {
+        let source_owner = self
+            .team_factory
+            .with_read_without_flushing(|factory| -> gamelogic::GameLogicResult<Option<u32>> {
+                let Some(team) = factory.find_team_by_id(team_id) else {
+                    return Ok(None);
+                };
+                let team = team
+                    .read()
+                    .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                Ok(team.get_controlling_player_id())
+            })
+            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))??;
+        let Some(source_owner) = source_owner else {
+            return Ok(());
+        };
         // Use the factory's captured roster order; do not recensus by a
         // process-wide name or retain TeamFactory locks over command effects.
         let members: Vec<ObjectId> = roster
             .into_iter()
             .map(ObjectId)
             .filter(|id| {
-                self.host_object(*id)
-                    .is_some_and(|obj| obj.is_alive() && !obj.status.destroyed)
+                self.host_object(*id).is_some_and(|obj| {
+                    obj.is_alive()
+                        && !obj.status.destroyed
+                        && (obj.has_ai_update_interface()
+                            || obj.is_kind_of(KindOf::Structure)
+                            || obj.is_kind_of(KindOf::AlwaysSelectable))
+                })
             })
             .collect();
         if members.is_empty() {
             return Ok(());
         }
+        // AIGroup::add admits AI objects, structures and ALWAYS_SELECTABLE
+        // objects. Its center prefers AI objects and excludes DISABLED_HELD.
+        let ai_members: Vec<ObjectId> = members
+            .iter()
+            .copied()
+            .filter(|id| {
+                self.host_object(*id)
+                    .is_some_and(|obj| obj.has_ai_update_interface())
+            })
+            .collect();
+        // AIGroup::groupEnter only invokes aiEnter for members with AIUpdate.
+        if ai_members.is_empty() {
+            return Ok(());
+        }
+        let ai_center_members: Vec<ObjectId> = ai_members
+            .iter()
+            .copied()
+            .filter(|id| {
+                self.host_object(*id)
+                    .is_some_and(|obj| !obj.status.disabled_held)
+            })
+            .collect();
+        let center_members = if ai_center_members.is_empty() {
+            // C++ falls back to all non-held group members when no AI members
+            // contribute to the centroid.
+            members
+                .iter()
+                .copied()
+                .filter(|id| {
+                    self.host_object(*id)
+                        .is_some_and(|obj| !obj.status.disabled_held)
+                })
+                .collect::<Vec<_>>()
+        } else {
+            ai_center_members
+        };
+        if center_members.is_empty() {
+            return Ok(());
+        }
         let mut sum = glam::Vec3::ZERO;
         let mut n = 0u32;
-        let mut source_owner = None;
-        let mut source_inst = String::new();
-        for id in &members {
+        for id in &center_members {
             let Some(obj) = self.host_object(*id) else {
                 continue;
             };
             sum += obj.get_position();
             n += 1;
-            if source_owner.is_none() {
-                source_owner = obj.owner_player_id;
-                source_inst = obj.team_instance_name.clone();
-            }
         }
         if n == 0 {
             return Ok(());
         }
         let center = sum / n as f32;
-        let Some(target_id) = self.host_script_closest_unowned_faction_unit(
-            center,
-            &members,
-            source_owner,
-            &source_inst,
-        ) else {
+        let Some(target_id) = self.host_script_closest_unowned_faction_unit(center, source_owner)
+        else {
             return Ok(());
         };
         let Some(target_pos) = self.host_object(target_id).map(|obj| obj.get_position()) else {
             return Ok(());
         };
-        for id in members {
+        for id in ai_members {
             self.unit_command_stop_moving_order_target(id, Some(target_id))?;
             if !self.unit_command_path_with_state_ignoring(
                 id,
@@ -1686,7 +1736,7 @@ impl GameLogic {
         )
     }
 
-    fn host_script_named_fire_weapon_following_path_with_effects(
+    pub(crate) fn host_script_named_fire_weapon_following_path_with_effects(
         &mut self,
         unit: &str,
         waypoint: &str,
@@ -1703,20 +1753,18 @@ impl GameLogic {
         waypoint: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        use crate::game_logic::weapon_bootstrap::host_projectile_name_for_weapon_name;
-        let Some((pos, team, weapon_name)) = self.host_object(id).and_then(|obj| {
+        let Some((pos, team, proj_name)) = self.host_object(id).and_then(|obj| {
             if !obj.is_alive() || obj.status.destroyed {
                 return None;
             }
-            let weapon_name = self.host_script_waypoint_following_weapon_name(obj)?;
-            Some((obj.get_position(), obj.team, weapon_name))
+            let projectile_name = self.host_script_waypoint_following_weapon(obj)?;
+            Some((obj.get_position(), obj.team, projectile_name))
         }) else {
             return;
         };
         let Some(path) = self.host_script_waypoint_route_from(waypoint, pos) else {
             return;
         };
-        let proj_name = host_projectile_name_for_weapon_name(&weapon_name);
         if proj_name.is_empty() {
             return;
         }
@@ -1752,14 +1800,56 @@ impl GameLogic {
         }
     }
 
-    /// Leftover `WeaponSet::findWaypointFollowingCapableWeapon` (TERTIARY..PRIMARY)
-    /// on leftover store `CapableOfFollowingWaypoints`. Name seeds are never consulted.
-    fn host_script_waypoint_following_weapon_name(
+    /// C++ `WeaponSet::findWaypointFollowingCapableWeapon` (TERTIARY..PRIMARY)
+    /// against the selected native row or this receiving session's admitted row.
+    fn host_script_waypoint_following_weapon(
         &self,
         obj: &crate::game_logic::object::Object,
     ) -> Option<String> {
-        obj.find_waypoint_following_capable_weapon_slot()
-            .and_then(|slot| obj.weapon_name_for_slot(slot).map(str::to_string))
+        let definitions = self
+            .weapon_definitions
+            .as_ref()
+            .or(self.weapon_definition_base.as_ref());
+        let Some(definitions) = definitions else {
+            let slot = obj.find_waypoint_following_capable_weapon_slot()?;
+            let name = obj.weapon_name_for_slot(slot)?.to_string();
+            let projectile = crate::game_logic::weapon_bootstrap::host_projectile_name_for_weapon_name(
+                &name,
+            );
+            return Some(projectile);
+        };
+
+        // C++ WeaponSet::findWaypointFollowingCapableWeapon scans TERTIARY
+        // through PRIMARY. The selected native row takes precedence over the
+        // receiving catalog just as Object's compatibility helper does, while
+        // the catalog supplies a row only when the Object has none selected.
+        for slot in [2u8, 1, 0] {
+            if obj.weapon_slot(slot).is_none() {
+                continue;
+            }
+            let Some(name) = obj.weapon_name_for_slot(slot) else {
+                continue;
+            };
+            let native = obj.selected_native_weapon_rule(slot);
+            let catalog = definitions.get(&name.to_ascii_lowercase());
+            let selected = native.as_deref().or(catalog.map(std::sync::Arc::as_ref));
+            if !selected.is_some_and(|weapon| weapon.capable_of_following_waypoint) {
+                continue;
+            }
+
+            // C++ returns the first capable slot before forceFireWeapon. If
+            // its projectile is absent, do not fall through to a lower slot.
+            let projectile = native
+                .as_deref()
+                .map(|weapon| weapon.projectile_name.as_str())
+                .or_else(|| obj.selected_projectile_name(slot))
+                .or_else(|| catalog.map(|weapon| weapon.projectile_name.as_str()))?;
+            if projectile.trim().is_empty() || projectile.trim().eq_ignore_ascii_case("NONE") {
+                return None;
+            }
+            return Some(projectile.trim().to_owned());
+        }
+        None
     }
 
     /// C++ `PartitionFilterUnmannedObject` + `ALLOW_ENEMIES|ALLOW_NEUTRAL` +
@@ -1767,45 +1857,53 @@ impl GameLogic {
     fn host_script_closest_unowned_faction_unit(
         &self,
         center: glam::Vec3,
-        exclude: &[ObjectId],
-        source_owner: Option<u32>,
-        source_inst: &str,
+        source_owner: u32,
     ) -> Option<ObjectId> {
-        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
+        use crate::game_logic::host_deliver_payload::is_off_map_residual;
         use gamelogic::common::Relationship;
 
+        // ScriptActions.cpp:29 REALLY_FAR = 100000 * MAP_XY_FACTOR.
+        let max_distance = 100_000.0 * gamelogic::common::MAP_XY_FACTOR;
+        let max_distance_squared = max_distance * max_distance;
         let mut best: Option<(ObjectId, f32)> = None;
         for (id, obj) in self.host_objects().registered() {
-            if exclude.contains(id) {
-                continue;
-            }
             if !obj.is_alive() || obj.status.destroyed || !obj.is_unmanned() {
                 continue;
             }
-            if is_off_map_default_residual(obj.get_position()) {
+            if is_off_map_residual(
+                obj.get_position(),
+                self.world_min.x,
+                self.world_min.z,
+                self.world_max.x,
+                self.world_max.z,
+            ) {
                 continue;
             }
-            // C++ kill-pilot moves the husk to Neutral; affiliation is Neutral
-            // even when `unmanned_owner_player_id` is retained for recrew.
-            let rel = if obj.team == Team::Neutral || obj.is_unmanned() {
-                Relationship::Neutral
-            } else {
-                Self::object_relationship_from_owners(
-                    &self.team_factory,
-                    &self.players,
-                    source_owner,
-                    source_inst,
-                    obj.owner_player_id,
-                    &obj.team_instance_name,
-                )
-            };
-            if !matches!(rel, Relationship::Enemies | Relationship::Neutral) {
+            // C++ PartitionFilterPlayerAffiliation accepts ALLOW_ENEMIES |
+            // ALLOW_NEUTRAL, then separately accepts the exact controlling
+            // Player's own Objects. DisabledUnmanned does not itself change
+            // affiliation; an allied player's evacuated unit remains allied.
+            let rel = Self::object_relationship_from_owners(
+                &self.team_factory,
+                &self.players,
+                Some(source_owner),
+                "",
+                obj.owner_player_id,
+                &obj.team_instance_name,
+            );
+            let same_controller = obj.owner_player_id == Some(source_owner);
+            if !matches!(rel, Relationship::Enemies | Relationship::Neutral) && !same_controller {
                 continue;
             }
             let pos = obj.get_position();
             let dx = pos.x - center.x;
             let dz = pos.z - center.z;
             let dist2 = dx * dx + dz * dz;
+            // `distCalcProc_CenterAndCenter_2D` accepts only `< maxDistSqr`;
+            // an object exactly at REALLY_FAR is outside the search.
+            if dist2 >= max_distance_squared {
+                continue;
+            }
             if best.is_none_or(|(_, best_d)| dist2 < best_d) {
                 best = Some((*id, dist2));
             }

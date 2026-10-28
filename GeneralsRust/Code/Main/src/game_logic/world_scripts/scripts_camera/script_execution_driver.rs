@@ -13,6 +13,8 @@ pub(super) struct HostScriptExecutionDriver<'a> {
     world: &'a mut GameLogic,
     interpreter: Option<&'a gamelogic::scripting::engine::ScriptEngine>,
     ui: crate::game_logic::ScriptPresentationEffects<'a>,
+    #[cfg(test)]
+    after_action_observer: Option<&'a mut dyn FnMut(&GameLogic)>,
 }
 
 impl<'a> HostScriptExecutionDriver<'a> {
@@ -21,6 +23,8 @@ impl<'a> HostScriptExecutionDriver<'a> {
             world,
             interpreter: None,
             ui: Default::default(),
+            #[cfg(test)]
+            after_action_observer: None,
         }
     }
 
@@ -35,6 +39,8 @@ impl<'a> HostScriptExecutionDriver<'a> {
                 script_events: Some(crate::game_logic::ScriptEventRecipient::new(interpreter)),
                 ..Default::default()
             },
+            #[cfg(test)]
+            after_action_observer: None,
         }
     }
 
@@ -49,6 +55,8 @@ impl<'a> HostScriptExecutionDriver<'a> {
             world,
             interpreter: Some(interpreter),
             ui,
+            #[cfg(test)]
+            after_action_observer: None,
         }
     }
     // Explicit UI-only adapter for standalone callers; native roots lend both domains.
@@ -78,6 +86,17 @@ impl<'a> HostScriptExecutionDriver<'a> {
                 self.interpreter,
                 &mut self.ui,
             );
+    }
+
+    /// Observe production state at the immediate between-action callback in
+    /// unit tests; this field/method do not exist in production builds.
+    #[cfg(test)]
+    pub(super) fn with_after_action_observer(
+        mut self,
+        observer: &'a mut dyn FnMut(&GameLogic),
+    ) -> Self {
+        self.after_action_observer = Some(observer);
+        self
     }
 
     fn choose_victim_uses_normal(&self) -> bool {
@@ -894,6 +913,19 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             .apply_owned_named_waypoint(unit, waypoint, follow, this_object.map(ObjectId));
         Some(Ok(()))
     }
+    fn named_fire_weapon_following_waypoint_path(
+        &mut self,
+        unit: &str,
+        waypoint_path: &str,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        self.world
+            .host_script_named_fire_weapon_following_path_with_effects(
+                unit,
+                waypoint_path,
+                &mut self.ui,
+            );
+        Some(Ok(()))
+    }
     fn team_hunt_button(
         &mut self,
         team: &str,
@@ -927,12 +959,13 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 let Some(player_id) = self.world.local_player_id() else {
                     return Ok(());
                 };
-                let Some((_, roster)) =
+                let Some((team_id, roster)) =
                     self.world.resolve_owned_player_default_team(player_id)?
                 else {
                     return Ok(());
                 };
-                self.world.apply_owned_team_capture_nearest_roster(roster)
+                self.world
+                    .apply_owned_team_capture_nearest_roster(team_id, roster)
             })();
             return Some(result);
         }
@@ -2507,6 +2540,10 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             .apply_script_action_requests_with_effects(self.interpreter, self.ui.reborrow())?;
         if let Some(ui) = self.ui.ui.as_deref_mut() {
             ui.flush_window_callbacks()?;
+        }
+        #[cfg(test)]
+        if let Some(observer) = self.after_action_observer.as_deref_mut() {
+            observer(self.world);
         }
         Ok(())
     }

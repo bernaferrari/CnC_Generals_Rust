@@ -116,6 +116,10 @@ pub struct GameClient {
 
     // Drawable management
     drawables: drawable_world::DrawableWorld,
+    /// Drawable snapshot IDs in successful native Xfer visitation order.
+    /// `None` means no completed restore is awaiting Drawable postprocessing.
+    pub(crate) pending_drawable_post_process_order:
+        Option<Vec<crate::drawable::drawable::DrawableId>>,
     drawable_toc: Vec<DrawableTOCEntry>,
     loaded_map: Option<LoadedMap>,
 

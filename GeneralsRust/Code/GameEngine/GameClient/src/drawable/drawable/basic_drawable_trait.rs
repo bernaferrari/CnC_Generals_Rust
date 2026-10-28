@@ -411,7 +411,33 @@ impl Drawable for BasicDrawable {
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Snapshotable::xfer(self, xfer)
+        self.xfer_with_audio(xfer, None, false)
+    }
+
+    fn xfer_snapshot_for_native_load(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        audio_device: Option<
+            &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+        >,
+    ) -> Result<(), String> {
+        self.xfer_with_audio(xfer, audio_device, true)
+    }
+
+    fn load_post_process_with_audio(
+        &mut self,
+        time_of_day: Option<crate::system::TimeOfDay>,
+        locality: &game_engine::common::audio::AudioSubmissionLocality,
+        audio: Option<&mut game_engine::common::audio::AudioManager>,
+        receiving_object_transform: Option<glam::Mat4>,
+    ) -> Result<(), String> {
+        BasicDrawable::load_post_process_with_audio(
+            self,
+            time_of_day,
+            locality,
+            audio,
+            receiving_object_transform,
+        )
     }
 }
 

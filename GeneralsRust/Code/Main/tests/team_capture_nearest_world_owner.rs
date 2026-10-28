@@ -60,6 +60,9 @@ fn world(map: &std::path::Path) -> GameLogic {
         .admit_object_ini_sources([(
             "CaptureNearest.ini".into(),
             "Object CaptureRanger\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\nObject CaptureHusk\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 300\n InitialHealth = 300\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
+        ), (
+            "CaptureStatic.ini".into(),
+            "Object CaptureStatic\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 300\n InitialHealth = 300\n End\nEnd\n".into(),
         )])
         .unwrap();
     world.start_new_game(GameMode::SinglePlayer);
@@ -161,4 +164,61 @@ fn authored_capture_action_is_synchronous_nearest_and_world_owned() {
         None,
         "an action with no eligible target does not issue groupEnter"
     );
+}
+
+#[test]
+fn capture_uses_ai_member_center_and_rejects_allied_unmanned_units() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let mut receiving = world(&map);
+    let mut peer = world(&map);
+    let ranger = add_roster_member(&mut receiving);
+    let peer_ranger = add_roster_member(&mut peer);
+    assert_eq!(ranger, peer_ranger);
+
+    for world in [&mut receiving, &mut peer] {
+        let structure = world
+            .create_object_for_player("CaptureStatic", 1, Vec3::new(300.0, 0.0, 50.0))
+            .unwrap();
+        world.host_object_mut(structure).unwrap().team_instance_name = "CaptureRoster".into();
+        world.activate_leftover_team_for_host_object(structure);
+        world.add_player(
+            generals_main::game_logic::Player::new(3, Team::USA, "Ally", false)
+                .with_script_identity("Ally"),
+        );
+        world
+            .get_player_mut(1)
+            .unwrap()
+            .set_map_relationship(3, gamelogic::common::Relationship::Allies);
+        world
+            .get_player_mut(1)
+            .unwrap()
+            .set_team_instance_player_override(
+                "CaptureRoster",
+                3,
+                gamelogic::common::Relationship::Enemies,
+            );
+        let allied = world
+            .create_object_for_player("CaptureHusk", 3, Vec3::new(11.0, 0.0, 50.0))
+            .unwrap();
+        world
+            .host_object_mut(allied)
+            .unwrap()
+            .status
+            .disabled_unmanned = true;
+    }
+    let receiving_near = add_husk(&mut receiving, Vec3::new(80.0, 0.0, 50.0));
+    let peer_near = add_husk(&mut peer, Vec3::new(80.0, 0.0, 50.0));
+    add_husk(&mut receiving, Vec3::new(160.0, 0.0, 50.0));
+    add_husk(&mut peer, Vec3::new(160.0, 0.0, 50.0));
+    assert_eq!(receiving_near, peer_near);
+
+    receiving
+        .update_local_script_engine_with_owner(&script_engine())
+        .unwrap();
+    assert_eq!(
+        receiving.host_object(ranger).unwrap().target,
+        Some(receiving_near)
+    );
+    assert_eq!(peer.host_object(peer_ranger).unwrap().target, None);
 }

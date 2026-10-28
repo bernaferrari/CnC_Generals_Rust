@@ -1614,7 +1614,7 @@ impl ScriptActionDispatcher<'_> {
                 self.do_named_fire_special_power_at_named(action)
             }
             ScriptActionType::NamedFireWeaponFollowingWaypointPath => {
-                self.do_named_fire_weapon_following_waypoint_path(action)
+                self.do_named_fire_weapon_following_waypoint_path(action, driver)
             }
             ScriptActionType::NamedUseCommandbuttonAbilityOnNamed => {
                 self.do_named_use_command_button_on_named(action)

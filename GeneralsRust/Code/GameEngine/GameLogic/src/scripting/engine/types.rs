@@ -800,6 +800,15 @@ pub trait ScriptExecutionDriver {
     ) -> Option<GameLogicResult<()>> {
         None
     }
+    /// Execute C++ `NAMED_FIRE_WEAPON_FOLLOWING_WAYPOINT_PATH` against the
+    /// receiving session's live Object, weapon catalog, and waypoint data.
+    fn named_fire_weapon_following_waypoint_path(
+        &mut self,
+        _unit: &str,
+        _waypoint_path: &str,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
     fn team_hunt_button(
         &mut self,
         _team: &str,

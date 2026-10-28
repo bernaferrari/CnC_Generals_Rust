@@ -1753,6 +1753,36 @@ impl CnCGameEngine {
             &self.game_logic,
             &mut self.game_client,
         );
+        #[cfg(feature = "game_client")]
+        if game_client_xfer_bytes
+            .as_deref()
+            .is_some_and(|bytes| !bytes.is_empty())
+        {
+            let logic = &self.game_logic;
+            let policy = super::native_view_effects::receiving_native_drawable_policy_for(logic);
+            let mut locality_for_object = |object_id: Option<u32>| {
+                let source = object_id
+                    .and_then(|id| logic.host_object(crate::game_logic::ObjectId(id)))
+                    .and_then(|object| object.owner_player_id)
+                    .map(|id| id as i32)
+                    .unwrap_or(-1);
+                logic.receiving_audio_locality_for_player(source)
+            };
+            let mut transform_for_object = |object_id: Option<u32>| {
+                object_id
+                    .and_then(|id| logic.host_object(crate::game_logic::ObjectId(id)))
+                    .map(|object| object.get_transform_matrix())
+            };
+            self.game_client
+                .load_drawable_post_process_with_native_audio(
+                    policy.time_of_day,
+                    &mut locality_for_object,
+                    &mut transform_for_object,
+                )
+                .map_err(|err| {
+                    format!("failed Drawable loadPostProcess audio after restore: {err}")
+                })?;
+        }
         // Restore GameClient/View before exposing the candidate world. No
         // Core callback is replayed: native map admission already executed its
         // owned actions before saved continuation replaced runtime state.

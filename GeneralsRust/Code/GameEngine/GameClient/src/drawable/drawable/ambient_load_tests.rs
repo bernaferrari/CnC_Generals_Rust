@@ -97,3 +97,52 @@ fn real_drawable_snapshot_missing_definition_suppresses_custom_restart() {
     loaded.load_post_process().unwrap();
     assert!(!loaded.ambient_sound_is_active());
 }
+
+#[test]
+fn native_snapshot_resolves_custom_ambient_from_receiving_catalog() {
+    let source_base = definition();
+    let mut receiving_base = definition();
+    receiving_base.sounds = vec!["ReceivingLoop".into()];
+    let mut source_audio = game_engine::common::audio::AudioManager::new();
+    source_audio.register_audio_event_info(source_base.clone());
+    let mut receiving_audio = game_engine::common::audio::AudioManager::new();
+    receiving_audio.register_audio_event_info(receiving_base.clone());
+    let source_audio = Arc::new(std::sync::Mutex::new(source_audio));
+    let receiving_audio = Arc::new(std::sync::Mutex::new(receiving_audio));
+
+    let mut saved = BasicDrawable::new(DrawableId(77));
+    let mut custom = DynamicAudioEventInfo::from_base_info(&source_base);
+    custom.override_audio_name(" CUSTOM 77 OwnedAmbientBase");
+    custom.override_volume(0.75);
+    saved.custom_sound_ambient_base_name = Some(source_base.audio_name.clone());
+    saved.custom_sound_ambient_dynamic_info = Some(custom);
+    let mut bytes = Vec::new();
+    saved
+        .xfer_snapshot(&mut XferSave::new(Cursor::new(&mut bytes), 1))
+        .unwrap();
+
+    let mut loaded = BasicDrawable::new(DrawableId(0));
+    loaded
+        .xfer_snapshot_for_native_load(
+            &mut XferLoad::new(Cursor::new(bytes), 1),
+            Some(&receiving_audio),
+        )
+        .unwrap();
+    let loaded = loaded.custom_sound_ambient_dynamic_info.as_ref().unwrap();
+    assert_eq!(loaded.get_audio_event_info().sounds, receiving_base.sounds);
+    assert_eq!(loaded.get_audio_event_info().volume, 0.75);
+    assert!(
+        source_audio
+            .lock()
+            .unwrap()
+            .find_audio_event_info(" CUSTOM 77 OwnedAmbientBase")
+            .is_none()
+    );
+    assert!(
+        receiving_audio
+            .lock()
+            .unwrap()
+            .find_audio_event_info(" CUSTOM 77 OwnedAmbientBase")
+            .is_some()
+    );
+}

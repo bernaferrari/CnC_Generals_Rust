@@ -243,6 +243,32 @@ pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {
     fn xfer_snapshot(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
         Err("Drawable type does not support snapshot serialization".to_string())
     }
+
+    /// Native GameClient Xfer load with a receiving audio service handle.
+    /// Implementations acquire it only around audio operations, not across
+    /// nested module Xfer callbacks. Absence of a receiving service suppresses
+    /// audio operations rather than consulting standalone ambient globals.
+    fn xfer_snapshot_for_native_load(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        audio_device: Option<
+            &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+        >,
+    ) -> Result<(), String> {
+        let _ = audio_device;
+        self.xfer_snapshot(xfer)
+    }
+
+    /// Native hosted post-load fixup with receiving-world audio facts.
+    fn load_post_process_with_audio(
+        &mut self,
+        _time_of_day: Option<TimeOfDay>,
+        _locality: &game_engine::common::audio::AudioSubmissionLocality,
+        _audio: Option<&mut game_engine::common::audio::AudioManager>,
+        _receiving_object_transform: Option<glam::Mat4>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 impl<T: Drawable + ?Sized> DrawableExt for T {

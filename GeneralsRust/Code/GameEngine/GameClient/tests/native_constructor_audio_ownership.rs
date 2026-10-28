@@ -10,10 +10,13 @@ use game_engine::common::audio::game_audio::{AudioLocalityRelationship, AudioLoc
 use game_engine::common::audio::{AudioEventInfo, AudioManager, SoundPlaybackHook};
 use game_engine::common::ini::INILoadType;
 use game_engine::common::name_key_generator::NameKeyNamespace;
+use game_engine::common::system::xfer_load::XferLoad;
+use game_engine::common::system::xfer_save::XferSave;
 use game_engine::common::thing::module::StaticGameLodLevel;
 use game_engine::common::thing::module_factory::ModuleFactory;
 use game_engine::common::thing::receiving_module_content::ReceivingModuleContent;
 use game_engine::common::thing::thing_template::AdmittedReceivingTemplate;
+use std::io::Cursor;
 use std::sync::{Arc, Mutex};
 
 struct Players;
@@ -350,6 +353,180 @@ fn auxiliary_retirement_stops_only_on_its_bound_manager() {
         &[('P', handle_a), ('S', handle_a)]
     );
     assert_eq!(events_b.lock().unwrap().as_slice(), &[('P', handle_b)]);
+}
+
+#[test]
+fn drawable_xfer_restore_stops_and_restarts_only_on_receiving_world_audio() {
+    let events_a = Arc::new(Mutex::new(Vec::new()));
+    let events_b = Arc::new(Mutex::new(Vec::new()));
+    let device_a = Arc::new(Mutex::new(recording_audio(Arc::clone(&events_a))));
+    let device_b = Arc::new(Mutex::new(recording_audio(Arc::clone(&events_b))));
+    let mut a = client(Arc::clone(&device_a));
+    let mut b = client(Arc::clone(&device_b));
+    let (mut content_a, plan_a) = admitted();
+    let (mut content_b, plan_b) = admitted();
+    let locality = game_engine::common::audio::AudioSubmissionLocality::from_resolver(1, &Players);
+    let policy = ReceivingDrawablePolicy {
+        time_of_day: Some(game_client_rust::system::TimeOfDay::Night),
+        use_draw_module_lod: true,
+        static_game_lod: StaticGameLodLevel::High,
+        use_tree_sway: true,
+    };
+    let make_aux = |client: &mut GameClient,
+                    content: &mut ModuleFactory,
+                    plan: Arc<AdmittedReceivingTemplate>| {
+        let (_, mut owner, ..) = client.split_render_bridge_drawables_and_ui_renderer();
+        owner
+            .create_auxiliary_drawable_with_locality(
+                plan,
+                content,
+                1.0,
+                policy,
+                game_client_rust::core::game_client::NativeDrawableBirthContext {
+                    loading_map: false,
+                    in_load_game: false,
+                },
+                9,
+                0,
+                Some(&locality),
+                |_| Ok(()),
+            )
+            .unwrap()
+    };
+    let receipt_a = make_aux(&mut a, content_a.module_factory_mut(), plan_a);
+    let receipt_b = make_aux(&mut b, content_b.module_factory_mut(), plan_b);
+    assert_eq!(receipt_a.drawable_id(), receipt_b.drawable_id());
+    for (client, receipt, x) in [(&mut a, &receipt_a, 7.0), (&mut b, &receipt_b, 2.0)] {
+        let drawable = client
+            .find_drawable_by_id_mut(receipt.drawable_id())
+            .unwrap();
+        drawable.set_object_id(Some(444));
+        drawable.set_position(game_client_rust::drawable::Vector3::new(x, 0.0, 0.0));
+    }
+    device_a.lock().unwrap().process_request_list();
+    device_b.lock().unwrap().process_request_list();
+    assert_eq!(events_a.lock().unwrap().len(), 1);
+    assert_eq!(events_b.lock().unwrap().len(), 1);
+
+    // The serialized Drawable state is restored into the same-ID peer through
+    // the public production Drawable Xfer hook used by GameClient's roster.
+    let bytes = {
+        let drawable = a.find_drawable_by_id_mut(receipt_a.drawable_id()).unwrap();
+        let mut bytes = Vec::new();
+        let mut save = XferSave::new(Cursor::new(&mut bytes), 1);
+        drawable.xfer_snapshot(&mut save).unwrap();
+        bytes
+    };
+    {
+        let drawable = b.find_drawable_by_id_mut(receipt_b.drawable_id()).unwrap();
+        let mut load = XferLoad::new(Cursor::new(bytes.as_slice()), 1);
+        drawable
+            .xfer_snapshot_for_native_load(&mut load, Some(&device_b))
+            .unwrap();
+    }
+    device_b.lock().unwrap().process_request_list();
+    assert_eq!(
+        events_a.lock().unwrap().len(),
+        1,
+        "source world remains live"
+    );
+    assert_eq!(
+        events_b.lock().unwrap().len(),
+        2,
+        "restore stops peer's old loop"
+    );
+
+    b.load_drawable_post_process_with_native_audio_in_order(
+        &[receipt_b.drawable_id()],
+        Some(game_client_rust::system::TimeOfDay::Night),
+        |_| locality,
+        |object_id| {
+            (object_id == Some(444))
+                .then(|| glam::Mat4::from_translation(glam::Vec3::new(20.0, 3.0, 0.0)))
+        },
+    )
+    .unwrap();
+    device_b.lock().unwrap().process_request_list();
+    assert_eq!(
+        a.find_drawable_by_id(receipt_a.drawable_id())
+            .unwrap()
+            .get_position()
+            .x,
+        7.0
+    );
+    assert_eq!(
+        b.find_drawable_by_id(receipt_b.drawable_id())
+            .unwrap()
+            .get_position()
+            .x,
+        20.0
+    );
+    assert_eq!(events_a.lock().unwrap().len(), 1);
+    assert_eq!(
+        events_b.lock().unwrap().len(),
+        3,
+        "post-load restarts on peer manager"
+    );
+}
+
+#[test]
+fn drawable_load_post_process_applies_receiving_transform_without_audio_device() {
+    let mut client =
+        GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted).unwrap();
+    client.particle_systems_mut().finish_definition_admission();
+    let (mut content, plan) = admitted();
+    let locality = game_engine::common::audio::AudioSubmissionLocality::from_resolver(1, &Players);
+    let policy = ReceivingDrawablePolicy {
+        time_of_day: Some(game_client_rust::system::TimeOfDay::Night),
+        use_draw_module_lod: true,
+        static_game_lod: StaticGameLodLevel::High,
+        use_tree_sway: true,
+    };
+    let receipt = {
+        let (_, mut owner, ..) = client.split_render_bridge_drawables_and_ui_renderer();
+        owner
+            .create_auxiliary_drawable_with_locality(
+                plan,
+                content.module_factory_mut(),
+                1.0,
+                policy,
+                game_client_rust::core::game_client::NativeDrawableBirthContext {
+                    loading_map: true,
+                    in_load_game: false,
+                },
+                9,
+                0,
+                Some(&locality),
+                |_| Ok(()),
+            )
+            .unwrap()
+    };
+    let drawable = client
+        .find_drawable_by_id_mut(receipt.drawable_id())
+        .unwrap();
+    drawable.set_object_id(Some(444));
+    drawable.set_position(game_client_rust::drawable::Vector3::new(2.0, 0.0, 0.0));
+
+    client
+        .load_drawable_post_process_with_native_audio_in_order(
+            &[receipt.drawable_id()],
+            None,
+            |_| locality,
+            |object_id| {
+                (object_id == Some(444))
+                    .then(|| glam::Mat4::from_translation(glam::Vec3::new(30.0, 4.0, 0.0)))
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        client
+            .find_drawable_by_id(receipt.drawable_id())
+            .unwrap()
+            .get_position()
+            .x,
+        30.0,
+        "device-less post-load still uses the receiving transform"
+    );
 }
 
 #[test]

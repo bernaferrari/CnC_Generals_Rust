@@ -121,6 +121,7 @@ impl GameClient {
             render_bridge: crate::render_bridge::RenderBridge::new(),
             drawable_manager: crate::drawable::DrawableManager::new(),
             drawables: drawable_world::DrawableWorld::new(),
+            pending_drawable_post_process_order: None,
             drawable_toc: Vec::new(),
             loaded_map: None,
             translators: [TRANSLATOR_ID_INVALID; super::MAX_CLIENT_TRANSLATORS],
@@ -396,12 +397,14 @@ impl GameClient {
     /// callers must not treat failure as an empty candidate or continue commit.
     pub fn retire_native_drawable_world_for_replace(&mut self) -> GameClientResult<()> {
         self.try_invalidate_presentation_drawable_world()?;
+        self.pending_drawable_post_process_order = None;
         self.command_hints.clear();
         Ok(())
     }
     /// Only after retirement succeeded. No callbacks or failure after moving
     /// the candidate, so its IDs/order and continuation are installed unchanged.
     pub fn install_prepared_native_drawable_world(&mut self, world: NativeDrawableWorld) {
+        self.pending_drawable_post_process_order = None;
         self.drawables = world;
     }
 
@@ -427,6 +430,7 @@ impl GameClient {
                     .into(),
             ));
         }
+        self.pending_drawable_post_process_order = None;
         self.window_manager_owner.clear_replay_steps();
         self.window_videos.reset();
         self.reset_with_window_owner(world)
@@ -436,6 +440,7 @@ impl GameClient {
         &mut self,
         world: Option<&mut gamelogic::system::game_logic::GameLogic>,
     ) -> GameClientResult<()> {
+        self.pending_drawable_post_process_order = None;
         self.command_hints.clear();
         self.receiving_draw_icon_ui = true;
         self.startup_sizzle_pending = false;

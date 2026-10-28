@@ -140,3 +140,96 @@ fn receiving_native_loaded_id_reuses_exact_detached_roster_position() {
         decoded
     );
 }
+
+#[test]
+fn failed_new_restore_clears_stale_drawable_postprocess_order() {
+    let mut client = GameClient::new().unwrap();
+    client.pending_drawable_post_process_order = Some(vec![DrawableId(77)]);
+    assert!(client.restore_from_xfer_bytes(&[0]).is_err());
+    assert!(client.pending_drawable_post_process_order.is_none());
+}
+
+#[test]
+fn drawable_load_postprocess_uses_xfer_order_when_final_roster_is_reversed() {
+    if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+        module_path!(),
+        "drawable_load_postprocess_uses_xfer_order_when_final_roster_is_reversed",
+    ) {
+        return;
+    }
+
+    struct LocalPlayers;
+    impl game_engine::common::audio::game_audio::AudioLocalityResolver for LocalPlayers {
+        fn get_local_player_index(&self) -> Option<i32> {
+            None
+        }
+        fn is_player_active(&self, _: i32) -> bool {
+            false
+        }
+        fn player_exists(&self, _: i32) -> bool {
+            false
+        }
+        fn has_default_team(&self, _: i32) -> bool {
+            false
+        }
+        fn get_relationship_to_local_team(
+            &self,
+            _: i32,
+            _: i32,
+        ) -> game_engine::common::audio::game_audio::AudioLocalityRelationship {
+            game_engine::common::audio::game_audio::AudioLocalityRelationship::Neutral
+        }
+    }
+
+    let mut factory = game_engine::common::thing::ThingFactory::new();
+    let template = factory.new_template("NativeLoadPostProcessOrder");
+    let mut source = GameClient::new().unwrap();
+    let first = source.create_drawable_from_template(&template).unwrap();
+    let second = source.create_drawable_from_template(&template).unwrap();
+    source
+        .find_drawable_by_id_mut(first)
+        .unwrap()
+        .set_object_id(Some(101));
+    source
+        .find_drawable_by_id_mut(second)
+        .unwrap()
+        .set_object_id(Some(202));
+
+    let mut bytes = Vec::new();
+    source
+        .xfer(&mut CommonSave::new(Cursor::new(&mut bytes), 3))
+        .unwrap();
+
+    let old_factory = game_engine::common::thing::get_thing_factory()
+        .unwrap()
+        .replace(factory);
+    let mut receiving = GameClient::new().unwrap();
+    receiving
+        .xfer(&mut CommonLoad::new(Cursor::new(&bytes), 3))
+        .unwrap();
+    let final_roster = receiving.drawables.native_drawable_order.clone();
+    let pending_order = receiving
+        .pending_drawable_post_process_order
+        .clone()
+        .expect("successful Xfer load records its postprocess order");
+    let locality =
+        game_engine::common::audio::AudioSubmissionLocality::from_resolver(-1, &LocalPlayers);
+    let mut visited = Vec::new();
+    receiving
+        .load_drawable_post_process_with_native_audio(
+            None,
+            |_| locality,
+            |object_id| {
+                visited.push(object_id);
+                None
+            },
+        )
+        .unwrap();
+    let pending_consumed = receiving.pending_drawable_post_process_order.is_none();
+    *game_engine::common::thing::get_thing_factory().unwrap() = old_factory;
+
+    assert_eq!(pending_order, [first, second]);
+    assert_eq!(final_roster, [second, first]);
+    assert_eq!(visited, [Some(101), Some(202)]);
+    assert!(pending_consumed);
+}

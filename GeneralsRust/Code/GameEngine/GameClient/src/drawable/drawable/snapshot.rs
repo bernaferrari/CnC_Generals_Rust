@@ -46,182 +46,17 @@ fn load_custom_ambient_info(
     Ok(base.map(|_| info))
 }
 
-impl Snapshotable for BasicDrawable {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        // PARITY_NOTE: C++ Drawable::crc (Drawable.cpp line 4757) is intentionally empty.
-        // Rust performs a full field CRC for deep verification, which is a strict superset.
-        let mut id = self.id.0;
-        xfer.xfer_unsigned_int(&mut id)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut flags = self.model_condition_flags.clone();
-        xfer_model_condition_flags(xfer, &mut flags)?;
-
-        let mut transform = Matrix4::translation(self.position).mul(&self.base_transform);
-        xfer_matrix3d(xfer, &mut transform)?;
-
-        let mut has_selection_flash = self.selection_flash_envelope.is_some();
-        xfer.xfer_bool(&mut has_selection_flash)
-            .map_err(|e| format!("{:?}", e))?;
-        if has_selection_flash {
-            if let Some(ref envelope) = self.selection_flash_envelope {
-                Snapshotable::crc(envelope, xfer)?;
-            }
-        }
-
-        let mut has_tint_envelope = self.tint_envelope.is_some();
-        xfer.xfer_bool(&mut has_tint_envelope)
-            .map_err(|e| format!("{:?}", e))?;
-        if has_tint_envelope {
-            if let Some(ref envelope) = self.tint_envelope {
-                Snapshotable::crc(envelope, xfer)?;
-            }
-        }
-
-        let mut decal_type = terrain_decal_to_u32(self.terrain_decal_type);
-        xfer.xfer_unsigned_int(&mut decal_type)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut explicit_opacity = self.explicit_opacity;
-        xfer.xfer_real(&mut explicit_opacity)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut stealth_opacity = self.stealth_opacity;
-        xfer.xfer_real(&mut stealth_opacity)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut effective_stealth_opacity = self.effective_stealth_opacity;
-        xfer.xfer_real(&mut effective_stealth_opacity)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut decal_opacity_fade_target = self.decal_opacity_fade_target;
-        xfer.xfer_real(&mut decal_opacity_fade_target)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut decal_opacity_fade_rate = self.decal_opacity_fade_rate;
-        xfer.xfer_real(&mut decal_opacity_fade_rate)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut decal_opacity = self.decal_opacity;
-        xfer.xfer_real(&mut decal_opacity)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut object_id = self.object_id.unwrap_or(0);
-        xfer.xfer_unsigned_int(&mut object_id)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut status_bits = self.status.bits;
-        xfer.xfer_unsigned_int(&mut status_bits)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut tint_status_bits = self.tint_status.bits;
-        xfer.xfer_unsigned_int(&mut tint_status_bits)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut prev_tint_status_bits = self.prev_tint_status.bits;
-        xfer.xfer_unsigned_int(&mut prev_tint_status_bits)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut fade_mode = fading_mode_to_u32(self.fade_mode);
-        xfer.xfer_unsigned_int(&mut fade_mode)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut time_elapsed_fade = self.time_elapsed_fade;
-        xfer.xfer_unsigned_int(&mut time_elapsed_fade)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut time_to_fade = self.time_to_fade;
-        xfer.xfer_unsigned_int(&mut time_to_fade)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut has_loco_info = self.loco_info.is_some();
-        xfer.xfer_bool(&mut has_loco_info)
-            .map_err(|e| format!("{:?}", e))?;
-        if has_loco_info {
-            if let Some(ref loco_info) = self.loco_info {
-                Snapshotable::crc(loco_info, xfer)?;
-            }
-        }
-
-        let mut stealth_look = stealth_look_to_u32(self.stealth_look);
-        xfer.xfer_unsigned_int(&mut stealth_look)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut flash_count = self.flash_count as i32;
-        xfer.xfer_int(&mut flash_count)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut flash_color_bits = vector3_to_color_bits(self.flash_color);
-        xfer.xfer_int(&mut flash_color_bits)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut hidden = self.hidden;
-        xfer.xfer_bool(&mut hidden)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut hidden_by_stealth = self.hidden_by_stealth;
-        xfer.xfer_bool(&mut hidden_by_stealth)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut second_material_pass_opacity = self.second_material_pass_opacity;
-        xfer.xfer_real(&mut second_material_pass_opacity)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut instance_is_identity = self.is_instance_identity();
-        xfer.xfer_bool(&mut instance_is_identity)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut instance_scale = self.instance_scale;
-        xfer.xfer_real(&mut instance_scale)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut expiration = self.expiration_frame.unwrap_or(0);
-        xfer.xfer_unsigned_int(&mut expiration)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut has_icon_info = self.icon_info.is_some();
-        xfer.xfer_bool(&mut has_icon_info)
-            .map_err(|e| format!("{:?}", e))?;
-        if has_icon_info {
-            if let Some(ref icon_info) = self.icon_info {
-                Snapshotable::crc(icon_info, xfer)?;
-            }
-        }
-
-        let mut visible = self.visible;
-        xfer.xfer_bool(&mut visible)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut selected = self.selected;
-        xfer.xfer_bool(&mut selected)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut selectable = self.selectable;
-        xfer.xfer_bool(&mut selectable)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut opacity = self.opacity;
-        xfer.xfer_real(&mut opacity)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut tint_color = self.tint_color;
-        xfer_vector3(xfer, &mut tint_color)?;
-
-        let mut receives_dynamic_lights = self.receives_dynamic_lights;
-        xfer.xfer_bool(&mut receives_dynamic_lights)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut terrain_decal_size = self.terrain_decal_size;
-        xfer_vector3(xfer, &mut terrain_decal_size)?;
-
-        let mut current_frame = self.current_frame;
-        xfer.xfer_unsigned_int(&mut current_frame)
-            .map_err(|e| format!("{:?}", e))?;
-
-        Ok(())
-    }
-
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+impl BasicDrawable {
+    /// Transfer Drawable state while borrowing the receiving audio manager.
+    /// `None` retains the standalone compatibility path.
+    pub(crate) fn xfer_with_audio(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        receiving_audio_device: Option<
+            &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+        >,
+        native_receiving_context: bool,
+    ) -> Result<(), String> {
         // PARITY_NOTE: C++ Drawable::xfer is at version 7 (Drawable.cpp line 4900).
         // Rust version 3 adds object_id, drawable module stub, and instance_is_identity.
         // Rust version 4 adds the instance matrix after instance_is_identity.
@@ -532,8 +367,15 @@ impl Snapshotable for BasicDrawable {
             if self.hidden || self.hidden_by_stealth {
                 self.update_hidden_status();
             }
-            // C++ Drawable.cpp line 5293: stopAmbientSound(); Restarted in loadPostProcess().
-            self.stop_ambient_sound();
+            // C++ Drawable.cpp line 5293: stopAmbientSound(); restarted in loadPostProcess().
+            if let Some(device) = receiving_audio_device {
+                let mut audio = device
+                    .lock()
+                    .map_err(|_| "receiving drawable audio manager poisoned".to_string())?;
+                self.stop_ambient_sound_with_audio(&mut audio);
+            } else if !native_receiving_context {
+                self.stop_ambient_sound();
+            }
         }
 
         // --- ambient sound enabled (C++ line 5300: version >= 4) ---
@@ -571,25 +413,52 @@ impl Snapshotable for BasicDrawable {
                         xfer.xfer_ascii_string(&mut base_info_name)
                             .map_err(|e| format!("{:?}", e))?;
 
-                        let manager = get_global_audio_manager();
-                        let base = match manager.as_ref() {
-                            Some(manager) => manager
+                        let compatibility_manager =
+                            if receiving_audio_device.is_none() && !native_receiving_context {
+                                get_global_audio_manager()
+                            } else {
+                                None
+                            };
+                        let base = if let Some(device) = receiving_audio_device {
+                            device
                                 .lock()
-                                .map_err(|_| "ambient audio catalog lock poisoned".to_string())?
-                                .find_audio_event_info(&base_info_name),
-                            None => None,
+                                .map_err(|_| {
+                                    "receiving drawable audio manager poisoned".to_string()
+                                })?
+                                .find_audio_event_info(&base_info_name)
+                        } else if !native_receiving_context {
+                            match compatibility_manager.as_ref() {
+                                Some(manager) => manager
+                                    .lock()
+                                    .map_err(|_| "ambient audio catalog lock poisoned".to_string())?
+                                    .find_audio_event_info(&base_info_name),
+                                None => None,
+                            }
+                        } else {
+                            None
                         };
                         // No native catalog borrow survives Xfer or callbacks.
                         let custom_info = load_custom_ambient_info(xfer, base.as_deref(), self.id)?;
                         if let Some(custom_info) = custom_info {
-                            manager
-                                .as_ref()
-                                .expect("resolved native audio catalog")
-                                .lock()
-                                .map_err(|_| "ambient audio catalog lock poisoned".to_string())?
-                                .register_audio_event_info(
+                            if let Some(device) = receiving_audio_device {
+                                let mut audio = device.lock().map_err(|_| {
+                                    "receiving drawable audio manager poisoned".to_string()
+                                })?;
+                                audio.register_audio_event_info(
                                     custom_info.get_audio_event_info().clone(),
                                 );
+                            } else if !native_receiving_context {
+                                if let Some(manager) = compatibility_manager.as_ref() {
+                                    manager
+                                        .lock()
+                                        .map_err(|_| {
+                                            "ambient audio catalog lock poisoned".to_string()
+                                        })?
+                                        .register_audio_event_info(
+                                            custom_info.get_audio_event_info().clone(),
+                                        );
+                                }
+                            }
                             self.custom_sound_ambient_base_name = Some(base_info_name);
                             self.custom_sound_ambient_dynamic_info = Some(custom_info);
                         } else {
@@ -676,6 +545,220 @@ impl Snapshotable for BasicDrawable {
         }
 
         Ok(())
+    }
+
+    pub(crate) fn load_post_process_with_audio(
+        &mut self,
+        time_of_day: Option<TimeOfDay>,
+        locality: &game_engine::common::audio::AudioSubmissionLocality,
+        mut audio: Option<&mut game_engine::common::audio::AudioManager>,
+        receiving_object_transform: Option<glam::Mat4>,
+    ) -> Result<(), String> {
+        // C++ Drawable.cpp:5400-5403 restores the receiving Object matrix
+        // before audio. The host supplies that matrix explicitly; this path
+        // must never resolve a same-ID object through OBJECT_REGISTRY.
+        if let Some(transform) = receiving_object_transform {
+            let transform = Matrix4::from_glam(transform);
+            self.position = Vector3::new(
+                transform.elements[0][3],
+                transform.elements[1][3],
+                transform.elements[2][3],
+            );
+            let mut rotation = transform;
+            rotation.elements[0][3] = 0.0;
+            rotation.elements[1][3] = 0.0;
+            rotation.elements[2][3] = 0.0;
+            self.base_transform = rotation;
+        }
+
+        if let (Some(tod), Some(audio)) = (time_of_day, audio.as_deref_mut()) {
+            if self.ambient_sound_enabled && self.ambient_sound_enabled_from_script {
+                self.start_ambient_sound_current_state_with_audio(true, tod, audio, locality)?;
+            } else {
+                self.stop_ambient_sound_with_audio(audio);
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Snapshotable for BasicDrawable {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // PARITY_NOTE: C++ Drawable::crc (Drawable.cpp line 4757) is intentionally empty.
+        // Rust performs a full field CRC for deep verification, which is a strict superset.
+        let mut id = self.id.0;
+        xfer.xfer_unsigned_int(&mut id)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut flags = self.model_condition_flags.clone();
+        xfer_model_condition_flags(xfer, &mut flags)?;
+
+        let mut transform = Matrix4::translation(self.position).mul(&self.base_transform);
+        xfer_matrix3d(xfer, &mut transform)?;
+
+        let mut has_selection_flash = self.selection_flash_envelope.is_some();
+        xfer.xfer_bool(&mut has_selection_flash)
+            .map_err(|e| format!("{:?}", e))?;
+        if has_selection_flash {
+            if let Some(ref envelope) = self.selection_flash_envelope {
+                Snapshotable::crc(envelope, xfer)?;
+            }
+        }
+
+        let mut has_tint_envelope = self.tint_envelope.is_some();
+        xfer.xfer_bool(&mut has_tint_envelope)
+            .map_err(|e| format!("{:?}", e))?;
+        if has_tint_envelope {
+            if let Some(ref envelope) = self.tint_envelope {
+                Snapshotable::crc(envelope, xfer)?;
+            }
+        }
+
+        let mut decal_type = terrain_decal_to_u32(self.terrain_decal_type);
+        xfer.xfer_unsigned_int(&mut decal_type)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut explicit_opacity = self.explicit_opacity;
+        xfer.xfer_real(&mut explicit_opacity)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut stealth_opacity = self.stealth_opacity;
+        xfer.xfer_real(&mut stealth_opacity)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut effective_stealth_opacity = self.effective_stealth_opacity;
+        xfer.xfer_real(&mut effective_stealth_opacity)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut decal_opacity_fade_target = self.decal_opacity_fade_target;
+        xfer.xfer_real(&mut decal_opacity_fade_target)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut decal_opacity_fade_rate = self.decal_opacity_fade_rate;
+        xfer.xfer_real(&mut decal_opacity_fade_rate)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut decal_opacity = self.decal_opacity;
+        xfer.xfer_real(&mut decal_opacity)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut object_id = self.object_id.unwrap_or(0);
+        xfer.xfer_unsigned_int(&mut object_id)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut status_bits = self.status.bits;
+        xfer.xfer_unsigned_int(&mut status_bits)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut tint_status_bits = self.tint_status.bits;
+        xfer.xfer_unsigned_int(&mut tint_status_bits)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut prev_tint_status_bits = self.prev_tint_status.bits;
+        xfer.xfer_unsigned_int(&mut prev_tint_status_bits)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut fade_mode = fading_mode_to_u32(self.fade_mode);
+        xfer.xfer_unsigned_int(&mut fade_mode)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut time_elapsed_fade = self.time_elapsed_fade;
+        xfer.xfer_unsigned_int(&mut time_elapsed_fade)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut time_to_fade = self.time_to_fade;
+        xfer.xfer_unsigned_int(&mut time_to_fade)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut has_loco_info = self.loco_info.is_some();
+        xfer.xfer_bool(&mut has_loco_info)
+            .map_err(|e| format!("{:?}", e))?;
+        if has_loco_info {
+            if let Some(ref loco_info) = self.loco_info {
+                Snapshotable::crc(loco_info, xfer)?;
+            }
+        }
+
+        let mut stealth_look = stealth_look_to_u32(self.stealth_look);
+        xfer.xfer_unsigned_int(&mut stealth_look)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut flash_count = self.flash_count as i32;
+        xfer.xfer_int(&mut flash_count)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut flash_color_bits = vector3_to_color_bits(self.flash_color);
+        xfer.xfer_int(&mut flash_color_bits)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut hidden = self.hidden;
+        xfer.xfer_bool(&mut hidden)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut hidden_by_stealth = self.hidden_by_stealth;
+        xfer.xfer_bool(&mut hidden_by_stealth)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut second_material_pass_opacity = self.second_material_pass_opacity;
+        xfer.xfer_real(&mut second_material_pass_opacity)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut instance_is_identity = self.is_instance_identity();
+        xfer.xfer_bool(&mut instance_is_identity)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut instance_scale = self.instance_scale;
+        xfer.xfer_real(&mut instance_scale)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut expiration = self.expiration_frame.unwrap_or(0);
+        xfer.xfer_unsigned_int(&mut expiration)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut has_icon_info = self.icon_info.is_some();
+        xfer.xfer_bool(&mut has_icon_info)
+            .map_err(|e| format!("{:?}", e))?;
+        if has_icon_info {
+            if let Some(ref icon_info) = self.icon_info {
+                Snapshotable::crc(icon_info, xfer)?;
+            }
+        }
+
+        let mut visible = self.visible;
+        xfer.xfer_bool(&mut visible)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut selected = self.selected;
+        xfer.xfer_bool(&mut selected)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut selectable = self.selectable;
+        xfer.xfer_bool(&mut selectable)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut opacity = self.opacity;
+        xfer.xfer_real(&mut opacity)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut tint_color = self.tint_color;
+        xfer_vector3(xfer, &mut tint_color)?;
+
+        let mut receives_dynamic_lights = self.receives_dynamic_lights;
+        xfer.xfer_bool(&mut receives_dynamic_lights)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut terrain_decal_size = self.terrain_decal_size;
+        xfer_vector3(xfer, &mut terrain_decal_size)?;
+
+        let mut current_frame = self.current_frame;
+        xfer.xfer_unsigned_int(&mut current_frame)
+            .map_err(|e| format!("{:?}", e))?;
+
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.xfer_with_audio(xfer, None, false)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {

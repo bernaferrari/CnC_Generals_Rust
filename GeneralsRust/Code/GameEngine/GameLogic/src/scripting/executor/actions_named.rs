@@ -1179,6 +1179,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_named_fire_weapon_following_waypoint_path(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn super::super::engine::ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let waypoint_path = self.get_string_param(action, 1)?;
@@ -1187,6 +1188,12 @@ impl ScriptActionDispatcher<'_> {
             unit_name,
             waypoint_path
         );
+        if let Some(result) = driver
+            .named_fire_weapon_following_waypoint_path(&unit_name, &waypoint_path)
+        {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+            return Ok(ScriptActionResult::Success);
+        }
         // Leftover crate forceFire cannot spawn a live projectile. Queue leftover
         // forceFire + follow waypoint path for the live host drain.
         if super::dual_world_registry_unavailable() {

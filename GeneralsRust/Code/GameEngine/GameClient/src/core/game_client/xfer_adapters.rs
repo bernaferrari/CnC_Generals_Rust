@@ -282,7 +282,7 @@ pub(crate) fn xfer_game_client_state(
                     .xfer_unsigned_int(&mut object_id)
                     .map_err(|_| RuntimeXferStatus::InvalidData)?;
                 let receiving_id = drawable.get_id();
-                GameClient::xfer_drawable_snapshot(drawable.as_mut(), &mut adapter)
+                drawable.xfer_snapshot(&mut adapter)
                     .map_err(|_| RuntimeXferStatus::InvalidData)?;
                 adapter.end_block().map_err(common_status_to_runtime)?;
             }
@@ -372,7 +372,7 @@ pub(crate) fn xfer_game_client_state(
 
                 let (mut drawable, receiving_position) =
                     drawable.ok_or(RuntimeXferStatus::InvalidData)?;
-                GameClient::xfer_drawable_snapshot(drawable.as_mut(), &mut adapter)
+                drawable.xfer_snapshot(&mut adapter)
                     .map_err(|_| RuntimeXferStatus::InvalidData)?;
                 let id = drawable.get_id();
                 if let Some(object_id) = drawable.get_object_id() {

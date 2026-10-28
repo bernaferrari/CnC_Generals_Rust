@@ -169,7 +169,13 @@ impl GameClient {
     fn xfer_drawable_snapshot(
         drawable: &mut dyn Drawable,
         xfer: &mut dyn Xfer,
+        audio_device: Option<
+            &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+        >,
     ) -> Result<(), String> {
+        if xfer.get_xfer_mode() == CommonXferMode::Load {
+            return drawable.xfer_snapshot_for_native_load(xfer, audio_device);
+        }
         drawable.xfer_snapshot(xfer)
     }
 
@@ -1498,6 +1504,7 @@ impl Snapshotable for GameClient {
 impl Drop for GameClient {
     fn drop(&mut self) {
         log::info!("GameClient shutting down");
+        self.pending_drawable_post_process_order = None;
         let owned_live_slot = clear_live_game_client(self);
 
         // Clear all drawables (they'll be dropped automatically)
@@ -1618,10 +1625,90 @@ impl GameClient {
 
     /// Restore a C++ `CHUNK_GameClient` payload onto this client.
     pub fn restore_from_xfer_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
+        // Clear before byte validation too: a malformed new load must not
+        // leave a previous session's post-process order available to Main.
+        self.pending_drawable_post_process_order = None;
         if bytes.is_empty() {
             return Ok(());
         }
         read_game_client_xfer_bytes(self, bytes)
+    }
+
+    /// Complete the C++ Drawable::loadPostProcess audio phase using the
+    /// receiving application's audio service and frozen receiving facts.
+    pub fn load_drawable_post_process_with_native_audio(
+        &mut self,
+        time_of_day: Option<crate::system::TimeOfDay>,
+        locality_for_object: impl FnMut(
+            Option<u32>,
+        ) -> game_engine::common::audio::AudioSubmissionLocality,
+        transform_for_object: impl FnMut(Option<u32>) -> Option<glam::Mat4>,
+    ) -> Result<(), String> {
+        let Some(order) = self.pending_drawable_post_process_order.clone() else {
+            return Ok(());
+        };
+        self.load_drawable_post_process_with_native_audio_in_order(
+            &order,
+            time_of_day,
+            locality_for_object,
+            transform_for_object,
+        )?;
+        self.pending_drawable_post_process_order = None;
+        Ok(())
+    }
+
+    /// Explicit-order counterpart for callers restoring Drawable snapshots
+    /// outside a GameClient Xfer stream.
+    pub fn load_drawable_post_process_with_native_audio_in_order(
+        &mut self,
+        order: &[DrawableId],
+        time_of_day: Option<crate::system::TimeOfDay>,
+        mut locality_for_object: impl FnMut(
+            Option<u32>,
+        )
+            -> game_engine::common::audio::AudioSubmissionLocality,
+        mut transform_for_object: impl FnMut(Option<u32>) -> Option<glam::Mat4>,
+    ) -> Result<(), String> {
+        let device = self.native_audio_device.as_ref().cloned();
+        for (index, id) in order.iter().enumerate() {
+            if order[..index].contains(id) {
+                return Err(format!(
+                    "Drawable post-load Xfer order contains duplicate ID {}",
+                    id.0
+                ));
+            }
+            if !self.drawables.drawable_map.contains_key(id) {
+                return Err(format!(
+                    "Drawable post-load Xfer entry {} is missing from drawable map",
+                    id.0
+                ));
+            }
+        }
+
+        for &id in order {
+            let drawable = self
+                .drawables
+                .drawable_map
+                .get_mut(&id)
+                .ok_or_else(|| format!("Drawable post-load Xfer entry {} disappeared", id.0))?;
+            let object_id = drawable.get_object_id();
+            let locality = locality_for_object(object_id);
+            let transform = transform_for_object(object_id);
+            if let Some(device) = device.as_ref() {
+                let mut audio = device.lock().map_err(|_| {
+                    "receiving drawable audio manager poisoned during loadPostProcess".to_string()
+                })?;
+                drawable.load_post_process_with_audio(
+                    time_of_day,
+                    &locality,
+                    Some(&mut audio),
+                    transform,
+                )?;
+            } else {
+                drawable.load_post_process_with_audio(time_of_day, &locality, None, transform)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1632,6 +1719,7 @@ impl GameClient {
         owned: &[NativeAuxiliaryReceipt],
     ) -> Result<(), String> {
         if xfer.get_xfer_mode() == CommonXferMode::Load {
+            self.pending_drawable_post_process_order = None;
             self.invalidate_presentation_shell();
             xfer.set_client_frame_context(game_engine::ClientFrameContext::Frame(self.frame))
                 .map_err(|e| format!("client frame context: {e:?}"))?;
@@ -1647,6 +1735,7 @@ impl GameClient {
         self.frame = frame;
         if xfer.get_xfer_mode() == CommonXferMode::Load {
             // C++ GameClient.cpp1347: the own Client header precedes TOC births.
+            self.pending_drawable_post_process_order = None;
             xfer.set_client_frame_context(game_engine::ClientFrameContext::Frame(frame))
                 .map_err(|e| format!("client frame context: {e:?}"))?;
         }
@@ -1672,6 +1761,8 @@ impl GameClient {
 
         xfer.xfer_unsigned_short(&mut drawable_count)
             .map_err(|e| e.to_string())?;
+
+        let mut decoded_drawable_order = Vec::new();
 
         if xfer.is_writing() {
             let toc_lookup: HashMap<String, u16> = self
@@ -1701,7 +1792,11 @@ impl GameClient {
                 xfer.xfer_unsigned_int(&mut object_id)
                     .map_err(|e| e.to_string())?;
 
-                Self::xfer_drawable_snapshot(drawable.as_mut(), xfer)?;
+                Self::xfer_drawable_snapshot(
+                    drawable.as_mut(),
+                    xfer,
+                    self.native_audio_device.as_ref(),
+                )?;
 
                 xfer.end_block().map_err(|e| format!("{:?}", e))?;
             }
@@ -1808,7 +1903,11 @@ impl GameClient {
                 }
 
                 let (mut drawable, receiving_position) = drawable.expect("drawable exists");
-                Self::xfer_drawable_snapshot(drawable.as_mut(), xfer)?;
+                Self::xfer_drawable_snapshot(
+                    drawable.as_mut(),
+                    xfer,
+                    self.native_audio_device.as_ref(),
+                )?;
 
                 let id = drawable.get_id();
                 if let Some(object_id) = drawable.get_object_id() {
@@ -1829,6 +1928,7 @@ impl GameClient {
                     .restore_native_drawable_after_load(id, drawable, receiving_position);
 
                 xfer.end_block().map_err(|e| format!("{:?}", e))?;
+                decoded_drawable_order.push(id);
 
                 if object_id != INVALID_ID {
                     // Dual-world residual bind only; host uses drawable_object_map.
@@ -1849,6 +1949,7 @@ impl GameClient {
 
         if xfer.is_reading() {
             self.load_post_process()?;
+            self.pending_drawable_post_process_order = Some(decoded_drawable_order);
         }
 
         Ok(())
