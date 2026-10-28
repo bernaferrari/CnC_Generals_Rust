@@ -235,6 +235,87 @@ impl super::GameLogic {
             self.locomotor_definitions.as_ref(),
         ))
     }
+
+    /// C++ ExperienceTracker::setVeterancyLevel through Object::onVeterancyLevelChanged.
+    /// Commit the new XP/rank first, apply the rank upgrade through the receiving
+    /// world's synchronous upgrade callbacks, then resume Body feedback only if
+    /// the same Object birth remains installed.
+    pub(crate) fn set_exact_veterancy_level_with_upgrade_callback(
+        &mut self,
+        id: super::ObjectId,
+        level: super::VeterancyLevel,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        self.set_exact_veterancy_level_with_upgrade_callback_mode(id, level, true, effects)
+    }
+
+    /// C++ ExperienceTracker setter used by hijack collision (`provideFeedback = FALSE`).
+    pub(crate) fn set_exact_veterancy_level_with_upgrade_callback_quiet(
+        &mut self,
+        id: super::ObjectId,
+        level: super::VeterancyLevel,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        self.set_exact_veterancy_level_with_upgrade_callback_mode(id, level, false, effects)
+    }
+
+    fn set_exact_veterancy_level_with_upgrade_callback_mode(
+        &mut self,
+        id: super::ObjectId,
+        level: super::VeterancyLevel,
+        provide_feedback: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        let Some(object) = self.objects.get(&id) else {
+            return Ok(false);
+        };
+        let birth = std::sync::Arc::downgrade(&object.visual_draw_identity_token);
+        let Some(previous) = self
+            .objects
+            .get_mut(&id)
+            .and_then(|object| object.begin_exact_veterancy_level_for_world_callback(level))
+        else {
+            return Ok(false);
+        };
+
+        if let Some(upgrade) = crate::game_logic::host_unit_training::veterancy_upgrade_name(level)
+        {
+            self.apply_upgrade_to_object_with_interpreter_checked(id, upgrade, None, effects)?;
+        }
+
+        let same_birth = self.objects.get(&id).is_some_and(|object| {
+            birth.ptr_eq(&std::sync::Arc::downgrade(
+                &object.visual_draw_identity_token,
+            ))
+        });
+        if !same_birth {
+            return Ok(true);
+        }
+        let health_bonus = self.veterancy_health_bonus;
+        if provide_feedback {
+            self.with_object_veterancy_feedback_and_locomotors(
+                id,
+                |object, audio, feedback, _locomotors| {
+                    object.apply_veterancy_bonuses_after_rank_upgrade_in(
+                        previous,
+                        level,
+                        &health_bonus,
+                        audio,
+                        feedback,
+                    );
+                },
+            );
+        } else if let Some(object) = self.objects.get_mut(&id) {
+            let frame = self.frame;
+            object.apply_veterancy_bonuses_after_rank_upgrade_quiet_in(
+                previous,
+                level,
+                &health_bonus,
+                frame,
+            );
+        }
+        Ok(true)
+    }
 }
 
 impl super::GameLogic {

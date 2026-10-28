@@ -3,6 +3,14 @@ use super::super::super::*;
 use super::guard_states::GUARD_CHASE_PHASE_INNER;
 use super::special_abilities::{LeftoverSaTick, clear_raising_flag_model};
 
+fn same_live_object_birth(world: &GameLogic, id: ObjectId, birth: &std::sync::Weak<()>) -> bool {
+    world.objects.get(&id).is_some_and(|object| {
+        birth.ptr_eq(&std::sync::Arc::downgrade(
+            &object.visual_draw_identity_token,
+        ))
+    })
+}
+
 #[path = "update/rider_scuttle.rs"]
 mod rider_scuttle;
 #[path = "update/support_order_transitions.rs"]
@@ -2161,6 +2169,18 @@ impl GameLogic {
                                 self.release_rejected_special(object_id, effects)?;
                                 continue;
                             }
+                            let Some(actor_birth) = self.objects.get(&object_id).map(|object| {
+                                std::sync::Arc::downgrade(&object.visual_draw_identity_token)
+                            }) else {
+                                continue;
+                            };
+                            let Some(target_birth) =
+                                self.objects.get(&special_target_id).map(|object| {
+                                    std::sync::Arc::downgrade(&object.visual_draw_identity_token)
+                                })
+                            else {
+                                continue;
+                            };
                             // C++ ConvertToHijackedVehicleCrateCollide residual:
                             // walk → transfer team + OBJECT_STATUS_HIJACKED;
                             // ride-hide (drawable + partition unRegister) or consume.
@@ -2170,15 +2190,12 @@ impl GameLogic {
                             self.try_eva_vehicle_stolen(special_target_id);
                             let donor_snap = self.objects.get(&object_id).cloned();
                             if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                target.apply_hijacked_from_with_veterancy_rules(
+                                target.apply_hijacked_from_before_veterancy(
                                     donor_snap.as_ref(),
                                     &mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ),
                                     &mut self.partition_manager,
-                                    &self.veterancy_health_bonus,
-                                    self.locomotor_definitions.as_ref(),
-                                    self.frame,
                                 );
                             }
                             match owner_player_id {
@@ -2199,8 +2216,57 @@ impl GameLogic {
                                     }
                                 }
                             }
+                            if !same_live_object_birth(self, object_id, &actor_birth)
+                                || !same_live_object_birth(self, special_target_id, &target_birth)
+                            {
+                                continue;
+                            }
                             // C++ transferObjectName residual.
                             let _ = self.transfer_script_object_name(object_id, special_target_id);
+                            if !same_live_object_birth(self, object_id, &actor_birth)
+                                || !same_live_object_birth(self, special_target_id, &target_birth)
+                            {
+                                continue;
+                            }
+                            // The C++ collision reads both ranks after the team
+                            // and script-name callbacks, which can change them.
+                            let Some((actor_level, target_level)) =
+                                self.objects.get(&object_id).and_then(|actor| {
+                                    self.objects.get(&special_target_id).map(|target| {
+                                        (actor.experience.level, target.experience.level)
+                                    })
+                                })
+                            else {
+                                continue;
+                            };
+                            let level = if crate::game_logic::host_unit_training::veterancy_rank(
+                                actor_level,
+                            )
+                                >= crate::game_logic::host_unit_training::veterancy_rank(
+                                    target_level,
+                                ) {
+                                actor_level
+                            } else {
+                                target_level
+                            };
+                            self.set_exact_veterancy_level_with_upgrade_callback_quiet(
+                                object_id, level, effects,
+                            )?;
+                            if !same_live_object_birth(self, object_id, &actor_birth)
+                                || !same_live_object_birth(self, special_target_id, &target_birth)
+                            {
+                                continue;
+                            }
+                            self.set_exact_veterancy_level_with_upgrade_callback_quiet(
+                                special_target_id,
+                                level,
+                                effects,
+                            )?;
+                            if !same_live_object_birth(self, object_id, &actor_birth)
+                                || !same_live_object_birth(self, special_target_id, &target_birth)
+                            {
+                                continue;
+                            }
                             self.car_bomb.record_hijack();
                             self.queue_audio_event(
                                 AudioEventRequest::new(
@@ -2739,6 +2805,18 @@ impl GameLogic {
                                 self.pending_special_abilities.remove(&object_id);
                                 continue;
                             }
+                            let Some(actor_birth) = self.objects.get(&object_id).map(|object| {
+                                std::sync::Arc::downgrade(&object.visual_draw_identity_token)
+                            }) else {
+                                continue;
+                            };
+                            let Some(target_birth) =
+                                self.objects.get(&special_target_id).map(|object| {
+                                    std::sync::Arc::downgrade(&object.visual_draw_identity_token)
+                                })
+                            else {
+                                continue;
+                            };
                             // C++ ConvertToCarBombCrateCollide residual:
                             // vehicle defects to converter team, gains IS_CARBOMB +
                             // SuicideCarBomb weapon residual. Converter is consumed.
@@ -2791,17 +2869,14 @@ impl GameLogic {
                             }
                             // Snapshot donor residual (vision/vet) before consume.
                             let donor_snap = self.objects.get(&object_id).cloned();
-                            let health_bonus = self.veterancy_health_bonus;
                             self.with_object_veterancy_inputs(
                                 special_target_id,
-                                |target, audio, feedback, partition, locomotors| {
-                                    target.apply_convert_to_car_bomb_from_with_veterancy_rules(
+                                |target, audio, feedback, partition, _locomotors| {
+                                    target.apply_convert_to_car_bomb_from_before_veterancy(
                                         donor_snap.as_ref(),
                                         audio,
                                         feedback,
                                         partition,
-                                        &health_bonus,
-                                        locomotors,
                                     );
                                 },
                             );
@@ -2823,8 +2898,35 @@ impl GameLogic {
                                     }
                                 }
                             }
+                            if !same_live_object_birth(self, object_id, &actor_birth)
+                                || !same_live_object_birth(self, special_target_id, &target_birth)
+                            {
+                                continue;
+                            }
                             // C++ transferObjectName residual (script named object).
                             let _ = self.transfer_script_object_name(object_id, special_target_id);
+                            if !same_live_object_birth(self, object_id, &actor_birth)
+                                || !same_live_object_birth(self, special_target_id, &target_birth)
+                            {
+                                continue;
+                            }
+                            let Some(level) = self
+                                .objects
+                                .get(&object_id)
+                                .map(|actor| actor.experience.level)
+                            else {
+                                continue;
+                            };
+                            self.set_exact_veterancy_level_with_upgrade_callback(
+                                special_target_id,
+                                level,
+                                effects,
+                            )?;
+                            if !same_live_object_birth(self, object_id, &actor_birth)
+                                || !same_live_object_birth(self, special_target_id, &target_birth)
+                            {
+                                continue;
+                            }
                             self.car_bomb.record_conversion();
                             // C++ FXList::doFXObj(m_fxList, other) → FX_MakeCarBombSuccess
                             // (Sound nugget TerroristCarBomb). Never play the FXList name.

@@ -33,6 +33,11 @@ fn map_file(root: &Path) -> std::path::PathBuf {
 }
 
 fn world(map: &Path, veteran_bonus: u32, elite_bonus: u32) -> GameLogic {
+    let rank_marker = if veteran_bonus == 130 {
+        "BOOBY_TRAPPED"
+    } else {
+        "CAN_STEALTH"
+    };
     let mut locomotors = LocomotorStore::new_owned();
     locomotors
         .apply_source(
@@ -49,15 +54,71 @@ fn world(map: &Path, veteran_bonus: u32, elite_bonus: u32) -> GameLogic {
             "GameData\n HealthBonus_Veteran = {veteran_bonus}%\n HealthBonus_Elite = {elite_bonus}%\nEnd\n"
         )])
         .expect("receiving GameData accepted");
+    let object_ini = format!(
+        r#"Object {HIJACKER}
+ IsTrainable = Yes
+ KindOf = INFANTRY SELECTABLE
+ Locomotor = SET_NORMAL HijackOwnerGround
+ ExperienceRequired = 0 60 150 300
+ Body = ActiveBody HijackerBody
+ MaxHealth = 100
+ InitialHealth = 100
+ End
+ Behavior = AIUpdateInterface HijackerAI
+ End
+ Behavior = HijackerUpdate HijackerRider
+ End
+ Behavior = VeterancyGainCreate HijackerRank
+ StartingLevel = VETERAN
+ End
+ Behavior = ConvertToHijackedVehicleCrateCollide HijackerCollide
+ End
+End
+Object {TERRORIST}
+ IsTrainable = Yes
+ KindOf = INFANTRY SELECTABLE
+ Locomotor = SET_NORMAL HijackOwnerGround
+ ExperienceRequired = 0 60 150 300
+ Body = ActiveBody TerroristBody
+ MaxHealth = 100
+ InitialHealth = 100
+ End
+ Behavior = AIUpdateInterface TerroristAI
+ End
+ Behavior = VeterancyGainCreate TerroristRank
+ StartingLevel = VETERAN
+ End
+ Behavior = ConvertToCarBombCrateCollide TerroristCollide
+ End
+End
+Object {VEHICLE}
+ KindOf = VEHICLE SELECTABLE SCORE
+ Locomotor = SET_NORMAL HijackOwnerVehicle
+ IsTrainable = Yes
+ ExperienceRequired = 0 60 150 300
+ Body = ActiveBody VehicleBody
+ MaxHealth = 1000
+ InitialHealth = 1000
+ End
+ Behavior = AIUpdateInterface VehicleAI
+ End
+ Behavior = StatusBitsUpgrade RankMarker
+ TriggeredBy = Upgrade_Veterancy_VETERAN
+ StatusToSet = {rank_marker}
+ End
+ Behavior = EjectPilotDie PilotEject
+ End
+ WeaponSet
+ Conditions = NONE
+ End
+ WeaponSet
+ Conditions = CARBOMB
+ End
+End
+"#
+    );
     world
-        .admit_object_ini_sources([(
-            "VeterancyTransfers.ini".into(),
-            format!(
-                "Object {HIJACKER}\n IsTrainable = Yes\n KindOf = INFANTRY SELECTABLE\n Locomotor = SET_NORMAL HijackOwnerGround\n ExperienceRequired = 0 60 150 300\n Body = ActiveBody HijackerBody\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface HijackerAI\n End\n Behavior = HijackerUpdate HijackerRider\n End\n Behavior = VeterancyGainCreate HijackerRank\n StartingLevel = VETERAN\n End\n Behavior = ConvertToHijackedVehicleCrateCollide HijackerCollide\n End\nEnd\n\
-                 Object {TERRORIST}\n IsTrainable = Yes\n KindOf = INFANTRY SELECTABLE\n Locomotor = SET_NORMAL HijackOwnerGround\n ExperienceRequired = 0 60 150 300\n Body = ActiveBody TerroristBody\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface TerroristAI\n End\n Behavior = VeterancyGainCreate TerroristRank\n StartingLevel = VETERAN\n End\n Behavior = ConvertToCarBombCrateCollide TerroristCollide\n End\nEnd\n\
-                 Object {VEHICLE}\n KindOf = VEHICLE SELECTABLE SCORE\n Locomotor = SET_NORMAL HijackOwnerVehicle\n IsTrainable = Yes\n ExperienceRequired = 0 60 150 300\n Body = ActiveBody VehicleBody\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = AIUpdateInterface VehicleAI\n End\n Behavior = EjectPilotDie PilotEject\n End\n WeaponSet\n Conditions = NONE\n End\n WeaponSet\n Conditions = CARBOMB\n End\nEnd\n"
-            ),
-        )])
+        .admit_object_ini_sources([("VeterancyTransfers.ini".into(), object_ini)])
         .expect("receiving object definitions accepted");
     world.start_new_game(GameMode::SinglePlayer);
     assert!(world.load_map(map.to_str().expect("map path UTF-8")));
@@ -103,6 +164,19 @@ fn start_hijack(world: &mut GameLogic) -> (ObjectId, ObjectId) {
         Some(PLAYER_USA)
     );
     assert_eq!(world.host_object(vehicle).unwrap().team, Team::USA);
+    let status = world.host_object(vehicle).unwrap().object_status_bits;
+    assert!(
+        !generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
+            status,
+            "BOOBY_TRAPPED"
+        )
+    );
+    assert!(
+        !generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
+            status,
+            "CAN_STEALTH"
+        )
+    );
     assert_eq!(
         world.host_object(hijacker).unwrap().experience.level,
         VeterancyLevel::Veteran
@@ -144,6 +218,19 @@ fn start_car_bomb(world: &mut GameLogic) -> (ObjectId, ObjectId) {
     let vehicle = world
         .create_object(VEHICLE, Team::Neutral, Vec3::new(102.0, 0.0, 100.0))
         .expect("admitted neutral vehicle");
+    let status = world.host_object(vehicle).unwrap().object_status_bits;
+    assert!(
+        !generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
+            status,
+            "BOOBY_TRAPPED"
+        )
+    );
+    assert!(
+        !generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
+            status,
+            "CAN_STEALTH"
+        )
+    );
     assert_eq!(
         world.host_object(terrorist).unwrap().experience.level,
         VeterancyLevel::Veteran
@@ -293,13 +380,31 @@ fn live_hijack_and_car_bomb_transfers_use_each_receiving_world() {
         assert!(rider.hijacker_in_vehicle);
         assert_eq!(rider.experience.level, VeterancyLevel::Veteran);
     }
-    for (owner, vehicle, expected) in [
-        (&first_hijack, first_vehicle, 1300.0),
-        (&peer_hijack, peer_vehicle, 1750.0),
+    for (owner, vehicle, expected_health, expected_marker) in [
+        (&first_hijack, first_vehicle, 1300.0, "BOOBY_TRAPPED"),
+        (&peer_hijack, peer_vehicle, 1750.0, "CAN_STEALTH"),
     ] {
         let object = owner.host_object(vehicle).expect("hijacked vehicle");
         assert_eq!(object.experience.level, VeterancyLevel::Veteran);
-        assert!((object.health.maximum - expected).abs() < 0.001);
+        assert!((object.health.maximum - expected_health).abs() < 0.001);
+        assert!(
+            generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
+                object.object_status_bits,
+                expected_marker
+            ),
+            "receiving-world StatusBitsUpgrade must execute its distinct authored effect on Veteran rank"
+        );
+        let peer_marker = if expected_marker == "BOOBY_TRAPPED" {
+            "CAN_STEALTH"
+        } else {
+            "BOOBY_TRAPPED"
+        };
+        assert!(
+            !generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
+                object.object_status_bits,
+                peer_marker
+            )
+        );
     }
 
     let mut first_car_bomb = world(&map, 130, 160);
@@ -319,14 +424,32 @@ fn live_hijack_and_car_bomb_transfers_use_each_receiving_world() {
         peer_actor,
         peer_vehicle,
     );
-    for (owner, vehicle, expected) in [
-        (&first_car_bomb, first_vehicle, 1300.0),
-        (&peer_car_bomb, peer_vehicle, 1750.0),
+    for (owner, vehicle, expected_health, expected_marker) in [
+        (&first_car_bomb, first_vehicle, 1300.0, "BOOBY_TRAPPED"),
+        (&peer_car_bomb, peer_vehicle, 1750.0, "CAN_STEALTH"),
     ] {
         let object = owner.host_object(vehicle).expect("converted car bomb");
         assert_eq!(object.experience.level, VeterancyLevel::Veteran);
-        assert!((object.health.maximum - expected).abs() < 0.001);
-        let expected_current = expected - 700.0;
+        assert!((object.health.maximum - expected_health).abs() < 0.001);
+        assert!(
+            generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
+                object.object_status_bits,
+                expected_marker
+            ),
+            "receiving-world StatusBitsUpgrade must execute its distinct authored effect on Veteran rank"
+        );
+        let peer_marker = if expected_marker == "BOOBY_TRAPPED" {
+            "CAN_STEALTH"
+        } else {
+            "BOOBY_TRAPPED"
+        };
+        assert!(
+            !generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
+                object.object_status_bits,
+                peer_marker
+            )
+        );
+        let expected_current = expected_health - 700.0;
         assert!(
             (object.health.current - expected_current).abs() < 0.001,
             "the consumed terrorist's death weapon applies 700 damage: current={}, maximum={}",

@@ -746,8 +746,8 @@ impl Object {
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
     ) {
         self.apply_convert_to_car_bomb_from_with_partition_context(
-            donor, audio, feedback, None, None, None,
-        )
+            donor, audio, feedback, None, None, None, false,
+        );
     }
     #[cfg(test)]
     pub(crate) fn apply_convert_to_car_bomb_from_with_partition_owner(
@@ -764,24 +764,24 @@ impl Object {
             Some(partition),
             None,
             None,
-        )
+            false,
+        );
     }
-    pub(crate) fn apply_convert_to_car_bomb_from_with_veterancy_rules(
+    pub(crate) fn apply_convert_to_car_bomb_from_before_veterancy(
         &mut self,
         donor: Option<&Object>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
         partition: &mut crate::game_logic::partition_manager::PartitionManager,
-        health_bonus: &[f32; game_engine::common::global_data::LEVEL_COUNT],
-        locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
     ) {
         self.apply_convert_to_car_bomb_from_with_partition_context(
             donor,
             audio,
             feedback,
             Some(partition),
-            Some(health_bonus),
-            locomotors,
+            None,
+            None,
+            true,
         )
     }
     fn apply_convert_to_car_bomb_from_with_partition_context(
@@ -792,6 +792,7 @@ impl Object {
         mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
         health_bonus: Option<&[f32; game_engine::common::global_data::LEVEL_COUNT]>,
         locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
+        defer_veterancy: bool,
     ) {
         self.require_partition_owner(partition.as_deref());
         self.set_status_is_carbomb(true);
@@ -826,7 +827,8 @@ impl Object {
             );
             // C++ ExperienceTracker::setVeterancyLevel(converter level).
             let donor_level = d.experience.level;
-            if !matches!(donor_level, crate::game_logic::VeterancyLevel::Rookie) {
+            if !defer_veterancy && !matches!(donor_level, crate::game_logic::VeterancyLevel::Rookie)
+            {
                 let prev = self.experience.level;
                 self.experience.level = donor_level;
 
@@ -919,7 +921,7 @@ impl Object {
         donor: Option<&Object>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        self.apply_hijacked_from_with_partition_context(donor, audio, None, None, None, 0)
+        self.apply_hijacked_from_with_partition_context(donor, audio, None, None, None, 0, false);
     }
     #[cfg(test)]
     pub(crate) fn apply_hijacked_from_with_partition_owner(
@@ -935,24 +937,23 @@ impl Object {
             None,
             None,
             0,
-        )
+            false,
+        );
     }
-    pub(crate) fn apply_hijacked_from_with_veterancy_rules(
+    pub(crate) fn apply_hijacked_from_before_veterancy(
         &mut self,
         donor: Option<&Object>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         partition: &mut crate::game_logic::partition_manager::PartitionManager,
-        health_bonus: &[f32; game_engine::common::global_data::LEVEL_COUNT],
-        locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
-        frame: u32,
     ) {
         self.apply_hijacked_from_with_partition_context(
             donor,
             audio,
             Some(partition),
-            Some(health_bonus),
-            locomotors,
-            frame,
+            None,
+            None,
+            0,
+            true,
         )
     }
     fn apply_hijacked_from_with_partition_context(
@@ -963,6 +964,7 @@ impl Object {
         health_bonus: Option<&[f32; game_engine::common::global_data::LEVEL_COUNT]>,
         locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
         frame: u32,
+        defer_veterancy: bool,
     ) {
         self.require_partition_owner(partition.as_deref());
         self.set_status_hijacked(true);
@@ -1009,7 +1011,7 @@ impl Object {
             } else {
                 self.experience.level
             };
-            if rank(highest) > rank(self.experience.level) {
+            if !defer_veterancy && rank(highest) > rank(self.experience.level) {
                 let prev = self.experience.level;
                 self.experience.level = highest;
 

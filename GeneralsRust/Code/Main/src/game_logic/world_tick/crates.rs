@@ -1758,37 +1758,13 @@ impl GameLogic {
                 rider.experience.level
             };
             // Original jacker setter precedes target setter, both with feedback.
-            let health_bonus = self.veterancy_health_bonus;
-            self.with_object_veterancy_feedback_and_locomotors(
-                rider_id,
-                |rider, audio, feedback, locomotors| {
-                    rider.set_exact_veterancy_level_with_health_bonus_table(
-                        highest,
-                        &health_bonus,
-                        audio,
-                        feedback,
-                        locomotors,
-                    );
-                },
-            );
+            self.set_exact_veterancy_level_with_upgrade_callback(rider_id, highest, effects)?;
             if self
                 .objects
                 .get(&vehicle_id)
                 .is_some_and(|vehicle| same_vehicle(vehicle))
             {
-                let health_bonus = self.veterancy_health_bonus;
-                self.with_object_veterancy_feedback_and_locomotors(
-                    vehicle_id,
-                    |vehicle, audio, feedback, locomotors| {
-                        vehicle.set_exact_veterancy_level_with_health_bonus_table(
-                            highest,
-                            &health_bonus,
-                            audio,
-                            feedback,
-                            locomotors,
-                        );
-                    },
-                );
+                self.set_exact_veterancy_level_with_upgrade_callback(vehicle_id, highest, effects)?;
             }
         }
         Ok(())

@@ -1266,14 +1266,8 @@ impl Object {
         locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
         quiet_frame: u32,
     ) {
-        let frame = outputs
-            .as_ref()
-            .map(|(_, feedback)| feedback.logic_frame())
-            .unwrap_or(quiet_frame);
-        let (_, old_damage_bonus, old_rof_bonus) = Self::veterancy_bonuses(previous_level);
-        let (_, damage_bonus, rof_bonus) = Self::veterancy_bonuses(new_level);
-
-        // C++ updateUpgradeModules + giveUpgrade(findVeterancyUpgrade(newLevel)).
+        // Standalone Object fallback. Live world producers with a receiving
+        // callback continuation route giveUpgrade through GameLogic first.
         if let Some(name) = crate::game_logic::host_unit_training::veterancy_upgrade_name(new_level)
         {
             self.apply_upgrade_tag(name);
@@ -1282,6 +1276,70 @@ impl Object {
                     self, name, locomotors,
                 );
         }
+
+        self.apply_veterancy_bonuses_after_rank_upgrade_impl(
+            previous_level,
+            new_level,
+            health_bonus,
+            outputs,
+            quiet_frame,
+        );
+    }
+
+    /// Body half of C++ Object::onVeterancyLevelChanged, after the receiving
+    /// GameLogic has completed the rank Upgrade callback.
+    pub(crate) fn apply_veterancy_bonuses_after_rank_upgrade_in(
+        &mut self,
+        previous_level: VeterancyLevel,
+        new_level: VeterancyLevel,
+        health_bonus: &[f32; game_engine::common::global_data::LEVEL_COUNT],
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+    ) {
+        self.apply_veterancy_bonuses_after_rank_upgrade_impl(
+            previous_level,
+            new_level,
+            Some(health_bonus),
+            Some((audio, feedback)),
+            0,
+        );
+    }
+
+    /// Body half of C++ `onVeterancyLevelChanged(..., FALSE)`, after the
+    /// receiving GameLogic has run rank Upgrade callbacks.
+    pub(crate) fn apply_veterancy_bonuses_after_rank_upgrade_quiet_in(
+        &mut self,
+        previous_level: VeterancyLevel,
+        new_level: VeterancyLevel,
+        health_bonus: &[f32; game_engine::common::global_data::LEVEL_COUNT],
+        frame: u32,
+    ) {
+        self.apply_veterancy_bonuses_after_rank_upgrade_impl(
+            previous_level,
+            new_level,
+            Some(health_bonus),
+            None,
+            frame,
+        );
+    }
+
+    fn apply_veterancy_bonuses_after_rank_upgrade_impl(
+        &mut self,
+        previous_level: VeterancyLevel,
+        new_level: VeterancyLevel,
+        health_bonus: Option<&[f32; game_engine::common::global_data::LEVEL_COUNT]>,
+        mut outputs: Option<(
+            &mut crate::game_logic::ObjectAudio<'_>,
+            &mut crate::game_logic::VeterancyFeedback<'_>,
+        )>,
+        quiet_frame: u32,
+    ) {
+        let frame = outputs
+            .as_ref()
+            .map(|(_, feedback)| feedback.logic_frame())
+            .unwrap_or(quiet_frame);
+        let (_, old_damage_bonus, old_rof_bonus) = Self::veterancy_bonuses(previous_level);
+        let (_, damage_bonus, rof_bonus) = Self::veterancy_bonuses(new_level);
 
         if let Some((audio, feedback)) = outputs.as_mut() {
             feedback.body_sound(self, previous_level, new_level, audio);
@@ -1327,6 +1385,25 @@ impl Object {
     /// C++ ExperienceTracker::setVeterancyLevel, including its default feedback.
     /// Equal levels preserve earned XP; a changed level resets to this actor's
     /// authored threshold, never another actor's current experience.
+    pub(crate) fn begin_exact_veterancy_level_for_world_callback(
+        &mut self,
+        level: VeterancyLevel,
+    ) -> Option<VeterancyLevel> {
+        let previous = self.experience.level;
+        if previous == level {
+            return None;
+        }
+        self.experience.level = level;
+        let thresholds = self.thing.template.veterancy_xp_thresholds;
+        self.experience.current = match level {
+            VeterancyLevel::Rookie => 0.0,
+            VeterancyLevel::Veteran => thresholds[0],
+            VeterancyLevel::Elite => thresholds[1],
+            VeterancyLevel::Heroic => thresholds[2],
+        };
+        Some(previous)
+    }
+
     pub(crate) fn set_exact_veterancy_level(
         &mut self,
         level: VeterancyLevel,
