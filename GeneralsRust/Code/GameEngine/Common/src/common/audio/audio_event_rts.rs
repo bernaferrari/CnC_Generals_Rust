@@ -19,7 +19,7 @@ pub use selection::{AudioEventSelection, AudioSelectionStreams};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::{
-    Arc, OnceLock, RwLock,
+    Arc, OnceLock, RwLock, Weak,
     atomic::{AtomicI32, AtomicU32, Ordering},
 };
 #[cfg(feature = "async")]
@@ -257,6 +257,7 @@ impl Default for MilesVolumeSliders {
 #[must_use]
 pub fn miles_event_world_position(event: &AudioEventRts) -> Coord3D {
     match event.owner_type {
+        OwnerType::Object if event.receiving_object_identity.is_some() => event.position_of_audio,
         OwnerType::Object => with_audio_event_owner_resolver(|resolver| {
             resolver.resolve_object_position(event.object_id)
         })
@@ -401,6 +402,10 @@ pub struct AudioEventRts {
     pub(crate) playback_sliders: Option<MilesVolumeSliders>,
     pub time_of_day: TimeOfDay,
     pub position_of_audio: Coord3D,
+    /// Birth token for an attached object admitted by a native receiving world.
+    /// The audio device may be shared, but this event's moving position is
+    /// refreshed only from the world that owns its playback receipt.
+    pub(crate) receiving_object_identity: Option<Weak<()>>,
     pub object_id: ObjectId,     // Union in C++
     pub drawable_id: DrawableId, // Union in C++
     pub owner_type: OwnerType,
@@ -496,6 +501,7 @@ impl Clone for AudioEventRts {
                 y: self.position_of_audio.y,
                 z: self.position_of_audio.z,
             },
+            receiving_object_identity: self.receiving_object_identity.clone(),
             object_id: self.object_id,
             drawable_id: self.drawable_id,
             owner_type: self.owner_type,
@@ -547,6 +553,7 @@ impl AudioEventRts {
             playback_sliders: None,
             time_of_day: TIME_OF_DAY_AFTERNOON,
             position_of_audio: Coord3D::ZERO,
+            receiving_object_identity: None,
             object_id: INVALID_ID,
             drawable_id: INVALID_DRAWABLE_ID,
             owner_type: OwnerType::Invalid,
@@ -806,9 +813,24 @@ impl AudioEventRts {
         if !matches!(self.owner_type, OwnerType::Object | OwnerType::Invalid) {
             return;
         }
-
+        self.receiving_object_identity = None;
         self.object_id = id;
         self.owner_type = OwnerType::Object;
+    }
+
+    /// Bind an object-attached native event to one receiving object's lifetime
+    /// and initial Z-up position. Periodic owner snapshots advance the position.
+    pub fn set_receiving_object_spatial_owner(
+        &mut self,
+        id: ObjectId,
+        identity: &Arc<()>,
+        position: Coord3D,
+    ) {
+        self.set_object_id(id);
+        if self.owner_type == OwnerType::Object {
+            self.receiving_object_identity = Some(Arc::downgrade(identity));
+            self.position_of_audio = position;
+        }
     }
 
     pub fn get_volume(&self) -> Real {
@@ -1098,6 +1120,7 @@ impl AudioEventRts {
         self.volume = -1.0;
         self.time_of_day = TIME_OF_DAY_AFTERNOON;
         self.position_of_audio.zero_in_place();
+        self.receiving_object_identity = None;
         self.object_id = INVALID_ID;
         self.drawable_id = INVALID_DRAWABLE_ID;
         self.owner_type = OwnerType::Invalid;
@@ -1159,6 +1182,7 @@ impl AudioEventRts {
 
     pub fn get_player_index(&self) -> Int {
         match self.owner_type {
+            OwnerType::Object if self.receiving_object_identity.is_some() => {}
             OwnerType::Object => {
                 if let Some(player_index) = with_audio_event_owner_resolver(|resolver| {
                     resolver.resolve_object_player_index(self.object_id)
@@ -1296,6 +1320,7 @@ impl AudioEventRts {
         if !matches!(self.owner_type, OwnerType::Object | OwnerType::Invalid) {
             return;
         }
+        self.receiving_object_identity = None;
         self.object_id = obj_id;
         self.owner_type = OwnerType::Object;
     }
@@ -1312,6 +1337,7 @@ impl AudioEventRts {
         if !matches!(self.owner_type, OwnerType::Drawable | OwnerType::Invalid) {
             return;
         }
+        self.receiving_object_identity = None;
         self.drawable_id = draw_id;
         self.owner_type = OwnerType::Drawable;
     }
@@ -1431,6 +1457,12 @@ impl AudioEventRts {
         match self.owner_type {
             OwnerType::Positional => Some(&self.position_of_audio),
             OwnerType::Object => {
+                if let Some(identity) = &self.receiving_object_identity {
+                    if identity.strong_count() == 0 {
+                        self.owner_type = OwnerType::Dead;
+                    }
+                    return Some(&self.position_of_audio);
+                }
                 match with_audio_event_owner_resolver(|resolver| {
                     resolver.resolve_object_position(self.object_id)
                 }) {

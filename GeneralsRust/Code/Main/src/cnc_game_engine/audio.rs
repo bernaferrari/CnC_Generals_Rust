@@ -254,10 +254,35 @@ impl CnCGameEngine {
         // this application's explicitly borrowed service below.
         let _ = gamelogic::helpers::TheAudio::get();
         let view = super::audio_view::CompletedAudioView::capture(&self.game_logic);
+        let objects: Vec<_> = self
+            .game_logic
+            .host_objects()
+            .registered_values()
+            .map(|object| {
+                let position = object.get_position();
+                (
+                    object.id.0,
+                    std::sync::Arc::downgrade(&object.visual_draw_identity_token),
+                    game_engine::common::audio::audio_event_rts::Coord3D {
+                        x: position.x,
+                        y: position.z,
+                        z: position.y,
+                    },
+                    object
+                        .owner_player_id
+                        .map(|player| player as i32)
+                        .unwrap_or(-1),
+                )
+            })
+            .collect();
         if let Some(mut audio) =
             super::native_audio_effects::NativeAudioService::receiving(&mut self.subsystem_manager)
         {
-            audio.update_with_view(view.listener, &mut |position| view.is_on_screen(position));
+            audio.update_with_view(
+                view.listener,
+                &mut |position| view.is_on_screen(position),
+                &objects,
+            );
         }
         // C++ GameEngine.cpp:738 TheGameClient->UPDATE() includes Eva::update
         // after TheAudio. Publish host frame first so Eva.cpp:271 is not 0.

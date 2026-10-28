@@ -567,13 +567,24 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                         let mut event =
                             game_engine::common::audio::AudioEventRts::with_object_id(sound, id.0);
                         event.set_is_logical_audio(true);
-                        let player = self
-                            .world
-                            .objects
-                            .get(&id)
-                            .and_then(|o| o.owner_player_id)
-                            .map(|p| p as i32)
-                            .unwrap_or(-1);
+                        let object = self.world.host_object(id).ok_or_else(|| {
+                            gamelogic::GameLogicError::Configuration(
+                                "named audio object left its receiving world during admission"
+                                    .into(),
+                            )
+                        })?;
+                        let position = object.get_position();
+                        event.set_receiving_object_spatial_owner(
+                            id.0,
+                            &object.visual_draw_identity_token,
+                            game_engine::common::audio::audio_event_rts::Coord3D {
+                                x: position.x,
+                                y: position.z,
+                                z: position.y,
+                            },
+                        );
+                        let player = object.owner_player_id.map(|p| p as i32).unwrap_or(-1);
+                        event.set_player_index(player);
                         self.admit_owned_script_audio(&event, player)?;
                     }
                 }

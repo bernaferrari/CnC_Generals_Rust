@@ -1,4 +1,167 @@
 use super::*;
+
+struct ForeignAttachedAudioOwner;
+impl crate::common::audio::audio_event_rts::AudioEventOwnerResolver for ForeignAttachedAudioOwner {
+    fn resolve_object_position(&self, _: u32) -> Option<Coord3D> {
+        panic!("receiving attached event queried a foreign object position")
+    }
+    fn resolve_drawable_position(&self, _: u32) -> Option<Coord3D> {
+        panic!("receiving attached event queried a foreign drawable position")
+    }
+    fn resolve_object_player_index(&self, _: u32) -> Option<i32> {
+        panic!("receiving attached event queried a foreign object owner")
+    }
+    fn resolve_drawable_player_index(&self, _: u32) -> Option<i32> {
+        panic!("receiving attached event queried a foreign drawable owner")
+    }
+}
+
+#[test]
+fn attached_receipts_refresh_moving_positions_from_their_receiving_object_birth() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        module_path!(),
+        "attached_receipts_refresh_moving_positions_from_their_receiving_object_birth",
+    ) {
+        return;
+    }
+    assert!(
+        crate::common::audio::audio_event_rts::register_audio_event_owner_resolver(Arc::new(
+            ForeignAttachedAudioOwner
+        ))
+    );
+    let mut manager = AudioManager::new();
+    let owner_birth = Arc::new(());
+    let peer_birth = Arc::new(());
+    let mut owner_event = AudioEventRts::with_object_id("OwnerAttached", 77);
+    owner_event.set_receiving_object_spatial_owner(
+        77,
+        &owner_birth,
+        Coord3D {
+            x: 10.,
+            y: 20.,
+            z: 30.,
+        },
+    );
+    owner_event.set_playing_handle(1001);
+    owner_event.set_player_index(3);
+    let mut peer_event = AudioEventRts::with_object_id("PeerAttached", 77);
+    peer_event.set_receiving_object_spatial_owner(
+        77,
+        &peer_birth,
+        Coord3D {
+            x: -10.,
+            y: -20.,
+            z: -30.,
+        },
+    );
+    peer_event.set_playing_handle(1002);
+    peer_event.set_player_index(8);
+    manager.append_audio_request(AudioRequest::new_with_event(
+        RequestType::Play,
+        owner_event.clone(),
+    ));
+    manager.append_audio_request(AudioRequest::new_with_event(
+        RequestType::Play,
+        peer_event.clone(),
+    ));
+    manager.insert_playing_event_for_test(owner_event);
+    manager.insert_playing_event_for_test(peer_event);
+
+    let owner_position = Coord3D {
+        x: 110.,
+        y: 120.,
+        z: 130.,
+    };
+    manager.refresh_receiving_object_audio_positions(
+        &[1001],
+        &[(77, Arc::downgrade(&owner_birth), owner_position, 6)],
+    );
+    assert_eq!(
+        miles_event_world_position(manager.active_audio_events.get(&1001).unwrap()),
+        owner_position,
+        "owner refresh follows movement without a process-global ID lookup"
+    );
+    assert_eq!(
+        *manager
+            .active_audio_events
+            .get_mut(&1001)
+            .unwrap()
+            .get_current_position()
+            .unwrap(),
+        owner_position
+    );
+    assert_eq!(
+        manager
+            .active_audio_events
+            .get(&1001)
+            .unwrap()
+            .get_player_index(),
+        6,
+        "receiving owner snapshot preserves dynamic object-player lookup"
+    );
+    assert_eq!(
+        miles_event_world_position(manager.audio_requests[0].get_pending_event().unwrap()),
+        owner_position,
+        "an attached sound still awaiting playback follows movement too"
+    );
+    assert_eq!(
+        miles_event_world_position(manager.active_audio_events.get(&1002).unwrap()),
+        Coord3D {
+            x: -10.,
+            y: -20.,
+            z: -30.,
+        },
+        "same numeric ID in a peer world remains at its own sample"
+    );
+    assert_eq!(
+        manager
+            .active_audio_events
+            .get(&1002)
+            .unwrap()
+            .get_player_index(),
+        8,
+        "the owner's refresh leaves the peer's dynamic owner untouched"
+    );
+    let pending_peer = manager.audio_requests[1].get_pending_event().unwrap();
+    assert_eq!(miles_event_world_position(pending_peer).x, -10.);
+
+    let peer_position = Coord3D {
+        x: -110.,
+        y: -120.,
+        z: -130.,
+    };
+    manager.refresh_receiving_object_audio_positions(
+        &[1002],
+        &[(77, Arc::downgrade(&peer_birth), peer_position, 9)],
+    );
+    assert_eq!(
+        miles_event_world_position(manager.active_audio_events.get(&1002).unwrap()),
+        peer_position,
+        "peer refresh advances only the peer receipt"
+    );
+    assert_eq!(
+        manager
+            .active_audio_events
+            .get(&1002)
+            .unwrap()
+            .get_player_index(),
+        9
+    );
+
+    let replacement_birth = Arc::new(());
+    manager.refresh_receiving_object_audio_positions(
+        &[1001],
+        &[(77, Arc::downgrade(&replacement_birth), Coord3D::ZERO, 10)],
+    );
+    let retired = manager.active_audio_events.get_mut(&1001).unwrap();
+    assert!(retired.is_dead(), "ID reuse retires the old attached event");
+    assert_eq!(
+        miles_event_world_position(retired),
+        owner_position,
+        "retirement preserves the last receiving-world spatial sample"
+    );
+}
+
 struct ForeignView;
 impl AudioViewResolver for ForeignView {
     fn get_tactical_view_position(&self) -> Coord3D {

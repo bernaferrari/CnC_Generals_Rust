@@ -37,7 +37,7 @@ use rodio_compat::{Decoder, OutputStream, OutputStreamHandle, Sink, Source, Spat
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Cursor;
-use std::sync::{Arc, LazyLock, Mutex, OnceLock};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock, Weak};
 use std::time::Instant;
 use ww3d_animation::{SoundLibraryBridge, initialize_animated_sound_mgr, set_sound_library};
 use ww3d_core::errors::{W3DError, W3DResult};
@@ -2571,6 +2571,52 @@ impl AudioManager {
             {
                 event.owned_script_volumes = Some(volumes);
                 event.owned_mix_dirty = true;
+            }
+        };
+        for event in self.active_audio_events.values_mut() {
+            refresh(event);
+        }
+        for fade in &mut self.fading_audio {
+            refresh(&mut fade.event);
+        }
+        for event in &mut self.audio_force_played {
+            refresh(event);
+        }
+        for request in &mut self.audio_requests {
+            if let Some(event) = request.get_pending_event_mut() {
+                refresh(event);
+            }
+        }
+    }
+
+    /// Advance attached object sounds from one receiving world's immutable
+    /// spatial snapshot. Handles are the receiving session's admission receipts;
+    /// same numeric object IDs in another world cannot update these events.
+    pub fn refresh_receiving_object_audio_positions(
+        &mut self,
+        receipts: &[AudioHandle],
+        objects: &[(ObjectId, Weak<()>, Coord3D, Int)],
+    ) {
+        let refresh = |event: &mut AudioEventRts| {
+            if !receipts.contains(&event.get_playing_handle())
+                || event.owner_type != super::audio_event_rts::OwnerType::Object
+            {
+                return;
+            }
+            let Some(identity) = event.receiving_object_identity.as_ref() else {
+                return;
+            };
+            if let Some((_, _, position, player_index)) =
+                objects.iter().find(|(id, candidate, _, _)| {
+                    *id == event.object_id && Weak::ptr_eq(identity, candidate)
+                })
+            {
+                event.position_of_audio = *position;
+                event.player_index = *player_index;
+            } else {
+                // The admitted lifetime left this world or its ID was reused.
+                // Preserve the last observed point, as C++ attached audio does.
+                event.owner_type = super::audio_event_rts::OwnerType::Dead;
             }
         };
         for event in self.active_audio_events.values_mut() {
