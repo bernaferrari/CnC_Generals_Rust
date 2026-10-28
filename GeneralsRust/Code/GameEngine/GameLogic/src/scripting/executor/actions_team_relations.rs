@@ -196,14 +196,6 @@ impl ScriptActionDispatcher<'_> {
             }
         }
 
-        crate::scripting::request_host_team_override_relation(
-            crate::scripting::HostScriptTeamOverrideRelationRequest::SetTeam {
-                source: team_name,
-                dest_team: target_team,
-                relationship,
-            },
-        );
-
         Ok(ScriptActionResult::Success)
     }
 
@@ -235,12 +227,6 @@ impl ScriptActionDispatcher<'_> {
             }
         }
 
-        crate::scripting::request_host_team_override_relation(
-            crate::scripting::HostScriptTeamOverrideRelationRequest::RemoveTeam {
-                source: team_name,
-                dest_team: target_team,
-            },
-        );
         Ok(ScriptActionResult::Success)
     }
 
@@ -263,11 +249,6 @@ impl ScriptActionDispatcher<'_> {
             }
         }
 
-        crate::scripting::request_host_team_override_relation(
-            crate::scripting::HostScriptTeamOverrideRelationRequest::RemoveAll {
-                source: team_name,
-            },
-        );
         Ok(ScriptActionResult::Success)
     }
 
@@ -304,13 +285,6 @@ impl ScriptActionDispatcher<'_> {
             }
         }
 
-        crate::scripting::request_host_team_override_relation(
-            crate::scripting::HostScriptTeamOverrideRelationRequest::SetPlayer {
-                source: team_name,
-                dest_player: player_name,
-                relationship,
-            },
-        );
         Ok(ScriptActionResult::Success)
     }
 
@@ -343,13 +317,6 @@ impl ScriptActionDispatcher<'_> {
                 let _ = team_guard.remove_override_player_relationship(player_index);
             }
         }
-
-        crate::scripting::request_host_team_override_relation(
-            crate::scripting::HostScriptTeamOverrideRelationRequest::RemovePlayer {
-                source: team_name,
-                dest_player: player_name,
-            },
-        );
 
         Ok(ScriptActionResult::Success)
     }

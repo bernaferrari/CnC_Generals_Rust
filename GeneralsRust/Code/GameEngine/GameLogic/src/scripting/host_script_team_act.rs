@@ -14,36 +14,9 @@ pub struct HostScriptMergeTeamRequest {
     pub dest: String,
 }
 
-/// Live host drain: TEAM_SET/REMOVE_OVERRIDE_RELATION_TO_TEAM/PLAYER
-/// and TEAM_REMOVE_ALL_OVERRIDE_RELATIONS, plus
-/// PLAYER_SET/REMOVE_OVERRIDE_RELATION_TO_TEAM.
-/// C++ `doTeamSetOverrideRelationToTeam` / `ToPlayer` / removers write
-/// `Team::m_teamRelations` / `m_playerRelations`. `doPlayerSetOverrideRelationToTeam`
-/// writes `Player::m_teamRelations`. Leftover maps stay leftover-right; live
-/// combat and `VictoryConditions::areAllies` read host Player maps.
+/// Remaining player-to-team relation requests awaiting owner migration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostScriptTeamOverrideRelationRequest {
-    SetTeam {
-        source: String,
-        dest_team: String,
-        relationship: crate::common::Relationship,
-    },
-    RemoveTeam {
-        source: String,
-        dest_team: String,
-    },
-    SetPlayer {
-        source: String,
-        dest_player: String,
-        relationship: crate::common::Relationship,
-    },
-    RemovePlayer {
-        source: String,
-        dest_player: String,
-    },
-    RemoveAll {
-        source: String,
-    },
     SetPlayerToTeam {
         source_player: String,
         dest_team: String,
@@ -76,7 +49,7 @@ pub fn take_host_script_merge_team_requests() -> Vec<HostScriptMergeTeamRequest>
     HOST_SCRIPT_MERGE_TEAM_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
 
-/// Live host drain: TEAM_SET/REMOVE_OVERRIDE_RELATION_* leftover Team maps.
+/// Remaining host drain for PLAYER_SET/REMOVE_OVERRIDE_RELATION_TO_TEAM.
 pub fn request_host_team_override_relation(req: HostScriptTeamOverrideRelationRequest) {
     HOST_SCRIPT_TEAM_OVERRIDE_RELATION_REQUESTS.with(|q| q.borrow_mut().push(req));
 }

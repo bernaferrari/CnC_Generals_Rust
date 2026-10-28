@@ -1364,54 +1364,11 @@ impl GameLogic {
         }
     }
 
-    /// C++ TEAM_SET/REMOVE_OVERRIDE_RELATION_* live drain.
-    /// Leftover writes leftover Team maps; live combat reads host Player maps.
+    /// Remaining PLAYER_SET/REMOVE_OVERRIDE_RELATION_TO_TEAM live drain.
     pub(super) fn apply_host_team_override_relation_script_requests(&mut self) {
         use gamelogic::scripting::HostScriptTeamOverrideRelationRequest;
         for req in gamelogic::scripting::take_host_team_override_relation_requests() {
             match req {
-                HostScriptTeamOverrideRelationRequest::SetTeam {
-                    source,
-                    dest_team,
-                    relationship,
-                } => {
-                    for player in self.players.values_mut() {
-                        player.set_team_instance_team_override(&source, &dest_team, relationship);
-                    }
-                }
-                HostScriptTeamOverrideRelationRequest::RemoveTeam { source, dest_team } => {
-                    for player in self.players.values_mut() {
-                        let _ = player.remove_team_instance_team_override(&source, &dest_team);
-                    }
-                }
-                HostScriptTeamOverrideRelationRequest::SetPlayer {
-                    source,
-                    dest_player,
-                    relationship,
-                } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&dest_player) else {
-                        continue;
-                    };
-                    for player in self.players.values_mut() {
-                        player.set_team_instance_player_override(&source, pid, relationship);
-                    }
-                }
-                HostScriptTeamOverrideRelationRequest::RemovePlayer {
-                    source,
-                    dest_player,
-                } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&dest_player) else {
-                        continue;
-                    };
-                    for player in self.players.values_mut() {
-                        let _ = player.remove_team_instance_player_override(&source, pid);
-                    }
-                }
-                HostScriptTeamOverrideRelationRequest::RemoveAll { source } => {
-                    for player in self.players.values_mut() {
-                        player.clear_team_instance_overrides(&source);
-                    }
-                }
                 HostScriptTeamOverrideRelationRequest::SetPlayerToTeam {
                     source_player,
                     dest_team,

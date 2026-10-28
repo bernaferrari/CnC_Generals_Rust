@@ -113,35 +113,32 @@ fn object_has_special_power_module(
 
 /// C++ `Team::getRelationship` team/player override maps written by
 /// `TEAM_SET_OVERRIDE_RELATION_TO_TEAM` / `_TO_PLAYER`.
-fn leftover_source_team_override(
+fn owned_source_team_override(
     team_factory: &gamelogic::team::TeamFactoryHandle,
+    source_team_id: Option<u32>,
     source_team_name: &str,
+    target_team_id: Option<u32>,
     target_team_name: &str,
     target_owner: Option<u32>,
 ) -> Option<gamelogic::common::Relationship> {
-    if source_team_name.trim().is_empty() {
-        return None;
-    }
-    let source = {
-        let Ok(factory) = team_factory.lock() else {
-            return None;
-        };
-        factory
-            .find_team_instances(source_team_name)
-            .into_iter()
-            .next()?
-    };
-    let target = if target_team_name.trim().is_empty() {
-        None
-    } else {
-        match team_factory.lock() {
-            Ok(factory) => factory
-                .find_team_instances(target_team_name)
-                .into_iter()
-                .next(),
-            Err(_) => None,
-        }
-    };
+    // Live objects carry their exact Team IDs. Only older callers without an
+    // identity may resolve by name; a missing ID must not select a peer Team.
+    let (source, target) = team_factory
+        .with_read_without_flushing(|factory| {
+            let resolve = |id: Option<u32>, name: &str| match id {
+                Some(id) => factory.find_team_by_id(id),
+                None if !name.trim().is_empty() => {
+                    factory.find_team_instances(name).into_iter().next()
+                }
+                None => None,
+            };
+            (
+                resolve(source_team_id, source_team_name),
+                resolve(target_team_id, target_team_name),
+            )
+        })
+        .ok()?;
+    let source = source?;
     let Ok(source_guard) = source.read() else {
         return None;
     };
@@ -559,12 +556,14 @@ impl GameLogic {
         if target.is_undetected_defector() {
             return Relationship::Allies;
         }
-        Self::object_relationship_from_owners(
+        Self::object_relationship_from_identities(
             &self.team_factory,
             &self.players,
             source.owner_player_id,
+            source.team_instance_id,
             &source.team_instance_name,
             target.owner_player_id,
+            target.team_instance_id,
             &target.team_instance_name,
         )
     }
@@ -605,9 +604,11 @@ impl GameLogic {
         };
         let source_team = team_name(source);
         let target_team = team_name(target);
-        if let Some(relationship) = leftover_source_team_override(
+        if let Some(relationship) = owned_source_team_override(
             &self.team_factory,
+            source.team_instance_id,
             &source_team,
+            target.team_instance_id,
             &target_team,
             target.owner_player_id,
         ) {
@@ -616,13 +617,20 @@ impl GameLogic {
         let Some(player) = source.owner_player_id.and_then(|id| self.players.get(&id)) else {
             return Relationship::Neutral;
         };
-        player
-            .team_instance_team_override(&source_team, &target_team)
-            .or_else(|| {
-                target
-                    .owner_player_id
-                    .and_then(|id| player.team_instance_player_override(&source_team, id))
+        let legacy_team_override = source
+            .team_instance_id
+            .is_none()
+            .then(|| {
+                player
+                    .team_instance_team_override(&source_team, &target_team)
+                    .or_else(|| {
+                        target
+                            .owner_player_id
+                            .and_then(|id| player.team_instance_player_override(&source_team, id))
+                    })
             })
+            .flatten();
+        legacy_team_override
             .or_else(|| player.team_relationship_override(&target_team))
             .or_else(|| {
                 target
@@ -643,29 +651,57 @@ impl GameLogic {
         target_owner: Option<u32>,
         target_team_instance: &str,
     ) -> gamelogic::common::Relationship {
-        if !source_team_instance.is_empty() {
-            if let Some(rel) = leftover_source_team_override(
+        Self::object_relationship_from_identities(
+            team_factory,
+            players,
+            source_owner,
+            None,
+            source_team_instance,
+            target_owner,
+            None,
+            target_team_instance,
+        )
+    }
+
+    fn object_relationship_from_identities(
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+        players: &std::collections::HashMap<u32, crate::game_logic::Player>,
+        source_owner: Option<u32>,
+        source_team_id: Option<u32>,
+        source_team_instance: &str,
+        target_owner: Option<u32>,
+        target_team_id: Option<u32>,
+        target_team_instance: &str,
+    ) -> gamelogic::common::Relationship {
+        if source_team_id.is_some() || !source_team_instance.is_empty() {
+            if let Some(rel) = owned_source_team_override(
                 team_factory,
+                source_team_id,
                 source_team_instance,
+                target_team_id,
                 target_team_instance,
                 target_owner,
             ) {
                 return rel;
             }
-            if let Some(source_player_id) = source_owner {
-                if let Some(source_player) = players.get(&source_player_id) {
-                    if !target_team_instance.is_empty() {
-                        if let Some(rel) = source_player
-                            .team_instance_team_override(source_team_instance, target_team_instance)
-                        {
-                            return rel;
+            if source_team_id.is_none() {
+                if let Some(source_player_id) = source_owner {
+                    if let Some(source_player) = players.get(&source_player_id) {
+                        if !target_team_instance.is_empty() {
+                            if let Some(rel) = source_player.team_instance_team_override(
+                                source_team_instance,
+                                target_team_instance,
+                            ) {
+                                return rel;
+                            }
                         }
-                    }
-                    if let Some(target_player_id) = target_owner {
-                        if let Some(rel) = source_player
-                            .team_instance_player_override(source_team_instance, target_player_id)
-                        {
-                            return rel;
+                        if let Some(target_player_id) = target_owner {
+                            if let Some(rel) = source_player.team_instance_player_override(
+                                source_team_instance,
+                                target_player_id,
+                            ) {
+                                return rel;
+                            }
                         }
                     }
                 }

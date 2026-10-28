@@ -33,55 +33,148 @@ impl GameLogic {
         if let Some(error) = self.team_creation_error() {
             return Err(error);
         }
-        self.team_factory.with_read_without_flushing(|factory| {
-            let contextual = if raw_team == gamelogic::scripting::core::THIS_TEAM {
-                calling_team.or(condition_team)
-            } else {
-                let mut selected = None;
-                for id in [calling_team, condition_team].into_iter().flatten() {
-                    let Some(team) = factory.find_team_by_id(id) else {
-                        continue;
-                    };
-                    let team = team
-                        .read()
-                        .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
-                    if team.get_name().as_str() == raw_team {
-                        selected = Some(id);
-                        break;
+        // ScriptEngine.cpp resolves this special name only in Challenge mode.
+        // The local player's default Team belongs to the receiving session.
+        if raw_team == gamelogic::scripting::core::TEAM_THE_PLAYER && self.is_challenge_session() {
+            return match self.local_player_id() {
+                Some(player) => self.resolve_owned_player_default_team(player),
+                None => Ok(None),
+            };
+        }
+        self.team_factory
+            .with_read_without_flushing(|factory| {
+                let contextual = if raw_team == gamelogic::scripting::core::THIS_TEAM {
+                    calling_team.or(condition_team)
+                } else {
+                    let mut selected = None;
+                    for id in [calling_team, condition_team].into_iter().flatten() {
+                        let Some(team) = factory.find_team_by_id(id) else {
+                            continue;
+                        };
+                        let team = team.read().map_err(|error| {
+                            gamelogic::GameLogicError::Threading(error.to_string())
+                        })?;
+                        if team.get_name().as_str() == raw_team {
+                            selected = Some(id);
+                            break;
+                        }
                     }
-                }
-                selected
-            };
-            let team = if let Some(id) = contextual {
-                factory.find_team_by_id(id)
-            } else if raw_team == gamelogic::scripting::core::THIS_TEAM {
-                None
-            } else {
-                let Some(prototype) = factory.find_team_prototype(raw_team) else {
-                    return Ok(None);
+                    selected
                 };
-                let Some(team) = factory.find_team_instances(raw_team).into_iter().next() else {
-                    return Ok(None);
+                let team = if let Some(id) = contextual {
+                    factory.find_team_by_id(id)
+                } else if raw_team == gamelogic::scripting::core::THIS_TEAM {
+                    None
+                } else {
+                    let Some(prototype) = factory.find_team_prototype(raw_team) else {
+                        return Ok(None);
+                    };
+                    let Some(team) = factory.find_team_instances(raw_team).into_iter().next()
+                    else {
+                        return Ok(None);
+                    };
+                    if prototype.is_singleton()
+                        && !team
+                            .read()
+                            .map_err(|error| {
+                                gamelogic::GameLogicError::Threading(error.to_string())
+                            })?
+                            .is_active()
+                    {
+                        return Ok(None);
+                    }
+                    Some(team)
                 };
-                if prototype.is_singleton()
-                    && !team
-                        .read()
-                        .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
-                        .is_active()
-                {
-                    return Ok(None);
+                let Some(team) = team else { return Ok(None) };
+                let team = team
+                    .read()
+                    .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                if let Some(reason) = team.creation_failure() {
+                    return Err(gamelogic::GameLogicError::TeamCreationFailed(reason.into()));
                 }
-                Some(team)
-            };
-            let Some(team) = team else { return Ok(None) };
-            let team = team
-                .read()
-                .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
-            if let Some(reason) = team.creation_failure() {
-                return Err(gamelogic::GameLogicError::TeamCreationFailed(reason.into()));
+                Ok(Some((team.get_id(), team.get_members().to_vec())))
+            })
+            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+    }
+
+    /// C++ ScriptActions.cpp:4573-4652 writes the named Team immediately.
+    pub(super) fn apply_owned_team_relationship_override(
+        &mut self,
+        action: gamelogic::scripting::engine::ScriptTeamRelationship<'_>,
+        calling_team: Option<u32>,
+        condition_team: Option<u32>,
+    ) -> gamelogic::GameLogicResult<()> {
+        use gamelogic::scripting::engine::ScriptTeamRelationship as Action;
+
+        let source = match action {
+            Action::SetTeam { source, .. }
+            | Action::RemoveTeam { source, .. }
+            | Action::SetPlayer { source, .. }
+            | Action::RemovePlayer { source, .. }
+            | Action::RemoveAll { source } => source,
+        };
+        let Some((source_id, _)) =
+            self.resolve_owned_script_team(source, calling_team, condition_team)?
+        else {
+            return Ok(());
+        };
+
+        let target_team = match action {
+            Action::SetTeam { target, .. } | Action::RemoveTeam { target, .. } => {
+                let Some((id, _)) =
+                    self.resolve_owned_script_team(target, calling_team, condition_team)?
+                else {
+                    return Ok(());
+                };
+                Some(id)
             }
-            Ok(Some((team.get_id(), team.get_members().to_vec())))
-        }).map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+            _ => None,
+        };
+        let target_player = match action {
+            Action::SetPlayer { target, .. } | Action::RemovePlayer { target, .. } => {
+                // C++ here uses PlayerList::findPlayerWithNameKey directly,
+                // not ScriptEngine's local-player token resolution.
+                let Some(player) = self.players.values().find(|player| {
+                    !player.map_side.map_player_name.is_empty()
+                        && player.map_side.map_player_name == target
+                }) else {
+                    return Ok(());
+                };
+                Some(player.id as i32)
+            }
+            _ => None,
+        };
+
+        let source_team = self
+            .team_factory
+            .with_read_without_flushing(|factory| factory.find_team_by_id(source_id))
+            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+        let Some(source_team) = source_team else {
+            return Ok(());
+        };
+        let mut source_team = source_team
+            .write()
+            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+        match (action, target_team, target_player) {
+            (Action::SetTeam { relationship, .. }, Some(target), _) => {
+                source_team.set_override_team_relationship(target, relationship);
+            }
+            (Action::RemoveTeam { .. }, Some(target), _) => {
+                source_team.remove_override_team_relationship(target);
+            }
+            (Action::SetPlayer { relationship, .. }, _, Some(target)) => {
+                source_team.set_override_player_relationship(target, relationship);
+            }
+            (Action::RemovePlayer { .. }, _, Some(target)) => {
+                source_team.remove_override_player_relationship(target);
+            }
+            (Action::RemoveAll { .. }, _, _) => {
+                source_team.clear_override_team_relationships();
+                source_team.clear_override_player_relationships();
+            }
+            _ => return Ok(()),
+        }
+        Ok(())
     }
 
     pub(super) fn apply_owned_team_guard(

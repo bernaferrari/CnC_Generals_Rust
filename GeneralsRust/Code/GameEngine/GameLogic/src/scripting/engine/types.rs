@@ -316,6 +316,32 @@ pub enum ScriptNamedPresentation<'a> {
     },
 }
 
+/// Directed overrides owned by an existing Team in the executing session.
+#[derive(Debug, Clone, Copy)]
+pub enum ScriptTeamRelationship<'a> {
+    SetTeam {
+        source: &'a str,
+        target: &'a str,
+        relationship: crate::common::Relationship,
+    },
+    RemoveTeam {
+        source: &'a str,
+        target: &'a str,
+    },
+    SetPlayer {
+        source: &'a str,
+        target: &'a str,
+        relationship: crate::common::Relationship,
+    },
+    RemovePlayer {
+        source: &'a str,
+        target: &'a str,
+    },
+    RemoveAll {
+        source: &'a str,
+    },
+}
+
 /// Synchronous effects and live queries of the actual execution owner.
 /// The driver is borrowed for execution only; it is never installed in the
 /// engine, dispatcher context, or a process-wide active slot.
@@ -833,6 +859,15 @@ pub trait ScriptExecutionDriver {
     fn team_load_transports(
         &mut self,
         _team: &str,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+    /// Mutate the receiving Team at the action's original observation point.
+    fn team_relationship_override(
+        &mut self,
+        _action: ScriptTeamRelationship<'_>,
         _calling: Option<TeamID>,
         _condition: Option<TeamID>,
     ) -> Option<GameLogicResult<()>> {

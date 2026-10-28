@@ -968,6 +968,17 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 .apply_owned_team_load_transports(team, calling, condition),
         )
     }
+    fn team_relationship_override(
+        &mut self,
+        action: gamelogic::scripting::engine::ScriptTeamRelationship<'_>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(
+            self.world
+                .apply_owned_team_relationship_override(action, calling, condition),
+        )
+    }
     fn team_capture_nearest_unowned_faction_unit(
         &mut self,
         team: &str,

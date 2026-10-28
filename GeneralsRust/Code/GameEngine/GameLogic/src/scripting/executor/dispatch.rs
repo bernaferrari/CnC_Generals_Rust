@@ -319,6 +319,56 @@ impl ScriptActionDispatcher<'_> {
 
         if matches!(
             action_type,
+            ScriptActionType::TeamSetOverrideRelationToTeam
+                | ScriptActionType::TeamRemoveOverrideRelationToTeam
+                | ScriptActionType::TeamSetOverrideRelationToPlayer
+                | ScriptActionType::TeamRemoveOverrideRelationToPlayer
+                | ScriptActionType::TeamRemoveAllOverrideRelations
+        ) {
+            use crate::scripting::engine::ScriptTeamRelationship as Request;
+            let source = self.get_string_param(action, 0)?;
+            let target = if action_type == ScriptActionType::TeamRemoveAllOverrideRelations {
+                String::new()
+            } else {
+                self.get_string_param(action, 1)?
+            };
+            let request = match action_type {
+                ScriptActionType::TeamSetOverrideRelationToTeam => Request::SetTeam {
+                    source: &source,
+                    target: &target,
+                    relationship: self.relation_from_script_value(self.get_int_param(action, 2)?),
+                },
+                ScriptActionType::TeamRemoveOverrideRelationToTeam => Request::RemoveTeam {
+                    source: &source,
+                    target: &target,
+                },
+                ScriptActionType::TeamSetOverrideRelationToPlayer => Request::SetPlayer {
+                    source: &source,
+                    target: &target,
+                    relationship: self.relation_from_script_value(self.get_int_param(action, 2)?),
+                },
+                ScriptActionType::TeamRemoveOverrideRelationToPlayer => Request::RemovePlayer {
+                    source: &source,
+                    target: &target,
+                },
+                ScriptActionType::TeamRemoveAllOverrideRelations => {
+                    Request::RemoveAll { source: &source }
+                }
+                _ => unreachable!(),
+            };
+            let engine = self.context.borrowed_engine();
+            if let Some(result) = driver.team_relationship_override(
+                request,
+                engine.get_calling_team_id(),
+                engine.get_condition_team_id(),
+            ) {
+                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                return Ok(ScriptActionResult::Success);
+            }
+        }
+
+        if matches!(
+            action_type,
             ScriptActionType::NamedGarrisonSpecificBuilding
                 | ScriptActionType::NamedGarrisonNearestBuilding
                 | ScriptActionType::NamedExitBuilding
