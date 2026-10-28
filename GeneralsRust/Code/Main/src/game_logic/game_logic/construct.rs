@@ -345,6 +345,7 @@ impl GameLogic {
             nuclear_tanks: crate::game_logic::host_nuclear_tanks::HostNuclearTanksRegistry::new(),
             booby_trap: crate::game_logic::host_booby_trap::HostBoobyTrapRegistry::new(),
             booby_trap_objects_spawned: 0,
+            sticky_bomb_detonations_in_progress: Default::default(),
             helix_napalm: crate::game_logic::host_helix_napalm::HostHelixNapalmRegistry::new(),
             fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry::new(),
             inferno_fire_zones:
@@ -1138,6 +1139,7 @@ impl GameLogic {
         self.nuclear_tanks.clear();
         self.booby_trap.clear();
         self.booby_trap_objects_spawned = 0;
+        self.sticky_bomb_detonations_in_progress.clear();
         self.helix_napalm.clear();
         self.fire_walls.clear();
         self.inferno_fire_zones.clear();

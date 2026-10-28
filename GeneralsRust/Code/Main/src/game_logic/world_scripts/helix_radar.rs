@@ -353,6 +353,40 @@ impl GameLogic {
             })
     }
 
+    fn booby_trap_detonation_data(
+        &self,
+        template_name: &str,
+    ) -> Option<(
+        Option<std::sync::Arc<gamelogic::weapon::WeaponTemplate>>,
+        Option<gamelogic::effects::FXList>,
+    )> {
+        use game_engine::common::thing::module::ModuleData;
+
+        self.receiving_module_content
+            .as_ref()?
+            .admitted_template(template_name)?
+            .behavior_modules()
+            .iter()
+            .find_map(|module| {
+                if !module
+                    .name
+                    .as_str()
+                    .eq_ignore_ascii_case("StickyBombUpdate")
+                {
+                    return None;
+                }
+                let data = module
+                    .data
+                    .as_any()
+                    .downcast_ref::<gamelogic::object::behavior::StickyBombUpdateModuleData>(
+                )?;
+                Some((
+                    data.geometry_based_damage_weapon_template.clone(),
+                    data.geometry_based_damage_fx.clone(),
+                ))
+            })
+    }
+
     /// C++ `GeometryInfo::makeRandomOffsetOnPerimeter` plus the script's
     /// transform into the target's world space. Called only after the charge
     /// factory callbacks, matching ScriptActions.cpp's creation-before-sample
@@ -414,7 +448,12 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         self.spawn_booby_trap_special_object_with_owner_effects(
-            planter_id, team, structure_id, position_request, Some(planter_id), effects,
+            planter_id,
+            team,
+            structure_id,
+            position_request,
+            Some(planter_id),
+            effects,
         )
     }
 
@@ -531,7 +570,8 @@ impl GameLogic {
         }
         if let Some(sink) = xp_sink {
             if !self.object_birth_matches(sink, &planter_birth) {
-                let _ = self.destroy_object_if_birth_matches_with_effects(bid, &charge_birth, effects);
+                let _ =
+                    self.destroy_object_if_birth_matches_with_effects(bid, &charge_birth, effects);
                 return None;
             }
             // SpecialAbilityUpdate::createSpecialObject calls setPosition,
@@ -554,7 +594,8 @@ impl GameLogic {
                 || !self.object_birth_matches(planter_id, &planter_birth)
                 || !self.object_birth_matches(bid, &charge_birth)
             {
-                let _ = self.destroy_object_if_birth_matches_with_effects(bid, &charge_birth, effects);
+                let _ =
+                    self.destroy_object_if_birth_matches_with_effects(bid, &charge_birth, effects);
                 return None;
             }
             let initial_orientation = self.objects.get(&planter_id)?.get_orientation();
@@ -570,7 +611,8 @@ impl GameLogic {
                 || !self.object_birth_matches(planter_id, &planter_birth)
                 || !self.object_birth_matches(bid, &charge_birth)
             {
-                let _ = self.destroy_object_if_birth_matches_with_effects(bid, &charge_birth, effects);
+                let _ =
+                    self.destroy_object_if_birth_matches_with_effects(bid, &charge_birth, effects);
                 return None;
             }
             if let Some(charge) = self.objects.get_mut(&bid) {
@@ -784,82 +826,126 @@ impl GameLogic {
         via_death: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
-        use crate::game_logic::host_booby_trap::{
-            BOOBY_GEOMETRY_DAMAGE_FX, booby_trap_damage_at, booby_trap_splash_radius,
-            is_legal_booby_victim,
-        };
+        if !self
+            .sticky_bomb_detonations_in_progress
+            .insert(structure_id.0)
+        {
+            return 0;
+        }
+        let hits = self.detonate_booby_trap_at_guarded(
+            structure_id,
+            structure_pos,
+            trigger_unit,
+            via_capture,
+            via_death,
+            effects,
+        );
+        self.sticky_bomb_detonations_in_progress
+            .remove(&structure_id.0);
+        hits
+    }
 
-        // C++ Object::checkAndDetonateBoobyTrap returns before looking up its
-        // sticky-bomb charge when OBJECT_STATUS_BOOBY_TRAPPED is clear.
-        // Registry records carry plant metadata and cannot authorize a trigger.
-        let Some((target_birth, target_pos, scan_radius)) =
-            self.objects.get(&structure_id).and_then(|object| {
-                object.status.booby_trapped.then(|| {
+    fn detonate_booby_trap_at_guarded(
+        &mut self,
+        structure_id: ObjectId,
+        structure_pos: Vec3,
+        trigger_unit: Option<ObjectId>,
+        via_capture: bool,
+        via_death: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
+        use crate::game_logic::host_booby_trap::BOOBY_TRAP_SCAN_RANGE;
+        use crate::game_logic::object::DamageHitContext;
+        use crate::game_logic::thing::HostGeometryType;
+        use crate::game_logic::{KindOf, combat::DamageType};
+        use game_engine::common::thing::module::ModuleData;
+
+        // C++ Object::checkAndDetonateBoobyTrap gates on the canonical status
+        // before scanning PartitionManager for a producer-linked charge.
+        let Some((target_birth, target_pos, target_map_status, scan_radius)) =
+            self.objects.get(&structure_id).and_then(|target| {
+                target.status.booby_trapped.then(|| {
+                    let geometry = *target.geometry_info();
                     (
-                        std::sync::Arc::downgrade(&object.visual_draw_identity_token),
-                        object.get_position(),
-                        crate::game_logic::host_booby_trap::BOOBY_TRAP_SCAN_RANGE
-                            + (*object.geometry_info()).bounding_circle_radius(),
+                        std::sync::Arc::downgrade(&target.visual_draw_identity_token),
+                        target.get_position(),
+                        crate::game_logic::host_deliver_payload::is_off_map_residual(
+                            target.get_position(),
+                            self.world_min.x,
+                            self.world_min.z,
+                            self.world_max.x,
+                            self.world_max.z,
+                        ),
+                        BOOBY_TRAP_SCAN_RANGE + geometry.bounding_circle_radius(),
                     )
                 })
             })
         else {
             return 0;
         };
-
-        if self.booby_trap.plant(structure_id).is_none() {
-            return 0;
-        }
+        let charge_ids = self.partition_manager.ids_in_radius_iterator_order(
+            target_pos.x,
+            target_pos.z,
+            scan_radius,
+            |_| true,
+        );
         let mut nearby_charges = Vec::new();
-        for charge_id in self.objects.registered_keys().copied() {
+        for raw_id in charge_ids {
+            let charge_id = ObjectId(raw_id);
             let Some(charge) = self.objects.get(&charge_id) else {
                 continue;
             };
-            if !charge.is_alive()
-                || charge.status.destroyed
-                || charge.status.effectively_dead
-                || !charge.is_kind_of(crate::game_logic::KindOf::BoobyTrap)
+            if !charge.is_kind_of(KindOf::BoobyTrap)
+                || crate::game_logic::host_deliver_payload::is_off_map_residual(
+                    charge.get_position(),
+                    self.world_min.x,
+                    self.world_min.z,
+                    self.world_max.x,
+                    self.world_max.z,
+                ) != target_map_status
                 || charge.producer_id != Some(structure_id)
             {
                 continue;
             }
-            // Match the host's horizontal X/Z plane, and retain C++'s
-            // ITER_SORTED_NEAR_TO_FAR candidate order for equal distances.
             let position = charge.get_position();
-            let dx = position.x - target_pos.x;
-            let dz = position.z - target_pos.z;
-            let distance = (dx * dx + dz * dz).sqrt();
+            let distance = (position.x - target_pos.x).hypot(position.z - target_pos.z);
             if distance <= scan_radius {
                 nearby_charges.push((
                     distance,
                     charge_id,
                     std::sync::Arc::downgrade(&charge.visual_draw_identity_token),
+                    charge.template_name.clone(),
+                    charge.owner_player_id,
                 ));
             }
         }
+        // `sort_by` is stable, retaining the receiving PartitionManager's
+        // near-to-far insertion order for equal-distance charges.
         nearby_charges.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let Some((_, charge_id, charge_birth)) = nearby_charges.into_iter().next() else {
-            // C++ leaves status intact when it cannot find the required charge
-            // and update module in the scan range.
+        let Some((_, charge_id, charge_birth, charge_template_name, charge_owner)) =
+            nearby_charges.into_iter().next()
+        else {
             return 0;
         };
-        let Some(charge) = self.objects.get(&charge_id) else {
+        let Some((authored_weapon, damage_fx)) =
+            self.booby_trap_detonation_data(&charge_template_name)
+        else {
+            log::error!("Selected BoobyTrap charge lacks typed StickyBombUpdate data");
             return 0;
         };
-        if !self.booby_trap_template_has_sticky_bomb_update(&charge.template_name) {
-            // C++ selects one nearest in-range charge first and only then
-            // checks that object's StickyBombUpdate; a farther valid charge
-            // cannot substitute for the nearest invalid one.
+        let weapon_was_authored = authored_weapon.is_some();
+        let weapon = authored_weapon.and_then(|authored| match self.weapon_definitions.as_ref() {
+            Some(catalog) => catalog.get(&authored.name.to_ascii_lowercase()).cloned(),
+            None => Some(authored),
+        });
+        if weapon_was_authored && weapon.is_none() {
+            log::error!("Selected StickyBombUpdate weapon is missing from receiving Weapon.ini");
             return 0;
         }
-        // C++ next scans for KINDOF_BOOBY_TRAP with ProducerID == target ID,
-        // keeps the nearest eligible charge, then requires StickyBombUpdate.
-        // The registry's stored charge ID is bookkeeping only; it cannot
-        // change the engine's scan result or authorize a nonexistent charge.
-        // C++ Object.cpp:938 tests the selected charge owner's relationship to
-        // the trigger object before detonation, not planter faction identity.
-        if let Some(tid) = trigger_unit {
-            let Some(trigger) = self.objects.get(&tid) else {
+        // Object.cpp:938 checks the selected charge's controlling Player
+        // against the trigger's exact receiving Team.
+        if let Some(trigger_id) = trigger_unit {
+            let Some(trigger) = self.objects.get(&trigger_id) else {
                 return 0;
             };
             let trigger_team_name = if trigger.team_instance_name.is_empty() {
@@ -867,151 +953,220 @@ impl GameLogic {
             } else {
                 trigger.team_instance_name.clone()
             };
-            let charge_owner_relationship = Self::object_relationship_from_owners(
+            if Self::object_relationship_from_owner_to_team_identity(
                 &self.team_factory,
                 &self.players,
-                charge.owner_player_id,
-                "",
+                charge_owner,
                 trigger.owner_player_id,
+                trigger.team_instance_id,
                 &trigger_team_name,
-            );
-            if charge_owner_relationship == gamelogic::common::Relationship::Allies {
+            ) == gamelogic::common::Relationship::Allies
+            {
                 return 0;
             }
         }
-
-        let Some(plant) = self.booby_trap.take_plant(structure_id) else {
-            return 0;
-        };
-
-        let max_r = booby_trap_splash_radius(plant.geometry_radius);
-        let mut hits = 0u32;
-        let mut destroy_ids: Vec<(ObjectId, Team, std::sync::Weak<()>)> = Vec::new();
-        let victim_ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
-        for vid in victim_ids {
-            if !self.object_birth_matches(structure_id, &target_birth)
-                || !self.object_birth_matches(charge_id, &charge_birth)
-            {
-                return hits;
-            }
-            let Some(victim) = self.objects.get(&vid) else {
-                continue;
-            };
-            let combat_kind = victim.is_kind_of(KindOf::Attackable)
-                || victim.is_kind_of(KindOf::Structure)
-                || victim.is_kind_of(KindOf::Infantry)
-                || victim.is_kind_of(KindOf::Vehicle)
-                || victim.is_kind_of(KindOf::Aircraft);
-            // C++ StickyBombUpdate::detonate includes the trapped object at
-            // bounding-sphere dist 0 (primary damage). Leftover already matches.
-            if !is_legal_booby_victim(
-                victim.is_alive(),
-                victim.status.under_construction,
-                combat_kind,
-            ) {
-                continue;
-            }
-            let victim_birth = std::sync::Arc::downgrade(&victim.visual_draw_identity_token);
-            let vpos = victim.get_position();
-            let dist = {
-                let dx = vpos.x - structure_pos.x;
-                let dz = vpos.z - structure_pos.z;
-                (dx * dx + dz * dz).sqrt()
-            };
-            if dist > max_r {
-                continue;
-            }
-            let dmg = booby_trap_damage_at(dist, plant.geometry_radius);
-            if dmg <= 0.0 {
-                continue;
-            }
-            if let Some(victim) = self.objects.get_mut(&vid) {
-                hits = hits.saturating_add(1);
-                if {
-                    let owned_victim_id = victim.id;
-                    let owned_damage_type =
-                        crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
-                            crate::game_logic::host_booby_trap::BOOBY_DAMAGE_TYPE,
-                        );
-                    self.apply_residual_damage_owned_with_effects(
-                        owned_victim_id,
-                        dmg,
-                        Some(plant.planter_id),
-                        owned_damage_type,
-                        crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
-                            crate::game_logic::host_booby_trap::BOOBY_DEATH_TYPE,
-                        ),
-                        None,
-                        effects,
-                    )
-                } {
-                    destroy_ids.push((vid, plant.planter_team, victim_birth));
-                }
-            }
-            // Damage can synchronously invoke owner callbacks. Never continue
-            // the stale detonation against a replacement at either object ID.
-            if !self.object_birth_matches(structure_id, &target_birth)
-                || !self.object_birth_matches(charge_id, &charge_birth)
-            {
-                return hits;
-            }
-        }
-
-        self.booby_trap
-            .record_detonation(hits, via_capture, via_death);
-        // C++ StickyBombUpdate::detonate: FXList::doFXPos(m_geometryBasedDamageFX,
-        // pos, NULL, 0, NULL, secondaryDamageRange). Never queue the FXList name.
-        if !self.dispatch_fx_list_at_host_position_oriented_with_effects(
-            BOOBY_GEOMETRY_DAMAGE_FX,
-            structure_pos,
-            None,
-            0.0,
-            max_r,
-            None,
-            effects,
-        ) {
-            for sound in crate::game_logic::sound_names_for_fx_list(BOOBY_GEOMETRY_DAMAGE_FX) {
-                self.queue_audio_event(
-                    AudioEventRequest::new(&sound)
-                        .with_object(structure_id)
-                        .with_position(structure_pos)
-                        .with_priority(180),
-                );
-            }
-            let _ = self.combat_particles.spawn_named(
-                CombatParticleKind::WeaponImpact,
-                BOOBY_GEOMETRY_DAMAGE_FX,
-                structure_pos,
-                self.frame,
-                Some(structure_id),
-                None,
-                effects,
-            );
-        }
-
-        // FX dispatch may also reenter gameplay; validate before the later
-        // status clear and charge destruction.
         if !self.object_birth_matches(structure_id, &target_birth)
             || !self.object_birth_matches(charge_id, &charge_birth)
         {
-            return hits;
+            return 0;
         }
 
-        // C++ StickyBombUpdate clears the target status after damage and FX,
-        // immediately before killing the charge object.
-        if let Some(obj) = self.objects.get_mut(&structure_id) {
-            obj.set_status_booby_trapped(false);
-        }
-        if self.object_birth_matches(charge_id, &charge_birth) {
-            self.destroy_booby_trap_special_object_with_effects(charge_id, effects);
-        }
-
-        for (vid, killer, birth) in destroy_ids {
-            if self.object_birth_matches(vid, &birth) {
-                self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
+        let mut hits = 0u32;
+        let Some(weapon) = weapon else {
+            // C++ with no GeometryBasedDamageWeapon skips the blast block, then
+            // still clears BOOBY_TRAPPED and kills the StickyBomb object.
+            self.finish_booby_trap_detonation(
+                structure_id,
+                &target_birth,
+                charge_id,
+                &charge_birth,
+                0,
+                via_capture,
+                via_death,
+                structure_pos,
+                None,
+                0.0,
+                effects,
+            );
+            return 0;
+        };
+        let target_geometry = self
+            .objects
+            .get(&structure_id)
+            .map(|target| *target.geometry_info())
+            .unwrap_or_default();
+        let bounding_circle = target_geometry.bounding_circle_radius();
+        let primary_damage = weapon.primary_damage;
+        let secondary_damage = weapon.secondary_damage;
+        let primary_range = weapon.primary_damage_radius + bounding_circle;
+        let secondary_range = weapon.secondary_damage_radius + bounding_circle;
+        let max_radius = primary_range.max(secondary_range);
+        let primary_range_sqr = primary_range * primary_range;
+        let damage_type = DamageType::from_store(weapon.damage_type);
+        let death_type =
+            crate::game_logic::host_usa_pilot::HostDeathType::from_store(weapon.death_type);
+        let damage_context = {
+            let Some(charge) = self.objects.get(&charge_id) else {
+                return 0;
+            };
+            DamageHitContext::new_selected(Some(charge), None, damage_type, Some(weapon.as_ref()))
+        };
+        let victim_ids = self.partition_manager.ids_in_radius_iterator_order(
+            target_pos.x,
+            target_pos.z,
+            max_radius,
+            |_| true,
+        );
+        let mut victims = Vec::new();
+        for raw_id in victim_ids {
+            let id = ObjectId(raw_id);
+            let Some(victim) = self.objects.get(&id) else {
+                continue;
+            };
+            let geometry = *victim.geometry_info();
+            let center_offset = match geometry.geom_type {
+                HostGeometryType::Sphere => 0.0,
+                HostGeometryType::Cylinder | HostGeometryType::Box => geometry.height * 0.5,
+            };
+            let position = victim.get_position();
+            let dx = position.x - target_pos.x;
+            // C++ Geometry::getZDeltaToCenter is height. Main maps C++ height
+            // Z to host Vec3 Y; host Z is the ground-plane depth axis.
+            let dy = position.y + center_offset - target_pos.y;
+            let dz = position.z - target_pos.z;
+            let center_distance = (dx * dx + dy * dy + dz * dz).sqrt();
+            let boundary_distance = (center_distance - geometry.bounding_sphere_radius()).max(0.0);
+            if boundary_distance <= max_radius {
+                victims.push((
+                    boundary_distance * boundary_distance,
+                    id,
+                    std::sync::Arc::downgrade(&victim.visual_draw_identity_token),
+                ));
             }
         }
+        // StickyBombUpdate calls iterateObjectsInRange with its default
+        // ITER_FASTEST ordering. Preserve the receiving partition traversal;
+        // numeric boundary distance selects damage radius only.
+        for (distance_sqr, victim_id, victim_birth) in victims {
+            if !self.object_birth_matches(structure_id, &target_birth)
+                || !self.object_birth_matches(charge_id, &charge_birth)
+            {
+                return hits;
+            }
+            if !self.object_birth_matches(victim_id, &victim_birth) {
+                continue;
+            }
+            let amount = if distance_sqr <= primary_range_sqr {
+                primary_damage
+            } else {
+                secondary_damage
+            };
+            let result = self.apply_owned_damage_with_effects(
+                victim_id,
+                amount,
+                Some(charge_id),
+                damage_type,
+                death_type,
+                None,
+                &damage_context,
+                effects,
+            );
+            if result.as_ref().is_some_and(|result| result.destroyed()) {
+                hits = hits.saturating_add(1);
+            }
+            // Damage callbacks can recursively trigger this target; the
+            // per-target guard blocks reentry until the original ordered pass
+            // completes. Birth checks also prevent operating on replacements.
+            if !self.object_birth_matches(structure_id, &target_birth)
+                || !self.object_birth_matches(charge_id, &charge_birth)
+            {
+                return hits;
+            }
+        }
+        let fx_position = self
+            .objects
+            .get(&structure_id)
+            .filter(|_| self.object_birth_matches(structure_id, &target_birth))
+            .map(|target| target.get_position())
+            .unwrap_or(target_pos);
+        self.finish_booby_trap_detonation(
+            structure_id,
+            &target_birth,
+            charge_id,
+            &charge_birth,
+            hits,
+            via_capture,
+            via_death,
+            fx_position,
+            damage_fx,
+            secondary_range,
+            effects,
+        );
         hits
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn finish_booby_trap_detonation(
+        &mut self,
+        structure_id: ObjectId,
+        target_birth: &std::sync::Weak<()>,
+        charge_id: ObjectId,
+        charge_birth: &std::sync::Weak<()>,
+        hits: u32,
+        via_capture: bool,
+        via_death: bool,
+        fx_position: Vec3,
+        damage_fx: Option<gamelogic::effects::FXList>,
+        secondary_range: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        if let Some(fx) = damage_fx {
+            let dispatched = self.dispatch_fx_list_at_host_position_oriented_with_effects(
+                fx.name(),
+                fx_position,
+                None,
+                0.0,
+                secondary_range,
+                None,
+                effects,
+            );
+            if !dispatched {
+                log::warn!(
+                    "Receiving StickyBombUpdate FXList '{}' had no executable FX",
+                    fx.name()
+                );
+            }
+        }
+        if !self.object_birth_matches(structure_id, target_birth)
+            || !self.object_birth_matches(charge_id, charge_birth)
+        {
+            return;
+        }
+        // StickyBombUpdate clears status after damage and FX, then kills the
+        // charge. Registry state is discarded afterward as metadata only.
+        if let Some(target) = self.objects.get_mut(&structure_id) {
+            target.set_status_booby_trapped(false);
+        }
+        if self.object_birth_matches(charge_id, charge_birth) {
+            // StickyBombUpdate::detonate calls Object::kill(), which enters
+            // the receiving Body and its synchronous authored Die callbacks.
+            // The charge need not have originated in the host's trap registry.
+            let _ = self.apply_owned_kill_with_effects(
+                charge_id,
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                effects,
+            );
+            if self.object_birth_matches(charge_id, charge_birth) {
+                if let Some(charge) = self.objects.get_mut(&charge_id) {
+                    charge.booby_trap_special = false;
+                    charge.booby_trap_attached_to = None;
+                }
+            }
+        }
+        self.booby_trap.forget_structure(structure_id);
+        self.booby_trap
+            .record_detonation(hits, via_capture, via_death);
     }
 
     // -----------------------------------------------------------------------
@@ -2979,7 +3134,13 @@ mod sticky_bomb_exact_team_tests {
         let (name, identity) = {
             let mut factory = game.team_factory.lock().unwrap();
             factory
-                .init_team_owned("AlternateGLAChargeTeam".into(), "GLA".into(), false, None, Some(0))
+                .init_team_owned(
+                    "AlternateGLAChargeTeam".into(),
+                    "GLA".into(),
+                    false,
+                    None,
+                    Some(0),
+                )
                 .unwrap();
             let (team, _) = factory
                 .create_inactive_team_with_owned_effects("AlternateGLAChargeTeam")

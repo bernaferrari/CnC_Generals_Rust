@@ -1,10 +1,24 @@
 use gamelogic::common::Relationship;
 use generals_main::game_logic::host_booby_trap::HostBoobyTrapRegistry;
 use generals_main::game_logic::{GameLogic, GameMode, ObjectId, Player, Team};
-use generals_main::save_load::snapshot::{apply_pending_player_team_chunks, stamp_player_team_chunks};
+use generals_main::save_load::snapshot::{
+    apply_pending_player_team_chunks, stamp_player_team_chunks,
+};
 use glam::Vec3;
 
-const TRAP_SOURCE: &str = "Object BoobyTrap\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 37\n InitialHealth = 19\n End\n Behavior = StickyBombUpdate Sticky\n  OffsetZ = 17\n End\n UnitSpecificSounds\n  StickyBombCreated = StickyCreated\n End\nEnd\nObject BoobyTrapWithoutUpdate\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 1\n InitialHealth = 1\nEnd\nEnd\nObject TrapPlanter\n KindOf = INFANTRY SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\nObject TrapTarget\n KindOf = STRUCTURE IMMOBILE SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\nEnd\nEnd\nObject TrapMobileTarget\n KindOf = STRUCTURE SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\nEnd\nEnd\nObject TrapVictim\n KindOf = INFANTRY SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\n";
+const TRAP_SOURCE: &str = "Object BoobyTrap\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 37\n InitialHealth = 19\n End\n Behavior = StickyBombUpdate Sticky\n  OffsetZ = 17\n  GeometryBasedDamageWeapon = TrapBlast\n End\n UnitSpecificSounds\n  StickyBombCreated = StickyCreated\n End\nEnd\nObject BoobyTrapWithoutUpdate\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 1\n InitialHealth = 1\nEnd\nEnd\nObject TrapPlanter\n KindOf = INFANTRY SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\nObject TrapTarget\n KindOf = STRUCTURE IMMOBILE SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\nEnd\nEnd\nObject TrapMobileTarget\n KindOf = STRUCTURE SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\nEnd\nEnd\nObject TrapVictim\n KindOf = INFANTRY SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\n";
+
+fn admit_trap_blast(game: &mut GameLogic) {
+    let mut blast = gamelogic::weapon::WeaponTemplate::new("TrapBlast".into());
+    blast.primary_damage = 200.0;
+    blast.primary_damage_radius = 5.0;
+    blast.secondary_damage = 50.0;
+    blast.secondary_damage_radius = 15.0;
+    blast.attack_range = 25.0;
+    blast.projectile_name = "NONE".into();
+    game.admit_receiving_weapon_snapshot(vec![("TrapBlast".into(), blast)])
+        .expect("admit receiving StickyBomb weapon");
+}
 
 fn world() -> (GameLogic, ObjectId, ObjectId) {
     world_with_positions(Vec3::ZERO, Vec3::new(8.0, 0.0, 0.0))
@@ -15,8 +29,23 @@ fn world_with_positions(
     target_position: Vec3,
 ) -> (GameLogic, ObjectId, ObjectId) {
     let mut game = GameLogic::new();
-    game.admit_object_ini_sources([("BoobyTrapChargeFidelity.ini".into(), TRAP_SOURCE.into())])
-        .expect("admit typed charge and host templates");
+    // Module parsing resolves weapon names through the WeaponStore, then the
+    // receiving world admits the same authored identity into its owned catalog.
+    assert_eq!(
+        generals_main::assets::ini_template_loader::register_weapons_from_ini_text(
+            "Weapon TrapBlast\n PrimaryDamage = 200\n PrimaryDamageRadius = 5\n SecondaryDamage = 50\n SecondaryDamageRadius = 15\n AttackRange = 25\n ProjectileNugget\n  ProjectileTemplateName = NONE\n End\nEnd\n"
+        ),
+        1
+    );
+    game.admit_object_ini_sources([
+        ("BoobyTrapChargeFidelity.ini".into(), TRAP_SOURCE.into()),
+        (
+            "BoobyTrapAsymmetricGeometry.ini".into(),
+            "Object TrapAsymmetricTarget\n KindOf = STRUCTURE IMMOBILE SELECTABLE SCORE\n Geometry = CYLINDER\n  GeometryIsSmall = No\n  GeometryHeight = 10\n  GeometryMajorRadius = 5\n  GeometryMinorRadius = 5\n End\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\n End\nEnd\nObject TrapTallVictim\n KindOf = INFANTRY SELECTABLE SCORE\n Geometry = BOX\n  GeometryIsSmall = No\n  GeometryHeight = 20\n  GeometryMajorRadius = 4\n  GeometryMinorRadius = 4\n End\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
+        ),
+    ])
+    .expect("admit typed charge and host templates");
+    admit_trap_blast(&mut game);
     game.start_new_game(GameMode::SinglePlayer);
 
     let mut planter = Player::new(0, Team::GLA, "GLA", false);
@@ -45,7 +74,11 @@ fn move_into_same_named_team(game: &mut GameLogic, member: ObjectId) -> u32 {
     let source_index = teams
         .teams
         .iter()
-        .position(|team| team.members.as_ref().is_some_and(|members| members.contains(&member.0)))
+        .position(|team| {
+            team.members
+                .as_ref()
+                .is_some_and(|members| members.contains(&member.0))
+        })
         .expect("member's current Team");
     let mut sibling = teams.teams[source_index].clone();
     let sibling_id = teams.unique_team_id;
@@ -96,12 +129,15 @@ fn public_sticky_bomb_init_uses_each_worlds_pose_owner_and_authored_sound() {
         "charge joins the planter's exact Team instance"
     );
     let first_teams = stamp_player_team_chunks(&first).unwrap();
-    assert!(first_teams.teams.unwrap().teams.iter().any(|team| {
-        team.team_id == first_exact_team
-            && team.members.as_ref().is_some_and(|members| {
-                members.contains(&first_planter.0) && members.contains(&first_charge.0)
-            })
-    }), "charge joins the exact same-name Team instance as its planter");
+    assert!(
+        first_teams.teams.unwrap().teams.iter().any(|team| {
+            team.team_id == first_exact_team
+                && team.members.as_ref().is_some_and(|members| {
+                    members.contains(&first_planter.0) && members.contains(&first_charge.0)
+                })
+        }),
+        "charge joins the exact same-name Team instance as its planter"
+    );
     assert_eq!(
         first.host_object(first_charge).unwrap().experience_sink,
         Some(first_planter),
@@ -117,12 +153,15 @@ fn public_sticky_bomb_init_uses_each_worlds_pose_owner_and_authored_sound() {
         "peer charge uses the peer world's planter Team"
     );
     let peer_teams = stamp_player_team_chunks(&peer).unwrap();
-    assert!(peer_teams.teams.unwrap().teams.iter().any(|team| {
-        team.team_id == peer_exact_team
-            && team.members.as_ref().is_some_and(|members| {
-                members.contains(&peer_planter.0) && members.contains(&peer_charge.0)
-            })
-    }), "peer charge joins its receiving world's exact Team instance");
+    assert!(
+        peer_teams.teams.unwrap().teams.iter().any(|team| {
+            team.team_id == peer_exact_team
+                && team.members.as_ref().is_some_and(|members| {
+                    members.contains(&peer_planter.0) && members.contains(&peer_charge.0)
+                })
+        }),
+        "peer charge joins its receiving world's exact Team instance"
+    );
     assert_eq!(
         peer.host_object(peer_charge).unwrap().experience_sink,
         Some(peer_planter)
@@ -200,6 +239,9 @@ fn install_public_registry(
     game.host_object_mut(target)
         .expect("target")
         .set_status_booby_trapped(true);
+    // Newly created receiving objects are attached and mark coverage dirty;
+    // the production partition has its contents after the ordinary update.
+    game.tick_logic_frame(1.0 / 30.0, None, Some(1));
 }
 
 #[test]
@@ -218,15 +260,93 @@ fn charge_detonation_is_isolated_between_worlds_with_matching_ids() {
     install_public_registry(&mut peer, peer_planter, peer_target, Some(peer_charge));
     let peer_health = peer.host_object(peer_target).unwrap().health.current;
 
-    assert!(
-        first.detonate_booby_trap_at(first_target, Vec3::new(8.0, 0.0, 0.0), None, false, true) > 0
-    );
+    let first_health = first.host_object(first_target).unwrap().health.current;
+    first.detonate_booby_trap_at(first_target, Vec3::new(8.0, 0.0, 0.0), None, false, true);
+    assert!(first.host_object(first_target).unwrap().health.current < first_health);
     assert_eq!(
         peer.host_object(peer_target).unwrap().health.current,
         peer_health
     );
-    assert!(peer.host_object(peer_target).unwrap().status.booby_trapped);
+    assert!(
+        peer.host_object(peer_target)
+            .unwrap()
+            .has_object_status_bit("BOOBY_TRAPPED")
+    );
     assert!(peer.host_object(peer_charge).unwrap().is_alive());
+}
+
+#[test]
+fn detonation_kills_the_receiving_charge_through_its_authored_die_callback() {
+    fn world_with_authored_die() -> (GameLogic, ObjectId, ObjectId) {
+        let mut game = GameLogic::new();
+        assert_eq!(
+            generals_main::assets::ini_template_loader::register_weapons_from_ini_text(
+                "Weapon TrapBlast\n PrimaryDamage = 200\n PrimaryDamageRadius = 5\n SecondaryDamage = 50\n SecondaryDamageRadius = 15\n AttackRange = 25\n ProjectileNugget\n  ProjectileTemplateName = NONE\n End\nEnd\n"
+            ),
+            1
+        );
+        game.admit_object_creation_list_sources([
+            "ObjectCreationList ChargeDeathList\nCreateObject\nObjectNames = ChargeDeathChild\nCount = 1\nEnd\nEnd\n".into(),
+        ])
+        .unwrap();
+        let objects = format!(
+            "{}\nObject ChargeDeathChild\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n",
+            TRAP_SOURCE.replacen(
+                " Behavior = StickyBombUpdate Sticky",
+                " Behavior = CreateObjectDie Replacement\n  CreationList = ChargeDeathList\n End\n Behavior = StickyBombUpdate Sticky",
+                1,
+            )
+        );
+        game.admit_object_ini_sources([("ChargeDie.ini".into(), objects)])
+            .unwrap();
+        admit_trap_blast(&mut game);
+        game.start_new_game(GameMode::SinglePlayer);
+        game.add_player(Player::new(0, Team::GLA, "ChargeOwner", false));
+        game.add_player(Player::new(1, Team::USA, "TargetOwner", false));
+        let target = game
+            .create_object_for_player("TrapTarget", 1, Vec3::new(8.0, 0.0, 0.0))
+            .unwrap();
+        // The charge is in the C++ 25 + target radius scan, but outside the
+        // blast radius. Its only death comes from StickyBombUpdate's kill().
+        let charge = game
+            .create_object_for_player("BoobyTrap", 0, Vec3::new(30.0, 0.0, 0.0))
+            .unwrap();
+        game.host_object_mut(charge).unwrap().producer_id = Some(target);
+        game.host_object_mut(target)
+            .unwrap()
+            .set_status_booby_trapped(true);
+        game.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        (game, target, charge)
+    }
+
+    let (mut first, target, charge) = world_with_authored_die();
+    let (peer, peer_target, peer_charge) = world_with_authored_die();
+    assert_eq!((target, charge), (peer_target, peer_charge));
+    assert!(!first.host_object(charge).unwrap().booby_trap_special);
+    assert!(!first.booby_trap_residual().is_booby_trapped(target));
+
+    first.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true);
+
+    assert!(
+        first
+            .host_objects()
+            .registered_values()
+            .any(|object| object.template_name == "ChargeDeathChild"),
+        "the receiving charge runs its authored CreateObjectDie callback"
+    );
+    assert!(
+        !peer
+            .host_objects()
+            .registered_values()
+            .any(|object| object.template_name == "ChargeDeathChild"),
+        "a same-ID peer world does not receive that callback"
+    );
+    assert!(peer.host_object(peer_charge).unwrap().is_alive());
+    assert!(
+        peer.host_object(peer_target)
+            .unwrap()
+            .has_object_status_bit("BOOBY_TRAPPED")
+    );
 }
 
 #[test]
@@ -249,7 +369,12 @@ fn saved_registry_metadata_does_not_repair_a_clear_status() {
         .restore_from_snapshot(&decoded, &mut restored)
         .unwrap();
     assert!(restored.booby_trap_residual().is_booby_trapped(target));
-    assert!(!restored.host_object(target).unwrap().status.booby_trapped);
+    assert!(
+        !restored
+            .host_object(target)
+            .unwrap()
+            .has_object_status_bit("BOOBY_TRAPPED")
+    );
 }
 
 #[test]
@@ -274,6 +399,7 @@ fn public_booby_blast_damages_player_allied_splash_victim_across_factions() {
     let allied_other_faction = game
         .create_object_for_player("TrapVictim", 2, Vec3::new(18.0, 0.0, 0.0))
         .expect("same player-alliance, different faction victim");
+    game.tick_logic_frame(1.0 / 30.0, None, Some(1));
     let allied_health = game
         .host_object(allied_other_faction)
         .unwrap()
@@ -282,10 +408,7 @@ fn public_booby_blast_damages_player_allied_splash_victim_across_factions() {
     let target_health = game.host_object(target).unwrap().health.current;
     let hits = game.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true);
 
-    assert!(
-        hits > 0,
-        "the admitted charge detonates through the public path"
-    );
+    assert!(hits <= 1, "return value is destroyed-victim count");
     assert!(game.host_object(target).unwrap().health.current < target_health);
     assert!(
         game.host_object(allied_other_faction)
@@ -304,6 +427,32 @@ fn public_booby_blast_damages_player_allied_splash_victim_across_factions() {
 }
 
 #[test]
+fn sticky_blast_geometry_center_offset_uses_host_height_axis() {
+    let (mut game, planter, _) = world();
+    let target = game
+        .create_object_for_player("TrapAsymmetricTarget", 1, Vec3::new(8.0, 0.0, 0.0))
+        .expect("asymmetric geometry target");
+    let charge = game
+        .spawn_booby_trap_special_object(planter, Team::GLA, target)
+        .expect("authored StickyBombUpdate charge");
+    install_public_registry(&mut game, planter, target, Some(charge));
+    let victim = game
+        .create_object_for_player("TrapTallVictim", 1, Vec3::new(18.0, 15.0, 0.0))
+        .expect("elevated asymmetric box victim");
+    game.tick_logic_frame(1.0 / 30.0, None, Some(1));
+    let before = game.host_object(victim).unwrap().health.current;
+
+    let _ = game.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true);
+
+    let after = game.host_object(victim).unwrap().health.current;
+    assert_eq!(
+        before - after,
+        50.0,
+        "height center offset belongs on host Y: C++ geometry Z; a mistaken host Z offset selects primary damage instead"
+    );
+}
+
+#[test]
 fn public_booby_spawn_rejects_missing_target_without_creating_charge() {
     let (mut game, planter, target) = world();
     let objects_before = game.host_objects().registered_len();
@@ -314,7 +463,12 @@ fn public_booby_spawn_rejects_missing_target_without_creating_charge() {
     );
     assert_eq!(game.host_objects().registered_len(), objects_before);
     assert_eq!(game.booby_trap_objects_spawned(), spawned_before);
-    assert!(!game.host_object(target).unwrap().status.booby_trapped);
+    assert!(
+        !game
+            .host_object(target)
+            .unwrap()
+            .has_object_status_bit("BOOBY_TRAPPED")
+    );
 }
 
 #[test]
@@ -353,6 +507,76 @@ fn public_booby_trigger_gate_uses_charge_owner_player_relationship() {
 }
 
 #[test]
+fn public_booby_trigger_relationship_uses_exact_same_named_team_identity() {
+    let (mut game, planter, target) = world();
+    let charge = game
+        .spawn_booby_trap_special_object(planter, Team::GLA, target)
+        .expect("authored StickyBombUpdate charge");
+    install_public_registry(&mut game, planter, target, Some(charge));
+    let target_team_id = stamp_player_team_chunks(&game)
+        .unwrap()
+        .teams
+        .unwrap()
+        .teams
+        .into_iter()
+        .find(|team| {
+            team.members
+                .as_ref()
+                .is_some_and(|members| members.contains(&target.0))
+        })
+        .expect("target's exact receiving Team")
+        .team_id;
+    let target_team_name = game.host_object(target).unwrap().team_instance_name.clone();
+    game.get_player_mut(0)
+        .unwrap()
+        .set_team_relationship_override(target_team_id, Relationship::Allies);
+
+    let trigger = game
+        .create_object_for_player("TrapVictim", 1, Vec3::new(9.0, 0.0, 0.0))
+        .expect("trigger with same owner and Team identity");
+    game.tick_logic_frame(1.0 / 30.0, None, Some(1));
+    let health_before = game.host_object(target).unwrap().health.current;
+    assert_eq!(
+        game.detonate_booby_trap_at(
+            target,
+            Vec3::new(8.0, 0.0, 0.0),
+            Some(trigger),
+            false,
+            false,
+        ),
+        0,
+        "Player::getRelationship(target Team ID) blocks the matching exact Team"
+    );
+    assert_eq!(
+        game.host_object(target).unwrap().health.current,
+        health_before
+    );
+    assert!(game.host_object(charge).unwrap().is_alive());
+
+    let sibling_team_id = move_into_same_named_team(&mut game, trigger);
+    assert_ne!(sibling_team_id, target_team_id);
+    assert_eq!(
+        game.host_object(trigger).unwrap().team_instance_name,
+        target_team_name,
+        "the relation distinction is the exact Team ID; both teams share the same name"
+    );
+    let _ = game.detonate_booby_trap_at(
+        target,
+        Vec3::new(8.0, 0.0, 0.0),
+        Some(trigger),
+        false,
+        false,
+    );
+    assert!(game.host_object(target).unwrap().health.current < health_before);
+    assert!(
+        !game
+            .host_object(target)
+            .unwrap()
+            .has_object_status_bit("BOOBY_TRAPPED")
+    );
+}
+
+#[test]
 fn public_booby_trigger_gate_rejects_missing_trigger_object() {
     let (mut game, planter, target) = world();
     let charge = game
@@ -385,6 +609,27 @@ fn public_booby_trigger_gate_rejects_missing_trigger_object() {
 }
 
 #[test]
+fn lethal_sticky_damage_reentry_detonates_once() {
+    let (mut game, planter, target) = world();
+    let charge = game
+        .spawn_booby_trap_special_object(planter, Team::GLA, target)
+        .expect("authored StickyBombUpdate charge");
+    install_public_registry(&mut game, planter, target, Some(charge));
+    let detonations_before = game.booby_trap_residual().detonations_total;
+    game.host_object_mut(target).unwrap().health.current = 100.0;
+
+    // The authored primary blast kills its own target. Death processing can
+    // synchronously ask to detonate the same planted trap again.
+    let _ = game.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true);
+
+    assert_eq!(
+        game.booby_trap_residual().detonations_total,
+        detonations_before + 1,
+        "same-target callback reentry is suppressed until original FX/status/charge completion"
+    );
+}
+
+#[test]
 fn public_booby_trigger_uses_charge_player_to_team_even_for_defector() {
     let (mut game, planter, target) = world();
     let charge = game
@@ -404,15 +649,12 @@ fn public_booby_trigger_uses_charge_player_to_team_even_for_defector() {
     );
     let target_health = game.host_object(target).unwrap().health.current;
 
-    assert!(
-        game.detonate_booby_trap_at(
-            target,
-            Vec3::new(8.0, 0.0, 0.0),
-            Some(enemy_trigger),
-            false,
-            false,
-        ) > 0,
-        "C++ uses the charge owner's relationship to the trigger's Team; the Object-level defector override does not make it allied"
+    let _destroyed = game.detonate_booby_trap_at(
+        target,
+        Vec3::new(8.0, 0.0, 0.0),
+        Some(enemy_trigger),
+        false,
+        false,
     );
     assert!(game.host_object(target).unwrap().health.current < target_health);
     assert!(

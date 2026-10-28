@@ -1,12 +1,12 @@
 //! Mechanical split from `game_logic/game_logic.rs`. No behavior change.
 #![allow(non_snake_case, unused_imports, dead_code)]
-use super::HostHeliTakeoffOrLanding;
 use super::authority::*;
 use super::construct::*;
 use super::crate_tick::*;
 use super::player::*;
 use super::prelude::*;
 use super::script_camera::*;
+use super::HostHeliTakeoffOrLanding;
 use super::*;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -697,6 +697,8 @@ pub struct GameLogic {
     pub(super) booby_trap: crate::game_logic::host_booby_trap::HostBoobyTrapRegistry,
     /// Honesty: BoobyTrap SpecialObject Things spawned.
     pub(super) booby_trap_objects_spawned: u32,
+    /// Synchronous per-target sticky bomb guard; never serialized as gameplay state.
+    pub(super) sticky_bomb_detonations_in_progress: std::collections::HashSet<u32>,
 
     /// Host China Helix NapalmBomb special ability residual (blast + FirestormSmall).
     /// Fail-closed: not full SpecialObject NapalmBomb fall / expand animation.

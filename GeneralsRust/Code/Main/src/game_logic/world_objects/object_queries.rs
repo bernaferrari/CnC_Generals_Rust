@@ -679,6 +679,29 @@ impl GameLogic {
         )
     }
 
+    /// C++ `charge->getControllingPlayer()->getRelationship(victim->getTeam())`
+    /// for a receiving Team identity. This deliberately omits both the source
+    /// Object's Team overrides and the trigger Object's defector override.
+    pub(crate) fn object_relationship_from_owner_to_team_identity(
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+        players: &std::collections::HashMap<u32, crate::game_logic::Player>,
+        source_owner: Option<u32>,
+        target_owner: Option<u32>,
+        target_team_id: Option<u32>,
+        target_team_instance: &str,
+    ) -> gamelogic::common::Relationship {
+        Self::object_relationship_from_identities(
+            team_factory,
+            players,
+            source_owner,
+            None,
+            "",
+            target_owner,
+            target_team_id,
+            target_team_instance,
+        )
+    }
+
     fn object_relationship_from_identities(
         team_factory: &gamelogic::team::TeamFactoryHandle,
         players: &std::collections::HashMap<u32, crate::game_logic::Player>,
