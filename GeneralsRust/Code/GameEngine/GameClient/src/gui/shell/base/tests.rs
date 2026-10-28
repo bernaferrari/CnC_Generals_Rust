@@ -867,6 +867,71 @@ End
     }
 
     #[test]
+    fn shell_update_uses_each_receiving_clients_shell_map_setting() {
+        let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        test_owner.with_scope(|| {
+            let _guard = shell_global_test_lock()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            game_engine::common::ini::ini_game_data::init_global_data();
+            if let Some(global) = get_global_data() {
+                // Both clients deliberately disagree with this ambient value.
+                global.write().shell_map_on = false;
+            }
+
+            let mut enabled_mailbox =
+                crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+            enabled_mailbox.configure_shell_map(
+                crate::gui::campaign_launch_host_bridge::ShellMapSettings {
+                    initial_file: String::new(),
+                    enabled: true,
+                    map: "ShellA".into(),
+                },
+            );
+            let mut disabled_mailbox =
+                crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+            disabled_mailbox.configure_shell_map(
+                crate::gui::campaign_launch_host_bridge::ShellMapSettings {
+                    initial_file: String::new(),
+                    enabled: false,
+                    map: "ShellB".into(),
+                },
+            );
+
+            let mut enabled_shell = Shell::new();
+            enabled_shell.shell_map_on = true;
+            enabled_shell.update_interval = Duration::ZERO;
+            enabled_shell.background = Some(Box::new(BasicWindowLayout::new(
+                "enabled-background.wnd".into(),
+            )));
+            let mut disabled_shell = Shell::new();
+            disabled_shell.shell_map_on = true;
+            disabled_shell.update_interval = Duration::ZERO;
+            disabled_shell.background = Some(Box::new(BasicWindowLayout::new(
+                "disabled-background.wnd".into(),
+            )));
+
+            let mut enabled_messages = Vec::new();
+            let mut enabled_effects =
+                crate::gui::game_window::WindowEventEffects::new(&mut enabled_messages);
+            enabled_effects.menu_host = Some(&mut enabled_mailbox);
+            enabled_shell.update_receiving(&mut enabled_effects).unwrap();
+
+            let mut disabled_messages = Vec::new();
+            let mut disabled_effects =
+                crate::gui::game_window::WindowEventEffects::new(&mut disabled_messages);
+            disabled_effects.menu_host = Some(&mut disabled_mailbox);
+            disabled_shell.update_receiving(&mut disabled_effects).unwrap();
+
+            assert!(enabled_shell.background.is_none());
+            assert!(
+                disabled_shell.background.is_some(),
+                "the disabled receiving client must retain its background even while the peer has shell-map enabled"
+            );
+        });
+    }
+
+    #[test]
     fn test_shutdown_complete_keeps_clear_background_when_no_background_exists() {
         let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
         test_owner.with_scope(|| {

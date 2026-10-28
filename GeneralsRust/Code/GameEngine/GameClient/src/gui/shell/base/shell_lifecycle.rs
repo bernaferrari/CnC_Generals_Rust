@@ -709,10 +709,13 @@ impl Shell {
                 owner.drain_driving_shell(self, effects);
             }
 
-            let global_shell_map_on = get_global_data()
-                .map(|data| data.read().shell_map_on)
-                .unwrap_or(false);
-            if global_shell_map_on && self.shell_map_on && self.background.is_some() {
+            // The effective setting was admitted into this client's menu host
+            // when its shell was configured. Do not re-read process GlobalData
+            // here: another client may have different shell-map settings.
+            let receiving_shell_map_on = effects
+                .shell_map_settings()
+                .is_some_and(|settings| settings.enabled);
+            if receiving_shell_map_on && self.shell_map_on && self.background.is_some() {
                 if let Some(mut background) = self.background.take() {
                     background.destroy_windows_with_effects(effects);
                 }
