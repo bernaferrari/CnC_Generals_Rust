@@ -1156,6 +1156,15 @@ impl crate::game_logic::GameLogic {
 
     /// C++ `SupplyWarehouseCripplingBehavior` + `WAREHOUSE_SET_VALUE` drain.
     pub fn update_supply_warehouse_crippling(&mut self) {
+        self.update_supply_warehouse_crippling_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        );
+    }
+
+    pub(crate) fn update_supply_warehouse_crippling_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         self.drain_warehouse_script_set_values();
         let frame = self.frame as u32;
         let objects = &self.objects;
@@ -1166,44 +1175,70 @@ impl crate::game_logic::GameLogic {
                         == crate::game_logic::DockKind::SupplyWarehouse
             })
         });
-        let ids: Vec<ObjectId> = self
+        let warehouses: Vec<(ObjectId, std::sync::Weak<()>)> = self
             .objects
             .registered()
             .filter(|(_, o)| {
                 o.is_alive()
                     && o.thing().template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse
             })
-            .map(|(id, _)| *id)
+            .map(|(id, object)| {
+                (
+                    *id,
+                    std::sync::Arc::downgrade(&object.visual_draw_identity_token),
+                )
+            })
             .collect();
-        for id in ids {
-            let Some(obj) = self.objects.get_mut(&id) else {
+        for (id, birth) in warehouses {
+            let Some(obj) = self.objects.get(&id) else {
                 continue;
             };
+            if !birth.ptr_eq(&std::sync::Arc::downgrade(&obj.visual_draw_identity_token)) {
+                continue;
+            }
             let max_h = obj.health.maximum.max(obj.max_health).max(1.0);
             let cur = obj.health.current;
             // C++ onDamage resets SelfHealSupression. First observation below
             // max means damage already happened (module would be awake).
-            let state =
-                self.warehouse_crippling_states
-                    .entry(id)
-                    .or_insert(WarehouseCripplingState {
-                        last_health: if cur + 0.01 < max_h { max_h } else { cur },
-                        healing_suppressed_until_frame: u32::MAX,
-                        next_healing_frame: u32::MAX,
-                    });
-            let amount = warehouse_crippling_heal_amount(
-                frame,
-                cur,
-                max_h,
-                state.last_health,
-                &mut state.healing_suppressed_until_frame,
-                &mut state.next_healing_frame,
-            );
+            let amount = {
+                let state =
+                    self.warehouse_crippling_states
+                        .entry(id)
+                        .or_insert(WarehouseCripplingState {
+                            last_health: if cur + 0.01 < max_h { max_h } else { cur },
+                            healing_suppressed_until_frame: u32::MAX,
+                            next_healing_frame: u32::MAX,
+                        });
+                let amount = warehouse_crippling_heal_amount(
+                    frame,
+                    cur,
+                    max_h,
+                    state.last_health,
+                    &mut state.healing_suppressed_until_frame,
+                    &mut state.next_healing_frame,
+                );
+                amount
+            };
+            // The module-state borrow ends before entering the receiving
+            // world's synchronous Body/healing callbacks.
             if amount > 0.0 {
                 // C++ SupplyWarehouseCripplingBehavior::update attemptHealing.
-                obj.heal(amount, &mut self.health_events, self.frame);
+                // The source argument is NULL in the C++ call.
+                let _ = self.apply_owned_healing_with_effects(id, amount, None, effects);
+                // C++ resumes the module update after attemptHealing and reads
+                // the body's post-callback health before deciding its cadence.
+                let still_original = self.objects.get(&id).is_some_and(|obj| {
+                    birth.ptr_eq(&std::sync::Arc::downgrade(&obj.visual_draw_identity_token))
+                });
+                if still_original {
+                    if let Some(state) = self.warehouse_crippling_states.get_mut(&id) {
+                        let obj = self.objects.get(&id).expect("validated warehouse birth");
+                        state.last_health = obj.health.current;
+                    }
+                }
+            } else if let Some(state) = self.warehouse_crippling_states.get_mut(&id) {
+                state.last_health = cur;
             }
-            state.last_health = obj.health.current;
         }
     }
 
@@ -1396,6 +1431,49 @@ mod tests {
             &mut next,
         );
         assert_eq!(full, 0.0);
+    }
+
+    #[test]
+    fn warehouse_self_heal_uses_receiving_body_callback_without_an_emitter() {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+
+        fn world() -> (GameLogic, ObjectId) {
+            let mut logic = GameLogic::new();
+            let mut warehouse = ThingTemplate::new("OwnedWarehouse");
+            warehouse
+                .add_kind_of(KindOf::SupplySource)
+                .add_kind_of(KindOf::Structure)
+                .set_health(500.0);
+            warehouse.dock_kind = crate::game_logic::DockKind::SupplyWarehouse;
+            logic.templates.insert(warehouse.name.clone(), warehouse);
+            let id = logic
+                .create_object("OwnedWarehouse", Team::GLA, Vec3::ZERO)
+                .unwrap();
+            logic
+                .host_object_mut(id)
+                .unwrap()
+                .internal_change_health(-300.0);
+            (logic, id)
+        }
+
+        let (mut receiving, id) = world();
+        let (peer, peer_id) = world();
+        assert_eq!(id, peer_id);
+        receiving.frame = 0;
+        receiving.update_supply_warehouse_crippling();
+        receiving.frame = 90;
+        receiving.update_supply_warehouse_crippling();
+
+        let healed = receiving.host_object(id).unwrap();
+        assert!((healed.health.current - 205.0).abs() < 0.01);
+        assert_eq!(healed.last_damage_info_type, Some(DamageType::Healing));
+        assert_eq!(healed.last_damage_source, None);
+        assert_eq!(healed.last_healing_timestamp, Some(90));
+        let foreign = peer.host_object(peer_id).unwrap();
+        assert_eq!(foreign.health.current, 200.0);
+        assert_eq!(foreign.last_damage_info_type, None);
+        assert_eq!(foreign.last_healing_timestamp, None);
     }
 
     #[test]

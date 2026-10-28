@@ -210,7 +210,7 @@ impl GameLogic {
             return SimulationStepOutcome::Failed(error);
         }
         // C++ TransportContain::update HealthRegen%PerSec on embarked riders.
-        self.update_transport_health_regen(dt);
+        self.update_transport_health_regen_with_effects(dt, &mut ui);
 
         // Host China Propaganda / Speaker Tower residual: heal + ENTHUSIASTIC buff.
         // Fail-closed vs full PropagandaTowerBehavior sole-benefactor / PulseFX matrix.
@@ -529,7 +529,7 @@ impl GameLogic {
         {
             self.update_base_regenerate_with_effects(&mut ui);
         }
-        self.update_supply_warehouse_crippling();
+        self.update_supply_warehouse_crippling_with_effects(&mut ui);
 
         // Wave 781: host-sole unless movement authority live: EnemyNearUpdate is owned by
         // GW tick_status_timer_expirations + writeback.

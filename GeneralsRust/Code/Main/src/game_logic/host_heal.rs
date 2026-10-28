@@ -401,11 +401,27 @@ impl GameLogic {
     ///
     /// Leftover tick uses `dt` seconds: `maxHealth * percent / 100 * dt`.
     pub fn update_transport_health_regen(&mut self, dt: f32) {
+        self.update_transport_health_regen_with_effects(
+            dt,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        );
+    }
+
+    pub(crate) fn update_transport_health_regen_with_effects(
+        &mut self,
+        dt: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if dt <= 0.0 {
             return;
         }
 
-        let carriers: Vec<(ObjectId, Vec<ObjectId>, f32)> = self
+        let carriers: Vec<(
+            ObjectId,
+            std::sync::Weak<()>,
+            Vec<(ObjectId, std::sync::Weak<()>)>,
+            f32,
+        )> = self
             .objects
             .registered()
             .filter_map(|(id, obj)| {
@@ -420,15 +436,47 @@ impl GameLogic {
                 if riders.is_empty() {
                     return None;
                 }
-                Some((*id, riders, percent))
+                let riders = riders
+                    .into_iter()
+                    .filter_map(|rider_id| {
+                        self.objects.get(&rider_id).map(|rider| {
+                            (
+                                rider_id,
+                                std::sync::Arc::downgrade(&rider.visual_draw_identity_token),
+                            )
+                        })
+                    })
+                    .collect();
+                Some((
+                    *id,
+                    std::sync::Arc::downgrade(&obj.visual_draw_identity_token),
+                    riders,
+                    percent,
+                ))
             })
             .collect();
 
-        for (_carrier_id, riders, percent) in carriers {
-            for rider_id in riders {
-                let Some(rider) = self.objects.get_mut(&rider_id) else {
+        for (carrier_id, carrier_birth, riders, percent) in carriers {
+            for (rider_id, rider_birth) in riders {
+                let Some(carrier) = self.objects.get(&carrier_id) else {
+                    break;
+                };
+                if !carrier_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &carrier.visual_draw_identity_token,
+                )) {
+                    break;
+                }
+                if !carrier.contained_units().contains(&rider_id) {
+                    continue;
+                }
+                let Some(rider) = self.objects.get(&rider_id) else {
                     continue;
                 };
+                if !rider_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &rider.visual_draw_identity_token,
+                )) {
+                    continue;
+                }
                 if !rider.is_alive() {
                     continue;
                 }
@@ -438,7 +486,16 @@ impl GameLogic {
                 }
                 let regen = leftover_transport_embarked_heal_amount(max_health, percent, dt);
                 if regen > 0.0 {
-                    rider.heal(regen, &mut self.health_events, self.frame);
+                    // C++ TransportContain::update calls attemptHealing with
+                    // the carrier as the source. Resolve both objects through
+                    // the receiving GameLogic callback path, retaining this
+                    // tick's native presentation recipient across the body callback.
+                    let _ = self.apply_owned_healing_with_effects(
+                        rider_id,
+                        regen,
+                        Some(carrier_id),
+                        effects,
+                    );
                 }
             }
         }
@@ -448,6 +505,58 @@ impl GameLogic {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn transport_heal_world() -> (GameLogic, ObjectId, ObjectId) {
+        use crate::game_logic::{Player, Team};
+        use glam::Vec3;
+
+        let content = crate::assets::ReceivingObjectContent::from_sources([(
+            "transport_heal_owner.ini".to_string(),
+            "Object AmericaVehicleAmbulance\n KindOf = VEHICLE\n TransportSlotCount = 1\n Body = ActiveBody BodyTag\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = TransportContain ContainTag\n Slots = 3\n AllowInsideKindOf = INFANTRY\n End\nEnd\nObject TransportRider\n KindOf = INFANTRY\n TransportSlotCount = 1\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".to_string(),
+        )])
+        .unwrap();
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(1, Team::USA, "TransportHealOwner", true));
+        world.admit_receiving_module_content(content).unwrap();
+        let carrier = world
+            .create_object_for_player("AmericaVehicleAmbulance", 1, Vec3::ZERO)
+            .unwrap();
+        let rider = world
+            .create_object_for_player("TransportRider", 1, Vec3::ZERO)
+            .unwrap();
+        assert!(world.host_object_mut(carrier).unwrap().add_occupant(rider));
+        world
+            .host_object_mut(rider)
+            .unwrap()
+            .set_contained_by(Some(carrier));
+        world
+            .host_object_mut(rider)
+            .unwrap()
+            .internal_change_health(-80.0);
+        (world, carrier, rider)
+    }
+
+    #[test]
+    fn transport_regen_uses_receiving_world_and_carrier_as_healing_source() {
+        use crate::game_logic::combat::DamageType;
+
+        let (mut receiving, carrier, rider) = transport_heal_world();
+        let (peer, peer_carrier, peer_rider) = transport_heal_world();
+        assert_eq!((carrier, rider), (peer_carrier, peer_rider));
+        receiving.frame = 41;
+        receiving.update_transport_health_regen(1.0);
+
+        let healed = receiving.host_object(rider).unwrap();
+        assert!((healed.health.current - 45.0).abs() < 0.01);
+        assert_eq!(healed.last_damage_info_type, Some(DamageType::Healing));
+        assert_eq!(healed.last_damage_source, Some(carrier));
+        assert_eq!(healed.last_healing_timestamp, Some(41));
+        let foreign = peer.host_object(peer_rider).unwrap();
+        assert_eq!(foreign.health.current, 20.0);
+        assert_eq!(foreign.last_damage_info_type, None);
+        assert_eq!(foreign.last_damage_source, None);
+        assert_eq!(foreign.last_healing_timestamp, None);
+    }
 
     #[test]
     fn ambulance_healer_name_matrix() {
