@@ -1,6 +1,6 @@
 //! Ephemeral loans for one synchronous script/callback walk, never world state.
 use crate::assets::LiveDrawPlaybackIdentity;
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct NativeSlaveSource {
     pub(crate) identity: LiveDrawPlaybackIdentity,
     pub(crate) template_name: String,

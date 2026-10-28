@@ -183,7 +183,7 @@ impl GameLogic {
     pub(crate) fn spawn_particle_sys_bones_for_object(
         &mut self,
         object_id: ObjectId,
-        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ReceivingParticlePoseAccess,
     ) {
         let Some(obj) = self.objects.get(&object_id) else {
             return;
@@ -203,12 +203,28 @@ impl GameLogic {
             yaw,
             self.host_fx_object_is_shrouded(object_id.0),
         );
+        let source = particle_owner
+            .receiving_local_player_id()
+            .or_else(|| self.local_player_id())
+            .and_then(
+                |player| match self.current_native_slave_source(object_id, player) {
+                    Ok(source) => Some(source),
+                    Err(error) => {
+                        log::error!(
+                            "receiving ParticleSysBone source unavailable for {:?}: {error}",
+                            object_id
+                        );
+                        None
+                    }
+                },
+            );
         self.combat_particles.sync_particle_sys_bones(
             frame,
             object_id,
             pos,
             &bones,
             pose,
+            source.as_ref(),
             particle_owner,
         );
     }
@@ -216,7 +232,7 @@ impl GameLogic {
     /// Keep ParticleSysBone and damaged-body fire/smoke attached to live objects.
     pub(crate) fn sync_live_state_particles(
         &mut self,
-        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ReceivingParticlePoseAccess,
     ) {
         let frame = self.frame;
         let snapshots: Vec<_> = self
@@ -237,11 +253,6 @@ impl GameLogic {
             })
             .collect();
         for (id, pos, template, model, scale, yaw, bits) in snapshots {
-            if gamelogic::object::update::leftover_template_uses_animated_particle_sys_bones(
-                &template,
-            ) {
-                gamelogic::object::update::tick_live_host_animated_particle_sys_bones(id.0);
-            }
             let bones = self.receiving_particle_sys_bones(&template, bits);
             let pose = crate::game_logic::combat_particles::BodyAutoParticlePose::with_visibility(
                 &model,
@@ -249,12 +260,28 @@ impl GameLogic {
                 yaw,
                 self.host_fx_object_is_shrouded(id.0),
             );
+            let source = particle_owner
+                .receiving_local_player_id()
+                .or_else(|| self.local_player_id())
+                .and_then(
+                    |player| match self.current_native_slave_source(id, player) {
+                        Ok(source) => Some(source),
+                        Err(error) => {
+                            log::error!(
+                                "receiving ParticleSysBone source unavailable for {:?}: {error}",
+                                id
+                            );
+                            None
+                        }
+                    },
+                );
             self.combat_particles.sync_particle_sys_bones(
                 frame,
                 id,
                 pos,
                 &bones,
                 pose,
+                source.as_ref(),
                 particle_owner,
             );
             // ActiveBody replaces its auto particles at its own visual and
@@ -310,10 +337,9 @@ mod particle_sys_bone_owner_tests {
             b.receiving_particle_sys_bones("SharedFxOwner", 0),
             vec![("fire".to_owned(), "WorldBFire".to_owned())]
         );
-        assert!(
-            a.receiving_particle_sys_bones("MissingInReceivingCatalog", 0)
-                .is_empty()
-        );
+        assert!(a
+            .receiving_particle_sys_bones("MissingInReceivingCatalog", 0)
+            .is_empty());
         let empty = world_with_empty_receiving_template("RepairVehiclesInAreaMarker");
         assert!(
             empty

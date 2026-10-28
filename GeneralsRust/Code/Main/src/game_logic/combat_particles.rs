@@ -17,8 +17,9 @@ use std::collections::{HashMap, HashSet};
 #[path = "combat_particle_bindings.rs"]
 mod client_bindings;
 pub use client_bindings::ParticleBindingAccess;
+pub(crate) use client_bindings::ReceivingParticlePoseAccess;
 use client_bindings::{
-    ClientParticleBinding, can_retire_bindings, retire_client_binding, spawn_client_binding,
+    can_retire_bindings, retire_client_binding, spawn_client_binding, ClientParticleBinding,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1089,18 +1090,16 @@ impl CombatParticleRegistry {
     }
 
     /// C++ `W3DModelDraw::recalcBonesForClientParticleSystems` for one object.
-    pub fn sync_particle_sys_bones(
+    pub(crate) fn sync_particle_sys_bones(
         &mut self,
         frame: u32,
         owner: ObjectId,
         position: Vec3,
         bones: &[(String, String)],
         pose: BodyAutoParticlePose<'_>,
-        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+        source: Option<&crate::game_logic::NativeSlaveSource>,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ReceivingParticlePoseAccess,
     ) {
-        // C++ AnimatedParticleSysBoneClientUpdate::clientUpdate leftover-tick.
-        // Distinct from spawn-time recalcBonesForClientParticleSystems (pristine).
-        gamelogic::object::update::tick_live_host_animated_particle_sys_bones(owner.0);
         let wanted: Vec<(String, String)> = bones
             .iter()
             .filter_map(|(bone, system)| {
@@ -1125,7 +1124,39 @@ impl CombatParticleRegistry {
             self.deactivate(id, particle_owner);
         }
         for (bone, system) in wanted {
-            let (local, z_rot) = leftover_or_pristine_particle_sys_bone_pose(&pose, &bone);
+            // C++ treats a missing bone name (`NONE`) as the object's origin.
+            // An authored named bone is different: missing receiving pose data
+            // must not invent an origin spawn or overwrite an existing binding.
+            let (local, z_rot) = if bone.trim().is_empty() || bone.eq_ignore_ascii_case("none") {
+                (Vec3::ZERO, 0.0)
+            } else {
+                let Some(source) = source else {
+                    log::error!(
+                        "receiving ParticleSysBone source unavailable for named bone {} on {:?}",
+                        bone,
+                        owner
+                    );
+                    continue;
+                };
+                match particle_sys_bone_pose_from_receiver(&bone, source, particle_owner) {
+                    Ok(Some(pose)) => pose,
+                    Ok(None) => {
+                        log::error!(
+                            "receiving ParticleSysBone named bone {} has no transform on {:?}",
+                            bone,
+                            owner
+                        );
+                        continue;
+                    }
+                    Err(error) => {
+                        log::error!(
+                            "receiving ParticleSysBone pose unavailable for named bone {} on {:?}: {error}",
+                            bone, owner
+                        );
+                        continue;
+                    }
+                }
+            };
             let world = rotate_yaw_host(position, pose.yaw, local);
             let existing = self.systems.values().find_map(|entry| {
                 (entry.active
@@ -1162,24 +1193,43 @@ impl CombatParticleRegistry {
     }
 
     /// C++ `ActiveBody::updateBodyParticleSystems` on body-state change.
-    pub fn replace_body_auto_particles(
+    pub(crate) fn replace_body_auto_particles(
         &mut self,
         owner: ObjectId,
         position: Vec3,
         frame: u32,
         aflame: bool,
         pose: BodyAutoParticlePose<'_>,
-        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ReceivingParticlePoseAccess,
         random: &mut game_engine::common::random_value::RandomState,
     ) {
+        let specs = body_auto_particle_specs(aflame, &self.body_auto_particle_effective);
+        let locals = specs
+            .iter()
+            .map(|spec| match pose.source {
+                Some(source) => match body_prefix_bone_locals_from_receiver(
+                    source,
+                    spec.prefix.as_str(),
+                    MAX_BODY_PARTICLE_BONES,
+                    particle_owner,
+                ) {
+                    Ok(locals) => locals,
+                    Err(error) => {
+                        log::error!("receiving body particle bones unavailable: {error}");
+                        Vec::new()
+                    }
+                },
+                None => Vec::new(),
+            })
+            .collect();
         self.replace_body_auto_particles_resolved(
             owner,
             position,
             frame,
-            aflame,
+            specs,
+            locals,
             pose.yaw,
             pose.is_shrouded,
-            |prefix, max| body_prefix_bone_locals(pose.model, pose.scale, prefix, max),
             particle_owner,
             random,
         );
@@ -1193,38 +1243,43 @@ impl CombatParticleRegistry {
         frame: u32,
         aflame: bool,
         prefix_bones: &[(String, Vec<Vec3>)],
-        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ReceivingParticlePoseAccess,
         random: &mut game_engine::common::random_value::RandomState,
     ) {
+        let specs = body_auto_particle_specs(aflame, &self.body_auto_particle_effective);
+        let locals = specs
+            .iter()
+            .map(|spec| {
+                prefix_bones
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case(&spec.prefix))
+                    .map(|(_, bones)| bones.iter().map(|world| *world - position).collect())
+                    .unwrap_or_default()
+            })
+            .collect();
         self.replace_body_auto_particles_resolved(
             owner,
             position,
             frame,
-            aflame,
+            specs,
+            locals,
             0.0,
             None,
-            |prefix, _max| {
-                prefix_bones
-                    .iter()
-                    .find(|(name, _)| name.eq_ignore_ascii_case(prefix))
-                    .map(|(_, bones)| bones.iter().map(|world| *world - position).collect())
-                    .unwrap_or_default()
-            },
             particle_owner,
             random,
         );
     }
 
-    fn replace_body_auto_particles_resolved(
+    fn replace_body_auto_particles_resolved<P: crate::game_logic::combat_particles::ParticleBindingAccess + ?Sized>(
         &mut self,
         owner: ObjectId,
         position: Vec3,
         frame: u32,
-        aflame: bool,
+        specs: Vec<BodyAutoParticleSpec>,
+        locals: Vec<Vec<Vec3>>,
         yaw: f32,
         is_shrouded: Option<bool>,
-        resolve_locals: impl Fn(&str, usize) -> Vec<Vec3>,
-        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+        particle_owner: &mut P,
         random: &mut game_engine::common::random_value::RandomState,
     ) {
         let stale: Vec<u32> = self
@@ -1243,11 +1298,10 @@ impl CombatParticleRegistry {
         for id in stale {
             self.deactivate(id, particle_owner);
         }
-        for spec in body_auto_particle_specs(aflame, &self.body_auto_particle_effective) {
+        for (spec, locals) in specs.into_iter().zip(locals) {
             let Some(template) = usable_particle_template_name(spec.template.as_str()) else {
                 continue;
             };
-            let locals = resolve_locals(spec.prefix.as_str(), MAX_BODY_PARTICLE_BONES);
             spawn_body_systems_on_bones(
                 self,
                 spec.kind,
@@ -1332,20 +1386,20 @@ impl CombatParticleRegistry {
         }
     }
 
-    pub fn deactivate(
+    pub fn deactivate<P: crate::game_logic::combat_particles::ParticleBindingAccess + ?Sized>(
         &mut self,
         id: u32,
-        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+        particle_owner: &mut P,
     ) {
         let _ = self.try_deactivate(id, particle_owner);
     }
 
     /// Keep the ownership receipt until its actual client resource retires.
     /// Callers holding an attached ID must retain it when this returns false.
-    pub(crate) fn try_deactivate(
+    pub(crate) fn try_deactivate<P: crate::game_logic::combat_particles::ParticleBindingAccess + ?Sized>(
         &mut self,
         id: u32,
-        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+        particle_owner: &mut P,
     ) -> bool {
         if let Some(binding) = self.client_bindings.get(&id) {
             if !retire_client_binding(binding, particle_owner) {
@@ -1380,6 +1434,7 @@ pub struct BodyAutoParticlePose<'a> {
     pub scale: f32,
     pub yaw: f32,
     pub is_shrouded: Option<bool>,
+    pub(crate) source: Option<&'a crate::game_logic::NativeSlaveSource>,
 }
 
 impl<'a> BodyAutoParticlePose<'a> {
@@ -1389,6 +1444,7 @@ impl<'a> BodyAutoParticlePose<'a> {
             scale,
             yaw,
             is_shrouded: None,
+            source: None,
         }
     }
     pub fn with_visibility(model: &'a str, scale: f32, yaw: f32, is_shrouded: bool) -> Self {
@@ -1397,6 +1453,22 @@ impl<'a> BodyAutoParticlePose<'a> {
             scale,
             yaw,
             is_shrouded: Some(is_shrouded),
+            source: None,
+        }
+    }
+    pub(crate) fn with_receiving_source(
+        model: &'a str,
+        scale: f32,
+        yaw: f32,
+        is_shrouded: bool,
+        source: &'a crate::game_logic::NativeSlaveSource,
+    ) -> Self {
+        Self {
+            model,
+            scale,
+            yaw,
+            is_shrouded: Some(is_shrouded),
+            source: Some(source),
         }
     }
 }
@@ -1483,10 +1555,6 @@ fn body_auto_particle_specs(
     specs
 }
 
-fn cpp_bone_to_host_local(bone: gamelogic::common::Coord3D) -> Vec3 {
-    Vec3::new(bone.x, bone.z, bone.y)
-}
-
 fn host_local_to_cpp(local: Vec3) -> gamelogic::common::Coord3D {
     gamelogic::common::Coord3D::new(local.x, local.z, local.y)
 }
@@ -1500,70 +1568,59 @@ fn rotate_yaw_host(origin: Vec3, yaw: f32, local: Vec3) -> Vec3 {
     )
 }
 
-fn particle_sys_bone_local(pose: &BodyAutoParticlePose<'_>, bone: &str) -> Vec3 {
-    particle_sys_bone_pose(pose, bone).0
-}
-
-/// C++ `getPristineBonePositions` + `Matrix3D::Get_Z_Rotation`.
-fn particle_sys_bone_pose(pose: &BodyAutoParticlePose<'_>, bone: &str) -> (Vec3, f32) {
-    if bone.is_empty() || bone.eq_ignore_ascii_case("none") || pose.model.is_empty() {
-        return (Vec3::ZERO, 0.0);
-    }
-    gamelogic::object::draw::lookup_pristine_bone_pose(pose.model, pose.scale, bone)
-        .map(|(translation, z_rot)| (cpp_bone_to_host_local(translation), z_rot))
-        .unwrap_or((Vec3::ZERO, 0.0))
-}
-
-/// Leftover current-client bone when leftover authored animated-bone follow.
-fn leftover_or_pristine_particle_sys_bone_pose(
-    pose: &BodyAutoParticlePose<'_>,
+/// C++ `W3DModelDraw::recalcBonesForClientParticleSystems` uses the receiving
+/// installed draw's bone lookup. A successful lookup with zero matches is a
+/// valid origin placement; absence of that receiving capability is an error.
+fn particle_sys_bone_pose_from_receiver(
     bone: &str,
-) -> (Vec3, f32) {
-    if bone.is_empty() || bone.eq_ignore_ascii_case("none") || pose.model.is_empty() {
-        return (Vec3::ZERO, 0.0);
+    source: &crate::game_logic::NativeSlaveSource,
+    particle_owner: &mut dyn crate::game_logic::combat_particles::ReceivingParticlePoseAccess,
+) -> Result<Option<(Vec3, f32)>, String> {
+    if bone.trim().is_empty() || bone.eq_ignore_ascii_case("none") {
+        return Ok(None);
     }
-    if let Some((translation, z_rot)) =
-        gamelogic::object::draw::lookup_current_client_bone_pose(pose.model, pose.scale, 0, bone)
-    {
-        return (cpp_bone_to_host_local(translation), z_rot);
-    }
-    particle_sys_bone_pose(pose, bone)
+    let transforms = particle_owner
+        .current_bone_transforms(source, bone, 0, 1)?
+        .ok_or_else(|| "receiving installed-draw bone capability unavailable".to_string())?;
+    let Some(transform) = transforms.into_iter().next() else {
+        // C++ Get_Bone_Index returns zero for an unknown name; its caller then
+        // still creates the system at the object origin.
+        return Ok(Some((Vec3::ZERO, 0.0)));
+    };
+    let translation = transform.w_axis.truncate();
+    let cols = transform.to_cols_array();
+    let z_rotation = cols[1].atan2(cols[0]);
+    Ok(Some((
+        Vec3::new(translation.x, translation.z, translation.y),
+        z_rotation,
+    )))
 }
 
-fn body_prefix_bone_locals(model: &str, scale: f32, prefix: &str, max: usize) -> Vec<Vec3> {
-    if prefix.is_empty() || max == 0 {
-        return Vec::new();
-    }
-    let mut out = Vec::new();
-    for i in 1..=max {
-        let name = format!("{prefix}{i:02}");
-        let Some(local) =
-            gamelogic::object::draw::lookup_pristine_bone_translation(model, scale, &name)
-        else {
-            break;
-        };
-        out.push(cpp_bone_to_host_local(local));
-    }
-    out
-}
-
-/// C++ `getMultiLogicalBonePosition(prefix, MAX_BONES)` then world-transform.
-pub fn body_prefix_bone_worlds(
-    model: &str,
-    scale: f32,
-    origin: Vec3,
-    yaw: f32,
+fn body_prefix_bone_locals_from_receiver(
+    source: &crate::game_logic::NativeSlaveSource,
     prefix: &str,
     max: usize,
-) -> Vec<Vec3> {
-    body_prefix_bone_locals(model, scale, prefix, max)
+    particle_owner: &mut dyn crate::game_logic::combat_particles::ReceivingParticlePoseAccess,
+) -> Result<Vec<Vec3>, String> {
+    if prefix.is_empty() || max == 0 {
+        return Ok(Vec::new());
+    }
+    // ActiveBody::createParticleSystems specifically calls the receiving
+    // pristine-bone path; current animated HAnim transforms are not equivalent.
+    let transforms = particle_owner
+        .pristine_bone_transforms(source, prefix, 1, max)?
+        .ok_or_else(|| "receiving pristine-bone capability unavailable".to_string())?;
+    Ok(transforms
         .into_iter()
-        .map(|local| rotate_yaw_host(origin, yaw, local))
-        .collect()
+        .map(|transform| {
+            let translation = transform.w_axis.truncate();
+            Vec3::new(translation.x, translation.z, translation.y)
+        })
+        .collect())
 }
 
 /// C++ create + local `setPosition` + attach. Never an unattached xyz preset.
-fn spawn_attached_system(
+fn spawn_attached_system<P: crate::game_logic::combat_particles::ParticleBindingAccess + ?Sized>(
     registry: &mut CombatParticleRegistry,
     kind: CombatParticleKind,
     template: &str,
@@ -1575,7 +1632,7 @@ fn spawn_attached_system(
     lifetime: Option<u32>,
     local_z_rot: f32,
     is_shrouded: bool,
-    particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+    particle_owner: &mut P,
 ) -> u32 {
     let world = rotate_yaw_host(origin, yaw, local);
     let id = registry.next_id;
@@ -1611,7 +1668,7 @@ fn spawn_attached_system(
 }
 
 /// C++ `ActiveBody::createParticleSystems` random unused-bone pick.
-fn spawn_body_systems_on_bones(
+fn spawn_body_systems_on_bones<P: crate::game_logic::combat_particles::ParticleBindingAccess + ?Sized>(
     registry: &mut CombatParticleRegistry,
     kind: CombatParticleKind,
     template: &str,
@@ -1622,7 +1679,7 @@ fn spawn_body_systems_on_bones(
     max_systems: i32,
     bone_locals: &[Vec3],
     is_shrouded: bool,
-    particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+    particle_owner: &mut P,
     random: &mut game_engine::common::random_value::RandomState,
 ) {
     if max_systems <= 0 || bone_locals.is_empty() {
@@ -1734,23 +1791,6 @@ pub fn particle_sys_bones_for_template(
 mod tests {
     use super::*;
 
-    fn registry_with_body_particles() -> CombatParticleRegistry {
-        use game_engine::common::ini::ini_game_data::BodyAutoParticleRules;
-        let mut rules = BodyAutoParticleRules::default();
-        rules.fire_small_prefix = "FIRESMALL".into();
-        rules.fire_small_system = "FireSmall".into();
-        rules.fire_medium_system = "FireMedium".into();
-        rules.fire_large_prefix = "FIRELARGE".into();
-        rules.fire_large_system = "FireLarge".into();
-        rules.smoke_small_prefix = "SMOKESMALL".into();
-        rules.smoke_small_system = "SmokeSmall".into();
-        rules.aflame_prefix = "AFLAME".into();
-        rules.aflame_system = "AutoAflame".into();
-        let mut registry = CombatParticleRegistry::new();
-        registry.admit_body_auto_particle_baseline(rules);
-        registry
-    }
-
     #[test]
     fn pristine_body_still_resolves_authored_auto_particle_bones() {
         use game_engine::common::ini::ini_game_data::BodyAutoParticleRules;
@@ -1770,13 +1810,11 @@ mod tests {
             &mut (),
             &mut Default::default(),
         );
-        assert!(
-            registry
-                .systems_of_kind(CombatParticleKind::BodyFire)
-                .iter()
-                .any(|entry| entry.source_object == Some(owner)
-                    && entry.template_name == "PristineFireWitness")
-        );
+        assert!(registry
+            .systems_of_kind(CombatParticleKind::BodyFire)
+            .iter()
+            .any(|entry| entry.source_object == Some(owner)
+                && entry.template_name == "PristineFireWitness"));
         registry.clear().unwrap();
     }
 
@@ -2123,11 +2161,10 @@ mod tests {
         // C++ Weapon.cpp:903-939 plays nothing at the impact without an
         // authored DetonationFX list — never a generic BulletImpact preset.
         assert_eq!(ids.len(), 1, "only the muzzle entry may spawn");
-        assert!(
-            !reg.systems
-                .values()
-                .any(|entry| entry.kind == CombatParticleKind::WeaponImpact),
-        );
+        assert!(!reg
+            .systems
+            .values()
+            .any(|entry| entry.kind == CombatParticleKind::WeaponImpact),);
     }
 
     #[test]
@@ -2222,10 +2259,9 @@ mod tests {
             !reg.get(exhaust_id).expect("retained history entry").active,
             "trail is destroyed when the projectile impacts or expires"
         );
-        assert!(
-            reg.systems_of_kind(CombatParticleKind::ProjectileExhaust)
-                .is_empty()
-        );
+        assert!(reg
+            .systems_of_kind(CombatParticleKind::ProjectileExhaust)
+            .is_empty());
 
         reg.sync_projectile_exhausts(
             13,
@@ -2265,15 +2301,41 @@ mod tests {
 
     #[test]
     fn particle_sys_bones_and_body_fire_attach() {
-        let mut reg = registry_with_body_particles();
+        use game_engine::common::ini::ini_game_data::BodyAutoParticleRules;
+        let mut reg = CombatParticleRegistry::new();
+        let mut rules = BodyAutoParticleRules::default();
+        rules.fire_small_prefix = "FIRESMALL".into();
+        rules.fire_small_system = "FireSmall".into();
+        rules.fire_small_max = 1;
+        rules.fire_medium_prefix = "FIREMEDIUM".into();
+        rules.fire_medium_system = "FireMedium".into();
+        rules.fire_medium_max = 1;
+        rules.fire_large_prefix = "FIRELARGE".into();
+        rules.fire_large_system = "FireLarge".into();
+        rules.fire_large_max = 1;
+        rules.smoke_small_prefix = "SMOKESMALL".into();
+        rules.smoke_small_system = "SmokeSmall".into();
+        rules.smoke_small_max = 1;
+        rules.smoke_medium_prefix = "SMOKEMEDIUM".into();
+        rules.smoke_medium_system = "SmokeMedium".into();
+        rules.smoke_medium_max = 1;
+        rules.smoke_large_prefix = "SMOKELARGE".into();
+        rules.smoke_large_system = "SmokeLarge".into();
+        rules.smoke_large_max = 1;
+        rules.aflame_prefix = "AFLAME".into();
+        rules.aflame_system = "Aflame".into();
+        rules.aflame_max = 1;
+        reg.admit_body_auto_particle_baseline(rules);
         let owner = ObjectId(11);
         let pos = Vec3::new(2.0, 0.0, 3.0);
         reg.sync_particle_sys_bones(
             4,
             owner,
             pos,
-            &[("exhaust01".to_string(), "DieselSmoke".to_string())],
+            &[("None".to_string(), "DieselSmoke".to_string())],
             BodyAutoParticlePose::new("", 1.0, 0.0),
+            None,
+            &mut (),
         );
         let bones = reg.systems_of_kind(CombatParticleKind::ParticleSysBone);
         assert_eq!(bones.len(), 1);
@@ -2460,6 +2522,8 @@ mod tests {
             origin,
             &[],
             BodyAutoParticlePose::new("", 1.0, 0.0),
+            None,
+            &mut (),
         );
         assert!(
             reg.get(id).expect("kept").active,
@@ -2474,7 +2538,13 @@ mod tests {
 
     #[test]
     fn attached_fire_follows_parent_times_local_yaw() {
-        let mut reg = registry_with_body_particles();
+        use game_engine::common::ini::ini_game_data::BodyAutoParticleRules;
+        let mut reg = CombatParticleRegistry::new();
+        let mut rules = BodyAutoParticleRules::default();
+        rules.fire_small_prefix = "FIRESMALL".into();
+        rules.fire_small_system = "FireSmall".into();
+        rules.fire_small_max = 1;
+        reg.admit_body_auto_particle_baseline(rules);
         let owner = ObjectId(3);
         let origin = Vec3::new(0.0, 0.0, 0.0);
         let fire_bone = Vec3::new(5.0, 2.0, 0.0);

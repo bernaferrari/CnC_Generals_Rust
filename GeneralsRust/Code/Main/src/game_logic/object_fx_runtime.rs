@@ -206,6 +206,7 @@ impl ObjectFxServices<'_, '_> {
         body_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
         frame: u32,
     ) {
+        let source = self.environment.source(object).ok();
         crate::game_logic::body_particle_runtime::update_body_auto_particles(
             particles,
             object,
@@ -215,6 +216,7 @@ impl ObjectFxServices<'_, '_> {
             self.shroud,
             &mut *self.effects,
             &mut self.session.client_random,
+            source.as_ref(),
         );
     }
 }

@@ -8,8 +8,9 @@ pub(crate) fn update_body_auto_particles(
     frame: u32,
     player: Option<u32>,
     shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
-    particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+    particle_owner: &mut dyn crate::game_logic::combat_particles::ReceivingParticlePoseAccess,
     random: &mut game_engine::common::random_value::RandomState,
+    source: Option<&crate::game_logic::NativeSlaveSource>,
 ) {
     let position = object.get_position();
     // NativeVisualState is emitted before Object::rebuild_model_condition_bits
@@ -35,12 +36,37 @@ pub(crate) fn update_body_auto_particles(
             .fire_spread
             .as_ref()
             .is_some_and(|spread| spread.is_aflame());
-    let pose = crate::game_logic::combat_particles::BodyAutoParticlePose::with_visibility(
-        &model,
-        scale,
-        yaw,
-        crate::game_logic::GameLogic::host_fx_visibility_for(player, shroud, object.id.0),
-    );
+    let mut receiving_source = source.cloned();
+    if receiving_source.is_none() {
+        log::error!(
+            "receiving Body particle Draw source unavailable for {:?}",
+            object.id
+        );
+    }
+    if let Some(source) = &mut receiving_source {
+        source.condition_bits =
+            crate::game_logic::host_enum_table_residual::host_apply_body_damage_model_bits(
+                source.condition_bits,
+                visual_state,
+            );
+    }
+    let pose = match receiving_source.as_ref() {
+        Some(source) => {
+            crate::game_logic::combat_particles::BodyAutoParticlePose::with_receiving_source(
+                &model,
+                scale,
+                yaw,
+                crate::game_logic::GameLogic::host_fx_visibility_for(player, shroud, object.id.0),
+                source,
+            )
+        }
+        None => crate::game_logic::combat_particles::BodyAutoParticlePose::with_visibility(
+            &model,
+            scale,
+            yaw,
+            crate::game_logic::GameLogic::host_fx_visibility_for(player, shroud, object.id.0),
+        ),
+    };
     particles.replace_body_auto_particles(
         object.id,
         position,
@@ -61,6 +87,8 @@ pub(crate) struct HeadlessBodyParticleUpdate<'a> {
     pub shroud:
         &'a std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
     pub frame: u32,
+    pub source: Option<crate::game_logic::NativeSlaveSource>,
+    pub pristine_bones: Option<&'a dyn crate::assets::pristine_bones::PristineBoneAssets>,
 }
 
 impl HeadlessBodyParticleUpdate<'_> {
@@ -69,6 +97,10 @@ impl HeadlessBodyParticleUpdate<'_> {
         object: &crate::game_logic::Object,
         body_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
     ) {
+        let mut effects = crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: self.pristine_bones,
+            ..Default::default()
+        };
         update_body_auto_particles(
             self.particles,
             object,
@@ -76,8 +108,9 @@ impl HeadlessBodyParticleUpdate<'_> {
             self.frame,
             self.player,
             self.shroud,
-            &mut (),
+            &mut effects,
             self.random,
+            self.source.as_ref(),
         );
     }
 }

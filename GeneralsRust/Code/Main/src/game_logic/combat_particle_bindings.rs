@@ -33,6 +33,36 @@ pub trait ParticleBindingAccess {
     #[cfg(feature = "game_client")]
     fn particle_systems_mut(&mut self) -> Option<&mut game_client::effects::ParticleSystemManager>;
 }
+
+/// Crate-private receiving pose capability. Keep NativeSlaveSource out of the
+/// public particle binding API; only admitted Main presentation paths need it.
+pub(crate) trait ReceivingParticlePoseAccess: ParticleBindingAccess {
+    /// Receiving live bones for one already admitted Draw source. None means
+    /// this adapter has no native installed-pose capability.
+    fn current_bone_transforms(
+        &mut self,
+        _source: &crate::game_logic::NativeSlaveSource,
+        _bone: &str,
+        _start: i32,
+        _limit: usize,
+    ) -> Result<Option<Vec<glam::Mat4>>, String> {
+        Ok(None)
+    }
+    /// Immutable receiving asset pose for a bone when no installed pose is
+    /// available (headless mode or a genuine current-pose bone miss).
+    fn pristine_bone_transforms(
+        &mut self,
+        _source: &crate::game_logic::NativeSlaveSource,
+        _bone: &str,
+        _start: i32,
+        _limit: usize,
+    ) -> Result<Option<Vec<glam::Mat4>>, String> {
+        Ok(None)
+    }
+    fn receiving_local_player_id(&self) -> Option<u32> {
+        None
+    }
+}
 #[cfg(feature = "game_client")]
 impl ParticleBindingAccess for game_client::effects::ParticleSystemManager {
     fn particle_systems_mut(&mut self) -> Option<&mut game_client::effects::ParticleSystemManager> {
@@ -55,6 +85,43 @@ impl ParticleBindingAccess for crate::game_logic::ScriptPresentationEffects<'_> 
     #[cfg(feature = "game_client")]
     fn particle_systems_mut(&mut self) -> Option<&mut game_client::effects::ParticleSystemManager> {
         self.view.as_deref_mut()?.particle_systems_mut()
+    }
+}
+impl ReceivingParticlePoseAccess for () {}
+impl ReceivingParticlePoseAccess for crate::game_logic::ScriptPresentationEffects<'_> {
+    fn current_bone_transforms(
+        &mut self,
+        source: &crate::game_logic::NativeSlaveSource,
+        bone: &str,
+        start: i32,
+        limit: usize,
+    ) -> Result<Option<Vec<glam::Mat4>>, String> {
+        #[cfg(feature = "game_client")]
+        {
+            self.view
+                .as_deref_mut()
+                .map(|view| view.current_client_bone_transforms(source, bone, start, limit))
+                .transpose()
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            let _ = (source, bone, start, limit);
+            Ok(None)
+        }
+    }
+    fn pristine_bone_transforms(
+        &mut self,
+        source: &crate::game_logic::NativeSlaveSource,
+        bone: &str,
+        start: i32,
+        limit: usize,
+    ) -> Result<Option<Vec<glam::Mat4>>, String> {
+        self.pristine_bones
+            .map(|assets| assets.pristine_bone_transforms(source, bone, start, limit))
+            .transpose()
+    }
+    fn receiving_local_player_id(&self) -> Option<u32> {
+        self.view.as_ref().map(|view| view.local_player_id())
     }
 }
 #[cfg(feature = "game_client")]
@@ -100,10 +167,10 @@ fn create_binding(
     })
 }
 
-pub(super) fn spawn_client_binding(
+pub(super) fn spawn_client_binding<P: ParticleBindingAccess + ?Sized>(
     entry: &CombatParticleSystemEntry,
     bindings: &HashMap<u32, ClientParticleBinding>,
-    particle_owner: &mut dyn ParticleBindingAccess,
+    particle_owner: &mut P,
 ) -> Option<ClientParticleBinding> {
     #[cfg(feature = "game_client")]
     {
@@ -124,9 +191,9 @@ pub(super) fn spawn_client_binding(
         None
     }
 }
-pub(super) fn retire_client_binding(
+pub(super) fn retire_client_binding<P: ParticleBindingAccess + ?Sized>(
     binding: &ClientParticleBinding,
-    particle_owner: &mut dyn ParticleBindingAccess,
+    particle_owner: &mut P,
 ) -> bool {
     #[cfg(feature = "game_client")]
     {

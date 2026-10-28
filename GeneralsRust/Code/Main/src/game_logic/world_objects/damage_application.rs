@@ -52,6 +52,8 @@ impl GameLogic {
             }
         };
         let player = self.local_player_id();
+        let bone_source =
+            player.and_then(|player| self.current_native_slave_source(id, player).ok());
         let frame = self.frame;
         let shroud = self.world_services.shroud();
         let particles = &mut self.combat_particles;
@@ -71,7 +73,15 @@ impl GameLogic {
                         change.deliver(state, &mut **view, audio);
                     }
                     crate::game_logic::body_particle_runtime::update_body_auto_particles(
-                        particles, object, state, frame, player, shroud, effects, random,
+                        particles,
+                        object,
+                        state,
+                        frame,
+                        player,
+                        shroud,
+                        effects,
+                        random,
+                        bone_source.as_ref(),
                     );
                 }
                 crate::game_logic::object::BodyStateFx::BodyParticleState => {
@@ -84,6 +94,7 @@ impl GameLogic {
                         shroud,
                         effects,
                         random,
+                        bone_source.as_ref(),
                     );
                 }
                 _ => {}
@@ -625,6 +636,10 @@ impl GameLogic {
             #[cfg(not(feature = "game_client"))]
             let mut body_particles =
                 crate::game_logic::body_particle_runtime::HeadlessBodyParticleUpdate {
+                    source: body_particle_player.and_then(|player| {
+                        self.current_native_slave_source(victim_id, player).ok()
+                    }),
+                    pristine_bones: effects.pristine_bones,
                     particles: &mut self.combat_particles,
                     random: &mut self.session_view.client_random,
                     player: body_particle_player,
@@ -873,6 +888,9 @@ impl GameLogic {
         #[cfg(not(feature = "game_client"))]
         let mut body_particles =
             crate::game_logic::body_particle_runtime::HeadlessBodyParticleUpdate {
+                source: body_particle_player
+                    .and_then(|player| self.current_native_slave_source(victim_id, player).ok()),
+                pristine_bones: effects.pristine_bones,
                 particles: &mut self.combat_particles,
                 random: &mut self.session_view.client_random,
                 player: body_particle_player,
@@ -924,6 +942,10 @@ impl GameLogic {
                 let body_particle_player = self.local_player_id();
                 let mut body_particles =
                     crate::game_logic::body_particle_runtime::HeadlessBodyParticleUpdate {
+                        source: body_particle_player.and_then(|player| {
+                            self.current_native_slave_source(victim_id, player).ok()
+                        }),
+                        pristine_bones: effects.pristine_bones,
                         particles: &mut self.combat_particles,
                         random: &mut self.session_view.client_random,
                         player: body_particle_player,
@@ -1053,6 +1075,10 @@ impl GameLogic {
             #[cfg(not(feature = "game_client"))]
             let mut body_particles =
                 crate::game_logic::body_particle_runtime::HeadlessBodyParticleUpdate {
+                    source: body_particle_player.and_then(|player| {
+                        self.current_native_slave_source(victim_id, player).ok()
+                    }),
+                    pristine_bones: effects.pristine_bones,
                     particles: &mut self.combat_particles,
                     random: &mut self.session_view.client_random,
                     player: body_particle_player,
@@ -1094,6 +1120,9 @@ impl GameLogic {
         #[cfg(not(feature = "game_client"))]
         let mut body_particles =
             crate::game_logic::body_particle_runtime::HeadlessBodyParticleUpdate {
+                source: body_particle_player
+                    .and_then(|player| self.current_native_slave_source(victim_id, player).ok()),
+                pristine_bones: effects.pristine_bones,
                 particles: &mut self.combat_particles,
                 random: &mut self.session_view.client_random,
                 player: body_particle_player,
