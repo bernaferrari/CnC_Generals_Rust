@@ -1570,9 +1570,9 @@ impl GameLogic {
             })
             .and_then(|victim| {
                 (!victim.kill_experience_awarded)
-                    .then_some((victim.kill_experience_value(), victim.team))
+                    .then_some(victim.kill_experience_value())
             });
-        if let Some((xp, team)) = award {
+        if let Some(xp) = award {
             if let Some(victim) = self.objects.get_mut(&victim_id).filter(|victim| {
                 victim_birth.ptr_eq(&std::sync::Arc::downgrade(
                     &victim.visual_draw_identity_token,
@@ -1580,7 +1580,7 @@ impl GameLogic {
             }) {
                 victim.kill_experience_awarded = true;
             }
-            if self.kill_awards_unit_experience(killer_id, victim_id, team) {
+            if self.kill_awards_unit_experience(killer_id, victim_id) {
                 self.award_experience_with_effects_and_interpreter(
                     killer_id,
                     xp,
@@ -1605,36 +1605,19 @@ impl GameLogic {
         &self,
         killer_id: ObjectId,
         victim_id: ObjectId,
-        victim_team: Team,
     ) -> bool {
         use gamelogic::common::Relationship;
         let Some(killer) = self.objects.lookup(&killer_id) else {
             return false;
         };
-        if let Some(victim) = self.objects.lookup(&victim_id) {
-            if !self.score_the_kill_victim_counts(victim) {
-                return false;
-            }
-            if killer.owner_player_id.is_some() && killer.owner_player_id == victim.owner_player_id
-            {
-                return false;
-            }
-            match (killer.owner_player_id, victim.owner_player_id) {
-                (Some(a), Some(b)) => self.player_relationship(a, b) == Relationship::Enemies,
-                _ => {
-                    killer.team != victim.team
-                        && killer.team != Team::Neutral
-                        && victim.team != Team::Neutral
-                }
-            }
-        } else {
-            if victim_team == Team::Neutral {
-                return false;
-            }
-            killer.team != victim_team
-                && killer.team != Team::Neutral
-                && victim_team != Team::Neutral
-        }
+        let Some(victim) = self.objects.lookup(&victim_id) else {
+            return false;
+        };
+        let killer_owner = self.player_owner_for_host_object(killer);
+        let victim_owner = self.player_owner_for_host_object(victim);
+        self.score_the_kill_victim_counts(victim)
+            && !(killer_owner.is_some() && killer_owner == victim_owner)
+            && self.object_relationship(killer, victim) == Relationship::Enemies
     }
 
     /// After a combat kill: grant XP, ContinueAttackRange retarget, else stop.

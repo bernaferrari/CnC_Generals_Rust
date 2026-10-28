@@ -43,16 +43,12 @@ impl GameLogic {
         let is_unit = Self::live_score_counts_as_unit_destroy(victim);
         let template = victim.template_name.clone();
         let score_kind = super::score_kind_of(victim.get_template());
-        let enemy = match (killer_owner, victim_owner) {
-            (Some(a), Some(b)) => {
-                a != b && self.player_relationship(a, b) == gamelogic::common::Relationship::Enemies
-            }
-            _ => {
-                killer.team != victim.team
-                    && killer.team != super::Team::Neutral
-                    && victim.team != super::Team::Neutral
-            }
-        };
+        // Object::scoreTheKill first asks the killer's live Object for its
+        // relationship to the victim. Team-instance overrides and undetected
+        // defection can differ from the two Players' default relationship.
+        let enemy = self.object_relationship(killer, victim)
+            == gamelogic::common::Relationship::Enemies
+            && !(killer_owner.is_some() && killer_owner == victim_owner);
         let cost = victim_owner
             .map(|owner| {
                 self.modified_build_cost_supplies(

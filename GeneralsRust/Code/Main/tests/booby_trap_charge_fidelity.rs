@@ -953,7 +953,7 @@ fn sticky_charge_retains_exact_team_and_experience_sink_after_save() {
 
     fn prepare(game: &mut GameLogic, target: ObjectId) -> (ObjectId, ObjectId, ObjectId, u32) {
         let planter = game
-            .create_object_for_player("TrapExperiencePlanter", 0, Vec3::new(100.0, 0.0, 100.0))
+            .create_object_for_player("TrapExperiencePlanter", 0, Vec3::new(20.0, 0.0, 0.0))
             .unwrap();
         let victim = game
             .create_object_for_player("TrapExperienceVictim", 1, Vec3::new(8.0, 0.0, 0.0))
@@ -1015,4 +1015,86 @@ fn sticky_charge_retains_exact_team_and_experience_sink_after_save() {
         VeterancyLevel::Rookie
     );
     assert!(peer.host_object(peer_victim).unwrap().is_alive());
+
+    peer.destroy_object(peer_planter).unwrap();
+    peer.process_destroy_list();
+    assert!(peer.host_object(peer_planter).is_none());
+    peer.detonate_booby_trap_at(peer_target, Vec3::new(8.0, 0.0, 0.0), None, false, true);
+    assert!(!peer.host_object(peer_victim).unwrap().is_alive());
+    assert_eq!(
+        restored.host_object(planter).unwrap().experience.level,
+        VeterancyLevel::Veteran,
+        "a removed peer sink cannot redirect XP into the matching ObjectId"
+    );
+}
+
+#[test]
+fn sticky_kill_credit_uses_receiving_objects_exact_team_relationship() {
+    use generals_main::game_logic::VeterancyLevel;
+
+    fn prepare(
+        game: &mut GameLogic,
+        target: ObjectId,
+        relationship: Relationship,
+    ) -> (ObjectId, ObjectId) {
+        let planter = game
+            .create_object_for_player("TrapExperiencePlanter", 0, Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+        let victim = game
+            .create_object_for_player("TrapExperienceVictim", 1, Vec3::new(8.0, 0.0, 0.0))
+            .unwrap();
+        move_into_same_named_team(game, planter);
+        let charge = game
+            .spawn_booby_trap_special_object(planter, Team::GLA, target)
+            .unwrap();
+        install_public_registry(game, planter, target, Some(charge));
+        let victim_team = stamp_player_team_chunks(game)
+            .unwrap()
+            .teams
+            .unwrap()
+            .teams
+            .into_iter()
+            .find(|team| {
+                team.members
+                    .as_ref()
+                    .is_some_and(|ids| ids.contains(&victim.0))
+            })
+            .unwrap()
+            .team_id;
+        game.get_player_mut(0)
+            .unwrap()
+            .set_team_relationship_override(victim_team, relationship);
+        assert_eq!(
+            game.object_relationship(
+                game.host_object(charge).unwrap(),
+                game.host_object(victim).unwrap()
+            ),
+            relationship
+        );
+        (planter, victim)
+    }
+
+    let (mut owner, _, target) = world();
+    let (mut peer, _, peer_target) = world();
+    let (planter, victim) = prepare(&mut owner, target, Relationship::Allies);
+    let (peer_planter, peer_victim) = prepare(&mut peer, peer_target, Relationship::Enemies);
+    assert_eq!(
+        (target, planter, victim),
+        (peer_target, peer_planter, peer_victim)
+    );
+
+    peer.detonate_booby_trap_at(peer_target, Vec3::new(8.0, 0.0, 0.0), None, false, true);
+    owner.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true);
+    assert!(!owner.host_object(victim).unwrap().is_alive());
+    assert!(!peer.host_object(peer_victim).unwrap().is_alive());
+    assert_eq!(
+        owner.host_object(planter).unwrap().experience.level,
+        VeterancyLevel::Rookie
+    );
+    assert_eq!(
+        peer.host_object(peer_planter).unwrap().experience.level,
+        VeterancyLevel::Veteran
+    );
+    assert_eq!(owner.get_player(0).unwrap().skill_points, 0);
+    assert!(peer.get_player(0).unwrap().skill_points > 0);
 }
