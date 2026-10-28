@@ -1302,6 +1302,7 @@ impl CnCGameEngine {
                 .map(|content| content.action_definitions_shared()),
         );
         let upgrade_observer = self.game_logic.receiving_upgrade_tooltip_observer();
+        let pick_objects = self.game_logic.translator_pick_object_view();
         let mut replay_operation =
             game_client::gui::callbacks::replay_menu::ingress::ReplayMenuOperation::new(
                 !self.game_logic.isInNetworkGame(),
@@ -1371,6 +1372,7 @@ impl CnCGameEngine {
                 audio,
                 facts: menu_world,
                 playback,
+                pick_objects,
             };
             operation(
                 &mut self.game_client,

@@ -7,7 +7,7 @@
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use super::drawable::{
     BasicDrawable, Color, Drawable, DrawableId, DrawableStatus, DrawableType, INVALID_DRAWABLE_ID,
@@ -318,6 +318,17 @@ impl DrawableManager {
         self.drawables.remove(&id).is_some()
     }
 
+    /// Retire every drawable for this receiving owner while keeping its ID
+    /// sequence monotonic across world reset.
+    pub fn clear_drawables(&mut self) {
+        self.drawables.clear();
+        self.opaque_render_list.clear();
+        self.transparent_render_list.clear();
+        self.shadow_caster_list.clear();
+        self.current_render_pass = None;
+        self.stats = RenderStats::default();
+    }
+
     /// Get all drawable IDs
     pub fn get_all_drawable_ids(&self) -> Vec<DrawableId> {
         self.drawables.keys().copied().collect()
@@ -539,6 +550,7 @@ impl DrawableManager {
         view_matrix: &glam::Mat4,
         proj_matrix: &glam::Mat4,
         pipeline: Option<&Mutex<super::drawable_draw_pipeline::DrawableDrawPipeline>>,
+        bridge: Option<&mut crate::render_bridge::RenderBridge>,
     ) {
         let opaque = self.opaque_render_list.clone();
         let transparent = self.transparent_render_list.clone();
@@ -546,15 +558,24 @@ impl DrawableManager {
         let proj = self.projection_matrix;
 
         // Phase 1: Submit drawables to the RenderBridge
+        let mut bridge = bridge;
         for &drawable_id in &opaque {
             if let Some(entry) = self.drawables.get_mut(&drawable_id) {
-                entry.drawable.render(&view, &proj);
+                if let Some(bridge) = bridge.as_deref_mut() {
+                    entry.drawable.render_with_bridge(&view, &proj, bridge);
+                } else {
+                    entry.drawable.render(&view, &proj);
+                }
             }
         }
 
         for &drawable_id in &transparent {
             if let Some(entry) = self.drawables.get_mut(&drawable_id) {
-                entry.drawable.render(&view, &proj);
+                if let Some(bridge) = bridge.as_deref_mut() {
+                    entry.drawable.render_with_bridge(&view, &proj, bridge);
+                } else {
+                    entry.drawable.render(&view, &proj);
+                }
             }
         }
 
@@ -566,7 +587,11 @@ impl DrawableManager {
             });
             if needs_second {
                 if let Some(entry) = self.drawables.get_mut(&id) {
-                    entry.drawable.render(&view, &proj);
+                    if let Some(bridge) = bridge.as_deref_mut() {
+                        entry.drawable.render_with_bridge(&view, &proj, bridge);
+                    } else {
+                        entry.drawable.render(&view, &proj);
+                    }
                 }
             }
         }
@@ -575,7 +600,11 @@ impl DrawableManager {
         if let Some(pipeline) = pipeline {
             let mut pipeline = pipeline.lock().unwrap_or_else(|e| e.into_inner());
             pipeline.update_camera(view_matrix, proj_matrix);
-            pipeline.record_draw(pass);
+            if let Some(bridge) = bridge.as_deref_mut() {
+                pipeline.record_draw_with_bridge(pass, bridge);
+            } else {
+                pipeline.record_draw(pass);
+            }
         }
     }
 
@@ -666,6 +695,8 @@ impl DrawableManager {
         &mut self,
         shadow_view_matrix: &Matrix4,
         shadow_projection_matrix: &Matrix4,
+        pipeline: &mut super::drawable_draw_pipeline::DrawableDrawPipeline,
+        bridge: &mut crate::render_bridge::RenderBridge,
     ) {
         if self.shadow_caster_list.is_empty() {
             return;
@@ -696,9 +727,11 @@ impl DrawableManager {
                     }
                 }
 
-                entry
-                    .drawable
-                    .render(shadow_view_matrix, shadow_projection_matrix);
+                entry.drawable.render_with_bridge(
+                    shadow_view_matrix,
+                    shadow_projection_matrix,
+                    bridge,
+                );
                 shadow_casters_visible += 1;
             }
         }
@@ -707,30 +740,25 @@ impl DrawableManager {
 
         // Submit collected shadow geometry through the draw pipeline.
         if shadow_casters_visible > 0 {
-            if let Some(pipeline_arc) =
-                super::drawable_draw_pipeline::with_drawable_pipeline(Arc::clone)
-            {
-                let view = glam::Mat4::from_cols_slice(&{
-                    let mut v = [0.0f32; 16];
-                    for i in 0..4 {
-                        for j in 0..4 {
-                            v[i * 4 + j] = shadow_view_matrix.elements[i][j];
-                        }
+            let view = glam::Mat4::from_cols_slice(&{
+                let mut v = [0.0f32; 16];
+                for i in 0..4 {
+                    for j in 0..4 {
+                        v[i * 4 + j] = shadow_view_matrix.elements[i][j];
                     }
-                    v
-                });
-                let proj = glam::Mat4::from_cols_slice(&{
-                    let mut v = [0.0f32; 16];
-                    for i in 0..4 {
-                        for j in 0..4 {
-                            v[i * 4 + j] = shadow_projection_matrix.elements[i][j];
-                        }
+                }
+                v
+            });
+            let proj = glam::Mat4::from_cols_slice(&{
+                let mut v = [0.0f32; 16];
+                for i in 0..4 {
+                    for j in 0..4 {
+                        v[i * 4 + j] = shadow_projection_matrix.elements[i][j];
                     }
-                    v
-                });
-                let mut pipeline = pipeline_arc.lock().unwrap_or_else(|e| e.into_inner());
-                pipeline.update_camera(&view, &proj);
-            }
+                }
+                v
+            });
+            pipeline.update_camera(&view, &proj);
         }
     }
 

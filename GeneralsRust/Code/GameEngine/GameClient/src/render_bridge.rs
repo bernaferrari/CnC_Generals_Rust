@@ -21,9 +21,9 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, Weak};
 
-use crate::drawable::drawable_draw_pipeline::{MeshVertex, with_drawable_pipeline};
+use crate::drawable::drawable_draw_pipeline::{DrawableDrawPipeline, MeshVertex};
 use gamelogic::helpers::{ModelDrawSourceIdentity, ModelDrawState, ModelDrawWeaponBoneBindings};
 use gamelogic::object::w3d_ghost_object::{
     FrozenW3DGhostSceneEvent, FrozenW3DGhostSnapshot, INVALID_DRAWABLE_ID, INVALID_OBJECT_ID,
@@ -515,6 +515,9 @@ pub struct RenderBridge {
     model_cache: HashMap<String, Arc<dyn RenderObject>>,
     model_resolution: HashMap<String, ModelResolution>,
     asset_manager: AssetManager,
+    /// Display selected by the owning GameClient after display initialization.
+    drawable_pipeline: Option<Weak<Mutex<DrawableDrawPipeline>>>,
+    drawable_mesh_registrations: Vec<DrawableMeshRegistration>,
     asset_search_paths: Vec<PathBuf>,
     stats: RenderBridgeStats,
     last_frame_objects: Vec<RenderObjectStateSummary>,
@@ -528,6 +531,14 @@ pub struct RenderBridge {
     last_flushed_capture_submissions: Vec<DrawSubmission>,
     ghost_snapshots: HashMap<W3DGhostSnapshotKey, FrozenW3DGhostSnapshot>,
     ghost_hidden_parents: HashMap<W3DGhostSceneId, u32>,
+}
+
+#[derive(Clone)]
+struct DrawableMeshRegistration {
+    key: String,
+    vertices: Vec<MeshVertex>,
+    indices: Vec<u32>,
+    texture: Option<String>,
 }
 
 struct SceneLineEntry {
@@ -556,6 +567,8 @@ impl RenderBridge {
             model_cache: HashMap::new(),
             model_resolution: HashMap::new(),
             asset_manager: AssetManager::new(),
+            drawable_pipeline: None,
+            drawable_mesh_registrations: Vec::new(),
             asset_search_paths: Vec::new(),
             stats: RenderBridgeStats::default(),
             last_frame_objects: Vec::new(),
@@ -899,6 +912,30 @@ impl RenderBridge {
     }
 
     pub fn flush(&mut self) {
+        let pipeline = self.drawable_pipeline.as_ref().and_then(Weak::upgrade);
+        if let Some(pipeline) = pipeline {
+            let mut pipeline = pipeline.lock().unwrap_or_else(|error| error.into_inner());
+            self.flush_with_drawable_pipeline(Some(&mut pipeline));
+        } else {
+            self.flush_with_drawable_pipeline(None);
+        }
+    }
+
+    /// Flush while binding any newly loaded meshes to the pipeline that is
+    /// consuming this bridge. This preserves the lazy model resolution point
+    /// while avoiding a TLS lookup (and re-lock of the already-held pipeline).
+    pub fn flush_for_drawable_pipeline(&mut self, pipeline: &mut DrawableDrawPipeline) {
+        self.flush_with_drawable_pipeline(Some(pipeline));
+    }
+
+    /// Flush submissions for Main's hosted render pipeline. Main consumes the
+    /// captured model submissions itself, so this must not register into a
+    /// process-global DrawableDrawPipeline.
+    pub fn flush_for_host_scene(&mut self) {
+        self.flush_with_drawable_pipeline(None);
+    }
+
+    fn flush_with_drawable_pipeline(&mut self, mut pipeline: Option<&mut DrawableDrawPipeline>) {
         let start = std::time::Instant::now();
 
         self.last_flushed_capture_submissions.clear();
@@ -919,7 +956,9 @@ impl RenderBridge {
         // Phase 2.5: Ensure models are loaded in the cache.
         for name in &model_names {
             if !self.model_cache.contains_key(name) {
-                if let Some((render_obj, resolution)) = self.resolve_model(name) {
+                if let Some((render_obj, resolution)) =
+                    self.resolve_model(name, pipeline.as_deref_mut())
+                {
                     self.model_cache.insert(name.clone(), render_obj);
                     self.model_resolution.insert(name.clone(), resolution);
                 }
@@ -1066,7 +1105,12 @@ impl RenderBridge {
         self.last_frame_objects = last_frame_objects;
     }
 
-    fn resolve_model(&mut self, name: &str) -> Option<(Arc<dyn RenderObject>, ModelResolution)> {
+    fn resolve_model(
+        &mut self,
+        name: &str,
+        pipeline: Option<&mut DrawableDrawPipeline>,
+    ) -> Option<(Arc<dyn RenderObject>, ModelResolution)> {
+        let mut pipeline = pipeline;
         let class_id = self.asset_manager.class_id_for_asset(name);
         if let Some(obj) = self.asset_manager.create_render_obj(name) {
             return Some((
@@ -1083,12 +1127,14 @@ impl RenderBridge {
             if candidate.exists() {
                 let known_meshes = mesh_prototype_names(&self.asset_manager);
                 if self.asset_manager.load_3d_assets(&candidate).is_ok() {
-                    register_newly_loaded_meshes_for_drawable_pipeline(
+                    let registrations = register_newly_loaded_meshes_for_drawable_pipeline(
                         &self.asset_manager,
                         name,
                         &candidate,
                         &known_meshes,
+                        pipeline.as_deref_mut(),
                     );
+                    self.drawable_mesh_registrations.extend(registrations);
                     if let Some(obj) = self.asset_manager.create_render_obj(name) {
                         let class_id = self.asset_manager.class_id_for_asset(name);
                         return Some((
@@ -1204,12 +1250,50 @@ impl RenderBridge {
         &mut self.asset_manager
     }
 
+    /// Bind lazy model materialization to the pipeline owned by this client's Display.
+    pub fn bind_drawable_pipeline(&mut self, pipeline: Arc<Mutex<DrawableDrawPipeline>>) {
+        let mut known = self
+            .drawable_mesh_registrations
+            .iter()
+            .map(|registration| registration.key.to_ascii_lowercase())
+            .collect::<HashSet<_>>();
+        for registration in cached_prototype_mesh_registrations(&self.asset_manager) {
+            if known.insert(registration.key.to_ascii_lowercase()) {
+                self.drawable_mesh_registrations.push(registration);
+            }
+        }
+        let mut guard = pipeline.lock().unwrap_or_else(|error| error.into_inner());
+        for registration in &self.drawable_mesh_registrations {
+            guard.insert_mesh_with_texture(
+                &registration.key,
+                registration.vertices.clone(),
+                registration.indices.clone(),
+                registration.texture.clone(),
+            );
+        }
+        drop(guard);
+        self.drawable_pipeline = Some(Arc::downgrade(&pipeline));
+    }
+
+    fn resolve_model_for_owner(
+        &mut self,
+        name: &str,
+    ) -> Option<(Arc<dyn RenderObject>, ModelResolution)> {
+        let pipeline = self.drawable_pipeline.as_ref().and_then(Weak::upgrade);
+        if let Some(pipeline) = pipeline {
+            let mut pipeline = pipeline.lock().unwrap_or_else(|error| error.into_inner());
+            self.resolve_model(name, Some(&mut pipeline))
+        } else {
+            self.resolve_model(name, None)
+        }
+    }
+
     pub fn mark_model_loaded(&mut self, model_name: &str) {
         let key = model_name.to_lowercase();
         if self.model_cache.contains_key(&key) {
             return;
         }
-        if let Some((render_obj, resolution)) = self.resolve_model(&key) {
+        if let Some((render_obj, resolution)) = self.resolve_model_for_owner(&key) {
             self.model_cache.insert(key.clone(), render_obj);
             self.model_resolution.insert(key, resolution);
         }
@@ -1228,7 +1312,7 @@ impl RenderBridge {
             }
             let key = model_name.to_lowercase();
             if seen.insert(key.clone()) && !self.model_cache.contains_key(&key) {
-                if let Some((render_obj, resolution)) = self.resolve_model(&key) {
+                if let Some((render_obj, resolution)) = self.resolve_model_for_owner(&key) {
                     self.model_cache.insert(key.clone(), render_obj);
                     self.model_resolution.insert(key, resolution);
                 }
@@ -1265,6 +1349,40 @@ impl RenderBridge {
             .map(|(id, entry)| (*id, entry))
             .collect()
     }
+}
+
+fn cached_prototype_mesh_registrations(
+    asset_manager: &AssetManager,
+) -> Vec<DrawableMeshRegistration> {
+    let mesh_entries = asset_manager
+        .prototypes()
+        .filter_map(|(key, prototype)| {
+            prototype
+                .as_any()
+                .downcast_ref::<MeshPrototype>()
+                .map(|mesh| (key.as_str(), mesh))
+        })
+        .collect::<Vec<_>>();
+    let mut registrations = Vec::new();
+    for (key, mesh) in &mesh_entries {
+        let Some((vertices, indices, texture)) =
+            drawable_mesh_data_from_prototypes(&[(*key, *mesh)])
+        else {
+            continue;
+        };
+        for alias in [*key, mesh.name.as_str()] {
+            if alias.trim().is_empty() {
+                continue;
+            }
+            registrations.push(DrawableMeshRegistration {
+                key: alias.to_string(),
+                vertices: vertices.clone(),
+                indices: indices.clone(),
+                texture: texture.clone(),
+            });
+        }
+    }
+    registrations
 }
 
 /// Owned scene-line snapshot for presentation freeze / GPU pack.
@@ -1338,7 +1456,8 @@ fn register_newly_loaded_meshes_for_drawable_pipeline(
     requested_name: &str,
     path: &Path,
     known_meshes: &HashSet<String>,
-) {
+    pipeline: Option<&mut DrawableDrawPipeline>,
+) -> Vec<DrawableMeshRegistration> {
     let mesh_entries = asset_manager
         .prototypes()
         .filter_map(|(key, prototype)| {
@@ -1353,27 +1472,36 @@ fn register_newly_loaded_meshes_for_drawable_pipeline(
         })
         .collect::<Vec<_>>();
     if mesh_entries.is_empty() {
-        return;
+        return Vec::new();
     }
 
     let Some((vertices, indices, texture_name)) = drawable_mesh_data_from_prototypes(&mesh_entries)
     else {
-        return;
+        return Vec::new();
     };
     let keys = drawable_mesh_keys(requested_name, path, &mesh_entries);
 
-    with_drawable_pipeline(|pipeline| {
-        if let Ok(mut guard) = pipeline.lock() {
-            for key in keys {
-                guard.insert_mesh_with_texture(
-                    &key,
-                    vertices.clone(),
-                    indices.clone(),
-                    texture_name.clone(),
-                );
-            }
+    let registrations = keys
+        .into_iter()
+        .map(|key| DrawableMeshRegistration {
+            key,
+            vertices: vertices.clone(),
+            indices: indices.clone(),
+            texture: texture_name.clone(),
+        })
+        .collect::<Vec<_>>();
+
+    if let Some(pipeline) = pipeline {
+        for registration in &registrations {
+            pipeline.insert_mesh_with_texture(
+                &registration.key,
+                registration.vertices.clone(),
+                registration.indices.clone(),
+                registration.texture.clone(),
+            );
         }
-    });
+    }
+    registrations
 }
 
 fn drawable_mesh_keys(
@@ -1902,7 +2030,6 @@ fn matrix3x4_is_finite(matrix: &gamelogic::object::w3d_ghost_object::Matrix3x4) 
 }
 
 // Global singleton instance
-use std::sync::Mutex;
 lazy_static::lazy_static! {
     pub static ref THE_RENDER_BRIDGE: Mutex<Option<RenderBridge>> = Mutex::new(None);
 }

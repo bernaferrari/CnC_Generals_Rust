@@ -99,6 +99,15 @@ impl Drawable for DeltaDrawable {
     fn render(&mut self, view_matrix: &Matrix4, projection_matrix: &Matrix4) {
         self.inner.render(view_matrix, projection_matrix)
     }
+    fn render_with_bridge(
+        &mut self,
+        view_matrix: &Matrix4,
+        projection_matrix: &Matrix4,
+        bridge: &mut crate::render_bridge::RenderBridge,
+    ) {
+        self.inner
+            .render_with_bridge(view_matrix, projection_matrix, bridge)
+    }
     fn get_bounding_sphere(&self) -> (Vector3, f32) {
         self.inner.get_bounding_sphere()
     }

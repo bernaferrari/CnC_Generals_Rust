@@ -20,10 +20,10 @@ impl InGameUI {
         ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) {
         if template_name.is_some() && self.pending_place_icon_template.is_some() {
-            self.destroy_placement_icons();
+            self.destroy_placement_icons_with_ui(ui);
         }
 
-        self.destroy_placement_icons();
+        self.destroy_placement_icons_with_ui(ui);
         self.pending_place_icon_template = template_name.clone();
         self.pending_place_icon_source = source_object_id.unwrap_or(0);
 
@@ -47,13 +47,38 @@ impl InGameUI {
         if let Some(preview) = self.placement_preview.as_mut() {
             preview.rotation = angle;
         }
-        if let Some(icon) = self.spawn_place_icon(&name, Coord3D::new(0.0, 0.0, 0.0), angle) {
+        let initial = Coord3D::new(0.0, 0.0, 0.0);
+        let icon = ui
+            .with_drawable_manager(|manager, _| {
+                self.spawn_place_icon_with_manager(&name, initial.clone(), angle, manager)
+            })
+            .unwrap_or_else(|| self.spawn_place_icon(&name, initial, angle));
+        if let Some(icon) = icon {
             self.place_icons.push(icon);
         }
         ui.set_placement_angle(angle);
     }
 
     pub fn destroy_placement_icons(&mut self) {
+        self.destroy_placement_icons_inner(None);
+    }
+
+    pub fn destroy_placement_icons_with_ui(
+        &mut self,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) {
+        let destroyed = ui.with_drawable_manager(|manager, _| {
+            self.destroy_placement_icons_inner(Some(manager));
+        });
+        if destroyed.is_none() {
+            self.destroy_placement_icons_inner(None);
+        }
+    }
+
+    fn destroy_placement_icons_inner(
+        &mut self,
+        mut manager: Option<&mut crate::drawable::DrawableManager>,
+    ) {
         // C++ InGameUI.cpp:2933-2948: removeFactionBibDrawable then destroyDrawable,
         // then removeAllBibs.
         if let Ok(mut guard) = crate::terrain::terrain_visual::get_terrain_visual() {
@@ -68,9 +93,13 @@ impl InGameUI {
             }
         }
         for icon in self.place_icons.drain(..) {
-            with_drawable_manager(|manager| {
+            if let Some(manager) = manager.as_deref_mut() {
                 manager.destroy_drawable(DrawableId(icon.drawable_id));
-            });
+            } else {
+                with_drawable_manager(|manager| {
+                    manager.destroy_drawable(DrawableId(icon.drawable_id));
+                });
+            }
         }
         self.pending_place_icon_template = None;
         self.pending_place_icon_source = 0;
@@ -106,6 +135,34 @@ impl InGameUI {
         })
     }
 
+    fn spawn_place_icon_with_manager(
+        &self,
+        template_name: &str,
+        pos: Coord3D,
+        angle: f32,
+        manager: &mut crate::drawable::DrawableManager,
+    ) -> Option<PlaceIconGhost> {
+        let drawable_id = manager.create_drawable(DrawableType::Model {
+            model_name: template_name.to_string(),
+            position: Vector3::new(pos.x, pos.y, pos.z),
+            scale: 1.0,
+            animation_state: String::new(),
+        });
+        if let Some(drawable) = manager.get_drawable_mut(drawable_id) {
+            let mut status = drawable.get_status();
+            status.set(DrawableStatus::NO_STATE_PARTICLES);
+            drawable.set_status(status);
+            drawable.set_opacity(PLACEMENT_OPACITY);
+            drawable.set_position(Vector3::new(pos.x, pos.y, pos.z));
+        }
+        Some(PlaceIconGhost {
+            drawable_id: drawable_id.0,
+            position: pos,
+            angle,
+            illegal: false,
+        })
+    }
+
     fn update_place_icon_drawable(icon: &PlaceIconGhost) {
         with_drawable_manager(|manager| {
             if let Some(drawable) = manager.get_drawable_mut(DrawableId(icon.drawable_id)) {
@@ -126,6 +183,29 @@ impl InGameUI {
                 }
             }
         });
+    }
+
+    fn update_place_icon_drawable_with_manager(
+        icon: &PlaceIconGhost,
+        manager: &mut crate::drawable::DrawableManager,
+    ) {
+        if let Some(drawable) = manager.get_drawable_mut(DrawableId(icon.drawable_id)) {
+            drawable.set_position(Vector3::new(
+                icon.position.x,
+                icon.position.y,
+                icon.position.z,
+            ));
+            drawable.set_opacity(PLACEMENT_OPACITY);
+            if icon.illegal {
+                drawable.set_tint_color(Vector3::new(
+                    ILLEGAL_BUILD_COLOR[0],
+                    ILLEGAL_BUILD_COLOR[1],
+                    ILLEGAL_BUILD_COLOR[2],
+                ));
+            } else {
+                drawable.set_tint_color(Vector3::new(1.0, 1.0, 1.0));
+            }
+        }
     }
 
     /// C++ `InGameUI::handleBuildPlacements` — follow mouse, drag-aim, tile LINEBUILD.
@@ -196,7 +276,18 @@ impl InGameUI {
         }
 
         if self.place_icons.is_empty() {
-            if let Some(icon) = self.spawn_place_icon(&template_name, world.clone(), angle) {
+            let position = world.clone();
+            let icon = ui
+                .with_drawable_manager(|manager, _| {
+                    self.spawn_place_icon_with_manager(
+                        &template_name,
+                        position.clone(),
+                        angle,
+                        manager,
+                    )
+                })
+                .unwrap_or_else(|| self.spawn_place_icon(&template_name, position, angle));
+            if let Some(icon) = icon {
                 self.place_icons.push(icon);
             }
         }
@@ -210,7 +301,14 @@ impl InGameUI {
                 .unwrap_or(false);
         }
         if let Some(icon) = self.place_icons.first().cloned() {
-            Self::update_place_icon_drawable(&icon);
+            if ui
+                .with_drawable_manager(|manager, _| {
+                    Self::update_place_icon_drawable_with_manager(&icon, manager)
+                })
+                .is_none()
+            {
+                Self::update_place_icon_drawable(&icon);
+            }
             self.sync_place_icon_faction_bibs(&icon);
         }
 
@@ -279,7 +377,18 @@ impl InGameUI {
         }
 
         while self.place_icons.len() < tiles {
-            if let Some(icon) = self.spawn_place_icon(template_name, world_start.clone(), angle) {
+            let position = world_start.clone();
+            let icon = ui
+                .with_drawable_manager(|manager, _| {
+                    self.spawn_place_icon_with_manager(
+                        template_name,
+                        position.clone(),
+                        angle,
+                        manager,
+                    )
+                })
+                .unwrap_or_else(|| self.spawn_place_icon(template_name, position, angle));
+            if let Some(icon) = icon {
                 self.place_icons.push(icon);
             } else {
                 break;
@@ -287,9 +396,16 @@ impl InGameUI {
         }
         while self.place_icons.len() > tiles {
             if let Some(icon) = self.place_icons.pop() {
-                with_drawable_manager(|manager| {
-                    manager.destroy_drawable(DrawableId(icon.drawable_id));
-                });
+                if ui
+                    .with_drawable_manager(|manager, _| {
+                        manager.destroy_drawable(DrawableId(icon.drawable_id));
+                    })
+                    .is_none()
+                {
+                    with_drawable_manager(|manager| {
+                        manager.destroy_drawable(DrawableId(icon.drawable_id));
+                    });
+                }
             }
         }
 
@@ -311,7 +427,14 @@ impl InGameUI {
             };
         }
         for icon in &self.place_icons {
-            Self::update_place_icon_drawable(icon);
+            if ui
+                .with_drawable_manager(|manager, _| {
+                    Self::update_place_icon_drawable_with_manager(icon, manager)
+                })
+                .is_none()
+            {
+                Self::update_place_icon_drawable(icon);
+            }
         }
     }
 

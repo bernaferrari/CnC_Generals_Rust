@@ -428,7 +428,13 @@ impl GameClient {
         let ui = self.subsystem_manager.in_game_ui.as_mut().ok_or_else(|| {
             GameClientError::SubsystemError("context command requires receiving InGameUI".into())
         })?;
-        let mut ui = crate::message_stream::ReceivingUi::new(ui, logic_frame, self.frame);
+        let mut ui = crate::message_stream::ReceivingUi::new_with_owner(
+            ui,
+            Some(&mut self.drawable_manager as &mut dyn std::any::Any),
+            None,
+            logic_frame,
+            self.frame,
+        );
         match &self.command_translator {
             Some(translator) => {
                 Ok(translator.evaluate_context_command(drawable, position, cmd_type, &mut ui)?)
@@ -1494,6 +1500,7 @@ impl Drop for GameClient {
         let owned_live_slot = clear_live_game_client(self);
 
         // Clear all drawables (they'll be dropped automatically)
+        self.drawable_manager.clear_drawables();
         self.drawables.drawable_map.clear();
         self.drawables.native_drawable_order.clear();
         self.drawables.ray_effects.reset();
@@ -1514,6 +1521,7 @@ impl Drop for GameClient {
         // to application services and may still serve a peer GameClient.
         if let Some(display) = self.subsystem_manager.display.as_ref() {
             if let Ok(mut display) = display.lock() {
+                display.clear_owned_draw_state();
                 display.stop_movie(self.script_display.fx_mut());
             }
         }

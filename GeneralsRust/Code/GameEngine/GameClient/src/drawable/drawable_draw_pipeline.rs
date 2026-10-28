@@ -10,12 +10,11 @@
 //! populates the RenderBridge with DrawSubmissions.
 
 use bytemuck::{Pod, Zeroable};
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
-use crate::render_bridge::{self, get_render_bridge, DrainedDrawSubmission, DrawableId};
+use crate::render_bridge::{self, DrainedDrawSubmission, DrawableId, get_render_bridge};
 
 // ---------------------------------------------------------------------------
 // Vertex / Uniform layouts
@@ -136,18 +135,6 @@ struct MeshBuffers {
     texture_name: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Pipeline singleton
-// ---------------------------------------------------------------------------
-
-// THREAD: main thread only — the pipeline is registered by display init and
-// used by the client draw path plus `pollster::block_on` asset post-processing,
-// all of which run on the calling (GUI) thread.
-thread_local! {
-    static DRAWABLE_PIPELINE: RefCell<Option<Arc<Mutex<DrawableDrawPipeline>>>> =
-        const { RefCell::new(None) };
-}
-
 fn object_color_tint(state: &render_bridge::RenderStateOverrides) -> [f32; 4] {
     let mut rgb = state.construction_tint.unwrap_or([1.0, 1.0, 1.0]);
 
@@ -177,16 +164,6 @@ fn object_color_tint(state: &render_bridge::RenderStateOverrides) -> [f32; 4] {
     ];
 
     [rgb[0], rgb[1], rgb[2], 1.0]
-}
-
-pub fn register_drawable_pipeline(pipeline: Arc<Mutex<DrawableDrawPipeline>>) {
-    DRAWABLE_PIPELINE.with_borrow_mut(|slot| *slot = Some(pipeline));
-}
-
-pub fn with_drawable_pipeline<R>(
-    f: impl FnOnce(&Arc<Mutex<DrawableDrawPipeline>>) -> R,
-) -> Option<R> {
-    DRAWABLE_PIPELINE.with_borrow(|slot| slot.as_ref().map(|pipeline| f(pipeline)))
 }
 
 /// Decoded RGBA8 pixels the host archive provider hands the legacy lane.
@@ -540,20 +517,37 @@ impl DrawableDrawPipeline {
     ///
     /// This is the main entry point called from `DrawableManager::render_pass_through()`.
     pub fn record_draw(&mut self, pass: &mut wgpu::RenderPass) {
-        // 1. Flush the bridge (cull + sort + partition)
         let submissions = {
             let mut guard = get_render_bridge()
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
             match guard.as_mut() {
                 Some(bridge) => {
-                    bridge.flush();
+                    bridge.flush_for_drawable_pipeline(self);
                     bridge.drain_scene_submissions()
                 }
                 None => return,
             }
         };
+        self.record_submissions(pass, submissions);
+    }
 
+    /// Flush and draw submissions from the receiving client's bridge.
+    pub fn record_draw_with_bridge(
+        &mut self,
+        pass: &mut wgpu::RenderPass,
+        bridge: &mut crate::render_bridge::RenderBridge,
+    ) {
+        bridge.flush_for_drawable_pipeline(self);
+        let submissions = bridge.drain_scene_submissions();
+        self.record_submissions(pass, submissions);
+    }
+
+    fn record_submissions(
+        &mut self,
+        pass: &mut wgpu::RenderPass,
+        submissions: Vec<DrainedDrawSubmission>,
+    ) {
         if submissions.is_empty() {
             return;
         }

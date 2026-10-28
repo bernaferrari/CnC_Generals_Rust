@@ -42,13 +42,15 @@ impl GameClient {
             display
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .draw_with_snow(
+                .draw_with_snow_owned(
                     &snow,
                     self.script_display.fx_mut(),
                     self.ui_renderer.as_mut(),
                     Some(&self.window_manager_owner),
                     self.subsystem_manager.in_game_ui.as_ref(),
                     self.frame,
+                    &mut self.drawable_manager,
+                    &mut self.render_bridge,
                 )?;
         }
         Ok(())

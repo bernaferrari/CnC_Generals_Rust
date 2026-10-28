@@ -3,6 +3,73 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+impl GameLogic {
+    /// Build the immutable translator pick view from this world's canonical
+    /// Object-list order. The snapshot carries only facts; HostObjectStore
+    /// remains the sole mutable gameplay-object owner.
+    pub fn translator_pick_object_view(
+        &self,
+    ) -> game_engine::common::message_stream::TranslatorPickObjectView {
+        use game_engine::common::message_stream::{
+            TranslatorPickCamera, TranslatorPickObjectFact, TranslatorPickObjectView,
+        };
+        use gamelogic::common::ObjectShroudStatus;
+
+        let local_player = self.local_player_id();
+        let camera = &self.session_view.camera;
+        let (viewport_width, viewport_height) = camera.viewport.size();
+        let (viewport_x, viewport_y) = camera.viewport.origin();
+        let mut facts = Vec::with_capacity(self.objects.registered_len());
+        let shroud = self.world_services.shroud().lock().ok();
+        for (id, object) in self.objects.registered() {
+            let position = object.get_position();
+            let hidden_for_local_player = !object.get_template().always_visible
+                && object.contained_by.is_none()
+                && local_player
+                    .and_then(|player| shroud.as_ref()?.get_host_object_shroud_status(player, id.0))
+                    .is_some_and(|status| {
+                        matches!(
+                            status,
+                            ObjectShroudStatus::Fogged
+                                | ObjectShroudStatus::Shrouded
+                                | ObjectShroudStatus::InvalidButPreviousValid
+                        )
+                    });
+            facts.push(TranslatorPickObjectFact {
+                object_id: id.0,
+                position: [position.x, position.y, position.z],
+                locally_controlled: local_player
+                    .is_some_and(|player| object.owner_player_id == Some(player)),
+                selectable: object.is_selectable() && object.is_kind_of(KindOf::Selectable),
+                force_attackable: object.is_kind_of(KindOf::ForceAttackable),
+                mine: object.is_kind_of(KindOf::Mine),
+                shrubbery: object.is_kind_of(KindOf::Shrubbery),
+                destroyed: object.status.destroyed,
+                effectively_dead: object.status.effectively_dead,
+                unselectable: object.status.unselectable,
+                masked: object.status.masked,
+                hidden_for_local_player,
+            });
+        }
+        TranslatorPickObjectView {
+            local_player_index: local_player.map_or(-1, |player| player as i32),
+            objects: facts,
+            native_drawables: Vec::new(),
+            camera: Some(TranslatorPickCamera {
+                view_matrix: camera.view_matrix.to_cols_array(),
+                projection_matrix: camera.projection_matrix.to_cols_array(),
+                camera_position: [
+                    camera.camera_position.x,
+                    camera.camera_position.y,
+                    camera.camera_position.z,
+                ],
+                viewport_origin: [viewport_x, viewport_y],
+                viewport_size: [viewport_width, viewport_height],
+            }),
+        }
+    }
+}
+
 /// C++ `SpecialPowerStore::canUseSpecialPower` (`SpecialPower.cpp:308`)
 /// requires `Object::getSpecialPowerModule`. Frenzy/CashHack and every other
 /// command fail closed without an authored module on the firing object.

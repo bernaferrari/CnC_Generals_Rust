@@ -255,233 +255,16 @@ impl Drawable for BasicDrawable {
     }
 
     fn render(&mut self, view_matrix: &Matrix4, projection_matrix: &Matrix4) {
-        self.advance_core_material_draw();
-        if !self.visible
-            || self.hidden
-            || self.hidden_by_stealth
-            || self.drawable_fully_obscured_by_shroud
-        {
-            return;
-        }
+        self.render_into_bridge(view_matrix, projection_matrix, None);
+    }
 
-        self.flush_dirty_model_condition();
-
-        // C++ parity: Drawable::draw() (Drawable.cpp:2629-2630):
-        // if (getObject() && !getObject()->isEffectivelyDead())
-        //     setShadowsEnabled(m_stealthLook != STEALTHLOOK_VISIBLE_DETECTED);
-        // Without a bound object we keep the create-time enable (seeded SHADOWS).
-        if let Some(obj_id) = self.object_id {
-            let effectively_dead = OBJECT_REGISTRY
-                .get_object(obj_id)
-                .and_then(|obj_arc| obj_arc.read().ok().map(|guard| guard.is_effectively_dead()))
-                .unwrap_or(false);
-            if !effectively_dead {
-                self.set_shadows_enabled(self.stealth_look != StealthLook::VisibleDetected);
-            }
-        }
-
-        if let Some(object_id) = self.object_id {
-            if let Some(wheel) = self.get_wheel_info() {
-                if let Some(client) = gamelogic::helpers::TheGameClient::get() {
-                    client.set_object_wheel_info(
-                        object_id,
-                        gamelogic::helpers::DrawWheelInfo {
-                            front_left_height_offset: wheel.front_left_height_offset,
-                            front_right_height_offset: wheel.front_right_height_offset,
-                            rear_left_height_offset: wheel.rear_left_height_offset,
-                            rear_right_height_offset: wheel.rear_right_height_offset,
-                            wheel_angle: wheel.wheel_angle,
-                            frames_airborne: wheel.frames_airborne,
-                        },
-                    );
-                }
-            }
-        }
-
-        // C++ parity: Drawable::draw() validates position (Drawable.cpp:2634 validatePos()).
-        // Skip rendering if position contains NaN or is unreasonably large.
-        let pos = &self.position;
-        if pos.x.is_nan()
-            || pos.y.is_nan()
-            || pos.z.is_nan()
-            || pos.x.abs() > 10000.0
-            || pos.y.abs() > 10000.0
-            || pos.z.abs() > 10000.0
-        {
-            return;
-        }
-
-        let opacity = self.get_opacity();
-        if opacity <= 0.0 {
-            return;
-        }
-
-        // `BasicDrawable::get_transform()` already contains this port's
-        // instance matrix and scale. Do not multiply it again here: C++ uses
-        // its separate getTransformMatrix()/getInstanceMatrix() values once
-        // each, while this Rust accessor deliberately returns their combined
-        // presentation representation.
-        let world_transform = self.get_transform();
-
-        // Do not approximate C++ `Drawable::applyPhysicsXform` from persisted
-        // `LocoInfo` here. The source calculation is gated by object Held,
-        // GlobalData, TacticalView/script freeze and the *current* AI
-        // locomotor/physics state; rendering can execute more than once per
-        // client frame. Applying the raw saved fields here was therefore both
-        // observable on ineligible objects and capable of double-applying a
-        // guessed transform. The exact client-frame calculation will cache a
-        // validated transform from frozen physics input (hq-9vz). Until then,
-        // fail closed to the authoritative presentation root transform.
-
-        // Note: DrawModule dispatch is handled by GameLogic::Drawable::draw(), not here.
-        // BasicDrawable::render() handles the rendering submission after draw modules
-        // have executed. See GameLogic Drawable::draw() at object/drawable.rs:3393.
-
-        let mut tint = self.get_tint_color();
-        if let Some(selection) = self.selection_color_effect() {
-            tint.x += selection.x;
-            tint.y += selection.y;
-            tint.z += selection.z;
-        }
-        let selected = self.is_selected();
-
-        // A C++ Drawable dispatches every DrawModule in order.  Preserve every
-        // committed W3D result rather than treating the last one as the whole
-        // object.  No committed output retains the template fallback used by
-        // simple/non-W3D drawables; an explicit empty committed W3D result is
-        // skipped rather than fabricating that fallback model.
-        let base_world_transform = world_transform;
-        let model_draws = self.model_draw_states();
-        let submit_model_draw = |model_draw: Option<&ModelDrawState>| {
-            let world_transform = base_world_transform;
-            let model_name = match model_draw {
-                Some(state) if state.model_name.is_empty() => return,
-                Some(state) => state.model_name.clone(),
-                None => self.template_name.clone().unwrap_or_default(),
-            };
-
-            // The presentation-facing BasicDrawable owns the authoritative
-            // frozen object transform (including its existing visual physics
-            // pass). The legacy model-draw bridge transports module-local
-            // state only; replacing this transform with GameLogic's partially
-            // reconstructed Drawable transform would make an approximation
-            // look authoritative and lose presentation-side physics fields.
-
-            let mut condition_flags = model_draw
-                .map(|state| Self::render_condition_flags_from_bits(state.condition_flags_bits))
-                .unwrap_or_else(|| self.compute_render_condition_flags());
-
-            if selected {
-                condition_flags |= crate::render_bridge::RenderConditionFlags::SELECTED;
-            }
-
-            let bone_overrides = model_draw
-                .map(|state| {
-                    state
-                        .bone_overrides
-                        .iter()
-                        .map(Self::bone_override_from_model_draw)
-                        .collect()
-                })
-                .unwrap_or_default();
-            let mesh_uv_overrides = model_draw
-                .map(|state| {
-                    state
-                        .mesh_uv_overrides
-                        .iter()
-                        .map(|uv| crate::render_bridge::MeshUvOverride {
-                            mesh_name_prefix: uv.mesh_name_prefix.clone(),
-                            u_offset: uv.u_offset,
-                            v_offset: uv.v_offset,
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            let sub_object_visibility = model_draw
-                .map(|state| {
-                    state
-                        .sub_object_visibility
-                        .iter()
-                        .map(|visibility| crate::render_bridge::SubObjectVisibility {
-                            sub_object_name: visibility.sub_object_name.clone(),
-                            hidden: visibility.hidden,
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            let animation_name = model_draw.and_then(|state| state.animation_name.clone());
-            let animation_mode = model_draw
-                .and_then(|state| Self::animation_mode_from_model_draw(state.animation_mode));
-            let animation_time = model_draw.map(|state| state.animation_time).unwrap_or(0.0);
-            let render_state =
-                Self::render_state_from_flags(condition_flags, opacity, tint, selected);
-
-            let submission = crate::render_bridge::DrawSubmission {
-                drawable_id: crate::render_bridge::DrawableId(self.id.0),
-                capture_window_generation: None,
-                owner_object_id: self.object_id,
-                // Prison/captive visuals are objectless but retain the C++
-                // DrawableInfo controller identity. Keep it as a separate
-                // immutable bridge fact; Main resolves the controller from
-                // its frozen presentation frame.
-                shroud_status_object_id: {
-                    let object_id = self.shroud_status_object_id();
-                    (object_id != 0).then_some(object_id)
-                },
-                legacy_model_draw_source: model_draw.map(|state| state.source.clone()),
-                legacy_weapon_bone_bindings: model_draw
-                    .map(|state| state.weapon_bone_bindings.clone()),
-                legacy_render_object_transform: model_draw.map(|state| state.world_transform),
-                legacy_render_object_scale: model_draw.and_then(|state| state.render_object_scale),
-                legacy_render_object_color: model_draw.and_then(|state| state.render_object_color),
-                model_name,
-                world_transform: world_transform.to_glam(),
-                condition_flags,
-                render_state: render_state.clone(),
-                bone_overrides,
-                mesh_uv_overrides,
-                sub_object_visibility,
-                animation_name,
-                animation_mode,
-                animation_time,
-                bounding_sphere: {
-                    let (_, radius) = self.get_bounding_sphere();
-                    ww3d_core::BoundingSphere::new(
-                        ww3d_core::glam::Vec3::new(
-                            self.position.x,
-                            self.position.y,
-                            self.position.z,
-                        ),
-                        radius,
-                    )
-                },
-                bounding_box: ww3d_core::AABox::zero(),
-                sort_level: 0,
-                opaque: render_state.opacity >= 1.0,
-                transparent: render_state.opacity < 1.0,
-                cast_shadow: self.status.has(DrawableStatus::SHADOWS),
-            };
-
-            if let Ok(mut bridge_guard) = get_render_bridge().lock() {
-                if let Some(bridge) = bridge_guard.as_mut() {
-                    bridge.submit(submission);
-                }
-            }
-        };
-
-        if model_draws.is_empty() {
-            submit_model_draw(None);
-        } else {
-            for model_draw in &model_draws {
-                submit_model_draw(Some(model_draw));
-            }
-        }
-
-        // C++ parity: Drawable::draw() iterates draw modules after setting up
-        // the world transform. Each draw module renders its portion of the model.
-        for dm in &mut self.draw_modules {
-            dm.do_draw(&base_world_transform, view_matrix, projection_matrix);
-        }
+    fn render_with_bridge(
+        &mut self,
+        view_matrix: &Matrix4,
+        projection_matrix: &Matrix4,
+        bridge: &mut crate::render_bridge::RenderBridge,
+    ) {
+        self.render_into_bridge(view_matrix, projection_matrix, Some(bridge));
     }
 
     fn get_bounding_sphere(&self) -> (Vector3, f32) {
@@ -633,6 +416,244 @@ impl Drawable for BasicDrawable {
 }
 
 impl BasicDrawable {
+    fn render_into_bridge(
+        &mut self,
+        view_matrix: &Matrix4,
+        projection_matrix: &Matrix4,
+        bridge: Option<&mut crate::render_bridge::RenderBridge>,
+    ) {
+        self.advance_core_material_draw();
+        if !self.visible
+            || self.hidden
+            || self.hidden_by_stealth
+            || self.drawable_fully_obscured_by_shroud
+        {
+            return;
+        }
+
+        self.flush_dirty_model_condition();
+
+        // C++ parity: Drawable::draw() (Drawable.cpp:2629-2630):
+        // if (getObject() && !getObject()->isEffectivelyDead())
+        //     setShadowsEnabled(m_stealthLook != STEALTHLOOK_VISIBLE_DETECTED);
+        // Without a bound object we keep the create-time enable (seeded SHADOWS).
+        if let Some(obj_id) = self.object_id {
+            let effectively_dead = OBJECT_REGISTRY
+                .get_object(obj_id)
+                .and_then(|obj_arc| obj_arc.read().ok().map(|guard| guard.is_effectively_dead()))
+                .unwrap_or(false);
+            if !effectively_dead {
+                self.set_shadows_enabled(self.stealth_look != StealthLook::VisibleDetected);
+            }
+        }
+
+        if let Some(object_id) = self.object_id {
+            if let Some(wheel) = self.get_wheel_info() {
+                if let Some(client) = gamelogic::helpers::TheGameClient::get() {
+                    client.set_object_wheel_info(
+                        object_id,
+                        gamelogic::helpers::DrawWheelInfo {
+                            front_left_height_offset: wheel.front_left_height_offset,
+                            front_right_height_offset: wheel.front_right_height_offset,
+                            rear_left_height_offset: wheel.rear_left_height_offset,
+                            rear_right_height_offset: wheel.rear_right_height_offset,
+                            wheel_angle: wheel.wheel_angle,
+                            frames_airborne: wheel.frames_airborne,
+                        },
+                    );
+                }
+            }
+        }
+
+        // C++ parity: Drawable::draw() validates position (Drawable.cpp:2634 validatePos()).
+        // Skip rendering if position contains NaN or is unreasonably large.
+        let pos = &self.position;
+        if pos.x.is_nan()
+            || pos.y.is_nan()
+            || pos.z.is_nan()
+            || pos.x.abs() > 10000.0
+            || pos.y.abs() > 10000.0
+            || pos.z.abs() > 10000.0
+        {
+            return;
+        }
+
+        let opacity = self.get_opacity();
+        if opacity <= 0.0 {
+            return;
+        }
+
+        // `BasicDrawable::get_transform()` already contains this port's
+        // instance matrix and scale. Do not multiply it again here: C++ uses
+        // its separate getTransformMatrix()/getInstanceMatrix() values once
+        // each, while this Rust accessor deliberately returns their combined
+        // presentation representation.
+        let world_transform = self.get_transform();
+
+        // Do not approximate C++ `Drawable::applyPhysicsXform` from persisted
+        // `LocoInfo` here. The source calculation is gated by object Held,
+        // GlobalData, TacticalView/script freeze and the *current* AI
+        // locomotor/physics state; rendering can execute more than once per
+        // client frame. Applying the raw saved fields here was therefore both
+        // observable on ineligible objects and capable of double-applying a
+        // guessed transform. The exact client-frame calculation will cache a
+        // validated transform from frozen physics input (hq-9vz). Until then,
+        // fail closed to the authoritative presentation root transform.
+
+        // Note: DrawModule dispatch is handled by GameLogic::Drawable::draw(), not here.
+        // BasicDrawable::render() handles the rendering submission after draw modules
+        // have executed. See GameLogic Drawable::draw() at object/drawable.rs:3393.
+
+        let mut tint = self.get_tint_color();
+        if let Some(selection) = self.selection_color_effect() {
+            tint.x += selection.x;
+            tint.y += selection.y;
+            tint.z += selection.z;
+        }
+        let selected = self.is_selected();
+
+        // A C++ Drawable dispatches every DrawModule in order.  Preserve every
+        // committed W3D result rather than treating the last one as the whole
+        // object.  No committed output retains the template fallback used by
+        // simple/non-W3D drawables; an explicit empty committed W3D result is
+        // skipped rather than fabricating that fallback model.
+        let base_world_transform = world_transform;
+        let model_draws = self.model_draw_states();
+        let mut bridge = bridge;
+        let mut submit_model_draw = |model_draw: Option<&ModelDrawState>| {
+            let world_transform = base_world_transform;
+            let model_name = match model_draw {
+                Some(state) if state.model_name.is_empty() => return,
+                Some(state) => state.model_name.clone(),
+                None => self.template_name.clone().unwrap_or_default(),
+            };
+
+            // The presentation-facing BasicDrawable owns the authoritative
+            // frozen object transform (including its existing visual physics
+            // pass). The legacy model-draw bridge transports module-local
+            // state only; replacing this transform with GameLogic's partially
+            // reconstructed Drawable transform would make an approximation
+            // look authoritative and lose presentation-side physics fields.
+
+            let mut condition_flags = model_draw
+                .map(|state| Self::render_condition_flags_from_bits(state.condition_flags_bits))
+                .unwrap_or_else(|| self.compute_render_condition_flags());
+
+            if selected {
+                condition_flags |= crate::render_bridge::RenderConditionFlags::SELECTED;
+            }
+
+            let bone_overrides = model_draw
+                .map(|state| {
+                    state
+                        .bone_overrides
+                        .iter()
+                        .map(Self::bone_override_from_model_draw)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mesh_uv_overrides = model_draw
+                .map(|state| {
+                    state
+                        .mesh_uv_overrides
+                        .iter()
+                        .map(|uv| crate::render_bridge::MeshUvOverride {
+                            mesh_name_prefix: uv.mesh_name_prefix.clone(),
+                            u_offset: uv.u_offset,
+                            v_offset: uv.v_offset,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let sub_object_visibility = model_draw
+                .map(|state| {
+                    state
+                        .sub_object_visibility
+                        .iter()
+                        .map(|visibility| crate::render_bridge::SubObjectVisibility {
+                            sub_object_name: visibility.sub_object_name.clone(),
+                            hidden: visibility.hidden,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let animation_name = model_draw.and_then(|state| state.animation_name.clone());
+            let animation_mode = model_draw
+                .and_then(|state| Self::animation_mode_from_model_draw(state.animation_mode));
+            let animation_time = model_draw.map(|state| state.animation_time).unwrap_or(0.0);
+            let render_state =
+                Self::render_state_from_flags(condition_flags, opacity, tint, selected);
+
+            let submission = crate::render_bridge::DrawSubmission {
+                drawable_id: crate::render_bridge::DrawableId(self.id.0),
+                capture_window_generation: None,
+                owner_object_id: self.object_id,
+                // Prison/captive visuals are objectless but retain the C++
+                // DrawableInfo controller identity. Keep it as a separate
+                // immutable bridge fact; Main resolves the controller from
+                // its frozen presentation frame.
+                shroud_status_object_id: {
+                    let object_id = self.shroud_status_object_id();
+                    (object_id != 0).then_some(object_id)
+                },
+                legacy_model_draw_source: model_draw.map(|state| state.source.clone()),
+                legacy_weapon_bone_bindings: model_draw
+                    .map(|state| state.weapon_bone_bindings.clone()),
+                legacy_render_object_transform: model_draw.map(|state| state.world_transform),
+                legacy_render_object_scale: model_draw.and_then(|state| state.render_object_scale),
+                legacy_render_object_color: model_draw.and_then(|state| state.render_object_color),
+                model_name,
+                world_transform: world_transform.to_glam(),
+                condition_flags,
+                render_state: render_state.clone(),
+                bone_overrides,
+                mesh_uv_overrides,
+                sub_object_visibility,
+                animation_name,
+                animation_mode,
+                animation_time,
+                bounding_sphere: {
+                    let (_, radius) = self.get_bounding_sphere();
+                    ww3d_core::BoundingSphere::new(
+                        ww3d_core::glam::Vec3::new(
+                            self.position.x,
+                            self.position.y,
+                            self.position.z,
+                        ),
+                        radius,
+                    )
+                },
+                bounding_box: ww3d_core::AABox::zero(),
+                sort_level: 0,
+                opaque: render_state.opacity >= 1.0,
+                transparent: render_state.opacity < 1.0,
+                cast_shadow: self.status.has(DrawableStatus::SHADOWS),
+            };
+
+            if let Some(bridge) = bridge.as_deref_mut() {
+                bridge.submit(submission);
+            } else if let Ok(mut bridge_guard) = get_render_bridge().lock() {
+                if let Some(bridge) = bridge_guard.as_mut() {
+                    bridge.submit(submission);
+                }
+            }
+        };
+
+        if model_draws.is_empty() {
+            submit_model_draw(None);
+        } else {
+            for model_draw in &model_draws {
+                submit_model_draw(Some(model_draw));
+            }
+        }
+
+        // C++ parity: Drawable::draw() iterates draw modules after setting up
+        // the world transform. Each draw module renders its portion of the model.
+        for dm in &mut self.draw_modules {
+            dm.do_draw(&base_world_transform, view_matrix, projection_matrix);
+        }
+    }
+
     /// Receiving Thing/Drawable transform at reactToTransformChange, before
     /// Draw adds locomotor recoil and instance scale. Native direct admission
     /// already stores Y-up coordinates here; only storage layout changes at

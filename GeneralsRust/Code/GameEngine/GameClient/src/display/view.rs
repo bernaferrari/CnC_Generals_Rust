@@ -177,6 +177,88 @@ fn ray_sphere_t(origin: Vec3, dir: Vec3, center: Vec3, radius: f32) -> Option<f3
         None
     }
 }
+
+/// Hosted point pick against the receiving GameClient's canonical native
+/// drawable snapshot and receiving Main camera. No tactical-view or drawable
+/// manager singleton is consulted.
+pub fn pick_native_drawable_from_facts(
+    screen: &IPoint2,
+    window_query: &mut dyn FnMut(i32, i32) -> bool,
+    camera: &game_engine::common::message_stream::TranslatorPickCamera,
+    drawables: &[game_engine::common::message_stream::TranslatorPickDrawableFact],
+) -> Option<u32> {
+    if window_query(screen.x, screen.y) {
+        return None;
+    }
+    let [width, height] = camera.viewport_size;
+    if width <= 0 || height <= 0 {
+        return None;
+    }
+    let x = ((screen.x - camera.viewport_origin[0]) as f32 / width as f32) * 2.0 - 1.0;
+    let y = 1.0 - ((screen.y - camera.viewport_origin[1]) as f32 / height as f32) * 2.0;
+    let view = Mat4::from_cols_array(&camera.view_matrix);
+    let projection = Mat4::from_cols_array(&camera.projection_matrix);
+    let inverse = (projection * view).inverse();
+    if !inverse.is_finite() {
+        return None;
+    }
+    let near = inverse * Vec4::new(x, y, -1.0, 1.0);
+    let far = inverse * Vec4::new(x, y, 1.0, 1.0);
+    if near.w.abs() < 1.0e-6 || far.w.abs() < 1.0e-6 {
+        return None;
+    }
+    let near = near.truncate() / near.w;
+    let far = far.truncate() / far.w;
+    let origin = Vec3::from_array(camera.camera_position);
+    // C++ W3DView builds a finite camera-origin ray using the active camera's
+    // depth. The unprojected far-plane point supplies that receiving camera's
+    // endpoint; do not replace it with a process-wide/fixed clip distance.
+    let direction = far - origin;
+    if direction.length_squared() < 1.0e-12 {
+        return None;
+    }
+    let mut best = None;
+    let mut best_t = f32::MAX;
+    for drawable in drawables {
+        let center = Vec3::from_array(drawable.center);
+        if let Some(t) = ray_sphere_t(origin, direction, center, drawable.radius.max(1.0)) {
+            if t <= 1.0 && t < best_t {
+                best_t = t;
+                best = Some(drawable.object_id);
+            }
+        }
+    }
+    best
+}
+
+pub fn world_to_screen_from_pick_camera(
+    world: &Point3,
+    camera: &game_engine::common::message_stream::TranslatorPickCamera,
+) -> Option<IPoint2> {
+    let [width, height] = camera.viewport_size;
+    if width <= 0 || height <= 0 {
+        return None;
+    }
+    let matrix = Mat4::from_cols_array(&camera.projection_matrix)
+        * Mat4::from_cols_array(&camera.view_matrix);
+    let clip = matrix * Vec4::new(world.x, world.y, world.z, 1.0);
+    if !clip.is_finite() || clip.w.abs() < 1.0e-6 || clip.w <= 0.0 {
+        return None;
+    }
+    let ndc = clip.truncate() / clip.w;
+    (ndc.is_finite()
+        && (-1.0..=1.0).contains(&ndc.x)
+        && (-1.0..=1.0).contains(&ndc.y)
+        && (-1.0..=1.0).contains(&ndc.z))
+    .then(|| {
+        IPoint2::new(
+            (((ndc.x + 1.0) * 0.5 * width as f32 + camera.viewport_origin[0] as f32).round())
+                as i32,
+            (((1.0 - ndc.y) * 0.5 * height as f32 + camera.viewport_origin[1] as f32).round())
+                as i32,
+        )
+    })
+}
 fn named_object_transform(object_name: &str, bone_name: &str) -> Option<(Vec3, Vec3)> {
     if object_name.is_empty() {
         return None;
@@ -1667,6 +1749,25 @@ impl View {
         _pick_type: PickType,
         window_query: &mut dyn FnMut(i32, i32) -> bool,
     ) -> Option<u32> {
+        with_drawable_manager_ref(|manager| {
+            self.pick_drawable_with_manager(
+                screen,
+                _force_attack,
+                _pick_type,
+                window_query,
+                manager,
+            )
+        })
+    }
+
+    pub fn pick_drawable_with_manager(
+        &self,
+        screen: &IPoint2,
+        _force_attack: bool,
+        _pick_type: PickType,
+        window_query: &mut dyn FnMut(i32, i32) -> bool,
+        manager: &crate::drawable::DrawableManager,
+    ) -> Option<u32> {
         if window_query(screen.x, screen.y) {
             return None;
         }
@@ -1679,25 +1780,23 @@ impl View {
 
         let mut best_id = None;
         let mut best_t = f32::MAX;
-        with_drawable_manager_ref(|manager| {
-            for id in manager.get_all_drawable_ids() {
-                let Some(drawable) = manager.get_drawable(id) else {
-                    continue;
-                };
-                if !drawable.is_visible() {
-                    continue;
-                }
-                let (center, radius) = drawable.get_bounding_sphere();
-                let sphere_center = Vec3::new(center.x, center.y, center.z);
-                let radius = radius.max(1.0);
-                if let Some(t) = ray_sphere_t(ray_start, dir, sphere_center, radius) {
-                    if t >= 0.0 && t <= 1.0 && t < best_t {
-                        best_t = t;
-                        best_id = Some(drawable.get_object_id().unwrap_or(drawable.get_id().0));
-                    }
+        for id in manager.get_all_drawable_ids() {
+            let Some(drawable) = manager.get_drawable(id) else {
+                continue;
+            };
+            if !drawable.is_visible() {
+                continue;
+            }
+            let (center, radius) = drawable.get_bounding_sphere();
+            let sphere_center = Vec3::new(center.x, center.y, center.z);
+            let radius = radius.max(1.0);
+            if let Some(t) = ray_sphere_t(ray_start, dir, sphere_center, radius) {
+                if t >= 0.0 && t <= 1.0 && t < best_t {
+                    best_t = t;
+                    best_id = Some(drawable.get_object_id().unwrap_or(drawable.get_id().0));
                 }
             }
-        });
+        }
         best_id
     }
 
@@ -1707,47 +1806,59 @@ impl View {
         region: Option<(IPoint2, IPoint2)>,
         window_query: &mut dyn FnMut(i32, i32) -> bool,
     ) -> Vec<u32> {
+        with_drawable_manager_ref(|manager| {
+            self.iterate_drawables_in_region_with_manager(region, window_query, manager)
+        })
+    }
+
+    pub fn iterate_drawables_in_region_with_manager(
+        &self,
+        region: Option<(IPoint2, IPoint2)>,
+        window_query: &mut dyn FnMut(i32, i32) -> bool,
+        manager: &crate::drawable::DrawableManager,
+    ) -> Vec<u32> {
         if let Some((lo, hi)) = region {
             if lo.x == hi.x && lo.y == hi.y {
                 return self
-                    .pick_drawable(&lo, true, PickType::Selectable, window_query)
+                    .pick_drawable_with_manager(
+                        &lo,
+                        true,
+                        PickType::Selectable,
+                        window_query,
+                        manager,
+                    )
                     .into_iter()
                     .collect();
             }
         }
 
         let mut ids = Vec::new();
-        with_drawable_manager_ref(|manager| {
-            for id in manager.get_all_drawable_ids() {
-                let Some(drawable) = manager.get_drawable(id) else {
-                    continue;
-                };
-                if !drawable.is_visible() {
-                    continue;
-                }
-                let pos = drawable.get_position();
-                let point = Point3::new(pos.x, pos.y, pos.z);
-                let Some(screen) = self.world_to_screen(&point) else {
-                    continue;
-                };
-                let inside = match region {
-                    None => true,
-                    Some((lo, hi)) => {
-                        let min_x = lo.x.min(hi.x);
-                        let max_x = lo.x.max(hi.x);
-                        let min_y = lo.y.min(hi.y);
-                        let max_y = lo.y.max(hi.y);
-                        screen.x >= min_x
-                            && screen.x <= max_x
-                            && screen.y >= min_y
-                            && screen.y <= max_y
-                    }
-                };
-                if inside {
-                    ids.push(drawable.get_object_id().unwrap_or(drawable.get_id().0));
-                }
+        for id in manager.get_all_drawable_ids() {
+            let Some(drawable) = manager.get_drawable(id) else {
+                continue;
+            };
+            if !drawable.is_visible() {
+                continue;
             }
-        });
+            let pos = drawable.get_position();
+            let point = Point3::new(pos.x, pos.y, pos.z);
+            let Some(screen) = self.world_to_screen(&point) else {
+                continue;
+            };
+            let inside = match region {
+                None => true,
+                Some((lo, hi)) => {
+                    let min_x = lo.x.min(hi.x);
+                    let max_x = lo.x.max(hi.x);
+                    let min_y = lo.y.min(hi.y);
+                    let max_y = lo.y.max(hi.y);
+                    screen.x >= min_x && screen.x <= max_x && screen.y >= min_y && screen.y <= max_y
+                }
+            };
+            if inside {
+                ids.push(drawable.get_object_id().unwrap_or(drawable.get_id().0));
+            }
+        }
         ids
     }
 
@@ -2037,10 +2148,18 @@ thread_local! {
 }
 
 #[derive(Default)]
-struct HintModelCache {
+pub struct HintModelCache {
     move_hints: Vec<Option<crate::drawable::DrawableId>>,
     locater_anchor: Option<crate::drawable::DrawableId>,
     locater_arrow: Option<crate::drawable::DrawableId>,
+}
+
+impl HintModelCache {
+    pub(super) fn clear(&mut self) {
+        self.move_hints.clear();
+        self.locater_anchor = None;
+        self.locater_arrow = None;
+    }
 }
 
 fn spawn_world_model(name: &str, position: Point3, animation: &str) -> crate::drawable::DrawableId {
@@ -2159,6 +2278,115 @@ fn draw_move_hint_and_locater_models(
                 hide_or_move_model(id, None);
             }
         });
+    }
+}
+
+fn draw_move_hint_and_locater_models_with_owner(
+    view: &View,
+    ui: &crate::core::subsystems::InGameUISubsystem,
+    client_frame: u32,
+    manager: &mut crate::drawable::DrawableManager,
+    cache: &mut HintModelCache,
+) {
+    let hint_name = get_global_data()
+        .map(|data| {
+            let name = data.read().move_hint_name.clone();
+            if name.is_empty() {
+                "MoveHint".to_string()
+            } else {
+                name
+            }
+        })
+        .unwrap_or_else(|| "MoveHint".to_string());
+    let live: Vec<Point3> = ui
+        .get_hints()
+        .into_iter()
+        .filter(|hint| {
+            hint.hint_type == HintType::Move
+                && client_frame.saturating_sub(hint.creation_frame) <= 40
+        })
+        .map(|hint| Point3::new(hint.end.x, hint.end.y, hint.end.z))
+        .collect();
+
+    while cache.move_hints.len() < live.len() {
+        let pos = live[cache.move_hints.len()];
+        let id = manager.create_drawable(DrawableType::Model {
+            model_name: hint_name.clone(),
+            position: DrawVec3::new(pos.x, pos.y, pos.z),
+            scale: 1.0,
+            animation_state: "ONCE".to_string(),
+        });
+        cache.move_hints.push(Some(id));
+    }
+    for (slot, id) in cache.move_hints.iter().enumerate() {
+        let Some(id) = id else { continue };
+        if let Some(drawable) = manager.get_drawable_mut(*id) {
+            if let Some(pos) = live.get(slot) {
+                drawable.set_visible(true);
+                drawable.set_position(DrawVec3::new(pos.x, pos.y, pos.z));
+            } else {
+                drawable.set_visible(false);
+            }
+        }
+    }
+
+    if ui.is_placement_anchored() {
+        if let Some((start, end)) = ui.get_placement_points() {
+            let start_world = view
+                .screen_to_terrain(&IPoint2::new(start.x, start.y))
+                .unwrap_or(Point3::new(start.x as f32, start.y as f32, 0.0));
+            let end_world = view
+                .screen_to_terrain(&IPoint2::new(end.x, end.y))
+                .unwrap_or(Point3::new(end.x as f32, end.y as f32, 0.0));
+            let dx = (end.x - start.x) as f32;
+            let dy = (end.y - start.y) as f32;
+            let show_arrow = (dx * dx + dy * dy).sqrt() >= 5.0;
+            if cache.locater_anchor.is_none() {
+                cache.locater_anchor = Some(manager.create_drawable(DrawableType::Model {
+                    model_name: "Locater01".to_string(),
+                    position: DrawVec3::new(start_world.x, start_world.y, start_world.z),
+                    scale: 1.0,
+                    animation_state: "LOOP".to_string(),
+                }));
+            }
+            if cache.locater_arrow.is_none() {
+                cache.locater_arrow = Some(manager.create_drawable(DrawableType::Model {
+                    model_name: "Locater02".to_string(),
+                    position: DrawVec3::new(start_world.x, start_world.y, start_world.z),
+                    scale: 1.0,
+                    animation_state: "LOOP".to_string(),
+                }));
+            }
+            if let Some(id) = cache
+                .locater_anchor
+                .and_then(|id| manager.get_drawable_mut(id))
+            {
+                if show_arrow {
+                    id.set_visible(false);
+                } else {
+                    id.set_visible(true);
+                    id.set_position(DrawVec3::new(start_world.x, start_world.y, start_world.z));
+                }
+            }
+            if let Some(id) = cache
+                .locater_arrow
+                .and_then(|id| manager.get_drawable_mut(id))
+            {
+                id.set_visible(show_arrow);
+                if show_arrow {
+                    id.set_position(DrawVec3::new(end_world.x, end_world.y, end_world.z));
+                }
+            }
+        }
+    } else {
+        for id in [cache.locater_anchor, cache.locater_arrow]
+            .into_iter()
+            .flatten()
+        {
+            if let Some(drawable) = manager.get_drawable_mut(id) {
+                drawable.set_visible(false);
+            }
+        }
     }
 }
 
@@ -3559,6 +3787,17 @@ pub trait ViewTrait: Send + Sync {
         client_frame: u32,
     ) -> Result<(), ViewError>;
 
+    fn draw_view_owned(
+        &self,
+        ui: Option<&crate::core::subsystems::InGameUISubsystem>,
+        client_frame: u32,
+        manager: &mut crate::drawable::DrawableManager,
+        hint_models: &mut HintModelCache,
+    ) -> Result<(), ViewError> {
+        let _ = (manager, hint_models);
+        self.draw_view(ui, client_frame)
+    }
+
     /// Update view state (called once per frame)
     fn update_view(&mut self) -> Result<(), ViewError>;
 
@@ -3596,6 +3835,26 @@ impl ViewTrait for View {
     ) -> Result<(), ViewError> {
         if let Some(ui) = ui {
             draw_move_hint_and_locater_models(self, ui, client_frame);
+        }
+        View::force_redraw(self);
+        Ok(())
+    }
+
+    fn draw_view_owned(
+        &self,
+        ui: Option<&crate::core::subsystems::InGameUISubsystem>,
+        client_frame: u32,
+        manager: &mut crate::drawable::DrawableManager,
+        hint_models: &mut HintModelCache,
+    ) -> Result<(), ViewError> {
+        if let Some(ui) = ui {
+            draw_move_hint_and_locater_models_with_owner(
+                self,
+                ui,
+                client_frame,
+                manager,
+                hint_models,
+            );
         }
         View::force_redraw(self);
         Ok(())

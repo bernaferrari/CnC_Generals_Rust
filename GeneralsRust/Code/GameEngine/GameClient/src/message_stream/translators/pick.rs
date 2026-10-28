@@ -64,21 +64,73 @@ pub(super) fn collect_selectable_objects(
     window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
     ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> (Vec<(ObjectID, f32)>, Vec<(ObjectID, f32)>) {
-    let local_player_index = player_list()
-        .read()
-        .ok()
-        .map(|list| list.get_local_player_index())
-        .unwrap_or(-1);
+    let receiving_objects = ui.pick_object_view();
+    let local_player_index = receiving_objects.as_ref().map_or_else(
+        || {
+            player_list()
+                .read()
+                .ok()
+                .map(|list| list.get_local_player_index())
+                .unwrap_or(-1)
+        },
+        |view| view.local_player_index,
+    );
     if is_point {
-        if let Some(picked) = with_tactical_view_ref(|view| {
-            view.pick_drawable(
-                &IPoint2::new(region.x, region.y),
-                true,
-                crate::display::view::PickType::Selectable,
-                &mut |x, y| window_query(x, y, ui),
-            )
-        }) {
-            if let Some(obj_ref) = OBJECT_REGISTRY.get_object(ObjectID::from(picked)) {
+        let picked = if let Some(view) = receiving_objects.as_ref() {
+            view.camera.as_ref().and_then(|camera| {
+                // C++ filters collision results by the requested pick type.
+                // Filter the receiving owner's drawable sequence before ray
+                // selection so an ineligible nearer drawable cannot occlude
+                // an eligible target behind it.
+                let candidates: Vec<_> = view
+                    .native_drawables
+                    .iter()
+                    .copied()
+                    .filter(|drawable| {
+                        view.get(drawable.object_id).is_some_and(|fact| {
+                            pick_fact_matches_profile(fact, profile)
+                                && !fact.hidden_for_local_player
+                        })
+                    })
+                    .collect();
+                crate::display::view::pick_native_drawable_from_facts(
+                    &IPoint2::new(region.x, region.y),
+                    &mut |x, y| window_query(x, y, ui),
+                    camera,
+                    &candidates,
+                )
+            })
+        } else {
+            with_tactical_view_ref(|view| {
+                view.pick_drawable(
+                    &IPoint2::new(region.x, region.y),
+                    true,
+                    crate::display::view::PickType::Selectable,
+                    &mut |x, y| window_query(x, y, ui),
+                )
+            })
+        };
+        if let Some(picked) = picked {
+            let picked_id = ObjectID::from(picked);
+            if let Some(view) = receiving_objects.as_ref() {
+                if let Some(fact) = view.get(picked_id) {
+                    if pick_fact_matches_profile(fact, profile) && !fact.hidden_for_local_player {
+                        let pos =
+                            Coord3D::new(fact.position[0], fact.position[1], fact.position[2]);
+                        if !world_position_is_under_opaque_window_for_command(
+                            &pos,
+                            window_query,
+                            ui,
+                        ) {
+                            return if fact.locally_controlled {
+                                (vec![(picked_id, 0.0)], Vec::new())
+                            } else {
+                                (Vec::new(), vec![(picked_id, 0.0)])
+                            };
+                        }
+                    }
+                }
+            } else if let Some(obj_ref) = OBJECT_REGISTRY.get_object(picked_id) {
                 if let Ok(obj) = obj_ref.read() {
                     if object_matches_context_pick_profile(&obj, profile)
                         && !object_is_hidden_for_player(&obj, local_player_index)
@@ -99,15 +151,58 @@ pub(super) fn collect_selectable_objects(
                 }
             }
         }
+        if receiving_objects.is_some() {
+            return (Vec::new(), Vec::new());
+        }
     }
-    let point_world = is_point
-        .then(|| screen_to_terrain(&ICoord2D::new(region.x, region.y)))
-        .flatten();
+    let point_world = if receiving_objects.is_some() {
+        None
+    } else {
+        is_point
+            .then(|| screen_to_terrain(&ICoord2D::new(region.x, region.y)))
+            .flatten()
+    };
     if is_point && point_world.is_none() {
         return (Vec::new(), Vec::new());
     }
 
-    // Wave 974: host empty dual-world → presentation translator catalog residual.
+    // Hosted translation always uses the receiving Main projection, including
+    // the authoritative empty case. Standalone Core retains its compatibility
+    // registry and presentation-catalog behavior.
+    if let Some(view) = receiving_objects.as_ref() {
+        let mut mine = Vec::new();
+        let mut other = Vec::new();
+        for fact in &view.objects {
+            if !pick_fact_matches_profile(fact, profile) || fact.hidden_for_local_player {
+                continue;
+            }
+            let pos = Coord3D::new(fact.position[0], fact.position[1], fact.position[2]);
+            if world_position_is_under_opaque_window_for_command(&pos, window_query, ui) {
+                continue;
+            }
+            let Some(camera) = view.camera.as_ref() else {
+                return (Vec::new(), Vec::new());
+            };
+            let Some(distance) = object_pick_distance_with_camera(
+                &pos,
+                region,
+                is_point,
+                point_world.as_ref(),
+                radius,
+                camera,
+            ) else {
+                continue;
+            };
+            if fact.locally_controlled {
+                mine.push((ObjectID::from(fact.object_id), distance));
+            } else {
+                other.push((ObjectID::from(fact.object_id), distance));
+            }
+        }
+        return (mine, other);
+    }
+
+    // Wave 974: standalone empty dual-world → presentation translator catalog residual.
     if dual_world_registry_unavailable() {
         return collect_selectable_objects_from_presentation(
             region,
@@ -173,6 +268,19 @@ pub(super) fn object_matches_context_pick_profile(
         || (profile.include_shrubbery && obj.is_kind_of(KindOf::Shrubbery))
 }
 
+fn pick_fact_matches_profile(
+    fact: &game_engine::common::message_stream::TranslatorPickObjectFact,
+    profile: ContextPickProfile,
+) -> bool {
+    if fact.destroyed || fact.effectively_dead || fact.unselectable || fact.masked {
+        return false;
+    }
+    (profile.include_selectable && fact.selectable)
+        || (profile.include_force_attackable && fact.force_attackable)
+        || (profile.include_mines && fact.mine)
+        || (profile.include_shrubbery && fact.shrubbery)
+}
+
 pub(super) fn object_is_hidden_for_player(
     obj: &gamelogic::object::Object,
     local_player_index: i32,
@@ -217,15 +325,54 @@ pub(super) fn object_pick_distance(
     })
 }
 
+fn object_pick_distance_with_camera(
+    pos: &Coord3D,
+    region: &IRegion2D,
+    is_point: bool,
+    point_world: Option<&Coord3D>,
+    radius: f32,
+    camera: &game_engine::common::message_stream::TranslatorPickCamera,
+) -> Option<f32> {
+    if is_point {
+        let world = point_world?;
+        let dx = pos.x - world.x;
+        let dy = pos.y - world.y;
+        let dist_sq = dx * dx + dy * dy;
+        return (dist_sq <= radius * radius).then_some(dist_sq);
+    }
+    let screen = crate::display::view::world_to_screen_from_pick_camera(
+        &Point3::new(pos.x, pos.y, pos.z),
+        camera,
+    )?;
+    let min_x = region.x.min(region.x + region.width);
+    let max_x = region.x.max(region.x + region.width);
+    let min_y = region.y.min(region.y + region.height);
+    let max_y = region.y.max(region.y + region.height);
+    let inside = screen.x >= min_x && screen.x <= max_x && screen.y >= min_y && screen.y <= max_y;
+    inside.then(|| {
+        let center_x = (min_x + max_x) as f32 * 0.5;
+        let center_y = (min_y + max_y) as f32 * 0.5;
+        let dx = screen.x as f32 - center_x;
+        let dy = screen.y as f32 - center_y;
+        dx * dx + dy * dy
+    })
+}
+
 pub(super) fn world_position_is_under_opaque_window_for_command(
     pos: &Coord3D,
     window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
     ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> bool {
     let point = Point3::new(pos.x, pos.y, pos.z);
-    let Some(screen) = with_tactical_view_ref(|view| view.world_to_screen(&point)) else {
-        return false;
+    let screen = if let Some(view) = ui.pick_object_view() {
+        let Some(camera) = view.camera.as_ref() else {
+            return true;
+        };
+        crate::display::view::world_to_screen_from_pick_camera(&point, camera)
+    } else {
+        with_tactical_view_ref(|view| view.world_to_screen(&point))
     };
+    let Some(screen) = screen else { return false };
     window_query(screen.x, screen.y, ui)
 }
 

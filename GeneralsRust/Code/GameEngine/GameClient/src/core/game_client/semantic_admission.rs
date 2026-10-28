@@ -83,6 +83,37 @@ impl GameClient {
     }
 }
 impl NativeDrawableOwner<'_> {
+    /// Immutable per-pass ray-pick geometry from this exact receiving
+    /// gameplay Drawable roster. Objectless auxiliary drawables are omitted.
+    pub fn translator_pick_drawables(
+        &self,
+    ) -> Vec<game_engine::common::message_stream::TranslatorPickDrawableFact> {
+        let mut facts = Vec::new();
+        for drawable_id in &self.drawables.native_drawable_order {
+            let Some(drawable) = self.drawables.drawable_map.get(drawable_id) else {
+                continue;
+            };
+            if !drawable.is_visible() {
+                continue;
+            }
+            let Some(object_id) = drawable.get_object_id() else {
+                continue;
+            };
+            if self.drawables.drawable_object_map.get(&object_id) != Some(drawable_id) {
+                continue;
+            }
+            let (center, radius) = drawable.get_bounding_sphere();
+            facts.push(
+                game_engine::common::message_stream::TranslatorPickDrawableFact {
+                    object_id,
+                    center: [center.x, center.y, center.z],
+                    radius: radius.max(1.0),
+                },
+            );
+        }
+        facts
+    }
+
     /// Original receiving Drawable visitation includes objectless auxiliary nodes.
     pub fn visit_owned_ambient_audio_handles(&self, visit: &mut dyn FnMut(u32)) {
         for id in &self.drawables.native_drawable_order {

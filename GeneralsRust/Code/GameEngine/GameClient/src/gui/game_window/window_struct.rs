@@ -599,13 +599,18 @@ impl<'effects> WindowEventEffects<'effects> {
         self.logic_frame
             .expect("UI operation requires its receiving logic frame")
     }
-    pub fn receiving_ui(&mut self) -> crate::message_stream::ReceivingUi<'_> {
+    pub fn receiving_ui<'a>(
+        &'a mut self,
+        drawable_manager: &'a mut crate::drawable::DrawableManager,
+    ) -> crate::message_stream::ReceivingUi<'a> {
         let frame = self.logic_frame();
         let client_frame = self
             .client_frame
             .expect("UI operation requires receiving client frame");
-        crate::message_stream::ReceivingUi::new(
+        crate::message_stream::ReceivingUi::new_for_owner(
             self.ui.as_deref_mut().expect("receiving UI"),
+            drawable_manager,
+            None,
             frame,
             client_frame,
         )

@@ -47,12 +47,22 @@ impl GameMessageTranslator for CommandTranslatorMessageAdapter {
         client: game_engine::common::message_stream::TranslatorClientObservation,
         dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
         emitted: &mut Vec<GameMessage>,
+        pick_view: Option<&game_engine::common::message_stream::TranslatorPickObjectView>,
         client_ui: &mut dyn std::any::Any,
+        drawable_owner: Option<&mut dyn std::any::Any>,
     ) -> GameMessageDisposition {
         self.translator
             .write()
             .expect("receiving command translator poisoned")
-            .translate_game_message_with_context(msg, client, dispatch, emitted, client_ui)
+            .translate_game_message_with_context(
+                msg,
+                client,
+                dispatch,
+                emitted,
+                pick_view,
+                client_ui,
+                drawable_owner,
+            )
     }
 }
 

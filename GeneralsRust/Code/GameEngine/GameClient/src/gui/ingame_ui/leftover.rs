@@ -24,7 +24,7 @@ impl InGameUI {
     /// Cancel building placement
     pub fn cancel_building_placement(&mut self, ui: &mut crate::message_stream::ReceivingUi<'_>) {
         self.placement_preview = None;
-        self.destroy_placement_icons();
+        self.destroy_placement_icons_with_ui(ui);
         ui.place_build_available(None, None);
         ui.set_placement_start(None);
     }

@@ -1584,6 +1584,7 @@ impl InGameUISubsystem {
         client_frame: u32,
         mouse: &mut crate::input::Mouse,
         facts: &crate::gui::ingame_ui::ReceivingMouseoverFacts,
+        drawable_manager: &mut crate::drawable::DrawableManager,
     ) {
         if self.tooltips_disabled_until > logic_frame {
             return;
@@ -1593,8 +1594,13 @@ impl InGameUISubsystem {
             return;
         }
         let catalog = self.presentation_unit_catalog.clone();
-        let mut receiving =
-            crate::message_stream::ReceivingUi::new(self, logic_frame, client_frame);
+        let mut receiving = crate::message_stream::ReceivingUi::new_for_owner(
+            self,
+            drawable_manager,
+            None,
+            logic_frame,
+            client_frame,
+        );
         let _ = crate::gui::ingame_ui::InGameUI::apply_catalog_mouseover_tooltip(
             &catalog,
             drawable_id,

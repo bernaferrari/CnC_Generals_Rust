@@ -1670,6 +1670,7 @@ impl GameClient {
                 self.frame,
                 mouse,
                 facts,
+                &mut self.drawable_manager,
             );
         }
     }
@@ -2394,12 +2395,14 @@ impl GameClient {
     fn update_startup_movie_display(&mut self) -> GameClientResult<()> {
         if let Some(ref display) = self.subsystem_manager.display {
             let mut display = display.lock().unwrap_or_else(|e| e.into_inner());
-            display.draw(
+            display.draw_owned(
                 self.script_display.fx_mut(),
                 self.ui_renderer.as_mut(),
                 Some(&self.window_manager_owner),
                 self.subsystem_manager.in_game_ui.as_ref(),
                 self.frame,
+                &mut self.drawable_manager,
+                &mut self.render_bridge,
             )?;
             display.update_receiving(self.script_display.fx_mut())?;
         }
@@ -2459,12 +2462,14 @@ impl GameClient {
             self.with_window_event_effects(None, |effects| {
                 effects.with_manager(|manager, effects| manager.update(effects))
             });
-            display.draw(
+            display.draw_owned(
                 self.script_display.fx_mut(),
                 self.ui_renderer.as_mut(),
                 Some(&self.window_manager_owner),
                 self.subsystem_manager.in_game_ui.as_ref(),
                 self.frame,
+                &mut self.drawable_manager,
+                &mut self.render_bridge,
             )?;
             thread::sleep(Duration::from_millis(100));
         }

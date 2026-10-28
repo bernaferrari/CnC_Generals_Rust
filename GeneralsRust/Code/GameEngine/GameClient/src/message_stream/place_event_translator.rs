@@ -248,12 +248,14 @@ impl GameMessageTranslator for PlaceEventTranslator {
         client: game_engine::common::message_stream::TranslatorClientObservation,
         _dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
         _emitted: &mut Vec<GameMessage>,
+        pick_view: Option<&game_engine::common::message_stream::TranslatorPickObjectView>,
         client_ui: &mut dyn std::any::Any,
+        drawable_owner: Option<&mut dyn std::any::Any>,
     ) -> GameMessageDisposition {
-        let ui = &mut crate::message_stream::ReceivingUi::new(
-            client_ui
-                .downcast_mut::<crate::core::subsystems::InGameUISubsystem>()
-                .expect("message translator requires its receiving UI"),
+        let ui = &mut crate::message_stream::ReceivingUi::new_with_owner(
+            client_ui,
+            drawable_owner,
+            pick_view,
             client.logic_frame,
             client.frame,
         )

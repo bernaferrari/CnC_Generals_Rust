@@ -67,14 +67,28 @@ fn collect_select_all_unit_ids(
     }
 
     // C++ selectAllUnitsByType: screen region first, then whole map (InGameUI.cpp:4877).
-    let screen_ids = with_tactical_view_ref(|view| {
-        view.iterate_drawables_in_region(
-            Some((
-                IPoint2::new(0, 0),
-                IPoint2::new(view.width(), view.height()),
-            )),
-            &mut |x, y| window_query(x, y, ui),
-        )
+    let owned_screen_ids = ui.with_drawable_manager(|manager, split_ui| {
+        with_tactical_view_ref(|view| {
+            view.iterate_drawables_in_region_with_manager(
+                Some((
+                    IPoint2::new(0, 0),
+                    IPoint2::new(view.width(), view.height()),
+                )),
+                &mut |x, y| window_query(x, y, split_ui),
+                manager,
+            )
+        })
+    });
+    let screen_ids = owned_screen_ids.unwrap_or_else(|| {
+        with_tactical_view_ref(|view| {
+            view.iterate_drawables_in_region(
+                Some((
+                    IPoint2::new(0, 0),
+                    IPoint2::new(view.width(), view.height()),
+                )),
+                &mut |x, y| window_query(x, y, ui),
+            )
+        })
     });
     let on_screen: Vec<ObjectID> = selected
         .iter()

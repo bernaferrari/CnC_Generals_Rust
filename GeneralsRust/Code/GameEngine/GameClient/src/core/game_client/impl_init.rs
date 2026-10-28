@@ -118,6 +118,7 @@ impl GameClient {
             last_live_ingame_hud_draw: LiveInGameHudDrawCounts::default(),
 
             render_bridge: crate::render_bridge::RenderBridge::new(),
+            drawable_manager: crate::drawable::DrawableManager::new(),
             drawables: drawable_world::DrawableWorld::new(),
             drawable_toc: Vec::new(),
             loaded_map: None,
@@ -338,6 +339,13 @@ impl GameClient {
         self.shadow_map.clear();
         self.rendered_object_count = 0;
         self.render_bridge.reset_world_after_drawable_retirement();
+        self.drawable_manager.clear_drawables();
+        if let Some(display) = self.subsystem_manager.display.as_ref() {
+            display
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .clear_owned_draw_state();
+        }
         // Particle/native retirement has succeeded; clear both playback and
         // transport now, before another world can be installed or rendered.
         self.clear_world_animation_runtime_after_retirement()?;
@@ -697,6 +705,19 @@ impl GameClient {
 
             self.subsystem_manager.display = Some(display);
         } else if let Some(display) = self.subsystem_manager.display.as_ref() {
+        }
+        if let (Some(display), Some(asset_manager)) = (
+            self.subsystem_manager.display.as_ref(),
+            self.subsystem_manager.asset_manager.as_ref(),
+        ) {
+            let pipeline = display
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .drawable_pipeline_handle();
+            if let Some(pipeline) = pipeline {
+                asset_manager.bind_drawable_pipeline(Arc::clone(&pipeline));
+                self.render_bridge.bind_drawable_pipeline(pipeline);
+            }
         }
         // If neither PlatformContext nor display exists, we skip GraphicsDisplay
         // creation — the engine's own wgpu pipeline handles rendering.  All logical
@@ -1535,11 +1556,14 @@ impl GameClient {
         game_mode: i32,
         driver: &mut NativeWindowInputDriver<'_>,
     ) -> GameClientResult<Vec<GameMessage>> {
+        // This adapter is the standalone Core path. Do not reuse a prior
+        // Main-host selection snapshot if one was bound before a reset.
         match self.take_message_stream_until_menu_host(
             playback,
             logic_frame,
             game_mode,
             driver,
+            None,
             None,
         )? {
             game_engine::common::message_stream::PropagationProgress::Complete(messages) => {
@@ -1560,6 +1584,7 @@ impl GameClient {
         game_mode: i32,
         driver: &mut NativeWindowInputDriver<'_>,
         cursor: Option<game_engine::common::message_stream::PropagationCursor>,
+        pick_view: Option<&game_engine::common::message_stream::TranslatorPickObjectView>,
     ) -> GameClientResult<game_engine::common::message_stream::PropagationProgress> {
         self.script_display
             .bind(self.subsystem_manager.display.as_ref());
@@ -1622,6 +1647,10 @@ impl GameClient {
             yielded.set(host.has_requests());
             result
         };
+        let mut receiving_pick_view = pick_view.cloned();
+        if let Some(view) = receiving_pick_view.as_mut() {
+            view.native_drawables = self.drawables.borrow_native().translator_pick_drawables();
+        }
         let mut progress = self
             .message_stream
             .propagate_messages_until_host_boundary(
@@ -1643,6 +1672,8 @@ impl GameClient {
                     })
                 },
                 ui,
+                Some(&mut self.drawable_manager as &mut dyn std::any::Any),
+                receiving_pick_view.as_ref(),
             )
             .map_err(|error| {
                 GameClientError::SubsystemError(format!("Message stream update failed: {error}"))

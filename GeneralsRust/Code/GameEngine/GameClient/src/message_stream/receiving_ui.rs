@@ -5,17 +5,88 @@ use crate::core::subsystems::InGameUISubsystem;
 pub struct ReceivingUi<'a> {
     emitted_messages: Option<&'a mut Vec<super::GameMessage>>,
     pub(crate) state: &'a mut InGameUISubsystem,
+    drawable_manager: Option<&'a mut crate::drawable::DrawableManager>,
+    pick_objects: Option<&'a game_engine::common::message_stream::TranslatorPickObjectView>,
     pub logic_frame: u32,
     pub client_frame: u32,
 }
+
 impl<'a> ReceivingUi<'a> {
     pub fn new(state: &'a mut InGameUISubsystem, logic_frame: u32, client_frame: u32) -> Self {
         Self {
             emitted_messages: None,
             state,
+            drawable_manager: None,
+            pick_objects: None,
             logic_frame,
             client_frame,
         }
+    }
+    pub(crate) fn new_for_owner(
+        state: &'a mut InGameUISubsystem,
+        drawable_manager: &'a mut crate::drawable::DrawableManager,
+        pick_objects: Option<&'a game_engine::common::message_stream::TranslatorPickObjectView>,
+        logic_frame: u32,
+        client_frame: u32,
+    ) -> Self {
+        Self {
+            emitted_messages: None,
+            state,
+            drawable_manager: Some(drawable_manager),
+            pick_objects,
+            logic_frame,
+            client_frame,
+        }
+    }
+    pub(crate) fn new_with_owner(
+        client_ui: &'a mut dyn std::any::Any,
+        drawable_owner: Option<&'a mut dyn std::any::Any>,
+        pick_objects: Option<&'a game_engine::common::message_stream::TranslatorPickObjectView>,
+        logic_frame: u32,
+        client_frame: u32,
+    ) -> Self {
+        let state = client_ui
+            .downcast_mut::<InGameUISubsystem>()
+            .expect("message translator requires its receiving UI");
+        let drawable_manager = drawable_owner.map(|owner| {
+            owner
+                .downcast_mut::<crate::drawable::DrawableManager>()
+                .expect("receiving drawable owner has the wrong type")
+        });
+        match drawable_manager {
+            Some(manager) => {
+                Self::new_for_owner(state, manager, pick_objects, logic_frame, client_frame)
+            }
+            None => Self {
+                emitted_messages: None,
+                state,
+                drawable_manager: None,
+                pick_objects,
+                logic_frame,
+                client_frame,
+            },
+        }
+    }
+
+    pub fn with_drawable_manager<R>(
+        &mut self,
+        f: impl FnOnce(&mut crate::drawable::DrawableManager, &mut ReceivingUi<'_>) -> R,
+    ) -> Option<R> {
+        let manager = self.drawable_manager.as_deref_mut()?;
+        let mut split = ReceivingUi {
+            emitted_messages: self.emitted_messages.as_deref_mut(),
+            state: &mut *self.state,
+            drawable_manager: None,
+            pick_objects: self.pick_objects,
+            logic_frame: self.logic_frame,
+            client_frame: self.client_frame,
+        };
+        Some(f(manager, &mut split))
+    }
+    pub fn pick_object_view(
+        &self,
+    ) -> Option<&'a game_engine::common::message_stream::TranslatorPickObjectView> {
+        self.pick_objects
     }
     pub fn with_emitter(mut self, emitted: &'a mut Vec<super::GameMessage>) -> Self {
         self.emitted_messages = Some(emitted);
@@ -45,6 +116,8 @@ impl<'a> ReceivingUi<'a> {
     ) -> R {
         let mut receiving = ReceivingUi {
             state: &mut *self.state,
+            drawable_manager: self.drawable_manager.as_deref_mut(),
+            pick_objects: self.pick_objects,
             logic_frame: self.logic_frame,
             client_frame: self.client_frame,
             emitted_messages: Some(emitted),

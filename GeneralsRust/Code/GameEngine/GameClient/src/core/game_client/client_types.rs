@@ -106,6 +106,10 @@ pub struct GameClient {
     /// Renderer/cache state belongs to this client, never an active process slot.
     render_bridge: crate::render_bridge::RenderBridge,
 
+    /// Drawable inventory for this receiving GameClient. The process-global
+    /// manager remains only for standalone compatibility callers.
+    drawable_manager: crate::drawable::DrawableManager,
+
     // Drawable management
     drawables: drawable_world::DrawableWorld,
     drawable_toc: Vec<DrawableTOCEntry>,

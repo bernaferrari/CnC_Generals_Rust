@@ -22,6 +22,7 @@ pub(super) struct NativeTranslationPhases<'a, 'context> {
     pub(super) audio: NativeMenuAudio<'a>,
     pub(super) facts: game_client::gui::campaign_launch_host_bridge::MenuWorldFacts,
     pub(super) playback: bool,
+    pub(super) pick_objects: game_engine::common::message_stream::TranslatorPickObjectView,
 }
 impl crate::subsystem_manager::ReceivingClientPhaseDriver for NativeTranslationPhases<'_, '_> {
     fn propagate(
@@ -58,6 +59,7 @@ impl crate::subsystem_manager::ReceivingClientPhaseDriver for NativeTranslationP
                 self.facts.game_mode,
                 &mut driver,
                 cursor,
+                Some(&self.pick_objects),
             )
             .map_err(|error| anyhow::Error::msg(error.to_string()))
     }

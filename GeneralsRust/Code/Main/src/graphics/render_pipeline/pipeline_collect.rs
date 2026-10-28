@@ -1739,7 +1739,7 @@ impl RenderPipeline {
         // camera and would drain+drop pending. Pull them first so placement
         // ghosts (C++ InGameUI place-icons) reach graphics_system.
         let extra_pending = bridge.take_pending();
-        bridge.flush();
+        bridge.flush_for_host_scene();
         let mut submissions = bridge.drain_scene_submissions();
         for submission in extra_pending {
             let is_transparent = submission.transparent || submission.render_state.opacity < 1.0;

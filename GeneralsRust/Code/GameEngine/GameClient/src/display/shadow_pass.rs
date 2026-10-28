@@ -286,30 +286,24 @@ fn ray_sphere_occludes(
 /// C++ `flushOccludedObjectsIntoStencil` paints luminance-dimmed player color
 /// at 0.5 alpha. Heat-vision is only the detected-stealth second material pass.
 pub fn collect_occlusion_overlays() -> Vec<OcclusionOverlay> {
+    collect_occlusion_overlays_inner(None)
+}
+
+pub fn collect_occlusion_overlays_for_manager(
+    manager: &crate::drawable::DrawableManager,
+) -> Vec<OcclusionOverlay> {
+    collect_occlusion_overlays_inner(Some(manager))
+}
+
+fn collect_occlusion_overlays_inner(
+    manager: Option<&crate::drawable::DrawableManager>,
+) -> Vec<OcclusionOverlay> {
     let mut out = Vec::new();
-    with_drawable_manager(|manager| {
-        for id in manager.get_all_drawable_ids() {
-            let Some(drawable) = manager.get_drawable(id) else {
-                continue;
-            };
-            if !drawable.is_visible() {
-                continue;
-            }
-            let look = drawable.get_stealth_look();
-            if !matches!(
-                look,
-                StealthLook::VisibleDetected | StealthLook::VisibleFriendlyDetected
-            ) {
-                continue;
-            }
-            let pos = drawable.get_position();
-            out.push(OcclusionOverlay {
-                position: [pos.x, pos.y, pos.z],
-                color: [1.0, 0.35, 0.05, 0.85],
-                kind: OverlayKind::HeatVision,
-            });
-        }
-    });
+    if let Some(manager) = manager {
+        append_drawable_occlusion_overlays(manager, &mut out);
+    } else {
+        with_drawable_manager(|manager| append_drawable_occlusion_overlays(manager, &mut out));
+    }
     let markers_on = get_global_data()
         .map(|g| g.read().enable_behind_building_markers)
         .unwrap_or(true);
@@ -390,6 +384,33 @@ pub fn collect_occlusion_overlays() -> Vec<OcclusionOverlay> {
         }
     }
     out
+}
+
+fn append_drawable_occlusion_overlays(
+    manager: &crate::drawable::DrawableManager,
+    out: &mut Vec<OcclusionOverlay>,
+) {
+    for id in manager.get_all_drawable_ids() {
+        let Some(drawable) = manager.get_drawable(id) else {
+            continue;
+        };
+        if !drawable.is_visible() {
+            continue;
+        }
+        let look = drawable.get_stealth_look();
+        if !matches!(
+            look,
+            StealthLook::VisibleDetected | StealthLook::VisibleFriendlyDetected
+        ) {
+            continue;
+        }
+        let pos = drawable.get_position();
+        out.push(OcclusionOverlay {
+            position: [pos.x, pos.y, pos.z],
+            color: [1.0, 0.35, 0.05, 0.85],
+            kind: OverlayKind::HeatVision,
+        });
+    }
 }
 
 /// C++ `flushOccludedObjectsIntoStencil` + `renderStenciledPlayerColor`.
@@ -886,13 +907,44 @@ pub fn record_shadow_and_occlusion_passes(
     // framebuffer pixels; (0, 0) keeps the full-attachment default.
     viewport_px: (f32, f32),
 ) {
+    record_shadow_and_occlusion_passes_with_manager(
+        device,
+        encoder,
+        color_view,
+        depth_view,
+        view_proj,
+        camera,
+        light_pos,
+        color_format,
+        depth_format,
+        viewport_px,
+        None,
+    );
+}
+
+pub fn record_shadow_and_occlusion_passes_with_manager(
+    device: &wgpu::Device,
+    encoder: &mut wgpu::CommandEncoder,
+    color_view: &wgpu::TextureView,
+    depth_view: &wgpu::TextureView,
+    view_proj: glam::Mat4,
+    camera: [f32; 3],
+    light_pos: [f32; 3],
+    color_format: wgpu::TextureFormat,
+    depth_format: wgpu::TextureFormat,
+    viewport_px: (f32, f32),
+    manager: Option<&crate::drawable::DrawableManager>,
+) {
     let apply_viewport = |pass: &mut wgpu::RenderPass<'_>| {
         let (vw, vh) = (viewport_px.0.max(1.0), viewport_px.1.max(1.0));
         pass.set_viewport(0.0, 0.0, vw, vh, 0.0, 1.0);
         pass.set_scissor_rect(0, 0, vw as u32, vh as u32);
     };
     let _ = present_volumetric_shadows(depth_format);
-    let mut overlays = present_occluded_player_color_silhouette();
+    let mut overlays = match manager {
+        Some(manager) => collect_occlusion_overlays_for_manager(manager),
+        None => present_occluded_player_color_silhouette(),
+    };
     let casters = collect_volume_casters();
     if casters.is_empty() && overlays.is_empty() {
         return;

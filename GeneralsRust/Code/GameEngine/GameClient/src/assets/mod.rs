@@ -27,7 +27,7 @@ use tokio::sync::{Notify, RwLock as AsyncRwLock, Semaphore};
 
 use crate::audio::*;
 use crate::display::texture_system::{TextureHandle, TextureManager};
-use crate::drawable::drawable_draw_pipeline::{MeshVertex, with_drawable_pipeline};
+use crate::drawable::drawable_draw_pipeline::{DrawableDrawPipeline, MeshVertex};
 use crate::system::SubsystemInterface;
 use glam::Vec3;
 use image::GenericImageView;
@@ -324,6 +324,8 @@ pub struct AssetManager {
     w3d_loader: Arc<W3DLoader>,
     audio_loader: Arc<AudioLoader>,
     texture_manager: Option<Arc<RwLock<TextureManager>>>,
+    /// Exact Display pipeline owned by this GameClient, bound after display init.
+    drawable_pipeline: Mutex<DrawablePipelineOwner>,
 
     // Streaming system
     streaming_manager: Arc<StreamingManager>,
@@ -346,6 +348,52 @@ pub struct AssetManager {
 
     // Shutdown signal
     shutdown_notify: Arc<Notify>,
+}
+
+#[derive(Clone)]
+enum DrawablePipelineRegistration {
+    Mesh {
+        key: String,
+        vertices: Vec<MeshVertex>,
+        indices: Vec<u32>,
+        texture: Option<String>,
+    },
+    Texture {
+        label: String,
+        bytes: Vec<u8>,
+    },
+}
+
+#[derive(Default)]
+struct DrawablePipelineOwner {
+    pipeline: Option<Weak<Mutex<DrawableDrawPipeline>>>,
+    /// CPU-side registrations survive Display replacement and are replayed
+    /// into the next receiving pipeline when it binds.
+    registrations: Vec<DrawablePipelineRegistration>,
+}
+
+fn apply_drawable_registration(
+    pipeline: &mut DrawableDrawPipeline,
+    registration: &DrawablePipelineRegistration,
+) {
+    match registration {
+        DrawablePipelineRegistration::Mesh {
+            key,
+            vertices,
+            indices,
+            texture,
+        } => pipeline.insert_mesh_with_texture(
+            key,
+            vertices.clone(),
+            indices.clone(),
+            texture.clone(),
+        ),
+        DrawablePipelineRegistration::Texture { label, bytes } => {
+            if let Err(error) = pipeline.load_texture(label, bytes) {
+                log::warn!("Drawable pipeline could not materialize cached texture {label}: {error}");
+            }
+        }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -407,6 +455,7 @@ impl AssetManager {
             w3d_loader,
             audio_loader,
             texture_manager: None,
+            drawable_pipeline: Mutex::new(DrawablePipelineOwner::default()),
             streaming_manager,
             hot_reload,
             validator,
@@ -422,6 +471,39 @@ impl AssetManager {
 
     pub fn base_path(&self) -> &Path {
         &self.config.base_path
+    }
+
+    /// Bind this client's model/texture post-processing to its owning Display.
+    pub fn bind_drawable_pipeline(&self, pipeline: Arc<Mutex<DrawableDrawPipeline>>) {
+        let mut owner = self
+            .drawable_pipeline
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let mut guard = pipeline.lock().unwrap_or_else(|error| error.into_inner());
+        for registration in &owner.registrations {
+            apply_drawable_registration(&mut guard, registration);
+        }
+        owner.pipeline = Some(Arc::downgrade(&pipeline));
+    }
+
+    fn register_drawable_pipeline_data(
+        &self,
+        registrations: impl IntoIterator<Item = DrawablePipelineRegistration>,
+    ) {
+        for registration in registrations {
+            let pipeline = {
+                let mut owner = self
+                    .drawable_pipeline
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                owner.registrations.push(registration.clone());
+                owner.pipeline.as_ref().and_then(Weak::upgrade)
+            };
+            if let Some(pipeline) = pipeline {
+                let mut pipeline = pipeline.lock().unwrap_or_else(|error| error.into_inner());
+                apply_drawable_registration(&mut pipeline, &registration);
+            }
+        }
     }
 
     pub fn audio_loader(&self) -> &Arc<AudioLoader> {
@@ -890,12 +972,14 @@ impl AssetManager {
                             // manager's authored preload names on its own GPU
                             // frame. Loader work never chooses a live renderer.
 
-                            with_drawable_pipeline(|pipeline| {
-                                if let Ok(mut guard) = pipeline.lock() {
-                                    let _ = guard.load_texture(label, &asset_data.data);
-                                    let _ = guard.load_texture(stem, &asset_data.data);
-                                }
-                            });
+                            let registrations = [label.to_string(), stem.to_string()]
+                                .into_iter()
+                                .map(|label| DrawablePipelineRegistration::Texture {
+                                    label,
+                                    bytes: asset_data.data.clone(),
+                                })
+                                .collect::<Vec<_>>();
+                            self.register_drawable_pipeline_data(registrations);
                         }
                     } else {
                         log::warn!(
@@ -1003,18 +1087,16 @@ impl AssetManager {
             model_keys.push(file_stem);
         }
 
-        with_drawable_pipeline(|pipeline| {
-            if let Ok(mut guard) = pipeline.lock() {
-                for key in model_keys {
-                    guard.insert_mesh_with_texture(
-                        key,
-                        vertices.clone(),
-                        indices.clone(),
-                        texture_name.clone(),
-                    );
-                }
-            }
-        });
+        let registrations = model_keys
+            .iter()
+            .map(|key| DrawablePipelineRegistration::Mesh {
+                key: (*key).to_string(),
+                vertices: vertices.clone(),
+                indices: indices.clone(),
+                texture: texture_name.clone(),
+            })
+            .collect::<Vec<_>>();
+        self.register_drawable_pipeline_data(registrations);
     }
 
     async fn queue_texture_loads_for_model(&self, model: &w3d_loader::W3DModel, path: &Path) {

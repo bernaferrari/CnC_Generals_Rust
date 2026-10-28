@@ -38,6 +38,7 @@ use game_engine::common::ini::ini_game_data::{
 };
 use log::{error, warn};
 use std::any::Any;
+use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use wgpu::SurfaceTexture;
@@ -149,6 +150,7 @@ pub struct Display {
     bit_depth: u32,
     windowed: bool,
     view_list: Vec<Box<dyn ViewTrait>>,
+    hint_model_cache: RefCell<crate::display::view::HintModelCache>,
     video_buffer: Option<Box<dyn VideoBuffer + Send>>,
     video_stream: Option<Box<dyn VideoStreamInterface>>,
     currently_playing_movie: String,
@@ -166,6 +168,13 @@ pub struct Display {
 }
 
 impl Display {
+    /// Clone this Display's pipeline handle for owner-bound asset/model setup.
+    pub fn drawable_pipeline_handle(
+        &self,
+    ) -> Option<Arc<Mutex<crate::drawable::drawable_draw_pipeline::DrawableDrawPipeline>>> {
+        self.drawable_pipeline.as_ref().map(Arc::clone)
+    }
+
     /// Install an archive resolver on this Display's drawable pipeline.
     pub fn set_drawable_texture_provider(
         &mut self,
@@ -200,19 +209,14 @@ impl Display {
         };
 
         // Initialize the drawable draw pipeline (for units/buildings geometry).
-        // Display retains its exact instance; the compatibility render path
-        // may also use the legacy pipeline registry while it is being retired.
+        // Each Display retains its own instance for its receiving client.
         let drawable_pipeline = if let Ok(drawable_pipeline) =
             crate::drawable::drawable_draw_pipeline::DrawableDrawPipeline::new(
                 graphics.device_arc(),
                 graphics.queue_arc(),
                 surface_format,
             ) {
-            let drawable_pipeline = Arc::new(Mutex::new(drawable_pipeline));
-            crate::drawable::drawable_draw_pipeline::register_drawable_pipeline(Arc::clone(
-                &drawable_pipeline,
-            ));
-            Some(drawable_pipeline)
+            Some(Arc::new(Mutex::new(drawable_pipeline)))
         } else {
             error!("Failed to initialize drawable draw pipeline");
             None
@@ -231,6 +235,7 @@ impl Display {
             bit_depth: 32,
             windowed: true,
             view_list: Vec::new(),
+            hint_model_cache: RefCell::new(crate::display::view::HintModelCache::default()),
             video_buffer: None,
             video_stream: None,
             currently_playing_movie: String::new(),
@@ -335,6 +340,22 @@ impl Display {
         for view in &self.view_list {
             let _ = view.draw_view(ui, client_frame);
         }
+    }
+
+    fn draw_views_owned(
+        &self,
+        ui: Option<&crate::core::subsystems::InGameUISubsystem>,
+        client_frame: u32,
+        manager: &mut crate::drawable::DrawableManager,
+    ) {
+        let mut hint_models = self.hint_model_cache.borrow_mut();
+        for view in &self.view_list {
+            let _ = view.draw_view_owned(ui, client_frame, manager, &mut hint_models);
+        }
+    }
+
+    pub fn clear_owned_draw_state(&self) {
+        self.hint_model_cache.borrow_mut().clear();
     }
 
     pub fn update_views(&mut self) {
@@ -880,8 +901,43 @@ impl Display {
         ui: Option<&crate::core::subsystems::InGameUISubsystem>,
         client_frame: u32,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.draw_with_snow_state(Some(snow), fx, renderer, owner, ui, client_frame)
+        self.draw_with_snow_state(
+            Some(snow),
+            fx,
+            renderer,
+            owner,
+            ui,
+            client_frame,
+            None,
+            None,
+        )
     }
+
+    /// Live receiving-client draw. Drawable admission and retirement share
+    /// the GameClient's manager instead of selecting a process-global slot.
+    pub fn draw_with_snow_owned(
+        &self,
+        snow: &crate::snow::SnowRenderState,
+        fx: &mut display_fx::DisplayFxState,
+        renderer: Option<&mut crate::gui::ui_renderer::UIRenderer>,
+        owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+        ui: Option<&crate::core::subsystems::InGameUISubsystem>,
+        client_frame: u32,
+        drawable_manager: &mut crate::drawable::DrawableManager,
+        render_bridge: &mut crate::render_bridge::RenderBridge,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.draw_with_snow_state(
+            Some(snow),
+            fx,
+            renderer,
+            owner,
+            ui,
+            client_frame,
+            Some(drawable_manager),
+            Some(render_bridge),
+        )
+    }
+
     fn draw_with_snow_state(
         &self,
         snow: Option<&crate::snow::SnowRenderState>,
@@ -890,6 +946,8 @@ impl Display {
         owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
         ui: Option<&crate::core::subsystems::InGameUISubsystem>,
         client_frame: u32,
+        mut drawable_manager: Option<&mut crate::drawable::DrawableManager>,
+        mut render_bridge: Option<&mut crate::render_bridge::RenderBridge>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         crate::display::client_draw_schedule::run_dual_world_cpu_phases();
 
@@ -897,7 +955,11 @@ impl Display {
             .begin_frame()
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
-        self.draw_views(ui, client_frame);
+        if let Some(manager) = drawable_manager.as_deref_mut() {
+            self.draw_views_owned(ui, client_frame, manager);
+        } else {
+            self.draw_views(ui, client_frame);
+        }
 
         let mut encoder =
             self.graphics
@@ -1038,20 +1100,36 @@ impl Display {
                 });
 
                 let drawable_pipeline = self.drawable_pipeline.as_deref();
-                crate::drawable::drawable_manager::with_drawable_manager(|manager| {
-                    manager.set_camera(
-                        Self::glam_to_game_matrix(&view_matrix),
-                        Self::glam_to_game_matrix(&projection_matrix),
-                        crate::drawable::Vector3::new(camera_pos.x, camera_pos.y, camera_pos.z),
-                    );
-                    manager.cull_and_sort();
-                    manager.render_pass_through(
-                        &mut pass,
-                        &view_glam,
-                        &proj_glam,
-                        drawable_pipeline,
-                    );
-                });
+                let mut render =
+                    |manager: &mut crate::drawable::DrawableManager,
+                     bridge: Option<&mut crate::render_bridge::RenderBridge>| {
+                        manager.set_camera(
+                            Self::glam_to_game_matrix(&view_matrix),
+                            Self::glam_to_game_matrix(&projection_matrix),
+                            crate::drawable::Vector3::new(camera_pos.x, camera_pos.y, camera_pos.z),
+                        );
+                        manager.cull_and_sort();
+                        if let Some(pipeline) = drawable_pipeline {
+                            manager.render_pass_through(
+                                &mut pass,
+                                &view_glam,
+                                &proj_glam,
+                                Some(pipeline),
+                                bridge,
+                            );
+                        } else {
+                            manager.render_pass_through(
+                                &mut pass, &view_glam, &proj_glam, None, bridge,
+                            );
+                        }
+                    };
+                if let Some(manager) = drawable_manager.as_deref_mut() {
+                    render(manager, render_bridge.as_deref_mut());
+                } else {
+                    crate::drawable::drawable_manager::with_drawable_manager(|manager| {
+                        render(manager, None)
+                    });
+                }
             }
 
             // C++ DoShadows(true) after opaque flush, then
@@ -1062,7 +1140,7 @@ impl Display {
                 .first()
                 .map(|light| light.position)
                 .unwrap_or([0.0, 0.0, -1.0]);
-            shadow_pass::record_shadow_and_occlusion_passes(
+            shadow_pass::record_shadow_and_occlusion_passes_with_manager(
                 self.graphics.device(),
                 &mut encoder,
                 scene_view,
@@ -1074,6 +1152,7 @@ impl Display {
                 wgpu::TextureFormat::Depth32Float,
                 // Legacy Display::draw path: keep its full-attachment default.
                 (0.0, 0.0),
+                drawable_manager.as_deref(),
             );
         });
 
@@ -1284,7 +1363,29 @@ impl DisplayInterface for Display {
         ui: Option<&crate::core::subsystems::InGameUISubsystem>,
         client_frame: u32,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.draw_with_snow_state(None, fx, renderer, owner, ui, client_frame)
+        self.draw_with_snow_state(None, fx, renderer, owner, ui, client_frame, None, None)
+    }
+
+    fn draw_owned(
+        &self,
+        fx: &mut display_fx::DisplayFxState,
+        renderer: Option<&mut crate::gui::ui_renderer::UIRenderer>,
+        owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+        ui: Option<&crate::core::subsystems::InGameUISubsystem>,
+        client_frame: u32,
+        drawable_manager: &mut crate::drawable::DrawableManager,
+        render_bridge: &mut crate::render_bridge::RenderBridge,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.draw_with_snow_state(
+            None,
+            fx,
+            renderer,
+            owner,
+            ui,
+            client_frame,
+            Some(drawable_manager),
+            Some(render_bridge),
+        )
     }
 
     fn preload_common_textures(&self) -> Result<(), Box<dyn std::error::Error>> {

@@ -162,6 +162,15 @@ pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {
     /// based on stealth look (C++ parity: Drawable::draw() is non-const).
     fn render(&mut self, view_matrix: &Matrix4, projection_matrix: &Matrix4);
 
+    /// Render while submitting to the receiving client's bridge. Legacy
+    /// drawable implementations retain their standalone render adapter.
+    fn render_with_bridge(
+        &mut self,
+        view_matrix: &Matrix4,
+        projection_matrix: &Matrix4,
+        bridge: &mut crate::render_bridge::RenderBridge,
+    );
+
     /// Get bounding sphere for culling
     fn get_bounding_sphere(&self) -> (Vector3, f32); // center, radius
 

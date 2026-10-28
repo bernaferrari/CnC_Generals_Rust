@@ -10,6 +10,60 @@ use log::{debug, error, info, warn};
 use std::collections::LinkedList;
 use std::sync::{Arc, RwLock};
 
+/// Immutable, receiving-world facts used by point and marquee selection.
+/// Main builds this view in HostObjectStore registration order; GameClient
+/// never resolves gameplay objects through a process-wide registry.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TranslatorPickObjectFact {
+    pub object_id: u32,
+    pub position: [f32; 3],
+    pub locally_controlled: bool,
+    pub selectable: bool,
+    pub force_attackable: bool,
+    pub mine: bool,
+    pub shrubbery: bool,
+    pub destroyed: bool,
+    pub effectively_dead: bool,
+    pub unselectable: bool,
+    pub masked: bool,
+    pub hidden_for_local_player: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TranslatorPickDrawableFact {
+    pub object_id: u32,
+    pub center: [f32; 3],
+    pub radius: f32,
+}
+
+/// Receiving display camera values needed by pick and marquee queries.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TranslatorPickCamera {
+    pub view_matrix: [f32; 16],
+    pub projection_matrix: [f32; 16],
+    pub camera_position: [f32; 3],
+    pub viewport_origin: [i32; 2],
+    pub viewport_size: [i32; 2],
+}
+
+/// Ordered immutable snapshot of the receiving world's selectable objects.
+/// `Some(empty)` is authoritative and must not fall back to any ambient source.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TranslatorPickObjectView {
+    pub local_player_index: i32,
+    pub objects: Vec<TranslatorPickObjectFact>,
+    pub native_drawables: Vec<TranslatorPickDrawableFact>,
+    pub camera: Option<TranslatorPickCamera>,
+}
+
+impl TranslatorPickObjectView {
+    pub fn get(&self, object_id: u32) -> Option<&TranslatorPickObjectFact> {
+        self.objects
+            .iter()
+            .find(|object| object.object_id == object_id)
+    }
+}
+
 /// What to do with a GameMessage after a translator has handled it
 #[derive(Debug, Clone, PartialEq)]
 pub enum GameMessageDisposition {
@@ -201,7 +255,9 @@ pub trait GameMessageTranslator: Send + Sync {
         _client: TranslatorClientObservation,
         _dispatch_window_input: &mut WindowInputDispatchFn<'_>,
         _emitted_messages: &mut Vec<GameMessage>,
+        _pick_view: Option<&TranslatorPickObjectView>,
         _client_ui: &mut dyn std::any::Any,
+        _drawable_owner: Option<&mut dyn std::any::Any>,
     ) -> GameMessageDisposition {
         self.translate_game_message(msg)
     }
@@ -455,6 +511,8 @@ impl MessageStream {
             &mut || false,
             &mut || Some(TranslatorClientObservation::default()),
             client_ui,
+            None,
+            None,
         )? {
             PropagationProgress::Complete(messages) => Ok(messages),
             PropagationProgress::HostBoundary(_) => {
@@ -470,6 +528,8 @@ impl MessageStream {
         should_yield: &mut dyn FnMut() -> bool,
         observe_client: &mut dyn FnMut() -> Option<TranslatorClientObservation>,
         client_ui: &mut dyn std::any::Any,
+        mut drawable_owner: Option<&mut dyn std::any::Any>,
+        pick_view: Option<&TranslatorPickObjectView>,
     ) -> Result<PropagationProgress, Box<dyn std::error::Error>> {
         // A missing standalone camera is a configuration error before any
         // translator can mutate its UI or consume input. Native-hosted clients
@@ -528,7 +588,9 @@ impl MessageStream {
                         client,
                         dispatch_window_input,
                         &mut emitted,
+                        pick_view,
                         client_ui,
+                        drawable_owner.as_deref_mut(),
                     ),
                     Err(e) => {
                         error!("Failed to acquire translator lock: {}", e);
@@ -935,7 +997,9 @@ mod tests {
             _client: TranslatorClientObservation,
             _dispatch: &mut WindowInputDispatchFn<'_>,
             emitted: &mut Vec<GameMessage>,
+            _pick_view: Option<&TranslatorPickObjectView>,
             _ui: &mut dyn std::any::Any,
+            _drawable_owner: Option<&mut dyn std::any::Any>,
         ) -> GameMessageDisposition {
             self.seen.push(msg.get_type().clone());
             if std::mem::discriminant(msg.get_type()) == std::mem::discriminant(&self.emit_on) {
@@ -1017,6 +1081,8 @@ mod tests {
                 &mut || true,
                 &mut || Some(TranslatorClientObservation::default()),
                 &mut (),
+                None,
+                None,
             )
             .unwrap()
         {
@@ -1036,6 +1102,8 @@ mod tests {
                 &mut || false,
                 &mut || Some(TranslatorClientObservation::default()),
                 &mut (),
+                None,
+                None,
             )
             .unwrap();
         let PropagationProgress::Complete(messages) = complete else {
