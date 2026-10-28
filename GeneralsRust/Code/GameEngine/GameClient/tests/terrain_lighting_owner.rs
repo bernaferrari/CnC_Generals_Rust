@@ -11,6 +11,92 @@ use game_engine::common::ini::ini_terrain::TerrainTypes;
 use glam::{Vec3, camera::rh::view::look_at_mat4};
 use std::sync::Arc;
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn missing_skybox_face_retries_after_receiving_visual_reset() {
+    use game_engine::common::system::file_system::get_file_system;
+    use game_engine::common::system::local_file_system::LocalFileSystem;
+
+    let root = tempfile::tempdir().unwrap();
+    let face_path = root.path().join("OwnerSkyboxAppearsAfterReset.png");
+    let face_name = face_path.to_string_lossy().into_owned();
+    {
+        let file_system = get_file_system();
+        let mut file_system = file_system.lock().unwrap();
+        let local: &mut LocalFileSystem = file_system.ensure_backend(LocalFileSystem::new);
+        local.add_search_path(root.path());
+        file_system.clear_cache();
+    }
+
+    let instance = wgpu::Instance::default();
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::LowPower,
+        compatible_surface: None,
+        force_fallback_adapter: false,
+        apply_limit_buckets: false,
+    }))
+    .expect("skybox retry regression requires a WGPU adapter");
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("receiving skybox retry test"),
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::default(),
+        ..Default::default()
+    }))
+    .expect("skybox retry regression requires a WGPU device");
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+    let mut visual = TerrainVisualImpl::new();
+    visual
+        .init_gpu_resources(Arc::clone(&device), Arc::clone(&queue))
+        .unwrap();
+
+    let empty = ["", "", "", "", ""];
+    let missing_face = [face_name.as_str(), "", "", "", ""];
+    visual
+        .replace_skybox_textures(&empty, &missing_face)
+        .unwrap();
+    assert_ne!(visual.last_skybox_face_bind(), Some(face_name.as_str()));
+
+    let encoded = {
+        let image = image::RgbaImage::from_pixel(2, 2, image::Rgba([220, 40, 30, 255]));
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        bytes.into_inner()
+    };
+    std::fs::write(&face_path, encoded).unwrap();
+
+    // A peer's independent miss cache must not inherit the first visual's
+    // failure for the same name after the asset becomes available.
+    let mut peer = TerrainVisualImpl::new();
+    peer.init_gpu_resources(device, queue).unwrap();
+    peer.replace_skybox_textures(&empty, &missing_face).unwrap();
+    assert_eq!(peer.last_skybox_face_bind(), Some(face_name.as_str()));
+
+    // A miss is retained by this visual for its current asset context. Reset
+    // clears that cache; the same mounted file then loads into the actual GPU
+    // face and is selected for the background bind.
+    visual
+        .replace_skybox_textures(&empty, &missing_face)
+        .unwrap();
+    assert_ne!(visual.last_skybox_face_bind(), Some(face_name.as_str()));
+    visual.reset().unwrap();
+    visual
+        .replace_skybox_textures(&empty, &missing_face)
+        .unwrap();
+    assert_eq!(visual.last_skybox_face_bind(), Some(face_name.as_str()));
+
+    drop(peer);
+    drop(visual);
+    let file_system = get_file_system();
+    let mut file_system = file_system.lock().unwrap();
+    if let Some(local) = file_system.get_backend_mut::<LocalFileSystem>() {
+        local.remove_search_path(root.path());
+    }
+    file_system.clear_cache();
+}
+
 fn lighting(ambient: [f32; 3]) -> TerrainStaticLighting {
     TerrainStaticLighting {
         lights: vec![(Vec3::new(0.0, -1.0, 0.0), [0.05; 3])],
