@@ -85,10 +85,9 @@ impl ScriptActionDispatcher<'_> {
             player_name
         );
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_transfer(super::HostScriptTransferRequest::Team {
-                team: team_name.clone(),
-                player: player_name.clone(),
-            });
+            return Err(ScriptError::ExecutionFailed(
+                "Team ownership transfer requires its receiving world".into(),
+            ));
         }
 
         let Some(target_player) = player_list()

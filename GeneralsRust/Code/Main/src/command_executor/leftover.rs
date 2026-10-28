@@ -1138,9 +1138,11 @@ fn clamp_beacon_to_world(logic: &GameLogic, location: Vec3) -> Vec3 {
 }
 
 fn host_beacon_template_name(logic: &GameLogic, player_id: u32, team: Team) -> String {
-    if logic.player_template_identity(player_id).is_some() {
+    if let Some(identity) = logic.player_template_identity(player_id) {
         return logic
-            .resolved_player_template(player_id)
+            .player_template_definitions
+            .as_ref()
+            .and_then(|definitions| identity.resolve_in(definitions))
             .map(|template| template.get_beacon_template().to_string())
             .unwrap_or_default();
     }
@@ -1163,10 +1165,24 @@ pub fn host_object_is_beacon(logic: &GameLogic, id: ObjectId) -> bool {
     let Some(owner) = obj.owner_player_id else {
         return false;
     };
-    let Some(player) = logic.get_player(owner) else {
+    host_object_is_beacon_for_player(logic, id, owner)
+}
+
+/// Match an Object against one particular Player's admitted beacon template.
+/// Player::transferAssetsFromThat uses the source Player even if a callback
+/// has changed some other cached ownership field.
+pub(crate) fn host_object_is_beacon_for_player(
+    logic: &GameLogic,
+    id: ObjectId,
+    player_id: u32,
+) -> bool {
+    let Some(obj) = logic.host_object(id) else {
         return false;
     };
-    let expected = host_beacon_template_name(logic, owner, player.team);
+    let Some(player) = logic.get_player(player_id) else {
+        return false;
+    };
+    let expected = host_beacon_template_name(logic, player_id, player.team);
     if expected.is_empty() {
         return false;
     }

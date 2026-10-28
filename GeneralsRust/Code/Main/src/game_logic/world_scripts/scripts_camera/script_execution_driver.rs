@@ -1029,9 +1029,33 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             return Some(Ok(()));
         };
         Some(
-            self.world
-                .apply_owned_team_transfer(team, player, calling, condition),
+            self.world.apply_owned_team_transfer(
+                team,
+                player,
+                calling,
+                condition,
+                self.interpreter,
+                &mut self.ui,
+            ),
         )
+    }
+    fn transfer_player_assets(
+        &mut self,
+        source: &str,
+        destination: &str,
+        current_player: Option<&str>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        let (Some(source), Some(destination)) = (
+            self.script_player_id(source, current_player),
+            self.script_player_id(destination, current_player),
+        ) else {
+            return Some(Ok(()));
+        };
+        Some(self.world.host_script_transfer_assets_from_with_effects(
+            destination,
+            source,
+            &mut self.ui,
+        ))
     }
     fn sell_everything(
         &mut self,

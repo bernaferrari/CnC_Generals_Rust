@@ -260,16 +260,6 @@ pub enum HostScriptMoneyRequest {
     Give { player: String, amount: i32 },
 }
 
-/// Live host drain: TEAM/PLAYER/NAMED TRANSFER ownership.
-/// C++ `ScriptActions::doTransferTeamToPlayer` / `doPlayerTransferAssetsToPlayer` /
-/// `doNamedTransferAssetsToPlayer` (`transferObjectToPlayer` / `transferAssetsFromThat`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptTransferRequest {
-    Player { from: String, to: String },
-    Named { unit: String, player: String },
-    Team { team: String, player: String },
-}
-
 /// Live host drain: PLAYER_RELATES_PLAYER.
 /// C++ `ScriptActions::updatePlayerRelationTowardPlayer` (`setPlayerRelationship`).
 /// Leftover writes leftover ThePlayerList; live relations live on host Player.
@@ -617,8 +607,6 @@ thread_local! {
         RefCell::new(Vec::new());
     static HOST_SCRIPT_MONEY_REQUESTS: RefCell<Vec<HostScriptMoneyRequest>> =
         RefCell::new(Vec::new());
-    static HOST_SCRIPT_TRANSFER_REQUESTS: RefCell<Vec<HostScriptTransferRequest>> =
-        RefCell::new(Vec::new());
     static HOST_SCRIPT_PLAYER_RELATES_REQUESTS: RefCell<Vec<HostScriptPlayerRelatesRequest>> =
         RefCell::new(Vec::new());
     static HOST_SCRIPT_BOOBYTRAP_REQUESTS: RefCell<Vec<HostScriptBoobytrapRequest>> =
@@ -949,16 +937,6 @@ pub fn request_host_money(req: HostScriptMoneyRequest) {
 
 pub fn take_host_money_requests() -> Vec<HostScriptMoneyRequest> {
     HOST_SCRIPT_MONEY_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
-}
-
-/// Live host drain: TEAM/PLAYER/NAMED TRANSFER (`setControllingPlayer` /
-/// `transferAssetsFromThat` / `setTeam(defaultTeam)`).
-pub fn request_host_script_transfer(req: HostScriptTransferRequest) {
-    HOST_SCRIPT_TRANSFER_REQUESTS.with(|q| q.borrow_mut().push(req));
-}
-
-pub fn take_host_script_transfer_requests() -> Vec<HostScriptTransferRequest> {
-    HOST_SCRIPT_TRANSFER_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
 
 /// Live host drain: PLAYER_RELATES_PLAYER (`setPlayerRelationship`).

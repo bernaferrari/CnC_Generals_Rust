@@ -722,11 +722,9 @@ impl ScriptActionDispatcher<'_> {
             player_name
         );
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_transfer(super::HostScriptTransferRequest::Named {
-                unit: unit_name,
-                player: player_name,
-            });
-            return Ok(ScriptActionResult::Success);
+            return Err(ScriptError::ExecutionFailed(
+                "Named ownership transfer requires its receiving world".into(),
+            ));
         }
 
         let tracker = get_named_object_tracker();

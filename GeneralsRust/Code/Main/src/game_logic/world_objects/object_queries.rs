@@ -464,14 +464,34 @@ impl GameLogic {
         player_id: u32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
-        let Some(team) = self
-            .players
-            .get(&player_id)
-            .filter(|player| player.is_alive && player.team != Team::Neutral)
-            .map(|player| player.team)
-        else {
+        let Some(destination) = self.host_default_team_id(player_id) else {
             return false;
         };
+        self.transfer_object_to_selected_team_with_effects(
+            object_id,
+            player_id,
+            destination,
+            presentation_effects,
+        )
+    }
+
+    /// Transfer through the exact Team selected by an enclosing operation.
+    /// This keeps later callbacks from changing a player-wide transfer's
+    /// already chosen destination by replacing that player's default Team.
+    pub(in crate::game_logic) fn transfer_object_to_selected_team_with_effects(
+        &mut self,
+        object_id: ObjectId,
+        player_id: u32,
+        destination: u32,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        if !self
+            .players
+            .get(&player_id)
+            .is_some_and(|player| player.is_alive && player.team != Team::Neutral)
+        {
+            return false;
+        }
 
         // C++ Object::setTeam changes membership before it dispatches
         // BehaviorModule::onCapture.  Base power follows that membership, but
@@ -497,9 +517,6 @@ impl GameLogic {
             })
             .unwrap_or((None, None));
 
-        let Some(destination) = self.host_default_team_id(player_id) else {
-            return false;
-        };
         if !self.set_host_object_team_with_effects(object_id, destination, presentation_effects) {
             return false;
         }

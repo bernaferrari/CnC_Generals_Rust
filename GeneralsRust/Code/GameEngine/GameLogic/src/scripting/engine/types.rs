@@ -916,6 +916,15 @@ pub trait ScriptExecutionDriver {
     ) -> Option<GameLogicResult<()>> {
         None
     }
+    /// Transfer a player's objects and money through the receiving match.
+    fn transfer_player_assets(
+        &mut self,
+        _source: &str,
+        _destination: &str,
+        _current_player: Option<&str>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
     fn sell_everything(
         &mut self,
         _player: &str,

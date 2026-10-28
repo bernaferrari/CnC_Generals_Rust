@@ -68,13 +68,16 @@ fn world(map: &std::path::Path) -> (GameLogic, ObjectId, ObjectId) {
         .admit_object_ini_sources([(
             "TeamRelations.ini".into(),
             "Object RelationUnit\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = CostModifierUpgrade MergeCost\n TriggeredBy = Upgrade_Veterancy_VETERAN\n EffectKindOf = VEHICLE AIRCRAFT\n Percentage = -10%\n End\nEnd\nObject RelationDualPurchase\n KindOf = VEHICLE AIRCRAFT\n BuildCost = 1000\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject ChinaTankECM\n KindOf = VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 300\n InitialHealth = 300\n End\nEnd\nObject AmericaTankCrusader\n KindOf = VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 400\n InitialHealth = 400\n End\nEnd\nObject RelationCapturer\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\nObject HealCrate\n KindOf = CRATE\nEnd\n".into(),
+        ), (
+            "Beacon.ini".into(),
+            "Object RelationBeacon\n KindOf = SELECTABLE\n Body = ActiveBody BeaconBody\n MaxHealth = 10\n InitialHealth = 10\n End\nEnd\n".into(),
         )])
         .unwrap();
     let mut player_templates = PlayerTemplateStore::new_owned();
     player_templates
         .apply_source(
             "PlayerTemplate FactionCivilian\n Side = Civilian\nEnd\n\
-             PlayerTemplate FactionAmerica\n Side = America\nEnd\n\
+             PlayerTemplate FactionAmerica\n Side = America\n BeaconName = RelationBeacon\nEnd\n\
              PlayerTemplate FactionChina\n Side = China\nEnd\n",
             INILoadType::Overwrite,
         )
@@ -176,6 +179,179 @@ fn run_action(world: &mut GameLogic, action: ScriptAction) {
     world
         .update_local_script_engine_with_owner(&engine)
         .unwrap();
+}
+
+#[test]
+fn player_asset_transfer_is_immediate_and_owned_by_the_receiving_world() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut owner, source, _) = world(&map);
+    let (mut peer, peer_source, _) = world(&map);
+    assert_eq!(source, peer_source);
+    let beacon = owner
+        .create_object_for_player("RelationBeacon", 1, Vec3::new(15.0, 0.0, 30.0))
+        .unwrap();
+    let peer_beacon = peer
+        .create_object_for_player("RelationBeacon", 1, Vec3::new(15.0, 0.0, 30.0))
+        .unwrap();
+    assert_eq!(beacon, peer_beacon);
+    for game in [&mut owner, &mut peer] {
+        game.get_player_mut(1).unwrap().resources.supplies = 700;
+        game.get_player_mut(2).unwrap().resources.supplies = 80;
+    }
+
+    let mut action = ScriptAction::new(ScriptActionType::PlayerTransferOwnershipPlayer);
+    for player in ["Owner", "Other"] {
+        action
+            .add_parameter(Parameter::with_string(ParameterType::Side, player.into()))
+            .unwrap();
+    }
+    run_action(&mut owner, action);
+    assert_eq!(owner.host_object(source).unwrap().owner_player_id, Some(2));
+    assert_eq!(owner.host_object(beacon).unwrap().owner_player_id, Some(1));
+    assert_eq!(owner.get_player(1).unwrap().effective_supplies(), 0);
+    assert_eq!(owner.get_player(2).unwrap().effective_supplies(), 780);
+    assert_eq!(
+        peer.host_object(peer_source).unwrap().owner_player_id,
+        Some(1)
+    );
+    assert_eq!(peer.get_player(1).unwrap().effective_supplies(), 700);
+    assert_eq!(peer.get_player(2).unwrap().effective_supplies(), 80);
+    peer.update();
+    assert_eq!(
+        peer.host_object(peer_source).unwrap().owner_player_id,
+        Some(1)
+    );
+    assert_eq!(peer.get_player(1).unwrap().effective_supplies(), 700);
+
+    let (mut missing_default, missing_source, _) = world(&map);
+    let mut chunks =
+        generals_main::save_load::snapshot::stamp_player_team_chunks(&missing_default).unwrap();
+    chunks
+        .players
+        .as_mut()
+        .unwrap()
+        .players
+        .iter_mut()
+        .find(|player| player.player_id == 2)
+        .unwrap()
+        .host_default_team_id = None;
+    generals_main::save_load::snapshot::apply_pending_player_team_chunks(
+        &mut missing_default,
+        &chunks,
+    )
+    .unwrap();
+    missing_default
+        .get_player_mut(1)
+        .unwrap()
+        .resources
+        .supplies = 700;
+    missing_default
+        .get_player_mut(2)
+        .unwrap()
+        .resources
+        .supplies = 80;
+    let mut action = ScriptAction::new(ScriptActionType::PlayerTransferOwnershipPlayer);
+    for player in ["Owner", "Other"] {
+        action
+            .add_parameter(Parameter::with_string(ParameterType::Side, player.into()))
+            .unwrap();
+    }
+    run_action(&mut missing_default, action);
+    assert_eq!(
+        missing_default
+            .host_object(missing_source)
+            .unwrap()
+            .owner_player_id,
+        Some(1)
+    );
+    assert_eq!(
+        missing_default.get_player(1).unwrap().effective_supplies(),
+        700
+    );
+    assert_eq!(
+        missing_default.get_player(2).unwrap().effective_supplies(),
+        80
+    );
+}
+
+#[test]
+fn team_transfer_refreshes_the_receiving_players_upgrade_modules() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut owner, source, _) = world(&map);
+    let (mut peer, peer_source, _) = world(&map);
+    assert_eq!(source, peer_source);
+    for game in [&mut owner, &mut peer] {
+        game.get_player_mut(2)
+            .unwrap()
+            .add_completed_upgrade("Upgrade_Veterancy_VETERAN");
+    }
+
+    let mut action = ScriptAction::new(ScriptActionType::TeamTransferToPlayer);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "SourceRoster".into(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_string(ParameterType::Side, "Other".into()))
+        .unwrap();
+    run_action(&mut owner, action);
+    assert_eq!(owner.host_object(source).unwrap().owner_player_id, Some(2));
+    assert_eq!(
+        owner.modified_build_cost_supplies(2, "RelationDualPurchase", 1000),
+        900
+    );
+    assert_eq!(
+        peer.host_object(peer_source).unwrap().owner_player_id,
+        Some(1)
+    );
+    assert_eq!(
+        peer.modified_build_cost_supplies(2, "RelationDualPurchase", 1000),
+        1000
+    );
+}
+
+#[test]
+fn named_transfer_refreshes_only_the_receiving_worlds_upgrade_modules() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut owner, source, _) = world(&map);
+    let (mut peer, peer_source, _) = world(&map);
+    assert_eq!(source, peer_source);
+    for (game, object) in [(&mut owner, source), (&mut peer, peer_source)] {
+        game.host_object_mut(object).unwrap().name = "TransferMember".into();
+        game.get_player_mut(2)
+            .unwrap()
+            .add_completed_upgrade("Upgrade_Veterancy_VETERAN");
+    }
+
+    let mut action = ScriptAction::new(ScriptActionType::NamedTransferOwnershipPlayer);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "TransferMember".into(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_string(ParameterType::Side, "Other".into()))
+        .unwrap();
+    run_action(&mut owner, action);
+    assert_eq!(owner.host_object(source).unwrap().owner_player_id, Some(2));
+    assert_eq!(
+        owner.modified_build_cost_supplies(2, "RelationDualPurchase", 1000),
+        900
+    );
+    assert_eq!(
+        peer.host_object(peer_source).unwrap().owner_player_id,
+        Some(1)
+    );
+    assert_eq!(
+        peer.modified_build_cost_supplies(2, "RelationDualPurchase", 1000),
+        1000
+    );
 }
 
 fn same_named_team_member(

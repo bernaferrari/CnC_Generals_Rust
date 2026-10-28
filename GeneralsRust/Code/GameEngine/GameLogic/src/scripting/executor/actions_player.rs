@@ -228,11 +228,9 @@ impl ScriptActionDispatcher<'_> {
         let from_player = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         let to_player = self.resolve_player_name_token(&self.get_string_param(action, 1)?);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_transfer(super::HostScriptTransferRequest::Player {
-                from: from_player,
-                to: to_player,
-            });
-            return Ok(ScriptActionResult::Success);
+            return Err(ScriptError::ExecutionFailed(
+                "Player asset transfer requires its receiving world".into(),
+            ));
         }
 
         log::debug!(

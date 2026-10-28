@@ -226,17 +226,21 @@ impl GameLogic {
         player: u32,
         calling: Option<u32>,
         condition: Option<u32>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         let Some((team_id, _)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };
-        self.apply_owned_team_transfer_to_id(team_id, player)
+        self.apply_owned_team_transfer_to_id(team_id, player, interpreter, effects)
     }
 
     pub(super) fn apply_owned_team_transfer_to_id(
         &mut self,
         team_id: u32,
         player: u32,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         let Some(side) = self.players.get(&player).map(|player| player.team) else {
             return Ok(());
@@ -248,22 +252,75 @@ impl GameLogic {
         else {
             return Ok(());
         };
+        let selected_team = self
+            .team_factory
+            .with_read_without_flushing(|factory| factory.find_team_by_id(team_id))
+            .map_err(|_| {
+                gamelogic::GameLogicError::Threading("receiving TeamFactory lock poisoned".into())
+            })?
+            .ok_or_else(|| {
+                gamelogic::GameLogicError::Configuration(
+                    "transferred Team disappeared before its callbacks".into(),
+                )
+            })?;
+        let selected_team_birth = std::sync::Arc::downgrade(&selected_team);
+        drop(selected_team);
         // CPP changes the controlling player, retaining the concrete team and
         // roster. Every sibling object's cached controlling-player/faction
         // observation follows the shared prototype. C++ partition maintenance
         // and ScriptActions::updateTeamAndPlayerStuff remain selected-Team-only.
-        // The latter's upgrade-module and Drawable-indicator refreshes do not
-        // yet have a corresponding host operation in this code path.
         for member in transfer.all_member_ids {
             if let Some(object) = self.host_object_mut(ObjectId(member)) {
                 object.owner_player_id = Some(player);
                 object.team = side;
             }
         }
-        for member in transfer.selected_member_ids {
-            if let Some((object, partition)) = self.host_object_and_partition_mut(ObjectId(member))
-            {
+        let selected: Vec<_> = transfer
+            .selected_member_ids
+            .into_iter()
+            .filter_map(|member| {
+                let id = ObjectId(member);
+                self.host_object(id).map(|object| {
+                    (id, std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+                })
+            })
+            .collect();
+        for (id, birth) in &selected {
+            if !self.object_birth_matches(*id, birth) {
+                continue;
+            }
+            if let Some((object, partition)) = self.host_object_and_partition_mut(*id) {
                 object.handle_partition_cell_maintenance_with_partition_owner(partition);
+            }
+        }
+        // ScriptActions::updateTeamAndPlayerStuff runs after the controller
+        // and partition changes, with each upgrade callback observing the
+        // selected Team's new owner. Do not redirect a later visit onto a
+        // replaced Object or one moved out by an earlier callback.
+        for (id, birth) in selected {
+            let same_team = self
+                .team_factory
+                .with_read_without_flushing(|factory| {
+                    factory.find_team_by_id(team_id).is_some_and(|team| {
+                        selected_team_birth.ptr_eq(&std::sync::Arc::downgrade(&team))
+                    })
+                })
+                .map_err(|_| {
+                    gamelogic::GameLogicError::Threading(
+                        "receiving TeamFactory lock poisoned".into(),
+                    )
+                })?;
+            if !same_team {
+                break;
+            }
+            if self.object_birth_matches(id, &birth)
+                && self.host_object(id).and_then(|object| object.team_instance_id) == Some(team_id)
+            {
+                self.apply_researched_player_upgrades_to_object_with_interpreter(
+                    id,
+                    interpreter,
+                    effects,
+                );
             }
         }
         Ok(())

@@ -169,8 +169,22 @@ impl<'a> HostScriptExecutionDriver<'a> {
                     .interpreter
                     .and_then(|engine| engine.get_current_player_name());
                 if let Some(player) = self.script_player_id(player, current.as_deref()) {
-                    self.world
-                        .transfer_object_to_player_with_effects(id, player, &mut self.ui);
+                    let birth = self.world.host_object(id).map(|object| {
+                        std::sync::Arc::downgrade(&object.visual_draw_identity_token)
+                    });
+                    if self
+                        .world
+                        .transfer_object_to_player_with_effects(id, player, &mut self.ui)
+                        && birth
+                            .as_ref()
+                            .is_some_and(|birth| self.world.object_birth_matches(id, birth))
+                    {
+                        self.world.apply_researched_player_upgrades_to_object_with_interpreter(
+                            id,
+                            self.interpreter,
+                            &mut self.ui,
+                        );
+                    }
                 }
             }
         }

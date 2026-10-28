@@ -1952,7 +1952,17 @@ impl ScriptActionDispatcher<'_> {
                 self.do_player_enable_unit_construction(action)
             }
             ScriptActionType::PlayerTransferOwnershipPlayer => {
-                self.do_player_transfer_ownership_player(action)
+                let source = self.get_string_param(action, 0)?;
+                let destination = self.get_string_param(action, 1)?;
+                let current = self.context.borrowed_engine().get_current_player_name();
+                if let Some(result) =
+                    driver.transfer_player_assets(&source, &destination, current.as_deref())
+                {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_player_transfer_ownership_player(action)
+                }
             }
             ScriptActionType::PlayerRelatesPlayer => self.do_player_relates_player(action),
             ScriptActionType::PlayerSetOverrideRelationToTeam => {

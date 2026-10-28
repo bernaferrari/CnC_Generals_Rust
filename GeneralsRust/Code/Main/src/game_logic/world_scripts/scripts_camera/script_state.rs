@@ -1307,47 +1307,6 @@ impl GameLogic {
         }
     }
 
-    /// C++ ScriptActions TEAM/PLAYER/NAMED TRANSFER live drain.
-    /// Leftover mutates empty `OBJECT_REGISTRY`; live objects/money live on host.
-    pub(super) fn apply_host_transfer_script_requests(&mut self) {
-        self.apply_host_transfer_script_requests_with_effects(&mut Default::default())
-    }
-
-    pub(super) fn apply_host_transfer_script_requests_with_effects(
-        &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        use gamelogic::scripting::HostScriptTransferRequest;
-        for req in gamelogic::scripting::take_host_script_transfer_requests() {
-            match req {
-                HostScriptTransferRequest::Player { from, to } => {
-                    let Some(src) = self.host_player_id_for_script_token(&from) else {
-                        continue;
-                    };
-                    let Some(dst) = self.host_player_id_for_script_token(&to) else {
-                        continue;
-                    };
-                    self.host_script_transfer_assets_from_with_effects(dst, src, effects);
-                }
-                HostScriptTransferRequest::Named { unit, player } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
-                        continue;
-                    };
-                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
-                        continue;
-                    };
-                    let _ = self.transfer_object_to_player_with_effects(id, pid, effects);
-                }
-                HostScriptTransferRequest::Team { team, player } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
-                        continue;
-                    };
-                    self.host_script_transfer_team_to_player(&team, pid);
-                }
-            }
-        }
-    }
-
     /// C++ ScriptActions::updatePlayerRelationTowardPlayer live drain.
     /// Leftover writes leftover ThePlayerList; live relations live on host Player.
     pub(super) fn apply_host_player_relates_script_requests(&mut self) {
@@ -1366,35 +1325,111 @@ impl GameLogic {
 
     /// C++ `Player::transferAssetsFromThat` — non-beacon objects onto dest
     /// default team, then withdraw/deposit all cash.
-    pub(super) fn host_script_transfer_assets_from(
-        &mut self,
-        dest_player: u32,
-        source_player: u32,
-    ) {
-        self.host_script_transfer_assets_from_with_effects(
-            dest_player,
-            source_player,
-            &mut Default::default(),
-        )
-    }
-
     pub(super) fn host_script_transfer_assets_from_with_effects(
         &mut self,
         dest_player: u32,
         source_player: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        let ids: Vec<ObjectId> = self
-            .host_objects()
-            .registered()
-            .filter_map(|(id, obj)| {
-                (obj.owner_player_id == Some(source_player)
-                    && !crate::command_executor::host_object_is_beacon(self, *id))
-                .then_some(*id)
-            })
-            .collect();
-        for id in ids {
-            let _ = self.transfer_object_to_player_with_effects(id, dest_player, effects);
+    ) -> gamelogic::GameLogicResult<()> {
+        // Player::transferAssetsFromThat does nothing at all when the
+        // destination has no default Team, including leaving its money alone.
+        let Some(destination_id) = self.host_default_team_id(dest_player) else {
+            return Ok(());
+        };
+        if let Some(identity) = self.player_template_identity(source_player) {
+            if self
+                .player_template_definitions
+                .as_ref()
+                .and_then(|definitions| identity.resolve_in(definitions))
+                .is_none()
+            {
+                return Err(gamelogic::GameLogicError::Configuration(
+                    "player asset transfer requires its source PlayerTemplate".into(),
+                ));
+            }
+        }
+        let destination = self
+            .team_factory
+            .with_read_without_flushing(|factory| factory.find_team_by_id(destination_id))
+            .map_err(|_| {
+                gamelogic::GameLogicError::Threading("receiving TeamFactory lock poisoned".into())
+            })?
+            .ok_or_else(|| {
+                gamelogic::GameLogicError::Configuration(
+                    "selected player transfer Team is unavailable".into(),
+                )
+            })?;
+        let destination_birth = std::sync::Arc::downgrade(&destination);
+        drop(destination);
+        // The original first captures the source player's prototype/Team/member
+        // traversal, then changes each captured Object's Team synchronously.
+        let members: Vec<_> = {
+            let teams = self
+                .team_factory
+                .with_read_without_flushing(|factory| {
+                    factory.owned_team_instances_for_controller(source_player)
+                })
+                .map_err(|_| {
+                    gamelogic::GameLogicError::Threading(
+                        "receiving TeamFactory lock poisoned".into(),
+                    )
+                })?;
+            let mut members = Vec::new();
+            for team in teams {
+                let roster = team.read().map_err(|_| {
+                    gamelogic::GameLogicError::Threading("receiving Team lock poisoned".into())
+                })?;
+                for &raw_id in roster.get_members() {
+                    let id = ObjectId(raw_id);
+                    if let Some(object) = self.host_object(id) {
+                        if !crate::command_executor::host_object_is_beacon_for_player(
+                            self,
+                            id,
+                            source_player,
+                        ) {
+                            members.push((
+                                id,
+                                std::sync::Arc::downgrade(&object.visual_draw_identity_token),
+                            ));
+                        }
+                    }
+                }
+            }
+            members
+        };
+        for (id, birth) in members {
+            if !self.object_birth_matches(id, &birth) {
+                continue;
+            }
+            let same_destination = self
+                .team_factory
+                .with_read_without_flushing(|factory| {
+                    factory
+                        .find_team_by_id(destination_id)
+                        .is_some_and(|current| {
+                            destination_birth.ptr_eq(&std::sync::Arc::downgrade(&current))
+                                && current.read().is_ok_and(|team| {
+                                    team.get_controlling_player_id() == Some(dest_player)
+                                })
+                        })
+                })
+                .map_err(|_| {
+                    gamelogic::GameLogicError::Threading(
+                        "receiving TeamFactory lock poisoned".into(),
+                    )
+                })?;
+            if !same_destination
+                || !self.transfer_object_to_selected_team_with_effects(
+                    id,
+                    dest_player,
+                    destination_id,
+                    effects,
+                )
+            {
+                return Err(gamelogic::GameLogicError::Configuration(
+                    "player asset transfer lost its selected Team or Object".into(),
+                ));
+            }
         }
         let amount = self
             .players
@@ -1402,7 +1437,7 @@ impl GameLogic {
             .map(|p| p.effective_supplies())
             .unwrap_or(0);
         if amount == 0 {
-            return;
+            return Ok(());
         }
         if let Some(src) = self.players.get_mut(&source_player) {
             self.economy_events.record_money_audio(
@@ -1418,31 +1453,7 @@ impl GameLogic {
             );
             dst.apply_supply_gain(amount, &mut self.economy_events);
         }
-    }
-
-    /// C++ `Team::setControllingPlayer` — members stay on the same team.
-    pub(super) fn host_script_transfer_team_to_player(
-        &mut self,
-        team_name: &str,
-        dest_player: u32,
-    ) {
-        let team_id = {
-            let mut factory = match self.team_factory.lock() {
-                Ok(factory) => factory,
-                Err(error) => error.into_inner(),
-            };
-            let Some(team) = factory.find_team(team_name) else {
-                return;
-            };
-            let team_id = match team.read() {
-                Ok(team) => team.get_id(),
-                Err(error) => error.into_inner().get_id(),
-            };
-            team_id
-        };
-        if let Err(error) = self.apply_owned_team_transfer_to_id(team_id, dest_player) {
-            log::error!("Team controller transfer failed: {error}");
-        }
+        Ok(())
     }
 
     /// C++ Money::withdraw(countMoney()) then Money::deposit(amount).
