@@ -66,6 +66,43 @@ impl Object {
         self.status.detected = detected;
     }
 
+    /// Raw mask consumers receive a projection of canonical ObjectStatus,
+    /// while the two visibility flags remain stored only in ObjectStatus.
+    pub(crate) fn object_status_mask_for_queries(&self) -> u64 {
+        use crate::game_logic::host_status_bits_upgrade::object_status_mask_from_names;
+        let visibility_mask = object_status_mask_from_names(&["STEALTHED", "DETECTED"]);
+        let mut bits = self.object_status_bits & !visibility_mask;
+        if self.status.stealthed {
+            bits |= object_status_mask_from_names(&["STEALTHED"]);
+        }
+        if self.status.detected {
+            bits |= object_status_mask_from_names(&["DETECTED"]);
+        }
+        bits
+    }
+
+    pub(crate) fn apply_object_status_mask_bits(&mut self, mask: u64) {
+        use crate::game_logic::host_status_bits_upgrade::object_status_mask_from_names;
+        let stealth = object_status_mask_from_names(&["STEALTHED"]);
+        let detected = object_status_mask_from_names(&["DETECTED"]);
+        self.status.stealthed |= mask & stealth != 0;
+        self.status.detected |= mask & detected != 0;
+        self.object_status_bits |= mask & !(stealth | detected);
+    }
+
+    pub(crate) fn clear_object_status_mask_bits(&mut self, mask: u64) {
+        use crate::game_logic::host_status_bits_upgrade::object_status_mask_from_names;
+        let stealth = object_status_mask_from_names(&["STEALTHED"]);
+        let detected = object_status_mask_from_names(&["DETECTED"]);
+        if mask & stealth != 0 {
+            self.status.stealthed = false;
+        }
+        if mask & detected != 0 {
+            self.status.detected = false;
+        }
+        self.object_status_bits &= !mask;
+    }
+
     /// Host EMP disable residual + status channel log.
     pub fn set_status_disabled_emp(&mut self, disabled: bool) {
         let was_disabled = self.has_disabled_type();
@@ -215,9 +252,15 @@ impl Object {
         // Normalize the effective construction status before applying a mask.
         let uc_before = self.under_construction_status();
         self.set_status_under_construction(uc_before);
-        let before = self.object_status_bits;
-        self.object_status_bits =
-            apply_status_bits_upgrade(self.object_status_bits, set_names, clear_names);
+        let before = self.object_status_mask_for_queries();
+        let after = apply_status_bits_upgrade(before, set_names, clear_names);
+        let visibility_mask = object_status_mask_from_names(&["STEALTHED", "DETECTED"]);
+        // StatusBitsUpgrade calls Object::setStatus then Object::clearStatus.
+        // Keep visibility state in ObjectStatus alone; project it into raw-mask
+        // consumers on demand instead of storing a second writable copy.
+        self.status.stealthed = status_bits_has(after, "STEALTHED");
+        self.status.detected = status_bits_has(after, "DETECTED");
+        self.object_status_bits = after & !visibility_mask;
         if status_bits_has(self.object_status_bits, "DESTROYED") {
             self.status.destroyed = true;
         }
@@ -242,6 +285,12 @@ impl Object {
     }
 
     pub fn has_object_status_bit(&self, name: &str) -> bool {
+        if name.eq_ignore_ascii_case("STEALTHED") {
+            return self.status.stealthed;
+        }
+        if name.eq_ignore_ascii_case("DETECTED") {
+            return self.status.detected;
+        }
         crate::game_logic::host_status_bits_upgrade::status_bits_has(self.object_status_bits, name)
     }
 

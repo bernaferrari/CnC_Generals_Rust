@@ -122,12 +122,6 @@ fn host_query_object_status_bits(obj: &crate::game_logic::object::Object) -> u64
     if s.is_firing_weapon {
         names.push("IS_FIRING_WEAPON");
     }
-    if s.stealthed {
-        names.push("STEALTHED");
-    }
-    if s.detected {
-        names.push("DETECTED");
-    }
     if s.sold {
         names.push("SOLD");
     }
@@ -167,7 +161,7 @@ fn host_query_object_status_bits(obj: &crate::game_logic::object::Object) -> u64
     if s.deployed {
         names.push("DEPLOYED");
     }
-    obj.object_status_bits | object_status_mask_from_names(&names)
+    obj.object_status_mask_for_queries() | object_status_mask_from_names(&names)
 }
 
 /// C++ OpenContain::getPlayerWhoEntered — SIDE name, one-frame pulse after enter.

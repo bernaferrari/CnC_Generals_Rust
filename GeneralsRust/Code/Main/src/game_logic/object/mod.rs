@@ -450,7 +450,7 @@ pub struct Object {
     pub status: ObjectStatus,
     /// C++ ObjectStatusMaskType residual bits (StatusBitsUpgrade set/clear).
     #[serde(default)]
-    pub object_status_bits: u64,
+    pub(crate) object_status_bits: u64,
     /// C++ `OBJECT_STATUS_SCRIPT_UNSELLABLE` / `Object::isScriptUnsellable`.
     #[serde(default)]
     pub script_unsellable: bool,

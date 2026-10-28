@@ -151,6 +151,25 @@ pub fn apply_lifecycle_tail_to_host(
     tail: &LifecycleTail,
     game_logic: &mut GameLogic,
 ) -> SaveLoadResult<()> {
+    apply_lifecycle_tail_to_host_inner(tail, game_logic, None)
+}
+
+/// A world snapshot already owns visibility in its Object records. Preserve
+/// those values while decoding older lifecycle status masks, before any
+/// candidate is installed or observed by later load continuations.
+pub(super) fn apply_lifecycle_tail_to_host_with_object_snapshots(
+    tail: &LifecycleTail,
+    game_logic: &mut GameLogic,
+    objects: &std::collections::HashMap<ObjectId, super::object::ObjectSnapshot>,
+) -> SaveLoadResult<()> {
+    apply_lifecycle_tail_to_host_inner(tail, game_logic, Some(objects))
+}
+
+fn apply_lifecycle_tail_to_host_inner(
+    tail: &LifecycleTail,
+    game_logic: &mut GameLogic,
+    objects: Option<&std::collections::HashMap<ObjectId, super::object::ObjectSnapshot>>,
+) -> SaveLoadResult<()> {
     // Decode the affected component candidates before replacing either owner.
     // A malformed train continuation cannot clear the running world's cars.
     let mut candidates = Vec::new();
@@ -169,6 +188,10 @@ pub fn apply_lifecycle_tail_to_host(
                 })?
             {
                 railroad.restore_car(car);
+            }
+            if let Some(saved) = objects.and_then(|objects| objects.get(&id)) {
+                candidate.set_status_stealthed(saved.status.stealthed);
+                candidate.set_status_detected(saved.status.detected);
             }
             candidates.push((id, candidate));
         }

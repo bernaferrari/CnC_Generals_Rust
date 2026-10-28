@@ -189,7 +189,7 @@ impl GameLogic {
                 rules.allows(
                     container.status.death_type,
                     container.experience.level,
-                    container.object_status_bits,
+                    container.object_status_mask_for_queries(),
                 )
             });
         if container.is_tunnel_network_style_container() {
@@ -426,7 +426,7 @@ impl GameLogic {
                 rules.allows(
                     container.status.death_type,
                     container.experience.level,
-                    container.object_status_bits,
+                    container.object_status_mask_for_queries(),
                 )
             })
         {

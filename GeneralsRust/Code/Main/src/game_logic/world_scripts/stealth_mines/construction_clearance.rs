@@ -49,10 +49,26 @@ impl GameLogic {
                 .get_mut(&id)
                 .expect("validated receiving Object");
             let before = object.under_construction_status();
+            let before_status = object.object_status_mask_for_queries();
+            let shroud_reveal_to_all_range = object.thing().template.shroud_reveal_to_all_range;
             let (set_count, clear_count) = object.apply_status_bits_upgrade_masks(set, clear);
             let changed = before != object.under_construction_status();
+            let after_status = object.object_status_mask_for_queries();
+            let mask = crate::game_logic::host_status_bits_upgrade::object_status_mask_from_names;
+            let touched_stealth =
+                (mask(set) | mask(clear)) & mask(&["STEALTHED", "DETECTED", "DISGUISED"]) != 0;
             counts.0 += set_count;
             counts.1 += clear_count;
+            // Object.cpp:972–976 performs partition maintenance inside each
+            // setStatus/clearStatus call when STEALTHED, DETECTED, or DISGUISED changes.
+            // This is deliberately before the next mask operation to preserve
+            // C++ callback order for separate set then clear calls.
+            if before_status != after_status && touched_stealth && shroud_reveal_to_all_range > 0.0
+            {
+                if let Some((object, partition)) = self.host_object_and_partition_mut(id) {
+                    object.handle_partition_cell_maintenance_with_partition_owner(partition);
+                }
+            }
             if changed {
                 self.sweep_under_construction_footprint_mines_with_effects(id, effects);
             }

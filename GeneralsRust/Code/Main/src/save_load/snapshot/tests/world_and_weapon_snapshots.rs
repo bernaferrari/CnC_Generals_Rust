@@ -158,6 +158,84 @@ fn object_status_bits_survive_snapshot_restore() {
 }
 
 #[test]
+fn object_snapshot_visibility_wins_over_legacy_status_bits_residual() {
+    use crate::game_logic::host_status_bits_upgrade::object_status_mask_from_names;
+
+    let mut source = GameLogic::new();
+    source
+        .templates
+        .insert("StatusOwnerUnit".to_string(), ThingTemplate::new("StatusOwnerUnit"));
+    source.add_player(Player::new(1, Team::USA, "PlayerOne", true));
+    let id = source
+        .create_object("StatusOwnerUnit", Team::USA, Vec3::ZERO)
+        .expect("status owner object");
+    {
+        let object = source.host_object_mut(id).expect("source object");
+        object.set_status_stealthed(true);
+        object.set_status_detected(false);
+        // Keep a StatusBits residual present in the old representation too.
+        object.apply_status_bits_upgrade_masks(&["NO_ATTACK"], &[]);
+    }
+
+    let builder = SnapshotBuilder::new();
+    let mut snapshot = builder
+        .create_world_snapshot(&source)
+        .expect("status snapshot");
+    let saved_status = &snapshot.objects.get(&id).expect("saved Object").status;
+    assert!(saved_status.stealthed);
+    assert!(!saved_status.detected);
+
+    // Simulate both legacy forms: a residual with no visibility bits and a
+    // stale opposite DETECTED bit. The v30 ObjectStatusSnapshot must win.
+    let visibility_mask = object_status_mask_from_names(&["STEALTHED", "DETECTED"]);
+    let detected_mask = object_status_mask_from_names(&["DETECTED"]);
+    for stale_visibility in [Some(0), Some(detected_mask), None] {
+        let mut tail = super::super::lifecycle_tail::decode_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+        )
+        .expect("decode lifecycle tail");
+        let envelope = tail
+            .envelopes
+            .iter_mut()
+            .find(|envelope| envelope.entity_id == id.0)
+            .expect("object lifecycle envelope");
+        if let Some(stale_visibility) = stale_visibility {
+            let residual = envelope
+                .module_states
+                .iter_mut()
+                .find(|module| module.tag == "StatusBits")
+                .expect("status bits residual");
+            let mut bits = bincode_legacy::deserialize::<u64>(&residual.payload)
+                .expect("legacy single-field status residual");
+            bits = (bits & !visibility_mask) | stale_visibility;
+            residual.payload = bincode_legacy::serialize(&bits).expect("encode status residual");
+        } else {
+            envelope
+                .module_states
+                .retain(|module| module.tag != "StatusBits");
+        }
+        snapshot.lifecycle_tail =
+            super::super::lifecycle_tail::encode_lifecycle_tail(&tail);
+
+        let mut receiving = GameLogic::new();
+        receiving.templates = source.templates.clone();
+        receiving.add_player(Player::new(1, Team::USA, "PlayerOne", true));
+        builder
+            .restore_from_snapshot(&snapshot, &mut receiving)
+            .expect("restore status snapshot");
+        let loaded = receiving.host_object(id).expect("restored Object");
+        assert!(loaded.status.stealthed, "ObjectStatusSnapshot owns visibility");
+        assert!(!loaded.status.detected, "stale residual must not win");
+        assert!(loaded.has_object_status_bit("STEALTHED"));
+        assert!(!loaded.has_object_status_bit("DETECTED"));
+        assert!(!crate::game_logic::host_status_bits_upgrade::status_bits_has(
+            loaded.object_status_bits,
+            "STEALTHED"
+        ));
+    }
+}
+
+#[test]
 fn script_held_and_attitude_survive_snapshot_restore() {
     let mut source = GameLogic::new();
     source

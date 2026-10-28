@@ -42,7 +42,7 @@ impl Object {
         // Unrepresented status bits retain their actual host bitset value.
         // Where Main owns a dedicated field, it is the observation authority;
         // stale bitset values must not override that field in either direction.
-        let mut mask = Mask::from_bits_retain(self.object_status_bits);
+        let mut mask = Mask::from_bits_retain(self.object_status_mask_for_queries());
         for (bit, set) in [
             (Mask::DESTROYED, self.status.destroyed),
             (Mask::UNDER_CONSTRUCTION, self.status.under_construction),

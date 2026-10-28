@@ -164,19 +164,9 @@ fn start_hijack(world: &mut GameLogic) -> (ObjectId, ObjectId) {
         Some(PLAYER_USA)
     );
     assert_eq!(world.host_object(vehicle).unwrap().team, Team::USA);
-    let status = world.host_object(vehicle).unwrap().object_status_bits;
-    assert!(
-        !generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
-            status,
-            "BOOBY_TRAPPED"
-        )
-    );
-    assert!(
-        !generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
-            status,
-            "CAN_STEALTH"
-        )
-    );
+    let object = world.host_object(vehicle).unwrap();
+    assert!(!object.has_object_status_bit("BOOBY_TRAPPED"));
+    assert!(!object.has_object_status_bit("CAN_STEALTH"));
     assert_eq!(
         world.host_object(hijacker).unwrap().experience.level,
         VeterancyLevel::Veteran
@@ -218,19 +208,9 @@ fn start_car_bomb(world: &mut GameLogic) -> (ObjectId, ObjectId) {
     let vehicle = world
         .create_object(VEHICLE, Team::Neutral, Vec3::new(102.0, 0.0, 100.0))
         .expect("admitted neutral vehicle");
-    let status = world.host_object(vehicle).unwrap().object_status_bits;
-    assert!(
-        !generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
-            status,
-            "BOOBY_TRAPPED"
-        )
-    );
-    assert!(
-        !generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
-            status,
-            "CAN_STEALTH"
-        )
-    );
+    let object = world.host_object(vehicle).unwrap();
+    assert!(!object.has_object_status_bit("BOOBY_TRAPPED"));
+    assert!(!object.has_object_status_bit("CAN_STEALTH"));
     assert_eq!(
         world.host_object(terrorist).unwrap().experience.level,
         VeterancyLevel::Veteran
@@ -388,10 +368,7 @@ fn live_hijack_and_car_bomb_transfers_use_each_receiving_world() {
         assert_eq!(object.experience.level, VeterancyLevel::Veteran);
         assert!((object.health.maximum - expected_health).abs() < 0.001);
         assert!(
-            generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
-                object.object_status_bits,
-                expected_marker
-            ),
+            object.has_object_status_bit(expected_marker),
             "receiving-world StatusBitsUpgrade must execute its distinct authored effect on Veteran rank"
         );
         let peer_marker = if expected_marker == "BOOBY_TRAPPED" {
@@ -399,12 +376,7 @@ fn live_hijack_and_car_bomb_transfers_use_each_receiving_world() {
         } else {
             "BOOBY_TRAPPED"
         };
-        assert!(
-            !generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
-                object.object_status_bits,
-                peer_marker
-            )
-        );
+        assert!(!object.has_object_status_bit(peer_marker));
     }
 
     let mut first_car_bomb = world(&map, 130, 160);
@@ -432,10 +404,7 @@ fn live_hijack_and_car_bomb_transfers_use_each_receiving_world() {
         assert_eq!(object.experience.level, VeterancyLevel::Veteran);
         assert!((object.health.maximum - expected_health).abs() < 0.001);
         assert!(
-            generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
-                object.object_status_bits,
-                expected_marker
-            ),
+            object.has_object_status_bit(expected_marker),
             "receiving-world StatusBitsUpgrade must execute its distinct authored effect on Veteran rank"
         );
         let peer_marker = if expected_marker == "BOOBY_TRAPPED" {
@@ -443,12 +412,7 @@ fn live_hijack_and_car_bomb_transfers_use_each_receiving_world() {
         } else {
             "BOOBY_TRAPPED"
         };
-        assert!(
-            !generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
-                object.object_status_bits,
-                peer_marker
-            )
-        );
+        assert!(!object.has_object_status_bit(peer_marker));
         let expected_current = expected_health - 700.0;
         assert!(
             (object.health.current - expected_current).abs() < 0.001,

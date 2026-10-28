@@ -52,34 +52,14 @@ fn kill_reward_dispatches_authored_status_upgrade_in_each_receiving_world() {
     let promoted = first.host_object(first_id).expect("first world unit");
     assert_eq!(promoted.experience.level, VeterancyLevel::Veteran);
     assert_eq!(promoted.experience.current, 125.0);
-    assert!(
-        generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
-            promoted.object_status_bits,
-            "BOOBY_TRAPPED"
-        )
-    );
-    assert!(
-        !generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
-            promoted.object_status_bits,
-            "CAN_STEALTH"
-        )
-    );
+    assert!(promoted.has_object_status_bit("BOOBY_TRAPPED"));
+    assert!(!promoted.has_object_status_bit("CAN_STEALTH"));
 
     let untouched = peer.host_object(peer_id).expect("peer unit");
     assert_eq!(untouched.experience.level, VeterancyLevel::Rookie);
     assert_eq!(untouched.experience.current, 0.0);
-    assert!(
-        !generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
-            untouched.object_status_bits,
-            "BOOBY_TRAPPED"
-        )
-    );
-    assert!(
-        !generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
-            untouched.object_status_bits,
-            "CAN_STEALTH"
-        )
-    );
+    assert!(!untouched.has_object_status_bit("BOOBY_TRAPPED"));
+    assert!(!untouched.has_object_status_bit("CAN_STEALTH"));
 
     assert_eq!(
         peer.apply_host_hive_damage_from(
@@ -94,16 +74,6 @@ fn kill_reward_dispatches_authored_status_upgrade_in_each_receiving_world() {
     let peer_promoted = peer.host_object(peer_id).expect("peer promoted unit");
     assert_eq!(peer_promoted.experience.level, VeterancyLevel::Veteran);
     assert_eq!(peer_promoted.experience.current, 125.0);
-    assert!(
-        generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
-            peer_promoted.object_status_bits,
-            "CAN_STEALTH"
-        )
-    );
-    assert!(
-        !generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
-            peer_promoted.object_status_bits,
-            "BOOBY_TRAPPED"
-        )
-    );
+    assert!(peer_promoted.has_object_status_bit("CAN_STEALTH"));
+    assert!(!peer_promoted.has_object_status_bit("BOOBY_TRAPPED"));
 }

@@ -46,8 +46,8 @@ fn clear_rider_change_runtime_state(
 
     container.model_condition_bits &=
         !(container.rider_change_model_condition_mask | authored_model_mask | door_closing_mask);
-    container.object_status_bits &=
-        !(container.rider_change_object_status_mask | authored_status_mask);
+    let rider_status_mask = container.rider_change_object_status_mask | authored_status_mask;
+    container.clear_object_status_mask_bits(rider_status_mask);
     container.rider_change_active_slot = None;
     container.rider_change_model_condition_mask = 0;
     container.rider_change_object_status_mask = 0;
@@ -2495,7 +2495,7 @@ impl GameLogic {
                 .get_mut(&container_id)
                 .expect("RiderChange preflight container disappeared");
             container.model_condition_bits |= plan.rider.model_condition_mask;
-            container.object_status_bits |= plan.rider.object_status_mask;
+            container.apply_object_status_mask_bits(plan.rider.object_status_mask);
             container.rider_change_active_slot = Some(plan.rider.slot);
             container.rider_change_model_condition_mask = plan.rider.model_condition_mask;
             container.rider_change_object_status_mask = plan.rider.object_status_mask;

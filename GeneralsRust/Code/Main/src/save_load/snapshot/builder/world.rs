@@ -791,7 +791,11 @@ impl SnapshotBuilder {
             .map_err(SaveLoadError::Corrupted)?;
 
         let tail = super::super::lifecycle_tail::decode_lifecycle_tail(lifecycle_tail)?;
-        super::super::lifecycle_tail::apply_lifecycle_tail_to_host(&tail, game_logic)?;
+        super::super::lifecycle_tail::apply_lifecycle_tail_to_host_with_object_snapshots(
+            &tail,
+            game_logic,
+            &snapshot.objects,
+        )?;
         let mut restored_a10_registry = a10_delivery_candidate.registry;
         for id in &a10_delivery_candidate.live_transport_bindings {
             let actor = game_logic

@@ -41,6 +41,8 @@ fn main_only_todo_groups_round_trip_when_present() {
     src.turret_substate = TurretSubState::Aim;
     src.turret_target_id = Some(ObjectId(9));
     src.object_status_bits = 0x10;
+    src.set_status_stealthed(true);
+    src.set_status_detected(true);
     src.model_condition_bits = 0x20;
     src.consecutive_shots_at_target = 6;
     src.continuous_fire_level = 2;
@@ -99,6 +101,8 @@ fn main_only_todo_groups_round_trip_when_present() {
     assert_eq!(dst.active_weapon_slot, 1);
     assert_eq!(dst.turret_substate, TurretSubState::Aim);
     assert_eq!(dst.object_status_bits, 0x10);
+    assert!(dst.status.stealthed);
+    assert!(dst.status.detected);
     assert_eq!(dst.model_condition_bits, 0x20);
     assert_eq!(dst.continuous_fire_level, 2);
     assert_eq!(dst.subdual_damage, 25.0);

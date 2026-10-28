@@ -792,13 +792,13 @@ impl Object {
         // C++ FXListDie::onDie → doFXObj when OrientToObject, else doFXPos.
         let killer = self.last_damage_source.map(|id| id.0);
         let pos = self.get_position();
+        let leftover_status = self.object_status_mask_for_queries();
         let Some(fx) = self.fx_list_die.as_mut() else {
             return;
         };
         let leftover_vet = crate::game_logic::host_fx_list_die::leftover_veterancy_from_host(
             self.experience.level,
         );
-        let leftover_status = self.object_status_bits;
         let hits =
             fx.collect_applicable_mux_hits(&upgrades, death_type, leftover_vet, leftover_status);
         for (i, hit) in hits.into_iter().enumerate() {
@@ -854,7 +854,7 @@ impl Object {
             crate::game_logic::host_fx_list_die::leftover_veterancy_from_host(
                 self.experience.level,
             ),
-            self.object_status_bits,
+            self.object_status_mask_for_queries(),
         );
         for hit in hits {
             if let Some(name) = hit.death_fx {

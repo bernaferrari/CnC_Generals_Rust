@@ -364,8 +364,8 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
     let mut stealth_ok = false;
     if let Some(sid) = logic.create_object("BreadthStealth", Team::USA, Vec3::new(0.0, 0.0, 20.0)) {
         if let Some(u) = logic.host_object_mut(sid) {
-            u.status.stealthed = true;
-            u.status.detected = false;
+            u.set_status_stealthed(true);
+            u.set_status_detected(false);
         }
         let hidden = logic
             .host_object(sid)
@@ -402,8 +402,8 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
         // Fire breaks stealth residual.
         let mut fire_break_ok = false;
         if let Some(u) = logic.host_object_mut(sid) {
-            u.status.stealthed = true;
-            u.status.detected = false;
+            u.set_status_stealthed(true);
+            u.set_status_detected(false);
             u.stealth_breaks_on_attack = true;
             // last_fire_time=-1 so weapon_ready at t=0 (Weapon::default reload=1.0
             // would otherwise make fire_at return false — same setup as unit tests).

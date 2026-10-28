@@ -351,7 +351,7 @@ impl GameLogic {
         }
         let death_ordinal = u32::from(object.status.death_type.ordinal());
         let veterancy_ordinal = object.experience.level as u32;
-        let statuses = object.object_status_bits;
+        let statuses = object.object_status_mask_for_queries();
         let Some((object_tags, player_tags)) = self.fire_when_owned_upgrade_tags(source) else {
             return Vec::new();
         };

@@ -67,12 +67,7 @@ fn hacker_cash_tick_awards_xp_and_veterancy_in_the_receiving_world() {
     assert_eq!(receiving_hacker.experience.current, 10.0);
     assert_eq!(receiving_hacker.experience.level, VeterancyLevel::Veteran);
     assert_eq!(receiving_hacker.health.maximum, 130.0);
-    assert!(
-        generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
-            receiving_hacker.object_status_bits,
-            "BOOBY_TRAPPED"
-        )
-    );
+    assert!(receiving_hacker.has_object_status_bit("BOOBY_TRAPPED"));
     assert_eq!(
         receiver.get_player(PLAYER).unwrap().resources.supplies,
         receiver_start_cash + 5,
@@ -81,12 +76,7 @@ fn hacker_cash_tick_awards_xp_and_veterancy_in_the_receiving_world() {
     let untouched_peer = peer.host_object(peer_id).expect("peer hacker");
     assert_eq!(untouched_peer.experience.current, 0.0);
     assert_eq!(untouched_peer.health.maximum, 100.0);
-    assert!(
-        !generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
-            untouched_peer.object_status_bits,
-            "BOOBY_TRAPPED"
-        )
-    );
+    assert!(!untouched_peer.has_object_status_bit("BOOBY_TRAPPED"));
     assert_eq!(
         peer.get_player(PLAYER).unwrap().resources.supplies,
         peer_start_cash
@@ -100,12 +90,7 @@ fn hacker_cash_tick_awards_xp_and_veterancy_in_the_receiving_world() {
     assert_eq!(peer_hacker.experience.current, 10.0);
     assert_eq!(peer_hacker.experience.level, VeterancyLevel::Veteran);
     assert_eq!(peer_hacker.health.maximum, 180.0);
-    assert!(
-        generals_main::game_logic::host_status_bits_upgrade::status_bits_has(
-            peer_hacker.object_status_bits,
-            "CAN_STEALTH"
-        )
-    );
+    assert!(peer_hacker.has_object_status_bit("CAN_STEALTH"));
     assert_eq!(
         peer.get_player(PLAYER).unwrap().resources.supplies,
         peer_start_cash + 9

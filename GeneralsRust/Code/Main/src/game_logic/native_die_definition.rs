@@ -40,7 +40,7 @@ impl NativeDieGate {
         .leftover_die_mux_allows(
             death,
             super::host_fx_list_die::leftover_veterancy_from_host(object.experience.level),
-            object.object_status_bits,
+            object.object_status_mask_for_queries(),
         )
     }
 }

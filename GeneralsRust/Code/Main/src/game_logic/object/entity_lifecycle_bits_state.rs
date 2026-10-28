@@ -51,15 +51,30 @@ pub(crate) struct OverlordAddonResidual {
 
 impl StatusBitsResidual {
     pub(crate) fn present(object: &Object) -> bool {
-        object.object_status_bits != 0
+        object.object_status_bits != 0 || object.status.stealthed || object.status.detected
     }
     pub(crate) fn from_object(object: &Object) -> Self {
         Self {
-            bits: object.object_status_bits,
+            // Keep the existing wire shape and bit positions; visibility bits
+            // are serialized projections of ObjectStatus, not stored copies.
+            bits: object.object_status_mask_for_queries(),
         }
     }
     pub(crate) fn apply(self, object: &mut Object) {
-        object.object_status_bits = self.bits;
+        let visibility_mask =
+            crate::game_logic::host_status_bits_upgrade::object_status_mask_from_names(&[
+                "STEALTHED",
+                "DETECTED",
+            ]);
+        object.status.stealthed = crate::game_logic::host_status_bits_upgrade::status_bits_has(
+            self.bits,
+            "STEALTHED",
+        );
+        object.status.detected = crate::game_logic::host_status_bits_upgrade::status_bits_has(
+            self.bits,
+            "DETECTED",
+        );
+        object.object_status_bits = self.bits & !visibility_mask;
     }
 }
 

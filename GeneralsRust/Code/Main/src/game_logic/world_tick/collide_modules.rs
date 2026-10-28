@@ -90,7 +90,7 @@ impl super::super::GameLogic {
             return;
         };
         // C++ never sets m_everFired — match, not a gap.
-        if !host_should_fire_weapon_collide(us.object_status_bits, &spec, false) {
+        if !host_should_fire_weapon_collide(us.object_status_mask_for_queries(), &spec, false) {
             return;
         }
         let damage = host_fire_weapon_collide_damage(&spec.weapon_name);

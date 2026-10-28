@@ -633,8 +633,8 @@ impl SnapshotBuilder {
         object.status.moving = status.moving;
         object.status.attacking = status.attacking;
         object.status.airborne_target = status.airborne_target;
-        object.status.stealthed = status.stealthed;
-        object.status.detected = status.detected;
+        object.set_status_stealthed(status.stealthed);
+        object.set_status_detected(status.detected);
         object.status.selected = status.selected;
         object.status.disabled_underpowered = status.disabled_underpowered;
         object.status.disabled_unmanned = status.disabled_unmanned;
