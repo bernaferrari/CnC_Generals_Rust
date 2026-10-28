@@ -33,6 +33,9 @@ impl Snapshot for WorldSnapshot {
         // payload bytes can be consumed under the wrong layout.
         if xfer.get_mode() != XferMode::Load {
             validate_direct_world_snapshot_version(self.version)?;
+            // Re-encode an accepted previous envelope with the current AI
+            // continuation layout so old readers reject it up front.
+            self.version = WORLD_SNAPSHOT_DIRECT_XFER_VERSION;
         }
         self.version.xfer(xfer)?;
         if xfer.get_mode() == XferMode::Load {

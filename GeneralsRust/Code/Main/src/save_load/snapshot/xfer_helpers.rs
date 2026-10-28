@@ -85,6 +85,49 @@ where
     Ok(())
 }
 
+/// AI continuation JSON is not an original C++ ASCII name: it may exceed the
+/// one-byte length limit of `xfer_string`. Keep it bounded and detached until
+/// the complete UTF-8 payload has been read.
+pub(super) const MAX_AI_CONTINUATION_BYTES: usize = 4 * 1024 * 1024;
+
+pub(super) fn xfer_ai_continuation_string(
+    xfer: &mut dyn Xfer,
+    value: &mut String,
+) -> SaveLoadResult<usize> {
+    let mut bytes = if xfer.get_mode() == XferMode::Load {
+        Vec::new()
+    } else {
+        value.as_bytes().to_vec()
+    };
+    if bytes.len() > MAX_AI_CONTINUATION_BYTES {
+        return Err(SaveLoadError::Corrupted(
+            "AI continuation exceeds size limit".into(),
+        ));
+    }
+    let mut len = bytes.len() as u32;
+    xfer.xfer_u32(&mut len)?;
+    let len = len as usize;
+    if len > MAX_AI_CONTINUATION_BYTES {
+        return Err(SaveLoadError::Corrupted(
+            "AI continuation exceeds size limit".into(),
+        ));
+    }
+    if xfer.get_mode() == XferMode::Load {
+        // Do not allocate the declared size until the reader has supplied it.
+        while bytes.len() < len {
+            let mut block = vec![0; (len - bytes.len()).min(4096)];
+            xfer.xfer_raw(&mut block)?;
+            bytes.extend_from_slice(&block);
+        }
+        *value = String::from_utf8(bytes).map_err(|error| {
+            SaveLoadError::Corrupted(format!("invalid AI continuation UTF-8: {error}"))
+        })?;
+    } else {
+        xfer.xfer_raw(&mut bytes)?;
+    }
+    Ok(len)
+}
+
 pub(super) fn xfer_serde_blob<T>(xfer: &mut dyn Xfer, value: &mut T) -> SaveLoadResult<()>
 where
     T: serde::Serialize + serde::de::DeserializeOwned + Default,

@@ -223,12 +223,16 @@ fn invalid_retained_parent_is_rejected_during_detached_native_decode() {
     let mut bytes = std::io::Cursor::new(Vec::new());
     {
         let mut writer = XferSave::new(&mut bytes);
-        writer.xfer_u8(&mut 1).unwrap();
+        writer.xfer_u8(&mut 2).unwrap();
         writer.xfer_bool(&mut true).unwrap();
         writer.xfer_u32(&mut ordinal).unwrap();
         writer.xfer_string(&mut tag).unwrap();
         writer.xfer_string(&mut class).unwrap();
-        writer.xfer_string(&mut body).unwrap();
+        crate::save_load::snapshot::xfer_helpers::xfer_ai_continuation_string(
+            &mut writer,
+            &mut body,
+        )
+        .unwrap();
     }
     let before = owner_bytes(&source, actor);
     let mut decoded = BaseAiObjectSnapshot::default();

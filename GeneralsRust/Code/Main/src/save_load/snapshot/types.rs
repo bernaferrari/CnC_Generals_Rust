@@ -29,12 +29,13 @@ use std::time::SystemTime;
 /// current/pending disguise and original-garrison player identities.
 /// Prior positional bodies cannot reconstruct those owners and are rejected.
 /// Version34 persists the receiving world's dynamic debris generation counter.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 34;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 34;
+/// Version35 supports length-framed AI continuations beyond the ASCII name limit.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 35;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 35;
 
 /// Validate the Rust outer envelope before consuming or restoring its body.
 pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadResult<()> {
-    if version == WORLD_SNAPSHOT_DIRECT_XFER_VERSION {
+    if version == WORLD_SNAPSHOT_DIRECT_XFER_VERSION || version == 34 {
         Ok(())
     } else {
         Err(crate::save_load::SaveLoadError::VersionMismatch {

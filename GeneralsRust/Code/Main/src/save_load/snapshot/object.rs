@@ -1284,18 +1284,71 @@ impl XferData for AIState {
     }
 }
 
-impl XferData for AIUpdateModuleSnapshot {
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+impl AIUpdateModuleSnapshot {
+    fn xfer_with_continuation_encoding(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        wide: bool,
+    ) -> SaveLoadResult<()> {
         xfer.xfer_marker_label("AIUpdateModuleSnapshot")?;
         xfer.xfer_marker_label("CurrentState")?;
         self.current_state.xfer(xfer)?;
         xfer.xfer_marker_label("StateMachineData")?;
-        xfer_hashmap_default(
-            xfer,
-            &mut self.state_machine_data,
-            String::new(),
-            String::new(),
-        )?;
+        if wide {
+            const MAX_STATES: usize = 4096;
+            let mut count = u32::try_from(self.state_machine_data.len())
+                .map_err(|_| SaveLoadError::Corrupted("too many AI continuation states".into()))?;
+            if count as usize > MAX_STATES {
+                return Err(SaveLoadError::Corrupted(
+                    "too many AI continuation states".into(),
+                ));
+            }
+            xfer.xfer_u32(&mut count)?;
+            if count as usize > MAX_STATES {
+                return Err(SaveLoadError::Corrupted(
+                    "too many AI continuation states".into(),
+                ));
+            }
+            let mut total = 0usize;
+            if xfer.get_mode() == XferMode::Load {
+                let mut decoded = HashMap::new();
+                for _ in 0..count {
+                    let mut key = String::new();
+                    let mut value = String::new();
+                    xfer.xfer_string(&mut key)?;
+                    total += super::xfer_helpers::xfer_ai_continuation_string(xfer, &mut value)?;
+                    if total > super::xfer_helpers::MAX_AI_CONTINUATION_BYTES {
+                        return Err(SaveLoadError::Corrupted(
+                            "AI continuations exceed total size limit".into(),
+                        ));
+                    }
+                    if decoded.insert(key, value).is_some() {
+                        return Err(SaveLoadError::Corrupted(
+                            "duplicate AI continuation state".into(),
+                        ));
+                    }
+                }
+                self.state_machine_data = decoded;
+            } else {
+                for (key, value) in &mut self.state_machine_data {
+                    let mut key = key.clone();
+                    xfer.xfer_string(&mut key)?;
+                    total += super::xfer_helpers::xfer_ai_continuation_string(xfer, value)?;
+                    if total > super::xfer_helpers::MAX_AI_CONTINUATION_BYTES {
+                        return Err(SaveLoadError::Corrupted(
+                            "AI continuations exceed total size limit".into(),
+                        ));
+                    }
+                }
+            }
+        } else {
+            xfer_hashmap_default(
+                xfer,
+                &mut self.state_machine_data,
+                String::new(),
+                String::new(),
+            )?;
+        }
         xfer.xfer_marker_label("TargetObject")?;
         xfer_option(xfer, &mut self.target_object, ObjectId(0))?;
         xfer.xfer_marker_label("CurrentTask")?;
@@ -1303,6 +1356,12 @@ impl XferData for AIUpdateModuleSnapshot {
         xfer.xfer_marker_label("TaskQueue")?;
         xfer.xfer_vec_string(&mut self.task_queue)?;
         Ok(())
+    }
+}
+
+impl XferData for AIUpdateModuleSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        self.xfer_with_continuation_encoding(xfer, true)
     }
 }
 
@@ -1552,7 +1611,7 @@ impl XferData for ModuleSnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
         xfer.xfer_marker_label("ModuleSnapshot")?;
         let mut disc: u32 = match self {
-            ModuleSnapshot::AIUpdate(_) => 0,
+            ModuleSnapshot::AIUpdate(_) => 15,
             ModuleSnapshot::Production(_) => 1,
             ModuleSnapshot::Weapon(_) => 2,
             ModuleSnapshot::Body(_) => 3,
@@ -1579,7 +1638,7 @@ impl XferData for ModuleSnapshot {
             }
         } else {
             *self = match disc {
-                0 => {
+                0 | 15 => {
                     let mut d = AIUpdateModuleSnapshot {
                         current_state: String::new(),
                         state_machine_data: HashMap::new(),
@@ -1587,7 +1646,7 @@ impl XferData for ModuleSnapshot {
                         current_task: None,
                         task_queue: Vec::new(),
                     };
-                    d.xfer(xfer)?;
+                    d.xfer_with_continuation_encoding(xfer, disc == 15)?;
                     ModuleSnapshot::AIUpdate(d)
                 }
                 1 => {
