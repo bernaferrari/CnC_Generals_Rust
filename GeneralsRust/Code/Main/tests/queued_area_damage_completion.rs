@@ -449,6 +449,62 @@ fn missing_projectileless_source_bypasses_radius_affects_filters() {
         "C++ skips RadiusDamageAffects filtering when the delayed source no longer exists"
     );
 }
+
+#[test]
+fn projectileless_area_uses_the_receiving_worlds_exact_team_override() {
+    fn receiving_world(label: &str) -> Fixture {
+        fixture_custom(label, 200.0, false, 30, 1, 10.0, 5.0, "ALLIES", "")
+    }
+
+    let mut first = receiving_world("TeamOverrideA");
+    let mut peer = receiving_world("TeamOverrideB");
+    assert_eq!(first.shooters, peer.shooters);
+    assert_eq!(first.victim, peer.victim);
+
+    let mut chunks =
+        generals_main::save_load::snapshot::stamp_player_team_chunks(&first.world).unwrap();
+    let teams = &mut chunks.teams.as_mut().unwrap().teams;
+    let source_team = teams
+        .iter()
+        .find(|team| {
+            team.members
+                .as_ref()
+                .is_some_and(|members| members.contains(&first.shooters[0].0))
+        })
+        .unwrap()
+        .team_id;
+    let victim_team = teams
+        .iter_mut()
+        .find(|team| {
+            team.members
+                .as_ref()
+                .is_some_and(|members| members.contains(&first.victim.0))
+        })
+        .unwrap();
+    victim_team.team_relations.push(Default::default());
+    let relationship = victim_team.team_relations.last_mut().unwrap();
+    relationship.team_id = source_team;
+    relationship.relationship = 2; // Allies in the Team continuation format.
+    generals_main::save_load::snapshot::apply_pending_player_team_chunks(&mut first.world, &chunks)
+        .unwrap();
+
+    first.accept();
+    while first.world.get_current_frame() <= 110 {
+        first.world.update();
+    }
+    assert_eq!(first.world.objects[&first.victim].health.current, 100.0);
+    assert_eq!(peer.world.objects[&peer.victim].health.current, 200.0);
+
+    peer.accept();
+    while peer.world.get_current_frame() <= 110 {
+        peer.world.update();
+    }
+    assert_eq!(
+        peer.world.objects[&peer.victim].health.current, 200.0,
+        "the other world's Enemy relationship does not admit an ALLIES splash"
+    );
+}
+
 #[test]
 fn ordinary_library_queued_area_two_accepted_hits_credit_once() {
     let mut f = fixture("TwoHits", 100.0, false, 30000000, 2, 10.0);

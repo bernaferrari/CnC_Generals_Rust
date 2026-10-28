@@ -5,14 +5,6 @@ use crate::game_logic::object::{DamageApplication, DamageHitContext};
 #[path = "damage_callbacks.rs"]
 mod damage_callbacks;
 
-/// Preserve the two existing admission policies; moving projectile impacts
-/// resolve team-instance relationships while queued projectileless hits do not.
-#[derive(Clone, Copy)]
-enum ImpactRelationships {
-    QueuedProjectileless,
-    MovingProjectile,
-}
-
 /// Retarget observations taken after body callbacks, before world onDie.
 #[derive(Debug)]
 pub(crate) struct OwnedDamageResult {
@@ -1396,11 +1388,7 @@ impl GameLogic {
                 limit,
             );
             for event in events {
-                self.apply_owned_combat_damage_with_effects(
-                    &event,
-                    ImpactRelationships::QueuedProjectileless,
-                    effects,
-                );
+                self.apply_owned_combat_damage_with_effects(&event, effects);
             }
         }
     }
@@ -1424,11 +1412,7 @@ impl GameLogic {
                 limit,
             );
             for event in events {
-                self.apply_owned_combat_damage_with_effects(
-                    &event,
-                    ImpactRelationships::QueuedProjectileless,
-                    effects,
-                );
+                self.apply_owned_combat_damage_with_effects(&event, effects);
             }
         }
     }
@@ -1536,29 +1520,16 @@ impl GameLogic {
         );
 
         for event in events {
-            self.apply_owned_combat_damage_with_effects(
-                &event,
-                ImpactRelationships::MovingProjectile,
-                effects,
-            );
+            self.apply_owned_combat_damage_with_effects(&event, effects);
         }
         // Return deletion requests; do not physically remove the callback's
         // projectile while other callbacks can still inspect the arena.
         retired
     }
 
-    fn apply_owned_combat_damage(
-        &mut self,
-        event: &crate::game_logic::combat::DamageEvent,
-        relationships: ImpactRelationships,
-    ) {
-        self.apply_owned_combat_damage_with_effects(event, relationships, &mut Default::default())
-    }
-
     fn apply_owned_combat_damage_with_effects(
         &mut self,
         event: &crate::game_logic::combat::DamageEvent,
-        relationships: ImpactRelationships,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::combat::DamageEvent;
@@ -1613,24 +1584,15 @@ impl GameLogic {
                 }
             }
         } else {
-            self.apply_owned_area_damage_with_effects(event, relationships, effects);
+            self.apply_owned_area_damage_with_effects(event, effects);
         }
     }
 }
 
 impl GameLogic {
-    fn apply_owned_area_damage(
-        &mut self,
-        event: &crate::game_logic::combat::DamageEvent,
-        relationships: ImpactRelationships,
-    ) {
-        self.apply_owned_area_damage_with_effects(event, relationships, &mut Default::default())
-    }
-
     fn apply_owned_area_damage_with_effects(
         &mut self,
         event: &crate::game_logic::combat::DamageEvent,
-        relationships: ImpactRelationships,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::combat::{AreaDamage, DamageEvent};
@@ -1654,10 +1616,7 @@ impl GameLogic {
                 victim,
                 distance,
                 Some(&self.players),
-                match relationships {
-                    ImpactRelationships::QueuedProjectileless => None,
-                    ImpactRelationships::MovingProjectile => Some(&self.team_factory),
-                },
+                Some(&self.team_factory),
             ) else {
                 continue;
             };
