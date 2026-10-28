@@ -144,3 +144,115 @@ fn source_float_missing_receiving_birth_is_reported() {
     assert!(recipient.calls.is_empty());
     assert!(world.objects.get(&id).unwrap().float_update.is_some());
 }
+
+fn water_map(root: &std::path::Path, name: &str, water_y: i32) -> std::path::PathBuf {
+    use game_engine::common::system::DataChunkOutput;
+
+    let directory = root.join(name);
+    std::fs::create_dir(&directory).unwrap();
+    let mut map = DataChunkOutput::new();
+    // Omitting HeightMapData forces FloatUpdate to use the receiving Core
+    // TerrainLogic fallback rather than the host-side TerrainData cache.
+    map.open_data_chunk("PolygonTriggers", 4);
+    map.write_int(1);
+    map.write_ascii_string("FloatOwnerWater");
+    map.write_ascii_string("FloatOwnerLayer");
+    map.write_int(1);
+    map.write_byte(1);
+    map.write_byte(0);
+    map.write_int(0);
+    map.write_int(4);
+    for (x, z) in [(0, 0), (200, 0), (200, 200), (0, 200)] {
+        map.write_int(x);
+        map.write_int(z);
+        map.write_int(water_y);
+    }
+    map.close_data_chunk();
+    map.open_data_chunk("ObjectsList", 3);
+    map.close_data_chunk();
+    let path = directory.join("FloatOwner.map");
+    std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
+    path
+}
+
+fn water_fixture(path: &std::path::Path) -> (GameLogic, ObjectId) {
+    use crate::game_logic::ThingTemplate;
+
+    let mut world = GameLogic::new();
+    world.start_new_game(crate::game_logic::GameMode::SinglePlayer);
+    assert!(world.load_map(path.to_str().unwrap()));
+    assert!(
+        world.terrain.is_none(),
+        "fixture must use the Core fallback"
+    );
+    world.templates.insert(
+        "CivilianVehicleFerry".into(),
+        ThingTemplate::new("CivilianVehicleFerry"),
+    );
+    let id = world
+        .create_object(
+            "CivilianVehicleFerry",
+            crate::game_logic::Team::USA,
+            glam::Vec3::new(100.0, 0.0, 100.0),
+        )
+        .unwrap();
+    world.objects.get_mut(&id).unwrap().float_update =
+        Some(crate::game_logic::host_float_update::HostFloatUpdateData::new(true));
+    (world, id)
+}
+
+fn observed_y(world: &GameLogic, id: ObjectId) -> f32 {
+    world.objects.get(&id).unwrap().get_position().y
+}
+
+#[test]
+fn float_update_uses_receiving_water_when_foreign_core_services_are_published() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "float_update_uses_receiving_water_when_foreign_core_services_are_published",
+        || {
+            let temp = tempfile::tempdir().unwrap();
+            let high_map = water_map(temp.path(), "high", 80);
+            let low_map = water_map(temp.path(), "low", 30);
+            let (mut high, high_id) = water_fixture(&high_map);
+            let (mut low, low_id) = water_fixture(&low_map);
+            assert_eq!(high_id, low_id, "same-ID worlds are required");
+
+            let foreign = gamelogic::system::engine_stores::new_for_world();
+            {
+                let terrain_owner = foreign.services().terrain();
+                let mut terrain = terrain_owner.write().unwrap();
+                let mut water = gamelogic::polygon_trigger::PolygonTrigger::new(
+                    99,
+                    "ForeignFloatWater".into(),
+                    vec![
+                        gamelogic::common::ICoord3D::new(0, 0, 120),
+                        gamelogic::common::ICoord3D::new(200, 0, 120),
+                        gamelogic::common::ICoord3D::new(200, 200, 120),
+                        gamelogic::common::ICoord3D::new(0, 200, 120),
+                    ],
+                );
+                water.set_water_area(true);
+                terrain.add_trigger_area(water);
+            }
+
+            // If FloatUpdate used `active_services()`, it would snap both
+            // objects to this foreign 120-unit water surface. The receiving
+            // Core TerrainLogic owners instead dictate 80 and 30 respectively.
+            gamelogic::system::engine_stores::with_active_stores(&foreign, || {
+                high.update_float_update();
+                assert!((observed_y(&high, high_id) - 80.0).abs() < 0.01);
+                assert_eq!(observed_y(&low, low_id), 0.0);
+
+                low.update_float_update();
+                assert!((observed_y(&low, low_id) - 30.0).abs() < 0.01);
+                high.update_float_update();
+                assert!((observed_y(&high, high_id) - 80.0).abs() < 0.01);
+
+                low.reset();
+                high.update_float_update();
+                assert!((observed_y(&high, high_id) - 80.0).abs() < 0.01);
+            });
+        },
+    );
+}
