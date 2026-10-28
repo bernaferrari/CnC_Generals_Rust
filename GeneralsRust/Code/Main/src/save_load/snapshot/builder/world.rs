@@ -773,11 +773,7 @@ impl SnapshotBuilder {
             game_logic
                 .restore_receiving_partition_grid(&snapshot.shroud, snapshot.frame_number as u32)
                 .map_err(SaveLoadError::Corrupted)?;
-            let local_id = game_logic
-                .get_players()
-                .values()
-                .find(|player| player.is_local)
-                .map(|player| player.id);
+            let local_id = game_logic.local_player_id();
             if let Some(local_id) = local_id {
                 let services = game_logic.world_services.clone();
                 if let Ok(mut shroud) = services.shroud().lock() {

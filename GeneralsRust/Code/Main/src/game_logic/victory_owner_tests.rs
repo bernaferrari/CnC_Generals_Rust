@@ -417,7 +417,11 @@ fn foreign_observer_cannot_exempt_the_owners_dead_player_from_defeat() {
     assert!(
         owner
             .victory_conditions
-            .is_local_allied_defeat(&owner.players)
+            .is_local_allied_defeat_owned(
+                &owner.players,
+                owner.player_template_definitions.as_ref(),
+                owner.local_player_id(),
+            )
     );
     assert_eq!(other.get_player(0).unwrap().resources.supplies, 1234);
     assert!(other.host_object(other_ids[0]).unwrap().is_alive());
@@ -461,7 +465,11 @@ fn owned_observer_remains_exempt_with_an_ordinary_foreign_slot() {
     assert!(
         owner
             .victory_conditions
-            .is_local_allied_defeat(&owner.players)
+            .is_local_allied_defeat_owned(
+                &owner.players,
+                owner.player_template_definitions.as_ref(),
+                owner.local_player_id(),
+            )
     );
     assert_eq!(owner.get_player(1).unwrap().resources.supplies, 0);
 }

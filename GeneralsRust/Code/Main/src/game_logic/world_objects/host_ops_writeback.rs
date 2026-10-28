@@ -266,7 +266,7 @@ impl GameLogic {
             let local = self
                 .players
                 .get(&player_id)
-                .map(|p| p.is_local)
+                .map(|p| self.is_local_player(player_id))
                 .unwrap_or(false);
             if local {
                 self.queue_picked_move_voice(&selected);
@@ -427,7 +427,11 @@ impl GameLogic {
                 self.start_new_game_in_campaign_session(mode, is_campaign, is_challenge);
                 if let Some(identity) = player_template {
                     if !self.bind_player_template_identity(player_id, identity) {
+                        let removed_local = self.local_player_id() == Some(player_id);
                         self.players.remove(&player_id);
+                        if removed_local {
+                            self.select_local_player(None);
+                        }
                         self.player_template_bindings.remove(&player_id);
                     }
                 } else {
@@ -1505,7 +1509,7 @@ impl GameLogic {
             let local = self
                 .players
                 .get(&player_id)
-                .map(|p| p.is_local)
+                .map(|p| self.is_local_player(player_id))
                 .unwrap_or(false);
             if local {
                 self.queue_picked_unit_voice(&accepted_attackers, voice);
@@ -1623,8 +1627,9 @@ impl GameLogic {
             if !object_has_shoes && !player_has_shoes {
                 continue;
             }
-            let event = resolve_receiving_per_unit_sound(obj.get_template(), WORKER_VOICE_MOVE_UPGRADED)
-                .unwrap_or_else(|| WORKER_VOICE_MOVE_UPGRADED.to_string());
+            let event =
+                resolve_receiving_per_unit_sound(obj.get_template(), WORKER_VOICE_MOVE_UPGRADED)
+                    .unwrap_or_else(|| WORKER_VOICE_MOVE_UPGRADED.to_string());
             let pos = obj.get_position();
             self.queue_audio_event(
                 AudioEventRequest::new(&event)

@@ -170,7 +170,7 @@ fn sleeping_computer_rejects_hunt_after_normal_selection() {
     let (mut world, id, _) = world();
     world.players.get_mut(&1).unwrap().is_human = false;
     // Display locality is independent of the simulation controller.
-    world.players.get_mut(&1).unwrap().is_local = true;
+    assert!(world.select_local_player(Some(1)));
     world
         .host_object_mut(id)
         .unwrap()
@@ -190,7 +190,7 @@ fn sleeping_computer_rejects_hunt_after_normal_selection() {
 #[test]
 fn sleeping_human_accepts_script_hunt() {
     let (mut world, id, _) = world();
-    world.players.get_mut(&1).unwrap().is_local = false;
+    assert!(world.select_local_player(None));
     world
         .host_object_mut(id)
         .unwrap()

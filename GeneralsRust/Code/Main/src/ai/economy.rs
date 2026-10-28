@@ -1152,12 +1152,11 @@ impl AIPlayer {
                 }
             }
         }
-        game_logic
-            .get_players()
-            .values()
-            .filter(|player| player.is_local && player.team != Team::Neutral)
-            .map(|player| player.id)
-            .min()
+        game_logic.local_player_id().filter(|id| {
+            game_logic
+                .get_player(*id)
+                .is_some_and(|player| player.team != Team::Neutral)
+        })
     }
 
     pub(super) fn named_team_member_ids(

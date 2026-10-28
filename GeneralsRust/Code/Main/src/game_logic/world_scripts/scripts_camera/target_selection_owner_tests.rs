@@ -364,9 +364,7 @@ fn actual_easy_team_selection_consumes_driving_stream_with_foreign_scope_present
     let (mut world, unit, far, near) = fixture(false);
     let (peer, _, _, _) = fixture(false);
     world.admit_session_difficulty(0);
-    let owner = world.get_player_mut(1).unwrap();
-    owner.is_local = false;
-    owner.is_human = false;
+    world.get_player_mut(1).unwrap().is_human = false;
     world.logic_random.seed_random(37);
     peer.logic_random.seed_random(93);
     let before = world.logic_random.seed_words();

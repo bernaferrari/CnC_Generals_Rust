@@ -449,8 +449,7 @@ impl GameLogic {
                     let fallback = obj.move_away_destination.unwrap_or(from);
                     let is_human = obj
                         .owner_player_id
-                        .and_then(|pid| self.players.get(&pid))
-                        .map(|p| p.is_local)
+                        .map(|pid| self.is_local_player(pid))
                         .unwrap_or(true);
                     let rep_pos = self
                         .objects
@@ -634,8 +633,7 @@ impl GameLogic {
                     if original.is_empty() {
                         let is_human = obj
                             .owner_player_id
-                            .and_then(|pid| self.players.get(&pid))
-                            .map(|player| player.is_local)
+                            .map(|pid| self.is_local_player(pid))
                             .unwrap_or(true);
                         if let Some(path) = ({
                             let ground_owner = self.world_services.terrain();
@@ -696,8 +694,7 @@ impl GameLogic {
                         None if original.is_empty() => {
                             let is_human = obj
                                 .owner_player_id
-                                .and_then(|pid| self.players.get(&pid))
-                                .map(|player| player.is_local)
+                                .map(|pid| self.is_local_player(pid))
                                 .unwrap_or(true);
                             if let Some(path) = ({
                                 let ground_owner = self.world_services.terrain();
@@ -796,8 +793,7 @@ impl GameLogic {
                         None => {
                             let is_human = obj
                                 .owner_player_id
-                                .and_then(|pid| self.players.get(&pid))
-                                .map(|player| player.is_local)
+                                .map(|pid| self.is_local_player(pid))
                                 .unwrap_or(true);
                             if let Some(path) = ({
                                 let ground_owner = self.world_services.terrain();

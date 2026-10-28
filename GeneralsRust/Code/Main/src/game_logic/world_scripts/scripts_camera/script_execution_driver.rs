@@ -124,12 +124,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         };
         match token {
             THIS_PLAYER => self.named_player_id(current_player?),
-            LOCAL_PLAYER => self
-                .world
-                .players
-                .values()
-                .find(|p| p.is_local)
-                .map(|p| p.id),
+            LOCAL_PLAYER => self.world.local_player_id(),
             THIS_PLAYER_ENEMY => {
                 let current = self.named_player_id(current_player?)?;
                 self.world
@@ -153,12 +148,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
             }
             // Retain the existing Challenge classification. Campaign metadata
             // ownership is separate from this query's player/geometry owner.
-            THE_PLAYER if self.world.is_challenge_session() => self
-                .world
-                .players
-                .values()
-                .find(|p| p.is_local)
-                .map(|p| p.id),
+            THE_PLAYER if self.world.is_challenge_session() => self.world.local_player_id(),
             _ => self.named_player_id(token),
         }
     }
@@ -418,12 +408,14 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             victory.is_local_allied_victory_owned(
                 players,
                 self.world.player_template_definitions.as_ref(),
+                self.world.local_player_id(),
             ),
             victory.is_local_allied_defeat_owned(
                 players,
                 self.world.player_template_definitions.as_ref(),
+                self.world.local_player_id(),
             ),
-            victory.local_player_defeated(players),
+            victory.local_player_defeated(players, self.world.local_player_id()),
         ))
     }
 
@@ -710,9 +702,8 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn local_player_observer(&self) -> ScriptOwnerQuery<bool> {
         ScriptOwnerQuery::Present(
             self.world
-                .get_players()
-                .values()
-                .find(|player| player.is_local)
+                .local_player_id()
+                .and_then(|id| self.world.get_player(id))
                 .is_some_and(|player| player.is_observer),
         )
     }
@@ -975,21 +966,11 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     ) -> Option<gamelogic::GameLogicResult<()>> {
         if team == gamelogic::scripting::core::TEAM_THE_PLAYER && self.world.is_challenge_session()
         {
-            let mut local_players = self
-                .world
-                .get_players()
-                .values()
-                .filter(|player| player.is_local);
-            let Some(player_id) = local_players.next().map(|player| player.id) else {
+            let Some(player_id) = self.world.local_player_id() else {
                 return Some(Err(gamelogic::GameLogicError::Configuration(
                     "challenge TeamMove has no receiving local Player".into(),
                 )));
             };
-            if local_players.next().is_some() {
-                return Some(Err(gamelogic::GameLogicError::Configuration(
-                    "challenge TeamMove has ambiguous receiving local Players".into(),
-                )));
-            }
             let members = match self.world.resolve_owned_player_default_team(player_id) {
                 Ok(Some((_, members))) => members,
                 Ok(None) => {
@@ -2873,7 +2854,8 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         let Some(area_name) = self.qualified_area(area, current_player) else {
             return ScriptOwnerQuery::Missing;
         };
-        let Some(team_entered_or_exited) = self.world.team_factory.team_entered_or_exited(team_id) else {
+        let Some(team_entered_or_exited) = self.world.team_factory.team_entered_or_exited(team_id)
+        else {
             return ScriptOwnerQuery::Missing;
         };
         // Drop the receiving Team read guard before querying trigger slots;

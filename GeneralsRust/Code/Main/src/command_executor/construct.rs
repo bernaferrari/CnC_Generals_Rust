@@ -171,11 +171,7 @@ impl<'a> CommandExecutor<'a> {
                 if !player.can_afford(&build_cost) {
                     // C++ PlaceEventTranslator.cpp:170-178 — confirmed placement
                     // without enough cash: EVA pulse + HUD text, no structure.
-                    if self
-                        .game_logic
-                        .get_player(self.current_player_id)
-                        .is_some_and(|p| p.is_local)
-                    {
+                    if self.game_logic.is_local_player(self.current_player_id) {
                         self.game_logic
                             .try_eva_insufficient_funds(self.current_player_id);
                         if let Some(ui) = self.ui.ui.as_deref_mut() {

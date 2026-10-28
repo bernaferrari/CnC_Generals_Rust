@@ -141,8 +141,7 @@ impl GameLogic {
                 .objects
                 .get(&source_object)
                 .and_then(|obj| self.player_owner_for_host_object(obj))
-                .and_then(|pid| self.players.get(&pid))
-                .map(|p| !p.is_local)
+                .map(|pid| !self.is_local_player(pid))
                 .unwrap_or(false);
             if controller_is_ai {
                 self.special_power_strikes

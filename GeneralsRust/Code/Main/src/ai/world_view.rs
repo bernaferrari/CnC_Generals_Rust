@@ -52,6 +52,10 @@ pub(super) struct AiWorldView<'a> {
 /// There is no operation that recovers a mutable world from this interface.
 pub(super) trait AiReadSource {
     fn ai_view(&self) -> AiWorldView<'_>;
+
+    fn local_player_id(&self) -> Option<u32> {
+        self.ai_view().world.local_player_id()
+    }
 }
 
 impl AiReadSource for GameLogic {

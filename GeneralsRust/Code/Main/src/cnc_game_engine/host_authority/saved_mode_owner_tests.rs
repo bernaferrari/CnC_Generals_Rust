@@ -197,7 +197,7 @@ fn actual_mapless_replay_writer_load_selects_saved_observer_without_bootstrap_ow
             source.start_new_game(GameMode::Replay);
             source.set_current_frame(123);
             let saved_observer = source.replay_observer_player_id().unwrap();
-            assert!(source.get_player(saved_observer).unwrap().is_local);
+            assert!(source.is_local_player(saved_observer));
             assert!(
                 source
                     .get_players()
@@ -260,7 +260,7 @@ fn actual_mapless_replay_writer_load_selects_saved_observer_without_bootstrap_ow
                         (
                             player.id,
                             player.script_identity().map(str::to_owned),
-                            player.is_local,
+                            world.is_local_player(player.id),
                             player.resources.supplies,
                             player.name.clone(),
                         )
@@ -280,13 +280,13 @@ fn actual_mapless_replay_writer_load_selects_saved_observer_without_bootstrap_ow
                 crate::game_logic::PlayerSideRole::ReplayObserver
             );
             assert_eq!(observer.script_identity(), Some("ReplayObserver"));
-            assert!(observer.is_local);
+            assert!(receiving.is_local_player(saved_observer));
             assert!(
                 receiving
                     .get_players()
                     .values()
                     .filter(|player| player.id != saved_observer)
-                    .all(|player| !player.is_local)
+                    .all(|player| !receiving.is_local_player(player.id))
             );
             assert_eq!(roster(&peer), peer_before);
             assert_eq!(peer.get_current_frame(), 987);

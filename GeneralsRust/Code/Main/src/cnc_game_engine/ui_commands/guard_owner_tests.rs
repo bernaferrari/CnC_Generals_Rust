@@ -29,7 +29,6 @@ fn world(text: &str) -> (GameLogic, ObjectId) {
     world.set_ai_definition_base(authored(text));
     world.add_player(Player::new(0, Team::USA, "LocalHuman", true));
     let mut remote = Player::new(1, Team::USA, "RemoteHuman", true);
-    remote.is_local = false;
     world.add_player(remote);
     world.add_player(Player::new(2, Team::USA, "InactiveComputer", false));
     let mut template = ThingTemplate::new("AuthoredGuard");
@@ -155,7 +154,7 @@ fn guard_controller_and_attitude_keep_save_semantics_separate_from_local_view() 
                 let (player, economy_events) = source.player_and_economy_events_mut(0).unwrap();
                 player.apply_map_side_dict(&dict, false, economy_events)
             };
-            assert!(source.get_player(0).unwrap().is_local);
+            assert_eq!(source.local_player_id(), Some(0));
             assert!(!source.get_player(0).unwrap().is_human);
             let builder = crate::save_load::snapshot::SnapshotBuilder::new();
             let snapshot = builder.create_world_snapshot(&source).unwrap();
@@ -179,9 +178,9 @@ fn guard_controller_and_attitude_keep_save_semantics_separate_from_local_view() 
             builder
                 .restore_from_snapshot(&snapshot, &mut restored)
                 .unwrap();
-            assert!(restored.get_player(0).unwrap().is_local);
+            assert_eq!(restored.local_player_id(), Some(0));
             assert!(!restored.get_player(0).unwrap().is_human);
-            assert!(!restored.get_player(1).unwrap().is_local);
+            assert!(!restored.is_local_player(1));
             assert!(restored.get_player(1).unwrap().is_human);
             assert!(
                 !restored.ai_manager.ai_players.contains_key(&1),
@@ -215,7 +214,7 @@ fn guard_controller_and_attitude_keep_save_semantics_separate_from_local_view() 
                 .restore_from_snapshot(&nondefault, &mut fresh)
                 .unwrap();
             assert!(fresh.get_player(1).unwrap().is_human);
-            assert!(fresh.get_player(1).unwrap().is_local);
+            assert_eq!(fresh.local_player_id(), Some(1));
             assert!(!fresh.ai_manager.ai_players.contains_key(&1));
         },
     );

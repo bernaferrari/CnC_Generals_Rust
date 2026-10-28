@@ -513,7 +513,7 @@ fn observe(logic: &GameLogic) -> Value {
         "weapon_slots":(0..3).map(|slot|object.weapon_slot(slot).is_some()).collect::<Vec<_>>()
     })).collect();
     json!({"frame":logic.get_frame(),"player":{"id":player.id,"name":player.name,
-        "faction":format!("{:?}",player.team),"local":player.is_local,"alive":player.is_alive,
+        "faction":format!("{:?}",player.team),"local":logic.local_player_id() == Some(player.id),"alive":player.is_alive,
         "produced":player.power_produced,"consumed":player.power_consumed,
         "available":player.power_available,"resources_power":player.resources.power,
         "sabotaged_till_frame":player.power_sabotaged_till_frame},

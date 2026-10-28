@@ -127,9 +127,9 @@ impl GameLogic {
     pub fn update_eva_low_power(&mut self) {
         use crate::game_logic::host_ui_presentation_residual::EVA_LOWPOWER_FRAMES_BETWEEN_CHECKS_INI;
         let local_low = self
-            .players
-            .values()
-            .any(|p| p.is_local && p.is_alive && !p.has_sufficient_energy_at(self.frame));
+            .local_player_id()
+            .and_then(|id| self.players.get(&id))
+            .is_some_and(|p| p.is_alive && !p.has_sufficient_energy_at(self.frame));
         if !local_low {
             self.eva_low_power_active = false;
             return;
@@ -155,7 +155,7 @@ impl GameLogic {
         let Some(p) = self.players.get(&player_id) else {
             return;
         };
-        if !p.is_local || !p.is_alive {
+        if !self.is_local_player(player_id) || !p.is_alive {
             return;
         }
         self.eva_announcements
@@ -202,6 +202,7 @@ impl GameLogic {
         }
         let pos = obj.get_position();
         let team = obj.team;
+        let team_instance_name = obj.team_instance_name.clone();
         let owner_player_id = obj.owner_player_id;
         let is_infantry = obj.is_kind_of(KindOf::Infantry);
         let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
@@ -298,16 +299,15 @@ impl GameLogic {
             let owner_id = owner_player_id
                 .filter(|id| self.players.contains_key(id))
                 .or_else(|| self.unique_player_id_for_team(team));
-            let local_owns = owner_id
-                .and_then(|id| self.players.get(&id))
-                .is_some_and(|player| player.is_local);
+            let local_owns = owner_id.is_some_and(|id| self.is_local_player(id));
             let local_ally = !local_owns
                 && owner_id.is_some_and(|oid| {
-                    self.players.values().any(|player| {
-                        player.is_local
-                            && player.is_alive
-                            && self.player_relationship(player.id, oid)
-                                == gamelogic::common::Relationship::Allies
+                    self.local_player_id().is_some_and(|local_id| {
+                        self.players
+                            .get(&local_id)
+                            .and_then(|player| player.team_relationship_override(&team_instance_name))
+                            .unwrap_or_else(|| self.player_relationship(local_id, oid))
+                            == gamelogic::common::Relationship::Allies
                     })
                 });
 
@@ -495,9 +495,9 @@ impl GameLogic {
         let pos = obj.get_position();
         // C++ Radar.cpp:1243 — only the local victim is warned.
         let local_victim = self
-            .players
-            .values()
-            .any(|p| p.team == victim_team && p.is_local);
+            .local_player_id()
+            .and_then(|id| self.players.get(&id))
+            .is_some_and(|p| p.team == victim_team);
         if !local_victim {
             return;
         }

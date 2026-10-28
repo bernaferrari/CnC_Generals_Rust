@@ -313,10 +313,7 @@ impl GameLogic {
                         let players = &self.players;
                         let mut dispatch = |name: &str, object: &Object, at_object: bool| {
                             if at_object {
-                                let viewer = players
-                                    .values()
-                                    .find(|player| player.is_local)
-                                    .map(|player| player.id);
+                                let viewer = self.local_player_id();
                                 crate::game_logic::host_fx_list_dispatch::publish_host_fx_object_from_receiver(
                                     object,
                                     viewer,
@@ -670,9 +667,10 @@ impl GameLogic {
                 // incarnation as the transition events. A reentrant OCL may
                 // have retired it and admitted a new object with the same ID.
                 if transition_owner_identity.as_ref().is_some_and(|expected| {
-                    !self.objects.get(&object_id).is_some_and(|object| {
-                        self.live_draw_playback_identity(object) == *expected
-                    })
+                    !self
+                        .objects
+                        .get(&object_id)
+                        .is_some_and(|object| self.live_draw_playback_identity(object) == *expected)
                 }) {
                     continue;
                 }
@@ -940,7 +938,7 @@ impl GameLogic {
             let Some(pid) = player_id else {
                 continue;
             };
-            if self.players.get(&pid).is_some_and(|p| p.is_local) {
+            if self.is_local_player(pid) {
                 continue;
             }
 

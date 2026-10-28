@@ -141,10 +141,9 @@ impl GameLogic {
         if unit.ai_attitude() != crate::game_logic::host_strategy_center::HostAiAttitude::Sleep {
             return false;
         }
-        match unit.owner_player_id.and_then(|pid| self.players.get(&pid)) {
-            Some(player) => !player.is_local,
-            None => true,
-        }
+        unit.owner_player_id
+            .map(|pid| !self.is_local_player(pid))
+            .unwrap_or(true)
     }
 
     #[inline]
@@ -3188,8 +3187,7 @@ impl GameLogic {
                 .objects
                 .get(&id)
                 .and_then(|o| self.player_owner_for_host_object(o))
-                .and_then(|pid| self.players.get(&pid))
-                .map(|p| p.is_local)
+                .map(|pid| self.is_local_player(pid))
                 .unwrap_or(false);
             if local_owner {
                 self.queue_resolved_per_unit_sound(id, "VoiceAttack", true, false, None, 140);

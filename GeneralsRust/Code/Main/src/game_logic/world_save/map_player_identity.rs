@@ -46,7 +46,6 @@ impl GameLogic {
         neutral.map_side.role = PlayerSideRole::Neutral;
         neutral.map_side.map_player_name.clear();
         neutral.resources.supplies = 0;
-        neutral.is_local = false;
         neutral
             .map_side
             .relations
@@ -97,7 +96,6 @@ impl GameLogic {
             player.apply_map_side_identity_from_dict(row);
             controller.apply(&mut player);
             player.resources.supplies = self.skirmish_rules.starting_cash;
-            player.is_local = false;
             let local_key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
                 "multiplayerIsLocal",
             );
@@ -138,9 +136,9 @@ impl GameLogic {
         }
         self.clear_all_players();
         for mut player in candidates {
-            player.is_local = Some(player.id) == local;
             self.players.insert(player.id, player);
         }
+        self.select_local_player(local);
         for (id, identity) in bindings {
             if !self.bind_player_template_identity(id, identity) {
                 return Err(invalid(
@@ -206,9 +204,9 @@ mod tests {
                     Some("SecondAuthored")
                 );
                 assert!(owner.get_player(1).unwrap().is_human);
-                assert!(owner.get_player(1).unwrap().is_local);
+                assert!(owner.is_local_player(1));
                 assert!(!owner.get_player(2).unwrap().is_human);
-                assert!(!owner.get_player(2).unwrap().is_local);
+                assert!(!owner.is_local_player(2));
                 assert_eq!(owner.get_player(1).unwrap().resources.supplies, 10_041);
                 assert_eq!(owner.get_player(2).unwrap().resources.supplies, 10_073);
                 let neutral = owner.get_player(0).unwrap();
@@ -257,9 +255,9 @@ mod tests {
                 owner
                     .admit_direct_map_players_from_prepared_sides()
                     .unwrap();
-                assert!(!owner.get_player(1).unwrap().is_local);
+                assert!(!owner.is_local_player(1));
                 assert!(owner.get_player(1).unwrap().is_human);
-                assert!(owner.get_player(2).unwrap().is_local);
+                assert!(owner.is_local_player(2));
                 assert!(!owner.get_player(2).unwrap().is_human);
             },
         );

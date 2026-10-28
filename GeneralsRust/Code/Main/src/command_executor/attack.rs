@@ -914,8 +914,7 @@ impl crate::game_logic::GameLogic {
         let last_dmg = me.last_damage_source;
 
         let is_ai_controller = owner_pid
-            .and_then(|pid| self.get_player(pid))
-            .map(|p| !p.is_local)
+            .map(|pid| !self.is_local_player(pid))
             .unwrap_or(false);
         if is_ai_controller {
             match attitude {
@@ -982,8 +981,7 @@ impl crate::game_logic::GameLogic {
     fn attack_team_cmd_from_player(&self, unit_id: ObjectId) -> bool {
         self.host_object(unit_id)
             .and_then(|o| o.owner_player_id)
-            .and_then(|pid| self.get_player(pid))
-            .map(|p| p.is_local)
+            .map(|pid| self.is_local_player(pid))
             .unwrap_or(true)
     }
 

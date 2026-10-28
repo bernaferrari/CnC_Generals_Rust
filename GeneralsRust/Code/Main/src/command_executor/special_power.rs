@@ -207,11 +207,7 @@ impl<'a> CommandExecutor<'a> {
         if any {
             // C++ SpectreGunshipUpdate::setSpecialPowerOverridableDestination
             // plays VoiceAttack for the local controlling player.
-            let local = self
-                .game_logic
-                .get_player(self.current_player_id)
-                .map(|p| p.is_local)
-                .unwrap_or(false);
+            let local = self.game_logic.is_local_player(self.current_player_id);
             if local {
                 let spectre: Vec<ObjectId> = voiced
                     .into_iter()
@@ -1086,7 +1082,11 @@ impl<'a> CommandExecutor<'a> {
                 .get_template()
                 .receiving_object_definition
                 .as_ref()
-                .and_then(|definition| definition.behavior_modules.get(module.source_index as usize))
+                .and_then(|definition| {
+                    definition
+                        .behavior_modules
+                        .get(module.source_index as usize)
+                })
                 .and_then(|definition| definition.attribute("InitiateSound"));
             let pos = obj.get_position();
             if let Some(event) =

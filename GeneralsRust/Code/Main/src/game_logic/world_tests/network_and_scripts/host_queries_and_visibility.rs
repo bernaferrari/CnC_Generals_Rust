@@ -2796,8 +2796,8 @@ fn human_capture_rejects_shrouded_target() {
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_structure_template(&mut game_logic);
     let mut player = Player::new(0, Team::USA, "USA", true);
-    player.is_local = true;
     game_logic.add_player(player);
+    assert!(game_logic.select_local_player(Some(0)));
     let captor_id = game_logic
         .create_object("TestInfantry", Team::USA, Vec3::new(-3.0, 0.0, 0.0))
         .expect("captor");

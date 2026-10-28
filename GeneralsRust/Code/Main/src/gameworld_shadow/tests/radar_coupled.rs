@@ -41,12 +41,7 @@ fn spawn_constructed_cc(logic: &mut GameLogic, owner: u32, at: Vec3) -> u32 {
 }
 
 fn local_player_id(logic: &GameLogic) -> u32 {
-    logic
-        .get_players()
-        .iter()
-        .find(|(_, p)| p.is_local)
-        .map(|(id, _)| *id)
-        .expect("local player")
+    logic.local_player_id().expect("local player")
 }
 
 fn coupled_session(shadow: &mut GameWorldShadow, logic: &mut GameLogic) {

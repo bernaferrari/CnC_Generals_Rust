@@ -99,9 +99,9 @@ fn map_admission_preserves_local_identity_for_neutral_and_same_id_civilians() {
 
     let neutral = world(&neutral_map);
     let mut civilian = world(&civilian_map);
-    let peer = world(&peer_map);
-    assert!(neutral.get_player(0).unwrap().is_local);
-    assert!(civilian.get_player(1).unwrap().is_local);
+    let mut peer = world(&peer_map);
+    assert_eq!(neutral.local_player_id(), Some(0));
+    assert_eq!(civilian.local_player_id(), Some(1));
     assert_eq!(
         civilian.get_player(1).unwrap().map_side.map_player_name,
         "PlyrCivilian"
@@ -110,15 +110,15 @@ fn map_admission_preserves_local_identity_for_neutral_and_same_id_civilians() {
         peer.get_player(1).unwrap().map_side.map_player_name,
         "PlyrCivilian"
     );
-    assert!(!peer.get_player(1).unwrap().is_local);
-    assert!(peer.get_player(2).unwrap().is_local);
+    assert_ne!(peer.local_player_id(), Some(1));
+    assert_eq!(peer.local_player_id(), Some(2));
 
     // Re-admitting the same map must reinitialize the existing local slot in
     // place, as C++ PlayerList::newGame does, while preserving the peer.
     assert!(civilian.load_map(civilian_map.to_str().unwrap()));
-    assert!(civilian.get_player(1).unwrap().is_local);
-    assert!(!peer.get_player(1).unwrap().is_local);
-    assert!(neutral.get_player(0).unwrap().is_local);
+    assert_eq!(civilian.local_player_id(), Some(1));
+    assert_ne!(peer.local_player_id(), Some(1));
+    assert_eq!(neutral.local_player_id(), Some(0));
 
     // Save and decode through the real archive before restoring into an
     // independently admitted world with the same civilian side.
@@ -137,5 +137,19 @@ fn map_admission_preserves_local_identity_for_neutral_and_same_id_civilians() {
         restored.get_player(1).unwrap().map_side.map_player_name,
         "PlyrCivilian"
     );
-    assert!(peer.get_player(2).unwrap().is_local);
+    // The same roster can be viewed from a different local slot in each
+    // session. Restoring the archive must retain the receiver's selection.
+    let mut same_roster = world(&peer_map);
+    assert!(same_roster.select_local_player(Some(1)));
+    assert!(!same_roster.select_local_player(Some(999)));
+    assert_eq!(same_roster.local_player_id(), Some(1));
+    assert_eq!(peer.local_player_id(), Some(2));
+    saves.quick_save(&same_roster).unwrap();
+    let same_roster_saved = saves.load_game_snapshot("quicksave").unwrap();
+    saves
+        .restore_game_snapshot(&same_roster_saved.snapshot, &mut peer)
+        .unwrap();
+    assert_eq!(peer.local_player_id(), Some(2));
+    assert_eq!(same_roster.local_player_id(), Some(1));
+    assert_eq!(civilian.local_player_id(), Some(1));
 }

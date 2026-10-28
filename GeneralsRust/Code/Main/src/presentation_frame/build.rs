@@ -1211,7 +1211,7 @@ impl PresentationFrame {
                 team: p.team,
                 alliance_team: p.alliance_team,
                 is_alive: p.is_alive,
-                is_local: p.is_local,
+                is_local: logic.local_player_id() == Some(id),
                 is_ai: logic.ai_manager_contains_player(id),
                 color_rgb: p.color_rgb,
             })
@@ -2474,7 +2474,7 @@ impl PresentationFrame {
             }
             .hash(&mut h);
             p.is_alive.hash(&mut h);
-            p.is_local.hash(&mut h);
+            (p.id == self.local_player_id).hash(&mut h);
             p.is_ai.hash(&mut h);
             p.color_rgb.0.hash(&mut h);
             p.color_rgb.1.hash(&mut h);

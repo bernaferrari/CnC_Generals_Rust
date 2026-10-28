@@ -260,7 +260,7 @@ impl GameLogic {
     }
 
     fn host_local_player(&self) -> Option<&Player> {
-        self.players.values().find(|p| p.is_local)
+        self.local_player_id().and_then(|id| self.players.get(&id))
     }
 
     /// C++ `Player::getRelationship(clientPlayer->getDefaultTeam()) != ALLIES`.
@@ -362,9 +362,7 @@ impl GameLogic {
         let local_index = local.map(|p| p.id as i32).unwrap_or(-1);
         // C++ `Player::isPlayerActive` = `!observer && !dead`.
         let local_active = local.map(|p| p.is_alive && !p.is_observer).unwrap_or(true);
-        let is_local = owner_id
-            .and_then(|id| self.players.get(&id).map(|p| p.is_local))
-            .unwrap_or(false);
+        let is_local = owner_id.is_some_and(|id| self.is_local_player(id));
 
         let is_disguiser = obj.is_kind_of(KindOf::Disguiser);
         let disguised = obj.status.disguised;
@@ -467,10 +465,8 @@ impl GameLogic {
             .water_definitions
             .transparency()
             .radar_water_color;
-        self.radar_map.admit_effective_definitions(
-            water_color,
-            &self.terrain_road_definitions.effective,
-        );
+        self.radar_map
+            .admit_effective_definitions(water_color, &self.terrain_road_definitions.effective);
         let Some((lo, hi)) =
             store_radar_map_extent(&mut self.radar_map, self.world_min, self.world_max)
         else {

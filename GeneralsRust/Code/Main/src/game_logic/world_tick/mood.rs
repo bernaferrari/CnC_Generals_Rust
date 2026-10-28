@@ -464,7 +464,7 @@ impl GameLogic {
         let owner_pid = object.owner_player_id;
         let is_computer = owner_pid
             .and_then(|pid| self.players.get(&pid))
-            .map(|p| !p.is_local)
+            .map(|p| !self.is_local_player(p.id))
             .unwrap_or(false);
         if !is_computer {
             return;
@@ -873,7 +873,7 @@ impl GameLogic {
             .get(&unit_id)
             .and_then(|o| o.owner_player_id)
             .and_then(|pid| self.players.get(&pid))
-            .is_some_and(|p| p.is_local);
+            .is_some_and(|p| self.is_local_player(p.id));
         let adj =
             self.get_mood_matrix_action_adjustment(unit_id, MoodMatrixAction::Move, is_player);
         if (adj & mood_action_adjust::ACTION_TO_ATTACK_MOVE) != 0 {

@@ -1907,7 +1907,6 @@ fn presentation_freezes_can_make_cameos_residual() {
     // Keep selection residual for freeze.
     if let Some(pl) = logic.get_player_mut(0) {
         pl.selected_objects = vec![bid];
-        pl.is_local = true;
     }
     let frame2 = PresentationFrame::build_from_logic(&mut logic, 0); // same local id residual
     assert_eq!(
@@ -1987,7 +1986,6 @@ fn presentation_freezes_dozer_construct_can_make_cameos() {
         .expect("dozer");
     if let Some(pl) = logic.get_player_mut(0) {
         pl.selected_objects = vec![did];
-        pl.is_local = true;
         pl.resources.supplies = 100_000;
     }
     assert_eq!(

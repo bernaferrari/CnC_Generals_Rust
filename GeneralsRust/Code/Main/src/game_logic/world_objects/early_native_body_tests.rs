@@ -67,7 +67,7 @@ fn world_with_birth_mode(
     world.add_player(Player::new(0, Team::USA, "Owner", true));
     if mode == GameMode::SinglePlayer {
         // Controller category is Human even when this client is not local.
-        world.players.get_mut(&0).unwrap().is_local = false;
+        assert!(world.select_local_player(None));
     }
     world.set_receiving_time_of_day(tod);
     let id = world
@@ -215,7 +215,7 @@ fn actual_script_difficulty_reclassifies_kept_cache_once_on_receiving_nonlocal_h
     let (peer, peer_id) = world(game_engine::common::ini::TimeOfDay::Morning);
     assert_eq!(id, peer_id);
     assert!(owner.players[&0].is_human);
-    assert!(!owner.players[&0].is_local);
+    assert_eq!(owner.local_player_id(), None);
     let object = owner.host_object(id).unwrap();
     assert!(object.is_receiving_difficulty_bonus);
     assert_eq!(

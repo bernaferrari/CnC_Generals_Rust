@@ -579,10 +579,11 @@ impl GameLogic {
             }
             logic_list.add_player(Arc::new(RwLock::new(player)));
 
-            if admitted.map_or(
-                is_human && logic_list.get_local_player_index() < 0,
-                |player| player.is_local,
-            ) {
+            if self.local_player_id() == Some(host_id)
+                || (self.local_player_id().is_none()
+                    && is_human
+                    && logic_list.get_local_player_index() < 0)
+            {
                 logic_list.set_local_player_index(host_id as i32);
             }
         }
@@ -859,12 +860,7 @@ impl GameLogic {
             return;
         }
         use gamelogic::common::Relationship;
-        let Some(local_id) = self
-            .players
-            .iter()
-            .find(|(_, player)| player.is_local)
-            .map(|(&id, _)| id)
-        else {
+        let Some(local_id) = self.local_player_id() else {
             return;
         };
         let the_player_id = self

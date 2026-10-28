@@ -261,9 +261,8 @@ fn guard_rejected_admission_still_leaves_formation_and_selects_normal() {
 fn guard_sleep_gate_uses_controller_instead_of_locality() {
     for human in [false, true] {
         let (mut world, id, _) = world();
-        let player = world.players.get_mut(&1).unwrap();
-        player.is_human = human;
-        player.is_local = !human;
+        world.players.get_mut(&1).unwrap().is_human = human;
+        assert!(world.select_local_player((!human).then_some(1)));
         world
             .host_object_mut(id)
             .unwrap()

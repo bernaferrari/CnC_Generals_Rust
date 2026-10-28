@@ -40,7 +40,7 @@ impl GameLogic {
         let Some(player) = self.players.get(&player_id) else {
             return;
         };
-        let local = player.is_local;
+        let local = self.is_local_player(player_id);
         let previous = if replace {
             player.selected_objects.clone()
         } else {
@@ -89,6 +89,6 @@ impl GameLogic {
     }
 
     pub(crate) fn is_local_selection_player(&self, id: u32) -> bool {
-        self.players.get(&id).is_some_and(|player| player.is_local)
+        self.is_local_player(id)
     }
 }

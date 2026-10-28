@@ -278,9 +278,7 @@ fn object_fx_missing_local_player_fails_closed_and_unknown_status_keeps_host_pol
     );
     dispatch(&mut logic, primary, secondary, &observed);
     assert_visible(&events, primary, secondary, 30.0);
-    for player in logic.get_players_mut().values_mut() {
-        player.is_local = false;
-    }
+    assert!(logic.select_local_player(None));
     assert_eq!(logic.local_player_id(), None);
     dispatch(&mut logic, primary, secondary, &observed);
     assert_eq!(events.try_iter().count(), 0, "no local viewer fails closed");

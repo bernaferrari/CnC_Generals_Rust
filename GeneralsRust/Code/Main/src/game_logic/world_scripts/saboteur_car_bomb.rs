@@ -185,8 +185,7 @@ impl GameLogic {
                 // No mapped player → fail-closed treat as non-AI (no auto-scan).
                 let is_ai = self
                     .player_owner_for_host_object(obj)
-                    .and_then(|pid| self.players.get(&pid))
-                    .map(|p| !p.is_local)
+                    .map(|pid| !self.is_local_player(pid))
                     .unwrap_or(false);
                 if !pilot_find_vehicle_scan_eligible(is_pilot, true, is_idle, is_ai) {
                     return;
@@ -1027,8 +1026,7 @@ impl GameLogic {
                 let is_idle = matches!(obj.ai_state(), AIState::Idle);
                 let is_ai = self
                     .player_owner_for_host_object(obj)
-                    .and_then(|pid| self.players.get(&pid))
-                    .map(|p| !p.is_local)
+                    .map(|pid| !self.is_local_player(pid))
                     .unwrap_or(false);
                 if !auto_find_healing_scan_eligible(has_module, true, is_idle, is_ai) {
                     return;
@@ -1728,8 +1726,7 @@ impl GameLogic {
                 // Human player residual: no auto-seek.
                 let is_ai = self
                     .player_owner_for_host_object(obj)
-                    .and_then(|pid| self.players.get(&pid))
-                    .map(|p| !p.is_local)
+                    .map(|pid| !self.is_local_player(pid))
                     .unwrap_or(false);
                 if !is_ai {
                     return;
@@ -1836,8 +1833,7 @@ impl GameLogic {
                 }
                 let is_ai = self
                     .player_owner_for_host_object(obj)
-                    .and_then(|pid| self.players.get(&pid))
-                    .map(|p| !p.is_local)
+                    .map(|pid| !self.is_local_player(pid))
                     .unwrap_or(false);
                 if !is_ai {
                     return Ok(());

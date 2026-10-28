@@ -2058,9 +2058,7 @@ fn black_lotus_capture_building_without_upgrade() {
     // The capture gate shroud-checks the LOCAL player's visibility of the
     // target; this fixture has no map FOW, so drop the local flag. The
     // tested contract is the upgrade-less capture command flow.
-    if let Some(player) = game_logic.get_player_mut(1) {
-        player.is_local = false;
-    }
+    assert!(game_logic.select_local_player(None));
     game_logic.queue_command(crate::command_system::GameCommand {
         command_type: crate::command_system::CommandType::CaptureBuilding {
             target_id: building_id,

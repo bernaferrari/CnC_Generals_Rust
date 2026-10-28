@@ -255,7 +255,7 @@ fn observe(logic: &GameLogic) -> Value {
     let mut players: Vec<_> = logic.get_players().values().collect();
     players.sort_by_key(|p| p.id);
     let players: Vec<_> = players.into_iter().map(|p| json!({
-        "id":p.id,"name":p.name,"faction":format!("{:?}",p.team),"local":p.is_local,
+        "id":p.id,"name":p.name,"faction":format!("{:?}",p.team),"local":logic.local_player_id() == Some(p.id),
         "alive":p.is_alive,"alliance":p.alliance_team,"can_build_units":p.can_build_units,
         "can_build_base":p.can_build_base,"supplies":p.effective_supplies(),"power":p.power_available,
         "ai_active":logic.is_host_ai_active(p.id),"ai_difficulty":format!("{:?}",logic.host_ai_difficulty(p.id))
@@ -265,7 +265,7 @@ fn observe(logic: &GameLogic) -> Value {
     let objects: Vec<_> = objects.into_iter().map(|o| json!({
         "id":o.id.0,"template":o.get_template().name,"owner":o.owner_player_id,
         "faction":format!("{:?}",o.team),"alive":o.is_alive(),"position":o.get_position().to_array(),
-        "health":o.health.current,"target":o.target.map(|id|id.0),"state":format!("{:?}",o.ai_state),
+        "health":o.health.current,"target":o.target.map(|id|id.0),"state":format!("{:?}",o.ai_state()),
         "paused":logic.skirmish_ai_auto_engage_paused(o.id),"discharge":o.weapon_discharge_marker().sequence,
         "fire_intents":o.fire_intent_count,"weapon_slots":(0..3).map(|slot|o.weapon_slot(slot).is_some()).collect::<Vec<_>>()
     })).collect();
@@ -325,7 +325,7 @@ fn violations(logic: &GameLogic, case: Case) -> Vec<String> {
         );
         if let Some(p) = logic.get_player(id) {
             require(
-                p.team == Team::GLA && p.is_local == (id == 0) && p.is_alive,
+                p.team == Team::GLA && logic.local_player_id() == Some(id) && p.is_alive,
                 format!("owner {id} identity/alive"),
             );
             require(

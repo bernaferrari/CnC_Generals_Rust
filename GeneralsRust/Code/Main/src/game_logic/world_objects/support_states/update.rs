@@ -3675,7 +3675,7 @@ impl GameLogic {
                                     let local = self
                                         .players
                                         .get(&player_id)
-                                        .map(|p| p.is_local)
+                                        .map(|_| self.is_local_player(player_id))
                                         .unwrap_or(false);
                                     let hide = center_status.is_some_and(|(stealth, detected)| {
                                         crate::game_logic::host_supply_gather::hide_stealth_supply_cash(

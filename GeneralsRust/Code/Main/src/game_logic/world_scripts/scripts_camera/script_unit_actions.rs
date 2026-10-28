@@ -299,10 +299,14 @@ impl GameLogic {
             return vec![pid];
         }
         let locals: Vec<u32> = self
-            .players
-            .values()
-            .filter(|p| p.is_local && !p.is_observer)
-            .map(|p| p.id)
+            .local_player_id()
+            .and_then(|id| {
+                self.players
+                    .get(&id)
+                    .filter(|player| !player.is_observer)
+                    .map(|_| id)
+            })
+            .into_iter()
             .collect();
         if !locals.is_empty() {
             return locals;
@@ -1228,10 +1232,12 @@ impl GameLogic {
             .first()
             .and_then(|id| self.host_object(*id))
             .and_then(|obj| obj.owner_player_id);
-        for player in self.players.values() {
-            if player.is_local && Some(player.id) != owner {
-                return player.start_position.max(0);
-            }
+        if let Some(player) = self
+            .local_player_id()
+            .and_then(|id| self.players.get(&id))
+            .filter(|player| Some(player.id) != owner)
+        {
+            return player.start_position.max(0);
         }
         for player in self.players.values() {
             if Some(player.id) != owner && player.is_alive && !player.is_observer {

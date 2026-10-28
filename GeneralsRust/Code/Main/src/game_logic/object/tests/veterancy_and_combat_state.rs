@@ -3820,7 +3820,7 @@ fn authored_body_promotion_precedes_bonus_updates_and_ignores_ui_hide() {
 #[test]
 fn local_player_two_stealth_visibility_does_not_assume_player_zero() {
     let mut owner = promotion_world();
-    owner.get_player_mut(0).unwrap().is_local = false;
+    assert!(owner.select_local_player(None));
     owner.add_player(crate::game_logic::Player::new(
         2,
         Team::USA,

@@ -965,17 +965,15 @@ mod native_observer_local_identity_tests {
         use crate::game_logic::{GameLogic, Player, Team};
         let mut world = GameLogic::new();
         let mut command = Player::new(0, Team::USA, "RecordedPlayer", true);
-        command.is_local = false;
         world.add_player(command);
         let mut observer = Player::new(17, Team::Neutral, "ReplayObserver", false);
-        observer.is_local = true;
         observer.is_observer = true;
         world.add_player(observer);
+        assert!(world.select_local_player(Some(17)));
         assert_eq!(world.local_player_id(), Some(17));
         assert!(!world.get_player(0).unwrap().is_observer);
         assert!(receiving_local_player_is_observer(&world));
-        world.get_player_mut(17).unwrap().is_local = false;
-        world.get_player_mut(0).unwrap().is_local = true;
+        assert!(world.select_local_player(Some(0)));
         assert!(!receiving_local_player_is_observer(&world));
     }
 }

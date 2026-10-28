@@ -16,7 +16,7 @@ impl GameLogic {
                     name: player.name.clone(),
                     team: player.team as u32,
                     color: format!("{:02X}{:02X}{:02X}", color.r, color.g, color.b),
-                    is_human: player.is_local,
+                    is_human: player.is_human,
                     is_alive: player.is_alive,
                     score: 0,
                 }
@@ -1107,7 +1107,7 @@ impl GameLogic {
                 .get(&selected_id)
                 .map(|o| o.get_position())
                 .unwrap_or(glam::Vec3::ZERO);
-            if let Some(pid) = self.players.values().find(|p| p.is_local).map(|p| p.id) {
+            if let Some(pid) = self.local_player_id() {
                 self.select_objects(pid, vec![selected_id]);
             }
             if !req.audio.is_empty() {
@@ -1564,7 +1564,7 @@ impl GameLogic {
         if needle.eq_ignore_ascii_case("<This Player>")
             || needle.eq_ignore_ascii_case("<Local Player>")
         {
-            return self.players.values().find(|p| p.is_local).map(|p| p.id);
+            return self.local_player_id();
         }
         // C++ NameKeyGenerator::nameToKey uses strcmp; PlayerList compares
         // that exact canonical playerName key. Display labels and faction names

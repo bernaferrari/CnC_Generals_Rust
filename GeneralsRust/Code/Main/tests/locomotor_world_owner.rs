@@ -420,8 +420,7 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
     assert!((first.host_object(first_worker).unwrap().movement.max_speed - 30.0).abs() < 0.001);
     assert!((peer.host_object(peer_worker).unwrap().movement.max_speed - 70.0).abs() < 0.001);
     first
-        .get_players_mut()
-        .get_mut(&42)
+        .get_player_mut(42)
         .unwrap()
         .queued_upgrades
         .insert("Upgrade_GLAWorkerShoes".into());
@@ -436,8 +435,7 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
     assert!(!first.host_object(no_module).unwrap().locomotor_upgrade);
     assert!(!peer.host_object(peer_upgrade).unwrap().locomotor_upgrade);
     assert!((first.host_object(first_worker).unwrap().movement.max_speed - 50.0).abs() < 0.001);
-    peer.get_players_mut()
-        .get_mut(&42)
+    peer.get_player_mut(42)
         .unwrap()
         .queued_upgrades
         .insert("Upgrade_GLAWorkerShoes".into());

@@ -514,7 +514,7 @@ fn local_player_upgrade_dirties_receiving_ui_without_selected_cameo_but_object_d
         ("OBJECT", true, 0),
     ] {
         let (mut owner, producer) = world(800, kind);
-        owner.get_player_mut(0).unwrap().is_local = local;
+        assert!(owner.select_local_player(local.then_some(0)));
         assert!(owner.get_player(0).unwrap().selected_objects.is_empty());
         let mut ui = Ui(0);
         let peer_ui = Ui(0);

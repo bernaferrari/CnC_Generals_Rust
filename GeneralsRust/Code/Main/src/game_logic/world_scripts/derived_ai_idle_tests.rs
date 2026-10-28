@@ -147,7 +147,7 @@ fn actual_ai_sleep_gate_distinguishes_remote_human_from_ai_controller() {
         .unwrap()
         .set_ai_attitude(crate::game_logic::host_strategy_center::HostAiAttitude::Sleep);
     world.players.get_mut(&1).unwrap().is_human = false;
-    world.players.get_mut(&1).unwrap().is_local = false;
+    assert!(world.select_local_player(None));
     assert!(
         world
             .unit_command_ai_idle_owned(id)

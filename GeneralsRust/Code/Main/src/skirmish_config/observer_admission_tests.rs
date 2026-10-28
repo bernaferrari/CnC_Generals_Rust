@@ -110,8 +110,8 @@ fn occupied_observer_precedes_synthetic_replay_observer_and_never_takes_a_start(
                 synthetic > 3,
                 "synthetic observer is allocated after retained original slots"
             );
-            assert!(world.get_player(synthetic).unwrap().is_local);
-            assert!(!world.get_player(3).unwrap().is_local);
+            assert!(world.is_local_player(synthetic));
+            assert!(!world.is_local_player(3));
             assert_eq!(world.host_ai_player_count(), 0);
             assert!(
                 !world.will_install_multiplayer_scripts(),

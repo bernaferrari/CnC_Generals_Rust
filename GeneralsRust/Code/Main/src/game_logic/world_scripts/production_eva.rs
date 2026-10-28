@@ -391,8 +391,7 @@ impl GameLogic {
             return false;
         };
         self.player_owner_for_host_object(obj)
-            .and_then(|id| self.players.get(&id))
-            .is_some_and(|player| player.is_local)
+            .is_some_and(|id| self.is_local_player(id))
     }
 
     /// C++ TheEva->setShouldPlay(EVA_BuildingSabotaged) when victim is local.
@@ -1356,9 +1355,9 @@ impl GameLogic {
         let team = unit.team;
         let pos = unit.get_position();
         let local = self
-            .players
-            .values()
-            .any(|p| p.is_local && p.is_alive && p.team == team);
+            .local_player_id()
+            .and_then(|id| self.players.get(&id))
+            .is_some_and(|p| p.is_alive && p.team == team);
         // C++ getVoiceCreated() — authored Voice.ini name, not the slot token.
         if let Some(event) = crate::game_logic::audio_dispatch_impl::resolve_receiving_unit_voice(
             unit.get_template(),
@@ -1637,8 +1636,7 @@ impl GameLogic {
                     .map(|obj| {
                         let local = obj
                             .owner_player_id
-                            .and_then(|pid| self.players.get(&pid))
-                            .is_some_and(|p| p.is_local);
+                            .is_some_and(|pid| self.is_local_player(pid));
                         (obj.get_position(), local)
                     })
                     .unwrap_or((glam::Vec3::ZERO, false));
@@ -2199,9 +2197,9 @@ impl GameLogic {
             .as_ref()
             .map(|(id, _)| self.is_object_locally_controlled(*id))
             .unwrap_or_else(|| {
-                self.players
-                    .values()
-                    .any(|p| p.is_local && p.is_alive && p.team == team)
+                self.local_player_id()
+                    .and_then(|id| self.players.get(&id))
+                    .is_some_and(|p| p.is_alive && p.team == team)
             });
         if !local {
             self.structure_complete_events = self.structure_complete_events.saturating_add(1);

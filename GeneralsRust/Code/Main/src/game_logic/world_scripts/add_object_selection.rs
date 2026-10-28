@@ -438,7 +438,7 @@ impl GameLogic {
             let local = self
                 .players
                 .get(&player_id)
-                .map(|p| p.is_local)
+                .map(|_| self.is_local_player(player_id))
                 .unwrap_or(false);
             if local {
                 self.queue_picked_move_voice(&selected);
@@ -1424,7 +1424,7 @@ impl GameLogic {
             .and_then(|object| object.owner_player_id)
             .and_then(|player_id| self.players.get(&player_id).map(|p| (player_id, p)))
             .is_some_and(|(player_id, player)| {
-                !player.is_local && !self.is_host_ai_active(player_id)
+                !self.is_local_player(player_id) && !self.is_host_ai_active(player_id)
             })
     }
 

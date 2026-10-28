@@ -428,9 +428,9 @@ mod tests {
         let mut logic = GameLogic::new();
         logic.game_mode = GameMode::SinglePlayer;
         let mut player = Player::new(id, Team::GLA, "GLA", human);
-        player.is_local = local;
         player.resources.supplies = 4_000;
         logic.add_player(player);
+        assert!(logic.select_local_player(local.then_some(id)));
         let mut ranger = ThingTemplate::new("GLARebel");
         ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
         logic.templates.insert("GLARebel".into(), ranger);
@@ -498,10 +498,10 @@ mod tests {
         source.game_mode = GameMode::SinglePlayer;
         for (id, human) in [(1, false), (2, true)] {
             let mut player = Player::new(id, Team::GLA, "Shared display", human);
-            player.is_local = false;
             player.resources.supplies = 4_000;
             source.add_player(player);
         }
+        assert!(source.select_local_player(None));
         let builder = SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).unwrap();
         let encoded = bincode_legacy::serialize(&snapshot).unwrap();

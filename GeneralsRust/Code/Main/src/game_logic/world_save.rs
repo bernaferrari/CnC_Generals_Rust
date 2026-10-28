@@ -33,6 +33,10 @@ mod world_subsystems;
 #[path = "world_save/world_tests.rs"]
 mod world_tests;
 
+#[cfg(test)]
+#[path = "world_save/local_player_selection_tests.rs"]
+mod local_player_selection_tests;
+
 // Helpers shared by the ownership modules remain private to this host-world
 // module (or crate-visible where the original facade was crate-visible).
 #[cfg(feature = "game_client")]

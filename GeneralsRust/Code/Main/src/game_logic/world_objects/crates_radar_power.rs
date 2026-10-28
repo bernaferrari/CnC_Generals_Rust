@@ -473,9 +473,7 @@ impl GameLogic {
                     continue;
                 }
                 if crate_human_only {
-                    let picker_human = picker_owner
-                        .and_then(|pid| self.players.get(&pid))
-                        .is_some_and(|player| player.is_local);
+                    let picker_human = picker_owner.is_some_and(|pid| self.is_local_player(pid));
                     if !picker_human {
                         continue;
                     }

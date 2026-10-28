@@ -4,13 +4,12 @@ use super::*;
 fn retaliation_reads_the_victims_controller_not_faction_or_local_view() {
     let mut world = GameLogic::new();
     let mut remote = Player::new(4, Team::USA, "RemoteHuman", true);
-    remote.is_local = false;
     remote.logical_retaliation_mode_enabled = true;
     world.add_player(remote);
     let mut unrelated = Player::new(5, Team::USA, "UnrelatedHuman", true);
-    unrelated.is_local = true;
     unrelated.logical_retaliation_mode_enabled = true;
     world.add_player(unrelated);
+    assert!(world.select_local_player(Some(5)));
     world.add_player(Player::new(6, Team::GLA, "Enemy", false));
     world
         .players

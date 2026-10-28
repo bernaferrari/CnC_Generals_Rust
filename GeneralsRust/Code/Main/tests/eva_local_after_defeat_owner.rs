@@ -4,7 +4,6 @@ use generals_main::game_logic::{GameLogic, Player, Team};
 fn world_with_local_player(id: u32, alive: bool) -> GameLogic {
     let mut world = GameLogic::new();
     let mut local = Player::new(id, Team::USA, "Local", true);
-    local.is_local = true;
     local.is_alive = alive;
     world.add_player(local);
     world
@@ -42,8 +41,7 @@ fn defeated_local_owner_still_gets_base_under_attack_eva() {
         let mut world = GameLogic::new();
         world.admit_object_ini_sources([("EVA.ini".into(), "Object AmericaCommandCenter\n KindOf = STRUCTURE SELECTABLE COMMANDCENTER MP_COUNT_FOR_VICTORY\n Body = ActiveBody Body\n MaxHealth = 5000\n InitialHealth = 5000\n End\nEnd\n".into())]).unwrap();
         world.start_new_game(generals_main::game_logic::GameMode::SinglePlayer);
-        let mut local = Player::new(7, Team::USA, "Local", true);
-        local.is_local = true;
+        let local = Player::new(7, Team::USA, "Local", true);
         world.add_player(local);
         world
     }
@@ -67,6 +65,35 @@ fn defeated_local_owner_still_gets_base_under_attack_eva() {
 }
 
 #[test]
+fn defeated_local_player_still_classifies_ally_under_attack_per_world() {
+    use gamelogic::common::Relationship;
+    use glam::Vec3;
+
+    fn world(relationship: Relationship) -> (GameLogic, generals_main::game_logic::ObjectId) {
+        let mut world = GameLogic::new();
+        world.admit_object_ini_sources([("AllyEVA.ini".into(), "Object AllyCommandCenter\n KindOf = STRUCTURE SELECTABLE COMMANDCENTER MP_COUNT_FOR_VICTORY\n Body = ActiveBody Body\n MaxHealth = 5000\n InitialHealth = 5000\n End\nEnd\n".into())]).unwrap();
+        world.start_new_game(generals_main::game_logic::GameMode::SinglePlayer);
+        let mut local = Player::new(7, Team::USA, "Local", true);
+        local.set_map_relationship(8, relationship);
+        world.add_player(local);
+        world.add_player(Player::new(8, Team::China, "Other", false));
+        let center = world
+            .create_object_for_player("AllyCommandCenter", 8, Vec3::new(10.0, 0.0, 20.0))
+            .unwrap();
+        world.get_player_mut(7).unwrap().is_alive = false;
+        (world, center)
+    }
+
+    let (mut allied, allied_center) = world(Relationship::Allies);
+    let (mut enemy, enemy_center) = world(Relationship::Enemies);
+    assert_eq!(allied_center, enemy_center);
+    assert!(allied.try_under_attack_event(allied_center));
+    assert!(enemy.try_under_attack_event(enemy_center));
+    assert!(allied.honesty_eva_ally_under_attack_ok());
+    assert!(!enemy.honesty_eva_ally_under_attack_ok());
+}
+
+#[test]
 fn defeated_local_owner_gets_overcharge_exhaustion_only_in_its_world() {
     use glam::Vec3;
 
@@ -74,12 +101,10 @@ fn defeated_local_owner_gets_overcharge_exhaustion_only_in_its_world() {
         let mut world = GameLogic::new();
         world.admit_object_ini_sources([("Overcharge.ini".into(), "Object OwnerOvercharger\n KindOf = STRUCTURE SELECTABLE\n EnergyBonus = 5\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = OverchargeBehavior Overcharge\n HealthPercentToDrainPerSecond = 50%\n NotAllowedWhenHealthBelowPercent = 90%\n End\nEnd\n".into())]).unwrap();
         world.start_new_game(generals_main::game_logic::GameMode::SinglePlayer);
-        let mut owner = Player::new(7, Team::China, "Owner", local_is_owner);
-        owner.is_local = local_is_owner;
+        let owner = Player::new(7, Team::China, "Owner", local_is_owner);
         world.add_player(owner);
         if !local_is_owner {
-            let mut local = Player::new(8, Team::USA, "Local", true);
-            local.is_local = true;
+            let local = Player::new(8, Team::USA, "Local", true);
             world.add_player(local);
         }
 

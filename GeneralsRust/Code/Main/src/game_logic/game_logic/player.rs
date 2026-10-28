@@ -135,7 +135,6 @@ pub struct Player {
     pub queued_upgrades: HashSet<String>,
     /// C++ Player::m_playerType == PLAYER_HUMAN; independent of the local view.
     pub is_human: bool,
-    pub is_local: bool,
     pub is_alive: bool,
     /// C++ `Player::m_observer` / `isPlayerObserver`.
     pub is_observer: bool,
@@ -556,7 +555,6 @@ impl Player {
             unlocked_sciences: HashSet::new(),
             queued_upgrades: HashSet::new(),
             is_human,
-            is_local: is_human,
             did_preorder: false,
             is_alive: true,
             is_observer: false,

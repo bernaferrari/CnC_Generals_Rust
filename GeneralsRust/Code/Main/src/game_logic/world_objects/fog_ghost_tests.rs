@@ -300,8 +300,7 @@ fn actual_host_local_player_selection_switches_only_its_owned_ghost_scene() {
     fog(&mut peer);
     let frozen_one = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 1);
     let peer_before = peer.w3d_ghosts.clone();
-    world.get_player_mut(1).unwrap().is_local = false;
-    world.get_player_mut(2).unwrap().is_local = true;
+    assert!(world.select_local_player(Some(2)));
     world.update_main_crate_vision();
     assert_eq!(world.local_player_id(), Some(2));
     assert_eq!(world.w3d_ghosts.local_player_index(), 2);
@@ -336,8 +335,7 @@ fn actual_host_local_player_selection_switches_only_its_owned_ghost_scene() {
             .name,
         "ViewerOneMemory"
     );
-    world.get_player_mut(1).unwrap().is_local = true;
-    world.get_player_mut(2).unwrap().is_local = false;
+    assert!(world.select_local_player(Some(1)));
     world.update_main_crate_vision();
     let returned = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 1);
     assert_eq!(

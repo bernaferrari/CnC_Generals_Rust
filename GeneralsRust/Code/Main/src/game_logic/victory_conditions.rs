@@ -479,26 +479,23 @@ impl VictoryConditions {
         None
     }
 
-    /// C++ `VictoryConditions::isLocalAlliedVictory`: live-computed from
-    /// `m_singleAllianceRemaining` + local player still allied with a living
-    /// member. Leftover MultiplayerScripts.scb reads a single atomic.
-    pub fn is_local_allied_victory(&self, players: &HashMap<u32, Player>) -> bool {
-        self.is_local_allied_victory_owned(players, None)
-    }
-
+    /// C++ `VictoryConditions::isLocalAlliedVictory`, using the receiving
+    /// session's selected local player.
     pub(crate) fn is_local_allied_victory_owned(
         &self,
         players: &HashMap<u32, Player>,
         definitions: Option<&PlayerTemplateStore>,
+        local_player_id: Option<u32>,
     ) -> bool {
         let Some(key) = self.winning_alliance else {
             return false;
         };
-        players.values().any(|player| {
-            player.is_local
-                && is_playable_victory_player(player, &self.player_templates, definitions)
-                && player_shares_winning_alliance(players, player, key, None)
-        })
+        local_player_id
+            .and_then(|id| players.get(&id))
+            .is_some_and(|player| {
+                is_playable_victory_player(player, &self.player_templates, definitions)
+                    && player_shares_winning_alliance(players, player, key, None)
+            })
     }
 
     /// C++ `m_singleAllianceRemaining`: 0 or 1 living alliances.
@@ -507,14 +504,11 @@ impl VictoryConditions {
     }
 
     /// C++ `VictoryConditions::isLocalAlliedDefeat`.
-    pub fn is_local_allied_defeat(&self, players: &HashMap<u32, Player>) -> bool {
-        self.is_local_allied_defeat_owned(players, None)
-    }
-
     pub(crate) fn is_local_allied_defeat_owned(
         &self,
         players: &HashMap<u32, Player>,
         definitions: Option<&PlayerTemplateStore>,
+        local_player_id: Option<u32>,
     ) -> bool {
         if !self.is_single_alliance_remaining() {
             return false;
@@ -522,7 +516,7 @@ impl VictoryConditions {
         // CPP observers return m_singleAllianceRemaining. The owning census
         // already excludes observers from is_local_allied_victory, so this
         // also covers an uncached local slot without another roster lookup.
-        !self.is_local_allied_victory_owned(players, definitions)
+        !self.is_local_allied_victory_owned(players, definitions, local_player_id)
     }
 
     /// Receiving VictoryConditions is the sole defeat-status owner.
@@ -530,10 +524,14 @@ impl VictoryConditions {
         self.defeated_players.contains(&player_id)
     }
 
-    pub(crate) fn local_player_defeated(&self, players: &HashMap<u32, Player>) -> bool {
-        players.values().any(|player| {
-            player.is_local && !player.is_observer && self.is_player_defeated(player.id)
-        })
+    pub(crate) fn local_player_defeated(
+        &self,
+        players: &HashMap<u32, Player>,
+        local_player_id: Option<u32>,
+    ) -> bool {
+        local_player_id
+            .and_then(|id| players.get(&id))
+            .is_some_and(|player| !player.is_observer && self.is_player_defeated(player.id))
     }
 
     pub(crate) fn has_single_player_been_defeated_owned(
@@ -838,10 +836,10 @@ mod tests {
             "mixed-faction 2v1 with shared alliance_team must end, got {outcome:?}"
         );
         assert!(
-            vc.is_local_allied_victory(&mixed),
+            vc.is_local_allied_victory_owned(&mixed, None, Some(0)),
             "C++ isLocalAlliedVictory is true for the living local alliance"
         );
-        assert!(vc.is_local_allied_victory(&mixed));
+        assert!(vc.is_local_allied_victory_owned(&mixed, None, Some(0)));
         vc.reset();
     }
 
@@ -866,7 +864,7 @@ mod tests {
             matches!(outcome, Some(VictoryCondition::Winner(_))),
             "mutual PLAYER_RELATES Allies must be one alliance, got {outcome:?}"
         );
-        assert!(vc.is_local_allied_victory(&allies));
+        assert!(vc.is_local_allied_victory_owned(&allies, None, Some(0)));
         vc.reset();
 
         let mut ffa = HashMap::new();
@@ -912,7 +910,7 @@ mod tests {
             matches!(outcome, Some(VictoryCondition::Winner(_))),
             "mutual PLAYER_SET_OVERRIDE_RELATION_TO_TEAM Allies must be one alliance, got {outcome:?}"
         );
-        assert!(vc.is_local_allied_victory(&allies));
+        assert!(vc.is_local_allied_victory_owned(&allies, None, Some(0)));
         vc.reset();
 
         let mut one_way = HashMap::new();
@@ -996,7 +994,7 @@ mod tests {
             "wall-only STRUCTURE without MP_COUNT must not stall, got {outcome:?}"
         );
         assert!(vc.take_pending_kills().contains(&1));
-        assert!(vc.is_local_allied_victory(&players));
+        assert!(vc.is_local_allied_victory_owned(&players, None, Some(0)));
         vc.reset();
     }
 
@@ -1060,8 +1058,8 @@ mod tests {
             leftover_defeated,
             "C++ VictoryConditions::update writes Player::setDefeated"
         );
-        assert!(vc.is_local_allied_victory(&players));
-        assert!(!vc.is_local_allied_defeat(&players));
+        assert!(vc.is_local_allied_victory_owned(&players, None, Some(0)));
+        assert!(!vc.is_local_allied_defeat_owned(&players, None, Some(0)));
 
         vc.reset();
         if let Ok(mut list) = gamelogic::player::ThePlayerList().write() {
@@ -1089,10 +1087,10 @@ mod tests {
             "two enemy alliances still fighting must not end the match, got {outcome:?}"
         );
         assert!(
-            !vc.is_local_allied_defeat(&players),
+            !vc.is_local_allied_defeat_owned(&players, None, Some(0)),
             "C++ isLocalAlliedDefeat is false while multiple alliances remain"
         );
-        assert!(!vc.is_local_allied_defeat(&players));
+        assert!(!vc.is_local_allied_defeat_owned(&players, None, Some(0)));
         vc.reset();
     }
 

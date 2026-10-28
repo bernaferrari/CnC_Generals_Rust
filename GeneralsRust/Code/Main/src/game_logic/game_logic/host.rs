@@ -152,6 +152,8 @@ pub struct GameLogic {
 
     /// Canonical player state, including supplies, power, sciences and selection.
     pub(super) players: HashMap<u32, Player>,
+    /// The one client-local player selected for this receiving session.
+    pub(super) local_player_id: Option<u32>,
     /// C++ GameLogic::m_rankLevelLimit; awards and scripts use this match's cap.
     pub(super) rank_level_limit: i32,
     // C++ GameLogic::m_rankPointsToAddAtGameStart, retained for restart/Xfer.

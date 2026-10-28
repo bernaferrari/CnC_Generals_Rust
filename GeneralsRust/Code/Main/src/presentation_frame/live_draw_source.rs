@@ -68,9 +68,9 @@ pub(super) fn receiving_local_team(logic: &GameLogic, local_player_id: u32) -> T
     // Neutral/unexplored enemies).
     if local_team == Team::Neutral {
         if let Some(team) = logic
-            .get_players()
-            .values()
-            .find(|p| p.is_local && p.team != Team::Neutral)
+            .local_player_id()
+            .and_then(|id| logic.get_player(id))
+            .filter(|p| p.team != Team::Neutral)
             .map(|p| p.team)
         {
             local_team = team;

@@ -265,12 +265,12 @@ mod sides_host_apply_tests {
             .get(&observer_id)
             .expect("ReplayObserver host player");
         assert!(
-            observer.is_local,
+            logic.is_local_player(observer.id),
             "ReplayObserver must be local in GAME_REPLAY"
         );
         assert_eq!(observer.name, "ReplayObserver");
         assert_eq!(
-            logic.players.values().filter(|p| p.is_local).count(),
+            usize::from(logic.local_player_id().is_some()),
             1,
             "only ReplayObserver is local"
         );

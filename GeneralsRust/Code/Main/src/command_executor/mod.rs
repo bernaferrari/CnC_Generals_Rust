@@ -802,10 +802,13 @@ impl<'a> CommandExecutor<'a> {
             .unwrap_or(true);
         let ids: Vec<u32> = self
             .game_logic
-            .get_players()
-            .values()
-            .filter(|player| player.is_local && player.logical_retaliation_mode_enabled != enabled)
-            .map(|player| player.id)
+            .local_player_id()
+            .filter(|id| {
+                self.game_logic
+                    .get_player(*id)
+                    .is_some_and(|player| player.logical_retaliation_mode_enabled != enabled)
+            })
+            .into_iter()
             .collect();
         for id in ids {
             self.game_logic.set_logical_retaliation_mode(id, enabled);

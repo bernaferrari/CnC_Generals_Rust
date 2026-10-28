@@ -430,14 +430,31 @@ impl SavedSkirmishAdmission {
         Ok(())
     }
 
-    /// Apply the captured Client local authority even when the optional
-    /// original stream was omitted. Direct typed inputs retain ordinary flags.
+    /// Apply the captured local authority even when the optional original
+    /// stream was omitted. C++ PlayerList::newGame has one selected pointer:
+    /// explicit local selection wins; otherwise its offline first-human
+    /// selection is retained, with first non-neutral as the no-human fallback.
     pub(super) fn admit_local_selection(&self, world: &mut GameLogic) {
-        if self.local_slot_from_client {
-            for player in world.get_players_mut().values_mut() {
-                player.is_local = self.local_slot == Some(player.id);
-            }
-        }
+        let selected = self
+            .local_slot
+            .filter(|id| world.get_player(*id).is_some())
+            .or_else(|| {
+                world
+                    .get_players()
+                    .values()
+                    .filter(|player| player.is_human)
+                    .map(|player| player.id)
+                    .min()
+            })
+            .or_else(|| {
+                world
+                    .get_players()
+                    .values()
+                    .filter(|player| player.team != crate::game_logic::Team::Neutral)
+                    .map(|player| player.id)
+                    .min()
+            });
+        world.select_local_player(selected);
     }
 
     /// Install the same player admission kernel without reroll/reset/recorder.

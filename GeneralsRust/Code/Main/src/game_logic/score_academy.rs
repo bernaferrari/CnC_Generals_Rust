@@ -53,7 +53,6 @@ mod tests {
         observer.map_side.role = PlayerSideRole::ReplayObserver;
         observer.map_side.map_player_name = "ReplayObserver".into();
         observer.is_observer = true;
-        observer.is_local = false;
         observer.academy_stats.record_vehicle_sniped();
         world.add_player(observer);
         let mut local = Player::new(1, Team::USA, "Local", true);

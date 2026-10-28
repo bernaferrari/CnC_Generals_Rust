@@ -150,7 +150,7 @@ fn pause_observation(world: &GameLogic, attacker: ObjectId, target: ObjectId) ->
         .into_iter()
         .map(|id| {
             let p = world.get_player(id).unwrap();
-            json!({"id":id,"faction":format!("{:?}",p.team),"local":p.is_local,
+            json!({"id":id,"faction":format!("{:?}",p.team),"local":world.local_player_id() == Some(id),
             "alive":p.is_alive,"ai_active":world.is_host_ai_active(id)})
         })
         .collect();

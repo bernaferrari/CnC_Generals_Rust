@@ -813,12 +813,15 @@ impl GameLogic {
                                 }
                             } else {
                                 self.players.clear();
+                                self.select_local_player(None);
                                 for (&pid, &team) in &map_player_to_team {
                                     let is_local = pid == 0;
                                     let name = format!("Player{}", pid + 1);
                                     self.players
                                         .insert(pid, Player::new(pid, team, &name, is_local));
                                 }
+                                let selected = self.players.contains_key(&0).then_some(0);
+                                self.select_local_player(selected);
                                 self.apply_host_players_from_sides_list(true);
                             }
                             self.stash_side_builds_on_host(&meta.side_builds);

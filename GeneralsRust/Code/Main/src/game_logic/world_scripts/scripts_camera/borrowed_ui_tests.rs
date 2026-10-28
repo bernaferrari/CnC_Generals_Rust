@@ -320,12 +320,7 @@ fn authored_letterbox_receives_current_upgrade_observation_at_each_action() {
         1,
         1,
     );
-    let player = owner
-        .get_players()
-        .values()
-        .find(|player| player.is_local)
-        .unwrap()
-        .id;
+    let player = owner.local_player_id().unwrap();
     let mut ui = ObserveUpgrades(Vec::new());
     for completed in [false, true] {
         if completed {

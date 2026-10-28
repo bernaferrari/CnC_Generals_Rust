@@ -258,23 +258,28 @@ impl GameLogic {
                         }
                     } else {
                         self.sync_host_dock_queue_cancellations_for_dock(id);
-                        if !self.host_dock_approach_queues.is_clear_to_approach(id, query_id) {
+                        if !self
+                            .host_dock_approach_queues
+                            .is_clear_to_approach(id, query_id)
+                        {
                             return None;
                         }
                     }
                 }
-                Some(crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
-                    id,
-                    team,
-                    position,
-                    is_alive: true,
-                    is_neutral: team == Team::Neutral,
-                    under_construction,
-                    combat_kind: true,
-                    effectively_stealthed: false,
-                    is_air: false,
-                    eject_invulnerable: false,
-                })
+                Some(
+                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                        id,
+                        team,
+                        position,
+                        is_alive: true,
+                        is_neutral: team == Team::Neutral,
+                        under_construction,
+                        combat_kind: true,
+                        effectively_stealthed: false,
+                        is_air: false,
+                        eject_invulnerable: false,
+                    },
+                )
             })
             .collect();
         let scan = max_scan.filter(|d| *d > 0.0).unwrap_or(f32::MAX);
@@ -412,7 +417,7 @@ impl GameLogic {
     }
 
     /// Get mutable players (for snapshot restoration)
-    pub fn get_players_mut(&mut self) -> &mut HashMap<u32, Player> {
+    pub(crate) fn get_players_mut(&mut self) -> &mut HashMap<u32, Player> {
         &mut self.players
     }
 
@@ -521,10 +526,8 @@ impl GameLogic {
         if source_player_id == target_player_id {
             return Relationship::Allies;
         }
-        // Inactive/map-placeholder slots are not combat enemies.
-        if !source.is_alive || !target.is_alive {
-            return Relationship::Neutral;
-        }
+        // Player::getRelationship reads the stored team/player relations even
+        // after defeat; activity is a separate predicate at callers that need it.
         if let Some(rel) = source.map_relationship(target_player_id) {
             return rel;
         }
@@ -1539,7 +1542,18 @@ impl GameLogic {
     /// Clear all players (for snapshot restoration)
     pub fn clear_all_players(&mut self) {
         self.players.clear();
+        self.select_local_player(None);
         self.player_template_bindings.clear();
+    }
+
+    /// Select the receiving session's one local player. C++ PlayerList stores
+    /// one `m_local` pointer, independently of the players' controller types.
+    pub fn select_local_player(&mut self, player_id: Option<u32>) -> bool {
+        if player_id.is_some_and(|id| !self.players.contains_key(&id)) {
+            return false;
+        }
+        self.local_player_id = player_id;
+        true
     }
 
     /// Add a player directly (for snapshot restoration)
@@ -1571,6 +1585,7 @@ impl GameLogic {
                 "Player script identity already belongs to another controller",
             ));
         }
+        let is_human = player.is_human && !player.is_observer;
         let name = format!("team{owner}");
         let factory = self
             .team_factory
@@ -1599,6 +1614,12 @@ impl GameLogic {
         self.player_template_bindings.remove(&player.id);
         let id = player.id;
         self.players.insert(id, player);
+        // Ordinary offline admission chooses the first human in authored
+        // order. Explicit later overrides are applied once the complete
+        // admission list is known (map/skirmish/replay paths).
+        if self.local_player_id.is_none() && is_human {
+            self.select_local_player(Some(id));
+        }
         self.ensure_host_default_team(id);
         Ok(())
     }
@@ -1906,7 +1927,7 @@ impl GameLogic {
     /// Wave 240: local flag without exposing `&Player`.
     #[inline]
     pub fn player_is_local(&self, id: u32) -> bool {
-        self.players.get(&id).map(|p| p.is_local).unwrap_or(false)
+        self.is_local_player(id)
     }
 
     /// Wave 240: UI color without exposing `&Player`.
@@ -1956,10 +1977,10 @@ impl GameLogic {
     /// Wave 242: extend selection without exposing `&mut Player`.
     #[inline]
     pub fn player_extend_selection(&mut self, id: u32, units: &[ObjectId]) {
+        let local = self.is_local_player(id);
         let Some(player) = self.players.get_mut(&id) else {
             return;
         };
-        let local = player.is_local;
         for unit in units {
             if !player.selected_objects.contains(unit) {
                 player.selected_objects.push(*unit);
@@ -2511,7 +2532,7 @@ impl GameLogic {
                 if self
                     .players
                     .get(&owner_id)
-                    .is_some_and(|player| player.is_local)
+                    .is_some_and(|_| self.is_local_player(owner_id))
                 {
                     let shroud_manager = self.world_services.shroud();
                     let visible = shroud_manager
@@ -2706,7 +2727,7 @@ impl GameLogic {
                 if self
                     .players
                     .get(&owner_id)
-                    .is_some_and(|player| player.is_local)
+                    .is_some_and(|_| self.is_local_player(owner_id))
                 {
                     let shroud_manager = self.world_services.shroud();
                     let visible = shroud_manager
@@ -2808,17 +2829,12 @@ impl GameLogic {
     }
 
     pub fn local_player_id(&self) -> Option<u32> {
-        self.players
-            .values()
-            .find(|player| player.is_local)
-            .map(|player| player.id)
+        self.local_player_id
+            .filter(|id| self.players.contains_key(id))
     }
 
     pub fn is_local_player(&self, player_id: u32) -> bool {
-        self.players
-            .get(&player_id)
-            .map(|player| player.is_local)
-            .unwrap_or(false)
+        self.local_player_id() == Some(player_id)
     }
 
     /// Override a player's display name (used by CLI / networking parity).
@@ -2875,6 +2891,9 @@ impl GameLogic {
                 player_id
             );
             self.players.remove(&player_id);
+            if self.local_player_id == Some(player_id) {
+                self.select_local_player(None);
+            }
             self.player_template_bindings.remove(&player_id);
             return false;
         }
@@ -3675,12 +3694,14 @@ mod dock_approach_owner_tests {
             !snapshot_active.contains(&(dock_a, active_a)),
             "save projection must not pair reconciled queue slots with a stale active holder"
         );
-        assert!(snapshot_queues
-            .iter()
-            .find(|(id, _)| *id == dock_a)
-            .map_or(true, |(_, queue)| {
-                !queue.owned_dockers().any(|id| id == active_a)
-            }));
+        assert!(
+            snapshot_queues
+                .iter()
+                .find(|(id, _)| *id == dock_a)
+                .map_or(true, |(_, queue)| {
+                    !queue.owned_dockers().any(|id| id == active_a)
+                })
+        );
         let waiter_a = workers_a[1];
         make_gathering(&mut world_a, dock_a, waiter_a);
         // The normal mutable support-state update flushes callback epochs

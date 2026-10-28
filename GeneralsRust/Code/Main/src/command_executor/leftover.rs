@@ -925,12 +925,7 @@ impl<'a> CommandExecutor<'a> {
             return CommandResult::InvalidCommand;
         }
         let team = player.team;
-        let local_id = self
-            .game_logic
-            .get_players()
-            .values()
-            .find(|p| p.is_local)
-            .map(|p| p.id);
+        let local_id = self.game_logic.local_player_id();
         let template_name = host_beacon_template_name(self.game_logic, player_id, team);
         let max_beacons = self.game_logic.max_beacons_per_player;
         let existing = host_count_player_beacons(self.game_logic, player_id, &template_name);
@@ -1025,12 +1020,7 @@ impl<'a> CommandExecutor<'a> {
         // C++ GameLogicDispatch.cpp:1675-1727 MSG_REMOVE_BEACON:
         // owner destroys selected beacon objects; local non-owner hides them.
         // Retail is strictly selection-driven: empty / non-beacon selection is a no-op.
-        let local_id = self
-            .game_logic
-            .get_players()
-            .values()
-            .find(|p| p.is_local)
-            .map(|p| p.id);
+        let local_id = self.game_logic.local_player_id();
         let mut any = false;
         for &id in selected {
             if !host_object_is_beacon(self.game_logic, id) {
@@ -1238,7 +1228,7 @@ fn host_transfer_assets_from(logic: &mut GameLogic, dest_player: u32, source_pla
         .registered()
         .filter_map(|(id, obj)| {
             (obj.owner_player_id == Some(source_player) && !host_object_is_beacon(logic, *id))
-            .then_some(*id)
+                .then_some(*id)
         })
         .collect();
     for id in ids {
@@ -1567,12 +1557,13 @@ impl GameLogic {
         let client_enabled =
             game_engine::common::global_data::read().client_retaliation_mode_enabled;
         let pending: Vec<(u32, bool)> = self
-            .get_players()
-            .values()
-            .filter(|player| {
-                player.is_local && player.logical_retaliation_mode_enabled != client_enabled
+            .local_player_id()
+            .filter(|id| {
+                self.get_player(*id)
+                    .is_some_and(|player| player.logical_retaliation_mode_enabled != client_enabled)
             })
-            .map(|player| (player.id, client_enabled))
+            .map(|id| (id, client_enabled))
+            .into_iter()
             .collect();
         for (player_id, enabled) in pending {
             self.queue_command(crate::command_system::GameCommand {

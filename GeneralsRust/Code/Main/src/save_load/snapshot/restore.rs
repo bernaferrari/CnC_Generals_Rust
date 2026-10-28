@@ -1082,22 +1082,16 @@ impl SnapshotBuilder {
     ) -> SaveLoadResult<()> {
         // Local view selection belongs to the receiving session. The existing
         // wire is_human flag describes controller type, including remote humans.
-        let local_ids: HashSet<u32> = game_logic
-            .get_players()
-            .values()
-            .filter(|player| player.is_local && players.iter().any(|saved| saved.id == player.id))
-            .map(|player| player.id)
-            .collect();
-        let fallback_local = local_ids
-            .is_empty()
-            .then(|| {
+        let local_player_id = game_logic
+            .local_player_id()
+            .filter(|id| players.iter().any(|saved| saved.id == *id))
+            .or_else(|| {
                 players
                     .iter()
                     .filter(|player| player.is_human)
                     .map(|player| player.id)
                     .min()
-            })
-            .flatten();
+            });
         // PlayerList::xfer mutates the already-admitted Player roster. Retain
         // initFromDict facts absent from PlayerSnapshot; never run default-team
         // admission using a saved display label during restoration.
@@ -1158,7 +1152,6 @@ impl SnapshotBuilder {
                     unlocked_sciences,
                     queued_upgrades,
                     is_human: snap.is_human,
-                    is_local: local_ids.contains(&snap.id) || fallback_local == Some(snap.id),
                     is_alive: snap.is_active,
                     is_observer: initialized.as_ref().is_some_and(|p| p.is_observer),
                     did_preorder: initialized.as_ref().is_some_and(|p| p.did_preorder),
@@ -1216,6 +1209,7 @@ impl SnapshotBuilder {
                 },
             );
         }
+        game_logic.select_local_player(local_player_id);
         Ok(())
     }
 
@@ -1669,11 +1663,7 @@ impl SnapshotBuilder {
         let inferred_difficulty =
             Self::difficulty_from_modifiers(&global_ai_snapshot.difficulty_modifiers);
 
-        let local_player_id = game_logic
-            .get_players()
-            .iter()
-            .find_map(|(id, player)| player.is_local.then_some(*id))
-            .unwrap_or(u32::MAX);
+        let local_player_id = game_logic.local_player_id().unwrap_or(u32::MAX);
         game_logic.setup_skirmish_ai(local_player_id);
 
         let ai_player_ids: Vec<u32> = game_logic

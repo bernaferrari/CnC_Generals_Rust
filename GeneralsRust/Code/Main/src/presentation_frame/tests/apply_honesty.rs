@@ -679,7 +679,6 @@ fn presentation_feeds_victory_and_construction() {
         o.building_data = Some(BuildingData::new(BuildingType::PowerPlant));
     }
     if let Some(p) = logic.get_player_mut(0) {
-        p.is_local = true;
         p.power_produced = 80;
         p.power_consumed = 30;
     }
@@ -732,7 +731,6 @@ fn presentation_feeds_control_bar_radar_and_queues() {
         .create_object("RadarVan", Team::USA, glam::Vec3::new(2.0, 0.0, 2.0))
         .expect("unit");
     if let Some(p) = logic.get_player_mut(0) {
-        p.is_local = true;
         p.is_alive = true;
         p.selected_objects = vec![id];
         p.radar_count = 3;
@@ -790,7 +788,6 @@ fn presentation_feeds_control_bar_sciences() {
         .create_object("SciUnit", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
         .expect("unit");
     if let Some(p) = logic.get_player_mut(0) {
-        p.is_local = true;
         p.is_alive = true;
         p.selected_objects = vec![id];
         p.unlocked_sciences.insert("SCIENCE_RedGuards".into());

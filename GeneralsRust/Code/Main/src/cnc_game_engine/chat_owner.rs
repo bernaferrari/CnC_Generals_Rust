@@ -70,7 +70,6 @@ mod tests {
         let mut peer = GameLogic::new();
         for (world, active) in [(&mut owner, true), (&mut peer, false)] {
             let mut local = Player::new(17, Team::USA, "arbitrary display", true);
-            local.is_local = true;
             local.is_alive = active;
             local.map_side.map_player_name = "player3".into();
             let mut other = Player::new(91, Team::China, "same display", false);

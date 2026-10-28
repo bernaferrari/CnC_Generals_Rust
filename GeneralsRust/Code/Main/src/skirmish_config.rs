@@ -1402,7 +1402,7 @@ mod tests {
 
         let human = logic.get_player(0).expect("human slot");
         assert_eq!(human.team, Team::USA);
-        assert!(human.is_local);
+        assert!(logic.is_local_player(human.id));
         assert_eq!(human.resources.supplies, 13_579);
         // GameInfo fields are applied after Player::init(PlayerTemplate).
         assert_eq!(human.color_rgb, (7, 8, 9));
@@ -1411,7 +1411,7 @@ mod tests {
 
         let ai = logic.get_player(1).expect("AI slot");
         assert_eq!(ai.team, Team::China);
-        assert!(!ai.is_local);
+        assert!(!logic.is_local_player(ai.id));
         assert_eq!(ai.resources.supplies, 13_579);
         assert_eq!(ai.color_rgb, (10, 11, 12));
         assert_eq!(ai.start_position, 0);
@@ -1643,7 +1643,7 @@ mod tests {
         let mut logic = GameLogic::new();
         apply_skirmish_config(&mut logic, &cfg).expect("apply");
         let p0 = logic.get_player(0).expect("human");
-        assert!(p0.is_local || p0.resources.supplies == 10_000);
+        assert!(logic.is_local_player(p0.id) || p0.resources.supplies == 10_000);
         assert_eq!(p0.resources.supplies, 10_000);
         let p1 = logic.get_player(1).expect("ai");
         assert_eq!(p1.resources.supplies, 10_000);

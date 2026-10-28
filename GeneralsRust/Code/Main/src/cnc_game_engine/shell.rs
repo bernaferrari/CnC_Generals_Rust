@@ -203,7 +203,6 @@ impl CnCGameEngine {
             if !frame.players.is_empty() {
                 let local = frame
                     .player_info(frame.local_player_id)
-                    .or_else(|| frame.players.iter().find(|p| p.is_local))
                     .or_else(|| frame.players.first());
                 let mut context = game_client::gui::load_screen::LoadScreenInitContext::default();
                 if let Some(local) = local {

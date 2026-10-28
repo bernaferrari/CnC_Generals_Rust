@@ -872,7 +872,6 @@ fn local_player_freeze_from_host() {
         .expect("u");
     let pid = 0u32;
     if let Some(p) = logic.get_player_mut(pid) {
-        p.is_local = true;
         p.is_alive = true;
         p.resources.supplies = 12345;
         p.power_produced = 100;
@@ -1158,6 +1157,16 @@ fn production_queue_freezes_from_building_data() {
     let mut t = ThingTemplate::new("ProdBldg");
     t.set_health(200.0);
     t.add_kind_of(KindOf::Structure);
+    t.production_exit_metadata = Some(crate::game_logic::ProductionExitMetadata {
+        style: crate::game_logic::ProductionExitStyle::Default,
+        unit_create_point: [0.0; 3],
+        natural_rally_point: [0.0; 3],
+        exit_delay_frames: 0,
+        allow_airborne_creation: false,
+        initial_burst: 0,
+        use_spawn_rally_point: false,
+        grant_temporary_stealth_frames: 0,
+    });
     logic.templates.insert("ProdBldg".into(), t);
     let id = logic
         .create_object("ProdBldg", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
@@ -1646,7 +1655,6 @@ fn presentation_feeds_script_and_cinematic_ui() {
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "ScriptP", true));
     if let Some(p) = logic.get_player_mut(0) {
-        p.is_local = true;
         p.radar_count = 1;
         p.radar_disabled = false;
     }

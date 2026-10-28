@@ -18,8 +18,8 @@ fn world(science_name: &str, human: bool) -> (GameLogic, game_engine::common::rt
     let mut world = GameLogic::new();
     world.receiving_module_content = Some(ReceivingModuleContent::new(modules));
     let mut player = Player::new(0, Team::USA, "player0", human);
-    player.is_local = !human; // locality cannot substitute for the controller type.
     world.add_player(player);
+    assert!(world.select_local_player((!human).then_some(0))); // Locality cannot substitute for controller type.
     (world, raw)
 }
 

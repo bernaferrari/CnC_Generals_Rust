@@ -111,7 +111,7 @@ impl GameLogic {
                 let is_local = self
                     .player_id_for_team(o.team)
                     .and_then(|pid| self.players.get(&pid))
-                    .map(|p| p.is_local)
+                    .map(|p| self.is_local_player(p.id))
                     .unwrap_or(false);
                 // C++ attack-move auto-acquire: Idle OR AttackMoving/is_attack_path.
                 let idle = matches!(o.ai_state(), AIState::Idle) && o.target.is_none();
@@ -241,7 +241,7 @@ impl GameLogic {
             .get(&owner_id)
             .and_then(|me| me.owner_player_id)
             .and_then(|pid| self.players.get(&pid))
-            .map(|p| !p.is_local)
+            .map(|p| !self.is_local_player(p.id))
             // C++ PartitionFilterRejectBuildings ctor (PartitionManager.cpp:4890-4899):
             // only a PLAYER_COMPUTER controller sets m_acquireEnemies. The C++
             // neutral/default controller is PLAYER_HUMAN, so an ownerless object
@@ -628,9 +628,9 @@ impl GameLogic {
 
     /// Enable logical retaliation for all local (human) players.
     pub fn set_all_local_logical_retaliation(&mut self, enabled: bool) {
-        for p in self.players.values_mut() {
-            if p.is_local {
-                p.logical_retaliation_mode_enabled = enabled;
+        if let Some(local_id) = self.local_player_id() {
+            if let Some(player) = self.players.get_mut(&local_id) {
+                player.logical_retaliation_mode_enabled = enabled;
             }
         }
     }

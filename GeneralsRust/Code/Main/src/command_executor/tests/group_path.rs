@@ -1062,11 +1062,10 @@ fn movement_extent_uses_controlling_human_not_local_presentation() {
             let mut world = GameLogic::new();
             world.override_world_size(200.0, 200.0);
             let mut human = Player::new(0, Team::USA, "RemoteHuman", true);
-            human.is_local = false;
             let mut computer = Player::new(1, Team::China, "ViewedComputer", false);
-            computer.is_local = true;
             world.add_player(human);
             world.add_player(computer);
+            assert!(world.select_local_player(Some(1)));
             let mut template = ThingTemplate::new("ControllerExtentVehicle");
             template.add_kind_of(KindOf::Vehicle).set_health(100.0);
             world
@@ -1181,8 +1180,8 @@ fn movement_extent_uses_controlling_human_not_local_presentation() {
                     .grid
                     .in_logical_extent(no_human_end)
             );
-            assert!(!world.get_player(0).unwrap().is_local);
-            assert!(world.get_player(1).unwrap().is_local);
+            assert!(!world.is_local_player(0));
+            assert!(world.is_local_player(1));
         },
     );
 }

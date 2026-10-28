@@ -70,7 +70,7 @@ impl TracePlayer {
             name: player.name.clone(),
             side: player.team.get_name().to_string(),
             base_side: player.team.get_name().to_string(),
-            player_type: if player.is_local { "Human" } else { "Computer" }.to_string(),
+            player_type: if player.is_human { "Human" } else { "Computer" }.to_string(),
             money: player.resources.supplies as i32,
             power: player.power_available,
             low_power: player.power_available < 0,

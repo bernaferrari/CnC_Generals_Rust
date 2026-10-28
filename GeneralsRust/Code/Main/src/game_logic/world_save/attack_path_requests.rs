@@ -75,8 +75,7 @@ impl GameLogic {
                 let missing = glam::Vec3::new(-1000.0, -1000.0, 0.0);
                 let is_human = unit
                     .and_then(|u| u.owner_player_id)
-                    .and_then(|pid| self.players.get(&pid))
-                    .map(|p| p.is_local)
+                    .map(|pid| self.is_local_player(pid))
                     .unwrap_or(true);
                 let p1 = r1
                     .and_then(|i| self.objects.get(&i).map(|o| o.get_position()))
@@ -130,8 +129,7 @@ impl GameLogic {
                 .objects
                 .get(&req.unit_id)
                 .and_then(|unit| unit.owner_player_id)
-                .and_then(|pid| self.players.get(&pid))
-                .map(|player| player.is_local)
+                .map(|pid| self.is_local_player(pid))
                 .unwrap_or(true);
             if let Some(path) = ({
                 let ground_owner = self.world_services.terrain();

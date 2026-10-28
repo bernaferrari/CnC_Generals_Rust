@@ -409,7 +409,7 @@ impl GameWorldShadow {
             .collect();
         cds.sort_by(|a, b| a.0.cmp(&b.0));
         pd.shared_special_power_cooldowns = cds;
-        pd.is_human = p.is_local;
+        pd.is_human = p.is_human;
         pd.name = p.name.clone();
     }
 
@@ -460,7 +460,7 @@ impl GameWorldShadow {
                     if let Some(gw_id) = self.world.allocate_player_with_economy(
                         Some(p.name.clone()),
                         team,
-                        p.is_local,
+                        p.is_human,
                         p.resources.supplies,
                         p.energy_available_at(logic.frame),
                     ) {
@@ -490,7 +490,7 @@ impl GameWorldShadow {
                         if let Some(gw_id) = self.world.allocate_player_with_economy(
                             Some(p.name.clone()),
                             team,
-                            p.is_local,
+                            p.is_human,
                             p.resources.supplies,
                             p.energy_available_at(logic.frame),
                         ) {

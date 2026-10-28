@@ -408,10 +408,10 @@ End
     for (id, team) in [(0, Team::USA), (1, Team::China), (2, Team::GLA)] {
         let mut player = Player::new(id, team, &format!("SplashPlayer{id}"), true);
         player.alliance_team = id as i32;
-        player.is_local = id == 0;
         player.is_alive = true;
         world.add_player(player);
     }
+    assert!(world.select_local_player(Some(0)));
     world.set_current_frame(100);
     {
         let mut shroud = world.world_services.shroud().lock().unwrap();

@@ -30,9 +30,9 @@ impl crate::game_logic::GameLogic {
             .unwrap_or(crate::game_logic::Team::Neutral);
         if local_team == crate::game_logic::Team::Neutral {
             local_team = self
-                .get_players()
-                .values()
-                .find(|player| player.is_local && player.team != crate::game_logic::Team::Neutral)
+                .local_player_id()
+                .and_then(|id| self.get_player(id))
+                .filter(|player| player.team != crate::game_logic::Team::Neutral)
                 .map(|player| player.team)
                 .unwrap_or(crate::game_logic::Team::USA);
         }

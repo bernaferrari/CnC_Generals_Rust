@@ -419,7 +419,7 @@ impl GameLogic {
         let is_computer = obj
             .owner_player_id
             .and_then(|pid| self.players.get(&pid))
-            .map(|p| !p.is_local)
+            .map(|p| !self.is_local_player(p.id))
             .unwrap_or(false);
         if !is_computer {
             return false;

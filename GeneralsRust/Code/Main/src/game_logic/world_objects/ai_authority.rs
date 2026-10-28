@@ -83,7 +83,7 @@ impl GameLogic {
                     .objects
                     .get(&object_id)
                     .and_then(|o| o.owner_player_id)
-                    .and_then(|pid| self.players.get(&pid).map(|p| p.is_local))
+                    .map(|pid| self.is_local_player(pid))
                     .unwrap_or(false);
                 if let Some(enemy_id) = self.get_next_mood_target(object_id, true, false, is_player)
                 {
@@ -867,7 +867,7 @@ impl GameLogic {
         }
         unit.owner_player_id
             .and_then(|pid| self.players.get(&pid))
-            .map(|p| !p.is_local)
+            .map(|p| !self.is_local_player(p.id))
             .unwrap_or(false)
     }
 

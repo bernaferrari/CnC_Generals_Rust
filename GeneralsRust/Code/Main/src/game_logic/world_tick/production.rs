@@ -757,9 +757,8 @@ impl GameLogic {
             }
         }
         let selected_has_cameo = self
-            .players
-            .values()
-            .find(|player| player.is_local)
+            .local_player_id()
+            .and_then(|id| self.players.get(&id))
             .and_then(|player| player.selected_objects.first())
             .and_then(|id| self.objects.get(id))
             .is_some_and(|object| {

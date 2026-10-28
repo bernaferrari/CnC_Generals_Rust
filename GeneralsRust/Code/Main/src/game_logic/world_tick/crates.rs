@@ -2271,7 +2271,7 @@ impl GameLogic {
             .players
             .values()
             .find(|p| p.team == killer_team)
-            .map(|p| !p.is_local)
+            .map(|p| !self.is_local_player(p.id))
             .unwrap_or(true); // no player record → treat as AI
         if !is_computer {
             return false;

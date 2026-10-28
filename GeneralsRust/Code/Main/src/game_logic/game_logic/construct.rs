@@ -135,6 +135,7 @@ impl GameLogic {
             vision_last_shroud: HashMap::new(),
 
             players: HashMap::new(),
+            local_player_id: None,
             rank_level_limit: crate::game_logic::host_rank_ui_residual::RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL,
             rank_points_to_add_at_game_start: 0,
             buildable_status_overrides: HashMap::new(),
@@ -957,6 +958,7 @@ impl GameLogic {
         self.vision_last_shroud.clear();
 
         self.players.clear();
+        self.select_local_player(None);
         self.skirmish_rules.starting_cash = Player::DEFAULT_STARTING_MONEY;
         self.skirmish_rules.starting_cash_default = Some(Player::DEFAULT_STARTING_MONEY);
         self.rank_level_limit =

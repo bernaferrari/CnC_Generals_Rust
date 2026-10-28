@@ -525,10 +525,7 @@ mod tests {
             .create_object_for_player("TransportRider", 1, Vec3::ZERO)
             .unwrap();
         assert!(world.host_object_mut(carrier).unwrap().add_occupant(rider));
-        world
-            .host_object_mut(rider)
-            .unwrap()
-            .set_contained_by(Some(carrier));
+        world.host_object_mut(rider).unwrap().contained_by = Some(carrier);
         world
             .host_object_mut(rider)
             .unwrap()

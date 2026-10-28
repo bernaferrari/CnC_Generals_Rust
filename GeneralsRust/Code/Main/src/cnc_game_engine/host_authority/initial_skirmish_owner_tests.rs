@@ -285,7 +285,7 @@ fn direct_config_archive_rebuilds_saved_initial_foundation_before_strict_map_cov
                     player.map_side.map_player_name
                 );
                 assert_eq!(loaded.map_side.role, player.map_side.role);
-                assert_eq!(loaded.is_local, player.is_local);
+                assert_eq!(restored.logic.is_local_player(*id), source.is_local_player(*id));
             }
             assert_eq!(
                 restored.logic.host_objects().registered_len(),
@@ -672,8 +672,8 @@ fn actual_random_color_client_input_keeps_native_archive_and_nonfirst_local_auth
                 "resolution never rewrites the caller's prestart observation"
             );
             assert_eq!(source.local_player_id(), Some(1));
-            assert!(!source.get_player(0).unwrap().is_local);
-            assert!(source.get_player(1).unwrap().is_local);
+            assert!(!source.is_local_player(0));
+            assert!(source.is_local_player(1));
             assert!(source.load_map(&map));
             for (id, color, night) in &expected_colors {
                 let player = source.get_player(*id).unwrap();
@@ -741,8 +741,8 @@ fn actual_random_color_client_input_keeps_native_archive_and_nonfirst_local_auth
             );
             let restored = stage(&mut saves, "random_color", &source).unwrap();
             assert_eq!(restored.logic.local_player_id(), Some(1));
-            assert!(!restored.logic.get_player(0).unwrap().is_local);
-            assert!(restored.logic.get_player(1).unwrap().is_local);
+            assert!(!restored.logic.is_local_player(0));
+            assert!(restored.logic.is_local_player(1));
             assert_eq!(
                 restored.logic.initial_skirmish_admission.as_deref(),
                 source.initial_skirmish_admission.as_deref()

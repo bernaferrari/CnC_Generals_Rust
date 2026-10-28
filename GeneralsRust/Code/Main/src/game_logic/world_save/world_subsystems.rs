@@ -392,7 +392,6 @@ impl GameLogic {
         let mut observer = Player::new(id, Team::Neutral, "ReplayObserver", true);
         // C++ GameLogic.cpp:2222-2230 selects this human observer only in GAME_REPLAY.
         // Admission alone must preserve the local participant in a live match.
-        observer.is_local = false;
         observer.resources.supplies = self.skirmish_rules.starting_cash;
         observer.map_side.role = PlayerSideRole::ReplayObserver;
         observer.map_side.map_player_name = "ReplayObserver".into();
@@ -545,9 +544,7 @@ impl GameLogic {
         let id = self
             .replay_observer_player_id()
             .ok_or_else(|| "Replay restore has no admitted ReplayObserver Player".to_string())?;
-        for player in self.players.values_mut() {
-            player.is_local = player.id == id;
-        }
+        self.select_local_player(Some(id));
         Ok(())
     }
 
@@ -556,9 +553,7 @@ impl GameLogic {
             return;
         }
         let observer_id = self.ensure_replay_observer_player();
-        for player in self.players.values_mut() {
-            player.is_local = player.id == observer_id;
-        }
+        self.select_local_player(Some(observer_id));
         // Temporary native consumer adapter; Main selected the identity above.
         if let Ok(mut list) = ThePlayerList().write() {
             if list.get_player(observer_id as i32).is_some() {

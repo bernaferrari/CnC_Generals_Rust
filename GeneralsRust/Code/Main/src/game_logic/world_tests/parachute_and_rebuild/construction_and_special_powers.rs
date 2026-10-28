@@ -1951,9 +1951,7 @@ fn shared_timer_ready_fires_eva_superweapon_ready_residual() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);
-    if let Some(p) = logic.get_player_mut_by_team(Team::USA) {
-        p.is_local = true;
-    }
+    assert_eq!(logic.local_player_id(), Some(0));
     let mut t = ThingTemplate::new(AMERICA_PARTICLE_CANNON_UPLINK);
     t.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSSuperweapon)
@@ -2030,9 +2028,7 @@ fn presentation_structure_sw_timer_uses_object_cooldown() {
 
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);
-    if let Some(p) = logic.get_player_mut_by_team(Team::USA) {
-        p.is_local = true;
-    }
+    assert_eq!(logic.local_player_id(), Some(0));
     let mut t = ThingTemplate::new(AMERICA_PARTICLE_CANNON_UPLINK);
     t.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSSuperweapon)

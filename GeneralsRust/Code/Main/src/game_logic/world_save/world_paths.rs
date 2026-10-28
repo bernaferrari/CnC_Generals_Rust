@@ -1891,10 +1891,7 @@ impl GameLogic {
             .lookup(&unit_id)
             .map(|unit| unit.locomotor_surfaces)
             .unwrap_or(0);
-        let is_human = owner
-            .and_then(|pid| self.players.get(&pid))
-            .map(|player| player.is_local)
-            .unwrap_or(true);
+        let is_human = owner.map(|pid| self.is_local_player(pid)).unwrap_or(true);
         let mut path = if contact {
             ({
                 let ground_owner = self.world_services.terrain();

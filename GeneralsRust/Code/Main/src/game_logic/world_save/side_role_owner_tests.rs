@@ -126,14 +126,14 @@ fn participant_display_cannot_capture_replay_observer_identity() {
             );
             assert_eq!(world.players.len(), 3);
             assert!(
-                !world.players[&observer].is_local,
+                !world.is_local_player(observer),
                 "admission is not replay selection"
             );
             assert!(
-                world.players[&0].is_local,
+                world.is_local_player(0),
                 "the occupied human remains local"
             );
-            assert_eq!(world.players.values().filter(|p| p.is_local).count(), 1);
+            assert_eq!(usize::from(world.local_player_id().is_some()), 1);
             assert_eq!(world.players[&0].name, "ReplayObserver");
             assert!(
                 world.players[&observer].is_human,

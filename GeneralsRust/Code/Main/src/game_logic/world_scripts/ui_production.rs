@@ -2733,7 +2733,7 @@ impl GameLogic {
                     };
                     if let Some(p) = owner {
                         let pid = p.id;
-                        let is_local = p.is_local;
+                        let is_local = self.is_local_player(pid);
                         self.try_eva_insufficient_funds(pid);
                         // C++ ControlBarCommandProcessing.cpp:388-389 — every
                         if is_local {
