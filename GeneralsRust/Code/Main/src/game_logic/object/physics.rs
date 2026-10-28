@@ -1626,6 +1626,24 @@ impl Object {
     /// Sets waiting_for_path briefly, installs single-waypoint path to dest.
     /// Full Pathfinder A* is applied by GameLogic when grid is available.
     pub fn request_path(&mut self, destination: glam::Vec3, waypoints: Option<Vec<glam::Vec3>>) {
+        self.request_path_inner(destination, waypoints, None);
+    }
+
+    pub(crate) fn request_path_at_frame(
+        &mut self,
+        destination: glam::Vec3,
+        waypoints: Option<Vec<glam::Vec3>>,
+        frame: u32,
+    ) {
+        self.request_path_inner(destination, waypoints, Some(frame));
+    }
+
+    fn request_path_inner(
+        &mut self,
+        destination: glam::Vec3,
+        waypoints: Option<Vec<glam::Vec3>>,
+        frame: Option<u32>,
+    ) {
         self.waiting_for_path = true;
         self.queue_for_path_frames = 0;
         self.maintain_pos_valid = false;
@@ -1653,7 +1671,11 @@ impl Object {
         self.refresh_follow_path_extra_distance();
         self.waiting_for_path = false;
         self.is_braking = false;
-        self.start_move();
+        if let Some(frame) = frame {
+            self.start_move_at_frame(frame);
+        } else {
+            self.start_move();
+        }
         self.num_frames_blocked = 0;
         self.is_blocked_and_stuck = false;
         self.set_status_moving(true);

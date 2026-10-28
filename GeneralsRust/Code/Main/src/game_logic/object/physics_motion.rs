@@ -55,7 +55,12 @@ impl Object {
     }
 
     /// C++ privateMoveAwayFromUnit after getMoveAwayFromPath succeeds.
-    pub fn apply_move_away_path(&mut self, threat_id: ObjectId, path: &[glam::Vec3]) -> bool {
+    pub fn apply_move_away_path(
+        &mut self,
+        threat_id: ObjectId,
+        path: &[glam::Vec3],
+        frame: u32,
+    ) -> bool {
         if self.status.destroyed || !self.is_alive() || !self.can_move() {
             return false;
         }
@@ -85,7 +90,7 @@ impl Object {
         self.is_attack_path = false;
         self.is_exact_path = false;
         self.refresh_follow_path_extra_distance();
-        self.start_move();
+        self.start_move_at_frame(frame);
         self.set_status_moving(true);
         self.num_frames_blocked = 0;
         self.is_blocked_and_stuck = false;

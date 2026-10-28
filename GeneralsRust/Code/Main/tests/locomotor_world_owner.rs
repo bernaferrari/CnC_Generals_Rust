@@ -121,6 +121,50 @@ fn ordinary_updates_stamp_locomotor_maintain_deadlines_from_each_world_frame() {
 }
 
 #[test]
+fn accepted_path_and_ai_state_entry_stamp_the_receiving_frame() {
+    let mut map = DataChunkOutput::new();
+    map.open_data_chunk("HeightMapData", 3);
+    for value in [21, 21, 1, 441] {
+        map.write_int(value);
+    }
+    for _ in 0..441 {
+        map.write_byte(8);
+    }
+    map.close_data_chunk();
+    map.open_data_chunk("ObjectsList", 3);
+    map.close_data_chunk();
+    let root = tempfile::tempdir().unwrap();
+    let map_path = root.path().join("MoveEntry.map");
+    std::fs::write(&map_path, map.into_ckmp_bytes()).unwrap();
+
+    let mut owner = world(&map_path, 20, 3);
+    let mut peer = world(&map_path, 60, 7);
+    for _ in 0..7 {
+        owner.update_with_dt(1.0 / 30.0);
+    }
+    for _ in 0..19 {
+        peer.update_with_dt(1.0 / 30.0);
+    }
+    let owner_id = owner
+        .create_object_for_player("OwnerMover", 42, glam::Vec3::new(80.0, 0.0, 80.0))
+        .unwrap();
+    let peer_id = peer
+        .create_object_for_player("OwnerMover", 42, glam::Vec3::new(80.0, 0.0, 80.0))
+        .unwrap();
+    assert_eq!(owner_id, peer_id);
+
+    let owner_frame = owner.get_frame();
+    let peer_frame = peer.get_frame();
+    assert_ne!(owner_frame, peer_frame);
+    for (logic, id, offset) in [(&mut owner, owner_id, 0.0), (&mut peer, peer_id, 10.0)] {
+        let goal = glam::Vec3::new(120.0 + offset, 0.0, 80.0);
+        assert!(logic.assign_unit_path_exact(id, goal, &[goal]));
+    }
+    assert_eq!(owner.host_object(owner_id).unwrap().donut_timer, owner_frame.wrapping_add(75));
+    assert_eq!(peer.host_object(peer_id).unwrap().donut_timer, peer_frame.wrapping_add(75));
+}
+
+#[test]
 fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
     use game_engine::common::name_key_generator::NameKeyGenerator;
     let before = NameKeyGenerator::name_to_key("LocomotorOwnerProbeBefore");

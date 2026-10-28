@@ -986,7 +986,15 @@ impl Object {
     /// moving/attacking status bits from the authoritative ordinal.
 
     pub fn set_ai_state(&mut self, state: AIState, audio: &mut crate::game_logic::ObjectAudio<'_>) {
-        self.set_ai_state_entry(state, audio, false);
+        self.set_ai_state_entry(state, audio, false, None);
+    }
+    pub(crate) fn set_ai_state_at_frame(
+        &mut self,
+        state: AIState,
+        frame: u32,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+    ) {
+        self.set_ai_state_entry(state, audio, false, Some(frame));
     }
     pub(crate) fn set_ai_child_state(
         &mut self,
@@ -996,7 +1004,7 @@ impl Object {
         if !self.unit_ai_runtime.can_enter_child() || self.unit_ai_runtime.machine_locked() {
             return false;
         }
-        self.set_ai_state_entry(state, audio, true);
+        self.set_ai_state_entry(state, audio, true, None);
         true
     }
     fn set_ai_state_entry(
@@ -1004,6 +1012,7 @@ impl Object {
         state: AIState,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         nested: bool,
+        frame: Option<u32>,
     ) {
         if self.unit_ai_runtime.machine_locked() {
             return;
@@ -1116,7 +1125,11 @@ impl Object {
             self.num_frames_blocked = 0;
             self.is_blocked_and_stuck = false;
             self.set_status_moving(true);
-            self.start_move();
+            if let Some(frame) = frame {
+                self.start_move_at_frame(frame);
+            } else {
+                self.start_move();
+            }
             if self.is_motive()
                 || (self.is_kind_of(crate::game_logic::KindOf::Dozer)
                     && self.is_kind_of(crate::game_logic::KindOf::Harvester))

@@ -130,7 +130,7 @@ impl GameLogic {
                     obj.is_blocked_and_stuck = false;
                     obj.path_timestamp = self.frame;
                     obj.refresh_follow_path_extra_distance();
-                    obj.start_move();
+                    obj.start_move_at_frame(self.frame);
                     obj.set_status_moving(true);
                     self.movement_events.record(
                         self.frame,
@@ -154,7 +154,7 @@ impl GameLogic {
                     obj.is_blocked_and_stuck = false;
                     obj.path_timestamp = self.frame;
                     obj.refresh_follow_path_extra_distance();
-                    obj.start_move();
+                    obj.start_move_at_frame(self.frame);
                     obj.set_status_moving(true);
                     self.movement_events.record(
                         self.frame,
@@ -297,7 +297,7 @@ impl GameLogic {
             }
             if let Some(path) = yield_path {
                 if let Some(obj) = self.objects.get_mut(&ally) {
-                    let _installed = obj.apply_move_away_path(object_id, &path);
+                    let _installed = obj.apply_move_away_path(object_id, &path, self.frame);
                     if obj.ignore_collisions_until_frame > 0
                         && obj.ignore_collisions_until_frame < 100_000
                     {

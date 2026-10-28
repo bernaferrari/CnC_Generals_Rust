@@ -456,6 +456,7 @@ impl Object {
         &mut self,
         dead_airfield: bool,
         goal: Option<Vec3>,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         // Enter the source move body directly. A blanket set_ai_state would
@@ -463,7 +464,7 @@ impl Object {
         self.num_frames_blocked = 0;
         self.is_blocked_and_stuck = false;
         self.set_status_moving(true);
-        self.start_move();
+        self.start_move_at_frame(frame);
         self.try_one_more_repath = true;
         let _ = audio;
         self.unit_ai_runtime.enter_root(if dead_airfield {

@@ -2518,7 +2518,7 @@ impl GameLogic {
             }
             u.set_adjust_destinations(!u.ultra_accurate);
             u.try_one_more_repath = true;
-            u.start_move();
+            u.start_move_at_frame(self.frame);
             u.set_status_moving(true);
             u.num_frames_blocked = 0;
             u.is_blocked_and_stuck = false;
@@ -3077,7 +3077,7 @@ impl GameLogic {
         }
         let last_node = waypoints.last().copied();
         let ok = if let Some(obj) = self.objects.get_mut(&id) {
-            obj.request_path(dest, Some(waypoints));
+            obj.request_path_at_frame(dest, Some(waypoints), self.frame);
             obj.path_timestamp = self.frame;
             true
         } else {

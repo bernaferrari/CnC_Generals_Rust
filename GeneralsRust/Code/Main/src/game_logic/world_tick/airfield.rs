@@ -586,6 +586,7 @@ impl GameLogic {
                     jet.enter_jet_return_control(
                         true,
                         goal,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
@@ -2930,6 +2931,7 @@ impl GameLogic {
                 jet.enter_jet_return_control(
                     false,
                     None,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }

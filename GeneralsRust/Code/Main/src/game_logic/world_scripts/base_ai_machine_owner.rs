@@ -422,6 +422,7 @@ impl GameLogic {
         unit.enter_jet_return_control(
             true,
             Some(goal),
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         self.assign_unit_path(id, goal, &[])
@@ -444,6 +445,7 @@ impl GameLogic {
         unit.enter_jet_return_control(
             false,
             None,
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         if !self.try_return_to_base_rearm_with_effects(id, effects) {

@@ -102,11 +102,12 @@ impl GameLogic {
             unit.is_blocked_and_stuck = false;
             unit.path_timestamp = self.frame;
             unit.path_extra_distance = unit.waypoint_link_extra_distance();
-            unit.start_move();
+            unit.start_move_at_frame(self.frame);
             let entered_move = !matches!(unit.ai_state(), AIState::Moving | AIState::Panic);
             if entered_move {
-                unit.set_ai_state(
+                unit.set_ai_state_at_frame(
                     AIState::Moving,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
@@ -304,7 +305,7 @@ impl GameLogic {
                 unit.is_blocked_and_stuck = false;
                 unit.try_one_more_repath = true;
                 unit.set_status_moving(true);
-                unit.start_move();
+                unit.start_move_at_frame(self.frame);
             }
             self.note_successful_move_path(unit_id);
             self.start_move_sound(unit_id);
@@ -380,7 +381,7 @@ impl GameLogic {
                 unit.waiting_for_path = true;
                 unit.movement.target_position = None;
                 unit.movement.velocity = glam::Vec3::ZERO;
-                unit.start_move();
+                unit.start_move_at_frame(self.frame);
                 entered_move = !matches!(
                     unit.ai_state(),
                     AIState::Constructing
@@ -925,7 +926,7 @@ impl GameLogic {
         unit.path_timestamp = self.frame;
         unit.refresh_follow_path_extra_distance();
 
-        unit.start_move();
+        unit.start_move_at_frame(self.frame);
         self.movement_events.record(
             self.frame,
             unit_id,

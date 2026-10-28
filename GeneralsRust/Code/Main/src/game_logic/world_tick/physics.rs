@@ -499,7 +499,7 @@ impl GameLogic {
                         if let Some(path) = yield_path {
                             let mut installed = false;
                             if let Some(other) = self.objects.get_mut(&other_id) {
-                                installed = other.apply_move_away_path(a_id, &path);
+                                installed = other.apply_move_away_path(a_id, &path, self.frame);
                                 if other.ignore_collisions_until_frame > 0
                                     && other.ignore_collisions_until_frame < 100_000
                                 {
@@ -630,7 +630,7 @@ impl GameLogic {
                         if let Some(path) = yield_path {
                             let mut installed = false;
                             if let Some(me) = self.objects.get_mut(&a_id) {
-                                installed = me.apply_move_away_path(other_id, &path);
+                                installed = me.apply_move_away_path(other_id, &path, self.frame);
                                 if me.ignore_collisions_until_frame > 0
                                     && me.ignore_collisions_until_frame < 100_000
                                 {

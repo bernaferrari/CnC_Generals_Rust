@@ -743,8 +743,9 @@ impl GameLogic {
         let entering_attack_move = state == AIState::AttackMoving
             && unit.unit_ai_runtime.root_state() != AIState::AttackMoving;
         if let Some(u) = self.objects.get_mut(&unit_id) {
-            u.set_ai_state(
+            u.set_ai_state_at_frame(
                 state.clone(),
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
