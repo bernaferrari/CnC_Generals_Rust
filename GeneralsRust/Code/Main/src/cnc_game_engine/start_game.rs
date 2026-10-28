@@ -892,6 +892,11 @@ impl CnCGameEngine {
             self.return_to_main_menu_after_match()?;
             return Ok(());
         };
+        // C++ GameLogic.cpp:2009-2010 initializes replay controls after map
+        // admission/preload and before resetting the tactical startup camera.
+        // Apply the effect to this engine's receiving Recorder and UI before
+        // Main's equivalent camera bootstrap below.
+        self.initialize_receiving_replay_controls();
         let initial_rank = recorder_dispatch.map_or(0, |dispatch| dispatch.rank_points);
         self.game_logic
             .set_rank_points_to_add_at_game_start(initial_rank);
@@ -1008,7 +1013,6 @@ impl CnCGameEngine {
         );
         self.game_logic.session_view.camera.camera_pitch_radians = 0.0;
         self.game_logic.session_view.camera.camera_yaw_radians = 0.0;
-        self.initialize_receiving_replay_controls();
         // W3DView::setCameraTransform calculates camera constraints when
         // lookAt/setZoomToDefault builds the initial pose. The match camera
         // must apply that same viewport inset before its first player scroll.
