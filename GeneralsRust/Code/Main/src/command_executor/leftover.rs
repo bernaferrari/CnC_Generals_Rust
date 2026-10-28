@@ -12,10 +12,6 @@ use crate::game_logic::{
 };
 use crate::localization;
 use crate::ui::audio::translate_audio_event;
-use gamelogic::common::AsciiString;
-use gamelogic::common::types::Coord3D as LogicCoord3D;
-use gamelogic::system::beacon_manager::get_beacon_manager;
-use gamelogic::system::game_logic::current_frame;
 use glam::Vec3;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
@@ -1014,13 +1010,6 @@ impl<'a> CommandExecutor<'a> {
                 game_engine::common::system::radar::RadarEventType::Information,
             );
             self.game_logic.try_eva_beacon_detected(player_id);
-            if let Ok(mut manager) = get_beacon_manager().lock() {
-                let coord = LogicCoord3D::new(pos.x, pos.y, pos.z);
-                manager.place_beacon(player_id as i32, coord, current_frame());
-                if !text.is_empty() {
-                    manager.set_beacon_text(player_id as i32, &coord, AsciiString::from(text));
-                }
-            }
             self.game_logic.note_beacon_placed(pos);
         } else {
             live_beacon_hide(self.game_logic, beacon_id, &mut self.ui);
@@ -1068,9 +1057,6 @@ impl<'a> CommandExecutor<'a> {
 
         if !any {
             return CommandResult::InvalidCommand;
-        }
-        if let Ok(mut manager) = get_beacon_manager().lock() {
-            let _ = manager.remove_latest_beacon(player_id as i32);
         }
         // C++ MSG_REMOVE_BEACON is silent: no audio, no InGameUI/radar message.
         // Wave 211: note_beacon_removed_latest replaced by per-id note_beacon_removed_at.

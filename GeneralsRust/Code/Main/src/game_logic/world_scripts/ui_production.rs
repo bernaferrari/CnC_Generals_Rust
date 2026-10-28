@@ -4,6 +4,28 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+fn receiving_minimap_beacon_entries(logic: &GameLogic) -> Vec<(u32, glam::Vec3)> {
+    let mut entries: Vec<(u32, glam::Vec3)> = Vec::new();
+    // HostObjectStore prepends registrations, whereas beacon placement order
+    // is chronological. Reverse visitation restores that order. C++ creates
+    // one Object per placement, including nearby beacons.
+    for (id, object) in logic.objects.registered().rev() {
+        let template_name = object.template_name.to_ascii_lowercase();
+        let Some(owner) = object.owner_player_id else {
+            continue;
+        };
+        if !object.is_alive()
+            || !template_name.contains("beacon")
+            || object.drawable_hidden
+            || crate::command_executor::host_beacon_is_hidden(logic, *id)
+        {
+            continue;
+        }
+        entries.push((owner, object.get_position()));
+    }
+    entries
+}
+
 impl GameLogic {
     /// Update UI state from game logic
     /// This method extracts all data needed for UI rendering each frame
@@ -154,21 +176,19 @@ impl GameLogic {
             }
         }
 
-        let mut minimap_beacons = Vec::new();
-        for beacon in snapshot_beacons() {
-            let pos = glam::Vec3::new(beacon.position.x, beacon.position.y, beacon.position.z);
-            if crate::command_executor::host_beacon_position_is_hidden(self, pos) {
-                continue;
-            }
-            let normalized_x = ((beacon.position.x - world_min.x) / world_span_x).clamp(0.0, 1.0);
-            let normalized_y = ((beacon.position.z - world_min.z) / world_span_z).clamp(0.0, 1.0);
-            minimap_beacons.push(MinimapDot::normalized(
-                normalized_x,
-                normalized_y,
-                color_for_player(beacon.player_id as u8),
-                4.0,
-            ));
-        }
+        let minimap_beacons: Vec<_> = receiving_minimap_beacon_entries(self)
+            .into_iter()
+            .map(|(owner, position)| {
+                let normalized_x = ((position.x - world_min.x) / world_span_x).clamp(0.0, 1.0);
+                let normalized_y = ((position.z - world_min.z) / world_span_z).clamp(0.0, 1.0);
+                MinimapDot::normalized(
+                    normalized_x,
+                    normalized_y,
+                    color_for_player(owner as u8),
+                    4.0,
+                )
+            })
+            .collect();
 
         // Use WW3D-synchronized time
         let game_time = self.sim_time_seconds;
@@ -557,7 +577,7 @@ impl GameLogic {
     }
 
     pub fn beacon_count(&self) -> usize {
-        snapshot_beacons().len()
+        receiving_minimap_beacon_entries(self).len()
     }
 
     /// C++ `ThingTemplate` geometry used by `iteratePotentialCollisions`.

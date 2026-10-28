@@ -394,11 +394,13 @@ impl ControlBar {
             return Ok(());
         };
         if let Some(facts) = self.presentation_selected_context {
-            self.populate_beacon_windows(
-                facts.controllable && facts.beacon,
-                "",
-                receiving_manager,
-            )?;
+            let visible = facts.controllable && facts.beacon;
+            let caption = if visible {
+                self.presentation_beacon_caption.as_str()
+            } else {
+                ""
+            };
+            self.populate_beacon_windows(visible, caption, receiving_manager)?;
             return Ok(());
         }
         let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {

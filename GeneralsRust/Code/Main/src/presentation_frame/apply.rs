@@ -1279,6 +1279,11 @@ impl PresentationFrame {
                     .is_some_and(|object| self.disabled_only_underpowered.contains(&object.id.0)),
             },
         );
+        let beacon_caption = primary
+            .filter(|_| beacon)
+            .and_then(|object| object.beacon_caption.clone())
+            .unwrap_or_default();
+        control_bar.apply_presentation_beacon_caption(beacon_caption);
         let garrison_max = if controllable || neutral_garrison {
             panel.max_garrison
         } else {

@@ -335,6 +335,8 @@ pub struct ControlBar {
     /// C++ areSelectedObjectsControllable residual from PresentationFrame.
     presentation_selection_controllable: bool,
     presentation_selected_context: Option<SelectedContextFacts>,
+    /// Caption frozen by the receiving Main presentation frame for its beacon.
+    presentation_beacon_caption: String,
     presentation_selected_objects: HashMap<u32, SelectedObjectCommandFacts>,
     /// Construction percent residual from PresentationFrame (0..1).
     presentation_construction_percent: f32,

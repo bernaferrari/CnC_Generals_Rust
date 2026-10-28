@@ -87,6 +87,7 @@ impl ControlBar {
         self.presentation_science_ids = None;
         self.presentation_selected_player = None;
         self.presentation_selected_context = None;
+        self.presentation_beacon_caption.clear();
         self.presentation_selected_objects.clear();
         #[cfg(test)]
         {

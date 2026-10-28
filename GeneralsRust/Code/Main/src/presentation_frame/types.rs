@@ -387,6 +387,10 @@ pub struct RenderableObject {
     pub(crate) draw_playback_identity: Option<crate::assets::LiveDrawPlaybackIdentity>,
     pub id: ObjectId,
     pub template_name: String,
+    /// Receiving live beacon state; preserves explicitly entered captions,
+    /// including captions equal to the object's template name.
+    #[serde(default)]
+    pub beacon_caption: Option<String>,
     pub team: Team,
     /// Controlling host player; distinct from faction for same-faction slots.
     #[serde(default)]

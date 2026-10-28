@@ -56,7 +56,6 @@ pub(super) use gamelogic::scripting::{
 #[cfg(test)]
 pub(super) use gamelogic::sides_list::get_sides_list;
 pub(super) use gamelogic::special_power_module::update as update_special_powers;
-pub(super) use gamelogic::system::beacon_manager::snapshot_beacons;
 pub(super) use gamelogic::system::game_logic::RadarEventType;
 pub(super) use gamelogic::system::map_loader::MapLoader as LogicMapLoader;
 pub(super) use gamelogic::system::radar_notifier;

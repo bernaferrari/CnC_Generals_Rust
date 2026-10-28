@@ -64,6 +64,7 @@ impl ControlBar {
             presentation_sold: false,
             presentation_selection_controllable: true,
             presentation_selected_context: None,
+            presentation_beacon_caption: String::new(),
             presentation_selected_objects: HashMap::new(),
             presentation_construction_percent: 0.0,
             presentation_ocl_timer_seconds: 0,
@@ -136,6 +137,12 @@ impl ControlBar {
     /// Bind selection facts to this bar's receiving presentation frame.
     pub fn apply_presentation_selected_context(&mut self, facts: SelectedContextFacts) {
         self.presentation_selected_context = Some(facts);
+        self.presentation_beacon_caption.clear();
+    }
+
+    /// Bind the selected beacon caption from the receiving presentation frame.
+    pub fn apply_presentation_beacon_caption(&mut self, caption: String) {
+        self.presentation_beacon_caption = caption;
     }
 
     pub fn apply_presentation_selected_objects(&mut self, facts: Vec<SelectedObjectCommandFacts>) {

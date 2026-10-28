@@ -542,6 +542,7 @@ impl PresentationFrame {
                 draw_playback_identity: Some(logic.live_draw_playback_identity(obj)),
                 id: obj.id,
                 template_name: obj.template_name.clone(),
+                beacon_caption: crate::command_executor::host_beacon_caption(logic, obj.id),
                 team: garrison_apparent_team,
                 owner_player_id: obj.owner_player_id,
                 team_color: {
@@ -2085,20 +2086,7 @@ impl PresentationFrame {
                     if !host.is_empty() {
                         host.iter().copied().filter(visible).take(64).collect()
                     } else {
-                        #[cfg(feature = "game_client")]
-                        {
-                            use gamelogic::system::beacon_manager::snapshot_beacons;
-                            snapshot_beacons()
-                                .into_iter()
-                                .map(|b| glam::Vec3::new(b.position.x, b.position.y, b.position.z))
-                                .filter(visible)
-                                .take(64)
-                                .collect()
-                        }
-                        #[cfg(not(feature = "game_client"))]
-                        {
-                            Vec::new()
-                        }
+                        Vec::new()
                     }
                 }
             },

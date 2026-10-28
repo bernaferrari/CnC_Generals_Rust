@@ -18,7 +18,6 @@ use crate::localization;
 use crate::ui::audio::translate_audio_event;
 use gamelogic::common::AsciiString;
 use gamelogic::common::types::Coord3D as LogicCoord3D;
-use gamelogic::system::beacon_manager::get_beacon_manager;
 use gamelogic::system::game_logic::current_frame;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
