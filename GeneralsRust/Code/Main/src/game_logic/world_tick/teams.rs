@@ -1091,7 +1091,13 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&unit_id) else {
             return false;
         };
-        apply_choose_locomotor_set_for_cell(unit, kind, panicking, surfaces)
+        apply_choose_locomotor_set_for_cell(
+            unit,
+            kind,
+            panicking,
+            surfaces,
+            self.locomotor_definitions.as_ref(),
+        )
     }
 
     /// C++ TEAM_PANIC / TEAM_WANDER member loop residual.

@@ -67,9 +67,11 @@ impl GameLogic {
         if let Some(object) = self.objects.get_mut(&id) {
             Self::slave_set_model(object, gamelogic::common::ModelConditionFlags::PACKING);
             object.set_precise_z_and_ultra_accurate(false);
-            crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_kind(
+            crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_kind_for_surfaces_in(
                 object,
                 crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Normal,
+                0,
+                self.locomotor_definitions.as_ref(),
             );
         }
     }
@@ -443,9 +445,11 @@ impl GameLogic {
                 + self.slave_random_real(data.repair_min_altitude, data.repair_max_altitude);
             state.guard_offset = goal;
             if let Some(object) = self.objects.get_mut(&id) {
-                crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_kind(
+                crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_kind_for_surfaces_in(
                     object,
                     crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Panic,
+                    0,
+                    self.locomotor_definitions.as_ref(),
                 );
                 object.set_precise_z_and_ultra_accurate(true);
             }

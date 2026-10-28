@@ -988,9 +988,10 @@ impl Object {
     }
 
     /// C++ `AIUpdateInterface::chooseGoodLocomotorFromCurrentSet` (AIUpdate.cpp:833-872).
-    pub fn choose_good_locomotor_from_current_set(
+    pub(crate) fn choose_good_locomotor_from_current_set(
         &mut self,
         cell_type: gamelogic::ai::pathfind_astar::PathfindCellType,
+        store: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
     ) {
         if self.locomotor_set_names.iter().all(|name| name.is_empty())
             && self.thing.template.authored_locomotor_sets.is_none()
@@ -1007,9 +1008,10 @@ impl Object {
                 cell_type,
             );
         let chosen =
-            crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
+            crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces_in(
                 &self.locomotor_set_names,
                 acceptable,
+                store,
             )
             .or_else(|| {
                 self.cur_locomotor_name
@@ -1017,9 +1019,10 @@ impl Object {
                     .filter(|name| !name.is_empty())
             })
             .or_else(|| {
-                crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
+                crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces_in(
                     &self.locomotor_set_names,
                     crate::game_logic::object::LOCO_SURFACE_GROUND,
+                    store,
                 )
             });
         let Some(name) = chosen else {
@@ -1033,7 +1036,7 @@ impl Object {
             return;
         }
         let Some(binding) =
-            crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(&name)
+            crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_in(store, &name)
         else {
             return;
         };

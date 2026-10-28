@@ -1155,7 +1155,10 @@ impl GameLogic {
                     // so collide/friction treat the unit as driven (Locomotor.cpp:1010-1014).
                     let mut angle_position_goal = None;
                     if obj.locomotor_goal_type == LocoGoalType::Angle {
-                        obj.choose_good_locomotor_from_current_set(cell_type);
+                        obj.choose_good_locomotor_from_current_set(
+                            cell_type,
+                            self.locomotor_definitions.as_ref(),
+                        );
                         obj.set_locomotor_physics_options();
                         obj.tick_do_locomotor_blocked_frames();
                         obj.do_final_position = false;
@@ -1283,7 +1286,10 @@ impl GameLogic {
 
                     // C++ doLocomotor: chooseGoodLocomotorFromCurrentSet then blocked bookkeeping.
                     if angle_position_goal.is_none() {
-                        obj.choose_good_locomotor_from_current_set(cell_type);
+                        obj.choose_good_locomotor_from_current_set(
+                            cell_type,
+                            self.locomotor_definitions.as_ref(),
+                        );
                         obj.set_locomotor_physics_options();
                         obj.tick_do_locomotor_blocked_frames();
                     }

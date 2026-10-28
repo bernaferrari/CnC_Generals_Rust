@@ -9,7 +9,12 @@ fn base_catalog(speed: u32, pitch: u32) -> LocomotorStore {
     let mut catalog = LocomotorStore::new();
     catalog
         .apply_source(&format!(
-            "Locomotor SharedOwnerLoco\n Surfaces = GROUND\n Speed = {speed}\n Acceleration = 60\n Braking = 80\n TurnRate = 120\n Appearance = TWO_LEGS\n PitchStiffness = {pitch}\n WanderWidthFactor = 2\n StickToGround = Yes\nEnd\n"
+            "Locomotor SharedOwnerLoco\n Surfaces = GROUND\n Speed = {speed}\n Acceleration = 60\n Braking = 80\n TurnRate = 120\n Appearance = TWO_LEGS\n PitchStiffness = {pitch}\n WanderWidthFactor = 2\n StickToGround = Yes\nEnd\n\
+             Locomotor CliffOwnerLoco\n Surfaces = CLIFF\n Speed = {speed}\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\n\
+             Locomotor GroundOwnerLoco\n Surfaces = GROUND\n Speed = {}\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\n\
+             Locomotor PanicOwnerLoco\n Surfaces = GROUND\n Speed = {}\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\n",
+            speed + 10,
+            speed + 5,
         ))
         .unwrap();
     catalog
@@ -21,7 +26,8 @@ fn world(map: &std::path::Path, base_speed: u32, pitch: u32) -> GameLogic {
     world
         .admit_object_ini_sources([(
             "Owner.ini".into(),
-            "Object OwnerMover\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL SharedOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
+            "Object OwnerMover\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL SharedOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
+             Object OwnerSwitcher\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL CliffOwnerLoco GroundOwnerLoco\n Locomotor = SET_PANIC PanicOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
         )])
         .unwrap();
     world.start_new_game(GameMode::SinglePlayer);
@@ -59,7 +65,10 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
     // A same-name foreign process catalog must never select either world’s data.
     {
         let mut foreign = get_locomotor_store_mut();
-        foreign.apply_source("Locomotor SharedOwnerLoco\n Surfaces = GROUND\n Speed = 999\n PitchStiffness = 99\nEnd\n").unwrap();
+        foreign.apply_source("Locomotor SharedOwnerLoco\n Surfaces = GROUND\n Speed = 999\n PitchStiffness = 99\nEnd\n\
+            Locomotor CliffOwnerLoco\n Surfaces = CLIFF\n Speed = 999\nEnd\n\
+            Locomotor GroundOwnerLoco\n Surfaces = GROUND\n Speed = 999\nEnd\n\
+            Locomotor PanicOwnerLoco\n Surfaces = GROUND\n Speed = 999\nEnd\n").unwrap();
     }
     let mut map = DataChunkOutput::new();
     map.open_data_chunk("HeightMapData", 3);
@@ -106,6 +115,46 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
         first.host_object(first_id).unwrap().wander_width_factor,
         2.0
     );
+    let first_switcher = first
+        .create_object_for_player("OwnerSwitcher", 42, glam::Vec3::new(50., 0., 50.))
+        .unwrap();
+    let peer_switcher = peer
+        .create_object_for_player("OwnerSwitcher", 42, glam::Vec3::new(50., 0., 50.))
+        .unwrap();
+    assert_eq!(first_switcher, peer_switcher);
+    assert!(first.move_object_to(first_switcher, glam::Vec3::new(100., 0., 50.)));
+    assert!(peer.move_object_to(peer_switcher, glam::Vec3::new(100., 0., 50.)));
+    let first_tick = first.update_with_dt(1.0 / 30.0);
+    let peer_tick = peer.update_with_dt(1.0 / 30.0);
+    assert_eq!((first_tick.steps_run, peer_tick.steps_run), (1, 1));
+    // The source movement update first wakes at logic frame 1; the first
+    // step above advances frame 0 to that wake boundary.
+    assert_eq!(first.update_with_dt(1.0 / 30.0).steps_run, 1);
+    assert_eq!(peer.update_with_dt(1.0 / 30.0).steps_run, 1);
+    for (world, id, expected) in [(&first, first_switcher, 30.0), (&peer, peer_switcher, 70.0)] {
+        let object = world.host_object(id).unwrap();
+        assert_eq!(
+            object.cur_locomotor_name.as_deref(),
+            Some("GroundOwnerLoco"),
+            "frame {}: position {:?}, goal {:?}, path {:?}, waiting {}, moving {}",
+            world.get_frame(),
+            object.get_position(),
+            object.movement.target_position,
+            object.movement.path,
+            object.waiting_for_path,
+            object.status.moving
+        );
+        assert!((object.movement.max_speed - expected).abs() < 0.001);
+    }
+    assert!(first.apply_unit_locomotor_set(first_switcher, "panic"));
+    assert!(peer.apply_unit_locomotor_set(peer_switcher, "panic"));
+    for (world, id, expected) in [(&first, first_switcher, 25.0), (&peer, peer_switcher, 65.0)] {
+        let object = world.host_object(id).unwrap();
+        assert_eq!(object.cur_locomotor_name.as_deref(), Some("PanicOwnerLoco"));
+        assert!((object.movement.max_speed - expected).abs() < 0.001);
+    }
+    assert!(first.apply_unit_locomotor_set(first_switcher, "normal"));
+    assert!(peer.apply_unit_locomotor_set(peer_switcher, "normal"));
     let builder = SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&first).unwrap();
     peer.reset();
@@ -113,13 +162,23 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
+    let restored_switcher = restored.host_object(first_switcher).unwrap();
+    assert_eq!(
+        restored_switcher.cur_locomotor_name.as_deref(),
+        Some("GroundOwnerLoco")
+    );
+    assert!((restored_switcher.movement.max_speed - 30.0).abs() < 0.001);
     let restored = restored.host_object(first_id).unwrap();
     assert_eq!(restored.movement.max_speed, 40.0);
     assert_eq!(restored.wander_width_factor, 2.0);
     assert!(restored.stick_to_ground);
     let mut missing = world(&first_map, 20, 3);
     missing.admit_locomotor_definitions(LocomotorStore::new());
-    assert!(builder.restore_from_snapshot(&snapshot, &mut missing).is_err());
+    assert!(
+        builder
+            .restore_from_snapshot(&snapshot, &mut missing)
+            .is_err()
+    );
     assert_eq!(
         first.host_object(first_id).unwrap().movement.max_speed,
         40.0

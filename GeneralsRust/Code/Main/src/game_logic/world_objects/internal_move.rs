@@ -11,12 +11,10 @@ impl GameLogic {
         if unit.waiting_for_path {
             return false;
         }
-        let Some(locomotor_name) = unit.cur_locomotor_name.as_deref() else {
+        if unit.cur_locomotor_name.is_none() {
             return false;
-        };
-        let Some(binding) =
-            crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(locomotor_name)
-        else {
+        }
+        let Some(binding) = unit.selected_locomotor_definition.as_ref() else {
             return false;
         };
         let Some(last) = unit.movement.path.last().copied() else {

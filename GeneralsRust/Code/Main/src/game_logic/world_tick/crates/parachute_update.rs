@@ -158,7 +158,7 @@ impl GameLogic {
         let object = self.objects.get(&id).unwrap();
         if object.has_ai_update_interface() && object.is_alive() {
             use crate::game_logic::host_upgrade_module_residuals::{
-                HostLocomotorSetKind, apply_locomotor_set_kind,
+                HostLocomotorSetKind, apply_locomotor_set_kind_for_surfaces_in,
             };
             let kind = if opened {
                 HostLocomotorSetKind::Normal
@@ -181,8 +181,12 @@ impl GameLogic {
             // AIUpdate.cpp813: an absent vector returns FALSE and leaves the
             // current locomotor intact. ParachuteContain ignores that Bool.
             // A present vector that cannot resolve is failed content admission.
-            if !apply_locomotor_set_kind(self.objects.get_mut(&id).unwrap(), kind)
-                && requested_exists
+            if !apply_locomotor_set_kind_for_surfaces_in(
+                self.objects.get_mut(&id).unwrap(),
+                kind,
+                0,
+                self.locomotor_definitions.as_ref(),
+            ) && requested_exists
             {
                 return Err(gamelogic::GameLogicError::Configuration(
                     "ParachuteContain selected locomotor set unavailable".into(),

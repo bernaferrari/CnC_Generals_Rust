@@ -662,6 +662,16 @@ pub fn resolve_host_locomotor_binding_from_store(
     host_locomotor_binding_from_template(template)
 }
 
+pub(crate) fn resolve_host_locomotor_binding_in(
+    store: Option<&LocomotorStore>,
+    name: &str,
+) -> Option<HostLocomotorBinding> {
+    match store {
+        Some(store) => resolve_host_locomotor_binding_from_store(store, name),
+        None => resolve_host_locomotor_binding(name),
+    }
+}
+
 impl crate::game_logic::GameLogic {
     /// Admit an application-owned immutable baseline before constructing units.
     pub fn admit_locomotor_definitions(&mut self, definitions: LocomotorStore) {
@@ -685,10 +695,7 @@ impl crate::game_logic::GameLogic {
     }
 
     pub(crate) fn resolve_receiving_locomotor(&self, name: &str) -> Option<HostLocomotorBinding> {
-        match &self.locomotor_definitions {
-            Some(store) => resolve_host_locomotor_binding_from_store(store, name),
-            None => resolve_host_locomotor_binding(name),
-        }
+        resolve_host_locomotor_binding_in(self.locomotor_definitions.as_ref(), name)
     }
 
     pub(crate) fn resolve_receiving_movement(&self, name: &str) -> Option<HostMovementStats> {
@@ -796,12 +803,20 @@ pub fn choose_best_locomotor_name_for_surfaces(
     locomotor_names: &[String],
     acceptable: u32,
 ) -> Option<String> {
+    choose_best_locomotor_name_for_surfaces_in(locomotor_names, acceptable, None)
+}
+
+pub(crate) fn choose_best_locomotor_name_for_surfaces_in(
+    locomotor_names: &[String],
+    acceptable: u32,
+    store: Option<&LocomotorStore>,
+) -> Option<String> {
     for raw in locomotor_names {
         let name = raw.trim();
         if name.is_empty() || name.eq_ignore_ascii_case("none") {
             continue;
         }
-        let Some(binding) = resolve_host_locomotor_binding(name) else {
+        let Some(binding) = resolve_host_locomotor_binding_in(store, name) else {
             continue;
         };
         if (binding.locomotor_surfaces & acceptable) != 0 {

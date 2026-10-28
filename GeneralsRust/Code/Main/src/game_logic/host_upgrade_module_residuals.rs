@@ -679,14 +679,27 @@ pub fn locomotor_set_swap_for_kind(
     template_name: &str,
     kind: HostLocomotorSetKind,
 ) -> Option<LocomotorSetSwap> {
+    locomotor_set_swap_for_kind_in(template_name, kind, None)
+}
+
+fn locomotor_set_swap_for_kind_in(
+    template_name: &str,
+    kind: HostLocomotorSetKind,
+    store: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
+) -> Option<LocomotorSetSwap> {
     let name = locomotor_name_for_set_kind(template_name, kind)?;
-    seed_set_switch_locomotor(name);
+    if store.is_none() {
+        seed_set_switch_locomotor(name);
+    }
     if let Some(binding) =
-        crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(name)
+        crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_in(store, name)
     {
         return Some(binding_to_swap(name, &binding));
     }
-    residual_swap_for_name(name)
+    store
+        .is_none()
+        .then(|| residual_swap_for_name(name))
+        .flatten()
 }
 
 fn upgrade_set_kind(upgrade: &str) -> Option<HostLocomotorSetKind> {
@@ -711,10 +724,15 @@ pub fn locomotor_upgrade_speed(upgrade: &str, template_name: &str) -> Option<f32
     locomotor_upgrade_set(upgrade, template_name).map(|swap| swap.max_speed)
 }
 
-fn apply_swap_fields(obj: &mut crate::game_logic::object::Object, swap: &LocomotorSetSwap) {
-    if let Some(binding) =
-        crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(swap.locomotor_name)
-    {
+fn apply_swap_fields(
+    obj: &mut crate::game_logic::object::Object,
+    swap: &LocomotorSetSwap,
+    store: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
+) {
+    if let Some(binding) = crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_in(
+        store,
+        swap.locomotor_name,
+    ) {
         crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(obj, &binding);
         return;
     }
@@ -742,6 +760,15 @@ pub fn apply_locomotor_set_kind_for_surfaces(
     kind: HostLocomotorSetKind,
     cell_surfaces: u32,
 ) -> bool {
+    apply_locomotor_set_kind_for_surfaces_in(obj, kind, cell_surfaces, None)
+}
+
+pub(crate) fn apply_locomotor_set_kind_for_surfaces_in(
+    obj: &mut crate::game_logic::object::Object,
+    kind: HostLocomotorSetKind,
+    cell_surfaces: u32,
+    store: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
+) -> bool {
     let kind = if kind == HostLocomotorSetKind::Normal && obj.locomotor_upgrade {
         HostLocomotorSetKind::NormalUpgraded
     } else {
@@ -759,30 +786,35 @@ pub fn apply_locomotor_set_kind_for_surfaces(
         // Resolve every member before changing live state. C++ rejects unknown
         // templates while parsing the row, before chooseLocomotorSet runs.
         if names.iter().any(|name| {
-            crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(name).is_none()
+            crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_in(store, name)
+                .is_none()
         }) {
             return false;
         }
         let selected = if cell_surfaces != 0 {
-            crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
+            crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces_in(
                 &names,
                 cell_surfaces,
+                store,
             )
             .or_else(|| {
-                crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
+                crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces_in(
                     &names,
                     obj.locomotor_surfaces | crate::game_logic::object::LOCO_SURFACE_AIR,
+                    store,
                 )
             })
         } else {
-            crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
+            crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces_in(
                 &names,
                 obj.locomotor_surfaces | crate::game_logic::object::LOCO_SURFACE_AIR,
+                store,
             )
             .or_else(|| {
-                crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
+                crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces_in(
                     &names,
                     crate::game_logic::object::LOCO_SURFACE_GROUND,
+                    store,
                 )
             })
         };
@@ -792,7 +824,9 @@ pub fn apply_locomotor_set_kind_for_surfaces(
         obj.jet_ai.cur_locomotor_set = Some(token.to_string());
         if let Some(name) = selected {
             if let Some(binding) =
-                crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(&name)
+                crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_in(
+                    store, &name,
+                )
             {
                 crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(obj, &binding);
             }
@@ -802,17 +836,17 @@ pub fn apply_locomotor_set_kind_for_surfaces(
         obj.ultra_accurate = false;
         return true;
     }
-    let swap = locomotor_set_swap_for_kind(&obj.template_name, kind).or_else(|| {
+    let swap = locomotor_set_swap_for_kind_in(&obj.template_name, kind, store).or_else(|| {
         if obj.is_kind_of(crate::game_logic::KindOf::Infantry)
             || obj.is_kind_of(crate::game_logic::KindOf::CanBeRepulsed)
             || obj.angry_mob_member
         {
-            locomotor_set_swap_for_kind("CivilianInfantry", kind)
+            locomotor_set_swap_for_kind_in("CivilianInfantry", kind, store)
         } else if kind == HostLocomotorSetKind::Taxiing
             && (obj.is_kind_of(crate::game_logic::KindOf::Aircraft)
                 || obj.object_type == crate::game_logic::ObjectType::Aircraft)
         {
-            locomotor_set_swap_for_kind("AmericaJetRaptor", kind)
+            locomotor_set_swap_for_kind_in("AmericaJetRaptor", kind, store)
         } else {
             None
         }
@@ -820,11 +854,14 @@ pub fn apply_locomotor_set_kind_for_surfaces(
     let Some(swap) = swap else {
         return false;
     };
-    apply_swap_fields(obj, &swap);
+    apply_swap_fields(obj, &swap, store);
     obj.locomotor_set_names = vec![swap.locomotor_name.to_string()];
     obj.cur_locomotor_name = Some(swap.locomotor_name.to_string());
     obj.selected_locomotor_definition =
-        crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(swap.locomotor_name);
+        crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_in(
+            store,
+            swap.locomotor_name,
+        );
     obj.jet_ai.cur_locomotor_set = Some(token.to_string());
     true
 }
@@ -835,7 +872,16 @@ pub fn apply_choose_locomotor_set(
     kind: HostLocomotorSetKind,
     panicking: bool,
 ) -> bool {
-    let applied = apply_locomotor_set_kind(obj, kind);
+    apply_choose_locomotor_set_in(obj, kind, panicking, None)
+}
+
+pub(crate) fn apply_choose_locomotor_set_in(
+    obj: &mut crate::game_logic::object::Object,
+    kind: HostLocomotorSetKind,
+    panicking: bool,
+    store: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
+) -> bool {
+    let applied = apply_locomotor_set_kind_for_surfaces_in(obj, kind, 0, store);
     obj.is_panicking = panicking;
     let bit = crate::game_logic::host_enum_table_residual::panicking_model_bit();
     if panicking {
@@ -850,14 +896,15 @@ pub fn apply_choose_locomotor_set(
 /// locomotor) + `chooseGoodLocomotorFromCurrentSet`. A cell miss is the GROUND
 /// member, not the object-mask pick and not the previous locomotor. Pose flags
 /// clear only when the chosen member actually changes.
-pub fn apply_choose_locomotor_set_for_cell(
+pub(crate) fn apply_choose_locomotor_set_for_cell(
     obj: &mut crate::game_logic::object::Object,
     kind: HostLocomotorSetKind,
     panicking: bool,
     cell_surfaces: u32,
+    store: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
 ) -> bool {
     let prev = obj.cur_locomotor_name.clone();
-    let applied = apply_locomotor_set_for_cell_change(obj, kind, cell_surfaces, &prev);
+    let applied = apply_locomotor_set_for_cell_change(obj, kind, cell_surfaces, &prev, store);
     obj.is_panicking = panicking;
     let bit = crate::game_logic::host_enum_table_residual::panicking_model_bit();
     if panicking {
@@ -873,6 +920,7 @@ fn apply_locomotor_set_for_cell_change(
     kind: HostLocomotorSetKind,
     cell_surfaces: u32,
     prev: &Option<String>,
+    store: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
 ) -> bool {
     let kind = if kind == HostLocomotorSetKind::Normal && obj.locomotor_upgrade {
         HostLocomotorSetKind::NormalUpgraded
@@ -884,27 +932,31 @@ fn apply_locomotor_set_for_cell_change(
         return true;
     }
     let Some(sets) = obj.thing().template.authored_locomotor_sets.clone() else {
-        return apply_locomotor_set_kind(obj, kind);
+        return apply_locomotor_set_kind_for_surfaces_in(obj, kind, 0, store);
     };
     let Some(row) = sets.into_iter().find(|row| row.kind == kind) else {
         return false;
     };
     let names = row.members;
     if names.iter().any(|name| {
-        crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(name).is_none()
+        crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_in(store, name)
+            .is_none()
     }) {
         return false;
     }
-    let selected = crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
-        &names,
-        cell_surfaces,
-    )
-    .or_else(|| {
-        crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
+    let selected =
+        crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces_in(
             &names,
-            crate::game_logic::object::LOCO_SURFACE_GROUND,
+            cell_surfaces,
+            store,
         )
-    });
+        .or_else(|| {
+            crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces_in(
+                &names,
+                crate::game_logic::object::LOCO_SURFACE_GROUND,
+                store,
+            )
+        });
     let changed = match (prev.as_deref(), selected.as_deref()) {
         (Some(prev_name), Some(next_name)) => !prev_name.eq_ignore_ascii_case(next_name),
         (None, None) => false,
@@ -916,7 +968,7 @@ fn apply_locomotor_set_for_cell_change(
     obj.jet_ai.cur_locomotor_set = Some(token.to_string());
     if let Some(name) = selected {
         if let Some(binding) =
-            crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(&name)
+            crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_in(store, &name)
         {
             crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(obj, &binding);
         }

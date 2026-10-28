@@ -637,10 +637,11 @@ impl GameLogic {
                 flight.door_opening,
                 flight.afterburners_on,
             );
-            crate::game_logic::host_upgrade_module_residuals::apply_choose_locomotor_set(
+            crate::game_logic::host_upgrade_module_residuals::apply_choose_locomotor_set_in(
                 g,
                 crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Panic,
                 false,
+                self.locomotor_definitions.as_ref(),
             );
             g.spectre_gunship_update = Some(flight);
         }
@@ -685,9 +686,7 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::host_spectre_gunship_update::apply_spectre_door_and_afterburner;
-        use crate::game_logic::host_upgrade_module_residuals::{
-            HostLocomotorSetKind, apply_choose_locomotor_set,
-        };
+        use crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind;
         let frame = self.frame as u32;
         let draw_icon_ui = self.get_draw_icon_ui();
         let ids: Vec<ObjectId> = self
@@ -745,7 +744,7 @@ impl GameLogic {
                 );
             }
             apply_spectre_door_and_afterburner(o, tick.door_opening, tick.afterburners_on);
-            apply_choose_locomotor_set(
+            crate::game_logic::host_upgrade_module_residuals::apply_choose_locomotor_set_in(
                 o,
                 if tick.panic_loco {
                     HostLocomotorSetKind::Panic
@@ -753,6 +752,7 @@ impl GameLogic {
                     HostLocomotorSetKind::Normal
                 },
                 false,
+                self.locomotor_definitions.as_ref(),
             );
             // C++ sets these once after chooseLocomotorSet(PANIC). The host
             // re-chooses every tick, which clears ultra-accurate, including orbit.
