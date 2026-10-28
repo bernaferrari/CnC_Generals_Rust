@@ -201,7 +201,7 @@ impl GameLogic {
         let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };
-        if !Self::leftover_command_button_is_hunt_capable(button) {
+        if !self.leftover_command_button_is_hunt_capable(button) {
             return Ok(());
         }
         for member in members {

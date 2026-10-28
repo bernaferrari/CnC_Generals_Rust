@@ -690,7 +690,7 @@ impl GameLogic {
         use crate::command_executor::CommandExecutor;
         use gamelogic::object::update::special_power_update::SpecialPowerCommandOption;
 
-        if !Self::leftover_skirmish_command_button_exists(ability) {
+        if !self.leftover_skirmish_command_button_exists(ability) {
             return;
         }
         let members = self.host_script_team_member_ids(team);
@@ -706,7 +706,7 @@ impl GameLogic {
             .unwrap_or(0);
         let range2 = range.max(0.0) * range.max(0.0);
         let team_set: std::collections::HashSet<_> = members.iter().copied().collect();
-        let options = Self::leftover_skirmish_command_button_options(ability);
+        let options = self.leftover_skirmish_command_button_options(ability);
         let requires_object_target = options.intersects(
             SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
                 | SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT
@@ -763,11 +763,22 @@ impl GameLogic {
     }
 
     /// C++ `TheControlBar->findCommandButton` / leftover host-queue payload.
-    /// Empty INI catalog falls back to the live button mapper.
-    pub(super) fn leftover_skirmish_command_button_exists(ability: &str) -> bool {
+    /// Admitted action definitions belong to this receiving GameLogic. Only
+    /// fixtures without an admitted catalog use the standalone compatibility lookup.
+    pub(super) fn leftover_skirmish_command_button_exists(&self, ability: &str) -> bool {
         use crate::command_system::command_type_from_button_name;
         if ability.trim().is_empty() {
             return false;
+        }
+        if let Some(actions) = self
+            .receiving_module_content
+            .as_ref()
+            .map(|content| content.action_definitions())
+        {
+            return actions
+                .buttons
+                .find_command_button_resolved(ability)
+                .is_some();
         }
         if let Some(bar) = gamelogic::control_bar::get_control_bar_bridge() {
             if bar.find_command_button_by_name(ability).is_some() {
@@ -786,9 +797,23 @@ impl GameLogic {
     }
 
     pub(super) fn leftover_skirmish_command_button_options(
+        &self,
         ability: &str,
     ) -> gamelogic::object::update::special_power_update::SpecialPowerCommandOption {
         use gamelogic::object::update::special_power_update::SpecialPowerCommandOption;
+        if let Some(actions) = self
+            .receiving_module_content
+            .as_ref()
+            .map(|content| content.action_definitions())
+        {
+            return actions
+                .buttons
+                .find_command_button_resolved(ability)
+                .map(|button| {
+                    SpecialPowerCommandOption::from_bits_truncate(button.options_bits)
+                })
+                .unwrap_or_else(|| SpecialPowerCommandOption::from_bits_truncate(0));
+        }
         if let Some(bar) = gamelogic::control_bar::get_control_bar_bridge() {
             if let Some(btn) = bar.find_command_button_by_name(ability) {
                 return SpecialPowerCommandOption::from_bits_truncate(btn.get_options_bits());
@@ -1376,7 +1401,7 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         // C++ findCommandButton + command-type switch before any unit is armed.
         // Leftover `command_button_is_hunt_capable` is the same gate.
-        if !Self::leftover_command_button_is_hunt_capable(button) {
+        if !self.leftover_command_button_is_hunt_capable(button) {
             return Ok(());
         }
         let ids = self.host_script_hunt_guard_team_member_ids(team);
@@ -2009,9 +2034,23 @@ impl GameLogic {
     }
 
     /// Leftover `command_button_is_hunt_capable` + C++ findCommandButton NULL → no-op.
-    pub(super) fn leftover_command_button_is_hunt_capable(ability: &str) -> bool {
+    pub(super) fn leftover_command_button_is_hunt_capable(&self, ability: &str) -> bool {
         if ability.is_empty() {
             return false;
+        }
+        if let Some(actions) = self
+            .receiving_module_content
+            .as_ref()
+            .map(|content| content.action_definitions())
+        {
+            let Some(btn) = actions.buttons.find_command_button_resolved(ability) else {
+                return false;
+            };
+            return Self::leftover_command_type_is_hunt_capable(
+                gamelogic::command_button::map_gui_command_to_command_type(&btn.command),
+                btn.get_special_power_template().is_some(),
+                btn.options_bits,
+            );
         }
         if let Some(bar) = gamelogic::control_bar::get_control_bar_bridge() {
             if let Some(btn) = bar.find_command_button_by_name(ability) {
