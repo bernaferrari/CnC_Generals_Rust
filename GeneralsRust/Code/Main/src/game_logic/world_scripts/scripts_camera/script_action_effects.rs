@@ -121,8 +121,6 @@ impl GameLogic {
         self.apply_host_guard_variant_script_requests_with_effects(&mut ui);
         self.apply_host_named_fire_special_script_requests();
         self.apply_host_use_command_button_script_requests_with_policy(interpreter);
-        self.apply_host_object_sound_script_requests();
-
         self.apply_host_skirmish_fight_script_requests_with_policy(&mut ui, interpreter);
 
         self.drain_warehouse_script_set_values();

@@ -698,11 +698,6 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         Ok(())
     }
 
-    fn enable_object_sound(&self, _unit_name: &str, _enable: bool) -> GameLogicResult<()> {
-        // Leftover dispatcher already queued HostScriptObjectSoundRequest.
-        Ok(())
-    }
-
     fn music_set_track(&self, track: &str, fade_out: bool, fade_in: bool) -> GameLogicResult<()> {
         // Live GAME_SHELL installs this handler (initialize_scripts), not
         // GameClientScriptActionHandler. C++ MUSIC_SET_TRACK always reaches

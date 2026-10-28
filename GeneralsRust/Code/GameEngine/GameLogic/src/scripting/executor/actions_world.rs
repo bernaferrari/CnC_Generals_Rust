@@ -49,13 +49,9 @@ fn apply_map_visibility_for_player(
     }
 }
 
-/// C++ `ScriptActions::doEnableObjectSound` leftover drawable + live-host queue.
+/// C++ `ScriptActions::doEnableObjectSound` standalone Core compatibility path.
 impl ScriptActionDispatcher<'_> {
     fn enable_or_disable_object_sound(&self, object_name: &str, enable: bool) {
-        super::request_host_script_object_sound(super::HostScriptObjectSoundRequest::Enable {
-            unit: object_name.to_string(),
-            enable,
-        });
         if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.enable_object_sound(object_name, enable) {
                 log::warn!(
@@ -93,9 +89,9 @@ impl ScriptActionDispatcher<'_> {
         let unit_name = self.get_string_param(action, 1)?;
         log::debug!("Playing named sound '{}' from '{}'", sound_name, unit_name);
 
-        // C++ doSoundPlayFromNamed: one TheAudio->addAudioEvent. Do not also
-        // enqueue HostScriptObjectSoundRequest::PlayNamed — live drain would
-        // play the same name a second time through TheAudio.
+        // C++ doSoundPlayFromNamed: one TheAudio->addAudioEvent. Main's
+        // receiving ScriptExecutionDriver handles the live world path before
+        // this standalone Core compatibility fallback is reached.
 
         if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.sound_play_named(&sound_name, &unit_name) {

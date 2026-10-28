@@ -305,23 +305,6 @@ impl GameLogic {
         true
     }
 
-    /// Drain leftover SOUND_PLAY_NAMED / ENABLE/DISABLE_OBJECT_SOUND.
-    pub(crate) fn apply_host_object_sound_script_requests(&mut self) {
-        use gamelogic::scripting::HostScriptObjectSoundRequest;
-        for req in gamelogic::scripting::take_host_script_object_sound_requests() {
-            match req {
-                HostScriptObjectSoundRequest::PlayNamed { sound, unit } => {
-                    // Leftover / handler already hit TheAudio (C++ addAudioEvent).
-                    // Do not queue a second presentation copy.
-                    let _ = (sound, unit);
-                }
-
-                HostScriptObjectSoundRequest::Enable { unit, enable } => {
-                    let _ = self.enable_object_sound_from_script(&unit, enable);
-                }
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -615,36 +598,6 @@ mod tests {
                 .iter()
                 .any(|e| { e.event_type == "WarFactoryAmbientLoop" && e.is_looping && !e.stop }),
             "ENABLE_OBJECT_SOUND must restart ambient: {:?}",
-            logic.queued_audio_events
-        );
-    }
-
-    #[test]
-    fn apply_host_play_named_does_not_queue_second_copy() {
-        let _ = gamelogic::scripting::take_host_script_object_sound_requests();
-        let mut logic = GameLogic::new();
-        let mut tmpl = ThingTemplate::new("AmericaInfantryRanger");
-        tmpl.add_kind_of(KindOf::Infantry);
-        logic
-            .templates
-            .insert("AmericaInfantryRanger".to_string(), tmpl);
-        let id = logic
-            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
-            .expect("ranger");
-        if let Some(obj) = logic.objects.get_mut(&id) {
-            obj.name = "NamedScout".into();
-        }
-        logic.queued_audio_events.clear();
-        gamelogic::scripting::request_host_script_object_sound(
-            gamelogic::scripting::HostScriptObjectSoundRequest::PlayNamed {
-                sound: "UnitCheer".into(),
-                unit: "NamedScout".into(),
-            },
-        );
-        logic.apply_host_object_sound_script_requests();
-        assert!(
-            logic.queued_audio_events.is_empty(),
-            "leftover SOUND_PLAY_NAMED must not enqueue a second live copy: {:?}",
             logic.queued_audio_events
         );
     }

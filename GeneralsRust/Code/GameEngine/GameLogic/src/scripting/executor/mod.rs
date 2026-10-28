@@ -233,8 +233,8 @@ pub enum HostScriptKillDeleteDamageRequest {
     },
 }
 
-/// Live host drain: SOUND_PLAY_NAMED / ENABLE_OBJECT_SOUND / DISABLE_OBJECT_SOUND.
-/// C++ `ScriptActions::doSoundPlayFromNamed` / `doEnableObjectSound`.
+/// Synchronous Core-to-host script action payload for named sound actions.
+/// Main consumes this only through its receiving `ScriptExecutionDriver`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostScriptObjectSoundRequest {
     PlayNamed { sound: String, unit: String },
@@ -613,8 +613,6 @@ thread_local! {
         RefCell::new(Vec::new());
     static HOST_SCRIPT_KILL_DELETE_DAMAGE_REQUESTS:
         RefCell<Vec<HostScriptKillDeleteDamageRequest>> = RefCell::new(Vec::new());
-    static HOST_SCRIPT_OBJECT_SOUND_REQUESTS: RefCell<Vec<HostScriptObjectSoundRequest>> =
-        RefCell::new(Vec::new());
     static HOST_SCRIPT_FACE_REQUESTS: RefCell<Vec<HostScriptFaceRequest>> =
         RefCell::new(Vec::new());
     static HOST_SCRIPT_MONEY_REQUESTS: RefCell<Vec<HostScriptMoneyRequest>> =
@@ -931,15 +929,6 @@ pub fn request_host_script_kill_delete_damage(req: HostScriptKillDeleteDamageReq
 
 pub fn take_host_script_kill_delete_damage_requests() -> Vec<HostScriptKillDeleteDamageRequest> {
     HOST_SCRIPT_KILL_DELETE_DAMAGE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
-}
-
-/// Live host drain: SOUND_PLAY_NAMED / ENABLE / DISABLE_OBJECT_SOUND.
-pub fn request_host_script_object_sound(req: HostScriptObjectSoundRequest) {
-    HOST_SCRIPT_OBJECT_SOUND_REQUESTS.with(|q| q.borrow_mut().push(req));
-}
-
-pub fn take_host_script_object_sound_requests() -> Vec<HostScriptObjectSoundRequest> {
-    HOST_SCRIPT_OBJECT_SOUND_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
 
 /// Live host drain: NAMED/TEAM FACE (`aiFaceObject` / `aiFacePosition`).
