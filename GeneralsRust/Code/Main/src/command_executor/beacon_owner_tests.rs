@@ -35,6 +35,116 @@ fn place(logic: &mut GameLogic, player: u32, text: &str) -> ObjectId {
     *logic.host_objects().registered_keys().next().unwrap()
 }
 
+fn authored_beacon_world(beacon_name: &str, maximum: i32) -> GameLogic {
+    use crate::game_logic::PlayerTemplateIdentity;
+    use game_engine::common::ini::INILoadType;
+    use game_engine::common::rts::player_template::PlayerTemplateStore;
+
+    let mut logic = GameLogic::new();
+    logic
+        .get_players_mut()
+        .insert(0, Player::new(0, Team::USA, "Same ID", true));
+    let mut definitions = PlayerTemplateStore::new_owned();
+    definitions
+        .apply_source(
+            &format!(
+                "PlayerTemplate BeaconOwner\n Side = America\n BeaconName = {beacon_name}\nEnd\n"
+            ),
+            INILoadType::Overwrite,
+        )
+        .unwrap();
+    logic
+        .admit_player_template_definitions(definitions)
+        .unwrap();
+    assert!(logic.bind_player_template_identity(
+        0,
+        PlayerTemplateIdentity {
+            template_name: "BeaconOwner".into(),
+            template_index: None,
+        },
+    ));
+    logic.admit_max_beacons_per_player(maximum);
+    logic
+}
+
+fn place_result(logic: &mut GameLogic, player: u32, x: f32, text: &str) -> CommandResult {
+    CommandExecutor::new(logic, player)
+        .execute_command(GameCommand {
+            command_type: CommandType::PlaceBeacon {
+                location: Vec3::new(x, 0., 12.),
+                text: text.into(),
+            },
+            player_id: player,
+            command_id: 1,
+            timestamp: SystemTime::now(),
+            selected_units: vec![],
+            modifier_keys: ModifierKeys::default(),
+        })
+        .unwrap()
+}
+
+#[test]
+fn authored_beacon_settings_and_templates_are_owned_by_each_world() {
+    let mut one = authored_beacon_world("SignalGlyph", 1);
+    let mut two = authored_beacon_world("RallyMarker", 2);
+
+    let one_id = match place_result(&mut one, 0, 11., "one") {
+        CommandResult::Success => *one.host_objects().registered_keys().next().unwrap(),
+        result => panic!("first world rejected its beacon: {result:?}"),
+    };
+    let two_id = match place_result(&mut two, 0, 11., "two") {
+        CommandResult::Success => *two.host_objects().registered_keys().next().unwrap(),
+        result => panic!("second world rejected its beacon: {result:?}"),
+    };
+    assert_eq!(
+        one_id, two_id,
+        "sessions deliberately reuse the same object ID"
+    );
+    assert_eq!(
+        one.host_object(one_id).unwrap().template_name,
+        "SignalGlyph"
+    );
+    assert_eq!(
+        two.host_object(two_id).unwrap().template_name,
+        "RallyMarker"
+    );
+    assert!(host_object_is_beacon(&one, one_id));
+    assert!(host_object_is_beacon(&two, two_id));
+
+    assert_eq!(
+        place_result(&mut one, 0, 21., "overflow"),
+        CommandResult::InvalidCommand
+    );
+    assert_eq!(
+        place_result(&mut two, 0, 21., "second"),
+        CommandResult::Success
+    );
+    assert!(!host_object_is_beacon(&one, two_id));
+    assert_eq!(host_beacon_caption(&one, one_id).as_deref(), Some("one"));
+    assert_eq!(host_beacon_caption(&two, two_id).as_deref(), Some("two"));
+
+    // Snapshot restoration preserves the receiving session's admitted content
+    // rule, rather than copying a mutable cap from another world's save.
+    let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&two).unwrap();
+    let mut restored = authored_beacon_world("RallyMarker", 1);
+    assert_eq!(
+        place_result(&mut restored, 0, 31., "prototype"),
+        CommandResult::Success
+    );
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert_eq!(restored.max_beacons_per_player, 1);
+
+    one.reset();
+    two.reset();
+    assert_eq!(one.max_beacons_per_player, 1);
+    assert_eq!(two.max_beacons_per_player, 2);
+    assert!(!host_object_is_beacon(&one, one_id));
+    assert!(!host_object_is_beacon(&two, two_id));
+}
+
 #[test]
 fn beacon_commands_keep_same_id_caption_and_hidden_state_in_the_receiving_world() {
     let mut owner = world();

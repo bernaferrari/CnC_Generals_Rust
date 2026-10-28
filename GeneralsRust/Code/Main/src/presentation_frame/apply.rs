@@ -280,7 +280,7 @@ impl PresentationFrame {
                         .objects
                         .iter()
                         .find(|o| {
-                            o.template_name.to_ascii_lowercase().contains("beacon")
+                            o.is_beacon
                                 && (o.position - *p).length() <= 3.0
                         })
                         .and_then(|o| o.owner_player_id)

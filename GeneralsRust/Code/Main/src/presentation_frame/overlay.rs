@@ -1434,6 +1434,7 @@ impl PresentationFrame {
             id: host_id,
             template_name: ent.template.name.clone(),
             beacon_caption: None,
+            is_beacon: false,
             team,
             // The GameWorld entity only carries its GameWorld PlayerId here;
             // overlay_host_fx_residual resolves the corresponding host ID.

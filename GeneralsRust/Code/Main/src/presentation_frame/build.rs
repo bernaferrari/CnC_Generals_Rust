@@ -543,6 +543,7 @@ impl PresentationFrame {
                 id: obj.id,
                 template_name: obj.template_name.clone(),
                 beacon_caption: crate::command_executor::host_beacon_caption(logic, obj.id),
+                is_beacon: crate::command_executor::host_object_is_beacon(logic, obj.id),
                 team: garrison_apparent_team,
                 owner_player_id: obj.owner_player_id,
                 team_color: {
@@ -1159,6 +1160,10 @@ impl PresentationFrame {
                             .then(|| obj.get_template().receiving_draw_models())
                             .flatten()
                     }),
+                debris_model_override: obj
+                    .debris_draw
+                    .as_ref()
+                    .map(|debris| debris.model_name.clone()),
                 visual_template_name,
                 visual_mesh_scale,
                 // Direct Object lifetime is host roster presence.  Do not
@@ -2062,7 +2067,7 @@ impl PresentationFrame {
                     .registered()
                     .filter_map(|(id, obj)| {
                         if !obj.is_alive()
-                            || !obj.template_name.to_ascii_lowercase().contains("beacon")
+                            || !crate::command_executor::host_object_is_beacon(logic, *id)
                             || obj.drawable_hidden
                             || crate::command_executor::host_beacon_is_hidden(logic, *id)
                         {
@@ -2073,7 +2078,7 @@ impl PresentationFrame {
                     .take(64)
                     .collect();
                 let has_host_beacon_objs = logic.host_objects().registered_values().any(|obj| {
-                    obj.is_alive() && obj.template_name.to_ascii_lowercase().contains("beacon")
+                    obj.is_alive() && crate::command_executor::host_object_is_beacon(logic, obj.id)
                 });
                 if has_host_beacon_objs {
                     from_objects
@@ -2415,6 +2420,7 @@ impl PresentationFrame {
         for drawable in &self.direct_host_drawables {
             drawable.object.id.0.hash(&mut h);
             drawable.visual_template_name.hash(&mut h);
+            drawable.debris_model_override.hash(&mut h);
             drawable.visual_mesh_scale.to_bits().hash(&mut h);
             drawable.resident.hash(&mut h);
             drawable.object.position.x.to_bits().hash(&mut h);

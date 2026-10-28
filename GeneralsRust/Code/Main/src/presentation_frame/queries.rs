@@ -397,6 +397,7 @@ impl PresentationFrame {
                 &str,
                 f32,
                 &Option<std::sync::Arc<crate::game_logic::thing::ReceivingDrawModels>>,
+                Option<&str>,
             ),
         > = self
             .direct_host_drawables
@@ -409,6 +410,7 @@ impl PresentationFrame {
                         direct.visual_template_name.as_str(),
                         direct.visual_mesh_scale,
                         &direct.receiving_visual_draw_models,
+                        direct.debris_model_override.as_deref(),
                     ),
                 )
             })
@@ -420,7 +422,7 @@ impl PresentationFrame {
             .filter(|object| mesh_allowed(object, false))
             .map(|object| {
                 let mut input = make_input(object);
-                if let Some((visual_template_name, visual_mesh_scale, receiving)) =
+                if let Some((visual_template_name, visual_mesh_scale, receiving, _)) =
                     direct_visual_templates.get(&object.id)
                 {
                     apply_visual_template(
@@ -429,6 +431,11 @@ impl PresentationFrame {
                         *visual_mesh_scale,
                         receiving,
                     );
+                }
+                if let Some((_, _, _, debris_model_override)) =
+                    direct_visual_templates.get(&object.id)
+                {
+                    input.apply_debris_model_override(*debris_model_override);
                 }
                 input
             })
@@ -464,6 +471,7 @@ impl PresentationFrame {
                 direct.visual_mesh_scale,
                 &direct.receiving_visual_draw_models,
             );
+            input.apply_debris_model_override(direct.debris_model_override.as_deref());
             ordinary_input_ids.insert(input.id);
             inputs.push(input);
         }

@@ -32,12 +32,15 @@ pub(super) struct StartupSimulationRules {
     body_auto_particles: game_engine::common::ini::ini_game_data::BodyAutoParticleRules,
     lighting: game_engine::common::ini::ini_game_data::LightingContentRules,
     static_lod_level: Option<game_engine::common::ini::ini_game_lod::StaticGameLODLevel>,
+    dynamic_debris_skip_mask: u32,
+    dynamic_debris_generations: u32,
     roads: game_engine::common::ini::ini_road::TerrainRoadCollection,
     physics: game_engine::common::ini::ini_game_data::PhysicsContentRules,
     energy: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
     power_bar: game_engine::common::ini::ini_game_data::PowerBarRules,
     historic_damage_limit: u32,
     sell_percentage: f32,
+    max_beacons_per_player: i32,
     combat_bonus: game_engine::common::ini::ini_game_data::CombatBonusRules,
     upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
     player_templates: Option<game_engine::common::rts::player_template::PlayerTemplateStore>,
@@ -50,12 +53,15 @@ impl StartupSimulationRules {
             body_auto_particles: world.body_auto_particle_baseline().clone(),
             lighting: world.lighting_rules_baseline().clone(),
             static_lod_level: world.current_static_lod_level(),
+            dynamic_debris_skip_mask: world.current_dynamic_debris_skip_mask(),
+            dynamic_debris_generations: world.current_dynamic_debris_generations(),
             roads: world.terrain_road_baseline().clone(),
             physics: world.physics_rules_baseline(),
             energy: world.production_energy_baseline(),
             power_bar: world.power_bar_baseline(),
             historic_damage_limit: world.combat_system.historic_damage_limit(),
             sell_percentage: world.session_sell_percentage,
+            max_beacons_per_player: world.max_beacons_per_player,
             combat_bonus: world.combat_bonus_baseline().clone(),
             upgrade_definitions: world.upgrade_definitions.clone(),
             player_templates: world.player_template_definitions.clone(),
@@ -109,12 +115,17 @@ impl StartupSimulationRules {
         world.admit_body_auto_particle_baseline(self.body_auto_particles);
         world.admit_lighting_rules_base(self.lighting);
         world.admit_static_lod_level(self.static_lod_level);
+        world.admit_dynamic_debris_runtime_state(
+            self.dynamic_debris_skip_mask,
+            self.dynamic_debris_generations,
+        );
         world.admit_terrain_road_definitions(self.roads)?;
         world.admit_physics_rules_base(self.physics)?;
         world.admit_production_energy_base(self.energy);
         world.admit_power_bar_base(self.power_bar);
         world.admit_historic_damage_limit(self.historic_damage_limit);
         world.admit_sell_percentage(self.sell_percentage);
+        world.admit_max_beacons_per_player(self.max_beacons_per_player);
         world.admit_combat_bonus_baseline(self.combat_bonus);
         world.upgrade_definition_base = self.upgrade_definitions.clone();
         world.upgrade_definitions = self.upgrade_definitions;

@@ -54,14 +54,14 @@ impl CnCGameEngine {
 
     pub(super) async fn load_startup_multiplayer_definitions(
         application_assets: &Mutex<crate::assets::manager::AssetManager>,
-    ) -> Result<(), String> {
+    ) -> Result<i32, String> {
         let texts =
             Self::load_startup_ini_texts(MULTIPLAYER_PATHS, Some(application_assets)).await?;
         admit_multiplayer_texts(&texts)
     }
 }
 
-fn admit_multiplayer_texts(texts: &[(&str, String)]) -> Result<(), String> {
+fn admit_multiplayer_texts(texts: &[(&str, String)]) -> Result<i32, String> {
     // C++ GameEngine.cpp:399: Default first, then authored override. The boot
     // caller owns this phase; no mutable loaded flag or map-worker re-admission.
     for (path, text) in texts {
@@ -77,7 +77,9 @@ fn admit_multiplayer_texts(texts: &[(&str, String)]) -> Result<(), String> {
     if !has_palette {
         return Err("authored MultiplayerColorDefinition palette is unavailable at startup".into());
     }
-    Ok(())
+    Ok(game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|settings| {
+        settings.max_beacons_per_player.max(0)
+    }))
 }
 
 #[cfg(test)]

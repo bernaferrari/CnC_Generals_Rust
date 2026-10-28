@@ -48,6 +48,9 @@ pub struct GameLogic {
     pub(crate) veterancy_health_bonus: [f32; game_engine::common::global_data::LEVEL_COUNT],
     /// Effective ordered GameData SellPercentage admitted with this session.
     pub(crate) session_sell_percentage: f32,
+    /// Immutable Multiplayer.ini beacon limit admitted with this session.
+    /// Snapshot restoration inherits the receiving application's value.
+    pub(crate) max_beacons_per_player: i32,
     pub(crate) weapon_definitions: Option<HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>>,
     /// Application and effective map locomotor definitions belong to this match.
     /// None denotes the remaining compatibility path for unadmitted fixtures.
@@ -358,7 +361,7 @@ pub struct GameLogic {
     pub(super) ocl_special_power_reg:
         crate::game_logic::host_ocl_special_power::HostOclSpecialPowerRegistry,
     /// C++ ObjectCreationList CreateDebris disposition residual.
-    pub(super) ocl_create_debris_reg:
+    pub(in crate::game_logic) ocl_create_debris_reg:
         crate::game_logic::host_ocl_create_debris::HostOclCreateDebrisRegistry,
     /// C++ OCL FireWeaponNugget + AttackNugget residual.
     pub(super) ocl_fire_weapon_attack_reg:

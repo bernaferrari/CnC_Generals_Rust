@@ -342,6 +342,52 @@ pub struct UnitRenderInput {
 }
 
 impl UnitRenderInput {
+    /// C++ DebrisDrawInterface selects an instance mesh after the receiving
+    /// template's Draw modules and condition state have been admitted.
+    pub(crate) fn apply_debris_model_override(&mut self, model_name: Option<&str>) {
+        let Some(model_name) = model_name.filter(|name| !name.trim().is_empty()) else {
+            return;
+        };
+        let Some(receiving) = self.receiving_draw_models.as_deref() else {
+            return;
+        };
+        let debris_modules = receiving
+            .module_class_names()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, class)| {
+                class.eq_ignore_ascii_case("W3DDebrisDraw").then_some(index as u32)
+            })
+            .collect::<Vec<_>>();
+        if debris_modules.is_empty() {
+            return;
+        }
+
+        // C++ DebrisDrawInterface::setModelName applies to each admitted
+        // W3DDebrisDraw module. Preserve its module identity and every other
+        // Draw module; an empty selected state may still receive this authored
+        // instance model because the DebrisDraw interface itself is present.
+        for module_index in debris_modules {
+            if let Some(draw) = self
+                .draw_models
+                .iter_mut()
+                .find(|draw| draw.module_index == module_index)
+            {
+                draw.model_key = model_name.to_owned();
+            } else {
+                self.draw_models.push(crate::assets::AuthoredDrawModel {
+                    module_index,
+                    model_key: model_name.to_owned(),
+                    ..Default::default()
+                });
+            }
+        }
+        self.draw_models.sort_by_key(|draw| draw.module_index);
+        if let Some(first) = self.draw_models.first() {
+            self.model_key = first.model_key.clone();
+        }
+    }
+
     pub fn from_renderable(ro: &RenderableObject) -> Self {
         // `None` is an intentional fail-closed result from the retained
         // Object INI ConditionState table (for example `Model = None` or an

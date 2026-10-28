@@ -27,6 +27,10 @@ fn rider_world(child: &str) -> (GameLogic, ObjectId) {
         )
         .expect("RiderChange vehicle");
     let vehicle = world.objects.get_mut(&id).unwrap();
+    vehicle.set_ai_state(
+        AIState::Moving,
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+    );
     vehicle.set_status_moving(true);
     vehicle.target = Some(ObjectId(u32::MAX));
     let mut transition =

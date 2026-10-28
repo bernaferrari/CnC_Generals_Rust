@@ -21,6 +21,7 @@ impl PresentationFrame {
                         input.mesh_scale = direct.visual_mesh_scale;
                     }
                 }
+                input.apply_debris_model_override(direct.debris_model_override.as_deref());
                 input
             })
             .collect()

@@ -30,6 +30,348 @@ fn supports_host_weapon_generic_ocl(
         && !nugget.requires_live_player
 }
 
+#[cfg(test)]
+mod receiving_debris_ocl_owner_tests {
+    use super::*;
+
+    fn world(
+        model_names: &str,
+        count: u32,
+        mass: f32,
+        min_lifetime: u32,
+        max_lifetime: u32,
+    ) -> (GameLogic, ObjectId) {
+        let mut world = GameLogic::new();
+        world
+            .admit_object_creation_list_sources([format!(
+                "ObjectCreationList OCL_ReceivingBridgeDebris\nCreateDebris\nModelNames = {model_names}\nCount = {count}\nMass = {mass}\nOffset = 1 2 3\nMinLifetime = {min_lifetime}f\nMaxLifetime = {max_lifetime}f\nDisposition = SEND_IT_FLYING\nDispositionIntensity = 1\nEnd\nEnd\n"
+            )])
+            .expect("OCL belongs to this session");
+        let mut source_template = ThingTemplate::new("ReceivingBridgeSource");
+        source_template
+            .add_kind_of(crate::game_logic::KindOf::Structure)
+            .set_health(100.0);
+        let mut debris_template = ThingTemplate::new("GenericDebris");
+        debris_template
+            .add_kind_of(crate::game_logic::KindOf::Projectile)
+            .set_health(100.0);
+        debris_template.native_lifecycle_definitions = Some(
+            vec![crate::game_logic::native_lifecycle_definition::NativeLifecycleDefinition {
+                module_tag: Some("DebrisLife".into()),
+                kind: crate::game_logic::native_lifecycle_definition::NativeLifecycleKind::Lifetime(
+                    crate::game_logic::native_lifecycle_definition::LifetimeFrameRange {
+                        minimum: 1,
+                        maximum: 1,
+                    },
+                ),
+            }]
+            .into_boxed_slice(),
+        );
+        world
+            .templates
+            .insert("ReceivingBridgeSource".into(), source_template);
+        world
+            .templates
+            .insert("GenericDebris".into(), debris_template);
+        // The receiving model override is only meaningful through an authored
+        // W3DDebrisDraw receiver. Keep this fixture on the same module path as
+        // the retail GenericDebris template rather than inventing a Draw row.
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                "Object GenericDebris\nKindOf = PROJECTILE\nBody = ActiveBody DebrisBody\nMaxHealth = 100\nInitialHealth = 100\nEnd\nDraw = W3DDebrisDraw DebrisDrawTag\nEnd\nEnd\n",
+                "generic-debris-owner-test.ini",
+            )
+            .expect("authored GenericDebris Draw fixture");
+        let definition = parser
+            .get_definition("GenericDebris")
+            .expect("GenericDebris definition")
+            .clone();
+        world.seed_asset_definition_templates_from_snapshot([("GenericDebris".into(), definition)]);
+        let source = world
+            .create_object(
+                "ReceivingBridgeSource",
+                Team::USA,
+                Vec3::new(20.0, 0.0, 30.0),
+            )
+            .expect("source object");
+        world
+            .objects
+            .get_mut(&source)
+            .expect("source Object")
+            .set_orientation_with_partition_owner(
+                std::f32::consts::FRAC_PI_2,
+                &mut world.partition_manager,
+            );
+        (world, source)
+    }
+
+    #[test]
+    fn parsed_bridge_debris_is_owned_per_world_and_uses_receiving_lod_mask() {
+        let (mut left, left_source) = world("LeftChunk", 2, 5.0, 10, 20);
+        let (mut right, right_source) = world("RightChunk", 2, 5.0, 10, 20);
+        assert_eq!(left_source, right_source);
+
+        // C++ isDebrisSkipped increments then masks; mask 1 keeps generation 1
+        // and skips generation 2. The peer world has an independent counter.
+        left.admit_dynamic_debris_skip_mask(1);
+        let left_ids = left.execute_parsed_weapon_ocl_at(
+            "OCL_ReceivingBridgeDebris",
+            Some(left_source),
+            Team::USA,
+            VeterancyLevel::Rookie,
+            0.0,
+            Vec3::ZERO,
+            Vec3::new(20.0, 0.0, 30.0),
+        );
+        let right_ids = right.execute_parsed_weapon_ocl_at(
+            "OCL_ReceivingBridgeDebris",
+            Some(right_source),
+            Team::USA,
+            VeterancyLevel::Rookie,
+            0.0,
+            Vec3::ZERO,
+            Vec3::new(20.0, 0.0, 30.0),
+        );
+
+        assert_eq!(left_ids.len(), 1);
+        assert_eq!(right_ids.len(), 2);
+        assert_eq!(left_ids[0], right_ids[0]);
+        let left_chunk = left.objects.get(&left_ids[0]).expect("left debris");
+        let right_chunk = right.objects.get(&right_ids[0]).expect("right debris");
+        assert_eq!(left_chunk.template_name, "GenericDebris");
+        assert_eq!(right_chunk.template_name, "GenericDebris");
+        assert_eq!(
+            left_chunk.debris_draw.as_ref().unwrap().model_name,
+            "LeftChunk"
+        );
+        assert_eq!(
+            right_chunk.debris_draw.as_ref().unwrap().model_name,
+            "RightChunk"
+        );
+        assert_eq!(
+            left_chunk.get_visual_info().model_name.as_deref(),
+            Some("LeftChunk")
+        );
+        assert_eq!(
+            right_chunk.get_visual_info().model_name.as_deref(),
+            Some("RightChunk")
+        );
+        assert_eq!(left_chunk.physics_mass, 5.0);
+        assert_eq!(right_chunk.physics_mass, 5.0);
+        let expected_offset =
+            glam::Mat3::from_rotation_z(std::f32::consts::FRAC_PI_2) * Vec3::new(1.0, 2.0, 3.0);
+        assert!(
+            (left_chunk.get_position() - (Vec3::new(20.0, 0.0, 30.0) + expected_offset)).length()
+                < 1e-4
+        );
+        assert_eq!(
+            left.live_drawable_model_names(),
+            vec!["LeftChunk".to_owned()]
+        );
+        assert_eq!(
+            right.live_drawable_model_names(),
+            vec!["RightChunk".to_owned()]
+        );
+        assert_eq!(left.templates["GenericDebris"].model_name, None);
+        assert_eq!(right.templates["GenericDebris"].model_name, None);
+
+        // Exercise the production presentation projection consumed by
+        // RenderPipeline, not only ObjectVisualInfo or the shell preloader.
+        let left_frame =
+            crate::presentation_frame::PresentationFrame::build_from_logic(&mut left, 0);
+        let right_frame =
+            crate::presentation_frame::PresentationFrame::build_from_logic(&mut right, 0);
+        let left_mesh = left_frame
+            .unit_render_inputs()
+            .into_iter()
+            .find(|input| input.id == left_ids[0])
+            .expect("left debris reaches the production mesh collector");
+        let right_mesh = right_frame
+            .unit_render_inputs()
+            .into_iter()
+            .find(|input| input.id == right_ids[0])
+            .expect("right debris reaches the production mesh collector");
+        assert_eq!(left_mesh.template_name, "GenericDebris");
+        assert_eq!(right_mesh.template_name, "GenericDebris");
+        assert_eq!(
+            left_mesh
+                .receiving_draw_models
+                .as_deref()
+                .unwrap()
+                .module_class_names()
+                .as_slice(),
+            ["W3DDebrisDraw"]
+        );
+        assert_eq!(
+            right_mesh
+                .receiving_draw_models
+                .as_deref()
+                .unwrap()
+                .module_class_names()
+                .as_slice(),
+            ["W3DDebrisDraw"]
+        );
+        assert_eq!(left_mesh.model_key, "LeftChunk");
+        assert_eq!(right_mesh.model_key, "RightChunk");
+        assert_eq!(left_mesh.draw_models[0].module_index, 0);
+        assert_eq!(right_mesh.draw_models[0].module_index, 0);
+        assert_eq!(left_mesh.draw_models[0].model_key, "LeftChunk");
+        assert_eq!(right_mesh.draw_models[0].model_key, "RightChunk");
+    }
+
+    #[test]
+    fn debris_model_override_does_not_invent_missing_receiving_draw_geometry() {
+        let mut world = GameLogic::new();
+        world
+            .admit_object_creation_list_sources(["ObjectCreationList OCL_NoDebrisDraw\nCreateDebris\nModelNames = AuthoredChunk\nCount = 1\nMass = 5\nDisposition = SEND_IT_FLYING\nDispositionIntensity = 1\nEnd\nEnd".into()])
+            .unwrap();
+        let mut source_template = ThingTemplate::new("NoDrawSource");
+        source_template.set_health(100.0);
+        let mut debris_template = ThingTemplate::new("GenericDebris");
+        debris_template
+            .add_kind_of(crate::game_logic::KindOf::Projectile)
+            .set_health(100.0);
+        world
+            .templates
+            .insert("NoDrawSource".into(), source_template);
+        world
+            .templates
+            .insert("GenericDebris".into(), debris_template);
+        let source = world
+            .create_object("NoDrawSource", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let ids = world.execute_parsed_weapon_ocl_at(
+            "OCL_NoDebrisDraw",
+            Some(source),
+            Team::USA,
+            VeterancyLevel::Rookie,
+            0.0,
+            Vec3::ZERO,
+            Vec3::ZERO,
+        );
+        assert_eq!(ids.len(), 1);
+        assert_eq!(
+            world.objects[&ids[0]]
+                .debris_draw
+                .as_ref()
+                .unwrap()
+                .model_name,
+            "AuthoredChunk"
+        );
+
+        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
+        let input = frame
+            .unit_render_inputs()
+            .into_iter()
+            .find(|input| input.id == ids[0])
+            .unwrap();
+        assert_eq!(input.template_name, "GenericDebris");
+        assert!(input.receiving_draw_models.is_none());
+        assert_ne!(input.model_key, "AuthoredChunk");
+        assert!(
+            input
+                .draw_models
+                .iter()
+                .all(|draw| draw.model_key != "AuthoredChunk")
+        );
+    }
+
+    #[test]
+    fn authored_debris_model_choices_mass_and_lifetime_ranges_stay_with_each_owner() {
+        let (mut left, left_source) = world("LeftA LeftB", 6, 5.0, 10, 20);
+        let (mut right, right_source) = world("RightA RightB", 6, 9.0, 30, 40);
+        assert_eq!(left_source, right_source);
+
+        let left_ids = left.execute_parsed_weapon_ocl_at(
+            "OCL_ReceivingBridgeDebris",
+            Some(left_source),
+            Team::USA,
+            VeterancyLevel::Rookie,
+            0.0,
+            Vec3::ZERO,
+            Vec3::new(20.0, 0.0, 30.0),
+        );
+        let right_ids = right.execute_parsed_weapon_ocl_at(
+            "OCL_ReceivingBridgeDebris",
+            Some(right_source),
+            Team::USA,
+            VeterancyLevel::Rookie,
+            0.0,
+            Vec3::ZERO,
+            Vec3::new(20.0, 0.0, 30.0),
+        );
+        assert_eq!(left_ids.len(), 6);
+        assert_eq!(right_ids.len(), 6);
+
+        let mut left_choices = Vec::new();
+        let mut right_choices = Vec::new();
+        for (left_id, right_id) in left_ids.iter().zip(&right_ids) {
+            let left_debris = left.objects.get(left_id).expect("left debris object");
+            let right_debris = right.objects.get(right_id).expect("right debris object");
+            assert_eq!(left_debris.template_name, "GenericDebris");
+            assert_eq!(right_debris.template_name, "GenericDebris");
+            let left_model = left_debris
+                .debris_draw
+                .as_ref()
+                .unwrap()
+                .model_name
+                .as_str();
+            let right_model = right_debris
+                .debris_draw
+                .as_ref()
+                .unwrap()
+                .model_name
+                .as_str();
+            assert!(matches!(left_model, "LeftA" | "LeftB"));
+            assert!(matches!(right_model, "RightA" | "RightB"));
+            // OCL ModelNames performs one receiving logic-RNG choice per item;
+            // peer owners start from the same seed, so the selected list index
+            // is equal despite distinct model namespaces and lifetime ranges.
+            left_choices.push(left_model.ends_with('B'));
+            right_choices.push(right_model.ends_with('B'));
+            assert_eq!(left_debris.physics_mass, 5.0);
+            assert_eq!(right_debris.physics_mass, 9.0);
+            let left_deadline = left_debris
+                .native_lifecycle
+                .as_ref()
+                .and_then(|runtime| runtime.first_lifetime_deadline())
+                .expect("receiving LifetimeUpdate");
+            let right_deadline = right_debris
+                .native_lifecycle
+                .as_ref()
+                .and_then(|runtime| runtime.first_lifetime_deadline())
+                .expect("receiving LifetimeUpdate");
+            assert!((10..=20).contains(&left_deadline.saturating_sub(left.frame)));
+            assert!((30..=40).contains(&right_deadline.saturating_sub(right.frame)));
+        }
+        assert_eq!(left_choices, right_choices);
+
+        let left_frame =
+            crate::presentation_frame::PresentationFrame::build_from_logic(&mut left, 0);
+        let right_frame =
+            crate::presentation_frame::PresentationFrame::build_from_logic(&mut right, 0);
+        for (id, model) in left_ids.iter().zip(left_choices.iter()) {
+            let expected = if *model { "LeftB" } else { "LeftA" };
+            let submitted = left_frame
+                .unit_render_inputs()
+                .into_iter()
+                .find(|input| input.id == *id)
+                .unwrap();
+            assert_eq!(submitted.model_key, expected);
+        }
+        for (id, model) in right_ids.iter().zip(right_choices.iter()) {
+            let expected = if *model { "RightB" } else { "RightA" };
+            let submitted = right_frame
+                .unit_render_inputs()
+                .into_iter()
+                .find(|input| input.id == *id)
+                .unwrap();
+            assert_eq!(submitted.model_key, expected);
+        }
+    }
+}
+
 fn unsupported_host_ocl_nugget_name(
     nugget: &dyn gamelogic::object_creation_list::ObjectCreationNugget,
 ) -> &'static str {
@@ -48,6 +390,26 @@ fn unsupported_host_ocl_nugget_name(
     } else {
         "other"
     }
+}
+
+fn host_ocl_disposition_bits(
+    disposition: gamelogic::object_creation_list::DebrisDisposition,
+) -> u32 {
+    use gamelogic::object_creation_list::DebrisDisposition as D;
+    [
+        D::LIKE_EXISTING,
+        D::ON_GROUND_ALIGNED,
+        D::SEND_IT_FLYING,
+        D::SEND_IT_UP,
+        D::SEND_IT_OUT,
+        D::RANDOM_FORCE,
+        D::FLOATING,
+        D::INHERIT_VELOCITY,
+        D::WHIRLING,
+    ]
+    .into_iter()
+    .filter(|flag| disposition.has(*flag))
+    .fold(0, |bits, flag| bits | flag)
 }
 
 fn usable_ocl_particle_sys_name(name: &str) -> Option<&str> {
@@ -166,6 +528,16 @@ impl GameLogic {
                 continue;
             };
             if generic.debris_to_generate == 0 {
+                continue;
+            }
+            if !generic.name_are_objects {
+                created.extend(self.execute_receiving_create_debris(
+                    generic,
+                    source_id.expect("validated above"),
+                    source_team,
+                    origin,
+                    presentation_effects,
+                ));
                 continue;
             }
             if !supports_host_weapon_generic_ocl(generic) {
@@ -381,6 +753,215 @@ impl GameLogic {
                 }
                 created.push(created_id);
             }
+        }
+        created
+    }
+
+    /// Bounded receiving-session implementation of authored CreateDebris.
+    /// This supports the live bridge transition slice (a required receiving
+    /// GenericDebris template, per-item model-name selection, positive mass,
+    /// optional receiving LifetimeUpdate range, and SEND_IT_FLYING disposition).
+    /// Unsupported draw/physics options fail closed instead of substituting a
+    /// model template or fallback geometry.
+    fn execute_receiving_create_debris(
+        &mut self,
+        generic: &gamelogic::object_creation_list::GenericObjectCreationNugget,
+        source_id: ObjectId,
+        source_team: Team,
+        origin: Vec3,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Vec<ObjectId> {
+        use gamelogic::object_creation_list::DebrisDisposition as D;
+        use gamelogic::object_creation_list::StaticGameLODLevel;
+
+        let supported = generic.debris_to_generate > 0
+            && !generic.names.is_empty()
+            && generic.mass > 0.0
+            && generic.disposition.has(D::SEND_IT_FLYING)
+            && !generic.disposition.has(
+                D::LIKE_EXISTING
+                    | D::ON_GROUND_ALIGNED
+                    | D::SEND_IT_UP
+                    | D::SEND_IT_OUT
+                    | D::RANDOM_FORCE
+                    | D::FLOATING
+                    | D::INHERIT_VELOCITY
+                    | D::WHIRLING,
+            )
+            && generic.put_in_container.trim().is_empty()
+            && generic.particle_sys_name.trim().is_empty()
+            && generic.anim_sets.is_empty()
+            && generic.fx_final.is_none()
+            && generic.min_lod_required == StaticGameLODLevel::Low
+            && (generic.max_frames == 0 || generic.min_frames <= generic.max_frames)
+            && !generic.fade_in
+            && !generic.fade_out
+            && !generic.spread_formation
+            && !generic.contain_inside_source_object
+            && !generic.ignore_primary_obstacle
+            && !generic.skip_if_significantly_airborne
+            && !generic.requires_live_player
+            && !generic.dies_on_bad_land
+            && !generic.orient_in_force_direction
+            && generic.preserve_layer;
+        if !supported {
+            log::warn!(
+                "receiving CreateDebris nugget is outside the GenericDebris bridge slice; no Core ThingFactory/GameLOD fallback was used"
+            );
+            return Vec::new();
+        }
+        if !self.templates.contains_key("GenericDebris") {
+            log::warn!(
+                "receiving CreateDebris requires the admitted GenericDebris template; no fallback object geometry was created"
+            );
+            return Vec::new();
+        }
+        let Some((owner_player_id, source_layer, source_matrix, source_orientation)) = self
+            .objects
+            .get(&source_id)
+            .map(|source| {
+                (
+                    source.owner_player_id,
+                    source.pathfind_layer,
+                    source.get_transform_matrix(),
+                    source.get_orientation(),
+                )
+            })
+        else {
+            return Vec::new();
+        };
+        let team = if owner_player_id.is_some() {
+            source_team
+        } else {
+            Team::Neutral
+        };
+        self.ocl_create_debris_reg
+            .record_plan(host_ocl_disposition_bits(generic.disposition));
+
+        let mut created = Vec::new();
+        let count = u32::try_from(generic.debris_to_generate).unwrap_or_default();
+        for _ in 0..count {
+            // C++ selects ModelNames before calling GameLODManager::isDebrisSkipped.
+            let upper = i32::try_from(generic.names.len().saturating_sub(1)).unwrap_or(i32::MAX);
+            let pick = usize::try_from(self.logic_random.next_int(0, upper))
+                .unwrap_or_default()
+                .min(generic.names.len() - 1);
+            if self.ocl_create_debris_reg.is_debris_skipped() {
+                continue;
+            }
+            let model_name = generic.names[pick].trim();
+            if model_name.is_empty() || model_name.eq_ignore_ascii_case("none") {
+                log::warn!("receiving CreateDebris selected an empty model name; item skipped");
+                continue;
+            }
+            // C++ ObjectCreationList.cpp:953-960 transforms its Z-up Coord3D
+            // Offset through the primary Object matrix before translating.
+            // Thing's receiving transform matrix is in that same source basis;
+            // transform the vector without applying the matrix translation.
+            let local_offset = Vec3::new(generic.offset.x, generic.offset.y, generic.offset.z);
+            let position = origin + source_matrix.transform_vector3(local_offset);
+            let Some(id) = self.create_object_for_owner_or_team_with_effects(
+                "GenericDebris",
+                team,
+                owner_player_id,
+                position,
+                None,
+                presentation_effects,
+            ) else {
+                continue;
+            };
+
+            // C++ doStuffToObj sets producer and per-instance DebrisDraw state.
+            // Keep model selection on the new Object; the shared template remains
+            // unchanged for this and all other GameLogic owners.
+            if let Some(object) = self.objects.get_mut(&id) {
+                object.producer_id = Some(source_id);
+                if generic.preserve_layer && source_layer != 1 {
+                    object.pathfind_layer = source_layer;
+                }
+                // C++ doStuffToObj: override the first existing LifetimeUpdate
+                // only when the nugget authored a positive maximum. The setter
+                // consumes this receiving world's RNG after factory creation.
+                if generic.max_frames > 0 {
+                    let _ = object.set_native_lifetime_range(
+                        self.frame,
+                        crate::game_logic::native_lifecycle_definition::LifetimeFrameRange {
+                            minimum: generic.min_frames,
+                            maximum: generic.max_frames,
+                        },
+                        &self.logic_random,
+                    );
+                }
+                object.debris_draw = Some(crate::game_logic::object::visual::DebrisDrawState {
+                    model_name: model_name.to_owned(),
+                    anim_initial: String::new(),
+                    anim_flying: String::new(),
+                    anim_final: String::new(),
+                    fx_final: None,
+                    allow_model_color_change: generic.ok_to_change_model_color,
+                    shadow_type: generic.shadow_type,
+                });
+
+                // C++ calls setInitialHealth before processing dispositions.
+                // It consumes a random health percentage even when no body is
+                // present, so retain the draw before the flight randoms.
+                let health_percent = self
+                    .logic_random
+                    .next_real(generic.min_health, generic.max_health)
+                    .clamp(0.0, 1.0);
+                let target_health = object.body_initial_health() * health_percent;
+                object.internal_change_health(target_health - object.health.current);
+
+                // C++ SEND_IT_FLYING force and angular-rate draw order.
+                // Mass and bounce properties are installed after initial
+                // health, at the start of disposition handling.
+                object.physics_mass = generic.mass;
+                object.extra_bounciness = generic.extra_bounciness;
+                object.extra_friction = generic.extra_friction;
+                object.set_allow_bouncing(true);
+                object.bounce_sound_name = generic.bounce_sound.clone();
+                let spin = if generic.spin_rate >= 0.0 {
+                    generic.spin_rate
+                } else {
+                    (std::f32::consts::PI / 32.0) * generic.disposition_intensity
+                };
+                let yaw_rate = if generic.yaw_rate >= 0.0 {
+                    generic.yaw_rate
+                } else {
+                    spin
+                };
+                let roll_rate = if generic.roll_rate >= 0.0 {
+                    generic.roll_rate
+                } else {
+                    spin
+                };
+                let pitch_rate = if generic.pitch_rate >= 0.0 {
+                    generic.pitch_rate
+                } else {
+                    spin
+                };
+                object.shock_yaw_rate = self.logic_random.next_real(-yaw_rate, yaw_rate);
+                object.shock_roll_rate = self.logic_random.next_real(-roll_rate, roll_rate);
+                object.shock_pitch_rate = self.logic_random.next_real(-pitch_rate, pitch_rate);
+                let horizontal = 4.0 * generic.disposition_intensity;
+                let vertical = 3.0 * generic.disposition_intensity;
+                let force_x = self.logic_random.next_real(-horizontal, horizontal);
+                let force_y = self.logic_random.next_real(-horizontal, horizontal);
+                let force_z = self
+                    .logic_random
+                    .next_real(vertical * 0.33, vertical);
+                // Draw in C++ Coord3D x/y/z order, then map the vertical
+                // component to this host's Y-up force vector.
+                let force = Vec3::new(force_x, force_z, force_y);
+                object.apply_physics_force(force);
+                object.set_orientation_with_partition_owner(
+                    source_orientation,
+                    &mut self.partition_manager,
+                );
+            }
+            self.ocl_create_debris_reg
+                .record_spawn(host_ocl_disposition_bits(generic.disposition));
+            created.push(id);
         }
         created
     }
@@ -2422,8 +3003,8 @@ impl GameLogic {
     /// Apply AP Rockets residual damage mult to Scorpion missile secondary.
     pub fn apply_scorpion_ap_rockets_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_scorpion::{
-            UPGRADE_GLA_AP_ROCKETS, has_scorpion_rocket_upgrade, is_scorpion_template,
-            salvage_tier_from_upgrades, scorpion_missile_weapon,
+            has_scorpion_rocket_upgrade, is_scorpion_template, salvage_tier_from_upgrades,
+            scorpion_missile_weapon, UPGRADE_GLA_AP_ROCKETS,
         };
 
         let Some(obj) = self.objects.get_mut(&object_id) else {

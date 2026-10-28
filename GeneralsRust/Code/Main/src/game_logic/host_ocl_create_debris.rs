@@ -187,6 +187,13 @@ pub struct HostOclCreateDebrisRegistry {
     pub debris_spawned: u32,
     pub flying_forces: u32,
     pub last_disposition: u32,
+    /// Receiving-session copy of GameLODManager's dynamic debris mask.
+    /// The generation counter is session-owned and advances once per parsed
+    /// CreateDebris item, after its authored model selection.
+    #[serde(default)]
+    pub dynamic_skip_mask: u32,
+    #[serde(default)]
+    pub debris_generations: u32,
 }
 
 impl HostOclCreateDebrisRegistry {
@@ -194,7 +201,24 @@ impl HostOclCreateDebrisRegistry {
         Self::default()
     }
     pub fn clear(&mut self) {
-        *self = Self::default();
+        let dynamic_skip_mask = self.dynamic_skip_mask;
+        *self = Self {
+            dynamic_skip_mask,
+            ..Self::default()
+        };
+    }
+    pub fn admit_dynamic_skip_mask(&mut self, mask: u32) {
+        self.dynamic_skip_mask = mask;
+        self.debris_generations = 0;
+    }
+    pub fn admit_runtime_state(&mut self, mask: u32, generations: u32) {
+        self.dynamic_skip_mask = mask;
+        self.debris_generations = generations;
+    }
+    /// C++ GameLODManager::isDebrisSkipped; called for each selected model.
+    pub fn is_debris_skipped(&mut self) -> bool {
+        self.debris_generations = self.debris_generations.wrapping_add(1);
+        (self.debris_generations & self.dynamic_skip_mask) != self.dynamic_skip_mask
     }
     pub fn record_plan(&mut self, disposition: u32) {
         self.plans = self.plans.saturating_add(1);

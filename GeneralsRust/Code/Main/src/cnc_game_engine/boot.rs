@@ -653,6 +653,12 @@ impl CnCGameEngine {
                 &game_engine::common::game_lod::get_static_lod(),
             ),
         );
+        // Copy the application-selected mask into the receiving simulation;
+        // live OCL calls then advance a per-world debris generation counter.
+        game_logic.admit_dynamic_debris_skip_mask(
+            game_engine::common::ini::ini_game_lod::get_game_lod_manager()
+                .dynamic_debris_skip_mask() as u32,
+        );
         game_logic
             .admit_physics_rules_base(
                 Self::load_physics_rules_baseline(&application_assets)
@@ -768,9 +774,10 @@ impl CnCGameEngine {
 
         // C++ GameEngine.cpp:399 initializes authored setup definitions before
         // client UI. Complete this once before the archive worker can run.
-        Self::load_startup_multiplayer_definitions(&application_assets)
+        let max_beacons_per_player = Self::load_startup_multiplayer_definitions(&application_assets)
             .await
             .map_err(anyhow::Error::msg)?;
+        game_logic.admit_max_beacons_per_player(max_beacons_per_player);
 
         let startup_load_state = if build_map_cache || audio_startup_requires_quit {
             StartupLoadState::Complete

@@ -143,8 +143,11 @@ pub(super) struct RestoreTemplateCatalog<'a> {
     power_bar_baseline: game_engine::common::ini::ini_game_data::PowerBarRules,
     body_auto_particle_baseline: &'a game_engine::common::ini::ini_game_data::BodyAutoParticleRules,
     session_sell_percentage: f32,
+    max_beacons_per_player: i32,
     lighting_baseline: &'a crate::game_logic::lighting_rules::LightingContentRules,
     static_lod_level: Option<game_engine::common::ini::ini_game_lod::StaticGameLODLevel>,
+    dynamic_debris_skip_mask: u32,
+    dynamic_debris_generations: u32,
     roads_baseline: &'a game_engine::common::ini::ini_road::TerrainRoadCollection,
     combat_bonus_baseline: &'a game_engine::common::ini::ini_game_data::CombatBonusRules,
     templates: &'a std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
@@ -167,12 +170,15 @@ impl<'a> RestoreTemplateCatalog<'a> {
             baseline: &world.receiving_template_baseline,
             lighting_baseline: world.lighting_rules_baseline(),
             static_lod_level: world.current_static_lod_level(),
+            dynamic_debris_skip_mask: world.current_dynamic_debris_skip_mask(),
+            dynamic_debris_generations: world.current_dynamic_debris_generations(),
             roads_baseline: world.terrain_road_baseline(),
             combat_bonus_baseline: world.combat_bonus_baseline(),
             body_damage_baseline: world.body_damage_baseline(),
             power_bar_baseline: world.power_bar_baseline(),
             body_auto_particle_baseline: world.body_auto_particle_baseline(),
             session_sell_percentage: world.session_sell_percentage,
+            max_beacons_per_player: world.max_beacons_per_player,
         }
     }
 }
@@ -2283,12 +2289,15 @@ impl CnCGameEngine {
                 baseline: &live.receiving_template_baseline,
                 lighting_baseline: live.lighting_rules_baseline(),
                 static_lod_level: live.current_static_lod_level(),
+                dynamic_debris_skip_mask: live.current_dynamic_debris_skip_mask(),
+                dynamic_debris_generations: live.current_dynamic_debris_generations(),
                 roads_baseline: live.terrain_road_baseline(),
                 combat_bonus_baseline: live.combat_bonus_baseline(),
                 body_damage_baseline: live.body_damage_baseline(),
                 power_bar_baseline: live.power_bar_baseline(),
                 body_auto_particle_baseline: live.body_auto_particle_baseline(),
                 session_sell_percentage: live.session_sell_percentage,
+                max_beacons_per_player: live.max_beacons_per_player,
             },
             &live.weapon_definition_base,
             &live.projectile_definitions,
@@ -2439,11 +2448,16 @@ impl CnCGameEngine {
             candidate.admit_body_auto_particle_baseline(live.body_auto_particle_baseline().clone());
             candidate.admit_historic_damage_limit(live.combat_system.historic_damage_limit());
             candidate.admit_sell_percentage(live.session_sell_percentage);
+            candidate.admit_max_beacons_per_player(live.max_beacons_per_player);
             candidate.admit_combat_bonus_baseline(live.combat_bonus_baseline().clone());
             candidate.admit_physics_rules_base(live.physics_rules_baseline())?;
             candidate.admit_body_damage_baseline(live.body_damage_baseline());
             candidate.admit_lighting_rules_base(live.lighting_rules_baseline().clone());
             candidate.admit_static_lod_level(live.current_static_lod_level());
+            candidate.admit_dynamic_debris_runtime_state(
+                live.current_dynamic_debris_skip_mask(),
+                live.current_dynamic_debris_generations(),
+            );
             candidate.admit_terrain_road_definitions(live.terrain_road_baseline().clone())?;
             candidate
                 .admit_terrain_definitions(Arc::clone(live.effective_terrain_definitions()))?;
@@ -2730,15 +2744,21 @@ impl CnCGameEngine {
         staged.set_ai_definition_base(ai_definition_base.clone());
         staged.admit_production_energy_base(production_energy_base);
         staged.admit_power_bar_base(template_catalog.power_bar_baseline);
-        staged
-            .admit_body_auto_particle_baseline(template_catalog.body_auto_particle_baseline.clone());
+        staged.admit_body_auto_particle_baseline(
+            template_catalog.body_auto_particle_baseline.clone(),
+        );
         staged.admit_historic_damage_limit(historic_damage_limit);
         staged.admit_sell_percentage(template_catalog.session_sell_percentage);
+        staged.admit_max_beacons_per_player(template_catalog.max_beacons_per_player);
         staged.admit_combat_bonus_baseline(template_catalog.combat_bonus_baseline.clone());
         staged.admit_physics_rules_base(physics_rules_base)?;
         staged.admit_body_damage_baseline(template_catalog.body_damage_baseline);
         staged.admit_lighting_rules_base(template_catalog.lighting_baseline.clone());
         staged.admit_static_lod_level(template_catalog.static_lod_level);
+        staged.admit_dynamic_debris_runtime_state(
+            template_catalog.dynamic_debris_skip_mask,
+            template_catalog.dynamic_debris_generations,
+        );
         staged.admit_terrain_road_definitions(template_catalog.roads_baseline.clone())?;
         staged.admit_terrain_definitions(Arc::clone(terrain_definition_seed))?;
         if let Some(catalog) = armor_definition_seed {
@@ -3002,12 +3022,17 @@ impl CnCGameEngine {
                     baseline: &self.game_logic.receiving_template_baseline,
                     lighting_baseline: self.game_logic.lighting_rules_baseline(),
                     static_lod_level: self.game_logic.current_static_lod_level(),
+                    dynamic_debris_skip_mask: self.game_logic.current_dynamic_debris_skip_mask(),
+                    dynamic_debris_generations: self
+                        .game_logic
+                        .current_dynamic_debris_generations(),
                     roads_baseline: self.game_logic.terrain_road_baseline(),
                     combat_bonus_baseline: self.game_logic.combat_bonus_baseline(),
                     body_damage_baseline: self.game_logic.body_damage_baseline(),
                     power_bar_baseline: self.game_logic.power_bar_baseline(),
                     body_auto_particle_baseline: self.game_logic.body_auto_particle_baseline(),
                     session_sell_percentage: self.game_logic.session_sell_percentage,
+                    max_beacons_per_player: self.game_logic.max_beacons_per_player,
                 },
                 &self.game_logic.weapon_definition_base,
                 &self.game_logic.projectile_definitions,
@@ -3051,12 +3076,15 @@ impl CnCGameEngine {
                 baseline: &self.game_logic.receiving_template_baseline,
                 lighting_baseline: self.game_logic.lighting_rules_baseline(),
                 static_lod_level: self.game_logic.current_static_lod_level(),
+                dynamic_debris_skip_mask: self.game_logic.current_dynamic_debris_skip_mask(),
+                dynamic_debris_generations: self.game_logic.current_dynamic_debris_generations(),
                 roads_baseline: self.game_logic.terrain_road_baseline(),
                 combat_bonus_baseline: self.game_logic.combat_bonus_baseline(),
                 body_damage_baseline: self.game_logic.body_damage_baseline(),
                 power_bar_baseline: self.game_logic.power_bar_baseline(),
                 body_auto_particle_baseline: self.game_logic.body_auto_particle_baseline(),
                 session_sell_percentage: self.game_logic.session_sell_percentage,
+                max_beacons_per_player: self.game_logic.max_beacons_per_player,
             },
             &self.game_logic.weapon_definition_base,
             &self.game_logic.projectile_definitions,

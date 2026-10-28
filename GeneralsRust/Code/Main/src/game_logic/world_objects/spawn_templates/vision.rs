@@ -1,5 +1,6 @@
 //! Shroud, visibility, and victory-summary host projections.
 use super::*;
+use gamelogic::common::Relationship;
 
 impl GameLogic {
     /// Feed Main-crate object positions into ShroudManager.
@@ -297,11 +298,11 @@ impl GameLogic {
         }
     }
 
-    pub(in super::super::super) fn shroud_visibility_snapshot_for_team(
+    pub(in super::super::super) fn shroud_visibility_snapshot_for_player(
         &self,
-        viewing_team: Team,
+        player_id: u32,
     ) -> Option<ShroudVisibilitySnapshot> {
-        let player_id = self.player_id_for_team(viewing_team)?;
+        let viewer = self.players.get(&player_id)?;
         let shroud_manager = self.world_services.shroud();
         let shroud_mgr = shroud_manager.lock().ok()?;
         let raw_visible_objects = shroud_mgr.get_visible_objects(player_id);
@@ -313,13 +314,18 @@ impl GameLogic {
             return None;
         }
 
-        // Apply stealth-aware visibility to currently visible objects.
+        // Apply the receiving Main world's canonical Object status. The Core
+        // ShroudManager compatibility query consults process-global Core
+        // StealthManager/DetectionManager/ObjectManager singletons, whose IDs
+        // can alias this session's native ObjectIds.
         let mut visible_objects = HashSet::with_capacity(raw_visible_objects.len());
         for object_id in raw_visible_objects {
-            if shroud_mgr
-                .can_see_object_with_stealth(player_id, object_id)
-                .unwrap_or(true)
-            {
+            let id = ObjectId(object_id);
+            let visible_to_team = self
+                .objects
+                .get(&id)
+                .is_some_and(|object| self.is_object_visible_to_player(object, viewer));
+            if visible_to_team {
                 visible_objects.insert(object_id);
             }
         }
@@ -331,6 +337,94 @@ impl GameLogic {
                 .into_iter()
                 .collect(),
         })
+    }
+
+    /// C++ StealthUpdate::getStealthLook uses the receiving Player's actual
+    /// relationship to the object's Team. The global DETECTED bit remains a
+    /// target-wide Object status, matching ObjectStatus::DETECTED.
+    pub(in super::super::super) fn is_object_visible_to_player(
+        &self,
+        object: &Object,
+        viewer: &Player,
+    ) -> bool {
+        if !object.is_alive() {
+            return false;
+        }
+        if !object.status.stealthed || object.status.detected || object.status.disguised {
+            return true;
+        }
+        if viewer.is_observer || !viewer.is_alive {
+            return true;
+        }
+
+        let relationship = if let (Some(object_team), Some(viewer_team)) =
+            (object.team_instance_id, viewer.default_team_id)
+        {
+            self.host_team_relationship(object_team, viewer_team)
+                .unwrap_or(Relationship::Neutral)
+        } else if let Some(owner) = object.owner_player_id {
+            self.player_relationship(owner, viewer.id)
+        } else {
+            Relationship::Neutral
+        };
+        relationship == Relationship::Allies
+    }
+
+    pub(in super::super::super) fn is_object_visible_for_player(
+        &self,
+        object_id: ObjectId,
+        object: &Object,
+        viewer_id: u32,
+        shroud_snapshot: Option<&ShroudVisibilitySnapshot>,
+    ) -> bool {
+        let Some(viewer) = self.players.get(&viewer_id) else {
+            return false;
+        };
+        if !self.is_object_visible_to_player(object, viewer) {
+            return false;
+        }
+        if let Some(snapshot) = shroud_snapshot {
+            let id = object_id.0;
+            snapshot.visible_objects.contains(&id) || snapshot.explored_objects.contains(&id)
+        } else {
+            true
+        }
+    }
+
+    pub(in super::super::super) fn is_object_visible_on_minimap_for_player(
+        &self,
+        object_id: ObjectId,
+        object: &Object,
+        viewer_id: u32,
+        shroud_snapshot: Option<&ShroudVisibilitySnapshot>,
+    ) -> bool {
+        let Some(viewer) = self.players.get(&viewer_id) else {
+            return false;
+        };
+        if !self.is_object_visible_to_player(object, viewer) {
+            return false;
+        }
+        let friendly = viewer.is_observer
+            || !viewer.is_alive
+            || if let (Some(object_team), Some(viewer_team)) =
+                (object.team_instance_id, viewer.default_team_id)
+            {
+                self.host_team_relationship(object_team, viewer_team)
+                    .is_some_and(|relation| relation == Relationship::Allies)
+            } else {
+                object.owner_player_id == Some(viewer_id)
+            };
+        if friendly {
+            return true;
+        }
+        if let Some(snapshot) = shroud_snapshot {
+            let id = object_id.0;
+            if snapshot.visible_objects.contains(&id) {
+                return true;
+            }
+            return object.is_kind_of(KindOf::Structure) && snapshot.explored_objects.contains(&id);
+        }
+        true
     }
 
     pub(in super::super::super) fn is_object_visible_for_team(

@@ -86,6 +86,8 @@ impl GameLogic {
                 game_engine::common::global_data::PLAYERTYPE_COUNT],
             veterancy_health_bonus: [1.0; game_engine::common::global_data::LEVEL_COUNT],
             session_sell_percentage: 1.0,
+            max_beacons_per_player:
+                crate::game_logic::host_gamedata_lobby_residual::MP_MAX_BEACONS_PER_PLAYER_RESIDUAL,
             projectile_definitions: Default::default(),
             body_damage_definitions: Default::default(),
             lighting_definitions: Default::default(),
@@ -789,6 +791,11 @@ impl GameLogic {
     /// Admit the effective ordered startup GameData sell percentage.
     pub(crate) fn admit_sell_percentage(&mut self, percentage: f32) {
         self.session_sell_percentage = percentage;
+    }
+
+    /// Admit the ordered startup Multiplayer.ini beacon cap into this world.
+    pub fn admit_max_beacons_per_player(&mut self, maximum: i32) {
+        self.max_beacons_per_player = maximum.max(0);
     }
 
     /// World bounds used for minimap/FOW projections.

@@ -932,9 +932,9 @@ impl<'a> CommandExecutor<'a> {
             .find(|p| p.is_local)
             .map(|p| p.id);
         let template_name = host_beacon_template_name(self.game_logic, player_id, team);
-        let max_beacons = host_max_beacons_per_player();
+        let max_beacons = self.game_logic.max_beacons_per_player;
         let existing = host_count_player_beacons(self.game_logic, player_id, &template_name);
-        if existing >= max_beacons {
+        if template_name.is_empty() || existing >= max_beacons {
             if local_id == Some(player_id) {
                 let alert = localization::localize("GUI:TooManyBeacons", "Too many beacons");
                 self.game_logic
@@ -1148,12 +1148,11 @@ fn clamp_beacon_to_world(logic: &GameLogic, location: Vec3) -> Vec3 {
 }
 
 fn host_beacon_template_name(logic: &GameLogic, player_id: u32, team: Team) -> String {
-    if let Some(name) = logic
-        .resolved_player_template(player_id)
-        .map(|template| template.get_beacon_template().to_string())
-        .filter(|name| !name.is_empty())
-    {
-        return name;
+    if logic.player_template_identity(player_id).is_some() {
+        return logic
+            .resolved_player_template(player_id)
+            .map(|template| template.get_beacon_template().to_string())
+            .unwrap_or_default();
     }
     match team {
         Team::USA => "AmericaBeacon".to_string(),
@@ -1163,32 +1162,44 @@ fn host_beacon_template_name(logic: &GameLogic, player_id: u32, team: Team) -> S
     }
 }
 
-pub(super) fn host_max_beacons_per_player() -> i32 {
-    game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|settings| {
-        settings.max_beacons_per_player
-    })
-    .max(0)
+pub(super) fn host_max_beacons_per_player(logic: &GameLogic) -> i32 {
+    logic.max_beacons_per_player
 }
 
-fn host_object_is_beacon(logic: &GameLogic, id: ObjectId) -> bool {
-    logic
-        .host_object(id)
-        .map(|obj| {
-            let n = obj.template_name.to_ascii_lowercase();
-            n.contains("beacon")
-        })
-        .unwrap_or(false)
+pub fn host_object_is_beacon(logic: &GameLogic, id: ObjectId) -> bool {
+    let Some(obj) = logic.host_object(id) else {
+        return false;
+    };
+    let Some(owner) = obj.owner_player_id else {
+        return false;
+    };
+    let Some(player) = logic.get_player(owner) else {
+        return false;
+    };
+    let expected = host_beacon_template_name(logic, owner, player.team);
+    if expected.is_empty() {
+        return false;
+    }
+    let Some(beacon_template) = logic.templates.get(&expected) else {
+        return false;
+    };
+    obj.get_template().is_equivalent_to(beacon_template)
 }
 
 fn host_count_player_beacons(logic: &GameLogic, player_id: u32, template_name: &str) -> i32 {
+    let Some(beacon_template) = logic.templates.get(template_name) else {
+        return 0;
+    };
     logic
         .host_objects()
         .registered_values()
         .filter(|obj| {
             obj.owner_player_id == Some(player_id)
-                && obj.is_alive()
-                && (obj.template_name.eq_ignore_ascii_case(template_name)
-                    || obj.template_name.to_ascii_lowercase().contains("beacon"))
+                // C++ Player::countObjectsByThingTemplate(..., false, ...)
+                // includes effectively-dead and pending-removal members, but
+                // retains its default ignore-under-construction behavior.
+                && !obj.status.under_construction
+                && obj.get_template().is_equivalent_to(beacon_template)
         })
         .count() as i32
 }
@@ -1226,9 +1237,7 @@ fn host_transfer_assets_from(logic: &mut GameLogic, dest_player: u32, source_pla
         .host_objects()
         .registered()
         .filter_map(|(id, obj)| {
-            (obj.owner_player_id == Some(source_player)
-                && obj.is_alive()
-                && !obj.template_name.to_ascii_lowercase().contains("beacon"))
+            (obj.owner_player_id == Some(source_player) && !host_object_is_beacon(logic, *id))
             .then_some(*id)
         })
         .collect();
@@ -1318,7 +1327,7 @@ pub fn host_beacon_is_hidden(logic: &GameLogic, id: ObjectId) -> bool {
 pub fn host_beacon_position_is_hidden(logic: &GameLogic, pos: Vec3) -> bool {
     const MATCH: f32 = 3.0; // beacon_manager BEACON_MATCH_THRESHOLD
     logic.host_objects().registered_values().any(|obj| {
-        obj.template_name.to_ascii_lowercase().contains("beacon")
+        host_object_is_beacon(logic, obj.id)
             && (host_beacon_is_hidden(logic, obj.id) || obj.drawable_hidden)
             && (obj.get_position() - pos).length() <= MATCH
     })
@@ -1338,7 +1347,9 @@ pub fn host_local_player_can_place_beacon(logic: &GameLogic, player_id: u32) -> 
         return false;
     }
     let template_name = host_beacon_template_name(logic, player_id, player.team);
-    host_count_player_beacons(logic, player_id, &template_name) < host_max_beacons_per_player()
+    !template_name.is_empty()
+        && host_count_player_beacons(logic, player_id, &template_name)
+            < host_max_beacons_per_player(logic)
 }
 
 /// C++ BeaconClientUpdate::clientUpdate — house-color smoke + yellow pulse.
@@ -1363,7 +1374,7 @@ pub fn tick_live_beacon_client_updates_with_effects(
         .host_objects()
         .registered()
         .filter_map(|(id, obj)| {
-            if !obj.is_alive() || !obj.template_name.to_ascii_lowercase().contains("beacon") {
+            if !obj.is_alive() || !host_object_is_beacon(logic, *id) {
                 return None;
             }
             let hidden = obj.drawable_hidden || host_beacon_is_hidden(logic, *id);

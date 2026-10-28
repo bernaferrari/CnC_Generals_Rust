@@ -25,6 +25,26 @@ fn authored(row: [f32; 9]) -> TerrainLighting {
     }
 }
 impl super::GameLogic {
+    /// Admit the application-selected dynamic debris skip mask to this world.
+    /// A separate generation counter then follows this world's OCL creation
+    /// order rather than the process-global GameLODManager counter.
+    pub fn admit_dynamic_debris_skip_mask(&mut self, mask: u32) {
+        self.ocl_create_debris_reg.admit_dynamic_skip_mask(mask);
+    }
+
+    pub(crate) fn current_dynamic_debris_skip_mask(&self) -> u32 {
+        self.ocl_create_debris_reg.dynamic_skip_mask
+    }
+
+    pub(crate) fn current_dynamic_debris_generations(&self) -> u32 {
+        self.ocl_create_debris_reg.debris_generations
+    }
+
+    pub(crate) fn admit_dynamic_debris_runtime_state(&mut self, mask: u32, generations: u32) {
+        self.ocl_create_debris_reg
+            .admit_runtime_state(mask, generations);
+    }
+
     pub(crate) fn admit_lighting_rules_base(&mut self, rules: LightingContentRules) {
         self.lighting_definitions = LightingDefinitions {
             base: rules.clone(),

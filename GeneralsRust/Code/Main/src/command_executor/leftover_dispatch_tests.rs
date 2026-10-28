@@ -236,7 +236,7 @@ fn place_beacon_spawns_world_object_and_respects_cap() {
         Some("here")
     );
 
-    let max = host_max_beacons_per_player().max(1);
+    let max = host_max_beacons_per_player(&logic).max(1);
     for i in 1..max {
         let r = CommandExecutor::new(&mut logic, 0)
             .execute_command(command(
@@ -432,7 +432,7 @@ fn place_beacon_button_greys_at_max() {
         .get_players_mut()
         .insert(0, Player::new(0, Team::USA, "P0", true));
     assert!(host_local_player_can_place_beacon(&logic, 0));
-    let max = host_max_beacons_per_player().max(1);
+    let max = host_max_beacons_per_player(&logic).max(1);
     for i in 0..max {
         CommandExecutor::new(&mut logic, 0)
             .execute_command(command(

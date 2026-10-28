@@ -1,6 +1,19 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 
+/// Per-object C++ DebrisDrawInterface state. The receiving renderer resolves
+/// these names against its own model assets.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DebrisDrawState {
+    pub model_name: String,
+    pub anim_initial: String,
+    pub anim_flying: String,
+    pub anim_final: String,
+    pub fx_final: Option<String>,
+    pub allow_model_color_change: bool,
+    pub shadow_type: u32,
+}
+
 /// Visual information structure for rendering
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObjectVisualInfo {
@@ -25,6 +38,15 @@ pub struct ObjectVisualInfo {
 }
 
 impl Object {
+    /// Current model name for presentation, including a per-debris override.
+    pub fn current_visual_model_name(&self) -> String {
+        self.debris_draw
+            .as_ref()
+            .map(|draw| draw.model_name.clone())
+            .or_else(|| self.thing.template.model_name.clone())
+            .unwrap_or_default()
+    }
+
     /// Get visual information for rendering
     pub fn get_visual_info(&self) -> ObjectVisualInfo {
         ObjectVisualInfo {
@@ -37,7 +59,11 @@ impl Object {
             is_selected: self.selected,
             show_health_bar: self.show_health_bar && self.is_alive(),
             health_percentage: self.get_health_percentage(),
-            model_name: self.thing.template.model_name.clone(),
+            model_name: self
+                .debris_draw
+                .as_ref()
+                .map(|draw| draw.model_name.clone())
+                .or_else(|| self.thing.template.model_name.clone()),
             object_type: self.object_type,
             team: self.team,
             under_construction: self.status.under_construction,

@@ -391,6 +391,9 @@ pub struct RenderableObject {
     /// including captions equal to the object's template name.
     #[serde(default)]
     pub beacon_caption: Option<String>,
+    /// Captured from the receiving player's authored BeaconName definition.
+    #[serde(default)]
+    pub is_beacon: bool,
     pub team: Team,
     /// Controlling host player; distinct from faction for same-faction slots.
     #[serde(default)]
@@ -1110,6 +1113,10 @@ pub struct PresentationDirectHostDrawable {
     pub(crate) draw_velocity_magnitude_squared: f32,
     pub(crate) receiving_visual_draw_models:
         Option<std::sync::Arc<crate::game_logic::thing::ReceivingDrawModels>>,
+    /// C++ DebrisDrawInterface::setModelName instance override. The Drawable
+    /// keeps its GenericDebris template/module admission; mesh submission uses
+    /// this per-object model after the receiving template's conditions resolve.
+    pub(crate) debris_model_override: Option<String>,
     /// Authored instance scale of `visual_template_name`.  C++ destroys and
     /// recreates the Drawable when a disguise visual is committed, so the
     /// replacement template's `ThingTemplate::asset_scale` must replace both

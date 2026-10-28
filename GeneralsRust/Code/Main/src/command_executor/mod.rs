@@ -67,6 +67,7 @@ mod validate;
 
 pub use leftover::{
     host_beacon_caption, host_beacon_is_hidden, host_beacon_position_is_hidden,
+    host_object_is_beacon,
     host_local_player_can_place_beacon, take_leftover_dispatch_commands_from_common_stream,
     tick_live_beacon_client_updates, tick_live_beacon_client_updates_with_effects,
 };

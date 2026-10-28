@@ -418,6 +418,12 @@ pub struct Object {
     /// Object name
     pub name: String,
 
+    /// C++ DebrisDrawInterface::setModelName override for OCL CreateDebris.
+    /// This state belongs to the spawned Object; it never mutates the shared
+    /// GenericDebris template.
+    #[serde(default)]
+    pub(crate) debris_draw: Option<visual::DebrisDrawState>,
+
     /// Object status
     pub status: ObjectStatus,
     /// C++ ObjectStatusMaskType residual bits (StatusBitsUpgrade set/clear).

@@ -114,9 +114,8 @@ impl GameLogic {
     pub fn live_drawable_model_names(&self) -> Vec<String> {
         let mut names = std::collections::BTreeSet::new();
         for obj in self.objects.registered_values() {
-            let Some(name) = obj.thing().template.model_name.as_deref() else {
-                continue;
-            };
+            let name = obj.current_visual_model_name();
+            let name = name.as_str();
             let trimmed = name.trim();
             if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("none") {
                 continue;

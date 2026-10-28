@@ -168,18 +168,14 @@ impl GameLogic {
 
     // ====== ENHANCED RTS COMMAND SYSTEM ======
 
-    /// Get all objects visible to a specific team (for rendering and UI)
-    pub fn get_visible_objects(&self, viewing_team: Team) -> Vec<ObjectId> {
-        let shroud_snapshot = self.shroud_visibility_snapshot_for_team(viewing_team);
+    /// Get all objects visible to the receiving player (for rendering and UI).
+    pub fn get_visible_objects(&self, player_id: u32) -> Vec<ObjectId> {
+        let shroud_snapshot = self.shroud_visibility_snapshot_for_player(player_id);
         self.objects
             .registered()
             .filter_map(|(id, obj)| {
-                if Self::is_object_visible_for_team(
-                    *id,
-                    obj,
-                    viewing_team,
-                    shroud_snapshot.as_ref(),
-                ) {
+                if self.is_object_visible_for_player(*id, obj, player_id, shroud_snapshot.as_ref())
+                {
                     Some(*id)
                 } else {
                     None
@@ -191,18 +187,14 @@ impl GameLogic {
     /// Get visual information for all visible objects
     pub fn get_visual_object_info(
         &self,
-        viewing_team: Team,
+        player_id: u32,
     ) -> Vec<(ObjectId, super::super::ObjectVisualInfo)> {
-        let shroud_snapshot = self.shroud_visibility_snapshot_for_team(viewing_team);
+        let shroud_snapshot = self.shroud_visibility_snapshot_for_player(player_id);
         self.objects
             .registered()
             .filter_map(|(id, obj)| {
-                if Self::is_object_visible_for_team(
-                    *id,
-                    obj,
-                    viewing_team,
-                    shroud_snapshot.as_ref(),
-                ) {
+                if self.is_object_visible_for_player(*id, obj, player_id, shroud_snapshot.as_ref())
+                {
                     Some((*id, obj.get_visual_info()))
                 } else {
                     None
@@ -634,8 +626,11 @@ impl GameLogic {
 
         // Show visual info for rendering
         println!("\n🎨 VISUAL INFORMATION:");
-        let visual_info = self.get_visual_object_info(Team::USA);
-        println!("   {} objects visible to USA team", visual_info.len());
+        let visual_info = self
+            .local_player_id()
+            .map(|player_id| self.get_visual_object_info(player_id))
+            .unwrap_or_default();
+        println!("   {} objects visible to local player", visual_info.len());
 
         for (id, info) in visual_info.iter().take(3) {
             println!(

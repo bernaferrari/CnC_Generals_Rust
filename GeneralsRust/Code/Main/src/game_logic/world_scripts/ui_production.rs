@@ -10,12 +10,11 @@ fn receiving_minimap_beacon_entries(logic: &GameLogic) -> Vec<(u32, glam::Vec3)>
     // is chronological. Reverse visitation restores that order. C++ creates
     // one Object per placement, including nearby beacons.
     for (id, object) in logic.objects.registered().rev() {
-        let template_name = object.template_name.to_ascii_lowercase();
         let Some(owner) = object.owner_player_id else {
             continue;
         };
         if !object.is_alive()
-            || !template_name.contains("beacon")
+            || !crate::command_executor::host_object_is_beacon(logic, *id)
             || object.drawable_hidden
             || crate::command_executor::host_beacon_is_hidden(logic, *id)
         {
@@ -135,16 +134,15 @@ impl GameLogic {
         let (world_min, world_max) = self.world_bounds();
         let world_span_x = (world_max.x - world_min.x).max(1.0);
         let world_span_z = (world_max.z - world_min.z).max(1.0);
-        let viewing_team = player.map(|p| p.team).unwrap_or(Team::Neutral);
-        let shroud_snapshot = self.shroud_visibility_snapshot_for_team(viewing_team);
+        let shroud_snapshot = self.shroud_visibility_snapshot_for_player(player_id);
 
         for (id, obj) in self.objects.registered() {
             if obj.is_alive()
                 && (obj.is_kind_of(KindOf::Selectable) || obj.is_kind_of(KindOf::Structure))
-                && Self::is_object_visible_on_minimap_for_team(
+                && self.is_object_visible_on_minimap_for_player(
                     *id,
                     obj,
-                    viewing_team,
+                    player_id,
                     shroud_snapshot.as_ref(),
                 )
             {
@@ -790,14 +788,15 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
         use crate::game_logic::host_production_buildable_command_residual::{
-            STRUCTURE_PLACE_CLEARANCE_RESIDUAL, cell_shroud_blocks_build_residual,
-            footprint_height_delta_residual, footprint_map_edge_sample_points_residual,
-            footprint_map_edge_violation_residual, legal_build_code_from_checks_complete_residual,
+            cell_shroud_blocks_build_residual, footprint_height_delta_residual,
+            footprint_map_edge_sample_points_residual, footprint_map_edge_violation_residual,
+            legal_build_code_from_checks_complete_residual,
             legal_build_objects_in_the_way_residual, legal_build_too_close_to_supplies_residual,
+            STRUCTURE_PLACE_CLEARANCE_RESIDUAL,
         };
         use crate::game_logic::host_structure_economy_residual::{
-            MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD, SUPPLY_BUILD_BORDER,
-            is_legal_build_height_variation,
+            is_legal_build_height_variation, MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD,
+            SUPPLY_BUILD_BORDER,
         };
         let (min, max) = self.world_bounds();
         // Use real map extent (no generous pad) for C++ off-map / edge residual.
@@ -1610,7 +1609,7 @@ impl GameLogic {
     /// Fail-open when shroud grid is not initialized (synthetic/host tests).
     pub fn is_build_location_shroud_clear(&self, player_id: u32, position: glam::Vec3) -> bool {
         use gamelogic::common::Coord3D;
-        use gamelogic::system::shroud_manager::{ShroudState, get_shroud_manager};
+        use gamelogic::system::shroud_manager::{get_shroud_manager, ShroudState};
         let shroud_manager = self.world_services.shroud();
         let Ok(shroud) = shroud_manager.lock() else {
             return true;
@@ -2271,7 +2270,7 @@ impl GameLogic {
     pub fn can_make_unit(&self, producer_id: ObjectId, template_name: &str) -> u32 {
         use crate::game_logic::buildings::DEFAULT_PRODUCTION_QUEUE_LIMIT;
         use crate::game_logic::host_production_buildable_command_residual::{
-            CANMAKE_OK, can_make_type_from_checks_residual,
+            can_make_type_from_checks_residual, CANMAKE_OK,
         };
 
         let Some(template) = self.templates.get(template_name) else {
@@ -2424,8 +2423,8 @@ impl GameLogic {
     /// No factory queue or parking place.
     fn can_make_dozer_construct(&self, producer_id: ObjectId, template_name: &str) -> u32 {
         use crate::game_logic::host_production_buildable_command_residual::{
-            CANMAKE_FACTORY_IS_DISABLED, CANMAKE_NO_PREREQ, can_make_type_from_checks_residual,
-            command_set_allows_unit,
+            can_make_type_from_checks_residual, command_set_allows_unit,
+            CANMAKE_FACTORY_IS_DISABLED, CANMAKE_NO_PREREQ,
         };
 
         let Some(template) = self.templates.get(template_name) else {

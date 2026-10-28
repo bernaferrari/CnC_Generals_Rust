@@ -1433,8 +1433,7 @@ impl GameLogic {
             .registered()
             .filter_map(|(id, obj)| {
                 (obj.owner_player_id == Some(source_player)
-                    && obj.is_alive()
-                    && !obj.template_name.to_ascii_lowercase().contains("beacon"))
+                    && !crate::command_executor::host_object_is_beacon(self, *id))
                 .then_some(*id)
             })
             .collect();
