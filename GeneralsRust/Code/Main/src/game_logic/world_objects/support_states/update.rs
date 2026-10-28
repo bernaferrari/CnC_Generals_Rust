@@ -676,10 +676,15 @@ impl GameLogic {
                                     continue;
                                 }
                                 let transferred = self
-                                    .with_object_recrew_feedback_and_partition(
+                                    .with_object_recrew_inputs(
                                         container_id,
-                                        |vehicle, ownership, audio, feedback, partition| {
-                                            vehicle.apply_pilot_recrew_with_partition_owner(
+                                        |vehicle,
+                                         ownership,
+                                         audio,
+                                         feedback,
+                                         partition,
+                                         locomotors| {
+                                            vehicle.apply_pilot_recrew_with_locomotors(
                                                 pilot_team,
                                                 pilot_owner_player_id,
                                                 pilot_level,
@@ -687,6 +692,7 @@ impl GameLogic {
                                                 audio,
                                                 feedback,
                                                 partition,
+                                                locomotors,
                                             )
                                         },
                                     )
@@ -2138,12 +2144,13 @@ impl GameLogic {
                             self.try_eva_vehicle_stolen(special_target_id);
                             let donor_snap = self.objects.get(&object_id).cloned();
                             if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                target.apply_hijacked_from_with_partition_owner(
+                                target.apply_hijacked_from_with_locomotors(
                                     donor_snap.as_ref(),
                                     &mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ),
                                     &mut self.partition_manager,
+                                    self.locomotor_definitions.as_ref(),
                                 );
                             }
                             match owner_player_id {
@@ -2755,14 +2762,15 @@ impl GameLogic {
                             }
                             // Snapshot donor residual (vision/vet) before consume.
                             let donor_snap = self.objects.get(&object_id).cloned();
-                            self.with_object_veterancy_feedback_and_partition(
+                            self.with_object_veterancy_inputs(
                                 special_target_id,
-                                |target, audio, feedback, partition| {
-                                    target.apply_convert_to_car_bomb_from_with_partition_owner(
+                                |target, audio, feedback, partition, locomotors| {
+                                    target.apply_convert_to_car_bomb_from_with_locomotors(
                                         donor_snap.as_ref(),
                                         audio,
                                         feedback,
                                         partition,
+                                        locomotors,
                                     );
                                 },
                             );

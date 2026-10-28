@@ -1154,27 +1154,35 @@ impl GameLogic {
         if high != parent_level {
             let health_bonus = self.veterancy_health_bonus;
             let _ = self.host_object_mut(parent_id);
-            self.with_object_veterancy_feedback(parent_id, |parent, audio, feedback| {
-                parent.set_min_veterancy_level_with_health_bonus_table(
-                    high,
-                    &health_bonus,
-                    audio,
-                    feedback,
-                )
-            });
+            self.with_object_veterancy_feedback_and_locomotors(
+                parent_id,
+                |parent, audio, feedback, locomotors| {
+                    parent.set_min_veterancy_level_with_health_bonus_table(
+                        high,
+                        &health_bonus,
+                        audio,
+                        feedback,
+                        locomotors,
+                    )
+                },
+            );
         }
         for (id, level) in children {
             if level != high {
                 let health_bonus = self.veterancy_health_bonus;
                 let _ = self.host_object_mut(id);
-                self.with_object_veterancy_feedback(id, |child, audio, feedback| {
-                    child.set_min_veterancy_level_with_health_bonus_table(
-                        high,
-                        &health_bonus,
-                        audio,
-                        feedback,
-                    )
-                });
+                self.with_object_veterancy_feedback_and_locomotors(
+                    id,
+                    |child, audio, feedback, locomotors| {
+                        child.set_min_veterancy_level_with_health_bonus_table(
+                            high,
+                            &health_bonus,
+                            audio,
+                            feedback,
+                            locomotors,
+                        )
+                    },
+                );
             }
         }
     }
@@ -2715,13 +2723,22 @@ impl GameLogic {
                 .and_then(|metadata| metadata.pilot_starting_level())
             {
                 if object.is_trainable() {
-                    self.with_veterancy_feedback(&mut object, |object, audio, feedback| {
-                        object.set_min_veterancy_level(target, audio, feedback)
-                    });
+                    self.with_veterancy_feedback_and_locomotors(
+                        &mut object,
+                        |object, audio, feedback, locomotors| {
+                            object.set_min_veterancy_level_in(target, audio, feedback, locomotors)
+                        },
+                    );
                 }
             }
 
-            if crate::game_logic::host_gla_worker::is_gla_worker_template(template_name) {
+            if crate::game_logic::host_gla_worker::is_gla_worker_template(template_name)
+                && object
+                    .thing()
+                    .template
+                    .receiving_object_definition
+                    .is_none()
+            {
                 object.movement.max_speed =
                     crate::game_logic::host_gla_worker::worker_residual_speed(false);
             }
@@ -2759,9 +2776,12 @@ impl GameLogic {
             // Auto-fire residual runs from update_combat when idle.
 
             if let Some(level) = player_template_veterancy {
-                self.with_veterancy_feedback(&mut object, |object, audio, feedback| {
-                    object.set_min_veterancy_level(level, audio, feedback)
-                });
+                self.with_veterancy_feedback_and_locomotors(
+                    &mut object,
+                    |object, audio, feedback, locomotors| {
+                        object.set_min_veterancy_level_in(level, audio, feedback, locomotors)
+                    },
+                );
             }
 
             object.ensure_fire_weapon_when_damaged();
@@ -2861,36 +2881,42 @@ impl GameLogic {
                     .map(|player| player.unlocked_sciences.iter().cloned().collect())
                     .unwrap_or_default();
                 let grant = self
-                    .with_object_veterancy_feedback(id, |obj, audio, feedback| {
-                        let mut ini_level = None;
-                        for module in &obj.thing().template.veterancy_gain_creates {
-                            let science_ok = match &module.science_required {
-                                None => true,
-                                Some(sci) => sciences
-                                    .iter()
-                                    .any(|s| normalize_identity(s) == normalize_identity(sci)),
-                            };
-                            if science_ok && obj.is_trainable() {
-                                let lvl = module.starting_level;
-                                if ini_level
-                                    .map(|best| veterancy_rank(lvl) > veterancy_rank(best))
-                                    .unwrap_or(true)
-                                {
-                                    ini_level = Some(lvl);
+                    .with_object_veterancy_feedback_and_locomotors(
+                        id,
+                        |obj, audio, feedback, locomotors| {
+                            let mut ini_level = None;
+                            for module in &obj.thing().template.veterancy_gain_creates {
+                                let science_ok = match &module.science_required {
+                                    None => true,
+                                    Some(sci) => sciences
+                                        .iter()
+                                        .any(|s| normalize_identity(s) == normalize_identity(sci)),
+                                };
+                                if science_ok && obj.is_trainable() {
+                                    let lvl = module.starting_level;
+                                    if ini_level
+                                        .map(|best| veterancy_rank(lvl) > veterancy_rank(best))
+                                        .unwrap_or(true)
+                                    {
+                                        ini_level = Some(lvl);
+                                    }
                                 }
                             }
-                        }
-                        if let Some(level) = ini_level {
-                            let _ = obj.set_min_veterancy_level(level, audio, feedback);
-                        } else if let Some((kind, level)) =
-                            unit_training_level_for_template(template_name, &sciences)
-                        {
-                            if obj.set_min_veterancy_level(level, audio, feedback) {
-                                return Some(kind);
+                            if let Some(level) = ini_level {
+                                let _ = obj
+                                    .set_min_veterancy_level_in(level, audio, feedback, locomotors);
+                            } else if let Some((kind, level)) =
+                                unit_training_level_for_template(template_name, &sciences)
+                            {
+                                if obj
+                                    .set_min_veterancy_level_in(level, audio, feedback, locomotors)
+                                {
+                                    return Some(kind);
+                                }
                             }
-                        }
-                        None
-                    })
+                            None
+                        },
+                    )
                     .flatten();
                 if let Some(kind) = grant {
                     self.unit_training.record_grant(kind);

@@ -131,10 +131,10 @@ impl GameLogic {
                 None => return false,
             };
         if is_pilot && self.can_execute_pilot_recrew(infantry_id, vehicle_id) {
-            self.with_object_recrew_feedback_and_partition(
+            self.with_object_recrew_inputs(
                 vehicle_id,
-                |vehicle, ownership, audio, feedback, partition| {
-                    vehicle.apply_pilot_recrew_with_partition_owner(
+                |vehicle, ownership, audio, feedback, partition, locomotors| {
+                    vehicle.apply_pilot_recrew_with_locomotors(
                         inf_team,
                         inf_owner_player_id,
                         inf_level,
@@ -142,6 +142,7 @@ impl GameLogic {
                         audio,
                         feedback,
                         partition,
+                        locomotors,
                     )
                 },
             );

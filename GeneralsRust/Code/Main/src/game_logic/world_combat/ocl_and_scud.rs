@@ -225,22 +225,30 @@ impl GameLogic {
                     }
                 }
                 let inherit_name = self
-                    .with_object_veterancy_feedback(created_id, |object, audio, feedback| {
-                        if generic.disposition.has(DebrisDisposition::INHERIT_VELOCITY) {
-                            // The host's movement/physics state is the concrete
-                            // equivalent of C++ PhysicsBehavior::applyForce for this
-                            // disposition.  It also preserves DragonTank FireWall
-                            // segment direction without inspecting an OCL name.
-                            object.movement.velocity = source_velocity;
-                        }
-                        // C++ ObjectCreationList.cpp:996-1006 — inherit rank and
-                        // transferObjectName only when the created tracker isTrainable.
-                        let inherit_name = generic.inherit_veterancy && object.is_trainable();
-                        if inherit_name {
-                            object.set_min_veterancy_level(source_veterancy, audio, feedback);
-                        }
-                        inherit_name
-                    })
+                    .with_object_veterancy_feedback_and_locomotors(
+                        created_id,
+                        |object, audio, feedback, locomotors| {
+                            if generic.disposition.has(DebrisDisposition::INHERIT_VELOCITY) {
+                                // The host's movement/physics state is the concrete
+                                // equivalent of C++ PhysicsBehavior::applyForce for this
+                                // disposition.  It also preserves DragonTank FireWall
+                                // segment direction without inspecting an OCL name.
+                                object.movement.velocity = source_velocity;
+                            }
+                            // C++ ObjectCreationList.cpp:996-1006 — inherit rank and
+                            // transferObjectName only when the created tracker isTrainable.
+                            let inherit_name = generic.inherit_veterancy && object.is_trainable();
+                            if inherit_name {
+                                object.set_min_veterancy_level_in(
+                                    source_veterancy,
+                                    audio,
+                                    feedback,
+                                    locomotors,
+                                );
+                            }
+                            inherit_name
+                        },
+                    )
                     .unwrap_or(false);
                 let Some(object) = self.objects.get_mut(&created_id) else {
                     continue;
@@ -2756,9 +2764,11 @@ mod tests {
     #[test]
     fn fire_ocl_never_uses_a_foreign_list_or_foreign_object_template() {
         const NAME: &str = "OCL_WeaponOwnerNegativeControl";
-        let text = |child: &str| format!(
-            "ObjectCreationList {NAME}\n CreateObject\n ObjectNames = {child}\n Count = 1\n End\nEnd\n"
-        );
+        let text = |child: &str| {
+            format!(
+                "ObjectCreationList {NAME}\n CreateObject\n ObjectNames = {child}\n Count = 1\n End\nEnd\n"
+            )
+        };
         let foreign = gamelogic::object_creation_list::store::parse_object_creation_lists_from_ini(
             &text("ForeignChild"),
         )
@@ -2772,16 +2782,29 @@ mod tests {
         let mut peer = GameLogic::new();
         for world in [&mut first, &mut peer] {
             for name in ["SameSource", "OwnedChild", "ForeignChild"] {
-                world.templates.insert(name.into(), ThingTemplate::new(name));
+                world
+                    .templates
+                    .insert(name.into(), ThingTemplate::new(name));
             }
         }
-        peer.apply_receiving_ocl_overrides(&[text("OwnedChild")]).unwrap();
-        let first_id = first.create_object("SameSource", Team::USA, Vec3::ZERO).unwrap();
-        let peer_id = peer.create_object("SameSource", Team::USA, Vec3::ZERO).unwrap();
+        peer.apply_receiving_ocl_overrides(&[text("OwnedChild")])
+            .unwrap();
+        let first_id = first
+            .create_object("SameSource", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let peer_id = peer
+            .create_object("SameSource", Team::USA, Vec3::ZERO)
+            .unwrap();
         assert_eq!(first_id, peer_id);
         let execute = |world: &mut GameLogic, id| {
             world.execute_parsed_weapon_ocl_at(
-                NAME, Some(id), Team::USA, VeterancyLevel::Rookie, 0.0, Vec3::ZERO, Vec3::ZERO,
+                NAME,
+                Some(id),
+                Team::USA,
+                VeterancyLevel::Rookie,
+                0.0,
+                Vec3::ZERO,
+                Vec3::ZERO,
             )
         };
         assert!(execute(&mut first, first_id).is_empty());

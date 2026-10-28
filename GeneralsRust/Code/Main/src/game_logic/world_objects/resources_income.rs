@@ -618,14 +618,18 @@ impl GameLogic {
         // C++ awards XP to the hacker, not to a fixed retail template.  The
         // shadow event carries its exact parsed `XpPerCashUpdate` value.
         let health_bonus = self.veterancy_health_bonus;
-        self.with_object_veterancy_feedback(ev.id, |hacker, audio, feedback| {
-            hacker.gain_experience_with_health_bonus_table(
-                ev.xp_per_cash_update,
-                &health_bonus,
-                audio,
-                feedback,
-            );
-        });
+        self.with_object_veterancy_feedback_and_locomotors(
+            ev.id,
+            |hacker, audio, feedback, locomotors| {
+                hacker.gain_experience_with_health_bonus_table(
+                    ev.xp_per_cash_update,
+                    &health_bonus,
+                    audio,
+                    feedback,
+                    locomotors,
+                );
+            },
+        );
         let is_local = owner_player_id
             .map(|pid| self.is_local_player(pid))
             .unwrap_or(false);
@@ -938,14 +942,18 @@ impl GameLogic {
             }
             // Residual XpPerCashUpdate.
             let health_bonus = self.veterancy_health_bonus;
-            self.with_object_veterancy_feedback(h.id, |object, audio, feedback| {
-                object.gain_experience_with_health_bonus_table(
-                    h.metadata.xp_per_cash_update,
-                    &health_bonus,
-                    audio,
-                    feedback,
-                );
-            });
+            self.with_object_veterancy_feedback_and_locomotors(
+                h.id,
+                |object, audio, feedback, locomotors| {
+                    object.gain_experience_with_health_bonus_table(
+                        h.metadata.xp_per_cash_update,
+                        &health_bonus,
+                        audio,
+                        feedback,
+                        locomotors,
+                    );
+                },
+            );
             // STEALTHED local display gate residual (owner + containedBy).
             let owner_local = owner_player_id
                 .map(|pid| self.is_local_player(pid))

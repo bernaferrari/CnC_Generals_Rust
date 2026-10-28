@@ -1323,7 +1323,7 @@ impl GameLogic {
     }
 
     /// C++ ExperienceTracker::addExperiencePoints sink + trainable gate.
-    pub(crate) fn award_experience(&mut self, recipient_id: ObjectId, amount: f32) {
+    pub fn award_experience(&mut self, recipient_id: ObjectId, amount: f32) {
         if amount <= 0.0 || !amount.is_finite() {
             return;
         }
@@ -1350,14 +1350,18 @@ impl GameLogic {
             (recipient_id, amount)
         };
         let health_bonus = self.veterancy_health_bonus;
-        self.with_object_veterancy_feedback(dest_id, |object, audio, feedback| {
-            object.gain_experience_with_health_bonus_table(
-                forwarded,
-                &health_bonus,
-                audio,
-                feedback,
-            );
-        });
+        self.with_object_veterancy_feedback_and_locomotors(
+            dest_id,
+            |object, audio, feedback, locomotors| {
+                object.gain_experience_with_health_bonus_table(
+                    forwarded,
+                    &health_bonus,
+                    audio,
+                    feedback,
+                    locomotors,
+                );
+            },
+        );
     }
 
     /// C++ Object::scoreTheKill unit XP for residual apply / capture paths.

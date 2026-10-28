@@ -319,9 +319,10 @@ impl Object {
             audio,
             feedback,
             None,
+            None,
         )
     }
-    pub(crate) fn apply_pilot_recrew_with_partition_owner(
+    pub(crate) fn apply_pilot_recrew_with_locomotors(
         &mut self,
         pilot_team: Team,
         pilot_owner_player_id: Option<u32>,
@@ -330,6 +331,7 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
         partition: &mut crate::game_logic::partition_manager::PartitionManager,
+        locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
     ) -> bool {
         self.apply_pilot_recrew_with_partition_context(
             pilot_team,
@@ -339,6 +341,7 @@ impl Object {
             audio,
             feedback,
             Some(partition),
+            locomotors,
         )
     }
     fn apply_pilot_recrew_with_partition_context(
@@ -350,6 +353,7 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
         mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+        locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
     ) -> bool {
         self.require_partition_owner(partition.as_deref());
         use crate::game_logic::host_usa_pilot::{merged_recrew_veterancy, veterancy_rank};
@@ -384,7 +388,7 @@ impl Object {
         let merged = merged_recrew_veterancy(previous, pilot_level);
         let transferred = veterancy_rank(merged) > veterancy_rank(previous);
         if transferred {
-            let _ = self.set_min_veterancy_level(merged, audio, feedback);
+            let _ = self.set_min_veterancy_level_in(merged, audio, feedback, locomotors);
         }
         transferred
     }

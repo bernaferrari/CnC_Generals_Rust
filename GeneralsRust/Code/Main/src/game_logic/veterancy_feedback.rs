@@ -5,6 +5,7 @@ use super::host_unit_training::{
 };
 use super::{Object, ObjectAudio, VeterancyLevel};
 use crate::presentation_frame::WorldAnimations;
+use game_engine::common::ini::ini_locomotor::LocomotorStore;
 
 pub struct VeterancyFeedback<'a> {
     frame: u32,
@@ -124,10 +125,25 @@ impl<'a> VeterancyFeedback<'a> {
 }
 
 impl super::GameLogic {
+    #[cfg(test)]
     pub(crate) fn with_veterancy_feedback<R>(
         &mut self,
         object: &mut Object,
         action: impl FnOnce(&mut Object, &mut ObjectAudio<'_>, &mut VeterancyFeedback<'_>) -> R,
+    ) -> R {
+        self.with_veterancy_feedback_and_locomotors(object, |object, audio, feedback, _| {
+            action(object, audio, feedback)
+        })
+    }
+    pub(crate) fn with_veterancy_feedback_and_locomotors<R>(
+        &mut self,
+        object: &mut Object,
+        action: impl FnOnce(
+            &mut Object,
+            &mut ObjectAudio<'_>,
+            &mut VeterancyFeedback<'_>,
+            Option<&LocomotorStore>,
+        ) -> R,
     ) -> R {
         let local = self.local_player_id();
         let draw_icon_ui = self.get_draw_icon_ui();
@@ -139,8 +155,14 @@ impl super::GameLogic {
             &mut self.session_view.world_animations,
         );
         let mut audio = ObjectAudio::queue(&mut self.queued_audio_events);
-        action(object, &mut audio, &mut feedback)
+        action(
+            object,
+            &mut audio,
+            &mut feedback,
+            self.locomotor_definitions.as_ref(),
+        )
     }
+    #[cfg(test)]
     pub(crate) fn with_object_veterancy_feedback<R>(
         &mut self,
         id: super::ObjectId,
@@ -151,6 +173,7 @@ impl super::GameLogic {
             |object, audio, feedback, _partition| action(object, audio, feedback),
         )
     }
+    #[cfg(test)]
     pub(crate) fn with_object_veterancy_feedback_and_partition<R>(
         &mut self,
         id: super::ObjectId,
@@ -159,6 +182,35 @@ impl super::GameLogic {
             &mut ObjectAudio<'_>,
             &mut VeterancyFeedback<'_>,
             &mut super::partition_manager::PartitionManager,
+        ) -> R,
+    ) -> Option<R> {
+        self.with_object_veterancy_inputs(id, |object, audio, feedback, partition, _| {
+            action(object, audio, feedback, partition)
+        })
+    }
+    pub(crate) fn with_object_veterancy_feedback_and_locomotors<R>(
+        &mut self,
+        id: super::ObjectId,
+        action: impl FnOnce(
+            &mut Object,
+            &mut ObjectAudio<'_>,
+            &mut VeterancyFeedback<'_>,
+            Option<&LocomotorStore>,
+        ) -> R,
+    ) -> Option<R> {
+        self.with_object_veterancy_inputs(id, |object, audio, feedback, _, locomotors| {
+            action(object, audio, feedback, locomotors)
+        })
+    }
+    pub(crate) fn with_object_veterancy_inputs<R>(
+        &mut self,
+        id: super::ObjectId,
+        action: impl FnOnce(
+            &mut Object,
+            &mut ObjectAudio<'_>,
+            &mut VeterancyFeedback<'_>,
+            &mut super::partition_manager::PartitionManager,
+            Option<&LocomotorStore>,
         ) -> R,
     ) -> Option<R> {
         let local = self.local_player_id();
@@ -176,6 +228,7 @@ impl super::GameLogic {
             &mut audio,
             &mut feedback,
             &mut self.partition_manager,
+            self.locomotor_definitions.as_ref(),
         ))
     }
 }
@@ -206,24 +259,7 @@ impl super::GameLogic {
 }
 
 impl super::GameLogic {
-    pub(crate) fn with_object_recrew_feedback<R>(
-        &mut self,
-        id: super::ObjectId,
-        action: impl FnOnce(
-            &mut Object,
-            &mut super::host_owner_log::OwnershipEvents,
-            &mut ObjectAudio<'_>,
-            &mut VeterancyFeedback<'_>,
-        ) -> R,
-    ) -> Option<R> {
-        self.with_object_recrew_feedback_and_partition(
-            id,
-            |object, ownership, audio, feedback, _partition| {
-                action(object, ownership, audio, feedback)
-            },
-        )
-    }
-    pub(crate) fn with_object_recrew_feedback_and_partition<R>(
+    pub(crate) fn with_object_recrew_inputs<R>(
         &mut self,
         id: super::ObjectId,
         action: impl FnOnce(
@@ -232,6 +268,7 @@ impl super::GameLogic {
             &mut ObjectAudio<'_>,
             &mut VeterancyFeedback<'_>,
             &mut super::partition_manager::PartitionManager,
+            Option<&LocomotorStore>,
         ) -> R,
     ) -> Option<R> {
         let local = self.local_player_id();
@@ -250,6 +287,7 @@ impl super::GameLogic {
             &mut audio,
             &mut feedback,
             &mut self.partition_manager,
+            self.locomotor_definitions.as_ref(),
         ))
     }
 }

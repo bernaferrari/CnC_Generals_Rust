@@ -745,8 +745,11 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
     ) {
-        self.apply_convert_to_car_bomb_from_with_partition_context(donor, audio, feedback, None)
+        self.apply_convert_to_car_bomb_from_with_partition_context(
+            donor, audio, feedback, None, None,
+        )
     }
+    #[cfg(test)]
     pub(crate) fn apply_convert_to_car_bomb_from_with_partition_owner(
         &mut self,
         donor: Option<&Object>,
@@ -759,6 +762,23 @@ impl Object {
             audio,
             feedback,
             Some(partition),
+            None,
+        )
+    }
+    pub(crate) fn apply_convert_to_car_bomb_from_with_locomotors(
+        &mut self,
+        donor: Option<&Object>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+        locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
+    ) {
+        self.apply_convert_to_car_bomb_from_with_partition_context(
+            donor,
+            audio,
+            feedback,
+            Some(partition),
+            locomotors,
         )
     }
     fn apply_convert_to_car_bomb_from_with_partition_context(
@@ -767,6 +787,7 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
         mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+        locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
     ) {
         self.require_partition_owner(partition.as_deref());
         self.set_status_is_carbomb(true);
@@ -817,7 +838,7 @@ impl Object {
                     self.experience.current = need;
                 }
                 if prev != donor_level {
-                    self.apply_veterancy_bonuses(prev, donor_level, audio, feedback);
+                    self.apply_veterancy_bonuses_in(prev, donor_level, audio, feedback, locomotors);
                 }
             }
         }
@@ -887,21 +908,32 @@ impl Object {
         donor: Option<&Object>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        self.apply_hijacked_from_with_partition_context(donor, audio, None)
+        self.apply_hijacked_from_with_partition_context(donor, audio, None, None)
     }
+    #[cfg(test)]
     pub(crate) fn apply_hijacked_from_with_partition_owner(
         &mut self,
         donor: Option<&Object>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         partition: &mut crate::game_logic::partition_manager::PartitionManager,
     ) {
-        self.apply_hijacked_from_with_partition_context(donor, audio, Some(partition))
+        self.apply_hijacked_from_with_partition_context(donor, audio, Some(partition), None)
+    }
+    pub(crate) fn apply_hijacked_from_with_locomotors(
+        &mut self,
+        donor: Option<&Object>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+        locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
+    ) {
+        self.apply_hijacked_from_with_partition_context(donor, audio, Some(partition), locomotors)
     }
     fn apply_hijacked_from_with_partition_context(
         &mut self,
         donor: Option<&Object>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+        locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
     ) {
         self.require_partition_owner(partition.as_deref());
         self.set_status_hijacked(true);
@@ -962,7 +994,7 @@ impl Object {
                 if self.experience.current < need {
                     self.experience.current = need;
                 }
-                self.apply_veterancy_bonuses_quiet(prev, highest);
+                self.apply_veterancy_bonuses_quiet_in(prev, highest, locomotors);
             }
         }
     }

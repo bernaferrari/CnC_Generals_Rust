@@ -1972,14 +1972,20 @@ impl GameLogic {
         let (sync_master, sync_drone) =
             crate::game_logic::host_slave_drones::synced_spawn_veterancy(master_level, drone_level);
         if sync_master != master_level {
-            self.with_object_veterancy_feedback(master_id, |master, audio, feedback| {
-                master.set_min_veterancy_level(sync_master, audio, feedback)
-            });
+            self.with_object_veterancy_feedback_and_locomotors(
+                master_id,
+                |master, audio, feedback, locomotors| {
+                    master.set_min_veterancy_level_in(sync_master, audio, feedback, locomotors)
+                },
+            );
         }
         if sync_drone != drone_level {
-            self.with_object_veterancy_feedback(drone_id, |drone, audio, feedback| {
-                drone.set_min_veterancy_level(sync_drone, audio, feedback)
-            });
+            self.with_object_veterancy_feedback_and_locomotors(
+                drone_id,
+                |drone, audio, feedback, locomotors| {
+                    drone.set_min_veterancy_level_in(sync_drone, audio, feedback, locomotors)
+                },
+            );
         }
 
         if let Some(master) = self.objects.get_mut(&master_id) {
@@ -2457,9 +2463,7 @@ impl GameLogic {
             }
             if let Some(pid) = owner_pid {
                 if let Some(player) = self.players.get_mut(&pid) {
-                    player
-                        .academy_stats
-                        .record_cleared_garrisoned_building();
+                    player.academy_stats.record_cleared_garrisoned_building();
                 }
             }
             let containment_actor_id = occ_id;

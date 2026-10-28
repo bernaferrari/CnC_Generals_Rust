@@ -1759,28 +1759,36 @@ impl GameLogic {
             };
             // Original jacker setter precedes target setter, both with feedback.
             let health_bonus = self.veterancy_health_bonus;
-            self.with_object_veterancy_feedback(rider_id, |rider, audio, feedback| {
-                rider.set_exact_veterancy_level_with_health_bonus_table(
-                    highest,
-                    &health_bonus,
-                    audio,
-                    feedback,
-                );
-            });
+            self.with_object_veterancy_feedback_and_locomotors(
+                rider_id,
+                |rider, audio, feedback, locomotors| {
+                    rider.set_exact_veterancy_level_with_health_bonus_table(
+                        highest,
+                        &health_bonus,
+                        audio,
+                        feedback,
+                        locomotors,
+                    );
+                },
+            );
             if self
                 .objects
                 .get(&vehicle_id)
                 .is_some_and(|vehicle| same_vehicle(vehicle))
             {
                 let health_bonus = self.veterancy_health_bonus;
-                self.with_object_veterancy_feedback(vehicle_id, |vehicle, audio, feedback| {
-                    vehicle.set_exact_veterancy_level_with_health_bonus_table(
-                        highest,
-                        &health_bonus,
-                        audio,
-                        feedback,
-                    );
-                });
+                self.with_object_veterancy_feedback_and_locomotors(
+                    vehicle_id,
+                    |vehicle, audio, feedback, locomotors| {
+                        vehicle.set_exact_veterancy_level_with_health_bonus_table(
+                            highest,
+                            &health_bonus,
+                            audio,
+                            feedback,
+                            locomotors,
+                        );
+                    },
+                );
             }
         }
         Ok(())
@@ -1975,13 +1983,16 @@ impl GameLogic {
         let mut n = 0usize;
         for tid in targets {
             let gained = self
-                .with_object_veterancy_feedback(tid, |object, audio, feedback| {
-                    if object.is_trainable() {
-                        object.gain_exp_for_level(levels, true, audio, feedback)
-                    } else {
-                        0
-                    }
-                })
+                .with_object_veterancy_feedback_and_locomotors(
+                    tid,
+                    |object, audio, feedback, locomotors| {
+                        if object.is_trainable() {
+                            object.gain_exp_for_level_in(levels, true, audio, feedback, locomotors)
+                        } else {
+                            0
+                        }
+                    },
+                )
                 .unwrap_or(0);
             if gained > 0 {
                 n += 1;
@@ -2028,9 +2039,12 @@ impl GameLogic {
             if SALVAGE_LEVEL_CHANCE_RESIDUAL >= 1.0 - f32::EPSILON
                 || roll < SALVAGE_LEVEL_CHANCE_RESIDUAL
             {
-                self.with_object_veterancy_feedback(picker_id, |picker, audio, feedback| {
-                    picker.apply_salvage_level_gain(audio, feedback)
-                });
+                self.with_object_veterancy_feedback_and_locomotors(
+                    picker_id,
+                    |picker, audio, feedback, locomotors| {
+                        picker.apply_salvage_level_gain_in(audio, feedback, locomotors)
+                    },
+                );
                 return ("level", 0);
             }
         }

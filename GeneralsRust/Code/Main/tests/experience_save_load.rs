@@ -73,23 +73,19 @@ fn round_trip(thresholds: [f32; 3], initial_xp: f32, level: VeterancyLevel, cont
     let id = source
         .create_object(UNIT, Team::USA, Vec3::ZERO)
         .expect("spawn unit");
-    // Exercise production Object XP/body semantics with explicit local outputs;
-    // this persistence fixture has no receiving presentation definitions.
-    // No post-admission XP/rank field repair.
-    let object = source.host_object_mut(id).unwrap();
+    // Exercise the receiving world's XP/body semantics without repairing rank
+    // or experience after admission.
     if initial_xp == 0.0 && level != VeterancyLevel::Rookie {
         // A zero authored threshold legitimately permits Veteran at zero XP.
-        assert!(object.set_min_veterancy_level(
+        assert!(source.host_object_mut(id).unwrap().set_min_veterancy_level(
             level,
-            &mut generals_main::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut generals_main::game_logic::ObjectAudio::queue(
+                &mut generals_main::game_logic::SessionAudio::default()
+            ),
             &mut generals_main::game_logic::VeterancyFeedback::standalone()
         ));
     } else {
-        object.gain_experience(
-            initial_xp,
-            &mut generals_main::game_logic::ObjectAudio::queue(&mut Vec::new()),
-            &mut generals_main::game_logic::VeterancyFeedback::standalone(),
-        );
+        source.award_experience(id, initial_xp);
     }
     let before = state(&source, id, thresholds);
     assert_eq!((before.0, before.1), (initial_xp, level));
@@ -129,16 +125,8 @@ fn round_trip(thresholds: [f32; 3], initial_xp: f32, level: VeterancyLevel, cont
     // An uninterrupted control must cross subsequent promotion boundaries on
     // exactly the same grants as the loaded unit.
     for &amount in continuation {
-        source.host_object_mut(id).unwrap().gain_experience(
-            amount,
-            &mut generals_main::game_logic::ObjectAudio::queue(&mut Vec::new()),
-            &mut generals_main::game_logic::VeterancyFeedback::standalone(),
-        );
-        restored.host_object_mut(id).unwrap().gain_experience(
-            amount,
-            &mut generals_main::game_logic::ObjectAudio::queue(&mut Vec::new()),
-            &mut generals_main::game_logic::VeterancyFeedback::standalone(),
-        );
+        source.award_experience(id, amount);
+        restored.award_experience(id, amount);
         assert_eq!(
             state(&restored, id, thresholds),
             state(&source, id, thresholds)
@@ -196,11 +184,7 @@ fn required_object_experience_wins_over_redundant_tracker_rows() {
     for xp in [0.0, 10.0] {
         let mut source = world(thresholds);
         let id = source.create_object(UNIT, Team::USA, Vec3::ZERO).unwrap();
-        source.host_object_mut(id).unwrap().gain_experience(
-            xp,
-            &mut generals_main::game_logic::ObjectAudio::queue(&mut Vec::new()),
-            &mut generals_main::game_logic::VeterancyFeedback::standalone(),
-        );
+        source.award_experience(id, xp);
         source
             .host_object_mut(id)
             .unwrap()

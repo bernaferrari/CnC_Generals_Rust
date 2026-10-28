@@ -164,22 +164,26 @@ impl GameLogic {
 
         if let Some(veterancy) = get_int(well_known_keys::key_object_veterancy()) {
             let health_bonus = self.veterancy_health_bonus;
-            self.with_object_veterancy_feedback(id, |created, audio, feedback| {
-                if created.is_trainable() {
-                    let level = match veterancy.clamp(0, 3) {
-                        0 => crate::game_logic::VeterancyLevel::Rookie,
-                        1 => crate::game_logic::VeterancyLevel::Veteran,
-                        2 => crate::game_logic::VeterancyLevel::Elite,
-                        _ => crate::game_logic::VeterancyLevel::Heroic,
-                    };
-                    let _ = created.set_min_veterancy_level_with_health_bonus_table(
-                        level,
-                        &health_bonus,
-                        audio,
-                        feedback,
-                    );
-                }
-            });
+            self.with_object_veterancy_feedback_and_locomotors(
+                id,
+                |created, audio, feedback, locomotors| {
+                    if created.is_trainable() {
+                        let level = match veterancy.clamp(0, 3) {
+                            0 => crate::game_logic::VeterancyLevel::Rookie,
+                            1 => crate::game_logic::VeterancyLevel::Veteran,
+                            2 => crate::game_logic::VeterancyLevel::Elite,
+                            _ => crate::game_logic::VeterancyLevel::Heroic,
+                        };
+                        let _ = created.set_min_veterancy_level_with_health_bonus_table(
+                            level,
+                            &health_bonus,
+                            audio,
+                            feedback,
+                            locomotors,
+                        );
+                    }
+                },
+            );
         }
 
         if let Some(attitude) = get_int(well_known_keys::key_object_aggressiveness()) {

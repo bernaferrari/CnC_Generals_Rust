@@ -2450,6 +2450,7 @@ impl GameLogic {
                     previous.set_rider_change_veterancy_level_with_health_bonus_table(
                         bike_veterancy,
                         &veterancy_health_bonus,
+                        self.locomotor_definitions.as_ref(),
                     );
                 }
             }
@@ -2460,6 +2461,7 @@ impl GameLogic {
                     container.set_rider_change_veterancy_level_with_health_bonus_table(
                         VeterancyLevel::Rookie,
                         &veterancy_health_bonus,
+                        self.locomotor_definitions.as_ref(),
                     );
                 }
             }
@@ -2540,6 +2542,7 @@ impl GameLogic {
             rider.set_rider_change_veterancy_level_with_health_bonus_table(
                 VeterancyLevel::Rookie,
                 &veterancy_health_bonus,
+                self.locomotor_definitions.as_ref(),
             );
             rider.deselect();
         }
@@ -2560,6 +2563,7 @@ impl GameLogic {
             container.set_rider_change_veterancy_level_with_health_bonus_table(
                 plan.incoming_veterancy,
                 &veterancy_health_bonus,
+                self.locomotor_definitions.as_ref(),
             );
             if plan.incoming_was_selected && !container.selected {
                 container.select();
@@ -2716,6 +2720,7 @@ impl GameLogic {
                 rider.set_rider_change_veterancy_level_with_health_bonus_table(
                     bike_veterancy,
                     &veterancy_health_bonus,
+                    self.locomotor_definitions.as_ref(),
                 );
             }
         }
@@ -2725,6 +2730,7 @@ impl GameLogic {
                 container.set_rider_change_veterancy_level_with_health_bonus_table(
                     VeterancyLevel::Rookie,
                     &veterancy_health_bonus,
+                    self.locomotor_definitions.as_ref(),
                 );
             }
             container.rider_change_scuttled_on_frame = self.frame.max(1);

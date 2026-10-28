@@ -1008,6 +1008,7 @@ pub(crate) fn apply_locomotor_set_upgrade_in(
 ) -> bool {
     let triggered = match &obj.thing().template.receiving_object_definition {
         Some(definition) => definition_locomotor_set_upgrade_triggered(definition, upgrade),
+        None if locomotors.is_some() => is_residual_locomotor_set_upgrade_peel(upgrade),
         None => should_apply_locomotor_set_upgrade(&obj.template_name, upgrade),
     };
     if !triggered {

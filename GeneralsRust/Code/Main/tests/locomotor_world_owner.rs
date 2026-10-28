@@ -40,10 +40,12 @@ fn world_with_catalog(map: &std::path::Path, catalog: LocomotorStore) -> GameLog
             "Object OwnerMover\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL SharedOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
              Object OwnerSwitcher\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL CliffOwnerLoco GroundOwnerLoco\n Locomotor = SET_PANIC PanicOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n\
              Object OwnerUpgrader\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL GroundOwnerLoco\n Locomotor = SET_NORMAL_UPGRADED UpgradedOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n Behavior = LocomotorSetUpgrade Bonus\n TriggeredBy = Upgrade_GLAWorkerShoes\n End\nEnd\n\
+             Object OwnerVeteran\n KindOf = SELECTABLE VEHICLE\n IsTrainable = Yes\n ExperienceRequired = 0 60 150 300\n Locomotor = SET_NORMAL GroundOwnerLoco\n Locomotor = SET_NORMAL_UPGRADED UpgradedOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n Behavior = LocomotorSetUpgrade Bonus\n TriggeredBy = Upgrade_Veterancy_VETERAN\n End\nEnd\n\
+             Object OwnerBornVeteran\n KindOf = SELECTABLE VEHICLE\n IsTrainable = Yes\n ExperienceRequired = 0 60 150 300\n Locomotor = SET_NORMAL GroundOwnerLoco\n Locomotor = SET_NORMAL_UPGRADED UpgradedOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n Behavior = LocomotorSetUpgrade Bonus\n TriggeredBy = Upgrade_Veterancy_VETERAN\n End\n Behavior = VeterancyGainCreate Rank\n StartingLevel = VETERAN\n End\nEnd\n\
              Object OwnerNoUpgrade\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL GroundOwnerLoco\n Locomotor = SET_NORMAL_UPGRADED UpgradedOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n\
              Object GLAInfantryWorker\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL GroundOwnerLoco\n Locomotor = SET_NORMAL_UPGRADED UpgradedOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n Behavior = LocomotorSetUpgrade Bonus\n TriggeredBy = Upgrade_GLAWorkerShoes\n End\nEnd\n\
-             Object OwnerBike\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL CliffOwnerLoco GroundOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = RiderChangeContain RiderTag\n Slots = 1\n Rider1 = OwnerRider RIDER1 WEAPON_RIDER1 STATUS_RIDER1 BikeSet SET_NORMAL\n End\nEnd\n\
-             Object OwnerRider\n KindOf = SELECTABLE INFANTRY\n TransportSlotCount = 1\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n\
+             Object OwnerBike\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL CliffOwnerLoco GroundOwnerLoco\n Locomotor = SET_NORMAL_UPGRADED UpgradedOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = RiderChangeContain RiderTag\n Slots = 1\n Rider1 = OwnerRider RIDER1 WEAPON_RIDER1 STATUS_RIDER1 BikeSet SET_NORMAL\n End\n Behavior = LocomotorSetUpgrade Bonus\n TriggeredBy = Upgrade_Veterancy_VETERAN\n End\nEnd\n\
+             Object OwnerRider\n KindOf = SELECTABLE INFANTRY\n IsTrainable = Yes\n ExperienceRequired = 0 60 150 300\n TransportSlotCount = 1\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n\
              Object OwnerJet\n KindOf = SELECTABLE AIRCRAFT\n Locomotor = SET_NORMAL AirOwnerLoco\n Locomotor = SET_TAXIING TaxiOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = JetAIUpdate JetBrain\n End\nEnd\n\
              Object OwnerTargetProbe\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL ThresholdOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
         )])
@@ -240,6 +242,8 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
     assert_eq!(first_upgrade, peer_upgrade);
     assert_eq!(no_module, peer_no_module);
     assert_eq!(first_worker, peer_worker);
+    assert!((first.host_object(first_worker).unwrap().movement.max_speed - 30.0).abs() < 0.001);
+    assert!((peer.host_object(peer_worker).unwrap().movement.max_speed - 70.0).abs() < 0.001);
     first
         .get_players_mut()
         .get_mut(&42)
@@ -282,6 +286,41 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
             Some("UpgradedOwnerLoco")
         );
         assert!((worker.movement.max_speed - expected).abs() < 0.001);
+    }
+    let first_veteran = first
+        .create_object_for_player("OwnerVeteran", 42, glam::Vec3::new(210., 0., 120.))
+        .unwrap();
+    let peer_veteran = peer
+        .create_object_for_player("OwnerVeteran", 42, glam::Vec3::new(210., 0., 120.))
+        .unwrap();
+    assert_eq!(first_veteran, peer_veteran);
+    assert!(first.host_object(first_veteran).unwrap().is_trainable());
+    first.award_experience(first_veteran, 60.0);
+    let veteran = first.host_object(first_veteran).unwrap();
+    assert!(veteran.locomotor_upgrade);
+    assert_eq!(
+        veteran.cur_locomotor_name.as_deref(),
+        Some("UpgradedOwnerLoco")
+    );
+    assert!((veteran.movement.max_speed - 50.0).abs() < 0.001);
+    assert!(!peer.host_object(peer_veteran).unwrap().locomotor_upgrade);
+    peer.award_experience(peer_veteran, 60.0);
+    assert!((peer.host_object(peer_veteran).unwrap().movement.max_speed - 90.0).abs() < 0.001);
+    let first_born = first
+        .create_object_for_player("OwnerBornVeteran", 42, glam::Vec3::new(220., 0., 120.))
+        .unwrap();
+    let peer_born = peer
+        .create_object_for_player("OwnerBornVeteran", 42, glam::Vec3::new(220., 0., 120.))
+        .unwrap();
+    assert_eq!(first_born, peer_born);
+    for (world, id, expected) in [(&first, first_born, 50.0), (&peer, peer_born, 90.0)] {
+        let object = world.host_object(id).unwrap();
+        assert!(object.locomotor_upgrade);
+        assert_eq!(
+            object.cur_locomotor_name.as_deref(),
+            Some("UpgradedOwnerLoco")
+        );
+        assert!((object.movement.max_speed - expected).abs() < 0.001);
     }
     let builder = SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&first).unwrap();
@@ -356,9 +395,11 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
         .create_object_for_player("OwnerRider", 42, glam::Vec3::new(81., 0., 80.))
         .unwrap();
     assert_eq!(first_rider, peer_rider);
+    first.award_experience(first_rider, 60.0);
+    peer.award_experience(peer_rider, 60.0);
     for (world, bike, rider, expected_speed) in [
-        (&mut first, first_bike, first_rider, 30.0),
-        (&mut peer, peer_bike, peer_rider, 70.0),
+        (&mut first, first_bike, first_rider, 50.0),
+        (&mut peer, peer_bike, peer_rider, 90.0),
     ] {
         use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
         assert!(world.can_unit_enter_normal_target(rider, bike));
@@ -376,7 +417,10 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
         }
         assert_eq!(world.host_object(rider).unwrap().contained_by, Some(bike));
         let bike = world.host_object(bike).unwrap();
-        assert_eq!(bike.cur_locomotor_name.as_deref(), Some("GroundOwnerLoco"));
+        assert_eq!(
+            bike.cur_locomotor_name.as_deref(),
+            Some("UpgradedOwnerLoco")
+        );
         assert!((bike.movement.max_speed - expected_speed).abs() < 0.001);
     }
     peer.reset();
@@ -390,7 +434,7 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
         Some("GroundOwnerLoco")
     );
     assert!((restored_switcher.movement.max_speed - 30.0).abs() < 0.001);
-    for id in [first_upgrade, first_worker] {
+    for id in [first_upgrade, first_worker, first_veteran, first_born] {
         let object = restored.host_object(id).unwrap();
         assert!(object.locomotor_upgrade);
         assert_eq!(
