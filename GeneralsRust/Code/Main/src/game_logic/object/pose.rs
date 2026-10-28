@@ -1654,9 +1654,8 @@ mod native_pose_notification_tests {
 mod native_tree_owner_tests;
 
 impl crate::game_logic::GameLogic {
-    /// Direct world-owned pose write for registered Objects. Trigger updates
-    /// remain synchronous inside the Object operation, with the receiving
-    /// team's factory borrowed only for this non-reentrant call.
+    /// Direct world-owned pose write for registered Objects. The Object loan
+    /// ends before synchronous receiving-world callbacks are continued.
     pub fn set_registered_object_position(&mut self, id: ObjectId, position: Vec3) -> bool {
         self.set_registered_object_position_with_effects(
             id,
@@ -1673,17 +1672,7 @@ impl crate::game_logic::GameLogic {
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
-        let Some(object) = self.objects.get_mut(&id) else {
-            return false;
-        };
-        object.set_position_with_effects_and_pose_owners(
-            position,
-            frame,
-            &mut effects.reborrow_for_object(&mut self.partition_manager),
-            &self.host_trigger_world,
-            &self.team_factory,
-        );
-        true
+        self.set_owned_object_position_with_effects(id, position, frame, effects)
     }
 
     /// One lexical original-position callback boundary. The caller has ended
