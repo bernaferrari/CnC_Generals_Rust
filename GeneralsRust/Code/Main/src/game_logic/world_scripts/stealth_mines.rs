@@ -3189,14 +3189,14 @@ impl GameLogic {
                     AIState::Idle | AIState::Moving | AIState::Attacking
                 ) || obj.target.is_none()
                 {
-                    obj.set_ai_state(
+                    obj.set_ai_state_at_frame(
                         AIState::Moving,
+                        frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
-                    {}
                     obj.movement.target_position = Some(mine_pos);
                     self.movement_events.record(
-                        self.frame,
+                        frame,
                         clearer_id,
                         Some([mine_pos.x, mine_pos.y, mine_pos.z]),
                     );
