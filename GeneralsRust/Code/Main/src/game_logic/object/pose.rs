@@ -107,7 +107,23 @@ impl Object {
         frame: u32,
         effects: &mut crate::game_logic::script_presentation::ScriptPresentationEffects<'_>,
     ) {
-        self.set_position_with_partition_context(position, frame, effects, None);
+        self.set_position_with_partition_context(position, frame, effects, None, None);
+    }
+
+    pub(crate) fn set_position_with_effects_and_team_factory(
+        &mut self,
+        position: Vec3,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+    ) {
+        self.set_position_with_partition_context(
+            position,
+            frame,
+            effects,
+            None,
+            Some(team_factory),
+        );
     }
 
     pub(crate) fn set_position_with_partition_owner(
@@ -130,10 +146,11 @@ impl Object {
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+        team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) {
         let old_position =
             self.install_position_with_partition_context(position, effects, partition);
-        self.react_to_position_change(old_position, frame, effects);
+        self.react_to_position_change(old_position, frame, effects, team_factory);
     }
     fn install_position_with_partition_context(
         &mut self,
@@ -201,7 +218,7 @@ impl Object {
     ) {
         let old_position =
             self.install_transform_matrix_with_partition_context(transform, effects, partition);
-        self.react_to_position_change(old_position, frame, effects);
+        self.react_to_position_change(old_position, frame, effects, None);
     }
 
     fn install_transform_matrix_with_partition_context(
@@ -228,9 +245,10 @@ impl Object {
         old_position: Vec3,
         frame: u32,
         effects: &mut crate::game_logic::script_presentation::ScriptPresentationEffects<'_>,
+        team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) {
         let reaction = self.prepare_position_reaction(old_position, frame, effects, false);
-        self.finish_position_reaction(reaction);
+        self.finish_position_reaction_with_team_factory(reaction, team_factory);
     }
 
     fn prepare_position_reaction(
@@ -273,8 +291,20 @@ impl Object {
     }
 
     pub(in crate::game_logic) fn finish_position_reaction(&mut self, reaction: PositionReaction) {
+        self.finish_position_reaction_with_team_factory(reaction, None);
+    }
+
+    fn finish_position_reaction_with_team_factory(
+        &mut self,
+        reaction: PositionReaction,
+        team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+    ) {
         if let Some(team_id) = self.finish_position_reaction_without_team_factory(reaction) {
-            self.team_factory.mark_entered_exited(Some(team_id));
+            if let Some(team_factory) = team_factory {
+                team_factory.mark_team_entered_exited(team_id);
+            } else {
+                self.team_factory.mark_entered_exited(Some(team_id));
+            }
         }
     }
 
@@ -1556,6 +1586,37 @@ mod native_pose_notification_tests {
 mod native_tree_owner_tests;
 
 impl crate::game_logic::GameLogic {
+    /// Direct world-owned pose write for registered Objects. Trigger updates
+    /// remain synchronous inside the Object operation, with the receiving
+    /// team's factory borrowed only for this non-reentrant call.
+    pub fn set_registered_object_position(&mut self, id: ObjectId, position: Vec3) -> bool {
+        self.set_registered_object_position_with_effects(
+            id,
+            position,
+            self.frame,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn set_registered_object_position_with_effects(
+        &mut self,
+        id: ObjectId,
+        position: Vec3,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        let Some(object) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        object.set_position_with_effects_and_team_factory(
+            position,
+            frame,
+            &mut effects.reborrow_for_object(&mut self.partition_manager),
+            &self.team_factory,
+        );
+        true
+    }
+
     /// One lexical original-position callback boundary. The caller has ended
     /// its Object/terrain loans; the actor remains in the authoritative store.
     pub(in crate::game_logic) fn complete_owned_position_reaction(

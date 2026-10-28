@@ -207,6 +207,77 @@ fn owned_position_marks_same_id_teams_case() {
     );
 }
 
+#[test]
+fn direct_position_borrow_marks_same_id_team_without_object_attachment() {
+    isolated_at(
+        module_path!(),
+        "direct_position_borrow_marks_same_id_team_without_object_attachment",
+        direct_position_borrow_marks_same_id_team_without_object_attachment_case,
+    );
+}
+
+fn direct_position_borrow_marks_same_id_team_without_object_attachment_case() {
+    use game_engine::common::dict::Dict;
+    use game_engine::common::well_known_keys::{
+        key_team_is_singleton, key_team_name, key_team_owner,
+    };
+
+    let area = trigger(27202, "DirectBorrowedTeamEdge");
+    let (mut world_a, id_a) = fixture(&area);
+    let (mut world_b, id_b) = fixture(&area);
+    assert_eq!(id_a, id_b, "world-local ObjectIds intentionally collide");
+
+    let install_team = |world: &GameLogic| {
+        let mut definition = Dict::new();
+        definition.set_ascii_string(key_team_name(), "DirectBorrowedEdgeTeam");
+        definition.set_ascii_string(key_team_owner(), "");
+        definition.set_bool(key_team_is_singleton(), false);
+        let mut factory = world.team_factory.lock().expect("world team factory");
+        factory
+            .init_team(
+                "DirectBorrowedEdgeTeam".into(),
+                "".into(),
+                false,
+                Some(&definition),
+            )
+            .expect("team definition");
+        factory
+            .create_inactive_team("DirectBorrowedEdgeTeam")
+            .and_then(|team| team.read().ok().map(|team| team.get_id()))
+            .expect("team instance")
+    };
+    let team_a = install_team(&world_a);
+    let team_b = install_team(&world_b);
+    assert_eq!(team_a, team_b, "world-local TeamIds intentionally collide");
+    for (world, team_id) in [(&mut world_a, team_a), (&mut world_b, team_b)] {
+        let object = world.host_object_mut(id_a).expect("admitted object");
+        object.team_instance_name = "DirectBorrowedEdgeTeam".into();
+        object.team_instance_id = Some(team_id);
+    }
+    world_a
+        .host_object_mut(id_a)
+        .expect("admitted object")
+        .team_factory
+        .clear();
+
+    assert!(world_a.set_registered_object_position_with_effects(
+        id_a,
+        Vec3::new(110.0, 0.0, 10.0),
+        37,
+        &mut Default::default(),
+    ));
+    assert_eq!(
+        world_a.team_factory.team_entered_or_exited(team_a).unwrap(),
+        true,
+        "the direct borrowed owner marks the Team even when the Object attachment is cleared"
+    );
+    assert_eq!(
+        world_b.team_factory.team_entered_or_exited(team_b).unwrap(),
+        false,
+        "the same IDs in a peer world remain untouched"
+    );
+}
+
 fn pose_setter_clone_and_current_snapshot_are_inert_controls_case() {
     let area = trigger(27103, "PoseControl");
     let (mut logic, id) = fixture(&area);

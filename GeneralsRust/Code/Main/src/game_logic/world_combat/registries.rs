@@ -1312,10 +1312,11 @@ impl GameLogic {
                 .get_mut(&containment_actor_id)
                 .expect("containment operation preserves this birth");
             p.target = drop_target;
-            p.set_position_with_effects(
+            p.set_position_with_effects_and_team_factory(
                 hover,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.team_factory,
             );
             let dest = glam::Vec3::new(hover.x, dest_y, hover.z);
             p.movement.path.clear();
@@ -1422,10 +1423,11 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&pid) {
             let mut p = obj.get_position();
             p.y = new_y;
-            obj.set_position_with_effects(
+            obj.set_position_with_effects_and_team_factory(
                 p,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.team_factory,
             );
             obj.movement.velocity = glam::Vec3::new(0.0, -speed, 0.0);
             obj.status.rappel_target_is_bldg = target_is_bldg;
@@ -1645,10 +1647,11 @@ impl GameLogic {
                 .expect("containment operation preserves this birth");
             obj.target = Some(bldg_id);
             if enclosing {
-                obj.set_position_with_effects(
+                obj.set_position_with_effects_and_team_factory(
                     container_pos,
                     self.frame,
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.team_factory,
                 );
             }
             obj.set_ai_state(
@@ -1693,10 +1696,11 @@ impl GameLogic {
         end.z -= 20.0;
         end.y = self.terrain_height_at(end).unwrap_or(end.y);
         if let Some(obj) = self.objects.get_mut(&pid) {
-            obj.set_position_with_effects(
+            obj.set_position_with_effects_and_team_factory(
                 start,
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &self.team_factory,
             );
             obj.set_orientation_with_partition_owner(exit_angle, &mut self.partition_manager);
             obj.movement.path = vec![start, end];

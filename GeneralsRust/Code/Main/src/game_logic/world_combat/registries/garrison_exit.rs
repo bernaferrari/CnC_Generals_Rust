@@ -19,15 +19,16 @@ impl GameLogic {
         else {
             return;
         };
-        if let Some(p) = self.objects.get_mut(&unit_id) {
-            let mut next = p.get_position();
-            next.y = ground_y;
-            p.set_position_with_effects(
-                next,
-                self.frame,
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-            );
-        }
+        let Some(mut next) = self.objects.get(&unit_id).map(|unit| unit.get_position()) else {
+            return;
+        };
+        next.y = ground_y;
+        self.set_registered_object_position_with_effects(
+            unit_id,
+            next,
+            self.frame,
+            presentation_effects,
+        );
     }
 
     /// C++ GarrisonContain::exitObjectViaDoor — EVAC_TO_LEFT / RIGHT / BURST.

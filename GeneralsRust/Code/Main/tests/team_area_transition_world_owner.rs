@@ -310,16 +310,11 @@ fn public_garrison_exit_marks_the_receiving_team_through_owned_pose_completion()
     let (mut peer, peer_unit) = world(&peer_map, [80.0, 0.0, 80.0]);
     assert_eq!(owner_unit, peer_unit);
     owner.add_player(
-        Player::new(2, Team::China, "ContainerOwner", false)
-            .with_script_identity("ContainerOwner"),
+        Player::new(2, Team::China, "ContainerOwner", false).with_script_identity("ContainerOwner"),
     );
 
     let owner_bunker = owner
-        .create_object_for_player(
-            "BorrowedEdgeGarrison",
-            2,
-            glam::Vec3::new(20.0, 0.0, 20.0),
-        )
+        .create_object_for_player("BorrowedEdgeGarrison", 2, glam::Vec3::new(20.0, 0.0, 20.0))
         .unwrap();
 
     // The China-owned container is already within the map trigger. Its edge
@@ -353,4 +348,46 @@ fn public_garrison_exit_marks_the_receiving_team_through_owned_pose_completion()
     };
     assert_eq!(observe(&mut owner, "GarrisonOwnerEdge", cases()), [1, 1]);
     assert_eq!(observe(&mut peer, "GarrisonPeerControl", cases()), [0, 0]);
+}
+
+#[test]
+fn public_registered_pose_write_marks_only_the_receiving_team_synchronously() {
+    let owner_root = tempfile::tempdir().unwrap();
+    let peer_root = tempfile::tempdir().unwrap();
+    let owner_map = map_file(owner_root.path(), &[]);
+    let peer_map = map_file(peer_root.path(), &[]);
+    let (mut owner, owner_unit) = world(&owner_map, [80.0, 0.0, 80.0]);
+    let (mut peer, peer_unit) = world(&peer_map, [80.0, 0.0, 80.0]);
+    assert_eq!(owner_unit, peer_unit);
+    owner.inject_host_script_query_snapshot();
+    peer.inject_host_script_query_snapshot();
+
+    assert!(owner.set_registered_object_position(owner_unit, glam::Vec3::new(20.0, 0.0, 20.0),));
+
+    // The direct Object pose callback has already marked its receiving Team
+    // before this host projection; the same-ID peer remains outside its area.
+    owner.inject_host_script_query_snapshot();
+    peer.inject_host_script_query_snapshot();
+    let cases = || {
+        vec![
+            (
+                transition_condition(
+                    ConditionType::TeamEnteredAreaPartially,
+                    "teamOwner",
+                    "OwnerTransitionArea",
+                ),
+                "direct_partial_enter".into(),
+            ),
+            (
+                transition_condition(
+                    ConditionType::TeamEnteredAreaEntirely,
+                    "teamOwner",
+                    "OwnerTransitionArea",
+                ),
+                "direct_all_enter".into(),
+            ),
+        ]
+    };
+    assert_eq!(observe(&mut owner, "DirectOwnerEdge", cases()), [1, 1]);
+    assert_eq!(observe(&mut peer, "DirectPeerControl", cases()), [0, 0]);
 }

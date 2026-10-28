@@ -198,10 +198,11 @@ impl GameLogic {
                 .is_some_and(|c| !c.is_enclosing_garrison_container());
             if pin_station {
                 if let Some(occ) = self.objects.get_mut(&garrisoned_id) {
-                    occ.set_position_with_effects(
+                    occ.set_position_with_effects_and_team_factory(
                         fire_pos,
                         self.frame,
                         &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                        &self.team_factory,
                     );
                 }
             }
@@ -393,10 +394,11 @@ impl GameLogic {
                     .objects
                     .get_mut(&containment_actor_id)
                     .expect("containment operation preserves this birth");
-                occupant.set_position_with_effects(
+                occupant.set_position_with_effects_and_team_factory(
                     position,
                     self.frame,
                     &mut ui.reborrow_for_object(&mut self.partition_manager),
+                    &self.team_factory,
                 );
                 occupant.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
@@ -630,13 +632,12 @@ impl GameLogic {
             chosen
         };
         if let Some(pos) = station {
-            if let Some(occ) = self.objects.get_mut(&occupant_id) {
-                occ.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-            }
+            self.set_registered_object_position_with_effects(
+                occupant_id,
+                pos,
+                self.frame,
+                presentation_effects,
+            );
         }
     }
 
@@ -1216,10 +1217,11 @@ impl GameLogic {
         });
         if let Some(gid) = gun_id {
             if let Some(gun) = self.objects.get_mut(&gid) {
-                gun.set_position_with_effects(
+                gun.set_position_with_effects_and_team_factory(
                     pos,
                     self.frame,
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.team_factory,
                 );
                 if let Some(target) = aim_at {
                     // C++ GarrisonContain::trackTargets Coord2D::toAngle();
