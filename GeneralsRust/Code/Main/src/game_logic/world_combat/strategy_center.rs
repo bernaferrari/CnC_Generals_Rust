@@ -472,6 +472,13 @@ impl GameLogic {
         let Some((target_id, _, target_is_air)) = best else {
             return Ok(());
         };
+        let Some(target_birth) = self
+            .objects
+            .get(&target_id)
+            .map(|target| std::sync::Arc::downgrade(&target.visual_draw_identity_token))
+        else {
+            return Ok(());
+        };
         let slot = if dual_slot {
             preferred_dual_defense_slot(target_is_air)
         } else {
@@ -698,7 +705,26 @@ impl GameLogic {
         );
 
         if destroyed {
-            self.award_score_the_kill_experience(defense_id, target_id);
+            if !self.objects.get(&target_id).is_some_and(|target| {
+                target_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &target.visual_draw_identity_token,
+                ))
+            }) {
+                return Ok(());
+            }
+            self.award_score_the_kill_experience_with_effects_and_interpreter(
+                defense_id,
+                target_id,
+                None,
+                presentation_effects,
+            )?;
+            if !self.objects.get(&target_id).is_some_and(|target| {
+                target_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &target.visual_draw_identity_token,
+                ))
+            }) {
+                return Ok(());
+            }
             if !is_fire_base {
                 // Fire Base residual already mark_object_for_destruction inside apply.
                 self.mark_object_for_destruction_with_effects(
@@ -1085,6 +1111,11 @@ impl GameLogic {
                 continue;
             }
             let victim_pos = victim.get_position();
+            let victim_birth = std::sync::Arc::downgrade(&victim.visual_draw_identity_token);
+            let assistant_birth = self
+                .objects
+                .get(&clip.assistant_id)
+                .map(|assistant| std::sync::Arc::downgrade(&assistant.visual_draw_identity_token));
             let vdist = {
                 let dx = assistant_pos.x - victim_pos.x;
                 let dz = assistant_pos.z - victim_pos.z;
@@ -1168,10 +1199,32 @@ impl GameLogic {
                 0,
                 presentation_effects,
             );
-            if destroyed {
-                self.award_score_the_kill_experience(clip.assistant_id, clip.victim_id);
+            if destroyed
+                && self.objects.get(&clip.victim_id).is_some_and(|victim| {
+                    victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                        &victim.visual_draw_identity_token,
+                    ))
+                })
+            {
+                self.award_score_the_kill_experience_with_effects_and_interpreter(
+                    clip.assistant_id,
+                    clip.victim_id,
+                    None,
+                    presentation_effects,
+                )
+                .expect("assisted shot kill XP callback must complete");
                 // Clear engagement via decision authority (log-only when GW applies).
-                self.stop_attack_decision_aware(clip.assistant_id);
+                if assistant_birth.as_ref().is_some_and(|birth| {
+                    self.objects
+                        .get(&clip.assistant_id)
+                        .is_some_and(|assistant| {
+                            birth.ptr_eq(&std::sync::Arc::downgrade(
+                                &assistant.visual_draw_identity_token,
+                            ))
+                        })
+                }) {
+                    self.stop_attack_decision_aware(clip.assistant_id);
+                }
             }
 
             let _ = self.combat_particles.spawn_weapon_fire_fx(

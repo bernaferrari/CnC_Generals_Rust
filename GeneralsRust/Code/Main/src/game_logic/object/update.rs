@@ -1092,10 +1092,32 @@ impl Object {
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
         locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
     ) {
+        let Some((previous_level, new_level)) = self.commit_experience_gain_for_world(amount)
+        else {
+            return;
+        };
+        self.apply_veterancy_bonuses_impl(
+            previous_level,
+            new_level,
+            health_bonus,
+            Some((audio, feedback)),
+            locomotors,
+            0,
+        );
+    }
+
+    /// Commit the ExperienceTracker portion of addExperiencePoints before the
+    /// receiving GameLogic runs Object::onVeterancyLevelChanged callbacks.
+    /// Earned XP is retained across promotion; this deliberately does not
+    /// replace it with the rank's minimum threshold.
+    pub(crate) fn commit_experience_gain_for_world(
+        &mut self,
+        amount: f32,
+    ) -> Option<(VeterancyLevel, VeterancyLevel)> {
         // C++ addExperiencePoints: untrainable objects keep no XP (sink
         // forwarding is handled by GameLogic::award_experience).
         if !self.is_trainable() {
-            return;
+            return None;
         }
         // C++ amountToGain *= m_experienceScalar when canScaleForBonus.
         let scalar = if self.experience_scalar.is_finite() && self.experience_scalar > 0.0 {
@@ -1105,7 +1127,7 @@ impl Object {
         };
         let amount = amount * scalar;
         if amount <= 0.0 || !amount.is_finite() {
-            return;
+            return None;
         }
         let projected = self.experience.current + amount;
         // ExperienceTracker.cpp updates points before onVeterancyLevelChanged.
@@ -1130,15 +1152,9 @@ impl Object {
 
         if new_level != previous_level {
             self.experience.level = new_level;
-            // Apply veterancy bonuses
-            self.apply_veterancy_bonuses_impl(
-                previous_level,
-                new_level,
-                health_bonus,
-                Some((audio, feedback)),
-                locomotors,
-                0,
-            );
+            Some((previous_level, new_level))
+        } else {
+            None
         }
     }
 

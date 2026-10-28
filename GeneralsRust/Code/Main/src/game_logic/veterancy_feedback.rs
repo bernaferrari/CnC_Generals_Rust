@@ -249,6 +249,60 @@ impl super::GameLogic {
         self.set_exact_veterancy_level_with_upgrade_callback_mode(id, level, true, effects)
     }
 
+    /// Finish the synchronous `onVeterancyLevelChanged` phase for an XP gain.
+    /// The caller has already committed its earned XP and rank, matching
+    /// ExperienceTracker::addExperiencePoints before Object.cpp:3064.
+    pub(crate) fn finish_experience_rank_change_with_upgrade_callback(
+        &mut self,
+        id: super::ObjectId,
+        previous: super::VeterancyLevel,
+        level: super::VeterancyLevel,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        let Some(birth) = self
+            .objects
+            .get(&id)
+            .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+        else {
+            return Ok(false);
+        };
+
+        if let Some(upgrade) = crate::game_logic::host_unit_training::veterancy_upgrade_name(level)
+        {
+            self.apply_upgrade_to_object_with_interpreter_checked(
+                id,
+                upgrade,
+                interpreter,
+                effects,
+            )?;
+        }
+
+        let same_birth = self.objects.get(&id).is_some_and(|object| {
+            birth.ptr_eq(&std::sync::Arc::downgrade(
+                &object.visual_draw_identity_token,
+            ))
+        });
+        if !same_birth {
+            return Ok(false);
+        }
+
+        let health_bonus = self.veterancy_health_bonus;
+        self.with_object_veterancy_feedback_and_locomotors(
+            id,
+            |object, audio, feedback, _locomotors| {
+                object.apply_veterancy_bonuses_after_rank_upgrade_in(
+                    previous,
+                    level,
+                    &health_bonus,
+                    audio,
+                    feedback,
+                );
+            },
+        );
+        Ok(true)
+    }
+
     /// C++ ExperienceTracker setter used by hijack collision (`provideFeedback = FALSE`).
     pub(crate) fn set_exact_veterancy_level_with_upgrade_callback_quiet(
         &mut self,

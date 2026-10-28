@@ -788,12 +788,7 @@ impl GameLogic {
                         &continuation,
                         &mut self.health_events,
                         |effect| {
-                            Self::apply_body_player_effect(
-                                players,
-                                frame,
-                                &source_players,
-                                effect,
-                            )
+                            Self::apply_body_player_effect(players, frame, &source_players, effect)
                         },
                         &mut |object, effect, source| {
                             Self::execute_body_state_fx_without_view_with_particles(
@@ -1130,8 +1125,24 @@ impl GameLogic {
                 .is_some_and(|object| object.is_inactive_body())
             {
                 if let Some(source) = source_id {
-                    self.award_score_the_kill_experience(source, victim_id);
+                    self.award_score_the_kill_experience_with_effects_and_interpreter(
+                        source,
+                        victim_id,
+                        context.topple_interpreter(),
+                        effects,
+                    )
+                    .expect("damage kill XP callback must complete");
                 }
+            }
+            // The XP promotion callback can reenter world code and replace the
+            // victim under the same numeric ID. Do not run onDie against that
+            // new birth; this method already owns the original identity.
+            if !self
+                .objects
+                .get(&victim_id)
+                .is_some_and(|object| self.live_draw_playback_identity(object) == victim_identity)
+            {
+                return None;
             }
             let killer_team = killer_team_override
                 .or_else(|| source_id.and_then(|id| self.objects.get(&id).map(|obj| obj.team)));

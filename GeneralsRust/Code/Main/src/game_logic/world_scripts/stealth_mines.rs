@@ -3594,7 +3594,7 @@ impl GameLogic {
                 | crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge
         );
 
-        let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+        let mut destroy_ids: Vec<(ObjectId, Team, std::sync::Weak<()>)> = Vec::new();
         let mut chain_ids: Vec<ObjectId> = Vec::new();
         if neutron_blast {
             destroy_ids = self.apply_neutron_mine_blast(mine_id, blast_pos, mine_team);
@@ -3651,7 +3651,13 @@ impl GameLogic {
                         )
                     } && !chain_pad
                     {
-                        destroy_ids.push((vid, mine_team));
+                        if let Some(victim) = self.objects.get(&vid) {
+                            destroy_ids.push((
+                                vid,
+                                mine_team,
+                                std::sync::Arc::downgrade(&victim.visual_draw_identity_token),
+                            ));
+                        }
                     } else if chain_pad {
                         chain_ids.push(vid);
                     }
@@ -3694,10 +3700,26 @@ impl GameLogic {
             producer.map(|_| mine_team),
             effects,
         );
-        for (vid, killer) in destroy_ids {
+        for (vid, killer, victim_birth) in destroy_ids {
+            if !self.objects.get(&vid).is_some_and(|victim| {
+                victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &victim.visual_draw_identity_token,
+                ))
+            }) {
+                continue;
+            }
             // C++ scoreTheKill on the charge; addExperiencePoints sinks to planter.
-            self.award_score_the_kill_experience(mine_id, vid);
-            self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
+            self.award_score_the_kill_experience_with_effects_and_interpreter(
+                mine_id, vid, None, effects,
+            )
+            .expect("mine kill XP callback must complete");
+            if self.objects.get(&vid).is_some_and(|victim| {
+                victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &victim.visual_draw_identity_token,
+                ))
+            }) {
+                self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
+            }
         }
 
         true
@@ -3757,9 +3779,25 @@ impl GameLogic {
                 Some(mine_id),
                 None,
             );
-            for (vid, killer) in destroy_ids {
-                self.award_score_the_kill_experience(mine_id, vid);
-                self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
+            for (vid, killer, victim_birth) in destroy_ids {
+                if !self.objects.get(&vid).is_some_and(|victim| {
+                    victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                        &victim.visual_draw_identity_token,
+                    ))
+                }) {
+                    continue;
+                }
+                self.award_score_the_kill_experience_with_effects_and_interpreter(
+                    mine_id, vid, None, effects,
+                )
+                .expect("mine kill XP callback must complete");
+                if self.objects.get(&vid).is_some_and(|victim| {
+                    victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                        &victim.visual_draw_identity_token,
+                    ))
+                }) {
+                    self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
+                }
             }
             return;
         }
@@ -3769,7 +3807,7 @@ impl GameLogic {
                 | crate::game_logic::host_mines::HostMineKind::TimedDemoCharge
                 | crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge
         );
-        let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+        let mut destroy_ids: Vec<(ObjectId, Team, std::sync::Weak<()>)> = Vec::new();
         let victim_ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         for vid in victim_ids {
             if vid == mine_id
@@ -3818,7 +3856,13 @@ impl GameLogic {
                     )
                 } && !chain_pad
                 {
-                    destroy_ids.push((vid, mine_team));
+                    if let Some(victim) = self.objects.get(&vid) {
+                        destroy_ids.push((
+                            vid,
+                            mine_team,
+                            std::sync::Arc::downgrade(&victim.visual_draw_identity_token),
+                        ));
+                    }
                 } else if chain_pad {
                     // Original weapon iteration completes this victim's
                     // onDamage before advancing to the next radius victim.
@@ -3839,9 +3883,25 @@ impl GameLogic {
             Some(mine_id),
             None,
         );
-        for (vid, killer) in destroy_ids {
-            self.award_score_the_kill_experience(mine_id, vid);
-            self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
+        for (vid, killer, victim_birth) in destroy_ids {
+            if !self.objects.get(&vid).is_some_and(|victim| {
+                victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &victim.visual_draw_identity_token,
+                ))
+            }) {
+                continue;
+            }
+            self.award_score_the_kill_experience_with_effects_and_interpreter(
+                mine_id, vid, None, effects,
+            )
+            .expect("mine kill XP callback must complete");
+            if self.objects.get(&vid).is_some_and(|victim| {
+                victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &victim.visual_draw_identity_token,
+                ))
+            }) {
+                self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
+            }
         }
     }
 
@@ -3872,9 +3932,9 @@ impl GameLogic {
         mine_id: ObjectId,
         blast_pos: Vec3,
         mine_team: Team,
-    ) -> Vec<(ObjectId, Team)> {
+    ) -> Vec<(ObjectId, Team, std::sync::Weak<()>)> {
         use crate::game_logic::host_mines::{NeutronMineVictimEffect, neutron_mine_victim_effect};
-        let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+        let mut destroy_ids: Vec<(ObjectId, Team, std::sync::Weak<()>)> = Vec::new();
         let mut contained_kill: Vec<ObjectId> = Vec::new();
         let victim_ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         for vid in victim_ids {
@@ -3912,7 +3972,11 @@ impl GameLogic {
                 NeutronMineVictimEffect::KillInfantry
                 | NeutronMineVictimEffect::KillCliffJumper => {
                     contained_kill.extend(victim.contained_units());
-                    destroy_ids.push((vid, mine_team));
+                    destroy_ids.push((
+                        vid,
+                        mine_team,
+                        std::sync::Arc::downgrade(&victim.visual_draw_identity_token),
+                    ));
                 }
                 NeutronMineVictimEffect::UnmanVehicle => {
                     contained_kill.extend(victim.contained_units());
@@ -3927,7 +3991,11 @@ impl GameLogic {
         for cid in contained_kill {
             if let Some(c) = self.objects.get_mut(&cid) {
                 if c.is_alive() {
-                    destroy_ids.push((cid, mine_team));
+                    destroy_ids.push((
+                        cid,
+                        mine_team,
+                        std::sync::Arc::downgrade(&c.visual_draw_identity_token),
+                    ));
                 }
             }
         }

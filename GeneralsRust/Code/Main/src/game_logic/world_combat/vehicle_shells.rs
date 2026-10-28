@@ -238,7 +238,7 @@ impl GameLogic {
         let impact_xz = (impact.x, impact.z);
         let mut hits = 0u32;
         let mut any_destroyed = false;
-        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>, std::sync::Weak<()>)> = Vec::new();
 
         let candidates: Vec<(ObjectId, f32, bool)> = self
             .objects
@@ -311,16 +311,41 @@ impl GameLogic {
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
-                    destroy_ids.push((id, Some(source_team)));
+                    if let Some(victim) = self.objects.get(&id) {
+                        destroy_ids.push((
+                            id,
+                            Some(source_team),
+                            std::sync::Arc::downgrade(&victim.visual_draw_identity_token),
+                        ));
+                    }
                 }
             }
         }
 
-        for (id, killer) in destroy_ids {
-            if let Some(src) = source {
-                self.award_score_the_kill_experience(src, id);
+        for (id, killer, victim_birth) in destroy_ids {
+            if !self.objects.get(&id).is_some_and(|victim| {
+                victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &victim.visual_draw_identity_token,
+                ))
+            }) {
+                continue;
             }
-            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
+            if let Some(src) = source {
+                self.award_score_the_kill_experience_with_effects_and_interpreter(
+                    src,
+                    id,
+                    None,
+                    presentation_effects,
+                )
+                .expect("residual kill XP callback must complete");
+            }
+            if self.objects.get(&id).is_some_and(|victim| {
+                victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &victim.visual_draw_identity_token,
+                ))
+            }) {
+                self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
+            }
         }
 
         self.scorpion_residual_fires = self.scorpion_residual_fires.saturating_add(1);
@@ -749,7 +774,7 @@ impl GameLogic {
         let impact_xz = (impact.x, impact.z);
         let mut hits = 0u32;
         let mut any_destroyed = false;
-        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>, std::sync::Weak<()>)> = Vec::new();
 
         let candidates: Vec<(ObjectId, f32, bool)> = self
             .objects
@@ -813,16 +838,41 @@ impl GameLogic {
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
-                    destroy_ids.push((id, Some(source_team)));
+                    if let Some(victim) = self.objects.get(&id) {
+                        destroy_ids.push((
+                            id,
+                            Some(source_team),
+                            std::sync::Arc::downgrade(&victim.visual_draw_identity_token),
+                        ));
+                    }
                 }
             }
         }
 
-        for (id, killer) in destroy_ids {
-            if let Some(src) = source {
-                self.award_score_the_kill_experience(src, id);
+        for (id, killer, victim_birth) in destroy_ids {
+            if !self.objects.get(&id).is_some_and(|victim| {
+                victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &victim.visual_draw_identity_token,
+                ))
+            }) {
+                continue;
             }
-            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
+            if let Some(src) = source {
+                self.award_score_the_kill_experience_with_effects_and_interpreter(
+                    src,
+                    id,
+                    None,
+                    presentation_effects,
+                )
+                .expect("residual kill XP callback must complete");
+            }
+            if self.objects.get(&id).is_some_and(|victim| {
+                victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &victim.visual_draw_identity_token,
+                ))
+            }) {
+                self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
+            }
         }
 
         self.tomahawk_residual_fires = self.tomahawk_residual_fires.saturating_add(1);
@@ -1230,7 +1280,7 @@ impl GameLogic {
         let impact_xz = (impact.x, impact.z);
         let mut hits = 0u32;
         let mut any_destroyed = false;
-        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>, std::sync::Weak<()>)> = Vec::new();
 
         let candidates: Vec<(ObjectId, f32, bool)> = self
             .objects
@@ -1294,16 +1344,41 @@ impl GameLogic {
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
-                    destroy_ids.push((id, Some(source_team)));
+                    if let Some(victim) = self.objects.get(&id) {
+                        destroy_ids.push((
+                            id,
+                            Some(source_team),
+                            std::sync::Arc::downgrade(&victim.visual_draw_identity_token),
+                        ));
+                    }
                 }
             }
         }
 
-        for (id, killer) in destroy_ids {
-            if let Some(src) = source {
-                self.award_score_the_kill_experience(src, id);
+        for (id, killer, victim_birth) in destroy_ids {
+            if !self.objects.get(&id).is_some_and(|victim| {
+                victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &victim.visual_draw_identity_token,
+                ))
+            }) {
+                continue;
             }
-            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
+            if let Some(src) = source {
+                self.award_score_the_kill_experience_with_effects_and_interpreter(
+                    src,
+                    id,
+                    None,
+                    presentation_effects,
+                )
+                .expect("residual kill XP callback must complete");
+            }
+            if self.objects.get(&id).is_some_and(|victim| {
+                victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &victim.visual_draw_identity_token,
+                ))
+            }) {
+                self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
+            }
         }
 
         self.raptor_residual_fires = self.raptor_residual_fires.saturating_add(1);
@@ -1729,7 +1804,7 @@ impl GameLogic {
         let impact_xz = (impact.x, impact.z);
         let mut hits = 0u32;
         let mut any_destroyed = false;
-        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>, std::sync::Weak<()>)> = Vec::new();
 
         let candidates: Vec<(ObjectId, f32, bool)> = self
             .objects
@@ -1805,16 +1880,41 @@ impl GameLogic {
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
-                    destroy_ids.push((id, Some(source_team)));
+                    if let Some(victim) = self.objects.get(&id) {
+                        destroy_ids.push((
+                            id,
+                            Some(source_team),
+                            std::sync::Arc::downgrade(&victim.visual_draw_identity_token),
+                        ));
+                    }
                 }
             }
         }
 
-        for (id, killer) in destroy_ids {
-            if let Some(src) = source {
-                self.award_score_the_kill_experience(src, id);
+        for (id, killer, victim_birth) in destroy_ids {
+            if !self.objects.get(&id).is_some_and(|victim| {
+                victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &victim.visual_draw_identity_token,
+                ))
+            }) {
+                continue;
             }
-            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
+            if let Some(src) = source {
+                self.award_score_the_kill_experience_with_effects_and_interpreter(
+                    src,
+                    id,
+                    None,
+                    presentation_effects,
+                )
+                .expect("residual kill XP callback must complete");
+            }
+            if self.objects.get(&id).is_some_and(|victim| {
+                victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &victim.visual_draw_identity_token,
+                ))
+            }) {
+                self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
+            }
         }
 
         // Residual field residual at impact (FireField or SmallRadiation).
@@ -2168,7 +2268,7 @@ impl GameLogic {
         let impact_xz = (impact.x, impact.z);
         let mut hits = 0u32;
         let mut any_destroyed = false;
-        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>, std::sync::Weak<()>)> = Vec::new();
 
         let candidates: Vec<(ObjectId, f32, bool)> = self
             .objects
@@ -2232,16 +2332,41 @@ impl GameLogic {
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
-                    destroy_ids.push((id, Some(source_team)));
+                    if let Some(victim) = self.objects.get(&id) {
+                        destroy_ids.push((
+                            id,
+                            Some(source_team),
+                            std::sync::Arc::downgrade(&victim.visual_draw_identity_token),
+                        ));
+                    }
                 }
             }
         }
 
-        for (id, killer) in destroy_ids {
-            if let Some(src) = source {
-                self.award_score_the_kill_experience(src, id);
+        for (id, killer, victim_birth) in destroy_ids {
+            if !self.objects.get(&id).is_some_and(|victim| {
+                victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &victim.visual_draw_identity_token,
+                ))
+            }) {
+                continue;
             }
-            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
+            if let Some(src) = source {
+                self.award_score_the_kill_experience_with_effects_and_interpreter(
+                    src,
+                    id,
+                    None,
+                    presentation_effects,
+                )
+                .expect("residual kill XP callback must complete");
+            }
+            if self.objects.get(&id).is_some_and(|victim| {
+                victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &victim.visual_draw_identity_token,
+                ))
+            }) {
+                self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
+            }
         }
 
         self.fire_base_residual_fires = self.fire_base_residual_fires.saturating_add(1);

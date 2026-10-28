@@ -2419,8 +2419,8 @@ impl GameLogic {
         let to_kill: Vec<ObjectId> = alive.into_iter().take(kill_n).collect();
 
         let mut kills = 0u32;
-        let mut destroy_ids: Vec<ObjectId> = Vec::new();
-        let mut score_pairs: Vec<(ObjectId, ObjectId)> = Vec::new();
+        let mut destroy_ids: Vec<(ObjectId, std::sync::Weak<()>)> = Vec::new();
+        let mut score_pairs: Vec<(ObjectId, ObjectId, std::sync::Weak<()>)> = Vec::new();
         for occ_id in to_kill {
             let Some(occ) = self.objects.get_mut(&occ_id) else {
                 continue;
@@ -2428,6 +2428,7 @@ impl GameLogic {
             if !occ.is_alive() {
                 continue;
             }
+            let occ_birth = std::sync::Arc::downgrade(&occ.visual_draw_identity_token);
             let receiving_damage_id = occ.id;
             let receiving_damage_argument_1 =
                 BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0);
@@ -2442,6 +2443,11 @@ impl GameLogic {
                 None,
                 presentation_effects,
             );
+            if !self.objects.get(&occ_id).is_some_and(|occ| {
+                occ_birth.ptr_eq(&std::sync::Arc::downgrade(&occ.visual_draw_identity_token))
+            }) {
+                continue;
+            }
             let occ = self
                 .objects
                 .get_mut(&receiving_damage_id)
@@ -2497,13 +2503,13 @@ impl GameLogic {
             );
             {}
             if let Some(aid) = attacker_id {
-                score_pairs.push((aid, occ_id));
+                score_pairs.push((aid, occ_id, occ_birth.clone()));
             }
             kills = kills.saturating_add(1);
-            destroy_ids.push(occ_id);
+            destroy_ids.push((occ_id, occ_birth));
         }
         if let Some(target) = self.objects.get_mut(&target_id) {
-            for &occ_id in &destroy_ids {
+            for &(occ_id, _) in &destroy_ids {
                 target.remove_occupant_with_partition_owner(
                     occ_id,
                     &mut self.ownership_events,
@@ -2511,10 +2517,30 @@ impl GameLogic {
                 );
             }
         }
-        for (killer, victim) in score_pairs {
-            self.award_score_the_kill_experience(killer, victim);
+        for (killer, victim, victim_birth) in score_pairs {
+            if !self.objects.get(&victim).is_some_and(|victim| {
+                victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &victim.visual_draw_identity_token,
+                ))
+            }) {
+                continue;
+            }
+            self.award_score_the_kill_experience_with_effects_and_interpreter(
+                killer,
+                victim,
+                None,
+                presentation_effects,
+            )
+            .expect("bunker buster kill XP callback must complete");
         }
-        for id in destroy_ids {
+        for (id, victim_birth) in destroy_ids {
+            if !self.objects.get(&id).is_some_and(|victim| {
+                victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &victim.visual_draw_identity_token,
+                ))
+            }) {
+                continue;
+            }
             if let Some(player_id) = self.tunnel_network.player_holding_unit(id) {
                 let _ = self.tunnel_network.record_exit(player_id, id, target_id);
             }

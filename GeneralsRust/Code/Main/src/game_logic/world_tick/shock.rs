@@ -1324,14 +1324,30 @@ impl GameLogic {
 
     /// C++ ExperienceTracker::addExperiencePoints sink + trainable gate.
     pub fn award_experience(&mut self, recipient_id: ObjectId, amount: f32) {
+        self.award_experience_with_effects_and_interpreter(
+            recipient_id,
+            amount,
+            None,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+        .expect("standalone experience award must complete");
+    }
+
+    pub(crate) fn award_experience_with_effects_and_interpreter(
+        &mut self,
+        recipient_id: ObjectId,
+        amount: f32,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         if amount <= 0.0 || !amount.is_finite() {
-            return;
+            return Ok(());
         }
         let Some(obj) = self.objects.lookup(&recipient_id) else {
-            return;
+            return Ok(());
         };
         if !obj.is_accepting_experience_points() {
-            return;
+            return Ok(());
         }
         // C++ forwards `experienceGain * m_experienceScalar` to the sink, then
         // the sink may scale again. Untrainable objects without an explicit
@@ -1349,19 +1365,20 @@ impl GameLogic {
         } else {
             (recipient_id, amount)
         };
-        let health_bonus = self.veterancy_health_bonus;
-        self.with_object_veterancy_feedback_and_locomotors(
-            dest_id,
-            |object, audio, feedback, locomotors| {
-                object.gain_experience_with_health_bonus_table(
-                    forwarded,
-                    &health_bonus,
-                    audio,
-                    feedback,
-                    locomotors,
-                );
-            },
-        );
+        let transition = self
+            .objects
+            .get_mut(&dest_id)
+            .and_then(|object| object.commit_experience_gain_for_world(forwarded));
+        if let Some((previous, level)) = transition {
+            self.finish_experience_rank_change_with_upgrade_callback(
+                dest_id,
+                previous,
+                level,
+                interpreter,
+                effects,
+            )?;
+        }
+        Ok(())
     }
 
     /// C++ Object::scoreTheKill unit XP for residual apply / capture paths.
@@ -1370,24 +1387,68 @@ impl GameLogic {
         killer_id: ObjectId,
         victim_id: ObjectId,
     ) {
+        self.award_score_the_kill_experience_with_effects_and_interpreter(
+            killer_id,
+            victim_id,
+            None,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+        .expect("compatibility kill XP award must complete");
+    }
+
+    pub(crate) fn award_score_the_kill_experience_with_effects_and_interpreter(
+        &mut self,
+        killer_id: ObjectId,
+        victim_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(victim) = self.objects.lookup(&victim_id) else {
-            return;
+            return Ok(());
         };
         if victim.is_alive() && victim.health.current > 0.0 && !victim.status.destroyed {
-            return;
+            return Ok(());
         }
-        self.score_the_kill_experience(killer_id, victim_id);
+        self.score_the_kill_experience_with_effects_and_interpreter(
+            killer_id,
+            victim_id,
+            interpreter,
+            effects,
+        )
     }
 
     /// Explicit CPP Object::scoreTheKill may precede Body death, as in
     /// AIRappelState. Ordinary combat admission keeps its dead-victim gate.
     pub(crate) fn score_the_kill_experience(&mut self, killer_id: ObjectId, victim_id: ObjectId) {
+        self.score_the_kill_experience_with_effects_and_interpreter(
+            killer_id,
+            victim_id,
+            None,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+        .expect("compatibility score-the-kill XP must complete");
+    }
+
+    fn score_the_kill_experience_with_effects_and_interpreter(
+        &mut self,
+        killer_id: ObjectId,
+        victim_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::kill_credit::KillScorePhase;
-        let Some(victim) = self.objects.lookup(&victim_id) else {
-            return;
+        let Some((victim_score_ready, victim_birth)) =
+            self.objects.lookup(&victim_id).map(|victim| {
+                (
+                    victim.kill_score_phase == KillScorePhase::Ready,
+                    std::sync::Arc::downgrade(&victim.visual_draw_identity_token),
+                )
+            })
+        else {
+            return Ok(());
         };
-        if victim.kill_score_phase != KillScorePhase::Ready {
-            return;
+        if !victim_score_ready {
+            return Ok(());
         }
         if let Some(victim) = self.objects.get_mut(&victim_id) {
             victim.kill_score_phase = KillScorePhase::Running;
@@ -1395,21 +1456,43 @@ impl GameLogic {
         self.record_owned_score_the_kill(killer_id, victim_id);
         // Preserve the independently persisted historical XP receipt. It must
         // never be reinterpreted as proof that full Player scoring occurred.
-        let award = self.objects.lookup(&victim_id).and_then(|victim| {
-            (!victim.kill_experience_awarded)
-                .then_some((victim.kill_experience_value(), victim.team))
-        });
+        let award = self
+            .objects
+            .lookup(&victim_id)
+            .filter(|victim| {
+                victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &victim.visual_draw_identity_token,
+                ))
+            })
+            .and_then(|victim| {
+                (!victim.kill_experience_awarded)
+                    .then_some((victim.kill_experience_value(), victim.team))
+            });
         if let Some((xp, team)) = award {
-            if let Some(victim) = self.objects.get_mut(&victim_id) {
+            if let Some(victim) = self.objects.get_mut(&victim_id).filter(|victim| {
+                victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &victim.visual_draw_identity_token,
+                ))
+            }) {
                 victim.kill_experience_awarded = true;
             }
             if self.kill_awards_unit_experience(killer_id, victim_id, team) {
-                self.award_experience(killer_id, xp);
+                self.award_experience_with_effects_and_interpreter(
+                    killer_id,
+                    xp,
+                    interpreter,
+                    effects,
+                )?;
             }
         }
-        if let Some(victim) = self.objects.get_mut(&victim_id) {
+        if let Some(victim) = self.objects.get_mut(&victim_id).filter(|victim| {
+            victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                &victim.visual_draw_identity_token,
+            ))
+        }) {
             victim.kill_score_phase = KillScorePhase::Complete;
         }
+        Ok(())
     }
 
     /// C++ Object::scoreTheKill + getExperienceValue: only ENEMIES, not own/allies.
