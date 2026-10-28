@@ -1275,3 +1275,75 @@ fn crate_death_uses_the_killers_exact_relationship_to_the_victims_team() {
         "an undetected defector observes a neutral relationship"
     );
 }
+
+#[test]
+fn leaflet_impact_uses_victims_exact_directed_team_relationship() {
+    use generals_main::command_system::SpecialPowerType;
+    use generals_main::save_load::snapshot::{
+        apply_pending_player_team_chunks, stamp_player_team_chunks,
+    };
+
+    fn prepare(
+        world: &mut GameLogic,
+        source: ObjectId,
+        original: ObjectId,
+        original_is_enemy: bool,
+    ) -> ObjectId {
+        let (sibling, sibling_team) = same_named_team_member(
+            world,
+            2,
+            "TargetRoster",
+            "RelationUnit",
+            Vec3::new(35.0, 0.0, 30.0),
+        );
+        let original_team = team_id_for_member(world, original);
+        let source_team = team_id_for_member(world, source);
+        let mut chunks = stamp_player_team_chunks(world).unwrap();
+        for (team_id, is_enemy) in [
+            (original_team, original_is_enemy),
+            (sibling_team, !original_is_enemy),
+        ] {
+            let team = chunks
+                .teams
+                .as_mut()
+                .unwrap()
+                .teams
+                .iter_mut()
+                .find(|team| team.team_id == team_id)
+                .unwrap();
+            team.team_relations.push(Default::default());
+            let relationship = team.team_relations.last_mut().unwrap();
+            relationship.team_id = source_team;
+            relationship.team_name = "SourceRoster".into();
+            relationship.relationship = if is_enemy { 0 } else { 2 };
+        }
+        apply_pending_player_team_chunks(world, &chunks).unwrap();
+        world
+            .queue_leaflet_drop(
+                &SpecialPowerType::LeafletDrop,
+                source,
+                Vec3::new(30.0, 0.0, 30.0),
+            )
+            .unwrap();
+        sibling
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut owner, source, original) = world(&map);
+    let (mut peer, peer_source, peer_original) = world(&map);
+    let sibling = prepare(&mut owner, source, original, false);
+    let peer_sibling = prepare(&mut peer, peer_source, peer_original, true);
+    assert_eq!(
+        (source, original, sibling),
+        (peer_source, peer_original, peer_sibling)
+    );
+    for _ in 0..80 {
+        peer.update();
+        owner.update();
+    }
+    assert!(!owner.host_object(original).unwrap().is_emp_disabled());
+    assert!(owner.host_object(sibling).unwrap().is_emp_disabled());
+    assert!(peer.host_object(peer_original).unwrap().is_emp_disabled());
+    assert!(!peer.host_object(peer_sibling).unwrap().is_emp_disabled());
+}

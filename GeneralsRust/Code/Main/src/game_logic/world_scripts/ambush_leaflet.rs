@@ -589,19 +589,10 @@ impl GameLogic {
             let center = (plan.target_position.x, plan.target_position.z);
             // C++ LeafletDropBehavior::doDisableAttack:
             //   if (curVictim->getRelationship(object) != ENEMIES) continue;
-            // Player relationship, not faction Team equality (FFA / 2v2).
-            let (source_owner, source_inst) =
-                if let Some(src) = self.objects.get(&plan.source_object) {
-                    (
-                        self.player_owner_for_host_object(src),
-                        src.team_instance_name.clone(),
-                    )
-                } else {
-                    (
-                        self.unique_player_id_for_team(plan.source_team),
-                        String::new(),
-                    )
-                };
+            // Borrow the live source so both directed Team IDs and Object's
+            // undetected-defector rules are observed in the receiving world.
+            let source = self.objects.get(&plan.source_object);
+            let fallback_source_owner = self.unique_player_id_for_team(plan.source_team);
             let candidates: Vec<(ObjectId, bool, bool, bool, bool)> = self
                 .objects
                 .registered()
@@ -619,14 +610,21 @@ impl GameLogic {
                     }
                     let is_infantry = obj.is_kind_of(KindOf::Infantry);
                     let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
-                    let is_enemy = Self::object_relationship_from_owners(
-                        &self.team_factory,
-                        &self.players,
-                        self.player_owner_for_host_object(obj),
-                        &obj.team_instance_name,
-                        source_owner,
-                        &source_inst,
-                    ) == gamelogic::common::Relationship::Enemies;
+                    let relationship = if let Some(source) = source {
+                        self.object_relationship(obj, source)
+                    } else {
+                        Self::object_relationship_from_identities(
+                            &self.team_factory,
+                            &self.players,
+                            self.player_owner_for_host_object(obj),
+                            obj.team_instance_id,
+                            &obj.team_instance_name,
+                            fallback_source_owner,
+                            None,
+                            "",
+                        )
+                    };
+                    let is_enemy = relationship == gamelogic::common::Relationship::Enemies;
                     let under_construction =
                         obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
                     Some((*id, is_infantry, is_vehicle, is_enemy, under_construction))
