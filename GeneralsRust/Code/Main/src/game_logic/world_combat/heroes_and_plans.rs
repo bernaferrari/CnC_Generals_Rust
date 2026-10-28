@@ -343,27 +343,17 @@ impl GameLogic {
                 occupants.push(*id);
             }
         }
-        if let Some(target) = self.objects.get_mut(&center_id) {
-            target.apply_disabled_hacked(
-                until_frame,
-                &mut self.health_events,
-                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-            );
-            target.apply_spy_vision_disabled_until(until_frame);
+        if self.apply_owned_hacked_disabled(center_id, until_frame) {
+            if let Some(target) = self.objects.get_mut(&center_id) {
+                target.apply_spy_vision_disabled_until(until_frame);
+            }
         }
 
-        self.admit_host_radar_disabled_edges(center_id);
         // 3) Contained hackers DISABLED_HACKED residual.
         for hid in occupants {
-            if let Some(h) = self.objects.get_mut(&hid) {
-                h.apply_disabled_hacked(
-                    until_frame,
-                    &mut self.health_events,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                );
+            if self.apply_owned_hacked_disabled(hid, until_frame) {
                 hackers = hackers.saturating_add(1);
             }
-            self.admit_host_radar_disabled_edges(hid);
         }
         (centers.max(1), hackers) // at least the primary center counted
     }
@@ -914,18 +904,14 @@ impl GameLogic {
                     .collect();
                 let mut paralyzed: u32 = 0;
                 for id in candidates {
-                    if let Some(target) = self.objects.get_mut(&id) {
-                        if target.is_alive() {
-                            target.apply_disabled_paralyzed(
-                                paralyze_until,
-                                &mut crate::game_logic::ObjectAudio::queue(
-                                    &mut self.queued_audio_events,
-                                ),
-                            );
-                            paralyzed = paralyzed.saturating_add(1);
-                        }
+                    if self
+                        .objects
+                        .get(&id)
+                        .is_some_and(|target| target.is_alive())
+                        && self.apply_owned_paralyzed_disabled(id, paralyze_until)
+                    {
+                        paralyzed = paralyzed.saturating_add(1);
                     }
-                    self.admit_host_radar_disabled_edges(id);
                 }
                 if paralyzed > 0 {
                     self.battle_plans

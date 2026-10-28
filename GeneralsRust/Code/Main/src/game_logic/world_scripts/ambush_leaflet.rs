@@ -644,18 +644,14 @@ impl GameLogic {
                 ) {
                     continue;
                 }
-                let Some(target) = self.objects.get_mut(&id) else {
-                    continue;
-                };
-                if !target.is_alive() {
+                if !self
+                    .objects
+                    .get(&id)
+                    .is_some_and(|target| target.is_alive())
+                {
                     continue;
                 }
-                target.apply_disabled_emp(
-                    plan.disable_until_frame,
-                    &mut self.health_events,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                );
-                self.admit_host_radar_disabled_edges(id);
+                self.apply_owned_emp_disabled(id, plan.disable_until_frame);
                 disables = disables.saturating_add(1);
             }
 

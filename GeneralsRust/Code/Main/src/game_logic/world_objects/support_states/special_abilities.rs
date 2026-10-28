@@ -3396,13 +3396,7 @@ impl GameLogic {
         let duration_frames =
             ((metadata.effect_duration_ms as u64 * 30 + 999) / 1_000).min(u32::MAX as u64) as u32;
         let until = self.frame.saturating_add(duration_frames);
-        if let Some(target) = self.objects.get_mut(&target_id) {
-            target.apply_disabled_hacked(
-                until,
-                &mut self.health_events,
-                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-            );
-        } else {
+        if !self.apply_owned_hacked_disabled(target_id, until) {
             self.begin_hacker_disable_building_packing_with_effects(
                 object_id,
                 target_id,
@@ -3411,7 +3405,6 @@ impl GameLogic {
             )?;
             return Ok(());
         }
-        self.admit_host_radar_disabled_edges(target_id);
         let do_fx = *self
             .hero_abilities
             .disable_fx_toggle

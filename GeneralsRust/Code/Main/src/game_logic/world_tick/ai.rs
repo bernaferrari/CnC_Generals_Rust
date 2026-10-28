@@ -1147,14 +1147,7 @@ impl GameLogic {
                 if !site_is_original || !child_is_original {
                     continue;
                 }
-                if let Some(child) = self.objects.get_mut(&child_id) {
-                    child.apply_disabled_hacked(
-                        until,
-                        &mut self.health_events,
-                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                    );
-                }
-                self.admit_host_radar_disabled_edges(child_id);
+                self.apply_owned_hacked_disabled(child_id, until);
             }
         }
         Ok(())

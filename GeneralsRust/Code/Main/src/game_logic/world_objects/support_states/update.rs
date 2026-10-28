@@ -2431,17 +2431,10 @@ impl GameLogic {
                                             if let Some(until) =
                                                 kind.disabled_hacked_until(self.frame)
                                             {
-                                                if let Some(target) =
-                                                    self.objects.get_mut(&special_target_id)
-                                                {
-                                                    target.apply_disabled_hacked(
-                                                        until,
-                                                        &mut self.health_events,
-                                                        &mut crate::game_logic::ObjectAudio::queue(
-                                                            &mut self.queued_audio_events,
-                                                        ),
-                                                    );
-                                                }
+                                                self.apply_owned_hacked_disabled(
+                                                    special_target_id,
+                                                    until,
+                                                );
                                             }
                                         }
                                         SaboteurEffectKind::InternetCenter => {
@@ -2977,16 +2970,7 @@ impl GameLogic {
                             let until = self.frame.saturating_add(
                                 crate::game_logic::host_hero_abilities::DISABLE_VEHICLE_HACK_DURATION_FRAMES,
                             );
-                            if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                target.apply_disabled_hacked(
-                                    until,
-                                    &mut self.health_events,
-                                    &mut crate::game_logic::ObjectAudio::queue(
-                                        &mut self.queued_audio_events,
-                                    ),
-                                );
-                            }
-                            self.admit_host_radar_disabled_edges(special_target_id);
+                            self.apply_owned_hacked_disabled(special_target_id, until);
                             let do_fx = self
                                 .hero_abilities
                                 .leftover_channel(object_id)

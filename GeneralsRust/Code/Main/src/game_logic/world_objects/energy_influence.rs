@@ -1,24 +1,62 @@
 //! Immediate receiving Energy entry and synchronous brownout callbacks.
 use super::super::*;
 
+enum InitialDisabledEffect {
+    Emp,
+    Hacked,
+    Paralyzed,
+}
+
 impl GameLogic {
-    /// EMPUpdate calls Object::setDisabledUntil while the target remains in
-    /// the world. Its first disabled edge removes this object's production and
-    /// synchronously delivers the resulting brownout to its own Player.
+    /// EMPUpdate calls Object::setDisabledUntil on the installed target.
     pub(in crate::game_logic) fn apply_owned_emp_disabled(
         &mut self,
         id: ObjectId,
         until: u32,
     ) -> bool {
+        self.apply_owned_initial_disabled(id, until, InitialDisabledEffect::Emp)
+    }
+
+    /// SpecialAbilityUpdate calls Object::setDisabledUntil on its target.
+    pub(in crate::game_logic) fn apply_owned_hacked_disabled(
+        &mut self,
+        id: ObjectId,
+        until: u32,
+    ) -> bool {
+        self.apply_owned_initial_disabled(id, until, InitialDisabledEffect::Hacked)
+    }
+
+    /// BattlePlanUpdate calls Object::setDisabledUntil on the affected unit.
+    pub(in crate::game_logic) fn apply_owned_paralyzed_disabled(
+        &mut self,
+        id: ObjectId,
+        until: u32,
+    ) -> bool {
+        self.apply_owned_initial_disabled(id, until, InitialDisabledEffect::Paralyzed)
+    }
+
+    fn apply_owned_initial_disabled(
+        &mut self,
+        id: ObjectId,
+        until: u32,
+        effect: InitialDisabledEffect,
+    ) -> bool {
         let Some(object) = self.objects.get_mut(&id) else {
             return false;
         };
         let was_disabled = object.has_disabled_type();
-        object.apply_disabled_emp(
-            until,
-            &mut self.health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-        );
+        let mut audio = crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events);
+        match effect {
+            InitialDisabledEffect::Emp => {
+                object.apply_disabled_emp(until, &mut self.health_events, &mut audio);
+            }
+            InitialDisabledEffect::Hacked => {
+                object.apply_disabled_hacked(until, &mut self.health_events, &mut audio);
+            }
+            InitialDisabledEffect::Paralyzed => {
+                object.apply_disabled_paralyzed(until, &mut audio);
+            }
+        }
         let producer = (!was_disabled
             && object.has_disabled_type()
             && object.thing().template.energy_production.unwrap_or(0) > 0)
