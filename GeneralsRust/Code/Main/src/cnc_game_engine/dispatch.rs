@@ -13,6 +13,27 @@ pub(super) struct LastNewGameIdentity {
 }
 
 impl CnCGameEngine {
+    pub(super) fn resolve_application_new_game_map(
+        mode: GameMode,
+        campaign_map: Option<String>,
+        owned_map: Option<String>,
+        prepared_map: Option<String>,
+        fallback_map: Option<String>,
+    ) -> String {
+        campaign_map
+            .filter(|map| !map.trim().is_empty())
+            .or_else(|| owned_map.filter(|map| !map.trim().is_empty()))
+            .or_else(|| prepared_map.filter(|map| !map.trim().is_empty()))
+            .or_else(|| fallback_map.filter(|map| !map.trim().is_empty()))
+            .unwrap_or_else(|| {
+                if mode == GameMode::Shell {
+                    String::new()
+                } else {
+                    DEFAULT_SKIRMISH_MAP.to_string()
+                }
+            })
+    }
+
     pub(super) fn record_last_new_game_identity(&mut self, identity: LastNewGameIdentity) {
         self.last_new_game_identity = Some(identity);
     }
@@ -66,6 +87,9 @@ impl CnCGameEngine {
         }
         if let Some(descriptor) = message.skirmish_launch() {
             forwarded.set_skirmish_launch(descriptor.clone());
+        }
+        if let Some(map) = message.owned_new_game_map() {
+            forwarded.set_owned_new_game_map(map.to_string());
         }
         for arg in message.get_arguments() {
             Self::append_message_argument_to_common_stream(forwarded, &arg.data);
@@ -182,6 +206,51 @@ impl CnCGameEngine {
         }
     }
 
+    pub(super) fn prepare_application_new_game_map(
+        owned_map: Option<&str>,
+        receiving: bool,
+        dispatch: StartupNewGameDispatch,
+    ) -> Option<String> {
+        if owned_map.map(str::trim).is_some_and(|map| !map.is_empty()) {
+            // The request already owns its map. Do not inspect, consume, or
+            // mirror the process pending-file slot for this request.
+            if !receiving {
+                // The dispatch path historically applies its FPS setting
+                // before consuming the pending map. Keep that side effect
+                // even when the caller already supplied the map.
+                Self::apply_application_new_game_fps(dispatch);
+            }
+            return None;
+        }
+        if receiving {
+            Self::take_application_new_game_map()
+        } else {
+            Self::apply_application_new_game_dispatch(dispatch)
+        }
+    }
+
+    pub(super) fn select_new_game_request_map(
+        mode: GameMode,
+        campaign_map: Option<String>,
+        owned_map: Option<String>,
+        receiving: bool,
+        dispatch: StartupNewGameDispatch,
+        fallback_map: Option<String>,
+    ) -> String {
+        let explicit_map = campaign_map
+            .as_deref()
+            .filter(|map| !map.trim().is_empty())
+            .or_else(|| owned_map.as_deref().filter(|map| !map.trim().is_empty()));
+        let prepared_map = Self::prepare_application_new_game_map(explicit_map, receiving, dispatch);
+        Self::resolve_application_new_game_map(
+            mode,
+            campaign_map,
+            owned_map,
+            prepared_map,
+            fallback_map,
+        )
+    }
+
     pub(super) fn take_application_new_game_map() -> Option<String> {
         let mut prepared_map_name = None;
         let mut global = game_engine::common::global_data::write();
@@ -213,10 +282,13 @@ impl CnCGameEngine {
                 dispatch.rank_points,
                 dispatch.max_fps
             );
-            let prepared_map = Self::apply_application_new_game_dispatch(dispatch);
-            if map_to_load.is_none() {
-                *map_to_load = prepared_map;
-            }
+            // The production caller builds this dispatch only from a map
+            // initial-file message or from a Recorder that accepted its
+            // replay; both paths set this candidate's `map_to_load` first.
+            // Configured shell maps stay on the menu branch above. Do not
+            // consume the process pending-file slot here: it may belong to a
+            // different receiving session.
+            Self::apply_application_new_game_fps(dispatch);
             return dispatch.game_mode;
         }
 
@@ -225,9 +297,6 @@ impl CnCGameEngine {
         );
         *start_in_menu = true;
         *map_to_load = None;
-        game_engine::common::global_data::write()
-            .pending_file
-            .clear();
 
         if replay_startup_requested {
             warn!("Startup replay launch is deferred because recorder did not queue NewGame");
@@ -240,15 +309,9 @@ impl CnCGameEngine {
     /// Host start still consumes the payload; `propagate_messages` can deliver
     /// the same message to crate GameLogic (C++ `logicMessageDispatcher`).
     pub(super) fn take_pending_new_game_start_request(&mut self) -> Option<HostStartRequest> {
-        if self
-            .game_client
-            .message_stream()
-            .get_messages()
-            .iter()
-            .any(|message| {
-                message.shell_map_launch().is_some() || message.skirmish_launch().is_some()
-            })
-        {
+        if Self::new_game_drain_waits_for_owned_launch(
+            self.game_client.message_stream().get_messages(),
+        ) {
             // Preserve all source commands when an owned Shell launch is queued;
             // a later match start must not overtake its preceding clear.
             return None;
@@ -269,11 +332,21 @@ impl CnCGameEngine {
             }
         }
         let (dispatch, message) = last_match.or(last_any)?;
-        self.build_start_request_from_pending_globals_at_source(
+        let owned_map = message.owned_new_game_map().map(str::to_owned);
+        self.build_start_request_from_pending_globals_at_source_with_map(
             Some(dispatch),
             false,
             message.campaign_launch(),
+            owned_map,
         )
+    }
+
+    pub(super) fn new_game_drain_waits_for_owned_launch(
+        messages: &game_engine::common::message_stream::GameMessageList,
+    ) -> bool {
+        messages.iter().any(|message| {
+            message.shell_map_launch().is_some() || message.skirmish_launch().is_some()
+        })
     }
 
     /// Inspect every `NewGame` on the common stream without removing it.
@@ -571,7 +644,7 @@ impl CnCGameEngine {
 
     /// Resolve map/faction/skirmish config after a NewGame dispatch (or helper flag).
     pub(super) fn source_shell_map_start_request(
-        &self,
+        &mut self,
         dispatch: StartupNewGameDispatch,
         descriptor: &game_engine::common::message_stream::ClientShellMapLaunch,
     ) -> Result<HostStartRequest, String> {
@@ -586,6 +659,10 @@ impl CnCGameEngine {
         );
         request.recorder_dispatch = Some(dispatch);
         request.difficulty_code = Some(dispatch.difficulty_code);
+        // Shell::showShellMap writes the selected shell map to C++ writable
+        // mapName through pendingFile consumption. Retain that later fallback
+        // on this receiving application without publishing it process-wide.
+        self.application_map_fallback = Some(descriptor.map.clone());
         Ok(request)
     }
 
@@ -601,6 +678,21 @@ impl CnCGameEngine {
         dispatch: Option<StartupNewGameDispatch>,
         receiving: bool,
         campaign_launch: Option<&game_engine::common::message_stream::ClientCampaignLaunch>,
+    ) -> Option<HostStartRequest> {
+        self.build_start_request_from_pending_globals_at_source_with_map(
+            dispatch,
+            receiving,
+            campaign_launch,
+            None,
+        )
+    }
+
+    pub(super) fn build_start_request_from_pending_globals_at_source_with_map(
+        &mut self,
+        dispatch: Option<StartupNewGameDispatch>,
+        receiving: bool,
+        campaign_launch: Option<&game_engine::common::message_stream::ClientCampaignLaunch>,
+        owned_map: Option<String>,
     ) -> Option<HostStartRequest> {
         let dispatch = dispatch.unwrap_or(StartupNewGameDispatch {
             game_mode_code: 2, // GAME_SKIRMISH default when only the helper flag is set
@@ -655,32 +747,19 @@ impl CnCGameEngine {
         // Do not consume pending globals until a typed Challenge selection is
         // known to be valid.  That keeps a rejected/stale descriptor from
         // mutating the next shell launch's map state.
-        let prepared_map = if receiving {
-            Self::take_application_new_game_map()
-        } else {
-            Self::apply_application_new_game_dispatch(dispatch)
-        };
-
         let mode = dispatch.game_mode;
-        let map = campaign_launch_map
-            .or(prepared_map)
-            .filter(|m| !m.trim().is_empty())
-            .or_else(|| {
-                let g = game_engine::common::global_data::read();
-                let m = g.writable.map_name.trim();
-                if !m.is_empty() {
-                    Some(m.to_string())
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_else(|| {
-                if mode == GameMode::Shell {
-                    String::new()
-                } else {
-                    DEFAULT_SKIRMISH_MAP.to_string()
-                }
-            });
+        let map = Self::select_new_game_request_map(
+            mode,
+            campaign_launch_map,
+            owned_map,
+            receiving,
+            dispatch,
+            self.application_map_fallback.clone(),
+        );
+
+        if !map.trim().is_empty() {
+            self.application_map_fallback = Some(map.clone());
+        }
 
         let skirmish = if matches!(mode, GameMode::Skirmish) {
             #[cfg(feature = "game_client")]

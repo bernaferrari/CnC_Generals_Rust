@@ -1132,6 +1132,10 @@ pub struct CnCGameEngine {
     pub(crate) host_match_game_mode: Option<GameMode>,
     /// Wave 843: host-owned match map / local player / AI difficulty residuals.
     pub(crate) host_match_map_name: Option<String>,
+    /// Receiving application's last explicitly selected/requested map. C++
+    /// stores this in process WritableGlobalData::map_name; Main keeps the
+    /// fallback with its own startup and NewGame admissions instead.
+    pub(crate) application_map_fallback: Option<String>,
     pub(crate) host_match_local_player_id: Option<u32>,
     pub(crate) host_match_ai_difficulty: Option<crate::ai::AIDifficulty>,
     /// Wave 844: host-owned sim timing residuals (prefer over live GameLogic probes).

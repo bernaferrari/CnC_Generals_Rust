@@ -330,6 +330,185 @@ fn startup_new_game_dispatch_requires_pending_file_for_startup_map_preparation()
 }
 
 #[test]
+fn owned_new_game_map_preserves_peer_pending_file_and_precedes_fallback() {
+    with_global_and_startup_state_snapshot_restored(|| {
+        let peer_pending = "Maps/Peer/StillPending.map";
+        game_engine::common::global_data::write().pending_file = peer_pending.into();
+        let dispatch = StartupNewGameDispatch {
+            game_mode_code: 2,
+            game_mode: GameMode::Skirmish,
+            difficulty_code: 1,
+            difficulty: super::GameDifficulty::Medium,
+            rank_points: 0,
+            max_fps: Some(73),
+        };
+
+        let prepared = CnCGameEngine::prepare_application_new_game_map(
+            Some("Maps/Receiver/Owned.map"),
+            false,
+            dispatch,
+        );
+        assert!(prepared.is_none());
+        assert_eq!(
+            game_engine::common::global_data::read().pending_file,
+            peer_pending,
+            "an owned request must not consume a peer pending map"
+        );
+        {
+            let global = game_engine::common::global_data::read();
+            assert!(global.writable.use_fps_limit);
+            assert_eq!(global.writable.frames_per_second_limit, 73);
+        }
+        let selected = CnCGameEngine::resolve_application_new_game_map(
+            GameMode::Skirmish,
+            None,
+            Some("Maps/Receiver/Owned.map".into()),
+            prepared,
+            Some("Maps/Receiver/Previous.map".into()),
+        );
+        assert_eq!(selected, "Maps/Receiver/Owned.map");
+        assert_eq!(
+            game_engine::common::global_data::read().pending_file,
+            peer_pending
+        );
+
+        let peer_selected = CnCGameEngine::resolve_application_new_game_map(
+            GameMode::Skirmish,
+            None,
+            Some("Maps/Peer/Owned.map".into()),
+            None,
+            Some("Maps/Peer/Previous.map".into()),
+        );
+        assert_eq!(peer_selected, "Maps/Peer/Owned.map");
+        assert_eq!(
+            CnCGameEngine::resolve_application_new_game_map(
+                GameMode::Skirmish,
+                None,
+                None,
+                None,
+                Some("Maps/Receiver/Previous.map".into()),
+            ),
+            "Maps/Receiver/Previous.map",
+            "a receiver keeps its configured fallback when a request has no map"
+        );
+        let campaign = CnCGameEngine::select_new_game_request_map(
+            GameMode::SinglePlayer,
+            Some("Maps/Campaign/Owned.map".into()),
+            None,
+            true,
+            dispatch,
+            Some("Maps/Receiver/Previous.map".into()),
+        );
+        assert_eq!(campaign, "Maps/Campaign/Owned.map");
+        assert_eq!(
+            CnCGameEngine::resolve_application_new_game_map(
+                GameMode::Skirmish,
+                Some(" ".into()),
+                Some("Maps/Receiver/Owned.map".into()),
+                None,
+                None,
+            ),
+            "Maps/Receiver/Owned.map"
+        );
+        assert_eq!(
+            game_engine::common::global_data::read().pending_file,
+            peer_pending,
+            "an owned campaign map must not consume another request's pending map"
+        );
+    });
+}
+
+#[test]
+fn deferred_runtime_new_game_keeps_its_map_after_shell_command_precedes_it() {
+    with_global_and_startup_state_snapshot_restored(
+        deferred_runtime_new_game_keeps_its_map_after_shell_command_precedes_it_body,
+    );
+}
+
+fn deferred_runtime_new_game_keeps_its_map_after_shell_command_precedes_it_body() {
+    use game_engine::common::message_stream::{
+        ClientShellMapLaunch, GameMessage, GameMessageType, MessageStream,
+    };
+
+    let peer_pending = "Maps/Peer/Pending.map";
+    game_engine::common::global_data::write().pending_file = peer_pending.into();
+    let mut ordered = MessageStream::new();
+    let shell = ordered.append_message(GameMessageType::NewGame);
+    shell.append_integer_argument(4); // GAME_SHELL
+    shell.append_integer_argument(1);
+    shell.append_integer_argument(0);
+    shell.append_integer_argument(30);
+    shell.set_shell_map_launch(ClientShellMapLaunch {
+        map: "Maps/Shell/Shell.map".into(),
+        seed: 1,
+    });
+
+    let mut host_new_game = GameMessage::new(GameMessageType::NewGame);
+    host_new_game.append_integer_argument(2); // GAME_SKIRMISH
+    host_new_game.append_integer_argument(1);
+    host_new_game.append_integer_argument(0);
+    host_new_game.append_integer_argument(30);
+    host_new_game.set_owned_new_game_map("Maps/Host/Owned.map".into());
+    CnCGameEngine::append_common_message_to_stream(&mut ordered, &host_new_game);
+
+    assert!(CnCGameEngine::new_game_drain_waits_for_owned_launch(
+        ordered.get_messages()
+    ));
+
+    // The shell handler consumes its message while the host NewGame remains
+    // ordered. Rebuild through Main's production forwarding helper, which
+    // must retain the exact request-local map descriptor.
+    let deferred_host_message = ordered
+        .get_messages()
+        .iter()
+        .last()
+        .expect("host NewGame remains after Shell")
+        .clone();
+    let mut deferred = MessageStream::new();
+    CnCGameEngine::append_common_message_to_stream(&mut deferred, &deferred_host_message);
+    assert!(!CnCGameEngine::new_game_drain_waits_for_owned_launch(
+        deferred.get_messages()
+    ));
+    let forwarded = deferred.get_messages().iter().next().unwrap();
+    assert_eq!(forwarded.owned_new_game_map(), Some("Maps/Host/Owned.map"));
+    let dispatch = CnCGameEngine::startup_new_game_dispatch_from_message(forwarded)
+        .expect("deferred NewGame remains a valid command");
+    assert_eq!(dispatch.game_mode, GameMode::Skirmish);
+    let request_map = CnCGameEngine::select_new_game_request_map(
+        dispatch.game_mode,
+        None,
+        forwarded.owned_new_game_map().map(str::to_owned),
+        true,
+        dispatch,
+        Some("Maps/Receiver/Fallback.map".into()),
+    );
+    assert_eq!(request_map, "Maps/Host/Owned.map");
+    assert_eq!(
+        game_engine::common::global_data::read().pending_file,
+        peer_pending,
+        "ordered NewGame map must not consume a peer pending map"
+    );
+
+    let mut replay = GameMessage::new(GameMessageType::NewGame);
+    replay.append_integer_argument(3); // GAME_REPLAY
+    replay.append_integer_argument(1);
+    replay.append_integer_argument(0);
+    replay.append_integer_argument(30);
+    replay.set_owned_new_game_map("Maps/Host/ReplayPlaceholder.map".into());
+    CnCGameEngine::consume_legacy_pending_map_for_recorded_new_game(&replay);
+    assert_eq!(
+        replay.owned_new_game_map(),
+        Some("Maps/Host/ReplayPlaceholder.map"),
+        "an owned request map is not substituted for Recorder::GameInfo"
+    );
+    assert_eq!(
+        game_engine::common::global_data::read().pending_file,
+        peer_pending,
+        "an owned Replay request must not consume a peer pending map"
+    );
+}
+
+#[test]
 fn map_select_new_game_dispatch_consumes_the_exact_runtime_pending_map() {
     use game_engine::common::message_stream::{GameMessage, GameMessageType};
 
@@ -706,6 +885,65 @@ fn startup_mode_requires_new_game_dispatch_for_non_menu_startup() {
     assert_eq!(mode, GameMode::Shell);
     assert!(start_in_menu);
     assert!(map_to_load.is_none());
+}
+
+#[test]
+fn startup_initial_file_uses_candidate_map_without_consuming_peer_pending_file() {
+    with_global_and_startup_state_snapshot_restored(|| {
+        let args = CommandLineArgs::parse_from_args(vec![
+            "generals".to_string(),
+            "-file".to_string(),
+            "Maps\\Candidate\\OwnedStart.map".to_string(),
+        ])
+        .expect("parse initial-file command line");
+        let selected = CnCGameEngine::startup_initial_file_from_command_line(&args, true)
+            .expect("initial file is enabled");
+        let peer_pending = "Maps\\Peer\\StillPending.map";
+        game_engine::common::global_data::write().pending_file = peer_pending.to_string();
+
+        let dispatch = StartupNewGameDispatch {
+            game_mode_code: 0,
+            game_mode: GameMode::SinglePlayer,
+            difficulty_code: 1,
+            difficulty: super::GameDifficulty::Medium,
+            rank_points: 0,
+            max_fps: None,
+        };
+        let mut start_in_menu = false;
+        let mut map_to_load = Some(selected.clone());
+        let mode = CnCGameEngine::resolve_startup_mode_from_dispatch(
+            &mut start_in_menu,
+            &mut map_to_load,
+            Some(dispatch),
+            false,
+        );
+
+        assert_eq!(mode, GameMode::SinglePlayer);
+        assert!(!start_in_menu);
+        assert_eq!(map_to_load.as_deref(), Some(selected.as_str()));
+        assert_eq!(
+            game_engine::common::global_data::read().pending_file,
+            peer_pending,
+            "candidate startup must not consume another owner's pending map"
+        );
+
+        let mut start_in_menu = false;
+        let mut map_to_load = Some(selected);
+        let fallback = CnCGameEngine::resolve_startup_mode_from_dispatch(
+            &mut start_in_menu,
+            &mut map_to_load,
+            None,
+            true,
+        );
+        assert_eq!(fallback, GameMode::Shell);
+        assert!(start_in_menu);
+        assert!(map_to_load.is_none());
+        assert_eq!(
+            game_engine::common::global_data::read().pending_file,
+            peer_pending,
+            "failed candidate fallback must not clear another owner's pending map"
+        );
+    });
 }
 
 #[test]

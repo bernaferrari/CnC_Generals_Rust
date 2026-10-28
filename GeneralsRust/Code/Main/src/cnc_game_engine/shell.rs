@@ -1821,7 +1821,6 @@ impl CnCGameEngine {
                         );
                         start_in_menu = true;
                         map_to_load = None;
-                        game_engine::common::global_data::write().pending_file.clear();
                     }
 
                     let startup_mode = Self::resolve_startup_mode_from_dispatch(
@@ -1836,7 +1835,6 @@ impl CnCGameEngine {
                             "Startup replay did not resolve a playable map; falling back to menu startup"
                         );
                         start_in_menu = true;
-                        game_engine::common::global_data::write().pending_file.clear();
                     }
 
                     worker_stop_if_abandoned()?;
@@ -2230,6 +2228,19 @@ impl CnCGameEngine {
         self.update_shell_loading_progress(0.995, Some("Finalizing startup"))
             .map_err(anyhow::Error::msg)?;
         self.default_starting_cash = result.default_starting_cash;
+        if !result.start_in_menu {
+            if let Some(map) = result
+                .loaded_map_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|map| !map.is_empty())
+            {
+                // A real startup match consumed its request-local map. Keep
+                // the legacy later-NewGame fallback on this receiving Main;
+                // a shell background is not a selected match map here.
+                self.application_map_fallback = Some(map.to_string());
+            }
+        }
         // Admit the detached worker's actual start_new_game reset only now.
         self.reset_replay_pacing_for_new_game();
         self.host_replace_game_logic(result.game_logic, result.native_map)

@@ -756,11 +756,10 @@ impl CnCGameEngine {
         let (startup_initial_map, startup_initial_replay) =
             Self::split_startup_initial_file(startup_initial_file);
 
-        if let Some(initial_map) = startup_initial_map.as_ref() {
+        if startup_initial_map.is_some() {
             let mut global = game_engine::common::global_data::write();
             global.writable.shell_map_on = false;
             global.writable.play_intro = false;
-            global.pending_file = initial_map.clone();
         }
 
         if let Some(initial_replay) = startup_initial_replay.as_ref() {
@@ -916,6 +915,13 @@ impl CnCGameEngine {
             projection_matrix,
         };
 
+        let application_map_fallback = Self::allow_debug_startup_flags()
+            .then(|| command_line.map_name.as_deref())
+            .flatten()
+            .map(str::trim)
+            .filter(|map| !map.is_empty())
+            .map(str::to_owned);
+
         let mut engine = Self {
             application_assets,
             subsystem_manager,
@@ -992,6 +998,7 @@ impl CnCGameEngine {
             rejected_native_worlds: Default::default(),
             host_match_game_mode: None,
             host_match_map_name: None,
+            application_map_fallback,
             host_match_local_player_id: None,
             host_match_ai_difficulty: None,
             host_match_visual_speed: None,

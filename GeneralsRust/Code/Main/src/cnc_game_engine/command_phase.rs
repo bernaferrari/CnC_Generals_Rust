@@ -45,6 +45,17 @@ enum NativeLogicOperation {
 }
 
 impl CnCGameEngine {
+    pub(super) fn consume_legacy_pending_map_for_recorded_new_game(
+        message: &game_engine::common::message_stream::GameMessage,
+    ) {
+        if message.owned_new_game_map().is_none() {
+            // Older recorder launch producers communicate this map through
+            // pending_file. A request with its own map must leave that shared
+            // slot untouched; Replay admission still uses Recorder::GameInfo.
+            Self::take_application_new_game_map();
+        }
+    }
+
     pub(super) fn receiving_recorded_start_request(
         &mut self,
         dispatch: StartupNewGameDispatch,
@@ -440,13 +451,16 @@ impl CnCGameEngine {
             Some(self.source_skirmish_start_request(dispatch, descriptor)?)
         } else if dispatch.game_mode == GameMode::Replay {
             // Header/map/slots belong to this same live receiving Recorder.
-            Self::take_application_new_game_map();
+            // Keep legacy pending-file intake only for messages without an
+            // exact request-owned map.
+            Self::consume_legacy_pending_map_for_recorded_new_game(message);
             self.receiving_recorded_start_request(dispatch)
         } else {
-            self.build_start_request_from_pending_globals_at_source(
+            self.build_start_request_from_pending_globals_at_source_with_map(
                 Some(dispatch),
                 true,
                 message.campaign_launch(),
+                message.owned_new_game_map().map(str::to_owned),
             )
         };
         let Some(request) = request else {

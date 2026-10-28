@@ -547,6 +547,14 @@ impl CnCGameEngine {
             }
         }
 
+        if !map.trim().is_empty() {
+            // C++ pending-file consumption updates writable mapName before
+            // the load attempt. Keep that continuation on the receiving Main
+            // for every accepted start request, including direct save/restart
+            // paths that do not use the generic NewGame builder.
+            self.application_map_fallback = Some(map.clone());
+        }
+
         // Capture the provenance before this function moves Menu → Loading.
         // The Loading NewGame drain (camera_drain.rs) calls this while state is
         // already Loading. Only that state may reuse latched menu evidence.

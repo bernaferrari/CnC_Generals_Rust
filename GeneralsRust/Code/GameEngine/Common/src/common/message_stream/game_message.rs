@@ -464,6 +464,9 @@ pub struct GameMessage {
     campaign_launch: Option<Box<ClientCampaignLaunch>>,
     shell_map_launch: Option<Box<ClientShellMapLaunch>>,
     skirmish_launch: Option<Box<ClientSkirmishLaunch>>,
+    // Request-local Main startup metadata. This is not an argument and is
+    // deliberately omitted from retail message/Xfer encoding.
+    owned_new_game_map: Option<String>,
 }
 
 impl GameMessage {
@@ -474,6 +477,7 @@ impl GameMessage {
             campaign_launch: None,
             shell_map_launch: None,
             skirmish_launch: None,
+            owned_new_game_map: None,
             player_index: 0, // Default to local player
         }
     }
@@ -485,6 +489,7 @@ impl GameMessage {
             campaign_launch: None,
             shell_map_launch: None,
             skirmish_launch: None,
+            owned_new_game_map: None,
             player_index,
         }
     }
@@ -494,6 +499,16 @@ impl GameMessage {
     }
     pub fn skirmish_launch(&self) -> Option<&ClientSkirmishLaunch> {
         self.skirmish_launch.as_deref()
+    }
+
+    /// Bind a local map to this exact NewGame request without changing its
+    /// retail argument list or serialized message payload.
+    pub fn set_owned_new_game_map(&mut self, map: String) {
+        self.owned_new_game_map = (!map.trim().is_empty()).then_some(map);
+    }
+
+    pub fn owned_new_game_map(&self) -> Option<&str> {
+        self.owned_new_game_map.as_deref()
     }
 
     pub fn set_shell_map_launch(&mut self, descriptor: ClientShellMapLaunch) {

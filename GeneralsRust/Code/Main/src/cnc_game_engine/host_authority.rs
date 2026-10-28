@@ -3620,6 +3620,9 @@ impl CnCGameEngine {
                 self.host_clear_match_residuals();
                 self.host_match_game_mode = Some(loaded_match_mode);
                 self.host_match_map_name = Some(loaded_map_name.clone());
+                if !loaded_map_name.trim().is_empty() {
+                    self.application_map_fallback = Some(loaded_map_name.clone());
+                }
                 self.last_presentation_frame = None;
                 self.last_ui_state = None;
                 self.render_pipeline.set_presentation_frame(None);

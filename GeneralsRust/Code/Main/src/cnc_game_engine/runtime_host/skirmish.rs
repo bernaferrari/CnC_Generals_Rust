@@ -622,7 +622,7 @@ impl CnCGameEngine {
         &mut self,
         args: &HashMap<String, String>,
     ) -> Result<(), String> {
-        use game_engine::common::message_stream::{GameMessageType, get_message_stream};
+        use game_engine::common::message_stream::{get_message_stream, GameMessageType};
         let mode_code = args
             .get("mode")
             .and_then(|m| match m.trim().to_ascii_lowercase().as_str() {
@@ -638,10 +638,6 @@ impl CnCGameEngine {
             .cloned()
             .filter(|n| !n.trim().is_empty())
             .unwrap_or_else(|| DEFAULT_SKIRMISH_MAP.to_string());
-        {
-            let mut global = game_engine::common::global_data::write();
-            global.pending_file = map.clone();
-        }
         #[cfg(feature = "game_client")]
         {
             // Seed client setup map so config_from_client can resolve.
@@ -678,6 +674,10 @@ impl CnCGameEngine {
         msg.append_integer_argument(1); // DIFFICULTY_NORMAL
         msg.append_integer_argument(0); // rank points
         msg.append_integer_argument(30); // max fps residual
+
+        // Keep the map on this queued request when an earlier Shell command
+        // defers its drain.
+        msg.set_owned_new_game_map(map.clone());
         info!("Runtime host queued NewGame mode_code={mode_code} map={map}");
         // Peek + host start, then deliver all surviving client messages to
         // the newly installed Main owner before dropping NewGame leftovers.
