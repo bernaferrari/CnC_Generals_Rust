@@ -105,9 +105,9 @@ impl<'a> HostScriptExecutionDriver<'a> {
     }
 
     fn requires_prepared_player_bindings(&self) -> bool {
-        // Match the map loader's prepared-side modes. Their side indices and
-        // authored player names are not Main host IDs/display labels. Until
-        // admission owns that mapping, retain the existing condition adapter.
+        // These paths still consume PlayerList side ordinals. The tech query
+        // uses exact admitted Main Player names instead and does not infer IDs
+        // from a side index.
         matches!(
             self.world.game_mode,
             GameMode::Skirmish
@@ -1978,9 +1978,6 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         player: &str,
         current_player: Option<&str>,
     ) -> ScriptOwnerQuery<()> {
-        if self.requires_prepared_player_bindings() {
-            return ScriptOwnerQuery::Unavailable;
-        }
         if self.script_player_id(player, current_player).is_some() {
             ScriptOwnerQuery::Present(())
         } else {
@@ -1996,9 +1993,6 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         current_player: Option<&str>,
     ) -> ScriptOwnerQuery<bool> {
         use gamelogic::common::Relationship;
-        if self.requires_prepared_player_bindings() {
-            return ScriptOwnerQuery::Unavailable;
-        }
         let Some(player) = self
             .script_player_id(player, current_player)
             .and_then(|id| self.world.players.get(&id))

@@ -107,6 +107,76 @@ fn world() -> (GameLogic, ObjectId) {
     (world, id)
 }
 
+fn admitted_world(mode: GameMode, relationship: Relationship) -> (GameLogic, ObjectId) {
+    crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
+    let mut config = crate::skirmish_config::golden_skirmish_config("OwnedTechAdmission.map");
+    config.slots[1].slot_index = 3;
+    let mut closed_slot = config.slots[1].clone();
+    closed_slot.slot_index = 1;
+    closed_slot.is_active = false;
+    config.slots.insert(1, closed_slot);
+
+    let mut world = GameLogic::new();
+    crate::skirmish_config::apply_skirmish_config_for_mode(&mut world, &config, mode).unwrap();
+    assert_eq!(world.players[&0].map_side.map_player_name, "player0");
+    assert_eq!(world.players[&3].map_side.map_player_name, "player3");
+    world
+        .players
+        .get_mut(&0)
+        .unwrap()
+        .set_map_relationship(3, relationship);
+    world.world_min = Vec3::ZERO;
+    world.world_max = Vec3::splat(1000.0);
+    let trigger = gamelogic::polygon_trigger::PolygonTrigger::new(
+        1,
+        "HomeBase".into(),
+        vec![
+            gamelogic::common::ICoord3D::new(0, 0, 0),
+            gamelogic::common::ICoord3D::new(20, 20, 0),
+        ],
+    );
+    world
+        .host_trigger_world
+        .lock()
+        .unwrap()
+        .set_trigger_areas(&[trigger]);
+
+    let mut civilian = Dict::new();
+    civilian.set_ascii_string(
+        game_engine::common::well_known_keys::key_player_name(),
+        "PlyrCivilian",
+    );
+    civilian.set_ascii_string(
+        game_engine::common::well_known_keys::key_player_faction(),
+        "FactionCivilian",
+    );
+    let mut faction = Dict::new();
+    faction.set_ascii_string(
+        game_engine::common::well_known_keys::key_player_name(),
+        "MapFactionSource",
+    );
+    faction.set_ascii_string(
+        game_engine::common::well_known_keys::key_player_faction(),
+        "FactionGLA",
+    );
+    let team_definitions =
+        world.sync_legacy_sides_list_from_dicts(&[civilian, faction], &[], &[], &[]);
+    assert!(world.sync_legacy_team_factory_from_team_dicts(&team_definitions));
+    assert_eq!(world.prepared_map_sides.find_side_info("player0"), Some(1));
+    assert_eq!(world.prepared_map_sides.find_side_info("player3"), Some(2));
+
+    let mut template = ThingTemplate::new("OwnedTech");
+    template
+        .add_kind_of(KindOf::TechBuilding)
+        .add_kind_of(KindOf::Structure)
+        .set_health(100.0);
+    world.templates.insert(template.name.clone(), template);
+    let id = world
+        .create_object_for_player("OwnedTech", 3, Vec3::new(10.0, 0.0, 10.0))
+        .unwrap();
+    (world, id)
+}
+
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn live_tech_condition_ignores_foreign_registry_and_world_lifecycle() {
@@ -117,6 +187,8 @@ fn live_tech_condition_ignores_foreign_registry_and_world_lifecycle() {
             let (mut first, id) = world();
             let (mut second, other) = world();
             assert_eq!(id, other);
+            first.game_mode = GameMode::Skirmish;
+            second.game_mode = GameMode::Skirmish;
             second
                 .players
                 .get_mut(&1)
@@ -160,6 +232,64 @@ fn live_tech_condition_ignores_foreign_registry_and_world_lifecycle() {
                 &foreign
             ));
             assert_eq!(foreign.read().unwrap().get_health(), 100.0);
+        },
+    );
+}
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn admitted_sparse_lobby_and_replay_names_drive_tech_queries_after_restore() {
+    super::sequential_actor_tests::isolated(
+        module_path!(),
+        "admitted_sparse_lobby_and_replay_names_drive_tech_queries_after_restore",
+        || {
+            use crate::save_load::SnapshotBuilder;
+
+            for mode in [GameMode::Skirmish, GameMode::Replay] {
+                let (mut enemy_world, id) = admitted_world(mode, Relationship::Enemies);
+                let (mut ally_world, peer_id) = admitted_world(mode, Relationship::Allies);
+                assert_eq!(id, peer_id, "same-ID worlds use independent admissions");
+                assert_eq!(enemy_world.players[&3].map_side.map_player_name, "player3");
+                assert_eq!(
+                    enemy_world
+                        .prepared_map_sides
+                        .get_side_info(2)
+                        .unwrap()
+                        .get_dict()
+                        .get_ascii_string(game_engine::common::well_known_keys::key_player_name()),
+                    "player3",
+                    "the authored dictionary's side ordinal differs from the host ID"
+                );
+
+                let engine = observing_engine(condition("player0", "HomeBase", 0.0), 1);
+                assert_eq!(tick(&engine, &mut enemy_world), 1);
+                assert_eq!(tick(&engine, &mut ally_world), 0);
+
+                let snapshotter = SnapshotBuilder::new();
+                let snapshot = snapshotter.create_world_snapshot(&enemy_world).unwrap();
+                let encoded = bincode_legacy::serialize(&snapshot).unwrap();
+                let decoded =
+                    crate::save_load::snapshot::decode_bincode_world_snapshot(&encoded).unwrap();
+                let (mut restored, restored_id) = admitted_world(mode, Relationship::Neutral);
+                assert_eq!(restored_id, id);
+                snapshotter
+                    .restore_from_snapshot(&decoded, &mut restored)
+                    .unwrap();
+                assert_eq!(restored.players[&0].map_side.map_player_name, "player0");
+                assert_eq!(restored.players[&3].map_side.map_player_name, "player3");
+                assert_eq!(
+                    restored.prepared_map_sides.find_side_info("player3"),
+                    Some(2)
+                );
+                assert_eq!(
+                    tick(
+                        &observing_engine(condition("player0", "HomeBase", 0.0), 1),
+                        &mut restored
+                    ),
+                    1,
+                    "restored identity and relationship still select the receiving world"
+                );
+            }
         },
     );
 }
@@ -409,10 +539,12 @@ fn owned_tech_aliases_use_explicit_current_player_and_enemy_perimeter() {
                 ScriptOwnerQuery::Missing,
                 "display label is not an authored name key"
             );
-            // Populated names do not prove the prepared side -> host-ID map.
-            // Keep all prepared modes on their existing route until admission
-            // records that mapping, rather than inventing an index offset.
+            // Exact authored names resolve through receiving Players, not by
+            // parsing a player suffix as a host ID.
             world.players.get_mut(&2).unwrap().map_side.map_player_name = "AuthoredOther".into();
+            let mut sparse_viewer = world.players.remove(&1).unwrap();
+            sparse_viewer.id = 3;
+            world.players.insert(3, sparse_viewer);
             for mode in [
                 GameMode::Skirmish,
                 GameMode::Multiplayer,
@@ -424,7 +556,7 @@ fn owned_tech_aliases_use_explicit_current_player_and_enemy_perimeter() {
                 let driver = HostScriptExecutionDriver::new(&mut world);
                 assert_eq!(
                     driver.skirmish_player_exists("AuthoredViewer", Some("AuthoredViewer")),
-                    ScriptOwnerQuery::Unavailable
+                    ScriptOwnerQuery::Present(())
                 );
                 assert_eq!(
                     driver.tech_building_within_distance(
@@ -433,7 +565,7 @@ fn owned_tech_aliases_use_explicit_current_player_and_enemy_perimeter() {
                         "InnerPerimeter3",
                         Some("AuthoredViewer")
                     ),
-                    ScriptOwnerQuery::Unavailable
+                    ScriptOwnerQuery::Present(true)
                 );
             }
         },
