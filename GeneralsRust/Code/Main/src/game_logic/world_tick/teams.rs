@@ -1873,12 +1873,12 @@ impl GameLogic {
             // ALLOW_NEUTRAL, then separately accepts the exact controlling
             // Player's own Objects. DisabledUnmanned does not itself change
             // affiliation; an allied player's evacuated unit remains allied.
-            let rel = Self::object_relationship_from_owners(
+            let rel = Self::object_relationship_from_owner_to_team_identity(
                 &self.team_factory,
                 &self.players,
                 Some(source_owner),
-                "",
                 obj.owner_player_id,
+                obj.team_instance_id,
                 &obj.team_instance_name,
             );
             let same_controller = obj.owner_player_id == Some(source_owner);

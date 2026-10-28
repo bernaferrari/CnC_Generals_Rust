@@ -67,7 +67,7 @@ fn world(map: &std::path::Path) -> (GameLogic, ObjectId, ObjectId) {
     world
         .admit_object_ini_sources([(
             "TeamRelations.ini".into(),
-            "Object RelationUnit\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = CostModifierUpgrade MergeCost\n TriggeredBy = Upgrade_Veterancy_VETERAN\n EffectKindOf = VEHICLE AIRCRAFT\n Percentage = -10%\n End\nEnd\nObject RelationDualPurchase\n KindOf = VEHICLE AIRCRAFT\n BuildCost = 1000\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject ChinaTankECM\n KindOf = VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 300\n InitialHealth = 300\n End\nEnd\nObject AmericaTankCrusader\n KindOf = VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 400\n InitialHealth = 400\n End\nEnd\n".into(),
+            "Object RelationUnit\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = CostModifierUpgrade MergeCost\n TriggeredBy = Upgrade_Veterancy_VETERAN\n EffectKindOf = VEHICLE AIRCRAFT\n Percentage = -10%\n End\nEnd\nObject RelationDualPurchase\n KindOf = VEHICLE AIRCRAFT\n BuildCost = 1000\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject ChinaTankECM\n KindOf = VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 300\n InitialHealth = 300\n End\nEnd\nObject AmericaTankCrusader\n KindOf = VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 400\n InitialHealth = 400\n End\nEnd\nObject RelationCapturer\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
         )])
         .unwrap();
     let mut player_templates = PlayerTemplateStore::new_owned();
@@ -1128,5 +1128,78 @@ fn ecm_field_uses_exact_same_named_target_team_in_each_world() {
             .unwrap()
             .subdual_damage,
         0.0
+    );
+}
+
+#[test]
+fn capture_nearest_uses_each_candidate_exact_team_identity() {
+    fn prepare(
+        world: &mut GameLogic,
+        original: ObjectId,
+        original_is_enemy: bool,
+    ) -> (ObjectId, ObjectId) {
+        let (sibling, sibling_team) = same_named_team_member(
+            world,
+            2,
+            "TargetRoster",
+            "RelationUnit",
+            Vec3::new(35.0, 0.0, 30.0),
+        );
+        let original_team = team_id_for_member(world, original);
+        for id in [original, sibling] {
+            world.host_object_mut(id).unwrap().status.disabled_unmanned = true;
+        }
+        let capturer = world
+            .create_object_for_player("RelationCapturer", 1, Vec3::new(10.0, 0.0, 30.0))
+            .unwrap();
+        world.host_object_mut(capturer).unwrap().team_instance_name = "SourceRoster".into();
+        world.activate_leftover_team_for_host_object(capturer);
+        let player = world.get_player_mut(1).unwrap();
+        player.set_team_relationship_override(
+            original_team,
+            if original_is_enemy {
+                Relationship::Enemies
+            } else {
+                Relationship::Allies
+            },
+        );
+        player.set_team_relationship_override(
+            sibling_team,
+            if original_is_enemy {
+                Relationship::Allies
+            } else {
+                Relationship::Enemies
+            },
+        );
+        (capturer, sibling)
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut owner, _, original) = world(&map);
+    let (mut peer, _, peer_original) = world(&map);
+    let (capturer, sibling) = prepare(&mut owner, original, false);
+    let (peer_capturer, peer_sibling) = prepare(&mut peer, peer_original, true);
+    assert_eq!(
+        (capturer, original, sibling),
+        (peer_capturer, peer_original, peer_sibling)
+    );
+
+    execute(
+        &mut peer,
+        ScriptActionType::TeamCaptureNearestUnownedFactionUnit,
+        None,
+        None,
+    );
+    execute(
+        &mut owner,
+        ScriptActionType::TeamCaptureNearestUnownedFactionUnit,
+        None,
+        None,
+    );
+    assert_eq!(owner.host_object(capturer).unwrap().target, Some(sibling));
+    assert_eq!(
+        peer.host_object(peer_capturer).unwrap().target,
+        Some(peer_original)
     );
 }
