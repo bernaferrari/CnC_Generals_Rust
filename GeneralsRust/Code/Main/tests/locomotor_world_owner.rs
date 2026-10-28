@@ -21,13 +21,19 @@ fn base_catalog(speed: u32, pitch: u32) -> LocomotorStore {
 }
 
 fn world(map: &std::path::Path, base_speed: u32, pitch: u32) -> GameLogic {
+    world_with_catalog(map, base_catalog(base_speed, pitch))
+}
+
+fn world_with_catalog(map: &std::path::Path, catalog: LocomotorStore) -> GameLogic {
     let mut world = GameLogic::new();
-    world.admit_locomotor_definitions(base_catalog(base_speed, pitch));
+    world.admit_locomotor_definitions(catalog).unwrap();
     world
         .admit_object_ini_sources([(
             "Owner.ini".into(),
             "Object OwnerMover\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL SharedOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
-             Object OwnerSwitcher\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL CliffOwnerLoco GroundOwnerLoco\n Locomotor = SET_PANIC PanicOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
+             Object OwnerSwitcher\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL CliffOwnerLoco GroundOwnerLoco\n Locomotor = SET_PANIC PanicOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n\
+             Object OwnerBike\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL CliffOwnerLoco GroundOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = RiderChangeContain RiderTag\n Slots = 1\n Rider1 = OwnerRider RIDER1 WEAPON_RIDER1 STATUS_RIDER1 BikeSet SET_NORMAL\n End\nEnd\n\
+             Object OwnerRider\n KindOf = SELECTABLE INFANTRY\n TransportSlotCount = 1\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
         )])
         .unwrap();
     world.start_new_game(GameMode::SinglePlayer);
@@ -66,7 +72,7 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
     {
         let mut foreign = get_locomotor_store_mut();
         foreign.apply_source("Locomotor SharedOwnerLoco\n Surfaces = GROUND\n Speed = 999\n PitchStiffness = 99\nEnd\n\
-            Locomotor CliffOwnerLoco\n Surfaces = CLIFF\n Speed = 999\nEnd\n\
+            Locomotor CliffOwnerLoco\n Surfaces = GROUND\n Speed = 999\nEnd\n\
             Locomotor GroundOwnerLoco\n Surfaces = GROUND\n Speed = 999\nEnd\n\
             Locomotor PanicOwnerLoco\n Surfaces = GROUND\n Speed = 999\nEnd\n").unwrap();
     }
@@ -106,6 +112,12 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
         .create_object_for_player("OwnerMover", 42, glam::Vec3::ZERO)
         .unwrap();
     assert_eq!(first_id, peer_id);
+    assert!(
+        first
+            .admit_locomotor_definitions(LocomotorStore::new())
+            .is_err()
+    );
+    assert!(first.admit_locomotor_companion_sources(&[]).is_err());
     assert_eq!(
         first.host_object(first_id).unwrap().movement.max_speed,
         40.0
@@ -157,6 +169,59 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
     assert!(peer.apply_unit_locomotor_set(peer_switcher, "normal"));
     let builder = SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&first).unwrap();
+    let first_bike = first
+        .create_object_for_player("OwnerBike", 42, glam::Vec3::new(80., 0., 80.))
+        .unwrap();
+    let peer_bike = peer
+        .create_object_for_player("OwnerBike", 42, glam::Vec3::new(80., 0., 80.))
+        .unwrap();
+    assert_eq!(first_bike, peer_bike);
+    for (world, id) in [(&first, first_bike), (&peer, peer_bike)] {
+        let bike = world.host_object(id).unwrap();
+        assert!(bike.supports_authored_rider_change_normal_enter());
+        let rider = bike
+            .authored_rider_change_rider_for_template("OwnerRider")
+            .unwrap();
+        assert_eq!(
+            rider.active_locomotor_names,
+            ["CliffOwnerLoco", "GroundOwnerLoco"]
+        );
+        assert_eq!(
+            rider.active_locomotor_surfaces,
+            generals_main::game_logic::object::LOCO_SURFACE_CLIFF
+                | generals_main::game_logic::object::LOCO_SURFACE_GROUND
+        );
+    }
+    let first_rider = first
+        .create_object_for_player("OwnerRider", 42, glam::Vec3::new(81., 0., 80.))
+        .unwrap();
+    let peer_rider = peer
+        .create_object_for_player("OwnerRider", 42, glam::Vec3::new(81., 0., 80.))
+        .unwrap();
+    assert_eq!(first_rider, peer_rider);
+    for (world, bike, rider, expected_speed) in [
+        (&mut first, first_bike, first_rider, 30.0),
+        (&mut peer, peer_bike, peer_rider, 70.0),
+    ] {
+        use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
+        assert!(world.can_unit_enter_normal_target(rider, bike));
+        world.queue_command(GameCommand {
+            command_type: CommandType::Enter { target_id: bike },
+            player_id: 42,
+            command_id: 1,
+            timestamp: std::time::UNIX_EPOCH,
+            selected_units: vec![rider],
+            modifier_keys: ModifierKeys::default(),
+        });
+        world.process_commands();
+        for _ in 0..4 {
+            world.update_with_dt(1.0 / 30.0);
+        }
+        assert_eq!(world.host_object(rider).unwrap().contained_by, Some(bike));
+        let bike = world.host_object(bike).unwrap();
+        assert_eq!(bike.cur_locomotor_name.as_deref(), Some("GroundOwnerLoco"));
+        assert!((bike.movement.max_speed - expected_speed).abs() < 0.001);
+    }
     peer.reset();
     let mut restored = world(&first_map, 20, 3);
     builder
@@ -172,8 +237,7 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
     assert_eq!(restored.movement.max_speed, 40.0);
     assert_eq!(restored.wander_width_factor, 2.0);
     assert!(restored.stick_to_ground);
-    let mut missing = world(&first_map, 20, 3);
-    missing.admit_locomotor_definitions(LocomotorStore::new());
+    let mut missing = world_with_catalog(&first_map, LocomotorStore::new());
     assert!(
         builder
             .restore_from_snapshot(&snapshot, &mut missing)

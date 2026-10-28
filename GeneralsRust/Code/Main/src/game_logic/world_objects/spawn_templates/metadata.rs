@@ -210,6 +210,7 @@ impl GameLogic {
         template: &mut ThingTemplate,
         definition: &ObjectDefinition,
         rider_change_normal_locomotors: Option<&[String]>,
+        locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
     ) {
         use crate::game_logic::{
             ContainAdmission, ContainModuleKind, ContainModuleMetadata, DockKind,
@@ -397,15 +398,20 @@ impl GameLogic {
             module: &crate::assets::BehaviorModuleDefinition,
             definition: &ObjectDefinition,
             rider_change_normal_locomotors: Option<&[String]>,
+            locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
         ) -> (Vec<RiderChangeRiderMetadata>, Option<u32>, String, u128) {
             let mut riders = Vec::new();
-            let normal_locomotor_binding = rider_change_normal_locomotors.and_then(
-                crate::game_logic::locomotor_bootstrap::resolve_complete_host_locomotor_set,
-            );
+            let normal_locomotor_binding = rider_change_normal_locomotors.and_then(|names| {
+                crate::game_logic::locomotor_bootstrap::resolve_complete_host_locomotor_set(
+                    names, locomotors,
+                )
+            });
             let sluggish_names = unambiguous_locomotors_for_set(definition, "SET_SLUGGISH");
-            let sluggish_locomotor_binding = sluggish_names.as_deref().and_then(
-                crate::game_logic::locomotor_bootstrap::resolve_complete_host_locomotor_set,
-            );
+            let sluggish_locomotor_binding = sluggish_names.as_deref().and_then(|names| {
+                crate::game_logic::locomotor_bootstrap::resolve_complete_host_locomotor_set(
+                    names, locomotors,
+                )
+            });
 
             for slot in 1u8..=8 {
                 let key = format!("Rider{slot}");
@@ -644,7 +650,12 @@ impl GameLogic {
                     rider_change_scuttle_status,
                     rider_change_scuttle_status_mask,
                 ) = if kind == ContainModuleKind::RiderChange {
-                    parse_rider_change(module, definition, rider_change_normal_locomotors)
+                    parse_rider_change(
+                        module,
+                        definition,
+                        rider_change_normal_locomotors,
+                        locomotors,
+                    )
                 } else {
                     (Vec::new(), None, String::new(), 0)
                 };

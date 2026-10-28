@@ -33,6 +33,7 @@ pub(super) fn resolve<'a>(
         definition,
         definition.get_primary_texture(),
         Some(content),
+        world.locomotor_definitions.as_ref(),
     )
     .map_err(SaveLoadError::Corrupted)?;
     template.receiving_client_template =

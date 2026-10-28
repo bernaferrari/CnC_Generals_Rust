@@ -2727,7 +2727,7 @@ impl CnCGameEngine {
             gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(live_services);
         let mut staged = crate::game_logic::GameLogic::new();
         if let Some(definitions) = template_catalog.locomotors {
-            staged.admit_locomotor_definitions(definitions.clone());
+            staged.admit_locomotor_definitions(definitions.clone())?;
         }
         if let Some(definitions) = template_catalog.player_templates {
             staged.admit_player_template_definitions(definitions.clone())?;

@@ -19,7 +19,7 @@ fn authored_container(flag: Option<bool>) -> ThingTemplate {
         module_tag: Some("ModuleTag_Contain".into()),
         attributes,
     });
-    GameLogic::apply_authored_dock_and_contain_modules(&mut template, &definition, None);
+    GameLogic::apply_authored_dock_and_contain_modules(&mut template, &definition, None, None);
     template
 }
 

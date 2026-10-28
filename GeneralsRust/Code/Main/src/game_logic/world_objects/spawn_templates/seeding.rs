@@ -96,6 +96,7 @@ impl GameLogic {
             &mut templates,
             &projection_candidate,
             &candidate,
+            self.locomotor_definitions.as_ref(),
         )?;
         Self::bind_receiving_production_templates(&mut templates, &candidate)?;
         let projectile_candidate=crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(projection_candidate.rows().map(|row|(row.name.as_str(),row.as_ref())),self.physics_definitions.effective.gravity)?;
@@ -113,6 +114,7 @@ impl GameLogic {
         templates: &mut HashMap<String, ThingTemplate>,
         definitions: &crate::assets::ReceivingObjectDefinitions,
         receiving: &game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
+        locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
     ) -> Result<(), String> {
         let rows = definitions.rows().cloned().collect::<Vec<_>>();
         for definition in rows {
@@ -126,6 +128,7 @@ impl GameLogic {
                     template,
                     &definition,
                     Some(receiving),
+                    locomotors,
                 )?;
                 template.receiving_object_definition = Some(definition);
             } else {
@@ -134,6 +137,7 @@ impl GameLogic {
                     &definition,
                     definition.get_primary_texture(),
                     Some(receiving),
+                    locomotors,
                 )?;
                 template.receiving_object_definition = Some(definition);
                 templates.insert(name, template);
@@ -374,6 +378,7 @@ impl GameLogic {
                     template,
                     &definition,
                     rider_change_normal_locomotors.as_deref(),
+                    self.locomotor_definitions.as_ref(),
                 );
                 if definition_has_rider_change_contain(&definition) {
                     if let Some(locomotor) = rider_change_normal_locomotors
@@ -488,6 +493,7 @@ impl GameLogic {
                 &definition,
                 texture_hint.as_deref(),
                 receiving,
+                self.locomotor_definitions.as_ref(),
             )?;
             self.templates.insert(name.to_string(), template);
             inserted = inserted.saturating_add(1);
@@ -613,8 +619,10 @@ impl GameLogic {
         template: &mut ThingTemplate,
         definition: &crate::assets::ObjectDefinition,
     ) {
-        Self::apply_object_definition_create_overrides_with_receiving(template, definition, None)
-            .expect("Compatibility production admission is infallible");
+        Self::apply_object_definition_create_overrides_with_receiving(
+            template, definition, None, None,
+        )
+        .expect("Compatibility production admission is infallible");
     }
 
     pub(super) fn apply_object_definition_create_overrides_with_receiving(
@@ -623,6 +631,7 @@ impl GameLogic {
         receiving: Option<
             &game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
         >,
+        locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
     ) -> Result<(), String> {
         Self::apply_authored_template_metadata(template, definition);
         if !definition.display_name.is_empty() {
@@ -722,6 +731,7 @@ impl GameLogic {
             template,
             definition,
             rider_change_normal_locomotors.as_deref(),
+            locomotors,
         );
         Self::apply_authored_parking_place_metadata(template, definition);
         Self::apply_authored_flight_deck_metadata(template, definition);

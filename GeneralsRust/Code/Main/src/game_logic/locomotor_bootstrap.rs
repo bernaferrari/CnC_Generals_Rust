@@ -674,14 +674,31 @@ pub(crate) fn resolve_host_locomotor_binding_in(
 
 impl crate::game_logic::GameLogic {
     /// Admit an application-owned immutable baseline before constructing units.
-    pub fn admit_locomotor_definitions(&mut self, definitions: LocomotorStore) {
+    pub fn admit_locomotor_definitions(
+        &mut self,
+        definitions: LocomotorStore,
+    ) -> Result<(), String> {
+        if self.receiving_module_content.is_some()
+            || !self.objects.registered_is_empty()
+            || self.has_unregistered_host_objects()
+        {
+            return Err(
+                "Locomotor definitions must be admitted before Object content and instances".into(),
+            );
+        }
         self.locomotor_definition_base = Some(definitions.clone());
         self.locomotor_definitions = Some(definitions);
+        Ok(())
     }
 
     /// Apply ordered map companions to a detached copy of the application
     /// baseline. A failed parse cannot alter the running catalog.
     pub fn admit_locomotor_companion_sources(&mut self, sources: &[String]) -> Result<(), String> {
+        if !self.objects.registered_is_empty() || self.has_unregistered_host_objects() {
+            return Err(
+                "Locomotor map overrides cannot replace definitions of live Objects".into(),
+            );
+        }
         let Some(mut candidate) = self.locomotor_definition_base.clone() else {
             return Ok(());
         };
@@ -718,8 +735,9 @@ impl crate::game_logic::GameLogic {
 /// (`chooseGoodLocomotorFromCurrentSet`, AIUpdate.cpp:828-853, through
 /// `LocomotorSet::findLocomotor`, Locomotor.cpp:2773-2782), so members may
 /// differ in behavior (retail Combat Bike SET_SLUGGISH: 90 ground / 60 cliff).
-pub fn resolve_complete_host_locomotor_set(
+pub(crate) fn resolve_complete_host_locomotor_set(
     locomotor_names: &[String],
+    store: Option<&LocomotorStore>,
 ) -> Option<HostCompleteLocomotorSet> {
     let first_name = locomotor_names.first()?.trim();
     if first_name.is_empty() || first_name.eq_ignore_ascii_case("none") {
@@ -737,7 +755,7 @@ pub fn resolve_complete_host_locomotor_set(
         {
             return None;
         }
-        let binding = resolve_host_locomotor_binding(name)?;
+        let binding = resolve_host_locomotor_binding_in(store, name)?;
         if binding.locomotor_surfaces == 0 || (surfaces & binding.locomotor_surfaces) != 0 {
             return None;
         }
@@ -755,15 +773,17 @@ pub fn resolve_complete_host_locomotor_set(
 /// (AIUpdate.cpp:828-853): the first set member whose surfaces intersect the
 /// position surface mask; when none intersects, the GROUND member
 /// (AIUpdate.cpp:849-852); otherwise the first authored member.
-pub fn choose_host_locomotor_set_member_for_surfaces(
+pub(crate) fn choose_host_locomotor_set_member_for_surfaces(
     locomotor_names: &[String],
     acceptable: u32,
+    store: Option<&LocomotorStore>,
 ) -> Option<(String, HostLocomotorBinding)> {
     let mut candidates = [
-        choose_best_locomotor_name_for_surfaces(locomotor_names, acceptable),
-        choose_best_locomotor_name_for_surfaces(
+        choose_best_locomotor_name_for_surfaces_in(locomotor_names, acceptable, store),
+        choose_best_locomotor_name_for_surfaces_in(
             locomotor_names,
             crate::game_logic::object::LOCO_SURFACE_GROUND,
+            store,
         ),
         locomotor_names.first().map(|name| name.trim().to_string()),
     ];
@@ -771,7 +791,7 @@ pub fn choose_host_locomotor_set_member_for_surfaces(
         if name.is_empty() || name.eq_ignore_ascii_case("none") {
             continue;
         }
-        if let Some(binding) = resolve_host_locomotor_binding(name) {
+        if let Some(binding) = resolve_host_locomotor_binding_in(store, name) {
             return Some((std::mem::take(name), binding));
         }
     }

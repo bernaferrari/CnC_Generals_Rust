@@ -1757,6 +1757,7 @@ impl CnCGameEngine {
                         .map_err(|_| "Cannot admit initial weapon definitions: asset manager poisoned")?
                         .weapon_definitions_snapshot();
                     let mut game_logic = GameLogic::initialize();
+                    simulation_rules.admit_locomotors_before_objects(&mut game_logic)?;
                     game_logic.admit_receiving_module_content_with_weapons(
                         receiving_module_content,
                         Some(weapons),

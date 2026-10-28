@@ -2126,6 +2126,7 @@ impl GameLogic {
 
         let complete = crate::game_logic::locomotor_bootstrap::resolve_complete_host_locomotor_set(
             &rider_metadata.active_locomotor_names,
+            self.locomotor_definitions.as_ref(),
         )?;
         let names_match_metadata = complete.locomotor_names.len()
             == rider_metadata.active_locomotor_names.len()
@@ -2160,6 +2161,7 @@ impl GameLogic {
             crate::game_logic::locomotor_bootstrap::choose_host_locomotor_set_member_for_surfaces(
                 &complete.locomotor_names,
                 acceptable,
+                self.locomotor_definitions.as_ref(),
             )?;
         let occupants = container.contained_units();
         if occupants.len() > 1 {

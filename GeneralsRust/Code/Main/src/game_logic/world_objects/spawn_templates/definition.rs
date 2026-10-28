@@ -352,6 +352,7 @@ impl GameLogic {
             definition,
             texture_hint,
             None,
+            None,
         )
         .expect("Compatibility production admission is infallible")
     }
@@ -363,6 +364,7 @@ impl GameLogic {
         receiving: Option<
             &game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
         >,
+        locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
     ) -> Result<ThingTemplate, String> {
         let mut template = ThingTemplate::new(template_name);
         template.armor_definitions = Some(std::sync::Arc::new(
@@ -515,6 +517,7 @@ impl GameLogic {
             &mut template,
             definition,
             rider_change_normal_locomotors.as_deref(),
+            locomotors,
         );
         Self::apply_authored_parking_place_metadata(&mut template, definition);
         Self::apply_authored_flight_deck_metadata(&mut template, definition);

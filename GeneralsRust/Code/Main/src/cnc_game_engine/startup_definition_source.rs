@@ -78,6 +78,18 @@ impl StartupSimulationRules {
     ) {
         self.locomotors = Some(definitions);
     }
+    /// Object templates resolve RiderChange locomotor sets during admission.
+    /// Transfer this catalog before that admission, retaining the existing
+    /// timing of the other startup rules.
+    pub(super) fn admit_locomotors_before_objects(
+        &mut self,
+        world: &mut crate::game_logic::GameLogic,
+    ) -> Result<(), String> {
+        if let Some(definitions) = self.locomotors.take() {
+            world.admit_locomotor_definitions(definitions)?;
+        }
+        Ok(())
+    }
     /// Parse fallback text into this owned recipient using the same Common INI
     /// Upgrade block handler and order, without selecting Core AI.
     pub(super) fn admit_upgrade_ini_text(&mut self, text: &str) -> Result<(), String> {
@@ -98,7 +110,7 @@ impl StartupSimulationRules {
         world.upgrade_definition_base = self.upgrade_definitions.clone();
         world.upgrade_definitions = self.upgrade_definitions;
         if let Some(definitions) = self.locomotors {
-            world.admit_locomotor_definitions(definitions);
+            world.admit_locomotor_definitions(definitions)?;
         }
         if let Some(definitions) = self.player_templates {
             world.admit_player_template_definitions(definitions)?;
