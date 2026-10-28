@@ -13,6 +13,7 @@ const DEFAULT_DRAWABLE_AMBIENT_RETRY_FRAMES: u32 = 30;
 impl GameLogic {
     /// C++ `Drawable::update` (`Drawable.cpp:1290-1314`): permanent (loop-forever)
     /// SoundAmbient is re-added when Miles / leftover TheAudio culls it out of range.
+    #[cfg(test)]
     pub(crate) fn retry_dropped_ambient_sounds(&mut self) {
         let Some(manager) = game_engine::common::audio::game_audio::get_global_audio_manager()
         else {
@@ -28,6 +29,7 @@ impl GameLogic {
     /// Compatibility adapter for tests and detached callers. Native frame
     /// dispatch uses the receiving-service path below; this method alone may
     /// apply the legacy no-mixer fallback after a poisoned lookup.
+    #[cfg(test)]
     fn retry_dropped_ambient_sounds_with_audio(
         &mut self,
         audio: Option<&game_engine::common::audio::AudioManager>,
@@ -133,7 +135,6 @@ impl GameLogic {
 
     /// C++ `AIInternalMoveToState::startMoveSound`.
     pub(crate) fn start_move_sound(&mut self, id: ObjectId) {
-        self.retry_dropped_ambient_sounds();
         let Some(unit) = self.objects.get(&id) else {
             return;
         };
