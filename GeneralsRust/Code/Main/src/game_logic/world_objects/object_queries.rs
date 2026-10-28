@@ -447,9 +447,9 @@ impl GameLogic {
         &mut self.players
     }
 
-    /// Transfer an object to an exact active player. The player's faction is
-    /// copied only for template/art identity; command authority follows the
-    /// persistent `owner_player_id`.
+    /// Transfer an object to the player's default Team. As in Object::setTeam,
+    /// an inactive controller redirects the object to this session's neutral
+    /// player. Command authority follows the resulting `owner_player_id`.
     pub fn transfer_object_to_player(&mut self, object_id: ObjectId, player_id: u32) -> bool {
         self.transfer_object_to_player_with_effects(
             object_id,
@@ -485,13 +485,25 @@ impl GameLogic {
         destination: u32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
-        if !self
-            .players
-            .get(&player_id)
-            .is_some_and(|player| player.is_alive && player.team != Team::Neutral)
-        {
+        let requested_owner = self
+            .team_factory
+            .with_read_without_flushing(|factory| {
+                factory.find_team_by_id(destination).and_then(|team| {
+                    team.read()
+                        .ok()
+                        .and_then(|team| team.get_controlling_player_id())
+                })
+            })
+            .ok()
+            .flatten();
+        if requested_owner != Some(player_id) {
             return false;
         }
+        let effective_player_id = match self.inactive_controller_neutral_team(player_id) {
+            Ok(Some(neutral)) => neutral.owner,
+            Ok(None) => player_id,
+            Err(_) => return false,
+        };
 
         // C++ Object::setTeam changes membership before it dispatches
         // BehaviorModule::onCapture.  Base power follows that membership, but
@@ -506,7 +518,7 @@ impl GameLogic {
             .get(&object_id)
             .map(|object| {
                 let old_owner_player_id = self.player_owner_for_host_object(object);
-                let retained_overcharge_bonus = (old_owner_player_id != Some(player_id)
+                let retained_overcharge_bonus = (old_owner_player_id != Some(effective_player_id)
                     && object.is_alive()
                     && object.is_constructed()
                     && object.overcharge_enabled
@@ -529,7 +541,7 @@ impl GameLogic {
                         .saturating_add(bonus);
                 }
             }
-            if let Some(new_player) = self.players.get_mut(&player_id) {
+            if let Some(new_player) = self.players.get_mut(&effective_player_id) {
                 new_player.captured_overcharge_power_delta = new_player
                     .captured_overcharge_power_delta
                     .saturating_sub(bonus);

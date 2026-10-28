@@ -276,6 +276,40 @@ fn player_asset_transfer_is_immediate_and_owned_by_the_receiving_world() {
 }
 
 #[test]
+fn player_asset_transfer_redirects_inactive_recipients_to_its_own_neutral_team() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    for observer in [false, true] {
+        let (mut owner, source, _) = world(&map);
+        let (peer, peer_source, _) = world(&map);
+        assert_eq!(source, peer_source);
+        owner.get_player_mut(2).unwrap().is_alive = observer;
+        owner.get_player_mut(2).unwrap().is_observer = observer;
+        owner.get_player_mut(1).unwrap().resources.supplies = 700;
+        owner.get_player_mut(2).unwrap().resources.supplies = 80;
+
+        let mut action = ScriptAction::new(ScriptActionType::PlayerTransferOwnershipPlayer);
+        for player in ["Owner", "Other"] {
+            action
+                .add_parameter(Parameter::with_string(ParameterType::Side, player.into()))
+                .unwrap();
+        }
+        run_action(&mut owner, action);
+
+        // Object::setTeam redirects the asset, while Player::transferAssetsFromThat
+        // still deposits the source player's money with the requested recipient.
+        assert_eq!(owner.host_object(source).unwrap().owner_player_id, Some(0));
+        assert_eq!(owner.get_player(1).unwrap().effective_supplies(), 0);
+        assert_eq!(owner.get_player(2).unwrap().effective_supplies(), 780);
+        assert_eq!(
+            peer.host_object(peer_source).unwrap().owner_player_id,
+            Some(1)
+        );
+        assert!(peer.get_player(2).unwrap().is_alive);
+    }
+}
+
+#[test]
 fn team_transfer_refreshes_the_receiving_players_upgrade_modules() {
     let root = tempfile::tempdir().unwrap();
     let map = map_file(root.path());
