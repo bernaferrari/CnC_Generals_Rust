@@ -516,6 +516,15 @@ impl Object {
         base_range * self.weapon_bonus_fields().1
     }
 
+    /// Active-slot range using the receiving session's SOLO bonus set.
+    pub(crate) fn effective_weapon_range_with_solo_set(
+        &self,
+        base_range: f32,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> f32 {
+        base_range * self.weapon_bonus_fields_with_solo_set(solo_set).1
+    }
+
     /// RANGE multiplier for the concrete firing slot, before the caller's quarter-cell deduction.
     pub(crate) fn effective_weapon_range_for_slot(&self, slot: u8, base_range: f32) -> f32 {
         base_range * self.weapon_bonus_fields_for_slot(slot).1

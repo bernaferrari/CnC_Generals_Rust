@@ -398,12 +398,26 @@ impl GameLogic {
         let ground_range = attacker
             .weapon
             .as_ref()
-            .map(|w| (attacker.effective_weapon_range_for_slot(0, w.range) - under).max(0.0))
+            .map(|w| {
+                (attacker.effective_weapon_range_for_slot_with_solo_set(
+                    0,
+                    w.range,
+                    &self.solo_weapon_bonus_set,
+                ) - under)
+                    .max(0.0)
+            })
             .unwrap_or(0.0);
         let air_range = attacker
             .secondary_weapon
             .as_ref()
-            .map(|w| (attacker.effective_weapon_range_for_slot(1, w.range) - under).max(0.0))
+            .map(|w| {
+                (attacker.effective_weapon_range_for_slot_with_solo_set(
+                    1,
+                    w.range,
+                    &self.solo_weapon_bonus_set,
+                ) - under)
+                    .max(0.0)
+            })
             .unwrap_or(0.0);
         // Scan range residual: dual-slot defenses use max(primary, secondary) so AA
         // can acquire out to air range while ground stays at primary range.

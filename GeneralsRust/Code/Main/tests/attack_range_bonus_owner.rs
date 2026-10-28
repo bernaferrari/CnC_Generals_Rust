@@ -80,3 +80,23 @@ fn attack_range_uses_receiving_solo_bonus_for_same_ids() {
     assert!(!boosted.out_of_weapon_range_object(boosted_attacker, boosted_target));
     assert!(neutral.out_of_weapon_range_object(neutral_attacker, neutral_target));
 }
+
+#[test]
+fn ai_decision_uses_receiving_solo_bonus_for_same_ids() {
+    use generals_main::ai_decisions::{AIDecisionSystem, AttackDecision};
+
+    let (boosted, boosted_attacker, boosted_target) = world(200);
+    let (reduced, reduced_attacker, reduced_target) = world(50);
+    assert_eq!(
+        (boosted_attacker, boosted_target),
+        (reduced_attacker, reduced_target)
+    );
+    assert_eq!(
+        AIDecisionSystem::should_attack(&boosted, boosted_attacker, boosted_target),
+        AttackDecision::Attack,
+    );
+    assert_eq!(
+        AIDecisionSystem::should_attack(&reduced, reduced_attacker, reduced_target),
+        AttackDecision::Hold,
+    );
+}

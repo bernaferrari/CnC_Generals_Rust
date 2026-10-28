@@ -1830,8 +1830,13 @@ impl GameLogic {
                         let range = u
                             .selected_weapon_slot()
                             .and_then(|s| {
-                                u.weapon_slot(s)
-                                    .map(|w| (u.effective_weapon_range(w.range) - under).max(0.0))
+                                u.weapon_slot(s).map(|w| {
+                                    (u.effective_weapon_range_with_solo_set(
+                                        w.range,
+                                        &self.solo_weapon_bonus_set,
+                                    ) - under)
+                                        .max(0.0)
+                                })
                             })
                             .unwrap_or(1.0)
                             .max(1.0);
@@ -2704,7 +2709,15 @@ impl GameLogic {
                     let slot = u.selected_weapon_slot();
                     let w = slot.and_then(|s| u.weapon_slot(s));
                     let (min_r, max_r) = w
-                        .map(|w| (w.min_range, u.effective_weapon_range(w.range)))
+                        .map(|w| {
+                            (
+                                w.min_range,
+                                u.effective_weapon_range_with_solo_set(
+                                    w.range,
+                                    &self.solo_weapon_bonus_set,
+                                ),
+                            )
+                        })
                         .unwrap_or((0.0, 0.0));
                     let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
                     let min_r = (min_r - under).max(0.0);

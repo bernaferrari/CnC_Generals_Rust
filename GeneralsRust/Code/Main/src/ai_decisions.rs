@@ -347,7 +347,14 @@ impl AIDecisionSystem {
         let attack_range = attacker
             .weapon
             .as_ref()
-            .map(|w| (attacker.effective_weapon_range_for_slot(0, w.range) - under).max(0.0))
+            .map(|w| {
+                (attacker.effective_weapon_range_for_slot_with_solo_set(
+                    0,
+                    w.range,
+                    &game_logic.solo_weapon_bonus_set,
+                ) - under)
+                    .max(0.0)
+            })
             .unwrap_or(0.0);
 
         if distance > attack_range * 1.5 {

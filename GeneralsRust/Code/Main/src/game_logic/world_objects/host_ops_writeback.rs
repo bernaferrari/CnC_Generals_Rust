@@ -1444,8 +1444,11 @@ impl GameLogic {
                                 .selected_weapon_slot()
                                 .and_then(|slot| attacker.weapon_slot(slot).map(|w| (slot, w)))
                                 .map(|(slot, w)| {
-                                    (attacker.effective_weapon_range_for_slot(slot, w.range)
-                                        - under)
+                                    (attacker.effective_weapon_range_for_slot_with_solo_set(
+                                        slot,
+                                        w.range,
+                                        &self.solo_weapon_bonus_set,
+                                    ) - under)
                                         .max(0.0)
                                 })
                                 .unwrap_or(50.0);

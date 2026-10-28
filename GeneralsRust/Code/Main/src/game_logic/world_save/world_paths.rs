@@ -1841,7 +1841,13 @@ impl GameLogic {
                 let weapon = slot.and_then(|s| u.weapon_slot(s));
                 let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
                 let range = weapon
-                    .map(|w| (u.effective_weapon_range(w.range) - under).max(0.0))
+                    .map(|w| {
+                        (u.effective_weapon_range_with_solo_set(
+                            w.range,
+                            &self.solo_weapon_bonus_set,
+                        ) - under)
+                            .max(0.0)
+                    })
                     .unwrap_or(50.0);
                 let raw_range = weapon.map(|w| w.range).unwrap_or(0.0);
                 let wname = slot.and_then(|s| u.weapon_name_for_slot(s));
