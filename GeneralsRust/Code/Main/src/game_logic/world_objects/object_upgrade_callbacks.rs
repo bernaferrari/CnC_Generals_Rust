@@ -3,8 +3,29 @@
 use super::super::*;
 
 struct AuthoredObjectCreationUpgrade {
-    index: usize,
+    source_index: usize,
+    state_index: usize,
     data: gamelogic::upgrade::modules::object_creation::ObjectCreationUpgradeModuleData,
+}
+
+struct AuthoredStatusBitsUpgrade {
+    source_index: usize,
+    state_index: usize,
+    data: gamelogic::object::upgrade::status_bits_upgrade::StatusBitsUpgradeModuleData,
+}
+
+enum AuthoredOrderedUpgrade {
+    ObjectCreation(AuthoredObjectCreationUpgrade),
+    StatusBits(AuthoredStatusBitsUpgrade),
+}
+
+impl AuthoredOrderedUpgrade {
+    fn source_index(&self) -> usize {
+        match self {
+            Self::ObjectCreation(module) => module.source_index,
+            Self::StatusBits(module) => module.source_index,
+        }
+    }
 }
 
 impl GameLogic {
@@ -96,10 +117,9 @@ impl GameLogic {
         // C++ updateUpgradeModules tests every module against the combined
         // controlling-player/object mask. Snapshot the exact admitted module
         // declarations and current mask before any callbacks mutate either.
-        let object_creation_update_allowed =
-            self.object_creation_upgrade_update_allowed(object_id);
-        let object_creation_modules = if object_creation_update_allowed {
-            self.authored_object_creation_upgrade_modules(object_id)
+        let object_creation_update_allowed = self.object_creation_upgrade_update_allowed(object_id);
+        let authored_upgrade_modules = if object_creation_update_allowed {
+            self.authored_ordered_upgrade_modules(object_id)
         } else {
             Vec::new()
         };
@@ -124,30 +144,16 @@ impl GameLogic {
                 }
             }
         }
-        let status_pairs = self
-            .objects
-            .get(&object_id)
-            .filter(|_| status_upgrade_first_give)
-            .map(|object| {
-                crate::game_logic::host_status_bits_upgrade::collect_status_bits_for_object(
-                    upgrade, object,
-                )
-            })
-            .unwrap_or_default();
-        for (set, clear) in status_pairs {
-            let set: Vec<_> = set.iter().map(String::as_str).collect();
-            let clear: Vec<_> = clear.iter().map(String::as_str).collect();
-            if let Some((set_count, clear_count)) = self
-                .apply_object_status_bits_upgrade_with_effects(
-                    object_id,
-                    &set,
-                    &clear,
-                    presentation_effects,
-                )
-            {
-                self.status_bits_upgrade_reg
-                    .record_apply(set_count, clear_count);
-            }
+        if object_creation_update_allowed {
+            self.execute_authored_ordered_upgrade_modules(
+                object_id,
+                &object_birth,
+                authored_upgrade_modules,
+                object_creation_key_mask,
+                Some(upgrade),
+                interpreter,
+                presentation_effects,
+            )?;
         }
         if !self
             .objects
@@ -278,17 +284,6 @@ impl GameLogic {
         // C++ SpyVisionUpdate::upgradeImplementation — activate on upgrade.
         if let Some(spec) = satellite_hack_activate {
             let _ = self.activate_satellite_hack_spy_vision(object_id, spec);
-        }
-        if object_creation_update_allowed {
-            self.execute_authored_object_creation_upgrade_modules(
-                object_id,
-                &object_birth,
-                object_creation_modules,
-                object_creation_key_mask,
-                Some(upgrade),
-                interpreter,
-                presentation_effects,
-            )?;
         }
         if installed_gattling {
             self.overlord_addons.record_gattling_install();
@@ -437,10 +432,10 @@ impl GameLogic {
 
     /// Read ObjectCreationUpgrade declarations from this session's exact
     /// admitted template and align the object-owned latches with their order.
-    fn authored_object_creation_upgrade_modules(
+    fn authored_ordered_upgrade_modules(
         &mut self,
         object_id: ObjectId,
-    ) -> Vec<AuthoredObjectCreationUpgrade> {
+    ) -> Vec<AuthoredOrderedUpgrade> {
         use game_engine::common::thing::module::ModuleData;
         let Some(object) = self.objects.get(&object_id) else {
             return Vec::new();
@@ -451,31 +446,44 @@ impl GameLogic {
         let Some(template) = content.admitted_template(&object.template_name) else {
             return Vec::new();
         };
+        let mut object_creation_index = 0;
+        let mut status_bits_index = 0;
         let modules: Vec<_> = template
             .behavior_modules()
             .iter()
-            .filter(|module| {
-                module
-                    .name
-                    .as_str()
-                    .eq_ignore_ascii_case("ObjectCreationUpgrade")
-            })
-            .filter_map(|module| {
-                let data = module
-                    .data
-                    .as_any()
-                    .downcast_ref::<
+            .enumerate()
+            .filter_map(|(source_index, module)| {
+                use game_engine::common::thing::module::ModuleData;
+                if module.name.as_str().eq_ignore_ascii_case("ObjectCreationUpgrade") {
+                    let data = module.data.as_any().downcast_ref::<
                         gamelogic::upgrade::modules::object_creation::ObjectCreationUpgradeModuleData,
                     >()?;
-                Some(data.clone())
+                    let state_index = object_creation_index;
+                    object_creation_index += 1;
+                    return Some(AuthoredOrderedUpgrade::ObjectCreation(
+                        AuthoredObjectCreationUpgrade { source_index, state_index, data: data.clone() }
+                    ));
+                }
+                if module.name.as_str().eq_ignore_ascii_case("StatusBitsUpgrade") {
+                    let data = module.data.as_any().downcast_ref::<
+                        gamelogic::object::upgrade::status_bits_upgrade::StatusBitsUpgradeModuleData,
+                    >()?;
+                    let state_index = status_bits_index;
+                    status_bits_index += 1;
+                    return Some(AuthoredOrderedUpgrade::StatusBits(
+                        AuthoredStatusBitsUpgrade { source_index, state_index, data: data.clone() }
+                    ));
+                }
+                None
             })
-            .enumerate()
-            .map(|(index, data)| AuthoredObjectCreationUpgrade { index, data })
             .collect();
         if let Some(object) = self.objects.get_mut(&object_id) {
             object
                 .object_creation_upgrade_executed
-                .resize(modules.len(), false);
+                .resize(object_creation_index, false);
+            object
+                .status_bits_upgrade_executed
+                .resize(status_bits_index, false);
         }
         modules
     }
@@ -488,33 +496,52 @@ impl GameLogic {
         })
     }
 
-    /// Run the authored mux in template module order after the caller has
-    /// captured the exact combined player/object mask for this update edge.
-    fn execute_authored_object_creation_upgrade_modules(
+    /// Run the currently modeled typed mux families in their relative template
+    /// order after capturing the combined player/object mask. This does not
+    /// establish ordering against upgrade families still handled by residuals.
+    fn execute_authored_ordered_upgrade_modules(
         &mut self,
         object_id: ObjectId,
         object_birth: &std::sync::Weak<()>,
-        modules: Vec<AuthoredObjectCreationUpgrade>,
+        mut modules: Vec<AuthoredOrderedUpgrade>,
         key_mask: gamelogic::upgrade::UpgradeMask,
         pending_upgrade: Option<&str>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        modules.sort_by_key(AuthoredOrderedUpgrade::source_index);
         for module in modules {
             if !self.object_birth_matches(object_id, object_birth) {
                 return Ok(());
             }
-            if !self.object_creation_upgrade_would_run(&module.data, key_mask)
-                || self
-                    .objects
-                    .get(&object_id)
-                    .and_then(|object| object.object_creation_upgrade_executed.get(module.index))
-                    .copied()
-                    .unwrap_or(false)
-            {
+            let (mux, already_executed) = match &module {
+                AuthoredOrderedUpgrade::ObjectCreation(module) => (
+                    &module.data.upgrade_mux_data,
+                    self.objects
+                        .get(&object_id)
+                        .and_then(|object| {
+                            object
+                                .object_creation_upgrade_executed
+                                .get(module.state_index)
+                        })
+                        .copied()
+                        .unwrap_or(false),
+                ),
+                AuthoredOrderedUpgrade::StatusBits(module) => (
+                    &module.data.upgrade_mux_data,
+                    self.objects
+                        .get(&object_id)
+                        .and_then(|object| {
+                            object.status_bits_upgrade_executed.get(module.state_index)
+                        })
+                        .copied()
+                        .unwrap_or(false),
+                ),
+            };
+            if already_executed || !self.upgrade_mux_would_run(mux, key_mask) {
                 continue;
             }
-            if let Some(fx_list) = &module.data.upgrade_mux_data.fx_list_upgrade {
+            if let Some(fx_list) = &mux.fx_list_upgrade {
                 let _ = self.dispatch_fx_list_at_host_object_with_effects(
                     fx_list.name(),
                     object_id,
@@ -528,54 +555,92 @@ impl GameLogic {
                     return Ok(());
                 }
             }
-            for removed in &module.data.upgrade_mux_data.removal_upgrade_names {
+            for removed in &mux.removal_upgrade_names {
                 self.remove_object_upgrade_with_receiving_rules(object_id, removed.as_str());
             }
-            let ocl_name = module
-                .data
-                .ocl_name
-                .as_ref()
-                .map(|name| name.as_str().trim())
-                .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("None"));
-            let module_drone_kind = pending_upgrade
-                .and_then(crate::game_logic::host_slave_drones::SlaveDroneKind::from_upgrade_name)
-                .or_else(|| {
-                    module
-                        .data
-                        .upgrade_mux_data
-                        .activation_upgrade_names
+            let result = match &module {
+                AuthoredOrderedUpgrade::StatusBits(module) => {
+                    let names =
+                        crate::game_logic::host_enum_table_residual::OBJECT_STATUS_BIT_NAME_LIST;
+                    let set: Vec<_> = names
                         .iter()
-                        .chain(&module.data.upgrade_mux_data.trigger_upgrade_names)
-                        .find_map(|name| {
-                            crate::game_logic::host_slave_drones::SlaveDroneKind::from_upgrade_name(
-                                name.as_str(),
-                            )
+                        .enumerate()
+                        .filter_map(|(i, name)| {
+                            (i > 0 && module.data.status_to_set().bits() & (1u64 << i) != 0)
+                                .then_some(*name)
                         })
-                });
-            let result = if let Some(ocl_name) = ocl_name {
-                let slave_kind = module_drone_kind.filter(|kind| {
-                    ocl_name.eq_ignore_ascii_case(
-                        crate::game_logic::host_slave_drones::drone_ocl_name(*kind),
-                    )
-                });
-                self.apply_object_creation_upgrade_ocl_with_interpreter_and_effects(
-                    object_id,
-                    ocl_name,
-                    slave_kind,
-                    object_birth,
-                    interpreter,
-                    presentation_effects,
-                )
-            } else {
-                Ok(())
+                        .collect();
+                    let clear: Vec<_> = names
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, name)| {
+                            (i > 0 && module.data.status_to_clear().bits() & (1u64 << i) != 0)
+                                .then_some(*name)
+                        })
+                        .collect();
+                    if let Some((set_count, clear_count)) = self
+                        .apply_object_status_bits_upgrade_with_effects(
+                            object_id,
+                            &set,
+                            &clear,
+                            presentation_effects,
+                        )
+                    {
+                        self.status_bits_upgrade_reg
+                            .record_apply(set_count, clear_count);
+                    }
+                    Ok(())
+                }
+                AuthoredOrderedUpgrade::ObjectCreation(module) => {
+                    let ocl_name = module
+                        .data
+                        .ocl_name
+                        .as_ref()
+                        .map(|name| name.as_str().trim())
+                        .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("None"));
+                    let module_drone_kind = pending_upgrade
+                        .and_then(crate::game_logic::host_slave_drones::SlaveDroneKind::from_upgrade_name)
+                        .or_else(|| module.data.upgrade_mux_data.activation_upgrade_names.iter()
+                            .chain(&module.data.upgrade_mux_data.trigger_upgrade_names)
+                            .find_map(|name| crate::game_logic::host_slave_drones::SlaveDroneKind::from_upgrade_name(name.as_str())));
+                    if let Some(ocl_name) = ocl_name {
+                        let slave_kind = module_drone_kind.filter(|kind| {
+                            ocl_name.eq_ignore_ascii_case(
+                                crate::game_logic::host_slave_drones::drone_ocl_name(*kind),
+                            )
+                        });
+                        self.apply_object_creation_upgrade_ocl_with_interpreter_and_effects(
+                            object_id,
+                            ocl_name,
+                            slave_kind,
+                            object_birth,
+                            interpreter,
+                            presentation_effects,
+                        )
+                    } else {
+                        Ok(())
+                    }
+                }
             };
             if self.object_birth_matches(object_id, object_birth) {
                 if let Some(object) = self.objects.get_mut(&object_id) {
-                    if let Some(executed) = object
-                        .object_creation_upgrade_executed
-                        .get_mut(module.index)
-                    {
-                        *executed = true;
+                    match module {
+                        AuthoredOrderedUpgrade::ObjectCreation(module) => {
+                            if let Some(executed) = object
+                                .object_creation_upgrade_executed
+                                .get_mut(module.state_index)
+                            {
+                                *executed = true;
+                            }
+                        }
+                        AuthoredOrderedUpgrade::StatusBits(module) => {
+                            if let Some(executed) = object
+                                .status_bits_upgrade_executed
+                                .get_mut(module.state_index)
+                            {
+                                *executed = true;
+                            }
+                        }
                     }
                 }
             }
@@ -603,9 +668,9 @@ impl GameLogic {
         else {
             return Ok(());
         };
-        let modules = self.authored_object_creation_upgrade_modules(object_id);
+        let modules = self.authored_ordered_upgrade_modules(object_id);
         let key_mask = self.object_creation_upgrade_key_mask(object_id, None);
-        self.execute_authored_object_creation_upgrade_modules(
+        self.execute_authored_ordered_upgrade_modules(
             object_id,
             &object_birth,
             modules,
@@ -614,18 +679,6 @@ impl GameLogic {
             interpreter,
             presentation_effects,
         )
-    }
-
-    fn object_creation_upgrade_activation_mask(
-        &self,
-        data: &gamelogic::upgrade::modules::object_creation::ObjectCreationUpgradeModuleData,
-    ) -> u128 {
-        data.upgrade_mux_data
-            .activation_upgrade_names
-            .iter()
-            .chain(&data.upgrade_mux_data.trigger_upgrade_names)
-            .filter_map(|name| self.upgrade_template(name.as_str()))
-            .fold(0u128, |mask, template| mask | template.get_mask().bits())
     }
 
     fn object_creation_upgrade_key_mask(
@@ -670,10 +723,17 @@ impl GameLogic {
             .upgrade_template(upgrade)
             .map(|template| template.get_mask().bits())
             .unwrap_or(0);
-        let modules = self.authored_object_creation_upgrade_modules(object_id);
+        let modules = self.authored_ordered_upgrade_modules(object_id);
         let activation_masks: Vec<_> = modules
             .iter()
-            .map(|module| self.object_creation_upgrade_activation_mask(&module.data))
+            .map(|module| match module {
+                AuthoredOrderedUpgrade::ObjectCreation(module) => {
+                    self.upgrade_activation_mask(&module.data.upgrade_mux_data)
+                }
+                AuthoredOrderedUpgrade::StatusBits(module) => {
+                    self.upgrade_activation_mask(&module.data.upgrade_mux_data)
+                }
+            })
             .collect();
         let mut tags_to_remove = self
             .objects
@@ -706,8 +766,24 @@ impl GameLogic {
         if removed_mask != 0 {
             for (index, activation) in activation_masks.iter().enumerate() {
                 if activation & removed_mask != 0 {
-                    if let Some(executed) = object.object_creation_upgrade_executed.get_mut(index) {
-                        *executed = false;
+                    match modules.get(index) {
+                        Some(AuthoredOrderedUpgrade::ObjectCreation(module)) => {
+                            if let Some(executed) = object
+                                .object_creation_upgrade_executed
+                                .get_mut(module.state_index)
+                            {
+                                *executed = false;
+                            }
+                        }
+                        Some(AuthoredOrderedUpgrade::StatusBits(module)) => {
+                            if let Some(executed) = object
+                                .status_bits_upgrade_executed
+                                .get_mut(module.state_index)
+                            {
+                                *executed = false;
+                            }
+                        }
+                        None => {}
                     }
                 }
             }
@@ -715,23 +791,32 @@ impl GameLogic {
         removed
     }
 
-    fn object_creation_upgrade_would_run(
+    fn upgrade_activation_mask(
         &self,
-        data: &gamelogic::upgrade::modules::object_creation::ObjectCreationUpgradeModuleData,
+        data: &gamelogic::upgrade::modules::upgrade_mux::UpgradeMuxData,
+    ) -> u128 {
+        data.activation_upgrade_names
+            .iter()
+            .chain(&data.trigger_upgrade_names)
+            .filter_map(|name| self.upgrade_template(name.as_str()))
+            .fold(0u128, |mask, template| mask | template.get_mask().bits())
+    }
+
+    fn upgrade_mux_would_run(
+        &self,
+        data: &gamelogic::upgrade::modules::upgrade_mux::UpgradeMuxData,
         key_mask: gamelogic::upgrade::UpgradeMask,
     ) -> bool {
         use gamelogic::upgrade::UpgradeMask;
         let activation = data
-            .upgrade_mux_data
             .activation_upgrade_names
             .iter()
-            .chain(&data.upgrade_mux_data.trigger_upgrade_names)
+            .chain(&data.trigger_upgrade_names)
             .filter_map(|name| self.upgrade_template(name.as_str()))
             .fold(UpgradeMask::none(), |mask, template| {
                 mask | template.get_mask()
             });
         let conflicts = data
-            .upgrade_mux_data
             .conflicting_upgrade_names
             .iter()
             .filter_map(|name| self.upgrade_template(name.as_str()))
@@ -741,7 +826,7 @@ impl GameLogic {
         activation.any()
             && key_mask.any()
             && !key_mask.test_for_any(conflicts)
-            && if data.upgrade_mux_data.requires_all_triggers {
+            && if data.requires_all_triggers {
                 key_mask.test_for_all(activation)
             } else {
                 key_mask.test_for_any(activation)
@@ -865,6 +950,7 @@ mod object_creation_upgrade_birth_tests {
 
     const UPGRADE: &str = "Upgrade_AmericaScoutDrone";
     const SECOND_UPGRADE: &str = "Upgrade_ObjectCreationUpgradeSecondTrigger";
+    const CONFLICT_UPGRADE: &str = "Upgrade_ObjectCreationUpgradeConflict";
 
     fn admit_upgrade(world: &mut GameLogic, name: &str) {
         let mut ini = game_engine::common::ini::INI::new();
@@ -885,6 +971,36 @@ mod object_creation_upgrade_birth_tests {
         ocl_name: &str,
         child_name: Option<&str>,
     ) -> (GameLogic, ObjectId) {
+        world_with_mux_conflicting(triggers, requires_all, ocl_name, child_name, "")
+    }
+
+    fn world_with_mux_conflicting(
+        triggers: &str,
+        requires_all: bool,
+        ocl_name: &str,
+        child_name: Option<&str>,
+        conflicts: &str,
+    ) -> (GameLogic, ObjectId) {
+        world_with_mux_order(
+            triggers,
+            requires_all,
+            ocl_name,
+            child_name,
+            conflicts,
+            true,
+            "",
+        )
+    }
+
+    fn world_with_mux_order(
+        triggers: &str,
+        requires_all: bool,
+        ocl_name: &str,
+        child_name: Option<&str>,
+        conflicts: &str,
+        status_first: bool,
+        creation_removes: &str,
+    ) -> (GameLogic, ObjectId) {
         let mut world = GameLogic::new();
         world.add_player(crate::game_logic::Player::new(
             0,
@@ -894,12 +1010,25 @@ mod object_creation_upgrade_birth_tests {
         ));
         admit_upgrade(&mut world, UPGRADE);
         admit_upgrade(&mut world, SECOND_UPGRADE);
+        admit_upgrade(&mut world, CONFLICT_UPGRADE);
+        let status_module = format!(
+            "Behavior = StatusBitsUpgrade AuthoredStatusBitsUpgrade\n  TriggeredBy = {triggers}\n  ConflictsWith = {conflicts}\n  RequiresAllTriggers = {}\n  StatusToSet = BOOBY_TRAPPED\n End",
+            if requires_all { "Yes" } else { "No" },
+        );
+        let creation_module = format!(
+            "Behavior = ObjectCreationUpgrade AuthoredCreationUpgrade\n  TriggeredBy = {triggers}\n  ConflictsWith = {conflicts}\n  RemovesUpgrades = {creation_removes}\n  RequiresAllTriggers = {}\n  UpgradeObject = {ocl_name}\n End",
+            if requires_all { "Yes" } else { "No" },
+        );
+        let modules = if status_first {
+            format!("{status_module}\n {creation_module}")
+        } else {
+            format!("{creation_module}\n {status_module}")
+        };
         world.admit_receiving_module_content(
             crate::assets::ReceivingObjectContent::from_sources([(
                 "ObjectCreationUpgradeOwner.ini".into(),
                 format!(
-                    "Object AuthoredCreationUpgradeHost\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = ObjectCreationUpgrade AuthoredCreationUpgrade\n  TriggeredBy = {triggers}\n  RequiresAllTriggers = {}\n  UpgradeObject = {ocl_name}\n End\nEnd\n{}",
-                    if requires_all { "Yes" } else { "No" },
+                    "Object AuthoredCreationUpgradeHost\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n {modules}\nEnd\n{}",
                     child_name.map_or_else(String::new, |name| {
                         format!("Object {name}\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 50\n InitialHealth = 50\n End\nEnd\n")
                     })
@@ -999,6 +1128,17 @@ mod object_creation_upgrade_birth_tests {
                 .unwrap()
                 .has_upgrade_tag(UPGRADE)
         );
+        assert!(
+            owner
+                .host_object(owner_source)
+                .unwrap()
+                .has_object_status_bit("BOOBY_TRAPPED")
+        );
+        assert!(
+            peer.host_object(peer_source)
+                .unwrap()
+                .has_object_status_bit("BOOBY_TRAPPED")
+        );
     }
 
     #[test]
@@ -1033,8 +1173,22 @@ mod object_creation_upgrade_birth_tests {
                 .object_creation_upgrade_executed,
             [true]
         );
+        assert_eq!(
+            world
+                .host_object(source)
+                .unwrap()
+                .status_bits_upgrade_executed,
+            [true]
+        );
 
         assert!(world.remove_object_upgrade_with_receiving_rules(source, UPGRADE));
+        assert_eq!(
+            world
+                .host_object(source)
+                .unwrap()
+                .status_bits_upgrade_executed,
+            [false]
+        );
         apply(&mut world, source, SECOND_UPGRADE);
         assert_eq!(
             spawned_template_names(&world, source),
@@ -1044,6 +1198,108 @@ mod object_creation_upgrade_birth_tests {
             ],
             "C++ resetUpgrade clears the per-module latch when any activation bit is removed"
         );
+    }
+
+    #[test]
+    fn both_upgrade_families_honor_conflict_masks_before_latching() {
+        let (mut world, source) = world_with_mux_conflicting(
+            UPGRADE,
+            false,
+            "OCL_AuthoredConflictChild",
+            Some("AuthoredConflictChild"),
+            CONFLICT_UPGRADE,
+        );
+        apply(&mut world, source, CONFLICT_UPGRADE);
+        apply(&mut world, source, UPGRADE);
+        assert!(spawned_template_names(&world, source).is_empty());
+        assert!(
+            !world
+                .host_object(source)
+                .unwrap()
+                .has_object_status_bit("BOOBY_TRAPPED")
+        );
+        assert_eq!(
+            world
+                .host_object(source)
+                .unwrap()
+                .object_creation_upgrade_executed,
+            [false]
+        );
+        assert_eq!(
+            world
+                .host_object(source)
+                .unwrap()
+                .status_bits_upgrade_executed,
+            [false]
+        );
+
+        assert!(world.remove_object_upgrade_with_receiving_rules(source, CONFLICT_UPGRADE));
+        apply(&mut world, source, UPGRADE);
+        assert_eq!(
+            spawned_template_names(&world, source),
+            vec!["AuthoredConflictChild"]
+        );
+        assert!(
+            world
+                .host_object(source)
+                .unwrap()
+                .has_object_status_bit("BOOBY_TRAPPED")
+        );
+        assert_eq!(
+            world
+                .host_object(source)
+                .unwrap()
+                .object_creation_upgrade_executed,
+            [true]
+        );
+        assert_eq!(
+            world
+                .host_object(source)
+                .unwrap()
+                .status_bits_upgrade_executed,
+            [true]
+        );
+    }
+
+    #[test]
+    fn typed_upgrade_dispatch_accepts_either_authored_module_order() {
+        for status_first in [true, false] {
+            let (mut world, source) = world_with_mux_order(
+                UPGRADE,
+                false,
+                "OCL_AuthoredOrderChild",
+                Some("AuthoredOrderChild"),
+                "",
+                status_first,
+                UPGRADE,
+            );
+            apply(&mut world, source, UPGRADE);
+            assert!(
+                world
+                    .host_object(source)
+                    .unwrap()
+                    .has_object_status_bit("BOOBY_TRAPPED")
+            );
+            assert_eq!(
+                spawned_template_names(&world, source),
+                vec!["AuthoredOrderChild"]
+            );
+            assert_eq!(
+                world
+                    .host_object(source)
+                    .unwrap()
+                    .object_creation_upgrade_executed,
+                [true]
+            );
+            assert_eq!(
+                world
+                    .host_object(source)
+                    .unwrap()
+                    .status_bits_upgrade_executed,
+                [!status_first],
+                "the later ObjectCreationUpgrade removal must reset an earlier StatusBitsUpgrade latch"
+            );
+        }
     }
 
     #[test]
@@ -1061,10 +1317,22 @@ mod object_creation_upgrade_birth_tests {
             .add_completed_upgrade(UPGRADE);
         apply(&mut world, source, UPGRADE);
         assert!(
+            !world
+                .host_object(source)
+                .unwrap()
+                .has_object_status_bit("BOOBY_TRAPPED")
+        );
+        assert!(
             spawned_template_names(&world, source).is_empty(),
             "RequiresAllTriggers must wait while only the player-side A mask is set"
         );
         apply(&mut world, source, SECOND_UPGRADE);
+        assert!(
+            world
+                .host_object(source)
+                .unwrap()
+                .has_object_status_bit("BOOBY_TRAPPED")
+        );
         assert_eq!(
             spawned_template_names(&world, source),
             vec!["AuthoredCombinedMaskChild".to_owned()],
@@ -1079,20 +1347,42 @@ mod object_creation_upgrade_birth_tests {
             "OCL_ConstructedCreationUpgradeChild",
             Some("ConstructedCreationUpgradeChild"),
         );
-        world.host_object_mut(source).unwrap().status.under_construction = true;
+        world
+            .host_object_mut(source)
+            .unwrap()
+            .status
+            .under_construction = true;
 
         apply(&mut world, source, UPGRADE);
         assert!(world.host_object(source).unwrap().has_upgrade_tag(UPGRADE));
+        assert!(
+            !world
+                .host_object(source)
+                .unwrap()
+                .has_object_status_bit("BOOBY_TRAPPED"),
+            "C++ updateUpgradeModules gates StatusBitsUpgrade during construction"
+        );
         assert!(
             spawned_template_names(&world, source).is_empty(),
             "C++ updateUpgradeModules skips module callbacks during construction"
         );
 
-        world.host_object_mut(source).unwrap().status.under_construction = false;
+        world
+            .host_object_mut(source)
+            .unwrap()
+            .status
+            .under_construction = false;
         world.apply_researched_player_upgrades_to_object_with_interpreter(
             source,
             None,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
+        );
+        assert!(
+            world
+                .host_object(source)
+                .unwrap()
+                .has_object_status_bit("BOOBY_TRAPPED"),
+            "construction completion replays the typed StatusBitsUpgrade module"
         );
         assert_eq!(
             spawned_template_names(&world, source),

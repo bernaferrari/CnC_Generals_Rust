@@ -1472,6 +1472,9 @@ pub struct Object {
     /// in behavior-module order. Saved in the lifecycle Xfer suffix.
     #[serde(default)]
     pub(crate) object_creation_upgrade_executed: Vec<bool>,
+    /// C++ UpgradeMux execution latches for authored StatusBitsUpgrade modules.
+    #[serde(default)]
+    pub(crate) status_bits_upgrade_executed: Vec<bool>,
     /// Exact outstanding Player contribution per authored module. Disabled grants
     /// and disabled capture cannot be inferred from the executed flag alone.
     #[serde(default)]

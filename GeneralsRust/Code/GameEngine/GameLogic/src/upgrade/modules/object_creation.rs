@@ -289,14 +289,7 @@ fn parse_triggered_by(
     data: &mut ObjectCreationUpgradeModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    for token in tokens.iter().skip_while(|t| **t == "=") {
-        if !token.is_empty() {
-            data.upgrade_mux_data
-                .activation_upgrade_names
-                .push(AsciiString::from(*token));
-        }
-    }
-    Ok(())
+    data.upgrade_mux_data.parse_triggered_by_tokens(tokens)
 }
 
 fn parse_conflicts_with(
@@ -304,14 +297,7 @@ fn parse_conflicts_with(
     data: &mut ObjectCreationUpgradeModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    for token in tokens.iter().skip_while(|t| **t == "=") {
-        if !token.is_empty() {
-            data.upgrade_mux_data
-                .conflicting_upgrade_names
-                .push(AsciiString::from(*token));
-        }
-    }
-    Ok(())
+    data.upgrade_mux_data.parse_conflicts_with_tokens(tokens)
 }
 
 fn parse_removes_upgrades(
@@ -319,14 +305,7 @@ fn parse_removes_upgrades(
     data: &mut ObjectCreationUpgradeModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    for token in tokens.iter().skip_while(|t| **t == "=") {
-        if !token.is_empty() {
-            data.upgrade_mux_data
-                .removal_upgrade_names
-                .push(AsciiString::from(*token));
-        }
-    }
-    Ok(())
+    data.upgrade_mux_data.parse_removes_upgrades_tokens(tokens)
 }
 
 fn parse_requires_all_triggers(
@@ -360,12 +339,12 @@ const OBJECT_CREATION_UPGRADE_FIELDS: &[FieldParse<ObjectCreationUpgradeModuleDa
         parse: parse_removes_upgrades,
     },
     FieldParse {
-        token: "RequiresAllTriggers",
-        parse: parse_requires_all_triggers,
-    },
-    FieldParse {
         token: "FXListUpgrade",
         parse: parse_fx_list_upgrade,
+    },
+    FieldParse {
+        token: "RequiresAllTriggers",
+        parse: parse_requires_all_triggers,
     },
     FieldParse {
         token: "UpgradeObject",
