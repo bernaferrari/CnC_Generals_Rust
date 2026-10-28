@@ -153,6 +153,48 @@ impl crate::modules::AIUpdateInterface for TestAI {
     }
 }
 
+#[derive(Default)]
+struct ExitWitness {
+    marker: u32,
+    exit_count: u32,
+    exit_status: Option<StateExitType>,
+    state_id_during_exit: Option<StateId>,
+    locked_during_exit: bool,
+}
+
+#[derive(Debug)]
+struct ExitWitnessState(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+impl StateImplementation for ExitWitnessState {
+    fn update(&mut self) -> StateReturnType {
+        StateReturnType::Continue
+    }
+
+    fn on_exit(&mut self, _status: StateExitType) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn on_exit_with_control(
+        &mut self,
+        control: &mut StateMachineControl,
+        status: StateExitType,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+        owner: &mut dyn std::any::Any,
+    ) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let owner = owner
+            .downcast_mut::<ExitWitness>()
+            .expect("finish retains the child owner context");
+        owner.exit_count += 1;
+        owner.exit_status = Some(status);
+        owner.state_id_during_exit = control.get_current_state_id();
+        owner.locked_during_exit = control.is_locked();
+        ai.expect("finish retains the held AI runtime")
+            .set_queue_for_path_time(29);
+        owner.marker = 37;
+    }
+}
+
 #[test]
 fn callback_errors_map_to_failure_without_changing_success_statuses() {
     let mut state = CppStateAdapter::new(RecordingState::new());
@@ -202,6 +244,63 @@ fn control_callback_mutates_the_driving_control_and_ai() {
     assert_eq!(machine.get_goal_position(), Coord3D::new(3.0, 5.0, 7.0));
     assert_eq!(ai.path_time, 17);
     assert_eq!(operation_owner, 23);
+}
+
+#[test]
+fn locked_finish_runs_reset_exit_once_with_live_control_ai_and_owner_while_halt_skips_it() {
+    let _frame = crate::system::game_logic::enter_update_frame(0);
+    let mut machine = StateMachine::new(None, "locked destructor finish");
+    let finish_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    machine.define_state(
+        41,
+        Box::new(ExitWitnessState(std::sync::Arc::clone(&finish_calls))),
+        None,
+        None,
+        None,
+    );
+    assert_eq!(machine.set_current_state(41), StateReturnType::Continue);
+    machine.lock();
+    assert!(machine.is_locked());
+
+    let mut ai = TestAI::default();
+    let mut runtime = crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut ai);
+    let mut owner = ExitWitness::default();
+    owner.marker = 11;
+    machine.finish_with_ai_and_owner(&mut runtime, &mut owner);
+    assert_eq!(machine.get_current_state_id(), None);
+    assert!(
+        machine.is_locked(),
+        "finish clears the state without unlocking"
+    );
+    assert_eq!(owner.exit_count, 1);
+    assert_eq!(finish_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(owner.exit_status, Some(StateExitType::Reset));
+    assert_eq!(owner.state_id_during_exit, Some(41));
+    assert!(owner.locked_during_exit);
+    assert_eq!(owner.marker, 37, "the original owner remains mutable");
+
+    // Destructor cleanup may be requested again by a wrapper; the already
+    // finished machine has no current state to exit twice.
+    machine.finish_with_ai_and_owner(&mut runtime, &mut owner);
+    assert_eq!(owner.exit_count, 1);
+    assert_eq!(finish_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(ai.path_time, 29, "the original AI remains mutable");
+
+    let mut halted = StateMachine::new(None, "halt control");
+    let halt_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    halted.define_state(
+        42,
+        Box::new(ExitWitnessState(std::sync::Arc::clone(&halt_calls))),
+        None,
+        None,
+        None,
+    );
+    assert_eq!(halted.set_current_state(42), StateReturnType::Continue);
+    halted.lock();
+    halted.halt().expect("halt succeeds");
+    assert_eq!(halted.get_current_state_id(), None);
+    assert!(halted.is_locked());
+    assert_eq!(halt_calls.load(std::sync::atomic::Ordering::SeqCst), 0);
 }
 
 #[test]
