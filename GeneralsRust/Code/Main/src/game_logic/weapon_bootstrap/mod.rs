@@ -47,6 +47,7 @@ pub use reload_aim::*;
 mod historic_speed;
 pub use historic_speed::*;
 mod scatter;
+pub(crate) use scatter::scatter_aim_offset_logic;
 pub use scatter::*;
 mod collide;
 pub use collide::*;

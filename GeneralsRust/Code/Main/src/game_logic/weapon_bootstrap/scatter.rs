@@ -213,13 +213,15 @@ pub fn scatter_aim_offset(seed: u32, scatter_radius: f32) -> glam::Vec3 {
 }
 
 /// C++ `Weapon.cpp:979-989` — each shot rolls radius + angle from the logic RNG.
-pub fn scatter_aim_offset_logic(scatter_radius: f32) -> glam::Vec3 {
-    use game_engine::common::random_value::get_game_logic_random_value_real;
+pub(crate) fn scatter_aim_offset_logic(
+    scatter_radius: f32,
+    random: &game_engine::common::random_value::SessionRandom,
+) -> glam::Vec3 {
     if scatter_radius <= 0.0 {
         return glam::Vec3::ZERO;
     }
-    let r = get_game_logic_random_value_real(0.0, scatter_radius);
-    let ang = get_game_logic_random_value_real(0.0, std::f32::consts::TAU);
+    let r = random.next_real(0.0, scatter_radius);
+    let ang = random.next_real(0.0, std::f32::consts::TAU);
     glam::Vec3::new(r * ang.cos(), 0.0, r * ang.sin())
 }
 
@@ -275,8 +277,9 @@ mod tests {
 
     #[test]
     fn logic_scatter_is_not_pairing_deterministic() {
-        let a = scatter_aim_offset_logic(15.0);
-        let b = scatter_aim_offset_logic(15.0);
+        let random = game_engine::common::random_value::SessionRandom::default();
+        let a = scatter_aim_offset_logic(15.0, &random);
+        let b = scatter_aim_offset_logic(15.0, &random);
         assert!(
             (a - b).length() > 1e-4,
             "successive logic RNG shots must not land on the same offset"

@@ -464,6 +464,7 @@ pub fn nearer_live_bridge_attack_point(from: glam::Vec3, victim: &Object) -> gla
 /// Resolves target object positions from the objects map.
 /// Target expiry and projectileless travel time use the driving game's frame.
 /// Explicit low-level mapless adapter. Main sessions use the receiving variant below.
+#[cfg(test)]
 pub fn drain_pending_projectiles(
     combat: &mut CombatSystem,
     objects: HostObjectRead<'_>,
@@ -478,6 +479,7 @@ pub fn drain_pending_projectiles(
         definitions,
         None,
         &mut standalone_next,
+        &game_engine::common::random_value::SessionRandom::default(),
     );
     combat.next_projectile_id = standalone_next;
 }
@@ -490,6 +492,7 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_terrain(
     definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
     terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
     next_object_id: &mut ObjectId,
+    random: &game_engine::common::random_value::SessionRandom,
 ) {
     let pending = std::mem::take(&mut combat.pending_projectiles);
 
@@ -504,6 +507,7 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_terrain(
             profile,
             terrain,
             next_object_id,
+            random,
         ) {
             combat.projectileless_delayed.push(immediate);
         }
@@ -524,6 +528,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     profile: Option<&crate::game_logic::projectile_definitions::ProjectileProfile>,
     terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
     next_object_id: &mut ObjectId,
+    random: &game_engine::common::random_value::SessionRandom,
 ) -> Option<LiveProjectilelessDelayedDamage> {
     // Accepted records retain their captured lifecycle. Otherwise resolve only
     // the already-borrowed effective profile of this same receiving session.
@@ -637,7 +642,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
             }
         }
         let offset =
-            crate::game_logic::weapon_bootstrap::scatter_aim_offset_logic(p.scatter_radius);
+            crate::game_logic::weapon_bootstrap::scatter_aim_offset_logic(p.scatter_radius, random);
         target_pos += offset;
         // C++ snaps Z to the victim pathfind layer so a miss hits dirt,
         // not a far point past the volume. Host Y is up.

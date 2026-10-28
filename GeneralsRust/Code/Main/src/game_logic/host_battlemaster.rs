@@ -843,12 +843,6 @@ pub fn leftover_horde_take_wake(
     }
 }
 
-/// C++ `HordeUpdate.cpp:146-147` constructor first-wake delay.
-pub fn leftover_horde_first_wake_delay(update_rate: u32) -> u32 {
-    let delay = update_rate.max(1) as i32;
-    gamelogic::helpers::get_game_logic_random_value(1, delay).max(1) as u32
-}
-
 /// Resolve Object INI ShadowSize without inventing a 40wu fallback.
 pub fn leftover_template_shadow_size(
     template_name: &str,

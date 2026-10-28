@@ -1374,6 +1374,7 @@ impl GameLogic {
             self.projectile_definitions.get(&projectile_name),
             Some(&projectile_terrain),
             &mut self.next_object_id,
+            &self.logic_random,
         );
         if let Some(shot) = ready {
             let limit = self.combat_system.historic_damage_limit();

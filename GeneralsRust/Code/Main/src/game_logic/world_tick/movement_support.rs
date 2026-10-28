@@ -3521,6 +3521,7 @@ impl GameLogic {
             &self.projectile_definitions,
             Some(&projectile_terrain),
             &mut self.next_object_id,
+            &self.logic_random,
         );
         self.apply_owned_projectileless_delayed_damage_with_effects(effects);
         self.execute_pending_weapon_fire_ocls_with_effects(effects);
