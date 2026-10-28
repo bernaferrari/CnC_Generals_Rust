@@ -57,16 +57,30 @@ impl GameLogic {
                 )
             })
             .collect();
+        let objects = &self.objects;
         self.host_dock_approach_queues
             .borrow_mut()
-            .reconcile_cancel_epochs(&current_epochs);
+            .reconcile_cancel_epochs(&current_epochs, |docker_id| {
+                let mut docks: Vec<_> = objects
+                    .registered()
+                    .filter_map(|(dock_id, dock)| {
+                        (dock.dock_active_docker == Some(docker_id)).then_some(*dock_id)
+                    })
+                    .collect();
+                docks.sort_unstable();
+                docks
+            });
     }
 
     pub(crate) fn sync_host_dock_queue_cancellations_for_dock(&self, dock_id: ObjectId) {
+        let active_docker = self
+            .objects
+            .get(&dock_id)
+            .and_then(|dock| dock.dock_active_docker);
         let tracked = self
             .host_dock_approach_queues
             .borrow()
-            .tracked_docker_ids_for_dock(dock_id);
+            .tracked_docker_ids_for_dock(dock_id, active_docker);
         if tracked.is_empty() {
             return;
         }
@@ -81,9 +95,19 @@ impl GameLogic {
                 )
             })
             .collect();
+        let objects = &self.objects;
         self.host_dock_approach_queues
             .borrow_mut()
-            .reconcile_dock_cancel_epochs(&current_epochs);
+            .reconcile_dock_cancel_epochs(&current_epochs, |docker_id| {
+                let mut docks: Vec<_> = objects
+                    .registered()
+                    .filter_map(|(dock_id, dock)| {
+                        (dock.dock_active_docker == Some(docker_id)).then_some(*dock_id)
+                    })
+                    .collect();
+                docks.sort_unstable();
+                docks
+            });
     }
 
     pub(crate) fn sync_host_dock_queue_cancellations_for_docker(&self, docker_id: ObjectId) {
@@ -98,9 +122,34 @@ impl GameLogic {
             .objects
             .get(&docker_id)
             .map(|object| object.dock_cancel_epoch);
+        let objects = &self.objects;
         self.host_dock_approach_queues
             .borrow_mut()
-            .reconcile_cancel_epochs(&[(docker_id, current)]);
+            .reconcile_cancel_epochs(&[(docker_id, current)], |docker_id| {
+                let mut docks: Vec<_> = objects
+                    .registered()
+                    .filter_map(|(dock_id, dock)| {
+                        (dock.dock_active_docker == Some(docker_id)).then_some(*dock_id)
+                    })
+                    .collect();
+                docks.sort_unstable();
+                docks
+            });
+    }
+
+    /// Operation-local active-owner projection for destruction cleanup. The
+    /// queue stores no second mutable active-owner table.
+    fn host_dock_active_owners(&self) -> Vec<(ObjectId, ObjectId)> {
+        let mut active: Vec<_> = self
+            .objects
+            .registered()
+            .filter_map(|(dock_id, dock)| {
+                dock.dock_active_docker
+                    .map(|docker_id| (*dock_id, docker_id))
+            })
+            .collect();
+        active.sort_unstable_by_key(|(dock_id, docker_id)| (dock_id.0, docker_id.0));
+        active
     }
 
     /// Apply deferred Object callback events at a mutable GameLogic boundary.
@@ -123,7 +172,7 @@ impl GameLogic {
 
     /// Seed active-session cancellation identity after queue-tail restore has
     /// assigned `Object::dock_active_docker` on its already-admitted objects.
-    pub(crate) fn track_restored_active_docker(&mut self, dock_id: ObjectId, docker_id: ObjectId) {
+    pub(crate) fn track_restored_active_docker(&mut self, docker_id: ObjectId) {
         let epoch = self
             .objects
             .get(&docker_id)
@@ -131,7 +180,7 @@ impl GameLogic {
             .unwrap_or(0);
         self.host_dock_approach_queues
             .borrow_mut()
-            .track_restored_active_docker(dock_id, docker_id, epoch);
+            .track_restored_active_docker(docker_id, epoch);
     }
 
     pub(crate) fn host_dock_approach_queue_snapshot(
@@ -172,10 +221,21 @@ impl GameLogic {
         self.host_dock_approach_queues.borrow_mut().clear();
     }
 
-    pub(crate) fn remove_host_dock_approach_queue(&self, dock_id: ObjectId) {
-        self.host_dock_approach_queues
-            .borrow_mut()
-            .remove_dock(dock_id);
+    pub(crate) fn remove_host_dock_approach_queue(
+        &self,
+        dock_id: ObjectId,
+        removed_active_docker: Option<ObjectId>,
+    ) {
+        let active_elsewhere: Vec<_> = self
+            .host_dock_active_owners()
+            .into_iter()
+            .filter_map(|(active_dock, docker)| (active_dock != dock_id).then_some(docker))
+            .collect();
+        self.host_dock_approach_queues.borrow_mut().remove_dock(
+            dock_id,
+            removed_active_docker,
+            &active_elsewhere,
+        );
     }
 
     pub(super) fn expire_temporary_stealth_grant(&mut self, object_id: ObjectId) {
@@ -311,6 +371,11 @@ impl GameLogic {
                                 ))
                     })
                 },
+                |docker_id| {
+                    self.objects
+                        .registered()
+                        .any(|(_, dock)| dock.dock_active_docker == Some(docker_id))
+                },
             )
         };
         match tick {
@@ -408,9 +473,14 @@ impl GameLogic {
                 dock.repair_dock_last_id = None;
             }
         }
-        self.host_dock_approach_queues
-            .borrow_mut()
-            .cancel_dock(dock_id, docker_id);
+        let active_elsewhere = self.objects.registered().any(|(other_id, dock)| {
+            *other_id != dock_id && dock.dock_active_docker == Some(docker_id)
+        });
+        self.host_dock_approach_queues.borrow_mut().cancel_dock(
+            dock_id,
+            docker_id,
+            active_elsewhere,
+        );
         if was_holder {
             self.apply_docking_model_conditions(dock_id, docker_id, false);
         }

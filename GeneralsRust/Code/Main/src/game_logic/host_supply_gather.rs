@@ -14,7 +14,6 @@ use std::collections::{HashMap, HashSet};
 pub(crate) struct HostDockApproachQueues {
     queues: HashMap<ObjectId, HostDockApproachQueue>,
     observed_cancel_epochs: HashMap<ObjectId, u64>,
-    active_dockers: HashMap<ObjectId, ObjectId>,
     pending_cancel_effects: HashSet<(ObjectId, ObjectId)>,
 }
 
@@ -38,6 +37,7 @@ impl HostDockApproachQueues {
         current_frame: u32,
         crippled: bool,
         is_alive: impl FnMut(ObjectId) -> bool,
+        mut has_active_owner: impl FnMut(ObjectId) -> bool,
     ) -> DockApproachTick {
         let queue = self
             .queues
@@ -67,18 +67,18 @@ impl HostDockApproachQueues {
             .collect();
         for previous in previous_owners {
             if !current_owners.contains(&previous) {
-                self.forget_if_unowned(previous);
+                self.forget_if_unowned(previous, has_active_owner(previous));
             }
         }
         if matches!(&result, DockApproachTick::ClearToAct) {
-            self.active_dockers.insert(dock_id, docker_id);
+            // C++ onEnterReached releases its approach slot but keeps
+            // DockUpdate::m_activeDocker until onExitReached. The canonical
+            // active owner lives on the receiving dock Object; retain only
+            // its cancellation epoch here, not a second active-owner map.
             self.observed_cancel_epochs
                 .insert(docker_id, docker_cancel_epoch);
         } else if let Some(stale) = current_active.filter(|_| !current_active_alive) {
-            if self.active_dockers.get(&dock_id) == Some(&stale) {
-                self.active_dockers.remove(&dock_id);
-                self.forget_if_unowned(stale);
-            }
+            self.forget_if_unowned(stale, has_active_owner(stale));
         }
         if current_owners.contains(&docker_id) {
             self.observed_cancel_epochs
@@ -87,15 +87,17 @@ impl HostDockApproachQueues {
         result
     }
 
-    pub(crate) fn cancel_dock(&mut self, dock_id: ObjectId, docker_id: ObjectId) {
+    pub(crate) fn cancel_dock(
+        &mut self,
+        dock_id: ObjectId,
+        docker_id: ObjectId,
+        active_elsewhere: bool,
+    ) {
         if let Some(queue) = self.queues.get_mut(&dock_id) {
             queue.cancel_docker(docker_id);
         }
         self.pending_cancel_effects.remove(&(dock_id, docker_id));
-        if self.active_dockers.get(&dock_id) == Some(&docker_id) {
-            self.active_dockers.remove(&dock_id);
-        }
-        self.forget_if_unowned(docker_id);
+        self.forget_if_unowned(docker_id, active_elsewhere);
     }
 
     /// C++ `DockUpdate::cancelDock` for every live queue this docker reserved.
@@ -103,39 +105,48 @@ impl HostDockApproachQueues {
         for queue in self.queues.values_mut() {
             queue.cancel_docker(docker_id);
         }
-        self.active_dockers
-            .retain(|_, active_docker| *active_docker != docker_id);
         self.pending_cancel_effects
             .retain(|(_, active_docker)| *active_docker != docker_id);
         self.observed_cancel_epochs.remove(&docker_id);
     }
 
     /// A dock module's queue has the same lifetime as its owning Object.
-    pub(crate) fn remove_dock(&mut self, dock_id: ObjectId) {
-        let active_docker = self.active_dockers.remove(&dock_id);
-        let owners: Vec<_> = self
+    pub(crate) fn remove_dock(
+        &mut self,
+        dock_id: ObjectId,
+        removed_active_docker: Option<ObjectId>,
+        active_elsewhere: &[ObjectId],
+    ) {
+        let mut owners: Vec<_> = self
             .queues
             .remove(&dock_id)
             .into_iter()
             .flat_map(|queue| queue.owned_dockers().collect::<Vec<_>>())
             .collect();
-        for owner in owners {
-            self.forget_if_unowned(owner);
+        if let Some(active) = removed_active_docker {
+            if !owners.contains(&active) {
+                owners.push(active);
+            }
         }
-        if let Some(owner) = active_docker {
-            self.forget_if_unowned(owner);
+        for owner in owners {
+            self.forget_if_unowned(owner, active_elsewhere.contains(&owner));
         }
     }
 
-    /// Reconcile only docker IDs that currently own a queue slot. No world
-    /// scan: the caller performs O(1) lookups for these tracked IDs.
-    pub(crate) fn reconcile_cancel_epochs(&mut self, current_epochs: &[(ObjectId, Option<u64>)]) {
+    /// Reconcile only tracked docker IDs. The owner resolves canonical active
+    /// dock Objects lazily, and only for epochs that actually changed.
+    pub(crate) fn reconcile_cancel_epochs(
+        &mut self,
+        current_epochs: &[(ObjectId, Option<u64>)],
+        mut active_docks_for_docker: impl FnMut(ObjectId) -> Vec<ObjectId>,
+    ) {
         for &(docker_id, current) in current_epochs {
             let Some(previous) = self.observed_cancel_epochs.get(&docker_id).copied() else {
                 continue;
             };
             if current != Some(previous) {
-                self.reconcile_cancelled_docker(docker_id);
+                let active_docks = active_docks_for_docker(docker_id);
+                self.reconcile_cancelled_docker(docker_id, &active_docks);
             }
         }
     }
@@ -143,6 +154,7 @@ impl HostDockApproachQueues {
     pub(crate) fn reconcile_dock_cancel_epochs(
         &mut self,
         current_epochs: &[(ObjectId, Option<u64>)],
+        mut active_docks_for_docker: impl FnMut(ObjectId) -> Vec<ObjectId>,
     ) {
         let changed: Vec<_> = current_epochs
             .iter()
@@ -159,20 +171,25 @@ impl HostDockApproachQueues {
         // C++ cancelDock releases this docker from every dock module. Once a
         // referenced dock notices the callback epoch, remove it world-wide.
         for docker_id in changed {
-            self.reconcile_cancelled_docker(docker_id);
+            let active_docks = active_docks_for_docker(docker_id);
+            self.reconcile_cancelled_docker(docker_id, &active_docks);
         }
     }
 
-    pub(crate) fn tracked_docker_ids_for_dock(&self, dock_id: ObjectId) -> Vec<ObjectId> {
+    pub(crate) fn tracked_docker_ids_for_dock(
+        &self,
+        dock_id: ObjectId,
+        active_docker: Option<ObjectId>,
+    ) -> Vec<ObjectId> {
         let mut ids: Vec<_> = self
             .queues
             .get(&dock_id)
             .into_iter()
             .flat_map(HostDockApproachQueue::owned_dockers)
             .collect();
-        if let Some(active) = self.active_dockers.get(&dock_id) {
-            if !ids.contains(active) {
-                ids.push(*active);
+        if let Some(active) = active_docker {
+            if !ids.contains(&active) {
+                ids.push(active);
             }
         }
         ids
@@ -200,17 +217,14 @@ impl HostDockApproachQueues {
     pub(crate) fn clear(&mut self) {
         self.queues.clear();
         self.observed_cancel_epochs.clear();
-        self.active_dockers.clear();
         self.pending_cancel_effects.clear();
     }
 
     pub(crate) fn track_restored_active_docker(
         &mut self,
-        dock_id: ObjectId,
         docker_id: ObjectId,
         docker_cancel_epoch: u64,
     ) {
-        self.active_dockers.insert(dock_id, docker_id);
         self.observed_cancel_epochs
             .insert(docker_id, docker_cancel_epoch);
     }
@@ -250,36 +264,26 @@ impl HostDockApproachQueues {
         }
     }
 
-    fn forget_if_unowned(&mut self, docker_id: ObjectId) {
-        if !self
-            .queues
-            .values()
-            .any(|queue| queue.index_of(docker_id).is_some())
+    fn forget_if_unowned(&mut self, docker_id: ObjectId, active_elsewhere: bool) {
+        if !active_elsewhere
             && !self
-                .active_dockers
+                .queues
                 .values()
-                .any(|active_docker| *active_docker == docker_id)
+                .any(|queue| queue.index_of(docker_id).is_some())
         {
             self.observed_cancel_epochs.remove(&docker_id);
         }
     }
 
-    fn reconcile_cancelled_docker(&mut self, docker_id: ObjectId) {
-        // Preserve only active module associations for the mutable owner to
-        // apply. Queue-only reservations have no dock/docker model side effects.
-        let active_docks: Vec<_> = self
-            .active_dockers
-            .iter()
-            .filter_map(|(&dock_id, &active)| (active == docker_id).then_some(dock_id))
-            .collect();
-        for dock_id in active_docks {
+    fn reconcile_cancelled_docker(&mut self, docker_id: ObjectId, active_docks: &[ObjectId]) {
+        // Main supplies this operation-local projection from canonical dock
+        // Object fields at the same cancellation-observation boundary.
+        for &dock_id in active_docks {
             self.pending_cancel_effects.insert((dock_id, docker_id));
         }
         for queue in self.queues.values_mut() {
             queue.cancel_docker(docker_id);
         }
-        self.active_dockers
-            .retain(|_, active_docker| *active_docker != docker_id);
         self.observed_cancel_epochs.remove(&docker_id);
     }
 }
@@ -1480,6 +1484,7 @@ mod tests {
             0,
             true,
             |_| true,
+            |_| false,
         );
         assert_eq!(tick, DockApproachTick::Blocked);
     }
@@ -1523,6 +1528,7 @@ mod tests {
             0,
             false,
             |_| true,
+            |_| false,
         );
         assert_eq!(tick, DockApproachTick::PathTo(bone));
         let arrived = queues.tick(
@@ -1540,8 +1546,106 @@ mod tests {
             1,
             false,
             |_| true,
+            |_| false,
         );
         assert_eq!(arrived, DockApproachTick::ClearToAct);
+    }
+
+    #[test]
+    fn evicting_queue_slot_preserves_epoch_for_docker_active_at_another_dock() {
+        let mut queues = HostDockApproachQueues::default();
+        let dock = ObjectId(30);
+        let active_dock = ObjectId(31);
+        let former_waiter = ObjectId(32);
+        let new_waiter = ObjectId(33);
+        let point = Vec3::ZERO;
+
+        assert_eq!(
+            queues.tick(
+                dock,
+                former_waiter,
+                7,
+                2,
+                true,
+                None,
+                false,
+                Vec3::new(100.0, 0.0, 0.0),
+                point,
+                20.0,
+                &[point],
+                0,
+                false,
+                |_| true,
+                |_| false,
+            ),
+            DockApproachTick::PathTo(point)
+        );
+        assert!(queues.tracks_docker(former_waiter));
+
+        // The former waiter is no longer live in this queue, but the receiving
+        // owner's canonical dock fields still identify it as active elsewhere.
+        let result = queues.tick(
+            dock,
+            new_waiter,
+            2,
+            2,
+            true,
+            None,
+            false,
+            point,
+            point,
+            20.0,
+            &[point],
+            1,
+            false,
+            |id| id == new_waiter,
+            |id| id == former_waiter,
+        );
+        assert_eq!(result, DockApproachTick::ClearToAct);
+        assert!(queues.tracks_docker(former_waiter));
+
+        queues.reconcile_cancel_epochs(&[(former_waiter, None)], |_| vec![active_dock]);
+        assert_eq!(
+            queues.take_pending_cancel_effects(),
+            vec![(active_dock, former_waiter)]
+        );
+    }
+
+    #[test]
+    fn active_identity_is_observed_from_dock_owner_after_approach_slot_frees() {
+        let mut queues = HostDockApproachQueues::default();
+        let dock = ObjectId(31);
+        let docker = ObjectId(32);
+        let point = Vec3::ZERO;
+        assert_eq!(
+            queues.tick(
+                dock,
+                docker,
+                4,
+                1,
+                true,
+                None,
+                false,
+                point,
+                point,
+                20.0,
+                &[point],
+                10,
+                false,
+                |_| true,
+                |_| false,
+            ),
+            DockApproachTick::ClearToAct
+        );
+        assert_eq!(queues.queues[&dock].owners, vec![None]);
+        assert!(queues.tracked_docker_ids().contains(&docker));
+
+        // The receiving GameLogic supplies the canonical Object field here at
+        // its existing cancellation observation point, matching C++ where the
+        // approach slot is released but DockUpdate::m_activeDocker remains.
+        queues.reconcile_cancel_epochs(&[(docker, None)], |_| vec![dock]);
+        assert_eq!(queues.take_pending_cancel_effects(), vec![(dock, docker)]);
+        assert!(!queues.tracks_docker(docker));
     }
 
     #[test]
@@ -1576,6 +1680,7 @@ mod tests {
                 0,
                 false,
                 |_| true,
+                |_| false,
             ),
             DockApproachTick::ClearToAct
         );
@@ -1595,6 +1700,7 @@ mod tests {
                 10,
                 false,
                 |_| true,
+                |_| false,
             ),
             DockApproachTick::Blocked
         );
@@ -1614,6 +1720,7 @@ mod tests {
                 10 + WAIT_FOR_CLEARANCE_FRAMES,
                 false,
                 |_| true,
+                |_| false,
             ),
             DockApproachTick::TimedOut
         );
@@ -1640,6 +1747,7 @@ mod tests {
             0,
             false,
             |_| true,
+            |_| false,
         );
         queues.cancel_docker(a);
         assert!(queues.is_clear_to_approach(dock, ObjectId(9)));

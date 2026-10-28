@@ -416,7 +416,7 @@ impl GameLogic {
         let Some(object) = self.take_object_for_physical_retirement(id, effects)? else {
             return Ok(false);
         };
-        self.remove_host_dock_approach_queue(id);
+        self.remove_host_dock_approach_queue(id, object.dock_active_docker);
         #[cfg(test)]
         crate::game_logic::host_destroy_log::record(id);
 

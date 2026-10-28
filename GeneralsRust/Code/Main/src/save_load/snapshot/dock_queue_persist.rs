@@ -1,11 +1,10 @@
 //! Persist C++ `DockUpdate::xfer` approach owners / reached / active docker.
 //!
 //! C++ `DockUpdate::xfer` (`DockUpdate.cpp`) writes `m_approachPositionOwners`,
-//! `m_approachPositionReached`, and `m_activeDocker`. Leftover `dock_update.rs`
-//! already matches that table. Live host stores the same slots in the
-//! process-global `HostDockApproachQueue` map plus `Object::dock_active_docker`.
-//! Those were session-only — a mid-queue save reset waiters and the active
-//! docker after load.
+//! `m_approachPositionReached`, and `m_activeDocker`. Live host stores approach
+//! reservations in a per-GameLogic `HostDockApproachQueue`; the dock Object's
+//! `dock_active_docker` is the sole active-docker authority. A mid-queue save
+//! must preserve both parts of that module state.
 //!
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No world snapshot version bump.
@@ -182,7 +181,7 @@ fn apply_payload(game_logic: &mut GameLogic, payload: DockQueuePersistPayload) {
         };
         object.dock_active_docker = active_docker;
         if let Some(docker_id) = active_docker {
-            game_logic.track_restored_active_docker(dock_id, docker_id);
+            game_logic.track_restored_active_docker(docker_id);
         }
     }
 }

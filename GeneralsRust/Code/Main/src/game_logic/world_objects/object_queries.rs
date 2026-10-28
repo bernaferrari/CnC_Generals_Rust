@@ -3553,6 +3553,22 @@ mod dock_approach_owner_tests {
                 world.host_object(dock).unwrap().dock_active_docker,
                 Some(active)
             );
+            let slots: Vec<_> = world
+                .host_dock_approach_queues
+                .borrow()
+                .snapshot()
+                .into_iter()
+                .find(|(id, _)| *id == dock)
+                .expect("live DockUpdate slot state")
+                .1
+                .owners
+                .into_iter()
+                .flatten()
+                .collect();
+            assert!(
+                !slots.contains(&active),
+                "C++ onEnterReached releases the approach slot while DockUpdate retains activeDocker"
+            );
         }
 
         let active_model =
