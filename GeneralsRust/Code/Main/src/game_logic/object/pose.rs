@@ -286,14 +286,13 @@ impl Object {
         let edge = if let Some(world) = self.host_trigger_world.upgrade() {
             let mut world = world.lock().unwrap_or_else(|error| error.into_inner());
             let frame = world.current_frame();
-            let skip = self.is_kind_of(crate::game_logic::KindOf::Projectile)
-                || self.is_kind_of(crate::game_logic::KindOf::Inert);
+            // Eligibility was captured before the tree callback, as in C++.
             world.update_object_flags_and_report(
                 self.id.0,
                 reaction.position.x,
                 reaction.position.z,
                 frame,
-                skip,
+                false,
                 team,
             )
         } else {
