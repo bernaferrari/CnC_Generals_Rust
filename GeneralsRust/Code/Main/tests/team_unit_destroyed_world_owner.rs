@@ -8,7 +8,7 @@ use game_engine::common::well_known_keys::{
 use gamelogic::scripting::chunk_codec::ScriptTemplateLookup;
 use gamelogic::scripting::core::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
-    ScriptActionType, ScriptList,
+    ScriptActionType, ScriptList, THIS_TEAM,
 };
 use gamelogic::scripting::engine::ScriptEngine;
 use gamelogic::sides_list::SidesList;
@@ -37,7 +37,7 @@ fn map_file(root: &std::path::Path, destination: [f32; 3]) -> std::path::PathBuf
 
     let mut action = ScriptAction::new(ScriptActionType::MoveTeamTo);
     action
-        .add_parameter(Parameter::with_string(ParameterType::Team, TEAM.into()))
+        .add_parameter(Parameter::with_string(ParameterType::Team, THIS_TEAM.into()))
         .unwrap();
     action
         .add_parameter(Parameter::with_string(
