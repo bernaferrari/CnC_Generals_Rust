@@ -62,7 +62,11 @@ fn world(map: &std::path::Path) -> GameLogic {
     let mut world = GameLogic::new();
     world.admit_player_template_definitions(templates).unwrap();
     world.start_new_game(GameMode::SinglePlayer);
-    assert!(world.load_map(map.to_str().unwrap()), "loading {}", map.display());
+    assert!(
+        world.load_map(map.to_str().unwrap()),
+        "loading {}",
+        map.display()
+    );
     world
 }
 
@@ -115,4 +119,23 @@ fn map_admission_preserves_local_identity_for_neutral_and_same_id_civilians() {
     assert!(civilian.get_player(1).unwrap().is_local);
     assert!(!peer.get_player(1).unwrap().is_local);
     assert!(neutral.get_player(0).unwrap().is_local);
+
+    // Save and decode through the real archive before restoring into an
+    // independently admitted world with the same civilian side.
+    let save_root = tempfile::tempdir().unwrap();
+    let mut saves =
+        generals_main::save_load::SaveFileManager::with_save_directory(save_root.path());
+    saves.init().unwrap();
+    saves.quick_save(&civilian).unwrap();
+    let decoded = saves.load_game_snapshot("quicksave").unwrap();
+    let mut restored = world(&civilian_map);
+    saves
+        .restore_game_snapshot(&decoded.snapshot, &mut restored)
+        .unwrap();
+    assert_eq!(restored.local_player_id(), Some(1));
+    assert_eq!(
+        restored.get_player(1).unwrap().map_side.map_player_name,
+        "PlyrCivilian"
+    );
+    assert!(peer.get_player(2).unwrap().is_local);
 }
