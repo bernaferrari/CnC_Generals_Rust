@@ -1586,6 +1586,27 @@ impl GameClient {
         cursor: Option<game_engine::common::message_stream::PropagationCursor>,
         pick_view: Option<&game_engine::common::message_stream::TranslatorPickObjectView>,
     ) -> GameClientResult<game_engine::common::message_stream::PropagationProgress> {
+        self.take_message_stream_until_menu_host_with_receiving_eva(
+            playback,
+            logic_frame,
+            game_mode,
+            driver,
+            cursor,
+            pick_view,
+            None,
+        )
+    }
+
+    pub fn take_message_stream_until_menu_host_with_receiving_eva(
+        &mut self,
+        playback: bool,
+        logic_frame: u32,
+        game_mode: i32,
+        driver: &mut NativeWindowInputDriver<'_>,
+        cursor: Option<game_engine::common::message_stream::PropagationCursor>,
+        pick_view: Option<&game_engine::common::message_stream::TranslatorPickObjectView>,
+        eva: Option<&mut dyn game_engine::common::message_stream::ReceivingEvaFeedback>,
+    ) -> GameClientResult<game_engine::common::message_stream::PropagationProgress> {
         self.script_display
             .bind(self.subsystem_manager.display.as_ref());
         use game_engine::common::message_stream::PropagationProgress;
@@ -1653,7 +1674,7 @@ impl GameClient {
         }
         let mut progress = self
             .message_stream
-            .propagate_messages_until_host_boundary(
+            .propagate_messages_until_host_boundary_with_receiving_eva(
                 &mut dispatch,
                 cursor,
                 &mut || yielded.get(),
@@ -1674,6 +1695,7 @@ impl GameClient {
                 ui,
                 Some(&mut self.drawable_manager as &mut dyn std::any::Any),
                 receiving_pick_view.as_ref(),
+                eva,
             )
             .map_err(|error| {
                 GameClientError::SubsystemError(format!("Message stream update failed: {error}"))

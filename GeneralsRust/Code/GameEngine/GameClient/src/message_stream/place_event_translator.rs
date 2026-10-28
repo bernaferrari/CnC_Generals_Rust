@@ -120,6 +120,7 @@ impl PlaceEventTranslator {
     fn handle_place_click(
         &mut self,
         ui: &mut crate::message_stream::ReceivingUi<'_>,
+        eva: Option<&mut dyn game_engine::common::message_stream::ReceivingEvaFeedback>,
     ) -> GameMessageDisposition {
         let Some(template_name) = ui.get_pending_place_template() else {
             return GameMessageDisposition::KeepMessage;
@@ -166,7 +167,11 @@ impl PlaceEventTranslator {
             | BuildCanMakeType::QueueFull
             | BuildCanMakeType::ParkingPlacesFull
             | BuildCanMakeType::MaxedOutForPlayer) => {
-                super::place_event_confirm::play_can_make_failure(failure, ui);
+                if let Some(eva) = eva {
+                    super::place_event_confirm::play_can_make_failure_with_eva(failure, ui, eva);
+                } else {
+                    super::place_event_confirm::play_can_make_failure(failure, ui);
+                }
                 return GameMessageDisposition::KeepMessage;
             }
             BuildCanMakeType::FactoryIsDisabled | BuildCanMakeType::NoPrereq => {
@@ -260,7 +265,29 @@ impl GameMessageTranslator for PlaceEventTranslator {
             client.frame,
         )
         .with_emitter(_emitted);
-        self.translate_receiving_ui(msg, ui)
+        self.translate_receiving_ui(msg, ui, None)
+    }
+
+    fn translate_game_message_with_receiving_eva(
+        &mut self,
+        msg: &GameMessage,
+        client: game_engine::common::message_stream::TranslatorClientObservation,
+        _dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
+        _emitted: &mut Vec<GameMessage>,
+        pick_view: Option<&game_engine::common::message_stream::TranslatorPickObjectView>,
+        client_ui: &mut dyn std::any::Any,
+        drawable_owner: Option<&mut dyn std::any::Any>,
+        eva: Option<&mut dyn game_engine::common::message_stream::ReceivingEvaFeedback>,
+    ) -> GameMessageDisposition {
+        let ui = &mut crate::message_stream::ReceivingUi::new_with_owner(
+            client_ui,
+            drawable_owner,
+            pick_view,
+            client.logic_frame,
+            client.frame,
+        )
+        .with_emitter(_emitted);
+        self.translate_receiving_ui(msg, ui, eva)
     }
 }
 impl PlaceEventTranslator {
@@ -268,6 +295,7 @@ impl PlaceEventTranslator {
         &mut self,
         msg: &GameMessage,
         ui: &mut crate::message_stream::ReceivingUi<'_>,
+        eva: Option<&mut dyn game_engine::common::message_stream::ReceivingEvaFeedback>,
     ) -> GameMessageDisposition {
         match msg.get_type() {
             GameMessageType::RawMouseLeftButtonDown(position, _, _) => {
@@ -275,7 +303,7 @@ impl PlaceEventTranslator {
             }
             GameMessageType::RawMousePosition(position) => self.handle_anchor_end(position, ui),
             GameMessageType::MouseLeftClick(_, _) | GameMessageType::MouseLeftDoubleClick(_, _) => {
-                let disp = self.handle_place_click(ui);
+                let disp = self.handle_place_click(ui, eva);
                 if disp == GameMessageDisposition::DestroyMessage {
                     ui.clear_attack_move_to_mode();
                 }

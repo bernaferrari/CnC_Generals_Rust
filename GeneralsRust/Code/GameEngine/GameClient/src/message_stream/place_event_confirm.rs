@@ -134,6 +134,28 @@ pub fn play_can_make_failure(
     }
 }
 
+/// Native receiving-owner variant. The caller loans the match's speaker for
+/// this exact placement callback, preserving the original synchronous phase.
+pub fn play_can_make_failure_with_eva(
+    failure: BuildCanMakeType,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
+    eva: &mut dyn game_engine::common::message_stream::ReceivingEvaFeedback,
+) {
+    enqueue_can_make_failure_eva(failure, eva);
+    if let Some(message) = failure_message_for_can_make(failure) {
+        ui.message(message);
+    }
+}
+
+fn enqueue_can_make_failure_eva(
+    failure: BuildCanMakeType,
+    eva: &mut dyn game_engine::common::message_stream::ReceivingEvaFeedback,
+) {
+    if failure == BuildCanMakeType::NoMoney {
+        eva.request_insufficient_funds();
+    }
+}
+
 /// C++ illegal-place feedback: VoiceNoBuild + NoCanDoSound.
 pub fn play_illegal_place_feedback(builder: &Object) {
     if let Some(audio) = TheAudio::get() {

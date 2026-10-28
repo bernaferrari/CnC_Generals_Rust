@@ -871,6 +871,12 @@ impl Eva {
     }
 }
 
+impl game_engine::common::message_stream::ReceivingEvaFeedback for Eva {
+    fn request_insufficient_funds(&mut self) {
+        self.set_should_play(EvaMessage::InsufficientFunds);
+    }
+}
+
 fn map_logic_event(event: LogicEvaEvent) -> Option<EvaMessage> {
     match event {
         LogicEvaEvent::LowPower => Some(EvaMessage::LowPower),

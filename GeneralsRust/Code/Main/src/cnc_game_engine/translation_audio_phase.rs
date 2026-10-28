@@ -23,6 +23,7 @@ pub(super) struct NativeTranslationPhases<'a, 'context> {
     pub(super) facts: game_client::gui::campaign_launch_host_bridge::MenuWorldFacts,
     pub(super) playback: bool,
     pub(super) pick_objects: game_engine::common::message_stream::TranslatorPickObjectView,
+    pub(super) eva_speaker: &'a mut game_client::eva::Eva,
 }
 impl crate::subsystem_manager::ReceivingClientPhaseDriver for NativeTranslationPhases<'_, '_> {
     fn propagate(
@@ -53,13 +54,17 @@ impl crate::subsystem_manager::ReceivingClientPhaseDriver for NativeTranslationP
                 )
             };
         client
-            .take_message_stream_until_menu_host(
+            .take_message_stream_until_menu_host_with_receiving_eva(
                 self.playback,
                 self.facts.logic_frame,
                 self.facts.game_mode,
                 &mut driver,
                 cursor,
                 Some(&self.pick_objects),
+                Some(
+                    self.eva_speaker
+                        as &mut dyn game_engine::common::message_stream::ReceivingEvaFeedback,
+                ),
             )
             .map_err(|error| anyhow::Error::msg(error.to_string()))
     }

@@ -1367,12 +1367,14 @@ impl CnCGameEngine {
                 menu_audio_locality,
                 menu_audio_view,
             );
+            let eva_speaker = &mut self.eva_recipient.speaker;
             let mut phases = super::translation_audio_phase::NativeTranslationPhases {
                 dispatch: &mut driver,
                 audio,
                 facts: menu_world,
                 playback,
                 pick_objects,
+                eva_speaker,
             };
             operation(
                 &mut self.game_client,

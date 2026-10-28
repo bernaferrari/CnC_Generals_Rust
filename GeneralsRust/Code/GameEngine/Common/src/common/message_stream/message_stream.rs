@@ -261,6 +261,35 @@ pub trait GameMessageTranslator: Send + Sync {
     ) -> GameMessageDisposition {
         self.translate_game_message(msg)
     }
+
+    /// Optional synchronous receiving speaker loan for callbacks that need to
+    /// enqueue EVA feedback on the driving match's advisor.
+    fn translate_game_message_with_receiving_eva(
+        &mut self,
+        msg: &GameMessage,
+        client: TranslatorClientObservation,
+        dispatch_window_input: &mut WindowInputDispatchFn<'_>,
+        emitted_messages: &mut Vec<GameMessage>,
+        pick_view: Option<&TranslatorPickObjectView>,
+        client_ui: &mut dyn std::any::Any,
+        drawable_owner: Option<&mut dyn std::any::Any>,
+        _eva: Option<&mut dyn ReceivingEvaFeedback>,
+    ) -> GameMessageDisposition {
+        self.translate_game_message_with_context(
+            msg,
+            client,
+            dispatch_window_input,
+            emitted_messages,
+            pick_view,
+            client_ui,
+            drawable_owner,
+        )
+    }
+}
+
+/// Narrow synchronous feedback requested by native placement confirmation.
+pub trait ReceivingEvaFeedback {
+    fn request_insufficient_funds(&mut self);
 }
 
 /// Internal translator data structure
@@ -531,6 +560,29 @@ impl MessageStream {
         mut drawable_owner: Option<&mut dyn std::any::Any>,
         pick_view: Option<&TranslatorPickObjectView>,
     ) -> Result<PropagationProgress, Box<dyn std::error::Error>> {
+        self.propagate_messages_until_host_boundary_with_receiving_eva(
+            dispatch_window_input,
+            cursor,
+            should_yield,
+            observe_client,
+            client_ui,
+            drawable_owner,
+            pick_view,
+            None,
+        )
+    }
+
+    pub fn propagate_messages_until_host_boundary_with_receiving_eva(
+        &mut self,
+        dispatch_window_input: &mut WindowInputDispatchFn<'_>,
+        cursor: Option<PropagationCursor>,
+        should_yield: &mut dyn FnMut() -> bool,
+        observe_client: &mut dyn FnMut() -> Option<TranslatorClientObservation>,
+        client_ui: &mut dyn std::any::Any,
+        mut drawable_owner: Option<&mut dyn std::any::Any>,
+        pick_view: Option<&TranslatorPickObjectView>,
+        mut eva: Option<&mut dyn ReceivingEvaFeedback>,
+    ) -> Result<PropagationProgress, Box<dyn std::error::Error>> {
         // A missing standalone camera is a configuration error before any
         // translator can mutate its UI or consume input. Native-hosted clients
         // do not register the classic camera translator.
@@ -583,7 +635,7 @@ impl MessageStream {
                 })?;
                 let mut emitted = Vec::new();
                 let disposition = match translator.write() {
-                    Ok(mut translator) => translator.translate_game_message_with_context(
+                    Ok(mut translator) => translator.translate_game_message_with_receiving_eva(
                         &message,
                         client,
                         dispatch_window_input,
@@ -591,6 +643,8 @@ impl MessageStream {
                         pick_view,
                         client_ui,
                         drawable_owner.as_deref_mut(),
+                        eva.as_mut()
+                            .map(|receiver| &mut **receiver as &mut dyn ReceivingEvaFeedback),
                     ),
                     Err(e) => {
                         error!("Failed to acquire translator lock: {}", e);
