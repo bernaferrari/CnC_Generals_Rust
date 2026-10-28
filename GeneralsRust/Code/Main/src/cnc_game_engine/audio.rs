@@ -50,9 +50,7 @@ impl CnCGameEngine {
         let admitted = crate::game_logic::audio_dispatch_impl::admit_audio_request_with_info_lookup(
             event,
             locality.as_ref(),
-            &mut |player, position| {
-                logic.receiving_audio_cell_shroud_clear(player, position)
-            },
+            &mut |player, position| logic.receiving_audio_cell_shroud_clear(player, position),
             |name| audio_owner.and_then(|owner| owner.receiving_audio_event_info(name)),
         );
         if let (Some(event), Some(audio)) = (
@@ -251,8 +249,10 @@ impl CnCGameEngine {
     /// Live Common `AudioManager::update` drains AR_Play / fade / playing lists.
     pub(super) fn host_update_the_audio(&mut self) {
         self.publish_core_hud_camera_pose();
-        if let Some(audio) = gamelogic::helpers::TheAudio::get() {
-            let view = super::audio_view::CompletedAudioView::capture(&self.game_logic);
+        let view = super::audio_view::CompletedAudioView::capture(&self.game_logic);
+        if let Some(mut audio) =
+            super::native_audio_effects::NativeAudioService::receiving(&mut self.subsystem_manager)
+        {
             audio.update_with_view(view.listener, &mut |position| view.is_on_screen(position));
         }
         // C++ GameEngine.cpp:738 TheGameClient->UPDATE() includes Eva::update
@@ -307,9 +307,30 @@ impl CnCGameEngine {
     pub(super) fn update_owned_eva(&mut self) {
         #[cfg(feature = "game_client")]
         if let Some(pres) = self.last_presentation_frame.as_ref() {
-            self.eva_recipient
-                .speaker
-                .update_with_context(&pres.eva_context);
+            let player = pres
+                .eva_context
+                .local_player
+                .as_ref()
+                .map_or(-1, |p| p.index as i32);
+            let facts = self
+                .game_logic
+                .receiving_audio_player_locality(self.receiving_audio_observer_target());
+            let locality = crate::game_logic::audio_dispatch_impl::receiving_submission_locality(
+                player,
+                facts.as_ref(),
+            );
+            let mut playback = super::native_audio_effects::NativeEvaPlayback {
+                service: super::native_audio_effects::NativeAudioService::receiving(
+                    &mut self.subsystem_manager,
+                ),
+                locality,
+            };
+            let random = &mut self.game_logic.session_view.client_random;
+            self.eva_recipient.speaker.update_with_playback(
+                &pres.eva_context,
+                &mut playback,
+                &mut |lo, hi| random.next_int(lo, hi),
+            );
         }
     }
 

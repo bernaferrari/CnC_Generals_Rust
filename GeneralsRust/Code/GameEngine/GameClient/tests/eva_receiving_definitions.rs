@@ -1,6 +1,6 @@
 //! Each application's EVA speaker admits its own authored definitions.
 use game_client_rust::core::game_client::{ClientInputAuthority, GameClient};
-use game_client_rust::eva::{Eva, EvaMessage};
+use game_client_rust::eva::{Eva, EvaFrameContext, EvaLocalPlayerContext, EvaMessage, EvaPlayback};
 
 fn priority(eva: &Eva) -> u32 {
     eva.get_eva_check_info_by_name("LowPower")
@@ -47,4 +47,43 @@ fn native_client_reset_does_not_reset_the_standalone_eva() {
     client.reset().expect("reset native client");
     assert!(!game_client_rust::eva::with_eva(|eva| eva.is_enabled()));
     game_client_rust::eva::set_eva_enabled(true);
+}
+
+#[derive(Default)]
+struct CapturedSpeech(Vec<(String, Option<u32>)>);
+
+impl EvaPlayback for CapturedSpeech {
+    fn is_playing(&mut self, _handle: u32) -> bool {
+        false
+    }
+
+    fn play_speech(&mut self, event: &gamelogic::common::audio::AudioEventRts) -> u32 {
+        self.0.push((event.event_name.clone(), event.player_index));
+        1000 + self.0.len() as u32
+    }
+}
+
+#[test]
+fn speakers_borrow_their_own_playback_and_sound_selection() {
+    let source = "EvaEvent InsufficientFunds\nPriority = 2\nSideSounds\nSide = America\nSounds = FirstVoice SecondVoice\nEnd\nEnd\n";
+    let mut first = Eva::from_ordered_ini_sources([source]).unwrap();
+    let mut second = Eva::from_ordered_ini_sources([source]).unwrap();
+    let context = |index| EvaFrameContext {
+        frame: 2,
+        local_player: Some(EvaLocalPlayerContext {
+            side: "America".into(),
+            index,
+            sufficient_power: true,
+        }),
+    };
+    let mut first_speech = CapturedSpeech::default();
+    let mut second_speech = CapturedSpeech::default();
+    first.set_should_play(EvaMessage::InsufficientFunds);
+    second.set_should_play(EvaMessage::InsufficientFunds);
+    first.update_with_playback(&context(2), &mut first_speech, &mut |lo, _| lo);
+    assert_eq!(first_speech.0, [("FirstVoice".into(), Some(2))]);
+    assert!(second_speech.0.is_empty());
+    second.update_with_playback(&context(8), &mut second_speech, &mut |_, hi| hi);
+    assert_eq!(second_speech.0, [("SecondVoice".into(), Some(8))]);
+    assert_eq!(first_speech.0.len(), 1);
 }

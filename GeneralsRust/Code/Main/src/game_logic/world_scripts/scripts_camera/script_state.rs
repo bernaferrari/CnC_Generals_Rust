@@ -159,6 +159,20 @@ impl GameLogic {
         &self,
         observer_look_at: Option<i32>,
     ) -> Option<crate::game_logic::audio_dispatch_impl::LiveAudioLocality> {
+        let mut snap = self.receiving_audio_player_locality(observer_look_at)?;
+        for (id, obj) in self.objects.registered() {
+            if let Some(pid) = obj.owner_player_id {
+                snap.object_owners.insert(id.0, pid as i32);
+            }
+        }
+        Some(snap)
+    }
+
+    /// Non-positional speech needs player facts, not an object-owner census.
+    pub(crate) fn receiving_audio_player_locality(
+        &self,
+        observer_look_at: Option<i32>,
+    ) -> Option<crate::game_logic::audio_dispatch_impl::LiveAudioLocality> {
         use crate::game_logic::audio_dispatch_impl::{LiveAudioLocality, LiveAudioPlayer};
         use game_engine::common::audio::AudioLocalityRelationship;
         let local_id = self.local_player_id()?;
@@ -200,11 +214,6 @@ impl GameLogic {
                     relationship_to_local: rel,
                 },
             );
-        }
-        for (id, obj) in self.objects.registered() {
-            if let Some(pid) = obj.owner_player_id {
-                snap.object_owners.insert(id.0, pid as i32);
-            }
         }
         Some(snap)
     }

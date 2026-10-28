@@ -29,6 +29,69 @@ impl<'a> NativeAudioService<'a> {
     pub(super) fn receiver(&mut self) -> &mut dyn crate::game_logic::NativeAudioEffects {
         self
     }
+
+    pub(super) fn update_with_view(
+        &mut self,
+        observation: game_engine::common::audio::game_audio::AudioViewObservation,
+        visible: &mut dyn FnMut(&game_engine::common::audio::audio_event_rts::Coord3D) -> bool,
+    ) {
+        if let Ok(mut device) = self.device.lock() {
+            device.update_with_view(observation, visible);
+        }
+    }
+}
+
+/// EVA keeps its playback handle in the receiving speaker. The shared device
+/// remains a real native service, while admission and receipts belong here.
+#[cfg(feature = "game_client")]
+pub(super) struct NativeEvaPlayback<'a> {
+    pub(super) service: Option<NativeAudioService<'a>>,
+    pub(super) locality: AudioSubmissionLocality,
+}
+
+#[cfg(feature = "game_client")]
+impl game_client::eva::EvaPlayback for NativeEvaPlayback<'_> {
+    fn is_playing(&mut self, handle: u32) -> bool {
+        if handle == 0 {
+            return false;
+        }
+        self.service.as_ref().is_some_and(|service| {
+            service
+                .device
+                .lock()
+                .ok()
+                .is_some_and(|audio| audio.is_currently_playing(handle))
+        })
+    }
+
+    fn play_speech(&mut self, event: &gamelogic::common::audio::AudioEventRts) -> u32 {
+        let Some(service) = self.service.as_mut() else {
+            return 0;
+        };
+        // EVA owns a non-positional speech event; its player and flags are
+        // copied into the receiving device's event without a global resolver.
+        let mut speech = AudioEventRts::with_event_name(event.get_event_name());
+        if let Some(player) = event.player_index {
+            speech.set_player_index(player as i32);
+        }
+        speech.set_should_fade(event.should_fade());
+        speech.set_is_logical_audio(event.is_logical_audio());
+        speech.set_uninterruptable(event.is_uninterruptable());
+        if event.has_caller_volume() {
+            speech.set_volume(event.volume);
+        }
+        let handle = {
+            let Ok(mut device) = service.device.lock() else {
+                return 0;
+            };
+            if let Some(info) = device.find_audio_event_info(speech.get_event_name()) {
+                speech.set_audio_event_info(info);
+            }
+            device.add_audio_event_with_locality(&speech, &self.locality)
+        };
+        service.record(handle);
+        handle
+    }
 }
 impl crate::game_logic::NativeAudioEffects for NativeAudioService<'_> {
     fn music_track_completed(

@@ -479,6 +479,23 @@ pub struct EvaLocalPlayerContext {
     pub sufficient_power: bool,
 }
 
+/// Speech output for the client driving this EVA update.
+pub trait EvaPlayback {
+    fn is_playing(&mut self, handle: u32) -> bool;
+    fn play_speech(&mut self, event: &AudioEventRts) -> u32;
+}
+
+struct CoreEvaPlayback;
+impl EvaPlayback for CoreEvaPlayback {
+    fn is_playing(&mut self, handle: u32) -> bool {
+        TheAudio::get().is_some_and(|audio| audio.is_currently_playing(handle))
+    }
+
+    fn play_speech(&mut self, event: &AudioEventRts) -> u32 {
+        TheAudio::get().map_or(0, |audio| audio.add_audio_event(event))
+    }
+}
+
 #[derive(Debug)]
 pub struct Eva {
     checks: Vec<EvaCheck>,
@@ -507,13 +524,6 @@ impl Eva {
             eva_speech: AudioEventRts::default(),
             played_count: 0,
         }
-    }
-
-    pub fn init(&mut self) -> INIResult<()> {
-        let _ = register_block_parser("EvaEvent", parse_eva_event);
-        let mut ini = INI::new();
-        ini.load("Data/INI/Eva.ini", INILoadType::Overwrite)?;
-        Ok(())
     }
 
     /// Parse the application's ordered EVA sources into a fresh speaker.
@@ -593,14 +603,22 @@ impl Eva {
             self.ingest_logic_events();
         }
         let before = self.played_count;
-        self.update_with_context(&context);
+        self.update_with_playback(&context, &mut CoreEvaPlayback, &mut |lo, hi| {
+            get_game_client_random_value(lo, hi)
+        });
         EVA_PLAYED_COUNT.fetch_add(
             (self.played_count - before) as usize,
             std::sync::atomic::Ordering::Relaxed,
         );
     }
 
-    pub fn update_with_context(&mut self, context: &EvaFrameContext) {
+    /// Advance this speaker with its receiving audio service and client RNG.
+    pub fn update_with_playback(
+        &mut self,
+        context: &EvaFrameContext,
+        playback: &mut dyn EvaPlayback,
+        random: &mut dyn FnMut(i32, i32) -> i32,
+    ) {
         if !self.enabled || context.frame < 2 {
             return;
         }
@@ -625,7 +643,7 @@ impl Eva {
                 self.play_message(message, current_frame);
             }
         }
-        self.process_playing_messages_with_context(current_frame, context);
+        self.process_playing_messages_with_context(current_frame, context, playback, random);
         self.should_play.fill(false);
     }
 
@@ -779,7 +797,12 @@ impl Eva {
 
     fn process_playing_messages(&mut self, current_frame: u32) {
         let before = self.played_count;
-        self.process_playing_messages_with_context(current_frame, &Self::legacy_frame_context());
+        self.process_playing_messages_with_context(
+            current_frame,
+            &Self::legacy_frame_context(),
+            &mut CoreEvaPlayback,
+            &mut |lo, hi| get_game_client_random_value(lo, hi),
+        );
         EVA_PLAYED_COUNT.fetch_add(
             (self.played_count - before) as usize,
             std::sync::atomic::Ordering::Relaxed,
@@ -790,6 +813,8 @@ impl Eva {
         &mut self,
         current_frame: u32,
         context: &EvaFrameContext,
+        playback: &mut dyn EvaPlayback,
+        random: &mut dyn FnMut(i32, i32) -> i32,
     ) {
         let mut idx = 0;
         while idx < self.checks.len() {
@@ -813,10 +838,7 @@ impl Eva {
             return;
         }
 
-        if TheAudio::get()
-            .map(|audio| audio.is_currently_playing(self.eva_speech.get_playing_handle()))
-            .unwrap_or(false)
-        {
+        if playback.is_playing(self.eva_speech.get_playing_handle()) {
             return;
         }
 
@@ -855,10 +877,8 @@ impl Eva {
         for side_sounds in &eva_side_sounds {
             if side_sounds.side.eq_ignore_ascii_case(&side) {
                 if !side_sounds.sound_names.is_empty() {
-                    let choice = get_game_client_random_value(
-                        0,
-                        side_sounds.sound_names.len().saturating_sub(1) as i32,
-                    ) as usize;
+                    let choice =
+                        random(0, side_sounds.sound_names.len().saturating_sub(1) as i32) as usize;
                     if let Some(sound) = side_sounds.sound_names.get(choice) {
                         self.eva_speech.set_event_name(sound.to_string());
                     }
@@ -873,9 +893,7 @@ impl Eva {
         self.checks[best_index].time_for_next_check = current_frame + frames_between_checks;
         self.eva_speech.set_player_index(player_index);
 
-        let handle = TheAudio::get()
-            .map(|audio| audio.add_audio_event(&self.eva_speech))
-            .unwrap_or(0);
+        let handle = playback.play_speech(&self.eva_speech);
         self.eva_speech.set_playing_handle(handle);
     }
 

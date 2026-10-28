@@ -1,5 +1,17 @@
 //! Eva.cpp boolean admission, enum-order arbitration and frame gates.
 use super::*;
+struct SilentPlayback;
+impl EvaPlayback for SilentPlayback {
+    fn is_playing(&mut self, _: u32) -> bool {
+        false
+    }
+    fn play_speech(&mut self, _: &AudioEventRts) -> u32 {
+        0
+    }
+}
+fn update(eva: &mut Eva, frame: u32) {
+    eva.update_with_playback(&context(frame), &mut SilentPlayback, &mut |lo, _| lo);
+}
 fn context(frame: u32) -> EvaFrameContext {
     EvaFrameContext {
         frame,
@@ -30,10 +42,10 @@ fn eva_latch_order_enabled_clear_disabled_admission_and_early_frames() {
     eva.set_should_play(EvaMessage::GeneralLevelUp);
     eva.set_enabled(true);
     eva.set_should_play(EvaMessage::UpgradeComplete);
-    eva.update_with_context(&context(1));
+    update(&mut eva, 1);
     assert!(eva.checks.is_empty());
     assert!(eva.should_play[EvaMessage::UpgradeComplete.as_index()]);
-    eva.update_with_context(&context(2));
+    update(&mut eva, 2);
     assert_eq!(eva.checks.len(), 1);
     assert_eq!(eva.checks[0].eva_info, EvaMessage::UpgradeComplete);
     assert_eq!(eva.eva_speech.player_index, Some(7));
@@ -46,7 +58,7 @@ fn eva_latch_order_enabled_clear_disabled_admission_and_early_frames() {
     assert!(!eva.should_play[EvaMessage::GeneralLevelUp.as_index()]);
     eva.set_enabled(false);
     eva.set_should_play(EvaMessage::GeneralLevelUp);
-    eva.update_with_context(&context(3));
+    update(&mut eva, 3);
     assert!(eva.should_play[EvaMessage::GeneralLevelUp.as_index()]);
     eva.set_enabled(true);
     assert!(!eva.should_play[EvaMessage::GeneralLevelUp.as_index()]);
@@ -67,7 +79,7 @@ fn eva_explicit_context_coalesces_repeats_and_uses_enum_priority_order() {
     eva.set_should_play(second);
     eva.set_should_play(first);
     eva.set_should_play(first);
-    eva.update_with_context(&context(2));
+    update(&mut eva, 2);
     assert_eq!(eva.checks.len(), 2);
     assert_eq!(eva.checks[0].eva_info, first);
     assert!(eva.checks[0].already_played);

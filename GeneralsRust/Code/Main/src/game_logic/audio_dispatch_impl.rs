@@ -553,6 +553,17 @@ impl game_engine::common::audio::AudioLocalityResolver for ReceivingLocalityFact
     }
 }
 
+/// Freeze locality for a single event using the driving world's player facts.
+pub(crate) fn receiving_submission_locality(
+    owner: i32,
+    facts: Option<&LiveAudioLocality>,
+) -> game_engine::common::audio::AudioSubmissionLocality {
+    game_engine::common::audio::AudioSubmissionLocality::from_resolver(
+        owner,
+        &ReceivingLocalityFacts(facts),
+    )
+}
+
 fn lookup_audio_event_info(event_name: &str) -> Option<AudioEventInfo> {
     let manager = game_engine::common::audio::game_audio::get_global_audio_manager()?;
     let guard = manager.lock().ok()?;
@@ -735,7 +746,12 @@ pub(crate) fn admit_audio_request(
     locality: Option<&LiveAudioLocality>,
     cell_shroud_clear: &mut dyn FnMut(i32, glam::Vec3) -> bool,
 ) -> Option<AdmittedAudioRequest> {
-    admit_audio_request_with_info_lookup(event, locality, cell_shroud_clear, lookup_audio_event_info)
+    admit_audio_request_with_info_lookup(
+        event,
+        locality,
+        cell_shroud_clear,
+        lookup_audio_event_info,
+    )
 }
 
 /// Admit through an explicit receiver-owned metadata lookup. The lookup must
@@ -782,10 +798,7 @@ pub(crate) fn admit_audio_request_with_info_lookup(
             return None;
         }
     }
-    let captured = game_engine::common::audio::AudioSubmissionLocality::from_resolver(
-        owner.unwrap_or(-1),
-        &ReceivingLocalityFacts(locality),
-    );
+    let captured = receiving_submission_locality(owner.unwrap_or(-1), locality);
     Some(AdmittedAudioRequest {
         request: event,
         locality: captured,
