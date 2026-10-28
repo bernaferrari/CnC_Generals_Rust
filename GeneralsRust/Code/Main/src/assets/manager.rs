@@ -27,8 +27,6 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::SystemTime;
 
@@ -2434,8 +2432,6 @@ impl AssetSearchResults {
 // THREAD: process-wide asset owner; handed out as `Arc<Mutex<_>>` to the
 // render, audio and GUI callers that each hold it for one call.
 static ASSET_MANAGER: OnceLock<Arc<Mutex<AssetManager>>> = OnceLock::new();
-static CAUSTIC_WARMUP_STARTED: AtomicBool = AtomicBool::new(false);
-static TEXTURE_PRIME_QUEUE: OnceLock<Sender<String>> = OnceLock::new();
 
 /// Initialize the global asset manager
 pub async fn init_asset_manager(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
@@ -2624,66 +2620,6 @@ pub(crate) fn resolve_presentation_draw_models_for_live_object(
         object_name,
         dest,
     )
-}
-
-/// Warm up optional caustic animation textures outside startup critical path.
-pub fn warmup_caustic_textures_async(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> bool {
-    let _ = device;
-    let _ = queue;
-    false
-}
-
-/// Queue a background task to prime raw texture data without blocking the caller.
-pub fn queue_prime_texture_raw(texture_name: &str) -> bool {
-    let Some(manager_arc) = get_asset_manager() else {
-        return false;
-    };
-    let name = texture_name.trim();
-    if name.is_empty() || name.eq_ignore_ascii_case("none") {
-        return false;
-    }
-
-    texture_prime_sender(manager_arc)
-        .send(name.to_string())
-        .is_ok()
-}
-
-fn texture_prime_sender(manager_arc: Arc<Mutex<AssetManager>>) -> &'static Sender<String> {
-    TEXTURE_PRIME_QUEUE.get_or_init(move || {
-        let (tx, rx) = mpsc::channel::<String>();
-        std::thread::spawn(move || {
-            let runtime = match tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            {
-                Ok(runtime) => runtime,
-                Err(err) => {
-                    error!("Failed to initialize texture prime runtime: {}", err);
-                    return;
-                }
-            };
-
-            while let Ok(name) = rx.recv() {
-                let Ok(mut manager) = manager_arc.lock() else {
-                    continue;
-                };
-                let (texture_manager, archive_system) = {
-                    let manager_ref: &mut AssetManager = &mut manager;
-                    (
-                        &mut manager_ref.texture_manager,
-                        &mut manager_ref.archive_system,
-                    )
-                };
-
-                let _ = runtime.block_on(async {
-                    texture_manager
-                        .prime_raw_texture(archive_system, &name)
-                        .await
-                });
-            }
-        });
-        tx
-    })
 }
 
 /// Convenience functions for common operations
