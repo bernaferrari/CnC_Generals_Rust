@@ -152,44 +152,6 @@ impl GameLogic {
         );
     }
 
-    /// C++ ActiveBody::setAflame → updateBodyParticleSystems (AFLAME prefix).
-    pub(crate) fn spawn_auto_aflame_particles(
-        &mut self,
-        object_id: ObjectId,
-        pos: Vec3,
-        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
-    ) {
-        let (ordinal, model, scale, yaw) = {
-            let Some(obj) = self.objects.get(&object_id) else {
-                return;
-            };
-            (
-                obj.body_damage_state.ordinal(),
-                obj.thing()
-                    .template
-                    .model_name_for_conditions(obj.model_condition_bits),
-                obj.thing().template.asset_scale,
-                obj.get_orientation(),
-            )
-        };
-        let pose = crate::game_logic::combat_particles::BodyAutoParticlePose::with_visibility(
-            &model,
-            scale,
-            yaw,
-            self.host_fx_object_is_shrouded(object_id.0),
-        );
-        self.combat_particles.replace_body_auto_particles(
-            object_id,
-            pos,
-            self.frame,
-            ordinal,
-            true,
-            pose,
-            particle_owner,
-            &mut self.session_view.client_random,
-        );
-    }
-
     /// C++ `recalcBonesForClientParticleSystems` on create.
     pub(crate) fn spawn_particle_sys_bones_for_object(
         &mut self,

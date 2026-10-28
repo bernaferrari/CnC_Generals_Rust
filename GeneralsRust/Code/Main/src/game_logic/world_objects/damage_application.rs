@@ -51,21 +51,42 @@ impl GameLogic {
                 locality: self.receiving_audio_locality_for_player(player),
             }
         };
+        let player = self.local_player_id();
+        let frame = self.frame;
+        let shroud = self.world_services.shroud();
+        let particles = &mut self.combat_particles;
+        let random = &mut self.session_view.client_random;
         let object = self.objects.get_mut(&id)?;
         object.set_body_max_health_with_mode_and_body_fx(
             maximum,
             mode,
-            &mut |_object, effect, _source| {
-                if let crate::game_logic::object::BodyStateFx::NativeVisualState(_state) = effect {
+            &mut |object, effect, _source| match effect {
+                crate::game_logic::object::BodyStateFx::NativeVisualState(state) => {
                     #[cfg(feature = "game_client")]
                     if let Some(view) = effects.view.as_mut() {
                         let audio = effects
                             .audio
                             .as_mut()
                             .and_then(|audio| audio.native_ambient());
-                        change.deliver(_state, &mut **view, audio);
+                        change.deliver(state, &mut **view, audio);
                     }
+                    crate::game_logic::body_particle_runtime::update_body_auto_particles(
+                        particles, object, state, frame, player, shroud, effects, random,
+                    );
                 }
+                crate::game_logic::object::BodyStateFx::BodyParticleState => {
+                    crate::game_logic::body_particle_runtime::update_body_auto_particles(
+                        particles,
+                        object,
+                        object.body_damage_state,
+                        frame,
+                        player,
+                        shroud,
+                        effects,
+                        random,
+                    );
+                }
+                _ => {}
             },
         );
         Some(())
@@ -546,6 +567,15 @@ impl GameLogic {
                                     .and_then(|audio| audio.native_ambient());
                                 change.deliver(*state, &mut **native_view, audio);
                             }
+                            // ActiveBody::evaluateVisualCondition updates its
+                            // native drawable first, then synchronously replaces
+                            // body auto-particles before entering later callbacks.
+                            view.update_body_auto_particles(
+                                &mut self.combat_particles,
+                                object,
+                                *state,
+                                frame,
+                            );
                             return;
                         }
                         let source = if matches!(
@@ -591,6 +621,16 @@ impl GameLogic {
         let mut application: DamageApplication = {
             #[cfg(feature = "game_client")]
             let fx_operation_environment = self.observe_object_fx_environment();
+            let body_particle_player = self.local_player_id();
+            #[cfg(not(feature = "game_client"))]
+            let mut body_particles =
+                crate::game_logic::body_particle_runtime::HeadlessBodyParticleUpdate {
+                    particles: &mut self.combat_particles,
+                    random: &mut self.session_view.client_random,
+                    player: body_particle_player,
+                    shroud: self.world_services.shroud(),
+                    frame: self.frame,
+                };
             let players = &mut self.players;
             self.objects
                 .get_mut(&victim_id)?
@@ -608,12 +648,13 @@ impl GameLogic {
                         Self::apply_body_player_effect(players, frame, &source_players, effect)
                     },
                     &mut |object, effect, source| {
-                        Self::execute_body_state_fx_without_view(
+                        Self::execute_body_state_fx_without_view_with_particles(
                             object,
                             effect,
                             source,
                             &mut self.queued_audio_events,
                             &self.logic_random,
+                            &mut body_particles,
                         )
                     },
                     self.frame,
@@ -828,18 +869,30 @@ impl GameLogic {
         #[cfg(not(feature = "game_client"))]
         let mut transition_yield = None;
         #[cfg(not(feature = "game_client"))]
+        let body_particle_player = self.local_player_id();
+        #[cfg(not(feature = "game_client"))]
+        let mut body_particles =
+            crate::game_logic::body_particle_runtime::HeadlessBodyParticleUpdate {
+                particles: &mut self.combat_particles,
+                random: &mut self.session_view.client_random,
+                player: body_particle_player,
+                shroud: self.world_services.shroud(),
+                frame: self.frame,
+            };
+        #[cfg(not(feature = "game_client"))]
         if let Some(victim) = self.objects.get_mut(&victim_id) {
             transition_yield = application.complete_body_state_callbacks_yield_transition(
                 victim,
                 callback_source.as_ref(),
                 &self.logic_random,
                 &mut |object, effect, source| {
-                    Self::execute_body_state_fx_without_view(
+                    Self::execute_body_state_fx_without_view_with_particles(
                         object,
                         effect,
                         source,
                         &mut self.queued_audio_events,
                         &self.logic_random,
+                        &mut body_particles,
                     )
                 },
             );
@@ -868,18 +921,28 @@ impl GameLogic {
                 .get(&victim_id)
                 .is_some_and(|victim| self.live_draw_playback_identity(victim) == victim_identity);
             if same_victim {
+                let body_particle_player = self.local_player_id();
+                let mut body_particles =
+                    crate::game_logic::body_particle_runtime::HeadlessBodyParticleUpdate {
+                        particles: &mut self.combat_particles,
+                        random: &mut self.session_view.client_random,
+                        player: body_particle_player,
+                        shroud: self.world_services.shroud(),
+                        frame: self.frame,
+                    };
                 if let Some(victim) = self.objects.get_mut(&victim_id) {
                     application.finish_body_state_callbacks_after_transition(
                         victim,
                         callback_source.as_ref(),
                         &self.logic_random,
                         &mut |object, effect, source| {
-                            Self::execute_body_state_fx_without_view(
+                            Self::execute_body_state_fx_without_view_with_particles(
                                 object,
                                 effect,
                                 source,
                                 &mut self.queued_audio_events,
                                 &self.logic_random,
+                                &mut body_particles,
                             )
                         },
                     );
@@ -986,6 +1049,16 @@ impl GameLogic {
         let after_fx = {
             #[cfg(feature = "game_client")]
             let fx_operation_environment = self.observe_object_fx_environment();
+            let body_particle_player = self.local_player_id();
+            #[cfg(not(feature = "game_client"))]
+            let mut body_particles =
+                crate::game_logic::body_particle_runtime::HeadlessBodyParticleUpdate {
+                    particles: &mut self.combat_particles,
+                    random: &mut self.session_view.client_random,
+                    player: body_particle_player,
+                    shroud: self.world_services.shroud(),
+                    frame: self.frame,
+                };
             let victim = self
                 .objects
                 .get_mut(&victim_id)
@@ -994,12 +1067,13 @@ impl GameLogic {
                 victim,
                 source.as_ref(),
                 &mut |object, effect, source| {
-                    Self::execute_body_state_fx_without_view(
+                    Self::execute_body_state_fx_without_view_with_particles(
                         object,
                         effect,
                         source,
                         &mut self.queued_audio_events,
                         &self.logic_random,
+                        &mut body_particles,
                     )
                 },
             )
@@ -1016,6 +1090,16 @@ impl GameLogic {
         let finish_player = self.local_player_id();
         #[cfg(feature = "game_client")]
         let fx_operation_environment = self.observe_object_fx_environment();
+        let body_particle_player = self.local_player_id();
+        #[cfg(not(feature = "game_client"))]
+        let mut body_particles =
+            crate::game_logic::body_particle_runtime::HeadlessBodyParticleUpdate {
+                particles: &mut self.combat_particles,
+                random: &mut self.session_view.client_random,
+                player: body_particle_player,
+                shroud: self.world_services.shroud(),
+                frame: self.frame,
+            };
         #[cfg(feature = "game_client")]
         let destroyed = Self::with_object_fx_services(
             &mut self.session_view,
@@ -1067,12 +1151,13 @@ impl GameLogic {
                 source.as_ref(),
                 enable_repulsors,
                 &mut |object, effect, source| {
-                    Self::execute_body_state_fx_without_view(
+                    Self::execute_body_state_fx_without_view_with_particles(
                         object,
                         effect,
                         source,
                         &mut self.queued_audio_events,
                         &self.logic_random,
+                        &mut body_particles,
                     )
                 },
                 self.frame,

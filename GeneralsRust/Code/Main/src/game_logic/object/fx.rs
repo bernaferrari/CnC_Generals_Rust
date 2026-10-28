@@ -6,6 +6,13 @@ use crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent;
 pub(in crate::game_logic) enum BodyStateFx {
     /// ActiveBody::evaluateVisualCondition, before effectivelyDead/onDamage.
     NativeVisualState(crate::game_logic::host_enum_table_residual::HostBodyDamageType),
+    /// C++ ActiveBody::setAflame -> updateBodyParticleSystems, separate from
+    /// TransitionDamageFX and from the next world-tick attachment sync.
+    BodyParticleState,
+    /// C++ tryToIgnite continuation after status, Body and model callbacks.
+    FlammableIgnition {
+        frame: u32,
+    },
     Transition(HostTransitionDamageFxEvent),
     BoneParticleRetirement(crate::game_logic::host_bone_fx_damage::BoneParticleRetirement),
     BoneStateChange {
@@ -35,6 +42,32 @@ pub(in crate::game_logic) type BodyStateFxReceiver<'a> = dyn FnMut(
     ) + 'a;
 
 impl Object {
+    pub(crate) fn complete_flammable_ignition(
+        object: &mut Object,
+        frame: u32,
+        audio: &mut crate::game_logic::SessionAudio,
+        random: &game_engine::common::random_value::SessionRandom,
+    ) {
+        let position = object.get_position();
+        let id = object.id;
+        let Some(fire) = object.fire_spread.as_mut() else {
+            return;
+        };
+        if !fire.burning_sound_name.is_empty() {
+            audio.push(
+                crate::game_logic::AudioEventRequest::new(&fire.burning_sound_name)
+                    .with_object(id)
+                    .with_position(position)
+                    .with_priority(140)
+                    .looping(),
+            );
+            fire.burning_sound_active = true;
+        }
+        if fire.spread_enabled {
+            fire.start_fire_spreading_with_random(frame, random);
+        }
+    }
+
     /// The original fear gate executes after body callbacks. Only a qualifying
     /// live crossing consumes a chance draw, including a silent definition.
     pub(in crate::game_logic) fn voice_fear_request(
@@ -67,7 +100,7 @@ impl Object {
         Some(request)
     }
 
-    pub(super) fn standalone_body_fx(
+    pub(in crate::game_logic) fn standalone_body_fx(
         object: &mut Object,
         effect: BodyStateFx,
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
@@ -85,7 +118,14 @@ impl Object {
             // observing presentation supplies its BodyStateFxReceiver; admitted
             // objects use the receiving session operations below.
             BodyStateFx::BoneParticleRetirement(_) => {}
+            BodyStateFx::FlammableIgnition { frame } => {
+                if let Some(fire) = object.fire_spread.as_mut() {
+                    fire.burning_sound_active = false;
+                    fire.start_fire_spreading(frame);
+                }
+            }
             BodyStateFx::NativeVisualState(_)
+            | BodyStateFx::BodyParticleState
             | BodyStateFx::VoiceFear(_)
             | BodyStateFx::MovementStop(_) => {}
             BodyStateFx::Transition(event) => {
@@ -270,7 +310,32 @@ impl crate::game_logic::GameLogic {
             BodyStateFx::VoiceFear(request) | BodyStateFx::MovementStop(request) => {
                 audio.push(request)
             }
+            BodyStateFx::FlammableIgnition { frame } => {
+                Object::complete_flammable_ignition(object, frame, audio, random)
+            }
             effect => Object::standalone_body_fx(object, effect, source),
+        }
+    }
+
+    pub(in crate::game_logic) fn execute_body_state_fx_without_view_with_particles(
+        object: &mut Object,
+        effect: BodyStateFx,
+        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+        audio: &mut crate::game_logic::SessionAudio,
+        random: &game_engine::common::random_value::SessionRandom,
+        body_particles: &mut crate::game_logic::body_particle_runtime::HeadlessBodyParticleUpdate<'_>,
+    ) {
+        match effect {
+            BodyStateFx::NativeVisualState(state) => body_particles.update(object, state),
+            BodyStateFx::BodyParticleState => {
+                body_particles.update(object, object.body_damage_state)
+            }
+            BodyStateFx::FlammableIgnition { frame } => {
+                Object::complete_flammable_ignition(object, frame, audio, random)
+            }
+            effect => {
+                Self::execute_body_state_fx_without_view(object, effect, source, audio, random)
+            }
         }
     }
 
@@ -304,6 +369,12 @@ impl crate::game_logic::GameLogic {
             // Early native visual effects are handled by the driving receiver,
             // never by this later DamageModule/particle FX boundary.
             BodyStateFx::NativeVisualState(_) => {}
+            BodyStateFx::BodyParticleState => {
+                view.update_body_auto_particles(particles, object, object.body_damage_state, frame);
+            }
+            BodyStateFx::FlammableIgnition { frame } => {
+                Object::complete_flammable_ignition(object, frame, audio, view.logic_random);
+            }
             BodyStateFx::Transition(event) => Self::execute_transition_damage_fx_with_view(
                 object, event, source, particles, frame, player, shroud, view,
             ),

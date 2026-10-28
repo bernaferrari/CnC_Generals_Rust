@@ -6,6 +6,7 @@ mod runtime_regressions;
 pub(crate) mod armor_definitions;
 pub mod audio_dispatch_impl;
 pub(crate) mod body_damage_rules;
+mod body_particle_runtime;
 pub mod buildings;
 pub mod combat;
 pub mod combat_particles;

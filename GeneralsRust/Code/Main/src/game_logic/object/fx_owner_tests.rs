@@ -325,3 +325,246 @@ fn native_second_life_start_uses_receiving_view_for_normal_and_indestructible_bo
         );
     }
 }
+
+#[test]
+fn body_visual_change_replaces_auto_particles_immediately_in_receiving_world() {
+    let (sent, _received) = channel();
+    let catalog = game_client::fx_list::FXListStore::new();
+    let id = ObjectId(9410);
+    let mut owner = world(id, Vec3::new(10., 0., 12.), &catalog);
+    let mut peer = world(id, Vec3::new(40., 0., 12.), &catalog);
+    let mut stale = Vec::new();
+    for world in [&mut owner, &mut peer] {
+        stale.push(world.combat_particles.spawn(
+            crate::game_logic::CombatParticleKind::BodyFire,
+            Vec3::ZERO,
+            0,
+            Some(id),
+            None,
+        ));
+    }
+
+    with_audio(&mut owner, id, &sent, |world, effects| {
+        world
+            .apply_owned_damage_with_killer_team_and_after_fx_with_effects(
+                id,
+                60.,
+                None,
+                crate::game_logic::combat::DamageType::Explosive,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                None,
+                &DamageHitContext::default(),
+                None,
+                |_, _| {},
+                effects,
+            )
+            .unwrap();
+    });
+
+    assert_eq!(
+        owner.objects[&id].body_damage_state,
+        crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged
+    );
+    assert!(
+        !owner.combat_particles.get(stale[0]).unwrap().active,
+        "the receiving Body callback must retire stale auto-particles synchronously"
+    );
+    assert!(
+        peer.combat_particles.get(stale[1]).unwrap().active,
+        "a same-ID peer must retain its own body particle system"
+    );
+}
+
+#[test]
+fn aflame_edge_uses_object_status_when_flammable_state_already_advanced() {
+    let mut object = Object::new(
+        ThingTemplate::new("AflameEdgeOwner"),
+        ObjectId(9411),
+        Team::USA,
+    );
+    let mut spread = crate::game_logic::host_fire_spread::HostFireSpreadData::default();
+    spread.state = crate::game_logic::host_fire_spread::HostFlammableState::Aflame;
+    object.fire_spread = Some(spread);
+    assert!(!object.has_object_status_bit("AFLAME"));
+
+    let mut particle_callbacks = 0;
+    object.apply_flammable_ignite_visuals_with_body_fx(None, 1, &mut |_, effect, _| {
+        if matches!(
+            effect,
+            crate::game_logic::object::BodyStateFx::BodyParticleState
+        ) {
+            particle_callbacks += 1;
+        }
+    });
+
+    assert_eq!(particle_callbacks, 1);
+    assert!(object.has_object_status_bit("AFLAME"));
+}
+
+#[test]
+fn flammable_ignition_callback_precedes_sound_spread_and_state_commit() {
+    let mut template = ThingTemplate::new("IgnitionOrder");
+    template.set_health(100.0);
+    let mut object = Object::new(template, ObjectId(9411), Team::USA);
+    let mut fire = crate::game_logic::host_fire_spread::HostFireSpreadData::tree_default();
+    fire.min_spread_delay = 2;
+    fire.max_spread_delay = 4;
+    object.fire_spread = Some(fire);
+    let mut audio = crate::game_logic::SessionAudio::default();
+    let random = game_engine::common::random_value::SessionRandom::default();
+    let mut body_particle_seen = false;
+    let mut ignition_seen = false;
+
+    object.apply_flammable_ignite_visuals_with_body_fx(None, 10, &mut |object, effect, _| {
+        match effect {
+            crate::game_logic::object::BodyStateFx::BodyParticleState => {
+                assert!(!ignition_seen);
+                body_particle_seen = true;
+            }
+            crate::game_logic::object::BodyStateFx::FlammableIgnition { frame } => {
+                assert_eq!(frame, 10);
+                assert!(body_particle_seen);
+                assert!(object.has_object_status_bit("AFLAME"));
+                let fire = object.fire_spread.as_ref().unwrap();
+                assert!(matches!(
+                    fire.state,
+                    crate::game_logic::host_fire_spread::HostFlammableState::Normal
+                ));
+                assert_eq!(fire.aflame_end_frame, 0);
+                ignition_seen = true;
+                Object::complete_flammable_ignition(object, frame, &mut audio, &random);
+            }
+            effect => Object::standalone_body_fx(object, effect, None),
+        }
+    });
+
+    let fire = object.fire_spread.as_ref().unwrap();
+    assert!(ignition_seen);
+    assert!(matches!(
+        fire.state,
+        crate::game_logic::host_fire_spread::HostFlammableState::Aflame
+    ));
+    assert_eq!(fire.aflame_end_frame, 10 + fire.aflame_duration);
+    assert!(fire.next_spread_frame > 10);
+    assert!(fire.burning_sound_active);
+    assert_eq!(audio.len(), 1);
+}
+
+#[test]
+fn direct_fire_spread_ignition_replaces_only_the_receiving_world_particles() {
+    let catalog = game_client::fx_list::FXListStore::new();
+    let id = ObjectId(9412);
+    let mut owner = world(id, Vec3::new(10., 0., 12.), &catalog);
+    let mut peer = world(id, Vec3::new(40., 0., 12.), &catalog);
+    let mut stale = Vec::new();
+    for world in [&mut owner, &mut peer] {
+        world.objects.get_mut(&id).unwrap().fire_spread =
+            Some(crate::game_logic::host_fire_spread::HostFireSpreadData::tree_default());
+        stale.push(world.combat_particles.spawn(
+            crate::game_logic::CombatParticleKind::BodyFire,
+            Vec3::ZERO,
+            0,
+            Some(id),
+            None,
+        ));
+    }
+
+    let mut effects = crate::game_logic::ScriptPresentationEffects::default();
+    assert!(owner.ignite_object_fire_spread(id, &mut effects));
+
+    assert!(owner.objects[&id].has_object_status_bit("AFLAME"));
+    assert!(owner.objects[&id].fire_spread.as_ref().unwrap().is_aflame());
+    assert!(!owner.combat_particles.get(stale[0]).unwrap().active);
+    assert!(peer.combat_particles.get(stale[1]).unwrap().active);
+}
+
+#[test]
+fn flame_damage_ignition_finishes_inline_in_the_receiving_world() {
+    let catalog = game_client::fx_list::FXListStore::new();
+    let id = ObjectId(9414);
+    let mut owner = world(id, Vec3::new(10., 0., 12.), &catalog);
+    let mut peer = world(id, Vec3::new(40., 0., 12.), &catalog);
+    let mut stale = Vec::new();
+    for world in [&mut owner, &mut peer] {
+        let mut fire = crate::game_logic::host_fire_spread::HostFireSpreadData::tree_default();
+        fire.flame_damage_limit = 1.0;
+        let object = world.objects.get_mut(&id).unwrap();
+        object.fire_spread = Some(fire);
+        stale.push(world.combat_particles.spawn(
+            crate::game_logic::CombatParticleKind::BodyFire,
+            Vec3::ZERO,
+            0,
+            Some(id),
+            None,
+        ));
+    }
+    let owner_stale = stale[0];
+    let peer_stale = stale[1];
+
+    let _ = owner.apply_owned_damage_with_effects(
+        id,
+        1.0,
+        None,
+        crate::game_logic::combat::DamageType::Flame,
+        crate::game_logic::host_usa_pilot::HostDeathType::Burned,
+        None,
+        &DamageHitContext::default(),
+        &mut crate::game_logic::ScriptPresentationEffects::default(),
+    );
+
+    let fire = owner.objects[&id].fire_spread.as_ref().unwrap();
+    assert!(owner.objects[&id].has_object_status_bit("AFLAME"));
+    assert!(fire.is_aflame());
+    assert!(fire.burning_sound_active);
+    assert!(!owner.combat_particles.get(owner_stale).unwrap().active);
+    assert!(peer.combat_particles.get(peer_stale).unwrap().active);
+    assert!(!peer.objects[&id].has_object_status_bit("AFLAME"));
+    assert!(
+        peer.objects[&id]
+            .fire_spread
+            .as_ref()
+            .unwrap()
+            .would_ignite()
+    );
+    assert!(owner.queued_audio_event_count_for_test() > 0);
+    assert_eq!(peer.queued_audio_event_count_for_test(), 0);
+}
+
+#[test]
+fn fire_spread_timer_extinguishes_particles_synchronously_for_owner_only() {
+    let catalog = game_client::fx_list::FXListStore::new();
+    let id = ObjectId(9413);
+    let mut owner = world(id, Vec3::new(10., 0., 12.), &catalog);
+    let mut peer = world(id, Vec3::new(40., 0., 12.), &catalog);
+    let mut stale = Vec::new();
+    for world in [&mut owner, &mut peer] {
+        let mut fire = crate::game_logic::host_fire_spread::HostFireSpreadData::tree_default();
+        assert!(fire.try_to_ignite(0));
+        fire.aflame_end_frame = 1;
+        fire.burned_end_frame = 0;
+        fire.burning_sound_name.clear();
+        fire.burning_sound_active = false;
+        let object = world.objects.get_mut(&id).unwrap();
+        object.fire_spread = Some(fire);
+        object.apply_flammable_ignite_visuals(0);
+        stale.push(world.combat_particles.spawn(
+            crate::game_logic::CombatParticleKind::BodyFire,
+            Vec3::ZERO,
+            0,
+            Some(id),
+            None,
+        ));
+    }
+    owner.frame = 1;
+
+    let mut effects = crate::game_logic::ScriptPresentationEffects::default();
+    owner.update_fire_spread_with_effects(&mut effects);
+
+    assert!(!owner.objects[&id].has_object_status_bit("AFLAME"));
+    assert!(matches!(
+        owner.objects[&id].fire_spread.as_ref().unwrap().state,
+        crate::game_logic::host_fire_spread::HostFlammableState::Normal
+    ));
+    assert!(!owner.combat_particles.get(stale[0]).unwrap().active);
+    assert!(peer.combat_particles.get(stale[1]).unwrap().active);
+}

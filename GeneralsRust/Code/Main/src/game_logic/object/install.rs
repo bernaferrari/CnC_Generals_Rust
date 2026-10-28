@@ -747,14 +747,23 @@ impl Object {
     }
 
     pub fn try_ignite_fire_spread(&mut self, current_frame: u32) -> bool {
-        let Some(fs) = self.fire_spread.as_mut() else {
-            return false;
-        };
-        if fs.try_to_ignite(current_frame) {
-            self.apply_flammable_ignite_visuals(current_frame);
-            true
-        } else {
+        self.try_ignite_fire_spread_with_body_fx(current_frame, &mut Object::standalone_body_fx)
+    }
+
+    pub(in crate::game_logic) fn try_ignite_fire_spread_with_body_fx(
+        &mut self,
+        current_frame: u32,
+        body_fx: &mut crate::game_logic::object::BodyStateFxReceiver<'_>,
+    ) -> bool {
+        let can_ignite = self
+            .fire_spread
+            .as_ref()
+            .is_some_and(|fire| fire.would_ignite());
+        if !can_ignite {
             false
+        } else {
+            self.apply_flammable_ignite_visuals_with_body_fx(None, current_frame, body_fx);
+            true
         }
     }
 

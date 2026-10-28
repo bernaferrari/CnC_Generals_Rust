@@ -47,3 +47,30 @@ fn same_id_transition_ocl_uses_the_receiving_world_synchronously() {
     assert_eq!(children(&peer), vec!["PeerTransitionChild".to_owned()]);
     assert_eq!(children(&first), vec!["FirstTransitionChild".to_owned()]);
 }
+
+#[test]
+fn body_damage_retires_only_the_receiving_worlds_particles_immediately() {
+    use generals_main::game_logic::CombatParticleKind;
+
+    let (mut first, first_id) = world("FirstTransitionChild");
+    let (mut peer, peer_id) = world("PeerTransitionChild");
+    assert_eq!(first_id, peer_id);
+    let first_particle = first.combat_particles_mut().spawn(
+        CombatParticleKind::BodyFire,
+        glam::Vec3::ZERO,
+        0,
+        Some(first_id),
+        None,
+    );
+    let peer_particle = peer.combat_particles_mut().spawn(
+        CombatParticleKind::BodyFire,
+        glam::Vec3::ZERO,
+        0,
+        Some(peer_id),
+        None,
+    );
+
+    first.apply_host_damage(first_id, 60.0);
+    assert!(!first.combat_particles().get(first_particle).unwrap().active);
+    assert!(peer.combat_particles().get(peer_particle).unwrap().active);
+}

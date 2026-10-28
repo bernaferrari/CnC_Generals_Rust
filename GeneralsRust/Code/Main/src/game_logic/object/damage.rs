@@ -1089,7 +1089,7 @@ impl Object {
             )
         {
             if let Some(fs) = self.fire_spread.as_mut() {
-                if fs.apply_flame_damage(actual_damage, frame) {
+                if fs.apply_flame_damage_before_ignite(actual_damage, frame) {
                     self.apply_flammable_ignite_visuals_with_body_fx(
                         context.source(),
                         frame,

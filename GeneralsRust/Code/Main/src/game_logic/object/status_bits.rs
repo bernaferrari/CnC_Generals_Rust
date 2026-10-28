@@ -268,21 +268,26 @@ impl Object {
             aflame,
             smoldering,
             burned,
+            false,
             source,
             frame,
             &mut Object::standalone_body_fx,
         );
     }
 
-    fn apply_flammable_visuals_with_body_fx(
+    pub(in crate::game_logic) fn apply_flammable_visuals_with_body_fx(
         &mut self,
         aflame: bool,
         smoldering: bool,
         burned: bool,
+        force_body_particle_update: bool,
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
         frame: u32,
         body_fx: &mut BodyStateFxReceiver<'_>,
     ) {
+        // C++ tests ObjectStatus::AFLAME here. FlammableUpdate may already
+        // have advanced its private state before this Body visual callback.
+        let was_aflame = self.has_object_status_bit("AFLAME");
         if aflame {
             let _ = self.apply_status_bits_upgrade_masks(&["AFLAME"], &[]);
         } else if burned {
@@ -301,6 +306,11 @@ impl Object {
                 fs.smoldering = true;
             }
         }
+        // tryToIgnite and extinction call Body::setAflame even if the status
+        // bit was already changed elsewhere. Smolder-only updates do not.
+        if force_body_particle_update || was_aflame != aflame {
+            body_fx(self, BodyStateFx::BodyParticleState, source);
+        }
         self.refresh_model_condition_bits_with_body_fx(source, frame, body_fx);
     }
 
@@ -318,7 +328,13 @@ impl Object {
         frame: u32,
         body_fx: &mut BodyStateFxReceiver<'_>,
     ) {
-        self.apply_flammable_visuals_with_body_fx(true, false, false, source, frame, body_fx);
+        self.apply_flammable_visuals_with_body_fx(true, false, false, true, source, frame, body_fx);
+        // C++ tryToIgnite starts audio and FireSpreadUpdate only after status,
+        // Body::setAflame and model-condition callbacks have completed.
+        body_fx(self, BodyStateFx::FlammableIgnition { frame }, source);
+        if let Some(fire) = self.fire_spread.as_mut() {
+            fire.finish_ignition(frame);
+        }
     }
 
     /// C++ tryToIgnite: AFLAME status, body setAflame, MODELCONDITION_AFLAME.

@@ -197,6 +197,29 @@ pub(crate) struct ObjectFxServices<'a, 's> {
     pub logic_random: &'a game_engine::common::random_value::SessionRandom,
 }
 impl ObjectFxServices<'_, '_> {
+    /// Synchronous C++ ActiveBody::updateBodyParticleSystems equivalent using
+    /// this operation's receiving registry, view, shroud, and client RNG.
+    pub(crate) fn update_body_auto_particles(
+        &mut self,
+        particles: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
+        object: &crate::game_logic::Object,
+        body_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+        frame: u32,
+    ) {
+        crate::game_logic::body_particle_runtime::update_body_auto_particles(
+            particles,
+            object,
+            body_state,
+            frame,
+            self.player,
+            self.shroud,
+            &mut *self.effects,
+            &mut self.session.client_random,
+        );
+    }
+}
+
+impl ObjectFxServices<'_, '_> {
     /// One short loan of this operation's actual native particle owner.
     /// No active manager lookup, epoch-domain shortcut or stored receipt.
     pub(crate) fn retire_particles(

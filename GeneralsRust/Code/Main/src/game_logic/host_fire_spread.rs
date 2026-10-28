@@ -259,15 +259,45 @@ impl HostFireSpreadData {
         self.active && matches!(self.state, HostFlammableState::Normal)
     }
 
-    /// C++ `tryToIgnite` (`FlammableUpdate.cpp:170-197`).
+    /// Standalone compatibility for `tryToIgnite` fixtures. Production owners
+    /// use the Body callback continuation before committing ignition.
     pub fn try_to_ignite(&mut self, current_frame: u32) -> bool {
         if !self.would_ignite() {
             return false;
         }
+        self.burning_sound_active = false;
+        self.start_fire_spreading(current_frame);
+        self.finish_ignition(current_frame);
+        true
+    }
+
+    /// Standalone compatibility startFireSpreading. Production owners call
+    /// the `with_random` form at the receiving callback boundary.
+    pub fn start_fire_spreading(&mut self, current_frame: u32) {
+        if self.spread_enabled {
+            self.next_spread_frame =
+                current_frame.saturating_add(self.calc_next_spread_delay(current_frame));
+        }
+    }
+
+    /// Receiving production path; preserves one inclusive logic draw at the
+    /// original startFireSpreading point on this world's stream.
+    pub fn start_fire_spreading_with_random(
+        &mut self,
+        current_frame: u32,
+        random: &game_engine::common::random_value::SessionRandom,
+    ) {
+        if self.spread_enabled {
+            self.next_spread_frame =
+                current_frame.saturating_add(self.calc_next_spread_delay_with_random(random));
+        }
+    }
+
+    /// Commit FlammableUpdate state/timers after the receiving visual callback.
+    pub fn finish_ignition(&mut self, current_frame: u32) {
         self.state = HostFlammableState::Aflame;
         self.smoldering = false;
         self.body_aflame = true;
-        self.burning_sound_active = false;
         self.aflame_end_frame = current_frame.saturating_add(self.aflame_duration);
         // C++: `m_burnedEndFrame = burnedDelay ? now + burnedDelay : 0` (0 = never).
         self.burned_end_frame = if self.burned_delay > 0 {
@@ -275,18 +305,24 @@ impl HostFireSpreadData {
         } else {
             0
         };
-        if self.spread_enabled {
-            self.next_spread_frame =
-                current_frame.saturating_add(self.calc_next_spread_delay(current_frame));
-        }
         self.damage_end_frame = if self.aflame_damage_delay > 0 {
             current_frame.saturating_add(self.aflame_damage_delay)
         } else {
             0
         };
-        true
     }
+    /// Standalone convenience API. Production Object damage uses
+    /// `apply_flame_damage_before_ignite` and the receiving Body callback.
     pub fn apply_flame_damage(&mut self, amount: f32, current_frame: u32) -> bool {
+        if self.apply_flame_damage_before_ignite(amount, current_frame) {
+            return self.try_to_ignite(current_frame);
+        }
+        false
+    }
+
+    /// Update flame accumulation without committing FS_AFLAME. The receiving
+    /// Object must run status/Body/model/audio callbacks before finalization.
+    pub fn apply_flame_damage_before_ignite(&mut self, amount: f32, current_frame: u32) -> bool {
         if matches!(
             self.state,
             HostFlammableState::Burned | HostFlammableState::Aflame
@@ -303,18 +339,25 @@ impl HostFireSpreadData {
         let dealt = amount.max(0.0);
         self.flame_damage_accum += dealt;
         self.flame_damage_limit -= dealt;
-        if self.flame_damage_limit <= 0.0 {
-            return self.try_to_ignite(current_frame);
-        }
-        false
+        self.flame_damage_limit <= 0.0 && self.would_ignite()
     }
 
-    /// C++ `FireSpreadUpdate::calcNextSpreadDelay` GameLogicRandomValue(min, max).
+    /// Standalone compatibility draw. Receiving GameLogic code uses the
+    /// explicit-session variant below.
     pub fn calc_next_spread_delay(&self, _salt: u32) -> u32 {
         let lo = self.min_spread_delay as i32;
         let hi = self.max_spread_delay.max(self.min_spread_delay) as i32;
         let delay = gamelogic::helpers::get_game_logic_random_value(lo, hi);
         (delay.max(1) as u32).max(1)
+    }
+
+    pub fn calc_next_spread_delay_with_random(
+        &self,
+        random: &game_engine::common::random_value::SessionRandom,
+    ) -> u32 {
+        let lo = self.min_spread_delay as i32;
+        let hi = self.max_spread_delay.max(self.min_spread_delay) as i32;
+        (random.next_int(lo, hi).max(1) as u32).max(1)
     }
 
     pub fn is_aflame(&self) -> bool {
@@ -323,6 +366,20 @@ impl HostFireSpreadData {
 
     /// Per-frame flammable status progression (`FlammableUpdate.cpp:105-145`).
     pub fn tick_flammable(&mut self, current_frame: u32) -> FlammableTickResult {
+        let mut result = self.begin_tick_flammable(current_frame);
+        let tail = self.finish_tick_flammable(current_frame);
+        result.aflame = tail.aflame;
+        result.burned = tail.burned;
+        result.became_burned = tail.became_burned;
+        result.smoldering = tail.smoldering;
+        result.became_smoldering = tail.became_smoldering;
+        result.returned_to_normal = tail.returned_to_normal;
+        result.stop_burning_sound = tail.stop_burning_sound;
+        result
+    }
+
+    /// C++ FlammableUpdate::update damage phase (before burned/end timers).
+    pub fn begin_tick_flammable(&mut self, current_frame: u32) -> FlammableTickResult {
         let mut r = FlammableTickResult::default();
         match self.state {
             HostFlammableState::Normal => {}
@@ -338,6 +395,22 @@ impl HostFireSpreadData {
                         current_frame.saturating_add(self.aflame_damage_delay.max(1));
                     r.aflame_damage = self.aflame_damage_amount;
                 }
+            }
+            HostFlammableState::Burned => {
+                r.burned = true;
+                r.smoldering = self.smoldering;
+            }
+        }
+        r
+    }
+
+    /// C++ FlammableUpdate::update burned/end timer phase, after doAflameDamage.
+    pub fn finish_tick_flammable(&mut self, current_frame: u32) -> FlammableTickResult {
+        let mut r = FlammableTickResult::default();
+        match self.state {
+            HostFlammableState::Normal => {}
+            HostFlammableState::Aflame => {
+                r.aflame = true;
                 // Independent burned timer: BURNED + SMOLDERING while still AFLAME.
                 if self.burned_end_frame != 0 && current_frame >= self.burned_end_frame {
                     r.smoldering = true;
@@ -371,20 +444,34 @@ impl HostFireSpreadData {
         r
     }
 
-    /// C++ FireSpreadUpdate::update while AFLAME.
-    /// Returns true when a spread attempt should run (caller ignites closest).
+    /// Standalone compatibility update. Production schedules after its effects.
     pub fn tick_spread(&mut self, current_frame: u32) -> SpreadTickResult {
+        if !self.spread_due(current_frame) {
+            return SpreadTickResult::default();
+        }
+        let delay = self.calc_next_spread_delay(current_frame);
+        self.finish_spread_tick(current_frame, delay)
+    }
+
+    /// C++ schedules the next wake after creating embers and igniting a target.
+    pub(in crate::game_logic) fn schedule_next_spread_with_random(
+        &mut self,
+        current_frame: u32,
+        random: &game_engine::common::random_value::SessionRandom,
+    ) {
+        let delay = self.calc_next_spread_delay_with_random(random);
+        self.next_spread_frame = current_frame.saturating_add(delay);
+    }
+
+    pub(in crate::game_logic) fn spread_due(&self, current_frame: u32) -> bool {
+        self.spread_enabled && self.is_aflame() && current_frame >= self.next_spread_frame
+    }
+
+    fn finish_spread_tick(&mut self, current_frame: u32, delay: u32) -> SpreadTickResult {
         let mut r = SpreadTickResult::default();
-        if !self.spread_enabled || !self.is_aflame() {
-            return r;
-        }
-        if current_frame < self.next_spread_frame {
-            return r;
-        }
         r.try_spread = true;
         r.spawn_embers = !self.ocl_embers.is_empty();
-        self.next_spread_frame =
-            current_frame.saturating_add(self.calc_next_spread_delay(current_frame));
+        self.next_spread_frame = current_frame.saturating_add(delay);
         r
     }
 }
