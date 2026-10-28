@@ -83,6 +83,88 @@ fn receiving_turret_sweep_and_target_do_not_observe_same_id_peer() {
 }
 
 #[test]
+fn idle_scan_random_draws_belong_to_each_receiving_world() {
+    let (mut world, owner) = receiving_world();
+    let (mut peer, peer_owner) = receiving_world();
+    assert_eq!(owner, peer_owner);
+
+    const SEED: u32 = 0x51A7_CAFE;
+    for logic in [&mut world, &mut peer] {
+        logic.logic_random.seed_random(SEED);
+        logic.set_turret_idle_scan_params(owner, 0.2, 0.8, 0, 0);
+    }
+
+    // Idle entry consumes the interval draw, then its due transition enters
+    // IdleScan on the following update. Interleave the same-ID peer between
+    // those callbacks to detect process-global RNG contamination.
+    assert_eq!(
+        world.tick_turret_state_machine(owner, 0.0, 10),
+        AttackAimResult::Continue
+    );
+    assert_eq!(
+        peer.tick_turret_state_machine(peer_owner, 0.0, 10),
+        AttackAimResult::Continue
+    );
+    assert_eq!(
+        world.tick_turret_state_machine(owner, 0.0, 10),
+        AttackAimResult::Continue
+    );
+    assert_eq!(
+        peer.tick_turret_state_machine(peer_owner, 0.0, 10),
+        AttackAimResult::Continue
+    );
+
+    let world_extra = &world.host_object(owner).unwrap().turret_runtime;
+    let peer_extra = &peer.host_object(peer_owner).unwrap().turret_runtime;
+    assert!(world_extra.idle_scan_entered && peer_extra.idle_scan_entered);
+    assert_eq!(
+        world_extra.idle_scan_desired_rad,
+        peer_extra.idle_scan_desired_rad
+    );
+
+    let expected = game_engine::common::random_value::SessionRandom::default();
+    expected.seed_random(SEED);
+    assert_eq!(expected.next_int(0, 0), 0);
+    let mut expected_angle = 0.2 + expected.next_real(0.0, 0.6);
+    if expected.next_int(0, 1) == 0 {
+        expected_angle = -expected_angle;
+    }
+    assert!((world_extra.idle_scan_desired_rad - expected_angle).abs() < 1e-6);
+    assert_eq!(world.logic_random.seed_words(), expected.seed_words());
+    assert_eq!(peer.logic_random.seed_words(), expected.seed_words());
+}
+
+#[test]
+fn idle_scan_keeps_disabled_and_zero_angle_rng_draws_suppressed() {
+    let (mut world, owner) = receiving_world();
+    world.logic_random.seed_random(0x1D1E_5CA1);
+    world.set_turret_idle_scan_params(owner, 0.0, 0.0, 0, 0);
+    let before = world.logic_random.seed_words();
+
+    // Disabled TurretAI returns before the idle state machine.
+    world.host_object_mut(owner).unwrap().turret_enabled = false;
+    assert_eq!(
+        world.tick_turret_state_machine(owner, 0.0, 10),
+        AttackAimResult::Failure
+    );
+    assert_eq!(world.logic_random.seed_words(), before);
+
+    // The classic zero-angle IdleScan entry transitions directly to HOLD
+    // without drawing either the random offset or the random sign.
+    {
+        let unit = world.host_object_mut(owner).unwrap();
+        unit.turret_enabled = true;
+        unit.turret_substate = crate::game_logic::object::TurretSubState::IdleScan;
+        unit.turret_runtime.idle_scan_entered = false;
+    }
+    assert_eq!(
+        world.tick_turret_state_machine(owner, 0.0, 10),
+        AttackAimResult::Continue
+    );
+    assert_eq!(world.logic_random.seed_words(), before);
+}
+
+#[test]
 fn normal_encoded_save_continues_existing_sweep_before_another_shot() {
     let (mut original, owner) = receiving_world();
     admit_sweep(&mut original, owner, 10, 0.035);

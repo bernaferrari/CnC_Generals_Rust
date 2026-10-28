@@ -1214,10 +1214,9 @@ impl GameLogic {
                                     // Leftover TurretAIIdleState::reset_idle_scan:
                                     // GameLogicRandomValue(min, max), not index mix.
                                     let max_iv = if max_iv < min_iv { min_iv } else { max_iv };
-                                    let interval = gamelogic::helpers::get_game_logic_random_value(
-                                        min_iv as i32,
-                                        max_iv as i32,
-                                    ) as u32;
+                                    let interval =
+                                        self.logic_random.next_int(min_iv as i32, max_iv as i32)
+                                            as u32;
                                     u.turret_idle_scan_next_frame =
                                         logic_frame.saturating_add(interval);
                                 }
@@ -1277,11 +1276,9 @@ impl GameLogic {
                                 // Leftover TurretAIIdleScanState::classic_on_enter:
                                 // GameLogicRandomValueReal(0, max-min) + GameLogicRandomValue(0,1) sign.
                                 let span = (e.max_idle_scan_angle - e.min_idle_scan_angle).max(0.0);
-                                let mut off = e.min_idle_scan_angle
-                                    + gamelogic::helpers::get_game_logic_random_value_real(
-                                        0.0, span,
-                                    );
-                                if gamelogic::helpers::get_game_logic_random_value(0, 1) == 0 {
+                                let mut off =
+                                    e.min_idle_scan_angle + self.logic_random.next_real(0.0, span);
+                                if self.logic_random.next_int(0, 1) == 0 {
                                     off = -off;
                                 }
                                 e.idle_scan_desired_rad = off;
