@@ -94,43 +94,35 @@ pub const LEAFLET_DECAL_RADIUS: f32 = 100.0;
 /// Retail LeafletDropBehavior LeafletFXParticleSystem residual.
 pub const LEAFLET_FX_PARTICLE: &str = "LeafletParticles1";
 
-/// Leftover ThingFactory `LeafletDropBehavior` `LeafletFXParticleSystem`.
-pub fn leftover_leaflet_fx_particle_name(template_name: &str) -> Option<String> {
-    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
-    let factory = guard.as_ref()?;
-    let tmpl = factory.find_template(template_name, false)?;
-    for entry in tmpl.get_behavior_module_info().iter() {
-        if !entry
+/// Resolve LeafletDropBehavior's particle from this Object's admitted content.
+/// A missing module or particle template has no effect in C++.
+pub(crate) fn leaflet_fx_particle_name(
+    template: &crate::game_logic::ThingTemplate,
+) -> Option<String> {
+    let receiving = template.receiving_client_template.as_ref()?;
+    let entry = receiving.behavior_modules().iter().find(|entry| {
+        entry
             .name
             .as_str()
             .eq_ignore_ascii_case("LeafletDropBehavior")
-        {
-            continue;
-        }
-        if let Some(data) = entry
-            .data
-            .downcast_ref::<gamelogic::object::behavior::LeafletDropBehaviorModuleData>()
-        {
-            return data
-                .leaflet_fx_particle_system
-                .as_ref()
-                .map(|s| s.as_str().to_string())
-                .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("NONE"));
-        }
-        return entry
-            .data
-            .get_ini_field("LeafletFXParticleSystem")
-            .map(str::trim)
-            .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("NONE"))
-            .map(str::to_string);
+    })?;
+    if let Some(data) = entry
+        .data
+        .downcast_ref::<gamelogic::object::behavior::LeafletDropBehaviorModuleData>()
+    {
+        return data
+            .leaflet_fx_particle_system
+            .as_ref()
+            .map(|name| name.as_str().trim())
+            .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("NONE"))
+            .map(str::to_owned);
     }
-    None
-}
-
-/// Authored LeafletFX template — leftover store, else retail `LeafletParticles1`.
-pub fn leaflet_fx_particle_name(template_name: &str) -> String {
-    leftover_leaflet_fx_particle_name(template_name)
-        .unwrap_or_else(|| LEAFLET_FX_PARTICLE.to_string())
+    entry
+        .data
+        .get_ini_field("LeafletFXParticleSystem")
+        .map(str::trim)
+        .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("NONE"))
+        .map(str::to_owned)
 }
 
 /// Activate audio residual (SoundEffects.ini LeafletDrop).
@@ -721,10 +713,9 @@ mod tests {
     fn leaflet_fx_name_is_authored_leaflet_particles() {
         assert_eq!(LEAFLET_FX_PARTICLE, "LeafletParticles1");
         assert_eq!(
-            leaflet_fx_particle_name("LeafletContainer"),
-            "LeafletParticles1"
+            leaflet_fx_particle_name(&crate::game_logic::ThingTemplate::new("LeafletContainer")),
+            None
         );
-        assert_eq!(leaflet_fx_particle_name("None"), "LeafletParticles1");
     }
 
     #[test]

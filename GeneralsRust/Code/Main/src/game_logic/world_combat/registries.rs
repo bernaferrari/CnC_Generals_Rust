@@ -3229,21 +3229,24 @@ impl GameLogic {
             let Some(o) = self.objects.get_mut(&id) else {
                 continue;
             };
-            let template = o.template_name.clone();
             let first_fx = self.host_leaflet_drops.try_mark_leaflet_fx_started(id.0);
             if first_fx {
-                let fx_name =
-                    crate::game_logic::host_leaflet_drop::leaflet_fx_particle_name(&template);
-                let p = o.get_position();
-                let _ = self.combat_particles.spawn_named(
-                    CombatParticleKind::ParticleSysBone,
-                    fx_name,
-                    p,
-                    self.frame,
-                    Some(id),
-                    None,
-                    presentation_effects,
-                );
+                if let Some(fx_name) =
+                    crate::game_logic::host_leaflet_drop::leaflet_fx_particle_name(
+                        &o.thing().template,
+                    )
+                {
+                    let p = o.get_position();
+                    let _ = self.combat_particles.spawn_named(
+                        CombatParticleKind::ParticleSysBone,
+                        fx_name,
+                        p,
+                        self.frame,
+                        Some(id),
+                        None,
+                        presentation_effects,
+                    );
+                }
             }
             let mut p = o.get_position();
             p.y += o.movement.velocity.y;
