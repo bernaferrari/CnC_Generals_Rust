@@ -3368,10 +3368,7 @@ impl CnCGameEngine {
                         owner.with_manager(|manager| {
                             self.control_bar.hide_purchase_science(manager)
                         });
-                        self.pending_structure_placement = None;
-                        self.game_hud_mut()
-                            .construction_panel
-                            .clear_structure_placement();
+                        self.cancel_structure_placement_from_ui();
                         if matches!(
                             self.pending_map_command,
                             Some(

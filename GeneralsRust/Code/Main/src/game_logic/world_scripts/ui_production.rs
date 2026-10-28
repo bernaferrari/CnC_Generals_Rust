@@ -25,9 +25,100 @@ fn receiving_minimap_beacon_entries(logic: &GameLogic) -> Vec<(u32, glam::Vec3)>
     entries
 }
 
+fn host_object_has_production_update(logic: &GameLogic, producer: &Object) -> bool {
+    logic
+        .templates
+        .get(&producer.template_name)
+        .and_then(|template| template.receiving_object_definition.as_ref())
+        .map_or(producer.building_data.is_some(), |definition| {
+            definition
+                .behavior_modules
+                .iter()
+                .any(|module| module.class_name.eq_ignore_ascii_case("ProductionUpdate"))
+        })
+}
+
 impl GameLogic {
-    /// Normal-placement portion of C++ `BuildAssistant::canMakeUnit` using
-    /// the receiving world's objects, templates and command definitions.
+    /// C++ ControlBarCommandProcessing arms the exact CommandButton on its
+    /// producer's ProductionUpdate after the initial CanMake check.
+    pub fn arm_special_power_construction(
+        &mut self,
+        producer_id: ObjectId,
+        command_button_name: &str,
+        requested_special_power_name: &str,
+        requested_options_bits: u32,
+        template_name: &str,
+    ) -> bool {
+        let (button, has_production_update) = {
+            let Some(producer) = self.objects.get(&producer_id) else {
+                return false;
+            };
+            if !producer.is_alive() {
+                return false;
+            }
+            let Some(button) = self.receiving_special_power_construction_button(
+                producer,
+                command_button_name,
+                template_name,
+            ) else {
+                return false;
+            };
+            if !button
+                .special_power_name
+                .eq_ignore_ascii_case(requested_special_power_name)
+                || button.options_bits != requested_options_bits
+            {
+                return false;
+            }
+            (button, host_object_has_production_update(self, producer))
+        };
+        let Some(producer) = self.objects.get_mut(&producer_id) else {
+            return false;
+        };
+        // C++ stores the button only when the selected producer exposes a
+        // ProductionUpdateInterface. A valid construct button on a producer
+        // without one still enters placement, but confirmation uses the
+        // ordinary construction path.
+        if has_production_update {
+            producer.pending_special_power_construction = Some(button);
+        }
+        true
+    }
+
+    /// C++ InGameUI::placeBuildAvailable(NULL, NULL) clears this producer's
+    /// pending ProductionUpdate button.
+    pub fn clear_special_power_construction(&mut self, producer_id: ObjectId) {
+        if let Some(producer) = self.objects.get_mut(&producer_id) {
+            producer.pending_special_power_construction = None;
+        }
+    }
+
+    pub fn pending_special_power_construction(
+        &self,
+        producer_id: ObjectId,
+    ) -> Option<crate::game_logic::object::PendingSpecialPowerConstructionButton> {
+        self.objects
+            .get(&producer_id)?
+            .pending_special_power_construction
+            .clone()
+    }
+
+    pub fn pending_special_power_construction_for_template(
+        &self,
+        producer_id: ObjectId,
+        template_name: &str,
+    ) -> Option<crate::game_logic::object::PendingSpecialPowerConstructionButton> {
+        let pending = self.pending_special_power_construction(producer_id)?;
+        let requested = self.templates.get(template_name)?;
+        self.templates
+            .get(&pending.template_name)
+            .filter(|target| std::ptr::eq(*target, requested))?;
+        Some(pending)
+    }
+
+    /// C++ `BuildAssistant::canMakeUnit` for the receiving hosted world.
+    /// The special-power exception is backed by the exact admitted button
+    /// retained on this producer, never by ambient UI selection state.
     pub fn can_make_unit_for_place(
         &self,
         builder_id: ObjectId,
@@ -43,6 +134,20 @@ impl GameLogic {
         };
         if builder.is_script_disabled() || builder.is_script_underpowered() {
             return CanMakeType::FactoryIsDisabled;
+        }
+        if builder
+            .pending_special_power_construction
+            .as_ref()
+            .is_some_and(|button| {
+                self.templates
+                    .get(&button.template_name)
+                    .is_some_and(|target| std::ptr::eq(target, template))
+            })
+        {
+            // BuildAssistant.cpp:1291-1295 returns before cap, CommandSet,
+            // queue, and cost checks when this producer's exact button target
+            // matches the requested ThingTemplate.
+            return CanMakeType::Ok;
         }
         let Some(owner_id) = builder.owner_player_id else {
             return CanMakeType::NoPrereq;

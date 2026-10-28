@@ -33,6 +33,15 @@ pub enum HostControlBarTarget {
         /// Legacy special-power ID when the GameLogic command-button bridge has it.
         special_power_id: Option<u32>,
     },
+    /// C++ SPECIAL_POWER_CONSTRUCT variants enter build placement, while
+    /// retaining the exact button identity and Object target for the
+    /// receiving producer's ProductionUpdate state.
+    SpecialPowerConstruct {
+        special_power_name: String,
+        special_power_id: Option<u32>,
+        template_name: String,
+        from_shortcut: bool,
+    },
     /// A non-building, non-special command that needs a target.
     Generic,
 }
@@ -327,21 +336,32 @@ pub(crate) fn host_request_from_button_with_weapon_slot(
     weapon_slot: Option<u32>,
     command_needs_target: bool,
 ) -> HostControlBarRequest {
-    // Retail SPECIAL_POWER_CONSTRUCT buttons (notably SneakAttack) encode a
-    // special power plus an Object= payload but omit NEED_TARGET_* options.
-    // They still enter map-target mode in C++; keep that semantic explicit
-    // instead of mistaking the object for unit production or an instant cast.
-    let is_special_power_construct = !button.special_power.is_empty() && !button.object.is_empty();
+    // The GUI command token distinguishes construction from ordinary powers
+    // whose Object= value is metadata. Preserve the exact command lifecycle.
+    let gui_command = button.gui_command.trim().to_ascii_uppercase();
+    let special_power_construct = matches!(
+        gui_command.as_str(),
+        "SPECIAL_POWER_CONSTRUCT" | "SPECIAL_POWER_CONSTRUCT_FROM_SHORTCUT"
+    );
+    let special_power_construct_from_shortcut =
+        gui_command == "SPECIAL_POWER_CONSTRUCT_FROM_SHORTCUT";
     // `MaxShotsToFire` belongs specifically to FIRE_WEAPON.  Preserve the
     // parsed signed value verbatim: C++ uses `NO_MAX_SHOTS_LIMIT` as a real
     // value, and a zero budget must not be rewritten into an unlimited order.
     let max_shots_to_fire =
         (button.command_type == CommandType::FireWeapon).then_some(button.max_shots_to_fire);
-    if command_needs_target || is_special_power_construct {
+    if command_needs_target || special_power_construct {
         let target =
             if button.command_type == CommandType::DozerConstruct && !button.object.is_empty() {
                 HostControlBarTarget::DozerConstruct {
                     template_name: button.object.clone(),
+                }
+            } else if special_power_construct {
+                HostControlBarTarget::SpecialPowerConstruct {
+                    special_power_name: button.special_power.clone(),
+                    special_power_id,
+                    template_name: button.object.clone(),
+                    from_shortcut: special_power_construct_from_shortcut,
                 }
             } else if !button.special_power.is_empty() {
                 HostControlBarTarget::SpecialPower {
@@ -1165,6 +1185,40 @@ mod tests {
                 ..
             } if object_name == "GLAInfantryRebel"
                 && special_power_name == "SuperweaponSneakAttack"
+        ));
+    }
+
+    #[test]
+    fn construct_gui_token_survives_the_generic_special_power_command_mapping() {
+        let _guard = acquire();
+        let mut button = CommandButton::default();
+        button.command_name = "Command_SneakAttack".to_string();
+        button.gui_command = "SPECIAL_POWER_CONSTRUCT_FROM_SHORTCUT".to_string();
+        button.command_type = CommandType::SpecialPower;
+        button.object = "GLAInfantryRebel".to_string();
+        button.special_power = "SuperweaponSneakAttack".to_string();
+
+        let request = host_request_from_button(
+            &button,
+            &context(),
+            CommandSourceType::FromUser,
+            Some(99),
+            false,
+        );
+        assert!(matches!(
+            request,
+            HostControlBarRequest::ArmTarget {
+                command_name,
+                target: HostControlBarTarget::SpecialPowerConstruct {
+                    special_power_name,
+                    special_power_id: Some(99),
+                    template_name,
+                    from_shortcut: true,
+                },
+                ..
+            } if command_name == "Command_SneakAttack"
+                && special_power_name == "SuperweaponSneakAttack"
+                && template_name == "GLAInfantryRebel"
         ));
     }
 

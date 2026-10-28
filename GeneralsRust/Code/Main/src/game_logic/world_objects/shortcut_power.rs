@@ -31,9 +31,12 @@ impl GameLogic {
         let Some(button) = actions.buttons.find_command_button_resolved(command_name) else {
             return Ok(None);
         };
-        if !button
-            .command
-            .eq_ignore_ascii_case("SPECIAL_POWER_FROM_SHORTCUT")
+        if ![
+            "SPECIAL_POWER_FROM_SHORTCUT",
+            "SPECIAL_POWER_CONSTRUCT_FROM_SHORTCUT",
+        ]
+        .iter()
+        .any(|command| button.command.eq_ignore_ascii_case(command))
         {
             return Ok(None);
         }

@@ -372,6 +372,19 @@ pub enum CommandType {
         end: Vec3,
         orientation: f32,
     },
+    /// The placement-confirm message emitted by C++ PlaceEventTranslator for
+    /// a SPECIAL_POWER_CONSTRUCT button. The authored power, button token,
+    /// command options, and producer source remain available through command
+    /// dispatch; replay reconstructs the fields carried by the C++ message.
+    /// Appended to preserve every existing bincode discriminant.
+    DoSpecialPowerWithMetadata {
+        power_type: SpecialPowerType,
+        special_power_name: String,
+        command_button_name: String,
+        options_bits: u32,
+        source_object_id: u32,
+        target: PowerTarget,
+    },
 }
 
 /// Target types for guard command

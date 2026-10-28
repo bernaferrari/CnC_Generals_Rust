@@ -396,6 +396,7 @@ impl CnCGameEngine {
                     self.pending_map_command = None;
                     self.clear_radius_cursor_overlays();
                 } else if !self.ui_selected_ids(self.current_player_id).is_empty() {
+                    self.cancel_structure_placement_from_ui();
                     self.pending_map_command = Some(PendingMapCommand::AttackMove);
                     self.pending_structure_placement = None;
                     self.arm_radius_cursor_for_pending("ATTACK_CONTINUE_AREA");

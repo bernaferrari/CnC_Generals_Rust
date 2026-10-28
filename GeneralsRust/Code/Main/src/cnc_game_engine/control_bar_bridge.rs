@@ -439,6 +439,9 @@ impl CnCGameEngine {
         if !self.host_control_bar_is_local_player(player_id) {
             return;
         }
+        if self.pending_structure_placement.is_some() {
+            self.cancel_structure_placement_from_ui();
+        }
 
         if command_type == LegacyCommandType::PurchaseScience {
             let Some(science_name) = science_names.iter().find(|name| {
@@ -691,6 +694,14 @@ impl CnCGameEngine {
         if !self.host_control_bar_is_local_player(player_id) {
             return;
         }
+        if !matches!(
+            &target,
+            HostControlBarTarget::DozerConstruct { .. }
+                | HostControlBarTarget::SpecialPowerConstruct { .. }
+        ) && self.pending_structure_placement.is_some()
+        {
+            self.cancel_structure_placement_from_ui();
+        }
         let generic_action = match &target {
             HostControlBarTarget::Generic => {
                 match host_control_bar_generic_target_action(
@@ -708,12 +719,21 @@ impl CnCGameEngine {
                 }
             }
             HostControlBarTarget::DozerConstruct { .. }
-            | HostControlBarTarget::SpecialPower { .. } => None,
+            | HostControlBarTarget::SpecialPower { .. }
+            | HostControlBarTarget::SpecialPowerConstruct { .. } => None,
         };
-        let shortcut_source = if let HostControlBarTarget::SpecialPower {
-            special_power_name, ..
-        } = &target
-        {
+        let shortcut_power_name = match &target {
+            HostControlBarTarget::SpecialPower {
+                special_power_name, ..
+            } => Some(special_power_name.as_str()),
+            HostControlBarTarget::SpecialPowerConstruct {
+                special_power_name,
+                from_shortcut: true,
+                ..
+            } => Some(special_power_name.as_str()),
+            _ => None,
+        };
+        let shortcut_source = if let Some(special_power_name) = shortcut_power_name {
             match self.game_logic.shortcut_command_source(
                 player_id,
                 command_name,
@@ -809,6 +829,80 @@ impl CnCGameEngine {
                 });
                 self.pending_structure_placement = None;
                 self.arm_radius_cursor_for_pending(cursor);
+            }
+            HostControlBarTarget::SpecialPowerConstruct {
+                special_power_name,
+                special_power_id: _,
+                template_name,
+                from_shortcut: _,
+            } => {
+                if template_name.trim().is_empty() {
+                    self.host_reject_control_bar_request(
+                        "special-power construction has no target template",
+                    );
+                    return;
+                }
+                if crate::command_system::special_power_type_from_template_name(&special_power_name)
+                    .is_none()
+                {
+                    self.host_reject_control_bar_request(
+                        "special-power construction has no exact host power mapping",
+                    );
+                    return;
+                }
+                let Some(producer_id) = selected.first().copied() else {
+                    self.host_reject_control_bar_request(
+                        "special-power construction has no receiving producer",
+                    );
+                    return;
+                };
+                // C++ ControlBarCommandProcessing checks CanMake before it
+                // stores the button on ProductionUpdate. The receiving
+                // command set and producer decide whether this exact button
+                // may arm; UI metadata alone cannot grant the bypass.
+                let cmt = self
+                    .game_logic
+                    .can_make_unit_for_place(producer_id, &template_name);
+                if matches!(
+                    cmt,
+                    game_engine::common::system::build_assistant::CanMakeType::NoMoney
+                        | game_engine::common::system::build_assistant::CanMakeType::QueueFull
+                        | game_engine::common::system::build_assistant::CanMakeType::ParkingPlacesFull
+                        | game_engine::common::system::build_assistant::CanMakeType::MaxedOutForPlayer
+                ) {
+                    let logic_frame = self.game_logic.get_frame();
+                    let client_frame = self.game_client.get_frame();
+                    let ui = self
+                        .game_client
+                        .in_game_ui_subsystem_mut()
+                        .expect("placement feedback requires receiving InGameUI");
+                    game_client::message_stream::play_can_make_failure(
+                        cmt,
+                        &mut game_client::message_stream::ReceivingUi::new(
+                            ui,
+                            logic_frame,
+                            client_frame,
+                        ),
+                    );
+                    return;
+                }
+                self.begin_structure_placement_from_ui_for_source(&template_name, producer_id);
+                if !self.game_logic.arm_special_power_construction(
+                    producer_id,
+                    command_name,
+                    &special_power_name,
+                    options,
+                    &template_name,
+                ) {
+                    self.cancel_structure_placement_from_ui();
+                    self.host_reject_control_bar_request(
+                        "special-power construction button is not admitted for this producer",
+                    );
+                    return;
+                }
+                self.interactive_playability.note_control_bar_construct_arm(
+                    self.host_control_bar_evidence_eligible(physical_os_input),
+                );
             }
             HostControlBarTarget::Generic => match generic_action {
                 Some(HostControlBarGenericTargetAction::Weapon(weapon)) => {
@@ -1064,7 +1158,7 @@ impl CnCGameEngine {
         });
     }
 
-    fn host_reject_control_bar_request(&mut self, reason: &str) {
+    pub(super) fn host_reject_control_bar_request(&mut self, reason: &str) {
         // C++ leftover-WND rejects are silent except CanMake `GUI:*` labels.
         debug!("Control Bar host request rejected: {reason}");
     }

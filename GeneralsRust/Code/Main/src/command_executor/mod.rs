@@ -67,9 +67,9 @@ mod validate;
 
 pub use leftover::{
     host_beacon_caption, host_beacon_is_hidden, host_beacon_position_is_hidden,
-    host_object_is_beacon,
-    host_local_player_can_place_beacon, take_leftover_dispatch_commands_from_common_stream,
-    tick_live_beacon_client_updates, tick_live_beacon_client_updates_with_effects,
+    host_local_player_can_place_beacon, host_object_is_beacon,
+    take_leftover_dispatch_commands_from_common_stream, tick_live_beacon_client_updates,
+    tick_live_beacon_client_updates_with_effects,
 };
 
 impl<'a> CommandExecutor<'a> {
@@ -363,6 +363,11 @@ impl<'a> CommandExecutor<'a> {
 
             // Special abilities
             CommandType::DoSpecialPower { power_type, target } => self
+                .execute_special_power(&command.selected_units, power_type, target)
+                .map_err(|error| error.to_string())?,
+            CommandType::DoSpecialPowerWithMetadata {
+                power_type, target, ..
+            } => self
                 .execute_special_power(&command.selected_units, power_type, target)
                 .map_err(|error| error.to_string())?,
             CommandType::DoWeapon {
@@ -739,6 +744,7 @@ impl<'a> CommandExecutor<'a> {
                 | CommandType::Deploy
                 | CommandType::Gather { .. }
                 | CommandType::DoSpecialPower { .. }
+                | CommandType::DoSpecialPowerWithMetadata { .. }
                 | CommandType::DoWeapon { .. }
                 | CommandType::Enter { .. }
                 | CommandType::Exit

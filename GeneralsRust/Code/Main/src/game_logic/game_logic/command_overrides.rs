@@ -16,19 +16,26 @@ pub(crate) fn control_bar_override_key(set: &str, slot: i32) -> Option<String> {
 
 impl GameLogic {
     /// Extend the owning action catalog with source-authored fixture definitions.
-    pub(crate) fn admit_fixture_command_action_source(&mut self, source: &str) -> Result<(), String> {
+    pub(crate) fn admit_fixture_command_action_source(
+        &mut self,
+        source: &str,
+    ) -> Result<(), String> {
         if let Some(content) = self.receiving_module_content.as_mut() {
             return content.admit_action_overrides(&[source.to_string()]);
         }
         let mut definitions = self.command_action_definitions.clone().unwrap_or_default();
-        definitions.apply_source(source, &game_engine::common::rts::science::ScienceNameFacts::default())?;
+        definitions.apply_source(
+            source,
+            &game_engine::common::rts::science::ScienceNameFacts::default(),
+        )?;
         self.command_action_definitions = Some(definitions);
         Ok(())
     }
 
     pub(crate) fn build_eligibility_action_definitions(
         &self,
-    ) -> Option<&game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions> {
+    ) -> Option<&game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions>
+    {
         self.receiving_module_content
             .as_ref()
             .map(|content| content.action_definitions())
@@ -188,6 +195,70 @@ impl GameLogic {
                 .iter()
                 .any(|(operation, name)| operation == command && name == target)
         })
+    }
+
+    /// Resolve the exact receiving button used by C++
+    /// `ProductionUpdate::setSpecialPowerConstructionCommandButton`. Ordinary
+    /// constructs must be in the producer's effective CommandSet. A
+    /// FROM_SHORTCUT construct instead must be the exact admitted UI button
+    /// whose ready receiving shortcut selected this producer.
+    pub(crate) fn receiving_special_power_construction_button(
+        &self,
+        producer: &Object,
+        button_name: &str,
+        requested_template_name: &str,
+    ) -> Option<crate::game_logic::object::PendingSpecialPowerConstructionButton> {
+        let button = self.admitted_command_button(button_name)?;
+        let is_shortcut = button
+            .command
+            .eq_ignore_ascii_case("SPECIAL_POWER_CONSTRUCT_FROM_SHORTCUT");
+        if !is_shortcut
+            && !button
+                .command
+                .eq_ignore_ascii_case("SPECIAL_POWER_CONSTRUCT")
+        {
+            return None;
+        }
+        let special_power_name = button.special_power_template?;
+        if special_power_name.is_empty() {
+            return None;
+        }
+        if is_shortcut {
+            let owner_id = producer.owner_player_id?;
+            if self
+                .shortcut_command_source(owner_id, button_name, &special_power_name)
+                .ok()?
+                != Some(producer.id)
+            {
+                return None;
+            }
+        } else {
+            let set_name = producer
+                .command_set_override
+                .clone()
+                .filter(|name| !name.is_empty())
+                .or_else(|| self.command_set_for_template(&producer.template_name))?;
+            let slots = self.effective_command_slots(&set_name)?;
+            if !slots.iter().flatten().any(|name| name == button_name) {
+                return None;
+            }
+        }
+        let authored_target = self.templates.get(&button.object)?;
+        let requested_target = self.templates.get(requested_template_name)?;
+        // BuildAssistant.cpp:1291-1295 compares ThingTemplate pointers, not
+        // `isEquivalentTo`: reskins/build variants cannot inherit this
+        // transient placement authorization.
+        if !std::ptr::eq(authored_target, requested_target) {
+            return None;
+        }
+        Some(
+            crate::game_logic::object::PendingSpecialPowerConstructionButton {
+                command_button_name: button.name,
+                template_name: button.object,
+                special_power_name,
+                options_bits: button.options_bits,
+            },
+        )
     }
     /// CPP ScriptActions6253/6281 searches effective slots, then writes one map entry.
     pub(crate) fn script_command_bar_override(

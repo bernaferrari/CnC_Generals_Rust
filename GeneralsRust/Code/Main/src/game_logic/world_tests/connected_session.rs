@@ -119,8 +119,165 @@ fn authored_world(cash: u32) -> (GameLogic, ObjectId) {
     world.admit_fixture_command_action_source(
         "CommandButton ConnectedBarracksBuildButton\n Command = DOZER_CONSTRUCT\n Object = AmericaBarracks\nEnd\nCommandSet ConnectedBarracksBuildSet\n 1 = ConnectedBarracksBuildButton\nEnd\n",
     ).unwrap();
-    world.host_object_mut(dozer).unwrap().command_set_override = Some("ConnectedBarracksBuildSet".into());
+    world.host_object_mut(dozer).unwrap().command_set_override =
+        Some("ConnectedBarracksBuildSet".into());
     (world, dozer)
+}
+
+fn special_power_construct_world(power_name: &str) -> (GameLogic, ObjectId) {
+    let mut world = GameLogic::new();
+    let mut player = Player::new(0, Team::GLA, "SpecialConstruct", true);
+    player.resources.supplies = 10_000;
+    player.power_available = 100;
+    player.resources.power = 100;
+    world.add_player(player);
+
+    let mut producer_template = ThingTemplate::new("SpecialConstructProducer");
+    producer_template
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Immobile)
+        .set_health(1000.0);
+    producer_template.always_visible = true;
+    world
+        .templates
+        .insert(producer_template.name.clone(), producer_template);
+    let mut target = ThingTemplate::new("SpecialConstructTarget");
+    target
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1000.0);
+    target.always_visible = true;
+    world.templates.insert(target.name.clone(), target);
+
+    world
+        .admit_fixture_command_action_source(&format!(
+            "CommandButton SessionSpecialConstruct\n Command = SPECIAL_POWER_CONSTRUCT\n Object = SpecialConstructTarget\n SpecialPower = {power_name}\nEnd\nCommandSet SessionSpecialConstructSet\n 1 = SessionSpecialConstruct\nEnd\n"
+        ))
+        .unwrap();
+    let producer = world
+        .create_object_for_player("SpecialConstructProducer", 0, Vec3::new(20.0, 0.0, 20.0))
+        .unwrap();
+    world
+        .host_object_mut(producer)
+        .unwrap()
+        .command_set_override = Some("SessionSpecialConstructSet".into());
+    (world, producer)
+}
+
+#[test]
+fn special_power_construct_button_state_is_owned_by_the_receiving_producer() {
+    let (mut owner, owner_producer) =
+        special_power_construct_world("SupW_SuperweaponNeutronMissile");
+    let (mut peer, peer_producer) =
+        special_power_construct_world("SupW_SuperweaponParticleUplinkCannon");
+    assert_eq!(
+        owner_producer, peer_producer,
+        "each world starts with the same ID"
+    );
+
+    // Before the button is installed, the exact target is intentionally not
+    // an ordinary UNIT_BUILD/DOZER_CONSTRUCT command in either world.
+    assert_eq!(
+        owner.can_make_unit_for_place(owner_producer, "SpecialConstructTarget"),
+        game_engine::common::system::build_assistant::CanMakeType::NoPrereq
+    );
+    assert!(!owner.arm_special_power_construction(
+        owner_producer,
+        "SessionSpecialConstruct",
+        "SupW_SuperweaponParticleUplinkCannon",
+        0,
+        "SpecialConstructTarget",
+    ));
+    assert!(
+        owner
+            .pending_special_power_construction(owner_producer)
+            .is_none()
+    );
+    assert!(owner.arm_special_power_construction(
+        owner_producer,
+        "SessionSpecialConstruct",
+        "SupW_SuperweaponNeutronMissile",
+        0,
+        "SpecialConstructTarget",
+    ));
+
+    assert_eq!(
+        owner.can_make_unit_for_place(owner_producer, "SpecialConstructTarget"),
+        game_engine::common::system::build_assistant::CanMakeType::Ok
+    );
+    let pending = owner
+        .pending_special_power_construction_for_template(owner_producer, "SpecialConstructTarget")
+        .expect("owner retains the exact button for its matching target");
+    assert_eq!(pending.command_button_name, "SessionSpecialConstruct");
+    assert_eq!(pending.special_power_name, "SupW_SuperweaponNeutronMissile");
+    assert_eq!(pending.options_bits, 0);
+    let producer_snapshot = serde_json::to_value(owner.host_object(owner_producer).unwrap())
+        .expect("Object snapshot serialization");
+    assert!(
+        producer_snapshot
+            .get("pending_special_power_construction")
+            .is_none(),
+        "the C++ ProductionUpdate button pointer is transient and not saved"
+    );
+    let mut equivalent_reskin = ThingTemplate::new("SpecialConstructTargetReskin");
+    equivalent_reskin.reskinned_from = Some("SpecialConstructTarget".into());
+    assert!(
+        equivalent_reskin.is_equivalent_to(owner.templates.get("SpecialConstructTarget").unwrap())
+    );
+    owner
+        .templates
+        .insert(equivalent_reskin.name.clone(), equivalent_reskin);
+    assert!(
+        owner
+            .pending_special_power_construction_for_template(
+                owner_producer,
+                "SpecialConstructTargetReskin"
+            )
+            .is_none()
+    );
+    assert_eq!(
+        owner.can_make_unit_for_place(owner_producer, "SpecialConstructTargetReskin"),
+        game_engine::common::system::build_assistant::CanMakeType::NoPrereq,
+        "C++ pointer equality excludes an equivalent reskin from the bypass"
+    );
+
+    // Same producer ID, but each session admits and arms a different power.
+    assert!(peer.arm_special_power_construction(
+        peer_producer,
+        "SessionSpecialConstruct",
+        "SupW_SuperweaponParticleUplinkCannon",
+        0,
+        "SpecialConstructTarget",
+    ));
+    assert_eq!(
+        peer.pending_special_power_construction(peer_producer)
+            .unwrap()
+            .special_power_name,
+        "SupW_SuperweaponParticleUplinkCannon"
+    );
+    assert_eq!(
+        owner
+            .pending_special_power_construction(owner_producer)
+            .unwrap()
+            .special_power_name,
+        "SupW_SuperweaponNeutronMissile"
+    );
+    assert_eq!(
+        peer.can_make_unit_for_place(peer_producer, "SpecialConstructTarget"),
+        game_engine::common::system::build_assistant::CanMakeType::Ok
+    );
+
+    owner.clear_special_power_construction(owner_producer);
+    assert_eq!(
+        owner.can_make_unit_for_place(owner_producer, "SpecialConstructTarget"),
+        game_engine::common::system::build_assistant::CanMakeType::NoPrereq
+    );
+    assert_eq!(
+        peer.can_make_unit_for_place(peer_producer, "SpecialConstructTarget"),
+        game_engine::common::system::build_assistant::CanMakeType::Ok,
+        "clearing one same-ID world leaves the peer's producer armed"
+    );
 }
 
 fn construct_and_produce(world: &mut GameLogic, dozer: ObjectId) -> (ObjectId, ObjectId) {

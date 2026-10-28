@@ -68,6 +68,9 @@ fn intern_special(power: &SpecialPowerType) -> u32 {
 
 fn resolve_special(id: u32) -> SpecialPowerType {
     let name = resolve_name(id);
+    if let Some(power) = crate::command_system::special_power_type_from_template_name(&name) {
+        return power;
+    }
     let Some(variant) = name.strip_prefix("SP::") else {
         return SpecialPowerType::Invalid;
     };
@@ -890,6 +893,45 @@ fn game_command_to_message(command: &GameCommand) -> Option<GameMessage> {
                 }
             }
         }
+        DoSpecialPowerWithMetadata {
+            power_type: _,
+            special_power_name,
+            command_button_name: _,
+            options_bits,
+            source_object_id,
+            target,
+        } => {
+            let power_id = intern_name(special_power_name);
+            match target {
+                PowerTarget::LocationFacing { pos, angle } => {
+                    GameMessageType::DoSpecialPowerAtLocation(
+                        power_id,
+                        coord_from_vec3(*pos),
+                        *angle,
+                        0,
+                        *options_bits,
+                        *source_object_id,
+                    )
+                }
+                PowerTarget::Location(pos) => GameMessageType::DoSpecialPowerAtLocation(
+                    power_id,
+                    coord_from_vec3(*pos),
+                    0.0,
+                    0,
+                    *options_bits,
+                    *source_object_id,
+                ),
+                PowerTarget::Object(id) => GameMessageType::DoSpecialPowerAtObject(
+                    power_id,
+                    object_id_to_message(*id),
+                    *options_bits,
+                    *source_object_id,
+                ),
+                PowerTarget::None => {
+                    GameMessageType::DoSpecialPower(power_id, *options_bits, *source_object_id)
+                }
+            }
+        }
         DoWeapon {
             weapon_slot,
             target,
@@ -1051,18 +1093,34 @@ fn game_message_to_host_command(message: &GameMessage) -> Option<GameCommand> {
         PurchaseScience(science_id) => CommandType::PurchaseScience {
             science_name: resolve_name(*science_id),
         },
-        DoSpecialPower(power_id, _options, _source) => CommandType::DoSpecialPower {
+        DoSpecialPower(power_id, options, source) => CommandType::DoSpecialPowerWithMetadata {
             power_type: resolve_special(*power_id),
+            special_power_name: resolve_name(*power_id),
+            command_button_name: String::new(),
+            options_bits: *options,
+            source_object_id: *source,
             target: PowerTarget::None,
         },
-        DoSpecialPowerAtLocation(power_id, coord, angle, ..) => CommandType::DoSpecialPower {
-            power_type: resolve_special(*power_id),
-            target: PowerTarget::from_location_and_angle(vec3_from_coord(coord), *angle),
-        },
-        DoSpecialPowerAtObject(power_id, target, ..) => CommandType::DoSpecialPower {
-            power_type: resolve_special(*power_id),
-            target: PowerTarget::Object(object_id_from_message(*target)),
-        },
+        DoSpecialPowerAtLocation(power_id, coord, angle, _in_way, options, source) => {
+            CommandType::DoSpecialPowerWithMetadata {
+                power_type: resolve_special(*power_id),
+                special_power_name: resolve_name(*power_id),
+                command_button_name: String::new(),
+                options_bits: *options,
+                source_object_id: *source,
+                target: PowerTarget::from_location_and_angle(vec3_from_coord(coord), *angle),
+            }
+        }
+        DoSpecialPowerAtObject(power_id, target, options, source) => {
+            CommandType::DoSpecialPowerWithMetadata {
+                power_type: resolve_special(*power_id),
+                special_power_name: resolve_name(*power_id),
+                command_button_name: String::new(),
+                options_bits: *options,
+                source_object_id: *source,
+                target: PowerTarget::Object(object_id_from_message(*target)),
+            }
+        }
         DoWeaponAtLocation(slot, coord) => CommandType::DoWeapon {
             weapon_slot: weapon_slot_from_id(*slot),
             max_shots_to_fire: -1,
@@ -1104,12 +1162,18 @@ fn game_message_to_host_command(message: &GameMessage) -> Option<GameCommand> {
         Exit(_) => CommandType::Exit,
         _ => return None,
     };
+    let selected_units = match &command_type {
+        CommandType::DoSpecialPowerWithMetadata {
+            source_object_id, ..
+        } if *source_object_id != 0 => vec![ObjectId(*source_object_id)],
+        _ => Vec::new(),
+    };
     Some(GameCommand {
         command_type,
         player_id: message.get_player_index() as u32,
         command_id: 0,
         timestamp: SystemTime::now(),
-        selected_units: Vec::new(),
+        selected_units,
         modifier_keys: ModifierKeys::default(),
     })
 }

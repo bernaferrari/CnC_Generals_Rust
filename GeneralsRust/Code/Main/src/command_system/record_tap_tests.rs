@@ -39,6 +39,56 @@ fn host_move_round_trips_to_do_move_to() {
 }
 
 #[test]
+fn special_power_construction_confirmation_keeps_cpp_message_metadata() {
+    let command = GameCommand {
+        command_type: CommandType::DoSpecialPowerWithMetadata {
+            power_type: SpecialPowerType::SuperweaponNeutronMissile,
+            special_power_name: "SupW_SuperweaponNeutronMissile".into(),
+            command_button_name: "GLA_Command_SneakAttack".into(),
+            options_bits: 0x24,
+            source_object_id: 71,
+            target: PowerTarget::LocationFacing {
+                pos: Vec3::new(12.0, 3.0, -4.0),
+                angle: 0.75,
+            },
+        },
+        player_id: 2,
+        command_id: 7,
+        timestamp: SystemTime::now(),
+        selected_units: vec![ObjectId(71)],
+        modifier_keys: ModifierKeys::default(),
+    };
+    let message = game_command_to_message(&command)
+        .expect("a confirmed construct power is a recorded gameplay command");
+    assert!(matches!(
+        message.get_type(),
+        GameMessageType::DoSpecialPowerAtLocation(power, _, angle, in_way, options, source)
+            if resolve_name(*power) == "SupW_SuperweaponNeutronMissile"
+                && (*angle - 0.75).abs() < f32::EPSILON
+                && *in_way == 0
+                && *options == 0x24
+                && *source == 71
+    ));
+    let replay = game_message_to_host_command(&message).expect("C++ message replays");
+    match replay.command_type {
+        CommandType::DoSpecialPowerWithMetadata {
+            special_power_name,
+            options_bits,
+            source_object_id,
+            target: PowerTarget::LocationFacing { pos, angle },
+            ..
+        } => {
+            assert_eq!(special_power_name, "SupW_SuperweaponNeutronMissile");
+            assert_eq!(options_bits, 0x24);
+            assert_eq!(source_object_id, 71);
+            assert_eq!(pos, Vec3::new(12.0, 3.0, -4.0));
+            assert_eq!(angle, 0.75);
+        }
+        other => panic!("expected metadata-bearing construct power, got {other:?}"),
+    }
+}
+
+#[test]
 fn unknown_host_command_is_fail_closed() {
     let command = GameCommand {
         command_type: CommandType::Invalid,

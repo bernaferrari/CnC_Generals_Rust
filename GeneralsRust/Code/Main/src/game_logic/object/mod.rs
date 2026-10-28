@@ -171,11 +171,11 @@ pub(crate) mod parachute_contain;
 pub(crate) mod turret_runtime;
 pub(crate) mod turret_runtime_persist;
 mod turret_spawn;
+use turret_spawn::turret_spawn_for_receiving_definition;
 pub(crate) use turret_spawn::{
     TurretSpawnSpec, turret_deg_per_sec_to_rad_per_frame, turret_ms_to_frames,
     turret_spawn_for_template,
 };
-use turret_spawn::turret_spawn_for_receiving_definition;
 
 /// C++ default recenter wait residual (2 * LOGICFRAMES_PER_SECOND).
 pub(crate) fn default_turret_recenter_frames() -> u32 {
@@ -376,6 +376,18 @@ fn default_adjust_destinations() -> bool {
     true
 }
 
+/// Receiving-world identity retained while a special-power construction
+/// button is in placement mode. C++ stores the CommandButton pointer on the
+/// producer's ProductionUpdate; Main records the exact admitted button and
+/// target here. This runtime pointer analogue is not part of ProductionUpdate Xfer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingSpecialPowerConstructionButton {
+    pub command_button_name: String,
+    pub template_name: String,
+    pub special_power_name: String,
+    pub options_bits: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Object {
     /// Immutable classification policy; wire/clone admission is rebound explicitly.
@@ -407,6 +419,11 @@ pub struct Object {
     /// unique owner in same-faction skirmishes.
     #[serde(default)]
     pub owner_player_id: Option<u32>,
+    /// C++ ProductionUpdate::m_specialPowerConstructionCommandButton.
+    /// This pointer-like authorization is instance-owned and transient.
+    #[serde(skip)]
+    pub(crate) pending_special_power_construction:
+        Option<PendingSpecialPowerConstructionButton>,
     /// C++ Team instance name (`Team::getName`) for script team overrides.
     #[serde(default)]
     pub team_instance_name: String,

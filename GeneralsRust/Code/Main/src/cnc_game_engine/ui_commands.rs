@@ -586,6 +586,15 @@ impl CnCGameEngine {
     }
 
     pub(super) fn cancel_structure_placement_from_ui(&mut self) {
+        let armed_source = self
+            .game_client
+            .in_game_ui_subsystem()
+            .expect("receiving InGameUI initialized")
+            .get_pending_place_source_object_id();
+        if armed_source != 0 {
+            self.game_logic
+                .clear_special_power_construction(crate::game_logic::ObjectId(armed_source));
+        }
         self.pending_structure_placement = None;
         self.game_hud_mut()
             .construction_panel
@@ -858,10 +867,8 @@ impl CnCGameEngine {
         if template_name.trim().is_empty() {
             return;
         }
-        self.pending_structure_placement = Some(template_name.to_string());
-        self.game_hud_mut()
-            .construction_panel
-            .arm_structure_placement(template_name.to_string());
+        self.pending_map_command = None;
+        self.clear_radius_cursor_overlays();
         // C++ ControlBar::enterTargetingMode / placeBuildAvailable stores the
         // selected dozer as the pending place source. LMB-down cancels if gone.
         let selected = self.ui_selected_ids(self.current_player_id);
@@ -879,10 +886,53 @@ impl CnCGameEngine {
                     .get_pending_place_source_object_id();
                 (existing != 0).then_some(existing)
             });
+        if let Some(source_id) = source_id {
+            self.begin_structure_placement_from_ui_for_source(
+                template_name,
+                crate::game_logic::ObjectId(source_id),
+            );
+        } else {
+            self.pending_structure_placement = Some(template_name.to_string());
+            self.game_hud_mut()
+                .construction_panel
+                .arm_structure_placement(template_name.to_string());
+            self.game_client
+                .in_game_ui_subsystem_mut()
+                .expect("receiving InGameUI initialized")
+                .place_build_available(Some(template_name.to_string()), None);
+        }
+    }
+
+    /// Arm placement against the exact producer selected by the Control Bar
+    /// command. Shortcut constructs and regular constructs share this UI path,
+    /// but the receiving source must not be re-picked from a later selection.
+    pub(super) fn begin_structure_placement_from_ui_for_source(
+        &mut self,
+        template_name: &str,
+        source_id: crate::game_logic::ObjectId,
+    ) {
+        if template_name.trim().is_empty() {
+            return;
+        }
+        self.pending_map_command = None;
+        self.clear_radius_cursor_overlays();
+        let old_source = self
+            .game_client
+            .in_game_ui_subsystem()
+            .expect("receiving InGameUI initialized")
+            .get_pending_place_source_object_id();
+        if old_source != 0 {
+            self.game_logic
+                .clear_special_power_construction(crate::game_logic::ObjectId(old_source));
+        }
+        self.pending_structure_placement = Some(template_name.to_string());
+        self.game_hud_mut()
+            .construction_panel
+            .arm_structure_placement(template_name.to_string());
         self.game_client
             .in_game_ui_subsystem_mut()
             .expect("receiving InGameUI initialized")
-            .place_build_available(Some(template_name.to_string()), source_id);
+            .place_build_available(Some(template_name.to_string()), Some(source_id.0));
         log::debug!("BeginStructurePlacement residual: {template_name}");
     }
 
@@ -2237,101 +2287,39 @@ impl CnCGameEngine {
             // whole placement; it is never silently re-armed for another try.
             log::info!("PlaceStructureAt {template_name} canceled — no construct builder");
             self.runtime_host_last_gameplay_cmd = "construct_fail_no_dozer".into();
-            self.pending_structure_placement = None;
-            self.game_hud_mut()
-                .construction_panel
-                .clear_structure_placement();
-            self.game_client
-                .in_game_ui_subsystem_mut()
-                .expect("receiving InGameUI initialized")
-                .place_build_available(None, None);
+            self.cancel_structure_placement_from_ui();
             return;
         }
 
         let builder_id = selected.first().copied();
-        // Preserve the existing special-power placement until the producer owns
-        // the actual construction button and its full UI lifecycle.
-        if let Some(id) = builder_id {
-            if let Some(pending) = self
+        // PlaceEventTranslator asks CanMake before location legality. Resolve
+        // it from the receiving producer, including the exact transient
+        // ProductionUpdate button installed by SPECIAL_POWER_CONSTRUCT.
+        let cmt = builder_id.map(|id| self.game_logic.can_make_unit_for_place(id, &template));
+        if let Some(cmt) =
+            cmt.filter(|cmt| *cmt != game_engine::common::system::build_assistant::CanMakeType::Ok)
+        {
+            let logic_frame = self.game_logic.get_frame();
+            let client_frame = self.game_client.get_frame();
+            let ui = self
                 .game_client
-                .in_game_ui_subsystem()
-                .expect("receiving InGameUI initialized")
-                .get_pending_special_power()
-            {
-                if pending.source_object_id == id.0 {
-                    self.pending_structure_placement = None;
-                    self.game_hud_mut()
-                        .construction_panel
-                        .clear_structure_placement();
-                    let placement_angle = self
-                        .game_client
-                        .in_game_ui_subsystem()
-                        .expect("receiving InGameUI initialized")
-                        .get_placement_angle();
-                    self.host_queue_and_process_command_silent(
-                        crate::command_system::GameCommand {
-                            command_type: crate::command_system::CommandType::DoSpecialPower {
-                                power_type: crate::command_system::SpecialPowerType::SneakAttack,
-                                target: crate::command_system::PowerTarget::LocationFacing {
-                                    pos: location,
-                                    angle: placement_angle,
-                                },
-                            },
-                            player_id,
-                            command_id: 0,
-                            timestamp: std::time::SystemTime::now(),
-                            selected_units: selected.clone(),
-                            modifier_keys: crate::command_system::ModifierKeys::default(),
-                        },
-                    );
-                    self.game_client
-                        .in_game_ui_subsystem_mut()
-                        .expect("receiving InGameUI initialized")
-                        .place_build_available(None, None);
-                    self.game_client
-                        .in_game_ui_subsystem_mut()
-                        .expect("receiving InGameUI initialized")
-                        .clear_pending_special_power();
-                    return;
-                }
-            }
-        }
-
-        if let Some(id) = builder_id {
-            // Query this session's normal placement owner; another session can
-            // have an unrelated object with the same ID.
-            let cmt = self.game_logic.can_make_unit_for_place(id, &template);
-            if cmt != game_engine::common::system::build_assistant::CanMakeType::Ok {
-                let logic_frame = self.game_logic.get_frame();
-                let client_frame = self.game_client.get_frame();
-                let ui = self
-                    .game_client
-                    .in_game_ui_subsystem_mut()
-                    .expect("placement feedback requires receiving InGameUI");
-                game_client::message_stream::play_can_make_failure(
-                    cmt,
-                    &mut game_client::message_stream::ReceivingUi::new(
-                        ui,
-                        logic_frame,
-                        client_frame,
-                    ),
-                );
-                if matches!(
-                    cmt,
-                    game_engine::common::system::build_assistant::CanMakeType::NoMoney
-                        | game_engine::common::system::build_assistant::CanMakeType::QueueFull
-                        | game_engine::common::system::build_assistant::CanMakeType::ParkingPlacesFull
-                        | game_engine::common::system::build_assistant::CanMakeType::MaxedOutForPlayer
-                ) {
-                    return;
-                }
-                self.game_client
-                    .in_game_ui_subsystem_mut()
-                    .expect("receiving InGameUI initialized")
-                    .place_build_available(None, None);
-                self.pending_structure_placement = None;
+                .in_game_ui_subsystem_mut()
+                .expect("placement feedback requires receiving InGameUI");
+            game_client::message_stream::play_can_make_failure(
+                cmt,
+                &mut game_client::message_stream::ReceivingUi::new(ui, logic_frame, client_frame),
+            );
+            if matches!(
+                cmt,
+                game_engine::common::system::build_assistant::CanMakeType::NoMoney
+                    | game_engine::common::system::build_assistant::CanMakeType::QueueFull
+                    | game_engine::common::system::build_assistant::CanMakeType::ParkingPlacesFull
+                    | game_engine::common::system::build_assistant::CanMakeType::MaxedOutForPlayer
+            ) {
                 return;
             }
+            self.cancel_structure_placement_from_ui();
+            return;
         }
 
         // C++ confirms canMakeUnit before isLocationLegalToBuild.
@@ -2361,7 +2349,52 @@ impl CnCGameEngine {
             return;
         }
 
+        if let Some(source_id) = builder_id {
+            if let Some(pending) = self
+                .game_logic
+                .pending_special_power_construction_for_template(source_id, &template)
+            {
+                let Some(power_type) = crate::command_system::special_power_type_from_template_name(
+                    &pending.special_power_name,
+                ) else {
+                    self.host_reject_control_bar_request(
+                        "admitted special-power construction lost its power mapping",
+                    );
+                    self.cancel_structure_placement_from_ui();
+                    return;
+                };
+                let placement_angle = self
+                    .game_client
+                    .in_game_ui_subsystem()
+                    .expect("receiving InGameUI initialized")
+                    .get_placement_angle();
+                self.host_queue_and_process_command_silent(crate::command_system::GameCommand {
+                    command_type: crate::command_system::CommandType::DoSpecialPowerWithMetadata {
+                        power_type,
+                        special_power_name: pending.special_power_name,
+                        command_button_name: pending.command_button_name,
+                        options_bits: pending.options_bits,
+                        source_object_id: source_id.0,
+                        target: crate::command_system::PowerTarget::LocationFacing {
+                            pos: location,
+                            angle: placement_angle,
+                        },
+                    },
+                    player_id,
+                    command_id: 0,
+                    timestamp: std::time::SystemTime::now(),
+                    selected_units: selected.clone(),
+                    modifier_keys: crate::command_system::ModifierKeys::default(),
+                });
+                self.cancel_structure_placement_from_ui();
+                return;
+            }
+        }
+
         self.pending_structure_placement = None;
+        if let Some(builder_id) = builder_id {
+            self.game_logic.clear_special_power_construction(builder_id);
+        }
         // C++ InGameUI.cpp:2981: leaving place-build with a source dozer
         // protects the next alternate-mouse blank LMB from deselecting.
         self.host_set_prevent_left_click_deselection(true);
@@ -2622,6 +2655,9 @@ impl CnCGameEngine {
     /// C++ ControlBar named command button residual (Upgrade/Cancel/Stop/…).
 
     pub(super) fn arm_pending_unit_ability(&mut self, ability: PendingUnitAbility) {
+        if self.pending_structure_placement.is_some() {
+            self.cancel_structure_placement_from_ui();
+        }
         self.pending_map_command = Some(PendingMapCommand::UnitAbility(ability));
         self.pending_structure_placement = None;
         self.arm_radius_cursor_for_pending("OFFENSIVE_SPECIALPOWER");
@@ -2634,6 +2670,9 @@ impl CnCGameEngine {
             return;
         };
 
+        if self.pending_structure_placement.is_some() {
+            self.cancel_structure_placement_from_ui();
+        }
         // C++ ControlBarCommandProcessing.cpp:183-189 — every command-button
         // activation plays UnitSpecificSound with the local player index.
         play_named_command_button_unit_specific_sound(command_name, self.local_player_id_for_ui());
