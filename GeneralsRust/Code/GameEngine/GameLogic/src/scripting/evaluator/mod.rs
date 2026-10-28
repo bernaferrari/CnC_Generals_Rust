@@ -6,15 +6,15 @@
 //! Split into focused submodules by condition/action family.
 
 use super::core::*;
-use super::engine::{ScriptActionHandler, get_area_tracker, get_named_object_tracker, *};
+use super::engine::{get_area_tracker, get_named_object_tracker, ScriptActionHandler, *};
 use super::executor::{
     ScriptActionDispatcher, ScriptActionResult, ScriptConditionEvaluator, ScriptConditionResult,
     ScriptContext,
 };
 use crate::commands::get_selection_manager;
 use crate::common::{
-    AsciiString, DisabledType, KindOf, LOGICFRAMES_PER_SECOND, ObjectID, ObjectShroudStatus,
-    PlayerMaskType, UnsignedInt,
+    AsciiString, DisabledType, KindOf, ObjectID, ObjectShroudStatus, PlayerMaskType, UnsignedInt,
+    LOGICFRAMES_PER_SECOND,
 };
 use crate::helpers::TheGameLogic;
 use crate::modules::ContainModuleInterface;
@@ -25,7 +25,7 @@ use crate::team::get_team_factory;
 use crate::terrain::get_terrain_logic;
 use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::rts::{SCIENCE_INVALID, get_science_store};
+use game_engine::common::rts::{get_science_store, SCIENCE_INVALID};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -45,9 +45,6 @@ pub struct ScriptEvaluator {
     host_trigger_world:
         Option<std::sync::Arc<std::sync::Mutex<crate::scripting::HostTriggerWorld>>>,
 }
-
-static TRANSPORT_STATUSES: Lazy<RwLock<HashMap<ObjectID, (UnsignedInt, usize)>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
 
 include!("dispatch.rs");
 include!("leftover.rs");

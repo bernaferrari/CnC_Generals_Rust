@@ -21,6 +21,37 @@ impl ScriptEvaluator {
         }
     }
 
+    /// Observe the C++ UnitEmptied edge through this evaluator's receiving
+    /// ScriptEngineHandle. A locked handle cannot prove that its current value
+    /// is the lexical engine (the handle may have been replaced while locked),
+    /// so fail closed instead of borrowing ambient active-engine state.
+    pub(super) fn observe_receiving_unit_emptied(
+        &self,
+        object_id: ObjectID,
+        frame: UnsignedInt,
+        count: usize,
+    ) -> GameLogicResult<bool> {
+        let observe = |engine: &ScriptEngine| {
+            engine
+                .try_observe_receiving_transport_empty(object_id, frame, count)
+                .ok_or_else(|| {
+                    GameLogicError::Threading(
+                        "UnitEmptied history is already borrowed by this ScriptEngine".into(),
+                    )
+                })
+        };
+
+        let guard = self.engine.try_read().map_err(|error| {
+            GameLogicError::Threading(format!(
+                "UnitEmptied ScriptEngine handle is unavailable: {error}"
+            ))
+        })?;
+        let engine = guard.as_ref().ok_or_else(|| {
+            GameLogicError::SystemNotInitialized("UnitEmptied ScriptEngine handle is empty".into())
+        })?;
+        observe(engine)
+    }
+
     pub(crate) fn with_host_trigger_world<R>(
         &self,
         f: impl FnOnce(&crate::scripting::HostTriggerWorld) -> R,

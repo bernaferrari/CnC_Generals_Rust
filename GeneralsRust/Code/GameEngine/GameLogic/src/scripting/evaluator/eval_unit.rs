@@ -393,16 +393,6 @@ impl ScriptEvaluator {
             .unwrap_or(0);
 
         let frame = TheGameLogic::get_frame();
-        let mut statuses = TRANSPORT_STATUSES.write().map_err(|e| {
-            GameLogicError::Threading(format!("Transport status lock error: {}", e))
-        })?;
-
-        let entry = statuses.entry(object_id).or_insert((frame, num_peeps));
-        if entry.0 == frame.saturating_sub(1) && entry.1 > 0 && num_peeps == 0 {
-            return Ok(true);
-        }
-
-        *entry = (frame, num_peeps);
-        Ok(false)
+        self.observe_receiving_unit_emptied(object_id, frame, num_peeps)
     }
 }

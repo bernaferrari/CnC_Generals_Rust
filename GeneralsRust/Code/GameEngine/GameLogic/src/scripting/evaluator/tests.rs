@@ -1,6 +1,214 @@
 use super::super::engine::initialize_script_engine;
 use super::*;
 
+#[test]
+fn unit_emptied_history_uses_the_evaluator_engine_under_foreign_active_scope() {
+    let first_handle = ScriptEngineHandle::from_engine(ScriptEngine::new().unwrap());
+    let second_handle = ScriptEngineHandle::from_engine(ScriptEngine::new().unwrap());
+    let first = ScriptEvaluator::new(first_handle.clone());
+    let second = ScriptEvaluator::new(second_handle.clone());
+    let object = 41;
+
+    // Both worlds contain the same object ID, but have different previous
+    // counts. The histories must not merge by ID.
+    assert!(!first.observe_receiving_unit_emptied(object, 10, 0).unwrap());
+    assert!(!second
+        .observe_receiving_unit_emptied(object, 10, 2)
+        .unwrap());
+
+    let first_guard = first_handle.read().unwrap();
+    let first_engine = first_guard.as_ref().unwrap();
+    first_engine.with_active(|| {
+        // A's lexical active scope must not steal B's query. B's handle is
+        // available, so the evaluator reads B's own ScriptEngine state.
+        assert!(second
+            .observe_receiving_unit_emptied(object, 11, 0)
+            .unwrap());
+        assert!(second
+            .observe_receiving_unit_emptied(object, 11, 0)
+            .unwrap());
+
+        // A's locked handle cannot prove which ScriptEngine it currently
+        // contains, so UnitEmptied refuses ambient TLS fallback.
+        assert!(matches!(
+            first.observe_receiving_unit_emptied(object, 11, 0),
+            Err(GameLogicError::Threading(_))
+        ));
+    });
+    drop(first_guard);
+}
+
+#[test]
+fn unit_emptied_evaluator_rejects_stale_owner_when_handle_is_replaced_under_lock() {
+    let handle = ScriptEngineHandle::from_engine(ScriptEngine::new().unwrap());
+    let evaluator = ScriptEvaluator::new(handle.clone());
+    let object = 17;
+    assert!(!evaluator
+        .observe_receiving_unit_emptied(object, 20, 1)
+        .unwrap());
+
+    let mut guard = handle.write().unwrap();
+    let original = guard.take().unwrap();
+    *guard = Some(ScriptEngine::new().unwrap());
+    original.with_active(|| {
+        assert!(matches!(
+            evaluator.observe_receiving_unit_emptied(object, 21, 2),
+            Err(GameLogicError::Threading(_))
+        ));
+    });
+    assert!(
+        !original
+            .try_observe_receiving_transport_empty(object, 22, 0)
+            .expect("original engine remains independently usable"),
+        "the evaluator must not mutate the stale lexical engine's history"
+    );
+    drop(guard);
+
+    // Once the replacement is accessible through its own handle, the
+    // evaluator records there and does not inherit the old engine's history.
+    assert!(!evaluator
+        .observe_receiving_unit_emptied(object, 21, 0)
+        .unwrap());
+}
+
+#[test]
+fn unit_emptied_history_is_cleared_by_reset_and_xfer_restore() {
+    let handle = ScriptEngineHandle::from_engine(ScriptEngine::new().unwrap());
+    let evaluator = ScriptEvaluator::new(handle.clone());
+    let object = 29;
+
+    assert!(!evaluator
+        .observe_receiving_unit_emptied(object, 1, 3)
+        .unwrap());
+    {
+        let mut guard = handle.write().unwrap();
+        guard.as_mut().unwrap().reset();
+    }
+    assert!(
+        !evaluator
+            .observe_receiving_unit_emptied(object, 2, 0)
+            .unwrap(),
+        "reset discards the prior nonempty observation"
+    );
+
+    assert!(!evaluator
+        .observe_receiving_unit_emptied(object, 8, 2)
+        .unwrap());
+    {
+        let guard = handle.read().unwrap();
+        let engine = guard.as_ref().unwrap();
+        let tail = engine.snapshot_xfer_tail();
+        engine.restore_receiving_xfer_tail(&tail);
+    }
+    assert!(
+        !evaluator
+            .observe_receiving_unit_emptied(object, 9, 0)
+            .unwrap(),
+        "Xfer restore clears transient transport observations"
+    );
+}
+
+struct UnitEmptiedConditionFixture {
+    object_id: ObjectID,
+    object: Option<Arc<RwLock<crate::object::Object>>>,
+}
+
+impl Drop for UnitEmptiedConditionFixture {
+    fn drop(&mut self) {
+        let _ = get_named_object_tracker().unregister_object(self.object_id);
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(self.object_id);
+        // Object destruction queries the registry; keep its final handle alive
+        // until unregister has released that registry lock.
+        drop(self.object.take());
+    }
+}
+
+#[test]
+fn public_unit_emptied_condition_uses_receiving_engine_during_nested_evaluation() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        "scripting::evaluator::tests::public_unit_emptied_condition_uses_receiving_engine_during_nested_evaluation",
+        "GENERALS_EVALUATOR_PUBLIC_UNIT_EMPTIED_USES_EXACT_ENGINE_CHILD",
+    ) {
+        return;
+    }
+    let _test_lock = crate::test_sync::lock();
+    const OBJECT_ID: ObjectID = 0xE7A1_5001;
+    const OBJECT_NAME: &str = "EvaluatorUnitEmptiedOwner";
+
+    let object = Arc::new(RwLock::new(crate::object::Object::new_test(
+        OBJECT_ID, 100.0,
+    )));
+    crate::object::registry::OBJECT_REGISTRY.register_object(OBJECT_ID, &object);
+    let fixture = UnitEmptiedConditionFixture {
+        object_id: OBJECT_ID,
+        object: Some(object),
+    };
+    let tracker = get_named_object_tracker();
+    let _ = tracker.unregister_object(OBJECT_ID);
+    tracker
+        .register_named_object(OBJECT_NAME.to_string(), OBJECT_ID)
+        .unwrap();
+
+    let first_handle = ScriptEngineHandle::from_engine(ScriptEngine::new().unwrap());
+    let second_handle = ScriptEngineHandle::from_engine(ScriptEngine::new().unwrap());
+    let first = ScriptEvaluator::new(first_handle.clone());
+    let second = ScriptEvaluator::new(second_handle.clone());
+    let frame = TheGameLogic::get_frame();
+    assert!(!first
+        .observe_receiving_unit_emptied(OBJECT_ID, frame.wrapping_sub(1), 2)
+        .unwrap());
+    assert!(!second
+        .observe_receiving_unit_emptied(OBJECT_ID, frame.wrapping_sub(1), 0)
+        .unwrap());
+
+    let make_condition = || {
+        let mut condition = Condition::new(ConditionType::UnitEmptied);
+        condition
+            .add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                OBJECT_NAME.to_string(),
+            ))
+            .unwrap();
+        condition
+    };
+    let mut first_condition = make_condition();
+    let mut second_condition = make_condition();
+
+    let first_guard = first_handle.read().unwrap();
+    let first_engine = first_guard.as_ref().unwrap();
+    first_engine.with_active(|| {
+        assert!(
+            matches!(
+                first.evaluate_condition(&mut first_condition),
+                Err(GameLogicError::Threading(_))
+            ),
+            "a locked receiving handle must not borrow the lexical active engine"
+        );
+        assert!(
+            !second.evaluate_condition(&mut second_condition).unwrap(),
+            "nested evaluator for the peer engine must use its own empty history"
+        );
+        assert!(
+            !second.evaluate_condition(&mut second_condition).unwrap(),
+            "the peer's repeated query remains false in this frame"
+        );
+    });
+    drop(first_guard);
+    assert!(
+        first.evaluate_condition(&mut first_condition).unwrap(),
+        "once the receiving handle is available, its own prior nonempty state is observed"
+    );
+    assert!(
+        first.evaluate_condition(&mut first_condition).unwrap(),
+        "the true edge remains visible for repeated same-frame queries"
+    );
+    assert!(
+        !second.evaluate_condition(&mut second_condition).unwrap(),
+        "the peer's independent empty history remains false"
+    );
+    drop(fixture);
+}
+
 #[derive(Debug)]
 struct CompletedWaypointAi {
     completed_waypoint_id: Arc<std::sync::atomic::AtomicU32>,
@@ -1217,11 +1425,9 @@ fn explicit_empty_trigger_owner_does_not_fall_back_to_other_world_terrain() {
 
     let engine = get_script_engine();
     let standalone = ScriptEvaluator::new(engine.clone());
-    assert!(
-        standalone
-            .get_trigger_area("OwnerIsolationSentinel")
-            .is_some()
-    );
+    assert!(standalone
+        .get_trigger_area("OwnerIsolationSentinel")
+        .is_some());
 
     let empty_owner = std::sync::Arc::new(std::sync::Mutex::new(
         crate::scripting::HostTriggerWorld::default(),
