@@ -1511,16 +1511,26 @@ impl ScriptEngine {
         frame: u32,
         count: usize,
     ) -> bool {
-        let mut inner = self.lock_inner_mut();
+        self.try_observe_receiving_transport_empty(object, frame, count)
+            .expect("transport history cannot be observed while engine state is borrowed")
+    }
+
+    pub(crate) fn try_observe_receiving_transport_empty(
+        &self,
+        object: ObjectID,
+        frame: u32,
+        count: usize,
+    ) -> Option<bool> {
+        let mut inner = self.inner.try_borrow_mut().ok()?;
         let status = inner
             .receiving_transport_statuses
             .entry(object)
             .or_insert((frame, count));
         if status.0 == frame.wrapping_sub(1) && status.1 > 0 && count == 0 {
-            return true;
+            return Some(true);
         }
         *status = (frame, count);
-        false
+        Some(false)
     }
 
     /// Receiving cache ownership is external to this interpreter. Preserve

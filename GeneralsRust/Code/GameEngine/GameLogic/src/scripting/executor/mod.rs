@@ -1238,8 +1238,6 @@ fn to_radar_coord(pos: &Coord3D) -> game_engine::common::system::radar::Coord3D 
     game_engine::common::system::radar::Coord3D::new(pos.x, pos.y, pos.z)
 }
 
-static TRANSPORT_STATUSES: Lazy<RwLock<HashMap<ObjectID, (u32, usize)>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
 static SCRIPT_TEMP_GROUP_ID: AtomicU32 = AtomicU32::new(1);
 
 /// Script execution error

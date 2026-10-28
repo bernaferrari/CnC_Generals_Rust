@@ -941,57 +941,43 @@ impl ScriptConditionEvaluator<'_> {
         let unit_name = self.get_condition_string_param(condition, 0)?;
         log::debug!("Evaluating if unit '{}' emptied", unit_name);
 
-        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(obj) = crate::scripting::host_script_query_object(&unit_name) {
-                let object_id = obj.id;
-                let num_peeps = obj.contain_count as usize;
-                // A condition can run inside a receiving script operation
-                // while another world owns the compatibility GameLogic slot.
-                // Use the operation's supplied clock, matching the Main
-                // driver and C++'s per-game-instance clock.
-                let frame = self.context.with_state(|state| state.current_frame);
-                let Ok(mut statuses) = TRANSPORT_STATUSES.write() else {
-                    return Ok(ScriptConditionResult::False);
-                };
-                let entry = statuses.entry(object_id).or_insert((frame, num_peeps));
-                if entry.0 == frame.saturating_sub(1) && entry.1 > 0 && num_peeps == 0 {
-                    return Ok(ScriptConditionResult::True);
-                }
-                *entry = (frame, num_peeps);
+        let (object_id, num_peeps) = if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            let Some(obj) = crate::scripting::host_script_query_object(&unit_name) else {
                 return Ok(ScriptConditionResult::False);
-            }
-            return Ok(ScriptConditionResult::False);
-        }
-
-        let tracker = get_named_object_tracker();
-        let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
-            return Ok(ScriptConditionResult::False);
+            };
+            (obj.id, obj.contain_count as usize)
+        } else {
+            let tracker = get_named_object_tracker();
+            let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
+                return Ok(ScriptConditionResult::False);
+            };
+            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
+                return Ok(ScriptConditionResult::False);
+            };
+            let Ok(obj) = obj_arc.read() else {
+                return Ok(ScriptConditionResult::False);
+            };
+            let count = obj
+                .get_contain()
+                .and_then(|contain| contain.lock().ok().map(|c| c.get_contained_count()))
+                .unwrap_or(0);
+            (object_id, count)
         };
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return Ok(ScriptConditionResult::False);
+
+        // The fallback queries the canonical object path, but edge history still
+        // belongs to the exact engine borrowed by this evaluator. A live
+        // ScriptEngineInner borrow is an evaluation error, never a false fact.
+        let frame = self.context.with_state(|context| context.current_frame);
+        let Some(emptied) = self
+            .context
+            .borrowed_engine()
+            .try_observe_receiving_transport_empty(object_id, frame, num_peeps)
+        else {
+            return Err(ScriptError::EvaluationFailed(
+                "Script engine state is borrowed while observing transport history".into(),
+            ));
         };
-        let Ok(obj) = obj_arc.read() else {
-            return Ok(ScriptConditionResult::False);
-        };
-
-        let num_peeps = obj
-            .get_contain()
-            .and_then(|contain| contain.lock().ok().map(|c| c.get_contained_count()))
-            .unwrap_or(0);
-        let frame = self.context.with_state(|state| state.current_frame);
-
-        let Ok(mut statuses) = TRANSPORT_STATUSES.write() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let entry = statuses.entry(object_id).or_insert((frame, num_peeps));
-
-        if entry.0 == frame.saturating_sub(1) && entry.1 > 0 && num_peeps == 0 {
-            // Match C++: do not update this frame so repeated checks remain true.
-            return Ok(ScriptConditionResult::True);
-        }
-
-        *entry = (frame, num_peeps);
-        Ok(ScriptConditionResult::False)
+        Ok(Self::bool_result(emptied))
     }
 
     pub(crate) fn eval_unit_has_object_status(
