@@ -7,26 +7,19 @@ use super::super::*;
 #[path = "production_refunds.rs"]
 mod production_refunds;
 
-/// C++ `ThingTemplate::getVoiceTaskComplete` / `getPerUnitSound("VoiceTaskComplete")`.
-fn resolve_dozer_voice_task_complete(template_name: &str) -> Option<String> {
-    let factory = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
-    let factory = factory.as_ref()?;
-    let tmpl = factory.find_template(template_name, false)?;
-    let key = "VoiceTaskComplete".to_string();
-    if let Some(event) = tmpl.get_per_unit_sound(&key) {
-        let name = event.get_event_name();
-        if !name.is_empty() {
-            return Some(name.to_string());
-        }
-    }
-    tmpl.get_voice_task_complete().and_then(|event| {
-        let name = event.get_event_name();
-        if name.is_empty() {
-            None
-        } else {
-            Some(name.to_string())
-        }
-    })
+/// C++ `DozerAIUpdate.cpp:615` reads the fixed VoiceTaskComplete slot from
+/// this live Dozer's ThingTemplate (not the same-named global factory entry).
+fn resolve_dozer_voice_task_complete(
+    template: &crate::game_logic::ThingTemplate,
+) -> Option<String> {
+    use game_engine::common::thing::thing_template::ThingTemplateAudioType as Audio;
+
+    let event = template
+        .receiving_client_template
+        .as_ref()?
+        .audio_event(Audio::VoiceTaskComplete)?;
+    let name = event.get_event_name();
+    (!name.is_empty()).then(|| name.to_string())
 }
 
 impl GameLogic {
@@ -2224,8 +2217,8 @@ impl GameLogic {
         // CPP607 VoiceTaskComplete belongs to this exact builder, never a proximity scan.
         if let Some((did, _)) = builder.as_ref() {
             if let Some(object) = self.objects.get(did) {
-                let (pos, name) = (object.get_position(), object.template_name.clone());
-                if let Some(event) = resolve_dozer_voice_task_complete(&name) {
+                let pos = object.get_position();
+                if let Some(event) = resolve_dozer_voice_task_complete(object.get_template()) {
                     self.queue_audio_event(
                         AudioEventRequest::new(&event)
                             .with_object(*did)
