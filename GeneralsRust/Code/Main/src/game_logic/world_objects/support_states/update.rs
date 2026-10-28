@@ -3070,8 +3070,7 @@ impl GameLogic {
                             // checkAndDetonateBoobyTrap first; cancel if either dies;
                             // refuse a second plant while BOOBY_TRAPPED remains.
                             use crate::game_logic::host_booby_trap::{
-                                BOOBY_TRAP_INSTALL_AUDIO, has_booby_trap_upgrade,
-                                is_booby_trap_planter_template,
+                                has_booby_trap_upgrade, is_booby_trap_planter_template,
                             };
                             if self.leftover_probe_booby_at_target_with_effects(
                                 object_id,
@@ -3133,6 +3132,7 @@ impl GameLogic {
                                         object_id,
                                         team,
                                         special_target_id,
+                                        crate::game_logic::game_logic::StickyBombInitPosition::Target,
                                         effects,
                                     )
                                 {
@@ -3142,12 +3142,6 @@ impl GameLogic {
                                     // only after the charge object exists.
                                     let _ = self.booby_trap.take_plant(special_target_id);
                                 }
-                                self.queue_audio_event(
-                                    AudioEventRequest::new(BOOBY_TRAP_INSTALL_AUDIO)
-                                        .with_object(special_target_id)
-                                        .with_position(target_position)
-                                        .with_priority(160),
-                                );
                                 let msg = localization::localize(
                                     "hud.booby_trap.planted",
                                     "Booby trap planted",

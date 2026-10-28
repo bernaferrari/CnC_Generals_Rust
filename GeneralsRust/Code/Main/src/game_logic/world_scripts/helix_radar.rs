@@ -4,6 +4,13 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum StickyBombInitPosition {
+    Target,
+    Specific(glam::Vec3),
+    ScriptPerimeter,
+}
+
 /// C++ `ActionManager.cpp:1652-1672` `SPECIAL_CASH_HACK`.
 fn is_legal_superweapon_cash_hack_victim(victim: &Object, caster_team: Option<Team>) -> bool {
     use crate::game_logic::host_hero_abilities::is_cash_hack_target;
@@ -321,6 +328,7 @@ impl GameLogic {
             planter_id,
             team,
             structure_id,
+            StickyBombInitPosition::Target,
             &mut Default::default(),
         )
     }
@@ -345,21 +353,97 @@ impl GameLogic {
             })
     }
 
+    /// C++ `GeometryInfo::makeRandomOffsetOnPerimeter` plus the script's
+    /// transform into the target's world space. Called only after the charge
+    /// factory callbacks, matching ScriptActions.cpp's creation-before-sample
+    /// order.
+    pub(crate) fn booby_trap_script_perimeter_position(
+        &mut self,
+        target_id: ObjectId,
+    ) -> Option<glam::Vec3> {
+        use crate::game_logic::HostGeometryType;
+
+        let (geometry, origin, orientation) = {
+            let target = self.objects.get(&target_id)?;
+            (
+                *target.geometry_info(),
+                target.get_position(),
+                target.get_orientation(),
+            )
+        };
+        let (local_x, local_z) = match geometry.geom_type {
+            HostGeometryType::Sphere | HostGeometryType::Cylinder => (0.0, 0.0),
+            HostGeometryType::Box => {
+                if self.logic_random.next_real(0.0, 1.0) < 0.5 {
+                    let x = self
+                        .logic_random
+                        .next_real(-geometry.major_radius, geometry.major_radius);
+                    let z = if self.logic_random.next_real(0.0, 1.0) < 0.5 {
+                        -geometry.minor_radius
+                    } else {
+                        geometry.minor_radius
+                    };
+                    (x, z)
+                } else {
+                    let z = self
+                        .logic_random
+                        .next_real(-geometry.minor_radius, geometry.minor_radius);
+                    let x = if self.logic_random.next_real(0.0, 1.0) < 0.5 {
+                        -geometry.major_radius
+                    } else {
+                        geometry.major_radius
+                    };
+                    (x, z)
+                }
+            }
+        };
+        let (sin, cos) = orientation.sin_cos();
+        Some(glam::Vec3::new(
+            origin.x + local_x * cos - local_z * sin,
+            origin.y,
+            origin.z + local_x * sin + local_z * cos,
+        ))
+    }
+
     pub(crate) fn spawn_booby_trap_special_object_with_effects(
         &mut self,
         planter_id: ObjectId,
         team: Team,
         structure_id: ObjectId,
+        position_request: StickyBombInitPosition,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         use crate::game_logic::KindOf;
-        use crate::game_logic::host_booby_trap::{BOOBY_TRAP_MAX_HEALTH, BOOBY_TRAP_OBJECT};
+        use crate::game_logic::host_booby_trap::BOOBY_TRAP_OBJECT;
+        use game_engine::common::thing::module::ModuleData;
 
         // C++ SpecialAbilityUpdate refuses to plant when the charge template
         // lacks its required StickyBombUpdate module.
-        if !self.booby_trap_template_has_sticky_bomb_update(BOOBY_TRAP_OBJECT) {
+        let offset_z = self
+            .receiving_module_content
+            .as_ref()
+            .and_then(|content| content.admitted_template(BOOBY_TRAP_OBJECT))
+            .and_then(|template| {
+                template.behavior_modules().iter().find_map(|module| {
+                    (module
+                        .name
+                        .as_str()
+                        .eq_ignore_ascii_case("StickyBombUpdate"))
+                    .then(|| {
+                        module
+                                .data
+                                .as_any()
+                                .downcast_ref::<
+                                    gamelogic::object::behavior::StickyBombUpdateModuleData,
+                                >()
+                                .map(|data| data.offset_z)
+                    })
+                    .flatten()
+                })
+            });
+        let Some(offset_z) = offset_z else {
             return None;
-        }
+        };
         // A typed receiving module definition is insufficient if the host
         // object's admitted template was not installed. Do not invent a
         // competing ThingTemplate here.
@@ -369,14 +453,23 @@ impl GameLogic {
         if !charge_template.kind_of.contains(&KindOf::BoobyTrap) {
             return None;
         }
-        let (target_birth, pos) = {
+        let (target_birth, planter_birth, initial_position) = {
             // C++ initStickyBomb requires a live Object pointer, not an alive
             // body. Ability callers own their own alive/targeting predicates.
             let target = self.objects.get(&structure_id)?;
-            let position = target.get_position();
+            let planter = self.objects.get(&planter_id)?;
             (
                 std::sync::Arc::downgrade(&target.visual_draw_identity_token),
-                glam::Vec3::new(position.x, position.y + 8.0, position.z),
+                std::sync::Arc::downgrade(&planter.visual_draw_identity_token),
+                // C++ SpecialAbilityUpdate::createSpecialObject initializes at
+                // the planter pose before initStickyBomb moves it to the target.
+                if !matches!(position_request, StickyBombInitPosition::Target) {
+                    // Named/team script actions use ThingFactory::newObject,
+                    // which has no createSpecialObject initial planter pose.
+                    glam::Vec3::ZERO
+                } else {
+                    planter.get_position()
+                },
             )
         };
         let owner_player_id = {
@@ -391,7 +484,7 @@ impl GameLogic {
             BOOBY_TRAP_OBJECT,
             team,
             owner_player_id,
-            pos,
+            initial_position,
             None,
             effects,
         );
@@ -409,35 +502,106 @@ impl GameLogic {
                 return None;
             }
         };
+        // Native factory callbacks can synchronously move, remove, or replace
+        // either participant. Continue only with the births passed to C++
+        // initStickyBomb; never write status onto a replacement at the same ID.
+        if !self.object_birth_matches(structure_id, &target_birth)
+            || !self.object_birth_matches(planter_id, &planter_birth)
+            || !self.object_birth_matches(bid, &charge_birth)
+        {
+            let _ = self.destroy_object_if_birth_matches_with_effects(bid, &charge_birth, effects);
+            return None;
+        }
+
+        let (target_immobile, target_position, bomber_position, bomber_orientation) = {
+            let target = self.objects.get(&structure_id)?;
+            let planter = self.objects.get(&planter_id)?;
+            (
+                target.is_kind_of(KindOf::Immobile),
+                target.get_position(),
+                planter.get_position(),
+                planter.get_orientation(),
+            )
+        };
+        let mut position = match position_request {
+            StickyBombInitPosition::Specific(position) => position,
+            StickyBombInitPosition::ScriptPerimeter => {
+                // The named script's factory callbacks have now run. Resolve
+                // geometry, transform and RNG from the receiving target's
+                // current state, as ScriptActions.cpp does after newObject.
+                let Some(position) = self.booby_trap_script_perimeter_position(structure_id) else {
+                    let _ = self.destroy_object_if_birth_matches_with_effects(
+                        bid,
+                        &charge_birth,
+                        effects,
+                    );
+                    return None;
+                };
+                position
+            }
+            StickyBombInitPosition::Target if target_immobile => {
+                // StickyBombUpdate::initStickyBomb uses the bomber's current pose
+                // for an immobile target, then snaps that point to the terrain.
+                bomber_position
+            }
+            StickyBombInitPosition::Target => {
+                let mut position = target_position;
+                position.y += offset_z;
+                position
+            }
+        };
+        if !matches!(position_request, StickyBombInitPosition::Target) || target_immobile {
+            position.y = self
+                .terrain_ground_height_at(glam::Vec3::new(position.x, 0.0, position.z))
+                .unwrap_or(0.0);
+        }
+
         if let Some(o) = self.objects.get_mut(&bid) {
             o.booby_trap_special = true;
             o.booby_trap_attached_to = Some(structure_id);
             // StickyBombUpdate::initStickyBomb sets ProducerID to its target.
             o.producer_id = Some(structure_id);
-            o.health.maximum = BOOBY_TRAP_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
-                BOOBY_TRAP_MAX_HEALTH,
-                &mut self.health_events,
-            );
-            o.movement.max_speed = 0.0;
-            o.weapon = None;
-            o.secondary_weapon = None;
-        }
-        // StickyBombUpdate::initStickyBomb sets the target status after the
-        // charge producer/position initialization and before its create sound.
-        // Factory callbacks can reenter and replace the target, so verify its
-        // birth before writing status and destroy only this charge birth.
-        let target_still_valid = self.object_birth_matches(structure_id, &target_birth);
-        if !target_still_valid {
-            if self.object_birth_matches(bid, &charge_birth) {
-                self.destroy_booby_trap_special_object_with_effects(bid, effects);
+            if matches!(position_request, StickyBombInitPosition::Target) {
+                o.set_orientation_with_partition_owner(
+                    bomber_orientation,
+                    &mut self.partition_manager,
+                );
             }
+        }
+        if !self.object_birth_matches(bid, &charge_birth) {
+            return None;
+        }
+        if let Some(charge) = self.objects.get_mut(&bid) {
+            charge.set_position_with_effects_and_pose_owners(
+                position,
+                self.frame,
+                &mut effects.reborrow_for_object(&mut self.partition_manager),
+                &self.host_trigger_world,
+                &self.team_factory,
+            );
+        } else {
+            return None;
+        }
+        // Position callbacks can reenter too. Match C++'s order: target status
+        // follows the charge move, then StickyBombCreated is admitted at the
+        // resulting charge position.
+        if !self.object_birth_matches(structure_id, &target_birth)
+            || !self.object_birth_matches(bid, &charge_birth)
+        {
+            let _ = self.destroy_object_if_birth_matches_with_effects(bid, &charge_birth, effects);
             return None;
         }
         if let Some(target) = self.objects.get_mut(&structure_id) {
             target.set_status_booby_trapped(true);
         }
+        self.queue_resolved_per_unit_sound(
+            bid,
+            crate::game_logic::host_mines::STICKY_BOMB_CREATED_AUDIO,
+            false,
+            true,
+            None,
+            155,
+        );
         self.booby_trap_objects_spawned = self.booby_trap_objects_spawned.saturating_add(1);
         Some(bid)
     }

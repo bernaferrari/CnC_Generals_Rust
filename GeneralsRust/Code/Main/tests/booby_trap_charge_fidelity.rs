@@ -3,9 +3,16 @@ use generals_main::game_logic::host_booby_trap::HostBoobyTrapRegistry;
 use generals_main::game_logic::{GameLogic, GameMode, ObjectId, Player, Team};
 use glam::Vec3;
 
-const TRAP_SOURCE: &str = "Object BoobyTrap\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 1\n InitialHealth = 1\n End\n Behavior = StickyBombUpdate Sticky\n End\nEnd\nObject BoobyTrapWithoutUpdate\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 1\n InitialHealth = 1\nEnd\nEnd\nObject TrapPlanter\n KindOf = INFANTRY SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\nObject TrapTarget\n KindOf = STRUCTURE SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\nEnd\nEnd\nObject TrapVictim\n KindOf = INFANTRY SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\n";
+const TRAP_SOURCE: &str = "Object BoobyTrap\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 37\n InitialHealth = 19\n End\n Behavior = StickyBombUpdate Sticky\n  OffsetZ = 17\n End\n UnitSpecificSounds\n  StickyBombCreated = StickyCreated\n End\nEnd\nObject BoobyTrapWithoutUpdate\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 1\n InitialHealth = 1\nEnd\nEnd\nObject TrapPlanter\n KindOf = INFANTRY SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\nObject TrapTarget\n KindOf = STRUCTURE IMMOBILE SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\nEnd\nEnd\nObject TrapMobileTarget\n KindOf = STRUCTURE SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\nEnd\nEnd\nObject TrapVictim\n KindOf = INFANTRY SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\n";
 
 fn world() -> (GameLogic, ObjectId, ObjectId) {
+    world_with_positions(Vec3::ZERO, Vec3::new(8.0, 0.0, 0.0))
+}
+
+fn world_with_positions(
+    planter_position: Vec3,
+    target_position: Vec3,
+) -> (GameLogic, ObjectId, ObjectId) {
     let mut game = GameLogic::new();
     game.admit_object_ini_sources([("BoobyTrapChargeFidelity.ini".into(), TRAP_SOURCE.into())])
         .expect("admit typed charge and host templates");
@@ -23,12 +30,103 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
     game.add_player(same_player_alliance_other_faction);
 
     let planter_id = game
-        .create_object_for_player("TrapPlanter", 0, Vec3::ZERO)
+        .create_object_for_player("TrapPlanter", 0, planter_position)
         .expect("planter");
     let target_id = game
-        .create_object_for_player("TrapTarget", 1, Vec3::new(8.0, 0.0, 0.0))
+        .create_object_for_player("TrapTarget", 1, target_position)
         .expect("target");
     (game, planter_id, target_id)
+}
+
+#[test]
+fn public_sticky_bomb_init_uses_each_worlds_pose_owner_and_authored_sound() {
+    let (mut first, first_planter, first_target) =
+        world_with_positions(Vec3::new(31.0, 12.0, 9.0), Vec3::new(8.0, 0.0, 0.0));
+    let (mut peer, peer_planter, peer_target) =
+        world_with_positions(Vec3::new(77.0, 20.0, 14.0), Vec3::new(8.0, 0.0, 0.0));
+    assert_eq!((first_planter, first_target), (peer_planter, peer_target));
+    first.queued_audio_events.drain_requests();
+    peer.queued_audio_events.drain_requests();
+
+    let first_charge = first
+        .spawn_booby_trap_special_object(first_planter, Team::GLA, first_target)
+        .expect("typed StickyBombUpdate charge");
+    let peer_charge = peer
+        .spawn_booby_trap_special_object(peer_planter, Team::GLA, peer_target)
+        .expect("typed StickyBombUpdate charge in peer world");
+    assert_eq!(first_charge, peer_charge);
+
+    let first_position = first.host_object(first_charge).unwrap().get_position();
+    let peer_position = peer.host_object(peer_charge).unwrap().get_position();
+    assert_eq!((first_position.x, first_position.z), (31.0, 9.0));
+    assert_eq!((peer_position.x, peer_position.z), (77.0, 14.0));
+    assert_eq!(
+        first.host_object(first_charge).unwrap().owner_player_id,
+        Some(0)
+    );
+    assert_eq!(
+        peer.host_object(peer_charge).unwrap().owner_player_id,
+        Some(0)
+    );
+    assert_eq!(
+        first.host_object(first_charge).unwrap().health.maximum,
+        37.0
+    );
+    assert_eq!(
+        first.host_object(first_charge).unwrap().health.current,
+        19.0
+    );
+    assert_eq!(peer.host_object(peer_charge).unwrap().health.maximum, 37.0);
+    assert_eq!(peer.host_object(peer_charge).unwrap().health.current, 19.0);
+    assert!(
+        first
+            .host_object(first_target)
+            .unwrap()
+            .has_object_status_bit("BOOBY_TRAPPED")
+    );
+    assert!(
+        peer.host_object(peer_target)
+            .unwrap()
+            .has_object_status_bit("BOOBY_TRAPPED")
+    );
+
+    let first_audio = first.queued_audio_events.drain_requests();
+    let peer_audio = peer.queued_audio_events.drain_requests();
+    assert_eq!(first_audio.len(), 1);
+    assert_eq!(first_audio[0].event_type, "StickyCreated");
+    assert_eq!(first_audio[0].object_id, None);
+    assert_eq!(first_audio[0].position, Some(first_position));
+    assert_eq!(peer_audio.len(), 1);
+    assert_eq!(peer_audio[0].event_type, "StickyCreated");
+    assert_eq!(peer_audio[0].object_id, None);
+    assert_eq!(peer_audio[0].position, Some(peer_position));
+
+    let first_mobile_target = first
+        .create_object_for_player("TrapMobileTarget", 1, Vec3::new(120.0, 5.0, 40.0))
+        .expect("mobile target");
+    let peer_mobile_target = peer
+        .create_object_for_player("TrapMobileTarget", 1, Vec3::new(120.0, 5.0, 40.0))
+        .expect("peer mobile target");
+    assert_eq!(first_mobile_target, peer_mobile_target);
+    let first_mobile_charge = first
+        .spawn_booby_trap_special_object(first_planter, Team::GLA, first_mobile_target)
+        .expect("mobile target charge");
+    let peer_mobile_charge = peer
+        .spawn_booby_trap_special_object(peer_planter, Team::GLA, peer_mobile_target)
+        .expect("peer mobile target charge");
+    assert_eq!(first_mobile_charge, peer_mobile_charge);
+    assert_eq!(
+        first
+            .host_object(first_mobile_charge)
+            .unwrap()
+            .get_position(),
+        Vec3::new(120.0, 22.0, 40.0),
+        "mobile target placement uses receiving StickyBombUpdate OffsetZ"
+    );
+    assert_eq!(
+        peer.host_object(peer_mobile_charge).unwrap().get_position(),
+        Vec3::new(120.0, 22.0, 40.0)
+    );
 }
 
 fn install_public_registry(

@@ -1,11 +1,26 @@
 //! Behavior suite extracted from `pilots_and_movement`.
 use super::*;
+use crate::game_logic::game_logic::StickyBombInitPosition;
 
 fn admit_test_sticky_bomb_charge(game: &mut GameLogic) {
     game.admit_receiving_module_content(
         crate::assets::ReceivingObjectContent::from_sources([(
             "booby-trap-charge.ini".into(),
             "Object BoobyTrap\nKindOf = IMMOBILE BOOBY_TRAP\nBody = ActiveBody BodyTag\nMaxHealth = 1\nInitialHealth = 1\nEnd\nBehavior = StickyBombUpdate Sticky\nEnd\nEnd\n".into(),
+        )])
+        .expect("typed StickyBombUpdate charge content"),
+    )
+    .expect("admit typed StickyBombUpdate charge content");
+}
+
+fn admit_test_sticky_bomb_charge_with(game: &mut GameLogic, offset_z: f32, created_sound: &str) {
+    let source = format!(
+        "Object BoobyTrap\nKindOf = IMMOBILE BOOBY_TRAP\nBody = ActiveBody BodyTag\nMaxHealth = 1\nInitialHealth = 1\nEnd\nBehavior = StickyBombUpdate Sticky\n OffsetZ = {offset_z}\nEnd\nUnitSpecificSounds\n StickyBombCreated = {created_sound}\nEnd\nEnd\n"
+    );
+    game.admit_receiving_module_content(
+        crate::assets::ReceivingObjectContent::from_sources([(
+            "booby-trap-charge.ini".into(),
+            source,
         )])
         .expect("typed StickyBombUpdate charge content"),
     )
@@ -283,7 +298,9 @@ fn booby_trap_plant_spawns_special_object() {
     rebel.add_kind_of(KindOf::Infantry).set_health(100.0);
     logic.templates.insert("GLAInfantryRebel".into(), rebel);
     let mut bld = ThingTemplate::new("AmericaWarFactory");
-    bld.add_kind_of(KindOf::Structure).set_health(1000.0);
+    bld.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Immobile)
+        .set_health(1000.0);
     logic.templates.insert("AmericaWarFactory".into(), bld);
 
     let planter = logic
@@ -308,9 +325,6 @@ fn booby_trap_plant_spawns_special_object() {
         .spawn_booby_trap_special_object(planter, Team::GLA, structure)
         .expect("BoobyTrap object");
     logic.booby_trap.set_charge_object(structure, cid);
-    if let Some(t) = logic.objects.get_mut(&structure) {
-        t.set_status_booby_trapped(true);
-    }
 
     assert!(logic.honesty_booby_trap_special_object_ok());
     let charge = logic.host_object(cid).unwrap();
@@ -318,6 +332,15 @@ fn booby_trap_plant_spawns_special_object() {
     assert!(charge.booby_trap_special);
     assert_eq!(charge.booby_trap_attached_to, Some(structure));
     assert_eq!(charge.producer_id, Some(structure));
+    assert!(logic.host_object(structure).unwrap().status.booby_trapped);
+    let bomber_position = logic.host_object(planter).unwrap().get_position();
+    let expected_ground = logic
+        .terrain_ground_height_at(Vec3::new(bomber_position.x, 0.0, bomber_position.z))
+        .unwrap_or(0.0);
+    let initial_charge_position = logic.host_object(cid).unwrap().get_position();
+    assert_eq!(initial_charge_position.x, bomber_position.x);
+    assert_eq!(initial_charge_position.z, bomber_position.z);
+    assert_eq!(initial_charge_position.y, expected_ground);
 
     // Follow sticky attachment.
     if let Some((s, fixture_partition_s)) = logic.host_object_and_partition_mut(structure) {
@@ -344,6 +367,157 @@ fn booby_trap_plant_spawns_special_object() {
     );
     assert!(!logic.booby_trap.is_booby_trapped(structure));
     let _ = BOOBY_MAX_SPECIAL_OBJECTS;
+}
+
+#[test]
+fn sticky_bomb_init_uses_receiving_offset_sound_and_world_owned_participants() {
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+
+    fn session(offset_z: f32, sound: &str) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+        let mut logic = GameLogic::new();
+        admit_test_sticky_bomb_charge_with(&mut logic, offset_z, sound);
+        logic.add_player(Player::new(1, Team::GLA, "planter", true));
+        logic.add_player(Player::new(2, Team::USA, "victim", true));
+
+        let mut planter = ThingTemplate::new("StickyInitPlanter");
+        planter.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("StickyInitPlanter".into(), planter);
+        let mut immobile = ThingTemplate::new("StickyInitImmobile");
+        immobile
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Immobile)
+            .set_health(1000.0);
+        logic
+            .templates
+            .insert("StickyInitImmobile".into(), immobile);
+        let mut mobile = ThingTemplate::new("StickyInitMobile");
+        mobile.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        logic.templates.insert("StickyInitMobile".into(), mobile);
+
+        let planter_id = logic
+            .create_object_for_player_with_effects_checked(
+                "StickyInitPlanter",
+                1,
+                Vec3::new(3.0, 21.0, 7.0),
+                None,
+                &mut Default::default(),
+            )
+            .unwrap()
+            .unwrap();
+        logic
+            .host_object_mut(planter_id)
+            .unwrap()
+            .set_orientation(0.75);
+        let immobile_id = logic
+            .create_object_for_player_with_effects_checked(
+                "StickyInitImmobile",
+                2,
+                Vec3::new(100.0, 12.0, 200.0),
+                None,
+                &mut Default::default(),
+            )
+            .unwrap()
+            .unwrap();
+        let mobile_id = logic
+            .create_object_for_player_with_effects_checked(
+                "StickyInitMobile",
+                2,
+                Vec3::new(300.0, 15.0, 400.0),
+                None,
+                &mut Default::default(),
+            )
+            .unwrap()
+            .unwrap();
+        (logic, planter_id, immobile_id, mobile_id)
+    }
+
+    let (mut first, planter_a, immobile_a, mobile_a) = session(17.0, "StickyCreatedA");
+    let (mut second, planter_b, immobile_b, mobile_b) = session(29.0, "StickyCreatedB");
+    assert_eq!(
+        (planter_a, immobile_a, mobile_a),
+        (planter_b, immobile_b, mobile_b)
+    );
+
+    let mut effects_a = Default::default();
+    let charge_immobile_a = first
+        .spawn_booby_trap_special_object_with_effects(
+            planter_a,
+            Team::GLA,
+            immobile_a,
+            StickyBombInitPosition::Target,
+            &mut effects_a,
+        )
+        .expect("first immobile charge");
+    let mut effects_b = Default::default();
+    let charge_immobile_b = second
+        .spawn_booby_trap_special_object_with_effects(
+            planter_b,
+            Team::GLA,
+            immobile_b,
+            StickyBombInitPosition::Target,
+            &mut effects_b,
+        )
+        .expect("second immobile charge");
+    assert_eq!(charge_immobile_a, charge_immobile_b);
+
+    for (world, planter, target, charge) in [
+        (&first, planter_a, immobile_a, charge_immobile_a),
+        (&second, planter_b, immobile_b, charge_immobile_b),
+    ] {
+        let bomber = world.host_object(planter).unwrap();
+        let pos = bomber.get_position();
+        let ground = world
+            .terrain_ground_height_at(Vec3::new(pos.x, 0.0, pos.z))
+            .unwrap_or(0.0);
+        let charged = world.host_object(charge).unwrap();
+        assert_eq!(charged.get_position(), Vec3::new(pos.x, ground, pos.z));
+        assert_eq!(charged.get_orientation(), bomber.get_orientation());
+        assert_eq!(charged.owner_player_id, Some(1));
+        assert_eq!(charged.team, Team::GLA);
+        assert!(world.host_object(target).unwrap().status.booby_trapped);
+    }
+    assert!(first.queued_audio_events.iter().any(|event| {
+        event.event_type == "StickyCreatedA"
+            && event.position == Some(first.host_object(charge_immobile_a).unwrap().get_position())
+    }));
+    assert!(second.queued_audio_events.iter().any(|event| {
+        event.event_type == "StickyCreatedB"
+            && event.position
+                == Some(
+                    second
+                        .host_object(charge_immobile_b)
+                        .unwrap()
+                        .get_position(),
+                )
+    }));
+
+    let charge_mobile_a = first
+        .spawn_booby_trap_special_object_with_effects(
+            planter_a,
+            Team::GLA,
+            mobile_a,
+            StickyBombInitPosition::Target,
+            &mut effects_a,
+        )
+        .expect("first mobile charge");
+    let charge_mobile_b = second
+        .spawn_booby_trap_special_object_with_effects(
+            planter_b,
+            Team::GLA,
+            mobile_b,
+            StickyBombInitPosition::Target,
+            &mut effects_b,
+        )
+        .expect("second mobile charge");
+    assert_eq!(charge_mobile_a, charge_mobile_b);
+    assert_eq!(
+        first.host_object(charge_mobile_a).unwrap().get_position(),
+        Vec3::new(300.0, 15.0 + 17.0, 400.0)
+    );
+    assert_eq!(
+        second.host_object(charge_mobile_b).unwrap().get_position(),
+        Vec3::new(300.0, 15.0 + 29.0, 400.0)
+    );
 }
 
 #[test]
