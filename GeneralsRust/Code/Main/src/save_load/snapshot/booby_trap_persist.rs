@@ -161,7 +161,7 @@ mod tests {
         source
             .host_object_mut(structure_id)
             .expect("structure")
-            .set_status_booby_trapped(true);
+            .apply_status_bits_upgrade_masks(&["BOOBY_TRAPPED"], &[]);
 
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
@@ -196,6 +196,73 @@ mod tests {
         assert!(
             loaded.status.booby_trapped,
             "OBJECT_STATUS_BOOBY_TRAPPED must survive load"
+        );
+        assert!(loaded.has_object_status_bit("BOOBY_TRAPPED"));
+        assert_eq!(
+            loaded.object_status_bits
+                & crate::game_logic::host_status_bits_upgrade::object_status_mask_from_names(&[
+                    "BOOBY_TRAPPED",
+                ]),
+            0,
+            "restored live object stores no duplicate mask bit"
+        );
+    }
+
+    #[test]
+    fn same_id_worlds_keep_status_mask_updates_local() {
+        let mut first = GameLogic::new();
+        let mut second = GameLogic::new();
+        for world in [&mut first, &mut second] {
+            world
+                .templates
+                .insert("GLABarracks".to_string(), ThingTemplate::new("GLABarracks"));
+            world.add_player(Player::new(0, Team::GLA, "GLA", true));
+        }
+        let first_id = first
+            .create_object("GLABarracks", Team::GLA, Vec3::ZERO)
+            .expect("first barracks");
+        let second_id = second
+            .create_object("GLABarracks", Team::GLA, Vec3::ZERO)
+            .expect("second barracks");
+        assert_eq!(first_id, second_id, "worlds use the same numeric ObjectId");
+
+        first
+            .host_object_mut(first_id)
+            .expect("first object")
+            .apply_status_bits_upgrade_masks(&["BOOBY_TRAPPED"], &[]);
+        assert!(
+            first
+                .host_object(first_id)
+                .expect("first object")
+                .has_object_status_bit("BOOBY_TRAPPED")
+        );
+        assert!(
+            !second
+                .host_object(second_id)
+                .expect("second object")
+                .has_object_status_bit("BOOBY_TRAPPED")
+        );
+        second
+            .host_object_mut(second_id)
+            .expect("second object")
+            .apply_status_bits_upgrade_masks(&["BOOBY_TRAPPED"], &[]);
+        second
+            .host_object_mut(second_id)
+            .expect("second object")
+            .apply_status_bits_upgrade_masks(&[], &["BOOBY_TRAPPED"]);
+        assert!(
+            first
+                .host_object(first_id)
+                .expect("first object")
+                .status
+                .booby_trapped
+        );
+        assert!(
+            !second
+                .host_object(second_id)
+                .expect("second object")
+                .status
+                .booby_trapped
         );
     }
 }

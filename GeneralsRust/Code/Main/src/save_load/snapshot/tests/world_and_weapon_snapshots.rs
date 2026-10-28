@@ -127,6 +127,7 @@ fn object_status_bits_survive_snapshot_restore() {
         object.set_script_underpowered_with_partition_owner(true, partition);
         object.set_script_unsellable(true);
         object.set_script_unstealthed(true);
+        object.apply_status_bits_upgrade_masks(&["BOOBY_TRAPPED"], &[]);
     }
 
     let builder = SnapshotBuilder::new();
@@ -155,6 +156,16 @@ fn object_status_bits_survive_snapshot_restore() {
     assert!(loaded.is_script_underpowered());
     assert!(loaded.is_script_unsellable());
     assert!(loaded.is_script_unstealthed());
+    assert!(loaded.status.booby_trapped);
+    assert!(loaded.has_object_status_bit("BOOBY_TRAPPED"));
+    assert_eq!(
+        loaded.object_status_bits
+            & crate::game_logic::host_status_bits_upgrade::object_status_mask_from_names(&[
+                "BOOBY_TRAPPED",
+            ]),
+        0,
+        "restore must keep one in-memory owner"
+    );
 }
 
 #[test]

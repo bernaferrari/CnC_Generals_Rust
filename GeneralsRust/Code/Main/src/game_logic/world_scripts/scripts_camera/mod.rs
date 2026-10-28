@@ -164,6 +164,33 @@ fn host_query_object_status_bits(obj: &crate::game_logic::object::Object) -> u64
     obj.object_status_mask_for_queries() | object_status_mask_from_names(&names)
 }
 
+#[cfg(test)]
+mod booby_status_observation_tests {
+    use super::*;
+
+    #[test]
+    fn script_status_query_observes_mask_mutation_through_canonical_status() {
+        let mut object = crate::game_logic::object::Object::new(
+            crate::game_logic::ThingTemplate::new("ScriptObservedTrapTarget"),
+            crate::game_logic::ObjectId(1),
+            crate::game_logic::Team::GLA,
+        );
+        object.apply_status_bits_upgrade_masks(&["BOOBY_TRAPPED"], &[]);
+        let observed = host_query_object_status_bits(&object);
+        assert!(
+            crate::game_logic::host_status_bits_upgrade::status_bits_has(observed, "BOOBY_TRAPPED")
+        );
+        object.apply_status_bits_upgrade_masks(&[], &["BOOBY_TRAPPED"]);
+        let observed = host_query_object_status_bits(&object);
+        assert!(
+            !crate::game_logic::host_status_bits_upgrade::status_bits_has(
+                observed,
+                "BOOBY_TRAPPED"
+            )
+        );
+    }
+}
+
 /// C++ OpenContain::getPlayerWhoEntered — SIDE name, one-frame pulse after enter.
 fn host_query_player_who_entered(
     _logic: &GameLogic,

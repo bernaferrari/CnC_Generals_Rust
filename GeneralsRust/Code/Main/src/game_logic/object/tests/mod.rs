@@ -29,6 +29,7 @@ fn make_ground_unit(name: &str, id: u32, kind: KindOf) -> Object {
 }
 
 // Behavior-named suites keep each test file below the 4k LOC ceiling.
+mod booby_trapped_status_owner;
 mod targeting_and_physics;
 mod veterancy_and_combat_state;
 
