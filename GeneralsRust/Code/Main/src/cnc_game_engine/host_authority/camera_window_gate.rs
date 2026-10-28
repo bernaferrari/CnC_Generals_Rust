@@ -123,7 +123,6 @@ impl CnCGameEngine {
                 lighting_baseline: self.game_logic.lighting_rules_baseline(),
                 static_lod_level: self.game_logic.current_static_lod_level(),
                 dynamic_debris_skip_mask: self.game_logic.current_dynamic_debris_skip_mask(),
-                dynamic_debris_generations: self.game_logic.current_dynamic_debris_generations(),
                 roads_baseline: self.game_logic.terrain_road_baseline(),
                 combat_bonus_baseline: self.game_logic.combat_bonus_baseline(),
                 body_damage_baseline: self.game_logic.body_damage_baseline(),

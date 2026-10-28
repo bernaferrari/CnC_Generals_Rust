@@ -147,7 +147,6 @@ pub(super) struct RestoreTemplateCatalog<'a> {
     lighting_baseline: &'a crate::game_logic::lighting_rules::LightingContentRules,
     static_lod_level: Option<game_engine::common::ini::ini_game_lod::StaticGameLODLevel>,
     dynamic_debris_skip_mask: u32,
-    dynamic_debris_generations: u32,
     roads_baseline: &'a game_engine::common::ini::ini_road::TerrainRoadCollection,
     combat_bonus_baseline: &'a game_engine::common::ini::ini_game_data::CombatBonusRules,
     templates: &'a std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
@@ -171,7 +170,6 @@ impl<'a> RestoreTemplateCatalog<'a> {
             lighting_baseline: world.lighting_rules_baseline(),
             static_lod_level: world.current_static_lod_level(),
             dynamic_debris_skip_mask: world.current_dynamic_debris_skip_mask(),
-            dynamic_debris_generations: world.current_dynamic_debris_generations(),
             roads_baseline: world.terrain_road_baseline(),
             combat_bonus_baseline: world.combat_bonus_baseline(),
             body_damage_baseline: world.body_damage_baseline(),
@@ -2290,7 +2288,6 @@ impl CnCGameEngine {
                 lighting_baseline: live.lighting_rules_baseline(),
                 static_lod_level: live.current_static_lod_level(),
                 dynamic_debris_skip_mask: live.current_dynamic_debris_skip_mask(),
-                dynamic_debris_generations: live.current_dynamic_debris_generations(),
                 roads_baseline: live.terrain_road_baseline(),
                 combat_bonus_baseline: live.combat_bonus_baseline(),
                 body_damage_baseline: live.body_damage_baseline(),
@@ -2454,10 +2451,7 @@ impl CnCGameEngine {
             candidate.admit_body_damage_baseline(live.body_damage_baseline());
             candidate.admit_lighting_rules_base(live.lighting_rules_baseline().clone());
             candidate.admit_static_lod_level(live.current_static_lod_level());
-            candidate.admit_dynamic_debris_runtime_state(
-                live.current_dynamic_debris_skip_mask(),
-                live.current_dynamic_debris_generations(),
-            );
+            candidate.admit_dynamic_debris_skip_mask(live.current_dynamic_debris_skip_mask());
             candidate.admit_terrain_road_definitions(live.terrain_road_baseline().clone())?;
             candidate
                 .admit_terrain_definitions(Arc::clone(live.effective_terrain_definitions()))?;
@@ -2755,10 +2749,7 @@ impl CnCGameEngine {
         staged.admit_body_damage_baseline(template_catalog.body_damage_baseline);
         staged.admit_lighting_rules_base(template_catalog.lighting_baseline.clone());
         staged.admit_static_lod_level(template_catalog.static_lod_level);
-        staged.admit_dynamic_debris_runtime_state(
-            template_catalog.dynamic_debris_skip_mask,
-            template_catalog.dynamic_debris_generations,
-        );
+        staged.admit_dynamic_debris_skip_mask(template_catalog.dynamic_debris_skip_mask);
         staged.admit_terrain_road_definitions(template_catalog.roads_baseline.clone())?;
         staged.admit_terrain_definitions(Arc::clone(terrain_definition_seed))?;
         if let Some(catalog) = armor_definition_seed {
@@ -3023,9 +3014,6 @@ impl CnCGameEngine {
                     lighting_baseline: self.game_logic.lighting_rules_baseline(),
                     static_lod_level: self.game_logic.current_static_lod_level(),
                     dynamic_debris_skip_mask: self.game_logic.current_dynamic_debris_skip_mask(),
-                    dynamic_debris_generations: self
-                        .game_logic
-                        .current_dynamic_debris_generations(),
                     roads_baseline: self.game_logic.terrain_road_baseline(),
                     combat_bonus_baseline: self.game_logic.combat_bonus_baseline(),
                     body_damage_baseline: self.game_logic.body_damage_baseline(),
@@ -3077,7 +3065,6 @@ impl CnCGameEngine {
                 lighting_baseline: self.game_logic.lighting_rules_baseline(),
                 static_lod_level: self.game_logic.current_static_lod_level(),
                 dynamic_debris_skip_mask: self.game_logic.current_dynamic_debris_skip_mask(),
-                dynamic_debris_generations: self.game_logic.current_dynamic_debris_generations(),
                 roads_baseline: self.game_logic.terrain_road_baseline(),
                 combat_bonus_baseline: self.game_logic.combat_bonus_baseline(),
                 body_damage_baseline: self.game_logic.body_damage_baseline(),

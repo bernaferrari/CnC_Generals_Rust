@@ -28,8 +28,9 @@ use std::time::SystemTime;
 /// Version33 extends the positional disguise/ObjectPersist records with exact
 /// current/pending disguise and original-garrison player identities.
 /// Prior positional bodies cannot reconstruct those owners and are rejected.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 33;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 33;
+/// Version34 persists the receiving world's dynamic debris generation counter.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 34;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 34;
 
 /// Validate the Rust outer envelope before consuming or restoring its body.
 pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadResult<()> {
@@ -265,6 +266,10 @@ pub struct WorldSnapshot {
     pub pending_combat: crate::game_logic::combat::PendingCombatSnapshot,
     /// Required versioned match audio policy; physical device preferences are not a save field.
     pub audio_policy: AudioPolicySnapshot,
+
+    /// Per-session dynamic debris generation continuation (C++ GameLOD parity).
+    #[serde(default)]
+    pub dynamic_debris_generations: u32,
 
     /// Named GhostObject block travels with this decoded save. It is outside
     /// the unchanged v23-29 GameLogic positional body and direct Xfer stream.
@@ -555,6 +560,7 @@ impl Default for WorldSnapshot {
             next_object_id: 0,
             pending_combat: Default::default(),
             audio_policy: Default::default(),
+            dynamic_debris_generations: 0,
             w3d_ghost_companion: None,
             particle_system_companion: None,
         };

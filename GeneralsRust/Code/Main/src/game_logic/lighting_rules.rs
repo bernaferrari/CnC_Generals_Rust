@@ -264,3 +264,65 @@ impl super::GameLogic {
         self.lighting_definitions.effective = rules;
     }
 }
+
+#[cfg(test)]
+mod debris_generation_snapshot_tests {
+    use crate::game_logic::GameLogic;
+    use crate::save_load::snapshot::SnapshotBuilder;
+
+    #[test]
+    fn dynamic_debris_generation_continues_from_save_per_world() {
+        let builder = SnapshotBuilder::new();
+        let mut source = GameLogic::new();
+        source.admit_dynamic_debris_skip_mask(1);
+        let _ = source.ocl_create_debris_reg.is_debris_skipped();
+        let _ = source.ocl_create_debris_reg.is_debris_skipped();
+        let snapshot = builder.create_world_snapshot(&source).expect("capture");
+        let expected: Vec<_> = (0..6)
+            .map(|_| source.ocl_create_debris_reg.is_debris_skipped())
+            .collect();
+        let bytes = bincode_legacy::serialize(&snapshot).expect("encode save");
+        let snapshot: crate::save_load::snapshot::WorldSnapshot =
+            bincode_legacy::deserialize(&bytes).expect("decode save");
+
+        let mut restored = GameLogic::new();
+        restored.admit_dynamic_debris_skip_mask(1);
+        for _ in 0..5 {
+            let _ = restored.ocl_create_debris_reg.is_debris_skipped();
+        }
+        let mut peer = GameLogic::new();
+        peer.admit_dynamic_debris_skip_mask(1);
+        let _ = peer.ocl_create_debris_reg.is_debris_skipped();
+        let peer_before = peer.current_dynamic_debris_generations();
+
+        builder
+            .restore_from_snapshot(&snapshot, &mut restored)
+            .expect("restore save");
+        let actual: Vec<_> = (0..6)
+            .map(|_| restored.ocl_create_debris_reg.is_debris_skipped())
+            .collect();
+        assert_eq!(actual, expected);
+        assert_eq!(peer.current_dynamic_debris_generations(), peer_before);
+    }
+
+    #[test]
+    fn rejected_snapshot_keeps_receiving_debris_counter() {
+        let builder = SnapshotBuilder::new();
+        let source = GameLogic::new();
+        let mut snapshot = builder.create_world_snapshot(&source).expect("capture");
+        snapshot.audio_policy.version = 0;
+
+        let mut receiving = GameLogic::new();
+        receiving.admit_dynamic_debris_skip_mask(3);
+        for _ in 0..7 {
+            let _ = receiving.ocl_create_debris_reg.is_debris_skipped();
+        }
+        let before = receiving.current_dynamic_debris_generations();
+        assert!(
+            builder
+                .restore_from_snapshot(&snapshot, &mut receiving)
+                .is_err()
+        );
+        assert_eq!(receiving.current_dynamic_debris_generations(), before);
+    }
+}

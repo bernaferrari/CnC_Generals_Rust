@@ -352,6 +352,9 @@ impl Snapshot for WorldSnapshot {
         xfer_serde_blob(xfer, &mut self.audio_policy.policy)?;
         self.audio_policy.validate()?;
 
+        xfer.xfer_marker_label("DynamicDebrisGenerations")?;
+        xfer.xfer_u32(&mut self.dynamic_debris_generations)?;
+
         Ok(())
     }
 

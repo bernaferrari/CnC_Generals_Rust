@@ -300,6 +300,7 @@ impl SnapshotBuilder {
                 version: 1,
                 policy: game_logic.queued_audio_events.policy().clone(),
             },
+            dynamic_debris_generations: game_logic.current_dynamic_debris_generations(),
         };
 
         let chunks = super::super::player_team_chunks::stamp_from_live(game_logic)?;
@@ -651,6 +652,10 @@ impl SnapshotBuilder {
 
         // Restore frame number
         game_logic.set_current_frame(snapshot.frame_number);
+        // Restore before Objects are reconstructed and invoke creation callbacks.
+        let debris_mask = game_logic.current_dynamic_debris_skip_mask();
+        game_logic
+            .admit_dynamic_debris_runtime_state(debris_mask, snapshot.dynamic_debris_generations);
 
         if let Some(policy) = body_rules_candidate {
             game_logic.install_validated_body_damage_policy(policy);
