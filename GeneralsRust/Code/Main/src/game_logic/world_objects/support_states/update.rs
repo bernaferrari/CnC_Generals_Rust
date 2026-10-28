@@ -547,20 +547,41 @@ impl GameLogic {
                             object_id,
                             effects,
                         );
-                    let mut vehicle_healed = false;
                     let mut heal_pad_healed = false;
+                    let heal_pad_before = if seeking_repair {
+                        None
+                    } else {
+                        self.objects.get(&object_id).map(|obj| obj.health.current)
+                    };
+                    if let Some(before) = heal_pad_before {
+                        if self
+                            .apply_owned_healing_with_effects(
+                                object_id,
+                                HEAL_RATE * dt,
+                                None,
+                                effects,
+                            )
+                            .is_none()
+                        {
+                            // A synchronous body callback removed or replaced
+                            // this source. Do not continue this iteration with
+                            // a different incarnation under the same ObjectId.
+                            continue;
+                        }
+                        heal_pad_healed = self
+                            .objects
+                            .get(&object_id)
+                            .is_some_and(|obj| obj.health.current > before + 0.0001);
+                    }
+                    let mut vehicle_healed = false;
                     if let Some(obj) = self.objects.get_mut(&object_id) {
                         let before = if seeking_repair {
                             health_current
                         } else {
                             obj.health.current
                         };
-                        if !seeking_repair {
-                            obj.heal(HEAL_RATE * dt, &mut self.health_events, self.frame);
-                        }
-                        let healed = obj.health.current > before + 0.0001;
+                        let healed = seeking_repair && obj.health.current > before + 0.0001;
                         vehicle_healed = healed && seeking_repair;
-                        heal_pad_healed = healed && !seeking_repair;
                         // RepairDockUpdate::action returns TRUE on the pulse that
                         // reaches max health. Only the next action completes docking.
                         if (seeking_repair && !repair_continues)

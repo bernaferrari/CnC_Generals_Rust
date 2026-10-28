@@ -1987,11 +1987,18 @@ impl GameLogic {
         let mut holes_to_remove: Vec<ObjectId> = Vec::new();
         for hole_id in ids {
             // Hole health regen residual (always while hole alive).
-            if let Some(h) = self.objects.get_mut(&hole_id) {
-                if h.health.current + 1e-3 < h.health.maximum {
-                    let add = h.health.maximum * heal_frac;
-                    h.heal(add, &mut self.health_events, self.frame);
-                    self.rebuild_hole_heals = self.rebuild_hole_heals.saturating_add(1);
+            let heal_amount = self.objects.get(&hole_id).and_then(|h| {
+                (h.health.current + 1e-3 < h.health.maximum).then_some(h.health.maximum * heal_frac)
+            });
+            if let Some(add) = heal_amount {
+                self.rebuild_hole_heals = self.rebuild_hole_heals.saturating_add(1);
+                if self
+                    .apply_owned_healing_with_effects(hole_id, add, Some(hole_id), effects)
+                    .is_none()
+                {
+                    // Do not continue this iteration with a replacement hole
+                    // installed under the same ObjectId by a reentrant callback.
+                    continue;
                 }
             }
 

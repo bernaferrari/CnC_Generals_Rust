@@ -2472,15 +2472,23 @@ impl GameLogic {
             ) {
                 continue;
             }
-            let Some(target) = self.objects.get_mut(&id) else {
+            let Some(target) = self.objects.get(&id) else {
                 continue;
             };
             if !target.is_alive() {
                 continue;
             }
             let before = target.health.current;
-            target.heal(heal_amount, &mut self.health_events, self.frame);
-            let restored = (target.health.current - before).max(0.0);
+            if self
+                .apply_owned_healing_with_effects(id, heal_amount, None, presentation_effects)
+                .is_none()
+            {
+                continue;
+            }
+            let restored = self
+                .objects
+                .get(&id)
+                .map_or(0.0, |target| (target.health.current - before).max(0.0));
             if restored > 0.01 {
                 heals = heals.saturating_add(1);
                 heal_amount_total += restored;

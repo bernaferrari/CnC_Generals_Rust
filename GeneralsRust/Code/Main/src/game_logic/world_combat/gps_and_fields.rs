@@ -1280,67 +1280,78 @@ impl GameLogic {
         let mut heal_ticks: u32 = 0;
         let mut buff_ticks: u32 = 0;
         for (target_id, (upgraded, overlord_style)) in &coverage {
-            let Some(target) = self.objects.get_mut(target_id) else {
-                continue;
-            };
-            if !target.is_alive() {
-                continue;
-            }
-            if !is_propaganda_score_kind(
-                target.is_kind_of(KindOf::Score),
-                target.is_kind_of(KindOf::ScoreCreate),
-                target.is_kind_of(KindOf::ScoreDestroy),
-                target.is_kind_of(KindOf::MpCountForVictory),
-            ) {
-                continue;
-            }
-
-            let unarmed_worker = target.is_kind_of(KindOf::Dozer)
-                || target.is_kind_of(KindOf::Worker)
-                || target.is_kind_of(KindOf::Harvester);
-            let authored = target.thing().template.primary_weapon_name.is_some()
-                || target.thing().template.secondary_weapon_name.is_some()
-                || target.thing().template.tertiary_weapon_name.is_some();
-            let bound_damage = [0u8, 1, 2]
-                .into_iter()
-                .any(|slot| target.weapon_slot(slot).is_some_and(|w| w.damage > 0.0));
-
-            if propaganda_applies_weapon_bonus(host_has_any_damage_weapon(
-                bound_damage,
-                unarmed_worker,
-                authored,
-            )) {
-                let mut granted = false;
-                if !target.weapon_bonus_enthusiastic {
-                    target.weapon_bonus_enthusiastic = true;
-                    granted = true;
+            let heal_amt = {
+                let Some(target) = self.objects.get_mut(target_id) else {
+                    continue;
+                };
+                if !target.is_alive()
+                    || !is_propaganda_score_kind(
+                        target.is_kind_of(KindOf::Score),
+                        target.is_kind_of(KindOf::ScoreCreate),
+                        target.is_kind_of(KindOf::ScoreDestroy),
+                        target.is_kind_of(KindOf::MpCountForVictory),
+                    )
+                {
+                    continue;
                 }
-                if *upgraded {
-                    if !target.weapon_bonus_subliminal {
-                        target.weapon_bonus_subliminal = true;
+
+                let unarmed_worker = target.is_kind_of(KindOf::Dozer)
+                    || target.is_kind_of(KindOf::Worker)
+                    || target.is_kind_of(KindOf::Harvester);
+                let authored = target.thing().template.primary_weapon_name.is_some()
+                    || target.thing().template.secondary_weapon_name.is_some()
+                    || target.thing().template.tertiary_weapon_name.is_some();
+                let bound_damage = [0u8, 1, 2]
+                    .into_iter()
+                    .any(|slot| target.weapon_slot(slot).is_some_and(|w| w.damage > 0.0));
+
+                if propaganda_applies_weapon_bonus(host_has_any_damage_weapon(
+                    bound_damage,
+                    unarmed_worker,
+                    authored,
+                )) {
+                    let mut granted = false;
+                    if !target.weapon_bonus_enthusiastic {
+                        target.weapon_bonus_enthusiastic = true;
                         granted = true;
                     }
-                } else if target.weapon_bonus_subliminal {
-                    target.weapon_bonus_subliminal = false;
-                }
-                if granted {
-                    buff_ticks = buff_ticks.saturating_add(1);
-                }
-            }
-
-            let max_hp = target.health.maximum.max(target.max_health);
-            let heal_amt = if *overlord_style {
-                overlord_propaganda_heal_amount(max_hp, *upgraded, dt)
-            } else {
-                propaganda_heal_amount(max_hp, *upgraded, dt)
-            };
-            if heal_amt > 0.0 {
-                let before = target.health.current;
-                if before + 0.01 < target.health.maximum {
-                    target.heal(heal_amt, &mut self.health_events, self.frame);
-                    if target.health.current > before + 0.0001 {
-                        heal_ticks = heal_ticks.saturating_add(1);
+                    if *upgraded {
+                        if !target.weapon_bonus_subliminal {
+                            target.weapon_bonus_subliminal = true;
+                            granted = true;
+                        }
+                    } else if target.weapon_bonus_subliminal {
+                        target.weapon_bonus_subliminal = false;
                     }
+                    if granted {
+                        buff_ticks = buff_ticks.saturating_add(1);
+                    }
+                }
+
+                let max_hp = target.health.maximum.max(target.max_health);
+                let heal_amt = if *overlord_style {
+                    overlord_propaganda_heal_amount(max_hp, *upgraded, dt)
+                } else {
+                    propaganda_heal_amount(max_hp, *upgraded, dt)
+                };
+                (heal_amt > 0.0 && target.health.current + 0.01 < target.health.maximum)
+                    .then_some((heal_amt, target.health.current))
+            };
+            if let Some((heal_amt, before)) = heal_amt {
+                let healed = self
+                    .apply_owned_healing_with_effects(
+                        *target_id,
+                        heal_amt,
+                        None,
+                        presentation_effects,
+                    )
+                    .is_some()
+                    && self
+                        .objects
+                        .get(target_id)
+                        .is_some_and(|target| target.health.current > before + 0.0001);
+                if healed {
+                    heal_ticks = heal_ticks.saturating_add(1);
                 }
             }
         }
