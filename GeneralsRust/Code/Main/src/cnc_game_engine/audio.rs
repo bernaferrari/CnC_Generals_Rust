@@ -249,6 +249,10 @@ impl CnCGameEngine {
     /// Live Common `AudioManager::update` drains AR_Play / fade / playing lists.
     pub(super) fn host_update_the_audio(&mut self) {
         self.publish_core_hud_camera_pose();
+        // Temporary compatibility for attached sounds that still use Core's
+        // spatial resolver (hq-4gta5s). Device updates and EVA playback use
+        // this application's explicitly borrowed service below.
+        let _ = gamelogic::helpers::TheAudio::get();
         let view = super::audio_view::CompletedAudioView::capture(&self.game_logic);
         if let Some(mut audio) =
             super::native_audio_effects::NativeAudioService::receiving(&mut self.subsystem_manager)
