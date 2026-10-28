@@ -1124,7 +1124,6 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         self.apply_host_team_factory_script_requests();
-        self.apply_host_named_fire_weapon_path_script_requests_with_effects(effects);
         Ok(())
     }
 
@@ -1739,36 +1738,9 @@ impl GameLogic {
         }
         Ok(())
     }
-    /// C++ `doNamedFireWeaponFollowingWaypointPath` live drain.
-    /// Leftover forceFire + leftover follow-waypoint-path on the live projectile.
-    pub fn apply_host_named_fire_weapon_path_script_requests(&mut self) {
-        self.apply_host_named_fire_weapon_path_script_requests_with_effects(&mut Default::default())
-    }
-
-    pub(crate) fn apply_host_named_fire_weapon_path_script_requests_with_effects(
-        &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        for req in gamelogic::scripting::take_host_script_named_fire_weapon_path_requests() {
-            self.host_script_named_fire_weapon_following_path_with_effects(
-                &req.unit,
-                &req.waypoint,
-                effects,
-            );
-        }
-    }
-
     /// C++ `findWaypointFollowingCapableWeapon` + `forceFireWeapon` at unit pos,
     /// then projectile `leaveGroup` + `chooseLocomotorSet(NORMAL)` +
     /// `aiFollowWaypointPath(..., CMD_FROM_SCRIPT)`.
-    fn host_script_named_fire_weapon_following_path(&mut self, unit: &str, waypoint: &str) {
-        self.host_script_named_fire_weapon_following_path_with_effects(
-            unit,
-            waypoint,
-            &mut Default::default(),
-        )
-    }
-
     pub(crate) fn host_script_named_fire_weapon_following_path_with_effects(
         &mut self,
         unit: &str,
@@ -2945,8 +2917,7 @@ mod tests {
     fn team_merge_rewrites_live_team_instance_name() {
         let mut logic = GameLogic::new();
         logic.add_player(
-            Player::new(1, Team::USA, "PlyrAmerica", true)
-                .with_script_identity("PlyrAmerica"),
+            Player::new(1, Team::USA, "PlyrAmerica", true).with_script_identity("PlyrAmerica"),
         );
         let mut tmpl = ThingTemplate::new("W29MergeRanger");
         tmpl.add_kind_of(KindOf::Infantry);
@@ -3073,16 +3044,9 @@ mod tests {
     fn named_fire_weapon_follows_live_waypoint_path() {
         use crate::game_logic::Weapon;
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
-        use gamelogic::object::registry::OBJECT_REGISTRY;
-        use gamelogic::scripting::{
-            request_host_script_named_fire_weapon_path,
-            take_host_script_named_fire_weapon_path_requests,
-        };
         use gamelogic::system::map_loader::{Coord3D, MapData, MapWaypoint};
         use gamelogic::weapon::WeaponTemplate;
 
-        OBJECT_REGISTRY.clear();
-        let _ = take_host_script_named_fire_weapon_path_requests();
         ensure_host_weapon_store();
         let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
             let mut template = store
@@ -3163,8 +3127,11 @@ mod tests {
             .expect("first receiving script update");
         assert_eq!(logic.host_object_id_by_script_name("NamedScud"), Some(id));
 
-        request_host_script_named_fire_weapon_path("NamedScud", "Scr2Cruise");
-        logic.apply_host_named_fire_weapon_path_script_requests();
+        logic.host_script_named_fire_weapon_following_path_with_effects(
+            "NamedScud",
+            "Scr2Cruise",
+            &mut Default::default(),
+        );
 
         let proj = logic
             .host_objects()
