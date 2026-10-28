@@ -2263,6 +2263,10 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         // interpreter/service adapter invoked it. The existing after_action
         // drain makes them observable before the next authored statement.
         match request {
+            ScriptWorldRequest::RadarRefreshTerrain => {
+                self.world.host_radar_refresh_terrain();
+                return Some(Ok(()));
+            }
             ScriptWorldRequest::Music {
                 track,
                 fade_out,
@@ -2331,6 +2335,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         match request {
             ScriptWorldRequest::Input { enabled } => self.world.set_script_input_enabled(enabled),
             ScriptWorldRequest::RadarForced(forced) => self.world.set_radar_forced(forced),
+                ScriptWorldRequest::RadarRefreshTerrain => unreachable!("already admitted above"),
             _ => {}
         }
         // Clone the explicit interpreter's external service adapter before
@@ -2340,6 +2345,9 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 ScriptWorldRequest::Input { enabled } => handler.input_enabled(enabled),
                 ScriptWorldRequest::MovieFullscreen(name) => handler.movie_play_fullscreen(name),
                 ScriptWorldRequest::RadarForced(forced) => handler.set_radar_forced(forced),
+                ScriptWorldRequest::RadarRefreshTerrain => {
+                    unreachable!("already admitted above")
+                }
                 ScriptWorldRequest::Timer {
                     name,
                     text,

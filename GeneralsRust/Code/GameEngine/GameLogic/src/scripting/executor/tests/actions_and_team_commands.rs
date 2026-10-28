@@ -3010,6 +3010,7 @@ impl ScriptExecutionDriver for BorrowedWorldOwner<'_> {
         let call = match request {
             ScriptWorldRequest::MovieFullscreen(name) => format!("movie:{name}"),
             ScriptWorldRequest::RadarForced(forced) => format!("radar:{forced}"),
+            ScriptWorldRequest::RadarRefreshTerrain => "radar_refresh_terrain".into(),
             ScriptWorldRequest::Timer {
                 name,
                 text,

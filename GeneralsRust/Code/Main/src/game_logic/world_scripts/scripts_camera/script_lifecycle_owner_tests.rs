@@ -98,6 +98,36 @@ fn team_delete_living_uses_effectively_dead_state_instead_of_health() {
 }
 
 #[test]
+fn refresh_radar_script_action_targets_only_the_receiving_world() {
+    let (mut owner, _, _) = world();
+    let (mut peer, _, _) = world();
+    assert!(owner.admit_radar_terrain_colors(
+        vec![Some([0.1, 0.2, 0.8]); 128 * 128],
+        [0.2, 0.3, 0.9],
+    ));
+    assert!(peer.admit_radar_terrain_colors(
+        vec![Some([0.8, 0.2, 0.1]); 128 * 128],
+        [0.9, 0.3, 0.2],
+    ));
+    let owner_generation = owner.radar().terrain_generation();
+    let peer_generation = peer.radar().terrain_generation();
+    let peer_texture = peer.radar().get_terrain_texture().to_vec();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let context = gamelogic::scripting::executor::ScriptContext::at_frame(11);
+    let mut driver = HostScriptExecutionDriver::with_interpreter(&mut owner, &engine);
+    engine.friend_execute_action_with_driver(
+        &ScriptAction::new(ScriptActionType::RefreshRadar),
+        None,
+        context,
+        &mut driver,
+    );
+
+    assert!(owner.radar().terrain_generation() > owner_generation);
+    assert_eq!(peer.radar().terrain_generation(), peer_generation);
+    assert_eq!(peer.radar().get_terrain_texture(), peer_texture);
+}
+
+#[test]
 fn named_kill_topple_callback_reads_only_the_supplied_interpreter() {
     let source = "Object AuthoredToppleTarget\n KindOf = STRUCTURE\n Body = ActiveBody ModuleTag_Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = StructureToppleUpdate ModuleTag_Fall\n End\nEnd\n";
     let mut owner = GameLogic::new();

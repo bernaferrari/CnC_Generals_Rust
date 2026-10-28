@@ -744,8 +744,17 @@ impl ScriptActionDispatcher<'_> {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_refresh_radar(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_refresh_radar(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Refreshing radar");
+        if let Some(result) = driver.world(
+            crate::scripting::engine::ScriptWorldRequest::RadarRefreshTerrain,
+        ) {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+            return Ok(ScriptActionResult::Success);
+        }
         if let Ok(mut radar) = get_radar_system().write() {
             radar.refresh_terrain();
         }

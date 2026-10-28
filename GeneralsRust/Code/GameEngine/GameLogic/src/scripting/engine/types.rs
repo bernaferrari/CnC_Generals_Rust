@@ -323,6 +323,8 @@ pub enum ScriptWorldRequest<'a> {
     },
     MovieFullscreen(&'a str),
     RadarForced(bool),
+    /// C++ `TheRadar->refreshTerrain` on the receiving match radar.
+    RadarRefreshTerrain,
     Timer {
         name: &'a str,
         text: &'a str,
