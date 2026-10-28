@@ -721,6 +721,20 @@ impl AssetManager {
                 e
             );
         }
+        // CommandLine.cpp loads mods after the base archive set. Mount them
+        // on this manager before any asset definitions are read, so starting
+        // another application cannot modify a previously initialized owner.
+        if let Some(path) = self.active_mod_path.clone() {
+            let path_text = path.to_string_lossy();
+            let result = if path.is_dir() {
+                self.load_user_mods(&path_text, "")
+            } else {
+                self.load_user_mods("", &path_text)
+            };
+            if let Err(error) = result {
+                warn!("Failed to load mod archive '{}': {}", path_text, error);
+            }
+        }
         if let Err(e) = self.run_startup_maintenance() {
             warn!("Startup maintenance failed: {}. Continuing.", e);
         }
@@ -2463,7 +2477,7 @@ pub(crate) async fn init_asset_manager_with_sources<T>(
         .set(Arc::clone(&application_assets))
         .map_err(|_| anyhow!("Asset manager already initialized"))?;
 
-    begin_background_music_startup();
+    begin_background_music_startup(Arc::clone(&application_assets));
 
     info!(
         "Global asset manager initialized (Total: {:.2}s)",
@@ -2472,11 +2486,7 @@ pub(crate) async fn init_asset_manager_with_sources<T>(
     Ok((sources, application_assets))
 }
 
-fn begin_background_music_startup() {
-    let Some(manager_arc) = get_asset_manager() else {
-        return;
-    };
-
+fn begin_background_music_startup(manager_arc: Arc<Mutex<AssetManager>>) {
     tokio::task::spawn_blocking(move || {
         let handle = tokio::runtime::Handle::current();
         let mut manager = manager_arc.lock().unwrap_or_else(|e| e.into_inner());

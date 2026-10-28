@@ -1410,8 +1410,6 @@ impl CnCGameEngine {
             }
         }
 
-        Self::load_mods_best_effort();
-
         let language = command_line.language.as_deref().unwrap_or("English");
         localization::set_language(language);
     }
@@ -1599,32 +1597,6 @@ impl CnCGameEngine {
         // Soft GameHUD visibility stays paired for construction-ghost residual.
         if self.game_hud_mut().hud_visible() {
             self.game_hud_mut().toggle_visibility();
-        }
-    }
-
-    pub(super) fn load_mods_best_effort() {
-        let (mod_dir, mod_big) = {
-            let global = game_engine::common::global_data::read();
-            let mod_dir = global.writable.mod_dir.trim().to_string();
-            let mod_big = global.writable.mod_big.trim().to_string();
-            (mod_dir, mod_big)
-        };
-        if mod_dir.is_empty() && mod_big.is_empty() {
-            return;
-        }
-        // C++ TheArchiveFileSystem->loadMods() overwrites the same live tree
-        // AssetManager extract uses — not a second Common singleton.
-        if let Some(manager_arc) = crate::assets::manager::get_asset_manager() {
-            match manager_arc.lock() {
-                Ok(mut manager) => {
-                    if let Err(err) = manager.load_user_mods(&mod_dir, &mod_big) {
-                        warn!("Best-effort mod archive load failed: {}", err);
-                    }
-                }
-                Err(err) => warn!("Asset manager busy while loading mods: {}", err),
-            }
-        } else {
-            warn!("Asset manager missing; -mod archives were not mounted");
         }
     }
 

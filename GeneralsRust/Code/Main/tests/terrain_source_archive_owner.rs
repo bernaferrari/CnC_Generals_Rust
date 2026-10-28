@@ -219,3 +219,33 @@ fn startup_ini_reads_ordered_sources_from_the_receiving_archive() {
     drop(second);
     assert_eq!(admitted_limit(&mut first), 19);
 }
+
+#[test]
+fn user_mod_archives_override_only_the_receiving_mount() {
+    const PATH: &str = "Data/INI/OwnedMod.ini";
+    let root = tempfile::tempdir().unwrap();
+    let base = root.path().join("base.big");
+    let first_mod = root.path().join("first_mod");
+    let second_mod = root.path().join("second.big");
+    std::fs::create_dir(&first_mod).unwrap();
+    write_single_file_big(&base, PATH, b"base");
+    write_single_file_big(&first_mod.join("first.big"), PATH, b"first");
+    write_single_file_big(&second_mod, PATH, b"second");
+
+    let mut first = ArchiveFileSystem::new();
+    let mut second = ArchiveFileSystem::new();
+    first.set_local_search_roots(Vec::new());
+    second.set_local_search_roots(Vec::new());
+    pollster::block_on(first.load_big_file(&base)).unwrap();
+    pollster::block_on(second.load_big_file(&base)).unwrap();
+    first
+        .load_user_mods(first_mod.to_str().unwrap(), "")
+        .unwrap();
+    second
+        .load_user_mods("", second_mod.to_str().unwrap())
+        .unwrap();
+    assert_eq!(first.open_file_sync(PATH).unwrap(), b"first");
+    assert_eq!(second.open_file_sync(PATH).unwrap(), b"second");
+    drop(second);
+    assert_eq!(first.open_file_sync(PATH).unwrap(), b"first");
+}
