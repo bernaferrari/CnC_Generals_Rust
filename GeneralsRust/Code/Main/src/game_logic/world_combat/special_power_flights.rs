@@ -2319,17 +2319,58 @@ impl GameLogic {
         self.fire_owned_fx_list_die_with_effects(span_id, presentation_effects);
     }
 
-    fn play_bridge_die_ocl_at(&mut self, span_id: ObjectId) {
+    fn play_bridge_die_ocl_at_with_effects(
+        &mut self,
+        span_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let pos = self
             .bridge_behavior
             .span(span_id)
             .map(|s| s.random_surface_position(self.frame.wrapping_add(31)))
             .or_else(|| self.objects.get(&span_id).map(|o| o.get_position()))
             .unwrap_or(glam::Vec3::ZERO);
-        crate::game_logic::host_transition_damage_fx::play_authored_transition_ocl(
+        self.execute_bridge_ocl_at_with_effects(
             crate::game_logic::host_bridge_behavior::BRIDGE_DIE_OCL_NAME,
-            span_id.0,
+            span_id,
             pos,
+            presentation_effects,
+        );
+    }
+
+    /// Create a bridge cue through this GameLogic's admitted OCL catalog and
+    /// object templates. Snapshot the source facts before creation can mutate
+    /// this world's object store; the bridge itself remains installed.
+    fn execute_bridge_ocl_at_with_effects(
+        &mut self,
+        ocl: &str,
+        span_id: ObjectId,
+        position: Vec3,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let Some((team, veterancy, orientation, velocity)) = self
+            .objects
+            .get(&span_id)
+            .map(|bridge| {
+                (
+                    bridge.team,
+                    bridge.experience.level,
+                    bridge.get_orientation(),
+                    bridge.movement.velocity,
+                )
+            })
+        else {
+            return;
+        };
+        let _ = self.execute_parsed_weapon_ocl_at_with_effects(
+            ocl,
+            Some(span_id),
+            team,
+            veterancy,
+            orientation,
+            velocity,
+            position,
+            presentation_effects,
         );
     }
 
@@ -2384,9 +2425,7 @@ impl GameLogic {
                 .span(span_id)
                 .map(|s| s.random_surface_position(self.frame.wrapping_add(i as u32 * 11 + 3)))
                 .unwrap_or(glam::Vec3::ZERO);
-            crate::game_logic::host_transition_damage_fx::play_authored_transition_ocl(
-                ocl, span_id.0, pos,
-            );
+            self.execute_bridge_ocl_at_with_effects(ocl, span_id, pos, effects);
         }
     }
 
@@ -2538,7 +2577,7 @@ impl GameLogic {
                 }
                 let due_ocl = self.bridge_behavior.take_due_die_ocl(id, self.frame);
                 for _ in 0..due_ocl {
-                    self.play_bridge_die_ocl_at(id);
+                    self.play_bridge_die_ocl_at_with_effects(id, presentation_effects);
                 }
             } else {
                 self.bridge_behavior.on_leave_rubble(id);
@@ -3534,6 +3573,73 @@ impl GameLogic {
     /// Record a residual Overlord BattleBunker exit/evacuate (tests / host path).
     pub fn record_overlord_bunker_residual_exit(&mut self) {
         self.overlord_bunker_residual_exits = self.overlord_bunker_residual_exits.saturating_add(1);
+    }
+}
+
+#[cfg(test)]
+mod bridge_ocl_receiving_owner_tests {
+    use super::*;
+
+    fn owner_with_bridge(child: &str) -> (GameLogic, ObjectId) {
+        let mut world = GameLogic::new();
+        world
+            .admit_object_creation_list_sources([format!(
+                "ObjectCreationList OCL_GenericBridgeDie\nCreateObject\nObjectNames = {child}\nCount = 1\nEnd\nEnd\n"
+            )])
+            .expect("bridge die OCL admitted to this world");
+        let mut bridge_template = ThingTemplate::new("BridgeOclOwnerFixture");
+        bridge_template
+            .add_kind_of(crate::game_logic::KindOf::Structure)
+            .set_health(100.0);
+        world
+            .templates
+            .insert("BridgeOclOwnerFixture".into(), bridge_template);
+        world
+            .templates
+            .insert(child.into(), ThingTemplate::new(child));
+        let bridge = world
+            .create_object(
+                "BridgeOclOwnerFixture",
+                Team::USA,
+                Vec3::new(30.0, 0.0, 40.0),
+            )
+            .expect("bridge owner object");
+        (world, bridge)
+    }
+
+    #[test]
+    fn bridge_die_ocl_uses_the_receiving_world_for_same_id_bridges() {
+        let (mut left, left_bridge) = owner_with_bridge("LeftBridgeDieWitness");
+        let (mut right, right_bridge) = owner_with_bridge("RightBridgeDieWitness");
+        assert_eq!(left_bridge, right_bridge);
+
+        left.play_bridge_die_ocl_at_with_effects(
+            left_bridge,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        );
+        right.play_bridge_die_ocl_at_with_effects(
+            right_bridge,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        );
+
+        assert!(left
+            .objects
+            .registered_values()
+            .any(|object| object.template_name == "LeftBridgeDieWitness"));
+        assert!(!left
+            .objects
+            .registered_values()
+            .any(|object| object.template_name == "RightBridgeDieWitness"));
+        assert!(right
+            .objects
+            .registered_values()
+            .any(|object| object.template_name == "RightBridgeDieWitness"));
+        assert!(!right
+            .objects
+            .registered_values()
+            .any(|object| object.template_name == "LeftBridgeDieWitness"));
+        assert!(left.objects.get(&left_bridge).is_some());
+        assert!(right.objects.get(&right_bridge).is_some());
     }
 }
 
