@@ -140,6 +140,73 @@ fn pose_physics_translation_notifies_own_trigger_before_census_case() {
     assert_eq!((saved.i_x, saved.i_y), trigger_pose(&a, aid));
 }
 
+#[test]
+fn owned_position_marks_same_id_teams_through_the_receiving_factory_after_trigger_edge() {
+    isolated_at(
+        module_path!(),
+        "owned_position_marks_same_id_teams_through_the_receiving_factory_after_trigger_edge",
+        owned_position_marks_same_id_teams_case,
+    );
+}
+
+fn owned_position_marks_same_id_teams_case() {
+    use game_engine::common::dict::Dict;
+    use game_engine::common::well_known_keys::{
+        key_team_is_singleton, key_team_name, key_team_owner,
+    };
+
+    let area_a = trigger(27201, "BorrowedTeamEdge");
+    let area_b = trigger(27201, "BorrowedTeamEdge");
+    let (mut world_a, id_a) = fixture(&area_a);
+    let (mut world_b, id_b) = fixture(&area_b);
+    assert_eq!(id_a, id_b, "world-local ObjectIds intentionally collide");
+
+    let install_team = |world: &GameLogic| {
+        let mut definition = Dict::new();
+        definition.set_ascii_string(key_team_name(), "BorrowedEdgeTeam");
+        definition.set_ascii_string(key_team_owner(), "");
+        definition.set_bool(key_team_is_singleton(), false);
+        let mut factory = world.team_factory.lock().expect("world team factory");
+        factory
+            .init_team(
+                "BorrowedEdgeTeam".into(),
+                "".into(),
+                false,
+                Some(&definition),
+            )
+            .expect("team definition");
+        factory
+            .create_inactive_team("BorrowedEdgeTeam")
+            .and_then(|team| team.read().ok().map(|team| team.get_id()))
+            .expect("team instance")
+    };
+    let team_a = install_team(&world_a);
+    let team_b = install_team(&world_b);
+    assert_eq!(team_a, team_b, "world-local team IDs intentionally collide");
+    for (world, id) in [(&mut world_a, id_a), (&mut world_b, id_b)] {
+        let object = world.host_object_mut(id).expect("admitted object");
+        object.team_instance_name = "BorrowedEdgeTeam".into();
+        object.team_instance_id = Some(team_a);
+    }
+
+    assert!(world_a.set_owned_object_position_with_effects(
+        id_a,
+        Vec3::new(110.0, 0.0, 10.0),
+        37,
+        &mut Default::default(),
+    ));
+    assert_eq!(
+        world_a.team_factory.team_entered_or_exited(team_a).unwrap(),
+        true,
+        "the trigger edge sets its owning world's Team bit synchronously"
+    );
+    assert_eq!(
+        world_b.team_factory.team_entered_or_exited(team_b).unwrap(),
+        false,
+        "same ObjectId and TeamId in a peer world remain untouched"
+    );
+}
+
 fn pose_setter_clone_and_current_snapshot_are_inert_controls_case() {
     let area = trigger(27103, "PoseControl");
     let (mut logic, id) = fixture(&area);

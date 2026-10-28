@@ -273,12 +273,25 @@ impl Object {
     }
 
     pub(in crate::game_logic) fn finish_position_reaction(&mut self, reaction: PositionReaction) {
+        if let Some(team_id) = self.finish_position_reaction_without_team_factory(reaction) {
+            self.team_factory.mark_entered_exited(Some(team_id));
+        }
+    }
+
+    /// Complete the object-owned half of a position reaction and return the
+    /// receiving team's identity when the trigger edge changed. World-owned
+    /// continuations use this after reentrant presentation callbacks, then
+    /// mutate the borrowed GameLogic team factory after this Object borrow ends.
+    pub(in crate::game_logic) fn finish_position_reaction_without_team_factory(
+        &mut self,
+        reaction: PositionReaction,
+    ) -> Option<u32> {
         assert!(
             reaction.still_applies(self),
             "position continuation requires same registered lifetime"
         );
         if !reaction.trigger {
-            return;
+            return None;
         }
         // Reread team and trigger owner after tree FX, like the original callback.
         let team =
@@ -301,9 +314,7 @@ impl Object {
         // Release the trigger owner before acquiring the receiving team lock.
         // The team bit is persisted by Team::xfer and remains set through the
         // script observation phase, even if this object leaves the roster.
-        if edge {
-            self.team_factory.mark_entered_exited(self.team_instance_id);
-        }
+        if edge { self.team_instance_id } else { None }
     }
 
     /// The Object remains installed while only this source-position continuation
@@ -1583,13 +1594,21 @@ impl crate::game_logic::GameLogic {
                 );
             }
         }
-        let Some(object) = self.objects.get_mut(&id) else {
-            return false;
+        let team_id = {
+            let Some(object) = self.objects.get_mut(&id) else {
+                return false;
+            };
+            if !reaction.still_applies(object) {
+                return false;
+            }
+            object.finish_position_reaction_without_team_factory(reaction)
         };
-        if !reaction.still_applies(object) {
-            return false;
+        // C++ sets the Team edge bit immediately after the object trigger
+        // notification. The reentrant tree FX continuation has completed and
+        // the Object loan is released before borrowing its receiving owner.
+        if let Some(team_id) = team_id {
+            self.team_factory.mark_team_entered_exited(team_id);
         }
-        object.finish_position_reaction(reaction);
         true
     }
 }

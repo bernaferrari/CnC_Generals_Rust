@@ -74,7 +74,8 @@ fn world(map: &Path, position: [f32; 3]) -> (GameLogic, generals_main::game_logi
     world
         .admit_object_ini_sources([(
             "TeamAreaTransition.ini".into(),
-            "Object OwnedTeamEdgeUnit\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL TeamEdgeLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
+            "Object OwnedTeamEdgeUnit\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL TeamEdgeLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n\
+             Object BorrowedEdgeGarrison\n KindOf = STRUCTURE SELECTABLE\n Geometry = BOX\n GeometryMajorRadius = 20\n GeometryMinorRadius = 10\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n End\n Behavior = GarrisonContain GarrisonTag\n ContainMax = 5\n End\nEnd\n".into(),
         )])
         .unwrap();
     world.start_new_game(GameMode::SinglePlayer);
@@ -173,7 +174,6 @@ fn team_area_transition_conditions_use_receiving_team_flags_and_slots() {
     let (mut owner, owner_unit) = world(&owner_map, [20.0, 0.0, 20.0]);
     let (mut peer, peer_unit) = world(&peer_map, [80.0, 0.0, 80.0]);
     assert_eq!(owner_unit, peer_unit);
-
     // The first host projection compares the new object's position with the
     // origin and records this world team's real trigger transition.
     owner.inject_host_script_query_snapshot();
@@ -298,4 +298,59 @@ fn team_area_transition_conditions_use_receiving_team_flags_and_slots() {
         "the receiving team's actual exit edge is observed"
     );
     assert_eq!(observe(&mut exiting, "ClearedExit", exit_cases()), [0, 0]);
+}
+
+#[test]
+fn public_garrison_exit_marks_the_receiving_team_through_owned_pose_completion() {
+    let owner_root = tempfile::tempdir().unwrap();
+    let peer_root = tempfile::tempdir().unwrap();
+    let owner_map = map_file(owner_root.path(), &[]);
+    let peer_map = map_file(peer_root.path(), &[]);
+    let (mut owner, owner_unit) = world(&owner_map, [80.0, 0.0, 80.0]);
+    let (mut peer, peer_unit) = world(&peer_map, [80.0, 0.0, 80.0]);
+    assert_eq!(owner_unit, peer_unit);
+    owner.add_player(
+        Player::new(2, Team::China, "ContainerOwner", false)
+            .with_script_identity("ContainerOwner"),
+    );
+
+    let owner_bunker = owner
+        .create_object_for_player(
+            "BorrowedEdgeGarrison",
+            2,
+            glam::Vec3::new(20.0, 0.0, 20.0),
+        )
+        .unwrap();
+
+    // The China-owned container is already within the map trigger. Its edge
+    // belongs to teamContainerOwner; the USA passenger begins outside. The
+    // public garrison exit places that passenger inside through
+    // set_owned_object_position_with_effects and must mark teamOwner now.
+    owner.inject_host_script_query_snapshot();
+    peer.inject_host_script_query_snapshot();
+    assert!(owner.garrison_exit_occupant_via_door(owner_unit, owner_bunker));
+    owner.inject_host_script_query_snapshot();
+
+    let cases = || {
+        vec![
+            (
+                transition_condition(
+                    ConditionType::TeamEnteredAreaPartially,
+                    "teamOwner",
+                    "OwnerTransitionArea",
+                ),
+                "garrison_partial_enter".into(),
+            ),
+            (
+                transition_condition(
+                    ConditionType::TeamEnteredAreaEntirely,
+                    "teamOwner",
+                    "OwnerTransitionArea",
+                ),
+                "garrison_all_enter".into(),
+            ),
+        ]
+    };
+    assert_eq!(observe(&mut owner, "GarrisonOwnerEdge", cases()), [1, 1]);
+    assert_eq!(observe(&mut peer, "GarrisonPeerControl", cases()), [0, 0]);
 }
