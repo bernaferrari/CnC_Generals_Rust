@@ -67,7 +67,7 @@ fn world(map: &std::path::Path) -> (GameLogic, ObjectId, ObjectId) {
     world
         .admit_object_ini_sources([(
             "TeamRelations.ini".into(),
-            "Object RelationUnit\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = CostModifierUpgrade MergeCost\n TriggeredBy = Upgrade_Veterancy_VETERAN\n EffectKindOf = VEHICLE AIRCRAFT\n Percentage = -10%\n End\nEnd\nObject RelationDualPurchase\n KindOf = VEHICLE AIRCRAFT\n BuildCost = 1000\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject ChinaTankECM\n KindOf = VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 300\n InitialHealth = 300\n End\nEnd\nObject AmericaTankCrusader\n KindOf = VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 400\n InitialHealth = 400\n End\nEnd\nObject RelationCapturer\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
+            "Object RelationUnit\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = CostModifierUpgrade MergeCost\n TriggeredBy = Upgrade_Veterancy_VETERAN\n EffectKindOf = VEHICLE AIRCRAFT\n Percentage = -10%\n End\nEnd\nObject RelationDualPurchase\n KindOf = VEHICLE AIRCRAFT\n BuildCost = 1000\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject ChinaTankECM\n KindOf = VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 300\n InitialHealth = 300\n End\nEnd\nObject AmericaTankCrusader\n KindOf = VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 400\n InitialHealth = 400\n End\nEnd\nObject RelationCapturer\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\nObject HealCrate\n KindOf = CRATE\nEnd\n".into(),
         )])
         .unwrap();
     let mut player_templates = PlayerTemplateStore::new_owned();
@@ -1201,5 +1201,77 @@ fn capture_nearest_uses_each_candidate_exact_team_identity() {
     assert_eq!(
         peer.host_object(peer_capturer).unwrap().target,
         Some(peer_original)
+    );
+}
+
+#[test]
+fn crate_death_uses_the_killers_exact_relationship_to_the_victims_team() {
+    use generals_main::game_logic::Team;
+
+    fn prepare(world: &mut GameLogic, original: ObjectId, original_is_enemy: bool) -> ObjectId {
+        let (sibling, sibling_team) = same_named_team_member(
+            world,
+            2,
+            "TargetRoster",
+            "RelationUnit",
+            Vec3::new(35.0, 0.0, 30.0),
+        );
+        let original_team = team_id_for_member(world, original);
+        let player = world.get_player_mut(1).unwrap();
+        player.set_team_relationship_override(
+            original_team,
+            if original_is_enemy {
+                Relationship::Enemies
+            } else {
+                Relationship::Allies
+            },
+        );
+        player.set_team_relationship_override(
+            sibling_team,
+            if original_is_enemy {
+                Relationship::Allies
+            } else {
+                Relationship::Enemies
+            },
+        );
+        sibling
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut owner, killer, original) = world(&map);
+    let (mut peer, peer_killer, peer_original) = world(&map);
+    let sibling = prepare(&mut owner, original, false);
+    let peer_sibling = prepare(&mut peer, peer_original, true);
+    assert_eq!(
+        (killer, original, sibling),
+        (peer_killer, peer_original, peer_sibling)
+    );
+    let crate_data = vec!["HealCrateData".to_owned()];
+    let spawn = |world: &mut GameLogic, victim, killer| {
+        let pos = world.host_object(victim).unwrap().get_position();
+        world.try_create_crates_on_die(victim, pos, Team::China, &crate_data, Some(killer))
+    };
+    assert_eq!(spawn(&mut owner, original, killer), 0);
+    assert_eq!(spawn(&mut peer, peer_original, peer_killer), 1);
+    assert_eq!(spawn(&mut owner, sibling, killer), 1);
+    assert_eq!(spawn(&mut peer, peer_sibling, peer_killer), 0);
+
+    peer.host_object_mut(peer_original)
+        .unwrap()
+        .begin_undetected_defection(0, 100, false);
+    assert_eq!(
+        spawn(&mut peer, peer_original, peer_killer),
+        0,
+        "the killer treats an undetected defector as allied"
+    );
+    owner
+        .host_object_mut(killer)
+        .unwrap()
+        .begin_undetected_defection(0, 100, false);
+    assert_eq!(
+        spawn(&mut owner, original, killer),
+        1,
+        "an undetected defector observes a neutral relationship"
     );
 }
