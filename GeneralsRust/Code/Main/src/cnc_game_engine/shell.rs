@@ -2192,11 +2192,8 @@ impl CnCGameEngine {
         }
         self.update_shell_loading_progress(0.997, Some("Loading shell models"))
             .map_err(anyhow::Error::msg)?;
-        let Some(manager) = crate::assets::get_asset_manager() else {
-            return Ok(());
-        };
         let loaded_models = {
-            let Ok(mut manager) = manager.lock() else {
+            let Ok(mut manager) = self.application_assets.lock() else {
                 warn!("Shell model preload skipped: asset manager lock poisoned");
                 return Ok(());
             };

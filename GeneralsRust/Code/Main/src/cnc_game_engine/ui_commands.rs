@@ -297,10 +297,7 @@ impl CnCGameEngine {
             })
             .collect();
 
-        let Some(manager_arc) = crate::assets::get_asset_manager() else {
-            return;
-        };
-        let Ok(mut manager) = manager_arc.lock() else {
+        let Ok(mut manager) = self.application_assets.lock() else {
             warn!("Weapon barrel topology prewarm skipped: asset manager mutex poisoned");
             return;
         };

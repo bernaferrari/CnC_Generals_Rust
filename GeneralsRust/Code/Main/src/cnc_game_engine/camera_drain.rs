@@ -1652,13 +1652,11 @@ impl CnCGameEngine {
             ));
         }
         ui_state.show_debug_overlay = self.show_debug_info;
-        if let Some(manager_arc) = get_asset_manager() {
-            if let Ok(manager) = manager_arc.lock() {
-                let stats = manager.get_statistics();
-                ui_state.assets_loaded = stats.archive_stats.total_files as u64;
-                ui_state.asset_memory_mb = 0.0;
-                ui_state.asset_cache_usage = 0.0;
-            }
+        if let Ok(manager) = self.application_assets.lock() {
+            let stats = manager.get_statistics();
+            ui_state.assets_loaded = stats.archive_stats.total_files as u64;
+            ui_state.asset_memory_mb = 0.0;
+            ui_state.asset_cache_usage = 0.0;
         }
     }
 
@@ -1757,11 +1755,9 @@ impl CnCGameEngine {
         {
             // The asset cache is a native service shared with loader workers;
             // only immutable authored texture dimensions cross this boundary.
-            let texture_store = crate::assets::get_asset_manager();
+            let texture_store = self.application_assets.as_ref();
             let texture_aspect = |name: &str| -> Result<f32, String> {
                 let mut manager = texture_store
-                    .as_ref()
-                    .ok_or_else(|| format!("laser texture service unavailable: {name}"))?
                     .lock()
                     .map_err(|_| "laser texture service poisoned".to_string())?;
                 if manager.get_raw_texture(name).is_none() {
@@ -1909,6 +1905,7 @@ impl CnCGameEngine {
         cache: &std::cell::RefCell<HashMap<String, std::sync::Arc<Vec<String>>>>,
         template: &str,
         receiving: Option<&crate::game_logic::thing::ReceivingDrawModels>,
+        application_assets: Option<&std::sync::Mutex<crate::assets::manager::AssetManager>>,
     ) -> std::sync::Arc<Vec<String>> {
         if let Some(receiving) = receiving {
             // An admitted empty Draw list is also authoritative. Neither an
@@ -1920,7 +1917,7 @@ impl CnCGameEngine {
                 return std::sync::Arc::clone(hit);
             }
         }
-        let Some(manager) = crate::assets::get_asset_manager() else {
+        let Some(manager) = application_assets else {
             return std::sync::Arc::new(Vec::new());
         };
         let Ok(manager) = manager.lock() else {
@@ -2077,6 +2074,7 @@ impl CnCGameEngine {
                             direct.visual_template_name.as_str()
                         },
                         direct.receiving_visual_draw_models.as_deref(),
+                        Some(self.application_assets.as_ref()),
                     ),
                     health_box_width: o.health_box_width,
                     health_box_z_offset: o.health_box_z_offset,

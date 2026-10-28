@@ -41,6 +41,7 @@ fn names(
                 .as_deref()
                 .expect("admitted Draw definition"),
         ),
+        None,
     )
 }
 #[test]
@@ -129,6 +130,6 @@ fn unadmitted_curated_draw_names_keep_the_existing_application_cache() {
     let admitted = Arc::new(vec!["W3DTruckDraw".into()]);
     let cache = RefCell::new(HashMap::from([("Curated".into(), Arc::clone(&admitted))]));
     let selected =
-        CnCGameEngine::presentation_draw_module_names_from_template(&cache, "Curated", None);
+        CnCGameEngine::presentation_draw_module_names_from_template(&cache, "Curated", None, None);
     assert!(Arc::ptr_eq(&selected, &admitted));
 }
