@@ -518,13 +518,11 @@ impl Object {
                     impact_vy: v.y,
                     bounce_force,
                 };
-                if reaction.has_tree_fx() {
-                    return ContactStep::PositionFx { reaction, next };
-                }
-                self.finish_position_reaction(reaction);
-                self.step_motion_contact_with_effects(
-                    next, killed, frame, locomotors, effects, audio,
-                )
+                // Keep the world-owned continuation even when no tree cursor
+                // was produced. Its receiving team factory marks the edge
+                // after this Object loan ends; the standalone driver retains
+                // its local attachment-backed fallback.
+                ContactStep::PositionFx { reaction, next }
             }
             MotionContact::AfterPosition {
                 ground_y,
@@ -818,14 +816,10 @@ impl Object {
         matrix.w_axis = data.pos.extend(1.0);
         let reaction = self.prepare_transform_tree_reaction(matrix, frame, effects);
         self.sync_shock_up_from_transform();
-        if reaction.has_tree_fx() {
-            return ContactStep::PositionFx {
-                reaction,
-                next: StunContact::AfterLandingPosition(data),
-            };
+        ContactStep::PositionFx {
+            reaction,
+            next: StunContact::AfterLandingPosition(data),
         }
-        self.finish_position_reaction(reaction);
-        self.finish_stun_landing_position(data)
     }
     fn finish_stun_landing_position(&mut self, data: StunLanding) -> ContactStep<StunContact, ()> {
         if !self.shock_grounded_once {

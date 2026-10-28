@@ -155,6 +155,64 @@ fn installed_motion_topple_fx_precedes_trigger_update_and_is_consumed_once() {
 }
 
 #[test]
+fn no_tree_motion_contact_marks_team_through_receiving_world_after_object_loan() {
+    use game_engine::common::{AsciiString, ICoord3D};
+    use gamelogic::polygon_trigger::PolygonTrigger;
+
+    let mut world = world();
+    let team_id = {
+        let mut factory = world.team_factory.lock().unwrap();
+        factory
+            .init_team("NoTreeContactTeam".into(), "".into(), false, None)
+            .expect("team prototype");
+        factory
+            .create_inactive_team("NoTreeContactTeam")
+            .and_then(|team| team.read().ok().map(|team| team.get_id()))
+            .expect("team instance")
+    };
+    {
+        let mut object = world.objects.get_mut(&ObjectId(41)).unwrap();
+        object.team_instance_name = "NoTreeContactTeam".into();
+        object.team_instance_id = Some(team_id);
+        // The registered contact receives GameLogic explicitly below. Prove
+        // it does not need the Object-held team-factory fallback.
+        object.team_factory.clear();
+    }
+    world
+        .host_trigger_world
+        .lock()
+        .unwrap()
+        .set_trigger_areas(&[PolygonTrigger::new(
+            704,
+            AsciiString::from("NoTreeContactArea"),
+            vec![
+                ICoord3D::new(3, -1, 0),
+                ICoord3D::new(5, -1, 0),
+                ICoord3D::new(5, 1, 0),
+                ICoord3D::new(3, 1, 0),
+            ],
+        )]);
+
+    let result = world
+        .drive_owned_contact_with_effects(
+            ObjectId(41),
+            MotionContact::Start(0.0),
+            Object::step_motion_contact_with_effects,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+        .unwrap();
+    assert!(result.is_some());
+    assert_eq!(
+        world.team_factory.team_entered_or_exited(team_id),
+        Some(true),
+        "a no-tree contact edge is marked synchronously by the receiving factory"
+    );
+    let flags = world.host_trigger_world.lock().unwrap().capture();
+    assert_eq!(flags.len(), 1);
+    assert_eq!((flags[0].i_x, flags[0].i_y), (4, 0));
+}
+
+#[test]
 fn owned_position_callback_releases_actor_before_fx_then_resumes_trigger() {
     let mut world = world();
     let mut receiving = terrain();
