@@ -26,6 +26,97 @@ fn receiving_minimap_beacon_entries(logic: &GameLogic) -> Vec<(u32, glam::Vec3)>
 }
 
 impl GameLogic {
+    /// Normal-placement portion of C++ `BuildAssistant::canMakeUnit` using
+    /// the receiving world's objects, templates and command definitions.
+    pub fn can_make_unit_for_place(
+        &self,
+        builder_id: ObjectId,
+        template_name: &str,
+    ) -> game_engine::common::system::build_assistant::CanMakeType {
+        use game_engine::common::system::build_assistant::CanMakeType;
+
+        let Some(template) = self.templates.get(template_name) else {
+            return CanMakeType::NoPrereq;
+        };
+        let Some(builder) = self.objects.get(&builder_id) else {
+            return CanMakeType::NoPrereq;
+        };
+        if builder.is_script_disabled() || builder.is_script_underpowered() {
+            return CanMakeType::FactoryIsDisabled;
+        }
+        let Some(owner_id) = builder.owner_player_id else {
+            return CanMakeType::NoPrereq;
+        };
+        let Some(owner) = self.players.get(&owner_id) else {
+            return CanMakeType::NoPrereq;
+        };
+        if !self.can_build_more_of_type(Some(owner_id), builder.team, template_name) {
+            // C++ performs this cap check before isPossibleToMakeUnit.
+            return CanMakeType::MaxedOutForPlayer;
+        }
+
+        // C++ isPossibleToMakeUnit scans the producer CommandSet for a
+        // UNIT_BUILD or DOZER_CONSTRUCT button targeting an equivalent
+        // ThingTemplate, then checks Player::canBuild on that button's target.
+        let command_template = if let Some(targets) = self.build_command_targets(builder) {
+            targets
+                .into_iter()
+                .filter(|(operation, _)| {
+                    operation == "UNIT_BUILD" || operation == "DOZER_CONSTRUCT"
+                })
+                .filter_map(|(_, name)| {
+                    self.templates
+                        .get(&name)
+                        .filter(|candidate| candidate.is_equivalent_to(template))
+                        .map(|_| name)
+                })
+                .last()
+        } else {
+            None
+        };
+        let Some(command_template) = command_template else {
+            return CanMakeType::NoPrereq;
+        };
+        if !self.script_player_can_build_template(owner, &command_template) {
+            return CanMakeType::NoPrereq;
+        }
+
+        if let Some(building) = builder.building_data.as_ref() {
+            // C++ ProductionUpdate::canQueueCreateUnit checks parking first,
+            // then `m_maxQueueEntries`.
+            let parking_full = !Self::template_is_produced_at_helipad(template)
+                && builder.is_kind_of(KindOf::FSAirfield)
+                && self.airfield_parking_capacity(builder_id).is_some_and(|_| {
+                    !self
+                        .airfield_parking_spaces
+                        .get(&builder_id)
+                        .is_some_and(|spaces| {
+                            spaces
+                                .iter()
+                                .any(|space| space.object_id.is_none() && !space.reserved_for_exit)
+                        })
+                });
+            if parking_full {
+                return CanMakeType::ParkingPlacesFull;
+            }
+            if building.production_queue.len()
+                >= crate::game_logic::buildings::DEFAULT_PRODUCTION_QUEUE_LIMIT
+            {
+                return CanMakeType::QueueFull;
+            }
+        }
+
+        let cost = self.modified_build_cost_supplies(
+            owner_id,
+            template_name,
+            template.build_cost.supplies,
+        );
+        if cost > 0 && owner.resources.supplies < cost {
+            return CanMakeType::NoMoney;
+        }
+        CanMakeType::Ok
+    }
+
     /// Update UI state from game logic
     /// This method extracts all data needed for UI rendering each frame
     /// Matches pattern from C++ InGameUI::preDraw() (InGameUI.h line 466)
@@ -788,15 +879,14 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
         use crate::game_logic::host_production_buildable_command_residual::{
-            cell_shroud_blocks_build_residual, footprint_height_delta_residual,
-            footprint_map_edge_sample_points_residual, footprint_map_edge_violation_residual,
-            legal_build_code_from_checks_complete_residual,
+            STRUCTURE_PLACE_CLEARANCE_RESIDUAL, cell_shroud_blocks_build_residual,
+            footprint_height_delta_residual, footprint_map_edge_sample_points_residual,
+            footprint_map_edge_violation_residual, legal_build_code_from_checks_complete_residual,
             legal_build_objects_in_the_way_residual, legal_build_too_close_to_supplies_residual,
-            STRUCTURE_PLACE_CLEARANCE_RESIDUAL,
         };
         use crate::game_logic::host_structure_economy_residual::{
-            is_legal_build_height_variation, MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD,
-            SUPPLY_BUILD_BORDER,
+            MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD, SUPPLY_BUILD_BORDER,
+            is_legal_build_height_variation,
         };
         let (min, max) = self.world_bounds();
         // Use real map extent (no generous pad) for C++ off-map / edge residual.
@@ -1609,7 +1699,7 @@ impl GameLogic {
     /// Fail-open when shroud grid is not initialized (synthetic/host tests).
     pub fn is_build_location_shroud_clear(&self, player_id: u32, position: glam::Vec3) -> bool {
         use gamelogic::common::Coord3D;
-        use gamelogic::system::shroud_manager::{get_shroud_manager, ShroudState};
+        use gamelogic::system::shroud_manager::{ShroudState, get_shroud_manager};
         let shroud_manager = self.world_services.shroud();
         let Ok(shroud) = shroud_manager.lock() else {
             return true;
@@ -2270,7 +2360,7 @@ impl GameLogic {
     pub fn can_make_unit(&self, producer_id: ObjectId, template_name: &str) -> u32 {
         use crate::game_logic::buildings::DEFAULT_PRODUCTION_QUEUE_LIMIT;
         use crate::game_logic::host_production_buildable_command_residual::{
-            can_make_type_from_checks_residual, CANMAKE_OK,
+            CANMAKE_OK, can_make_type_from_checks_residual,
         };
 
         let Some(template) = self.templates.get(template_name) else {
@@ -2423,8 +2513,8 @@ impl GameLogic {
     /// No factory queue or parking place.
     fn can_make_dozer_construct(&self, producer_id: ObjectId, template_name: &str) -> u32 {
         use crate::game_logic::host_production_buildable_command_residual::{
-            can_make_type_from_checks_residual, command_set_allows_unit,
-            CANMAKE_FACTORY_IS_DISABLED, CANMAKE_NO_PREREQ,
+            CANMAKE_FACTORY_IS_DISABLED, CANMAKE_NO_PREREQ, can_make_type_from_checks_residual,
+            command_set_allows_unit,
         };
 
         let Some(template) = self.templates.get(template_name) else {

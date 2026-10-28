@@ -1394,7 +1394,7 @@ impl CnCGameEngine {
             #[cfg(feature = "game_client")]
             {
                 if let Some(kind) = active_load_screen {
-                        self.game_logic
+                    self.game_logic
                         .load_map_or_fallback_with_campaign_contexts_and_progress_and_native_checked(
                             map_name,
                             DEFAULT_SKIRMISH_MAP,
@@ -1422,7 +1422,7 @@ impl CnCGameEngine {
                             native,
                         )
                 } else {
-                        self.game_logic
+                    self.game_logic
                         .load_map_or_fallback_with_campaign_contexts_and_progress_and_native_checked(
                             map_name,
                             DEFAULT_SKIRMISH_MAP,
@@ -2249,9 +2249,8 @@ impl CnCGameEngine {
         }
 
         let builder_id = selected.first().copied();
-        // Wave 924: structure place legal-build check rides the per-frame cache.
-        let lbc = self.host_legal_build_code_at_for_builder(team, location, &template, builder_id);
-
+        // Preserve the existing special-power placement until the producer owns
+        // the actual construction button and its full UI lifecycle.
         if let Some(id) = builder_id {
             if let Some(pending) = self
                 .game_client
@@ -2299,56 +2298,44 @@ impl CnCGameEngine {
         }
 
         if let Some(id) = builder_id {
-            if let Some(builder) = crate::game_logic::crate_object_bridge::crate_object(id.0) {
-                if let Ok(guard) = builder.read() {
-                    if let Some(tmpl) =
-                        gamelogic::helpers::TheThingFactory::find_template(&template)
-                    {
-                        let pending = self
-                            .game_client
-                            .in_game_ui_subsystem()
-                            .expect("receiving InGameUI initialized")
-                            .get_pending_special_power();
-                        let cmt = game_client::message_stream::can_make_unit_for_place(
-                            &guard,
-                            tmpl.as_ref(),
-                            pending.as_ref(),
-                        );
-                        if cmt != game_engine::common::system::build_assistant::CanMakeType::Ok {
-                            let logic_frame = self.game_logic.get_frame();
-                            let client_frame = self.game_client.get_frame();
-                            let ui = self
-                                .game_client
-                                .in_game_ui_subsystem_mut()
-                                .expect("placement feedback requires receiving InGameUI");
-                            game_client::message_stream::play_can_make_failure(
-                                cmt,
-                                &mut game_client::message_stream::ReceivingUi::new(
-                                    ui,
-                                    logic_frame,
-                                    client_frame,
-                                ),
-                            );
-                            if matches!(
-                                cmt,
-                                game_engine::common::system::build_assistant::CanMakeType::NoMoney
-                                    | game_engine::common::system::build_assistant::CanMakeType::QueueFull
-                                    | game_engine::common::system::build_assistant::CanMakeType::ParkingPlacesFull
-                                    | game_engine::common::system::build_assistant::CanMakeType::MaxedOutForPlayer
-                            ) {
-                                return;
-                            }
-                            self.game_client
-                                .in_game_ui_subsystem_mut()
-                                .expect("receiving InGameUI initialized")
-                                .place_build_available(None, None);
-                            self.pending_structure_placement = None;
-                            return;
-                        }
-                    }
+            // Query this session's normal placement owner; another session can
+            // have an unrelated object with the same ID.
+            let cmt = self.game_logic.can_make_unit_for_place(id, &template);
+            if cmt != game_engine::common::system::build_assistant::CanMakeType::Ok {
+                let logic_frame = self.game_logic.get_frame();
+                let client_frame = self.game_client.get_frame();
+                let ui = self
+                    .game_client
+                    .in_game_ui_subsystem_mut()
+                    .expect("placement feedback requires receiving InGameUI");
+                game_client::message_stream::play_can_make_failure(
+                    cmt,
+                    &mut game_client::message_stream::ReceivingUi::new(
+                        ui,
+                        logic_frame,
+                        client_frame,
+                    ),
+                );
+                if matches!(
+                    cmt,
+                    game_engine::common::system::build_assistant::CanMakeType::NoMoney
+                        | game_engine::common::system::build_assistant::CanMakeType::QueueFull
+                        | game_engine::common::system::build_assistant::CanMakeType::ParkingPlacesFull
+                        | game_engine::common::system::build_assistant::CanMakeType::MaxedOutForPlayer
+                ) {
+                    return;
                 }
+                self.game_client
+                    .in_game_ui_subsystem_mut()
+                    .expect("receiving InGameUI initialized")
+                    .place_build_available(None, None);
+                self.pending_structure_placement = None;
+                return;
             }
         }
+
+        // C++ confirms canMakeUnit before isLocationLegalToBuild.
+        let lbc = self.host_legal_build_code_at_for_builder(team, location, &template, builder_id);
 
         if lbc != LBC_OK {
             self.pending_structure_placement = Some(template_name.to_string());
