@@ -915,6 +915,14 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 .apply_owned_team_hunt_button(team, button, calling, condition),
         )
     }
+    fn team_hunt(
+        &mut self,
+        team: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(self.world.apply_owned_team_hunt(team, calling, condition))
+    }
     fn team_transfer(
         &mut self,
         team: &str,

@@ -2,6 +2,28 @@
 use super::*;
 
 impl GameLogic {
+    /// C++ ScriptActions.cpp1985 resolves an existing team, adds its members to
+    /// an AIGroup, then issues groupHunt(CMD_FROM_SCRIPT). Missing names are a
+    /// no-op; this read never asks TeamFactory to instantiate a prototype.
+    /// The Rust path preserves roster visitation and commands but does not yet
+    /// migrate persistent AIGroup membership and its leave/admission lifecycle.
+    pub(super) fn apply_owned_team_hunt(
+        &mut self,
+        raw_team: &str,
+        calling_team: Option<u32>,
+        condition_team: Option<u32>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some((_, members)) =
+            self.resolve_owned_script_team(raw_team, calling_team, condition_team)?
+        else {
+            return Ok(());
+        };
+        for member in members {
+            self.unit_command_script_hunt(ObjectId(member));
+        }
+        Ok(())
+    }
+
     pub(crate) fn resolve_owned_script_team(
         &self,
         raw_team: &str,

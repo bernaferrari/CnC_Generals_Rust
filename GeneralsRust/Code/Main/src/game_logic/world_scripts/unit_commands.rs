@@ -1701,6 +1701,21 @@ impl GameLogic {
         self.unit_command_hunt_transition(id)
     }
 
+    /// C++ AIGroup::groupHunt forwards `CMD_FROM_SCRIPT` to every member AI
+    /// without changing groups or choosing a locomotor set.
+    pub(in crate::game_logic) fn unit_command_script_hunt(&mut self, id: ObjectId) -> bool {
+        let Some(object) = self
+            .objects
+            .get_mut(&id)
+            .filter(|object| object.has_ai_update_interface())
+        else {
+            return false;
+        };
+        object.last_command_source =
+            crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
+        self.unit_command_hunt_transition(id)
+    }
+
     pub(in crate::game_logic) fn unit_command_ai_hunt(&mut self, id: ObjectId) -> bool {
         // AIUpdate.cpp3611: reject disabled/IMMOBILE and PROJECTILE before
         // touching the receiving machine or its command source.

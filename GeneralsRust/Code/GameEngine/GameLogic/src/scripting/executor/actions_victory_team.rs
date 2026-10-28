@@ -307,17 +307,15 @@ impl ScriptActionDispatcher<'_> {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
+        if super::dual_world_registry_unavailable() {
+            return Err(ScriptError::ExecutionFailed(
+                "TEAM_HUNT requires the receiving-world execution driver when the Core registry is unavailable".into(),
+            ));
+        }
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
 
         log::info!("Team '{}' hunting", team_name);
-        if super::dual_world_registry_unavailable() {
-            super::request_host_script_hunt_guard(super::HostScriptHuntGuardRequest::TeamHunt {
-                team: team_name,
-            });
-            return Ok(ScriptActionResult::Success);
-        }
-
-        // Create AI group from team and issue hunt command
+        // Standalone Core path: add team members to an AI group and issue hunt.
         // C++: theGroup->groupHunt(CMD_FROM_SCRIPT)
         let group_arc = self.create_ai_group_from_team(&team_name)?;
 

@@ -124,13 +124,13 @@ pub enum HostScriptCreateRequest {
     },
 }
 
-/// Live host drain: TEAM/NAMED HUNT, TEAM/NAMED GUARD, PLAYER_HUNT,
-/// TEAM_HUNT_WITH_COMMAND_BUTTON.
-/// C++ `ScriptActions::doNamedHunt` / `doTeamHunt` / `doNamedGuard` /
-/// `doTeamGuard` / `doPlayerHunt` / `doTeamHuntWithCommandButton`.
+/// Live host drain: NAMED HUNT, TEAM/NAMED GUARD, PLAYER_HUNT,
+/// TEAM_HUNT_WITH_COMMAND_BUTTON. TEAM_HUNT is synchronously dispatched to the
+/// receiving owner because its contextual team IDs must remain in scope.
+/// C++ `ScriptActions::doNamedHunt` / `doTeamGuard` / `doNamedGuard` /
+/// `doPlayerHunt` / `doTeamHuntWithCommandButton`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostScriptHuntGuardRequest {
-    TeamHunt { team: String },
     NamedHunt { unit: String },
     TeamGuard { team: String },
     NamedGuard { unit: String },

@@ -763,7 +763,20 @@ impl ScriptActionDispatcher<'_> {
                     self.do_team_attack_team(action)
                 }
             }
-            ScriptActionType::TeamHunt => self.do_team_hunt(action),
+            ScriptActionType::TeamHunt => {
+                let team = self.get_string_param(action, 0)?;
+                let engine = self.context.borrowed_engine();
+                if let Some(result) = driver.team_hunt(
+                    &team,
+                    engine.get_calling_team_id(),
+                    engine.get_condition_team_id(),
+                ) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_team_hunt(action)
+                }
+            }
             ScriptActionType::TeamGuard => {
                 let team = self.get_string_param(action, 0)?;
                 let (calling, condition) = self

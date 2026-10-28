@@ -771,6 +771,16 @@ pub trait ScriptExecutionDriver {
     ) -> Option<GameLogicResult<()>> {
         None
     }
+    /// Resolve an existing raw Team instance in the driving world's script
+    /// context and issue C++ `AIGroup::groupHunt(CMD_FROM_SCRIPT)`.
+    fn team_hunt(
+        &mut self,
+        _team: &str,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
     fn team_transfer(
         &mut self,
         _team: &str,

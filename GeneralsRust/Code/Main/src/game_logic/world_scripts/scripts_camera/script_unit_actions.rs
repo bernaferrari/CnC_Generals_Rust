@@ -157,11 +157,6 @@ impl GameLogic {
         use gamelogic::scripting::HostScriptHuntGuardRequest;
         for req in gamelogic::scripting::take_host_script_hunt_guard_requests() {
             match req {
-                HostScriptHuntGuardRequest::TeamHunt { team } => {
-                    for id in self.host_script_hunt_guard_team_member_ids(&team) {
-                        let _ = self.unit_command_patrol(id);
-                    }
-                }
                 HostScriptHuntGuardRequest::NamedHunt { unit } => {
                     self.apply_owned_named_hunt(&unit, None);
                 }
