@@ -129,9 +129,14 @@ impl GameLogic {
                         &self.solo_weapon_bonus_set,
                     )
                 });
-                let in_range = attacker
-                    .weapon_slot(slot)
-                    .is_some_and(|w| attacker.can_target_with_slot(target, w, Some(slot)));
+                let in_range = attacker.weapon_slot(slot).is_some_and(|w| {
+                    attacker.can_target_with_slot_and_solo_set(
+                        target,
+                        w,
+                        Some(slot),
+                        Some(&self.solo_weapon_bonus_set),
+                    )
+                });
                 (ready, in_range)
             } else {
                 (false, false)

@@ -694,6 +694,16 @@ impl Object {
 
     /// Slot-aware can_target (LeechRange uses per-slot active residual).
     pub fn can_target_with_slot(&self, target: &Object, weapon: &Weapon, slot: Option<u8>) -> bool {
+        self.can_target_with_slot_and_solo_set(target, weapon, slot, None)
+    }
+
+    pub(crate) fn can_target_with_slot_and_solo_set(
+        &self,
+        target: &Object,
+        weapon: &Weapon,
+        slot: Option<u8>,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) -> bool {
         // This helper is used by live acquisition and combat state paths, not
         // merely a range query.  Keep C++ WeaponSet's unconditional target
         // overrides here as well as at the command boundary so a masked or
@@ -776,7 +786,11 @@ impl Object {
             return true;
         }
         // SearchAndDestroy residual: BATTLEPLAN_SEARCHANDDESTROY RANGE 120%.
-        let max_range = (self.effective_weapon_range(weapon.range) - under).max(0.0);
+        let range = solo_set.map_or_else(
+            || self.effective_weapon_range(weapon.range),
+            |set| self.effective_weapon_range_with_solo_set(weapon.range, set),
+        );
+        let max_range = (range - under).max(0.0);
         distance <= max_range
     }
 

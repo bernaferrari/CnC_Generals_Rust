@@ -738,7 +738,7 @@ impl Object {
                             set,
                         )
                     },
-                ) && self.can_target_with_slot(target, w, Some(2))
+                ) && self.can_target_with_slot_and_solo_set(target, w, Some(2), solo_set)
                     && self.is_slot_within_target_pitch(2, target)
                     && !self.leftover_choose_best_eliminates_zero_damage(2, target)
             });
@@ -773,7 +773,7 @@ impl Object {
                             set,
                         )
                     },
-                ) && self.can_target_with_slot(target, w, Some(1))
+                ) && self.can_target_with_slot_and_solo_set(target, w, Some(1), solo_set)
                     && self.is_slot_within_target_pitch(1, target)
                     && !self.leftover_choose_best_eliminates_zero_damage(1, target)
             });

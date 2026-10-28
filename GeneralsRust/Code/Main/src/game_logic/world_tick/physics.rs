@@ -1404,7 +1404,8 @@ impl GameLogic {
             return false;
         };
         // Snapshot selection without holding mut borrow across get_mut.
-        let slot = u.select_combat_weapon_slot(v, current_time);
+        let slot =
+            u.select_combat_weapon_slot_with_solo_set(v, current_time, &self.solo_weapon_bonus_set);
         let Some(slot) = slot else {
             // Leftover chooseBest: no valid weapon → reset PRIMARY, return FALSE.
             if let Some(uu) = self.objects.get_mut(&unit_id) {

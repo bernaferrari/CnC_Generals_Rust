@@ -100,3 +100,25 @@ fn ai_decision_uses_receiving_solo_bonus_for_same_ids() {
         AttackDecision::Hold,
     );
 }
+
+#[test]
+fn explicit_secondary_target_selection_uses_receiving_bonus() {
+    let (mut boosted, boosted_attacker, boosted_target) = world(200);
+    let (mut reduced, reduced_attacker, reduced_target) = world(50);
+    for (world, attacker) in [
+        (&mut boosted, boosted_attacker),
+        (&mut reduced, reduced_attacker),
+    ] {
+        let object = world.host_object_mut(attacker).unwrap();
+        object.weapon = None;
+        object.secondary_weapon = Some(Weapon {
+            damage: 10.0,
+            range: 100.0,
+            can_target_ground: true,
+            ..Weapon::default()
+        });
+        object.set_active_weapon_slot(1);
+    }
+    assert!(boosted.choose_best_weapon_for_target(boosted_attacker, Some(boosted_target), 10.0));
+    assert!(!reduced.choose_best_weapon_for_target(reduced_attacker, Some(reduced_target), 10.0));
+}
