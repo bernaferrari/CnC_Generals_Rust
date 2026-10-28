@@ -238,6 +238,10 @@ impl RiderChangeRiderMetadata {
 pub struct ContainModuleMetadata {
     #[serde(default)]
     pub kind: ContainModuleKind,
+    /// Receiving-content subtype; never part of a positional save record.
+    /// Its portable-structure slot overrides normal TransportContain gates.
+    #[serde(skip)]
+    pub is_helix_contain: bool,
     /// `Slots` for Transport/RiderChange/RailedTransport, or `ContainMax` for
     /// GarrisonContain / HealContain. `Some(0)` is an authored zero-capacity
     /// module and must remain distinct from no contain module.
@@ -420,6 +424,7 @@ impl Default for ContainModuleMetadata {
     fn default() -> Self {
         Self {
             kind: ContainModuleKind::None,
+            is_helix_contain: false,
             slots: None,
             passengers_in_turret: false,
             damage_percent_to_units: None,

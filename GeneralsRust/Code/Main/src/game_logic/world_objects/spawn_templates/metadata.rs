@@ -172,6 +172,9 @@ impl GameLogic {
         if has_kind("spawns_are_the_weapons") {
             template.add_kind_of(KindOf::SpawnsAreTheWeapons);
         }
+        if has_kind("portable_structure") {
+            template.add_kind_of(KindOf::PortableStructure);
+        }
         if has_kind("mob_nexus") {
             template.add_kind_of(KindOf::MobNexus);
         }
@@ -744,6 +747,7 @@ impl GameLogic {
                 };
                 let candidate = ContainModuleMetadata {
                     kind,
+                    is_helix_contain: module.class_name.eq_ignore_ascii_case("HelixContain"),
                     slots,
                     passengers_in_turret: module
                         .attribute("PassengersInTurret")

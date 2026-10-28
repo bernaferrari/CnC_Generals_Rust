@@ -12,14 +12,20 @@ pub(crate) struct OclExecutionOutcome {
 
 impl OclExecutionOutcome {
     fn success(created: Vec<(ObjectId, std::sync::Weak<()>)>) -> Self {
-        Self { created, error: None }
+        Self {
+            created,
+            error: None,
+        }
     }
 
     fn failure(
         created: Vec<(ObjectId, std::sync::Weak<()>)>,
         error: gamelogic::GameLogicError,
     ) -> Self {
-        Self { created, error: Some(error) }
+        Self {
+            created,
+            error: Some(error),
+        }
     }
 }
 
@@ -30,7 +36,6 @@ fn supports_host_weapon_generic_ocl(
     nugget: &gamelogic::object_creation_list::GenericObjectCreationNugget,
 ) -> bool {
     use gamelogic::object_creation_list::DebrisDisposition;
-
     let unsupported_disposition = DebrisDisposition::SEND_IT_FLYING
         | DebrisDisposition::SEND_IT_UP
         | DebrisDisposition::SEND_IT_OUT
@@ -44,7 +49,6 @@ fn supports_host_weapon_generic_ocl(
         && !nugget.disposition.has(unsupported_disposition)
         && nugget.put_in_container.trim().is_empty()
         && !nugget.ignore_primary_obstacle
-        && !nugget.contain_inside_source_object
         && !nugget.spread_formation
         && !nugget.dies_on_bad_land
         && !nugget.requires_live_player
@@ -126,6 +130,299 @@ mod receiving_debris_ocl_owner_tests {
         (world, source)
     }
 
+    fn helix_portable_world(position: Vec3) -> (GameLogic, ObjectId) {
+        let mut world = GameLogic::new();
+        world
+            .admit_object_creation_list_sources(["ObjectCreationList OCL_HelixGattlingCannon\nCreateObject\nObjectNames = ChinaTankOverlordGattlingCannon\nCount = 1\nContainInsideSourceObject = Yes\nEnd\nEnd".into()])
+            .expect("retail Helix addon OCL parses");
+        let mut helix = ThingTemplate::new("ChinaJetHelix");
+        helix
+            .add_kind_of(crate::game_logic::KindOf::Aircraft)
+            .set_health(100.0);
+        helix.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
+        helix.contain_module.is_helix_contain = true;
+        let mut payload = ThingTemplate::new("ChinaTankOverlordGattlingCannon");
+        payload
+            .add_kind_of(crate::game_logic::KindOf::Vehicle)
+            .add_kind_of(crate::game_logic::KindOf::PortableStructure)
+            .set_health(100.0);
+        world.templates.insert(helix.name.clone(), helix);
+        world.templates.insert(payload.name.clone(), payload);
+        let source = world
+            .create_object("ChinaJetHelix", Team::China, position)
+            .expect("Helix source");
+        world
+            .objects
+            .get_mut(&source)
+            .unwrap()
+            .install_helix_transport();
+        (world, source)
+    }
+
+    #[test]
+    fn retail_helix_contain_inside_source_ocl_attaches_in_each_receiving_world() {
+        let (mut left, left_source) = helix_portable_world(Vec3::new(10.0, 0.0, 20.0));
+        let (mut right, right_source) = helix_portable_world(Vec3::new(100.0, 0.0, 200.0));
+        assert_eq!(left_source, right_source);
+
+        let left_ids = left.execute_parsed_weapon_ocl_at(
+            "OCL_HelixGattlingCannon",
+            Some(left_source),
+            Team::China,
+            VeterancyLevel::Rookie,
+            0.0,
+            Vec3::ZERO,
+            Vec3::new(10.0, 0.0, 20.0),
+        );
+        let right_ids = right.execute_parsed_weapon_ocl_at(
+            "OCL_HelixGattlingCannon",
+            Some(right_source),
+            Team::China,
+            VeterancyLevel::Rookie,
+            0.0,
+            Vec3::ZERO,
+            Vec3::new(100.0, 0.0, 200.0),
+        );
+
+        assert_eq!(left_ids.len(), 1);
+        assert_eq!(right_ids.len(), 1);
+        assert_eq!(left_ids[0], right_ids[0]);
+        for (world, source, child) in [
+            (&left, left_source, left_ids[0]),
+            (&right, right_source, right_ids[0]),
+        ] {
+            let host = world.host_object(source).unwrap();
+            let payload = world.host_object(child).unwrap();
+            assert_eq!(host.overlord_portable_occupant, Some(child));
+            assert_eq!(payload.contained_by, Some(source));
+            assert!(!host.is_enclosing_container_for(payload));
+            assert_eq!(payload.template_name, "ChinaTankOverlordGattlingCannon");
+        }
+    }
+
+    #[test]
+    fn retail_helix_contain_inside_rejects_an_occupied_portable_slot() {
+        let (mut world, source) = helix_portable_world(Vec3::ZERO);
+        world
+            .objects
+            .get_mut(&source)
+            .unwrap()
+            .overlord_portable_occupant = Some(ObjectId(999));
+
+        let created = world.execute_parsed_weapon_ocl_at(
+            "OCL_HelixGattlingCannon",
+            Some(source),
+            Team::China,
+            VeterancyLevel::Rookie,
+            0.0,
+            Vec3::ZERO,
+            Vec3::ZERO,
+        );
+
+        assert_eq!(
+            created.len(),
+            1,
+            "the OCL still returns its committed creation receipt"
+        );
+        assert!(world.host_object(created[0]).unwrap().status.destroyed);
+        assert_eq!(
+            world
+                .host_object(source)
+                .unwrap()
+                .overlord_portable_occupant,
+            Some(ObjectId(999))
+        );
+        assert!(
+            !world
+                .host_object(source)
+                .unwrap()
+                .occupants
+                .contains(&created[0])
+        );
+    }
+
+    #[test]
+    fn other_contain_inside_source_routes_remain_guarded_before_creation() {
+        let (mut world, source) = helix_portable_world(Vec3::ZERO);
+        let host = world.objects.get_mut(&source).unwrap();
+        host.is_helix_transport = false;
+        host.thing.template.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
+        host.thing.template.contain_module.slots = Some(1);
+        host.max_transport = 1;
+
+        let created = world.execute_parsed_weapon_ocl_at(
+            "OCL_HelixGattlingCannon",
+            Some(source),
+            Team::China,
+            VeterancyLevel::Rookie,
+            0.0,
+            Vec3::ZERO,
+            Vec3::ZERO,
+        );
+
+        assert!(created.is_empty());
+        assert!(
+            world
+                .host_objects()
+                .registered_values()
+                .all(|object| object.template_name != "ChinaTankOverlordGattlingCannon")
+        );
+    }
+
+    #[test]
+    fn portable_containment_rejects_replaced_source_or_child_birth() {
+        for replace_source in [true, false] {
+            let (mut world, source) = helix_portable_world(Vec3::ZERO);
+            let child = world
+                .create_object("ChinaTankOverlordGattlingCannon", Team::China, Vec3::ZERO)
+                .expect("portable payload");
+            let source_birth = std::sync::Arc::downgrade(
+                &world
+                    .host_object(source)
+                    .unwrap()
+                    .visual_draw_identity_token,
+            );
+            let child_birth = std::sync::Arc::downgrade(
+                &world.host_object(child).unwrap().visual_draw_identity_token,
+            );
+            let replaced_id = if replace_source { source } else { child };
+            world
+                .objects
+                .get_mut(&replaced_id)
+                .unwrap()
+                .visual_draw_identity_token = std::sync::Arc::new(());
+
+            assert!(!world.admit_ocl_portable_structure(
+                source,
+                child,
+                &source_birth,
+                &child_birth,
+            ));
+            assert_eq!(
+                world
+                    .host_object(source)
+                    .unwrap()
+                    .overlord_portable_occupant,
+                None
+            );
+            assert_eq!(world.host_object(child).unwrap().contained_by, None);
+            if replace_source {
+                assert!(
+                    world
+                        .destroy_object_if_birth_matches_with_effects(
+                            child,
+                            &child_birth,
+                            &mut Default::default(),
+                        )
+                        .unwrap()
+                );
+                assert!(world.host_object(child).unwrap().status.destroyed);
+            } else {
+                assert!(
+                    !world
+                        .destroy_object_if_birth_matches_with_effects(
+                            child,
+                            &child_birth,
+                            &mut Default::default(),
+                        )
+                        .unwrap()
+                );
+                assert!(!world.host_object(child).unwrap().status.destroyed);
+            }
+        }
+    }
+
+    #[test]
+    fn portable_admission_uses_authored_kindof_not_template_spelling() {
+        let (mut world, custom_source) = helix_portable_world(Vec3::ZERO);
+        world
+            .admit_object_creation_list_sources([
+                "ObjectCreationList OCL_CustomPortable\nCreateObject\nObjectNames = CustomAddonPayload\nCount = 1\nContainInsideSourceObject = Yes\nEnd\nEnd".into(),
+                "ObjectCreationList OCL_MisleadingPortable\nCreateObject\nObjectNames = ChinaTankHelixPretender\nCount = 1\nContainInsideSourceObject = Yes\nEnd\nEnd".into(),
+            ])
+            .expect("custom containment OCLs parse");
+        let mut misleading = ThingTemplate::new("ChinaTankHelixPretender");
+        misleading
+            .add_kind_of(crate::game_logic::KindOf::Vehicle)
+            .set_health(100.0);
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                "Object CustomAddonPayload\nKindOf = VEHICLE PORTABLE_STRUCTURE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n",
+                "portable-kindof-test.ini",
+            )
+            .expect("authored portable KindOf parses");
+        let definition = parser
+            .get_definition("CustomAddonPayload")
+            .expect("custom payload definition")
+            .clone();
+        world.seed_asset_definition_templates_from_snapshot([(
+            "CustomAddonPayload".into(),
+            definition,
+        )]);
+        world.templates.insert(misleading.name.clone(), misleading);
+
+        let tagged_ids = world.execute_parsed_weapon_ocl_at(
+            "OCL_CustomPortable",
+            Some(custom_source),
+            Team::China,
+            VeterancyLevel::Rookie,
+            0.0,
+            Vec3::ZERO,
+            Vec3::ZERO,
+        );
+        assert_eq!(tagged_ids.len(), 1);
+        assert!(
+            world
+                .host_object(tagged_ids[0])
+                .unwrap()
+                .is_kind_of(crate::game_logic::KindOf::PortableStructure)
+        );
+        assert_eq!(
+            world.host_object(tagged_ids[0]).unwrap().contained_by,
+            Some(custom_source)
+        );
+
+        let mut misleading_host = ThingTemplate::new("ChinaJetHelix");
+        misleading_host
+            .add_kind_of(crate::game_logic::KindOf::Aircraft)
+            .set_health(100.0);
+        world
+            .templates
+            .insert(misleading_host.name.clone(), misleading_host);
+        let misleading_source = world
+            .create_object("ChinaJetHelix", Team::China, Vec3::ZERO)
+            .expect("second Helix source");
+        world
+            .objects
+            .get_mut(&misleading_source)
+            .unwrap()
+            .install_helix_transport();
+        let misleading_ids = world.execute_parsed_weapon_ocl_at(
+            "OCL_MisleadingPortable",
+            Some(misleading_source),
+            Team::China,
+            VeterancyLevel::Rookie,
+            0.0,
+            Vec3::ZERO,
+            Vec3::ZERO,
+        );
+        assert!(misleading_ids.is_empty());
+        assert!(
+            world
+                .host_objects()
+                .registered_values()
+                .all(|object| { object.template_name != "ChinaTankHelixPretender" })
+        );
+        assert_eq!(
+            world
+                .host_object(misleading_source)
+                .unwrap()
+                .overlord_portable_occupant,
+            None
+        );
+    }
+
     #[test]
     fn later_factory_error_retains_the_ordered_committed_ocl_prefix() {
         let mut world = GameLogic::new();
@@ -133,11 +430,15 @@ mod receiving_debris_ocl_owner_tests {
             .admit_object_creation_list_sources(["ObjectCreationList OCL_PartialFactoryError\nCreateObject\nObjectNames = OclPartialGood\nCount = 1\nEnd\nCreateObject\nObjectNames = OclPartialBad\nCount = 1\nEnd\nEnd\n".into()])
             .expect("OCL is valid receiving content");
         let mut source = ThingTemplate::new("OclPartialSource");
-        source.add_kind_of(crate::game_logic::KindOf::Structure).set_health(100.0);
+        source
+            .add_kind_of(crate::game_logic::KindOf::Structure)
+            .set_health(100.0);
         let mut good = ThingTemplate::new("OclPartialGood");
-        good.add_kind_of(crate::game_logic::KindOf::Vehicle).set_health(100.0);
+        good.add_kind_of(crate::game_logic::KindOf::Vehicle)
+            .set_health(100.0);
         let mut bad = ThingTemplate::new("OclPartialBad");
-        bad.add_kind_of(crate::game_logic::KindOf::Vehicle).set_health(100.0);
+        bad.add_kind_of(crate::game_logic::KindOf::Vehicle)
+            .set_health(100.0);
         // Private factory fault injection after receiving OCL admission. The
         // public content parser correctly rejects this malformed Body field;
         // this test targets the later-factory-error boundary itself.
@@ -160,11 +461,16 @@ mod receiving_debris_ocl_owner_tests {
         );
 
         assert_eq!(created.len(), 1);
-        assert_eq!(world.host_object(created[0]).unwrap().template_name, "OclPartialGood");
-        assert!(world
-            .host_objects()
-            .registered_values()
-            .all(|object| object.template_name != "OclPartialBad"));
+        assert_eq!(
+            world.host_object(created[0]).unwrap().template_name,
+            "OclPartialGood"
+        );
+        assert!(
+            world
+                .host_objects()
+                .registered_values()
+                .all(|object| object.template_name != "OclPartialBad")
+        );
     }
 
     #[test]
@@ -598,6 +904,16 @@ impl GameLogic {
         if source_id.is_none() || ocl_name.is_empty() || ocl_name.eq_ignore_ascii_case("None") {
             return OclExecutionOutcome::success(Vec::new());
         }
+        let source_birth = source_id.and_then(|id| {
+            self.objects
+                .get(&id)
+                .map(|source| std::sync::Arc::downgrade(&source.visual_draw_identity_token))
+        });
+        let source_owner_player_id = source_id.and_then(|id| {
+            self.objects
+                .get(&id)
+                .and_then(|source| source.owner_player_id)
+        });
 
         let Some(ocl) = self.object_creation_list_definition(ocl_name) else {
             log::warn!(
@@ -611,6 +927,13 @@ impl GameLogic {
         // discard earlier CreateObject results from the same authored list.
         let mut created = Vec::new();
         for nugget in ocl.nuggets() {
+            if !source_id.is_some_and(|id| {
+                source_birth
+                    .as_ref()
+                    .is_some_and(|birth| self.object_birth_matches(id, birth))
+            }) {
+                break;
+            }
             let Some(generic) = nugget
                 .as_any()
                 .downcast_ref::<GenericObjectCreationNugget>()
@@ -624,10 +947,38 @@ impl GameLogic {
             if generic.debris_to_generate == 0 {
                 continue;
             }
+            if generic.contain_inside_source_object
+                && !source_id.is_some_and(|source_id| {
+                    self.objects.get(&source_id).is_some_and(|source| {
+                        source.is_helix_transport
+                            && source.thing().template.contain_module.is_helix_contain
+                    })
+                })
+            {
+                log::warn!(
+                    "receiving OCL `{ocl_name}` skipped unsupported ContainInsideSourceObject container"
+                );
+                continue;
+            }
+            if generic.contain_inside_source_object
+                && !generic.names.iter().all(|name| {
+                    self.templates.get(name.trim()).is_some_and(|template| {
+                        template.is_kind_of(crate::game_logic::KindOf::PortableStructure)
+                    })
+                })
+            {
+                // The ordinary TransportContain rider path is still
+                // unsupported here; don't create-and-destroy its child.
+                log::warn!(
+                    "receiving OCL `{ocl_name}` skipped unsupported non-portable ContainInsideSourceObject candidate"
+                );
+                continue;
+            }
             if !generic.name_are_objects {
                 let debris = self.execute_receiving_create_debris(
                     generic,
                     source_id.expect("validated above"),
+                    source_birth.as_ref().expect("source birth captured"),
                     source_team,
                     origin,
                     presentation_effects,
@@ -636,6 +987,18 @@ impl GameLogic {
                 if let Some(error) = debris.error {
                     return OclExecutionOutcome::failure(created, error);
                 }
+                continue;
+            }
+            if generic.contain_inside_source_object
+                && !generic.names.iter().all(|name| {
+                    self.templates.get(name.trim()).is_some_and(|template| {
+                        template.is_kind_of(crate::game_logic::KindOf::PortableStructure)
+                    })
+                })
+            {
+                log::warn!(
+                    "receiving OCL `{ocl_name}` skipped ContainInsideSourceObject candidate without authored PORTABLE_STRUCTURE"
+                );
                 continue;
             }
             if !supports_host_weapon_generic_ocl(generic) {
@@ -663,6 +1026,13 @@ impl GameLogic {
                 Err(_) => continue,
             };
             for _ in 0..count {
+                if !source_id.is_some_and(|id| {
+                    source_birth
+                        .as_ref()
+                        .is_some_and(|birth| self.object_birth_matches(id, birth))
+                }) {
+                    return OclExecutionOutcome::success(created);
+                }
                 // C++ chooses once per created object from ObjectNames using
                 // the game-logic random stream (ObjectCreationList.cpp:1326).
                 let raw_pick = self.logic_random.next_int(0, upper_pick);
@@ -711,17 +1081,14 @@ impl GameLogic {
                 // `sourceObj->getControllingPlayer()->getDefaultTeam()`.
                 // `create_object` uses `unique_player_id_for_team`, which is
                 // None in 2v2 same-faction, dropping the controlling player.
-                let source_owner_player_id =
-                    source_id.and_then(|id| self.objects.get(&id).and_then(|o| o.owner_player_id));
-                let creation = self
-                    .create_object_for_owner_or_team_with_birth_checked(
-                        template_name,
-                        source_team,
-                        source_owner_player_id,
-                        spawn_position,
-                        interpreter,
-                        presentation_effects,
-                    );
+                let creation = self.create_object_for_owner_or_team_with_birth_checked(
+                    template_name,
+                    source_team,
+                    source_owner_player_id,
+                    spawn_position,
+                    interpreter,
+                    presentation_effects,
+                );
                 let (created_id, created_birth) = match creation {
                     Ok(Some(created)) => created,
                     Ok(None) => continue,
@@ -744,6 +1111,22 @@ impl GameLogic {
                 };
                 if !birth_matches(self) {
                     continue;
+                }
+                if !source_id.is_some_and(|id| {
+                    source_birth
+                        .as_ref()
+                        .is_some_and(|birth| self.object_birth_matches(id, birth))
+                }) {
+                    if generic.contain_inside_source_object {
+                        if let Err(error) = self.destroy_object_if_birth_matches_with_effects(
+                            created_id,
+                            &created_birth,
+                            presentation_effects,
+                        ) {
+                            return OclExecutionOutcome::failure(created, error);
+                        }
+                    }
+                    return OclExecutionOutcome::success(created);
                 }
                 if let Some(object) = self.objects.get_mut(&created_id) {
                     object.producer_id = source_id;
@@ -784,6 +1167,22 @@ impl GameLogic {
                     .unwrap_or(false);
                 if !birth_matches(self) {
                     continue;
+                }
+                if !source_id.is_some_and(|id| {
+                    source_birth
+                        .as_ref()
+                        .is_some_and(|birth| self.object_birth_matches(id, birth))
+                }) {
+                    if generic.contain_inside_source_object {
+                        if let Err(error) = self.destroy_object_if_birth_matches_with_effects(
+                            created_id,
+                            &created_birth,
+                            presentation_effects,
+                        ) {
+                            return OclExecutionOutcome::failure(created, error);
+                        }
+                    }
+                    return OclExecutionOutcome::success(created);
                 }
                 let Some(object) = self.objects.get_mut(&created_id) else {
                     continue;
@@ -854,6 +1253,23 @@ impl GameLogic {
                 drop(object);
                 if inherit_name {
                     if let Some(sid) = source_id {
+                        if !source_birth
+                            .as_ref()
+                            .is_some_and(|birth| self.object_birth_matches(sid, birth))
+                        {
+                            if generic.contain_inside_source_object {
+                                if let Err(error) = self
+                                    .destroy_object_if_birth_matches_with_effects(
+                                        created_id,
+                                        &created_birth,
+                                        presentation_effects,
+                                    )
+                                {
+                                    return OclExecutionOutcome::failure(created, error);
+                                }
+                            }
+                            return OclExecutionOutcome::success(created);
+                        }
                         // C++ ObjectCreationList.cpp:1005
                         // TheScriptEngine->transferObjectName(sourceObj->getName(), obj)
                         let _ = self.transfer_script_object_name(sid, created_id);
@@ -877,9 +1293,85 @@ impl GameLogic {
                             presentation_effects,
                         );
                 }
+                // C++ GenericObjectCreationNugget::doStuffToObj performs
+                // containment only after initialization, effects and particle
+                // attachment. This bounded route is the retail Overlord / Helix
+                // portable-structure case; other container kinds stay guarded.
+                if generic.contain_inside_source_object {
+                    let admitted = source_id.is_some_and(|source_id| {
+                        source_birth.as_ref().is_some_and(|source_birth| {
+                            birth_matches(self)
+                                && self.admit_ocl_portable_structure(
+                                    source_id,
+                                    created_id,
+                                    source_birth,
+                                    &created_birth,
+                                )
+                        })
+                    });
+                    if !admitted {
+                        // C++ reallyCreate returns firstObject even when
+                        // doStuffToObj schedules that birth for destruction;
+                        // retain the receipt, but destroy only that birth.
+                        if let Err(error) = self.destroy_object_if_birth_matches_with_effects(
+                            created_id,
+                            &created_birth,
+                            presentation_effects,
+                        ) {
+                            return OclExecutionOutcome::failure(created, error);
+                        }
+                    }
+                }
             }
         }
         OclExecutionOutcome::success(created)
+    }
+
+    /// Admit the C++ `ContainInsideSourceObject` branch for the native
+    /// OverlordContain and HelixContain portable-structure slot only.
+    fn admit_ocl_portable_structure(
+        &mut self,
+        source_id: ObjectId,
+        child_id: ObjectId,
+        source_birth: &std::sync::Weak<()>,
+        child_birth: &std::sync::Weak<()>,
+    ) -> bool {
+        if !self.object_birth_matches(source_id, source_birth)
+            || !self.object_birth_matches(child_id, child_birth)
+        {
+            return false;
+        }
+        let Some((is_helix, occupied)) = self.objects.get(&source_id).map(|source| {
+            (
+                source.is_helix_transport
+                    && source.thing().template.contain_module.is_helix_contain,
+                source.overlord_portable_occupant,
+            )
+        }) else {
+            return false;
+        };
+        let Some(child) = self.objects.get(&child_id) else {
+            return false;
+        };
+        if !child.is_kind_of(crate::game_logic::KindOf::PortableStructure)
+            || occupied.is_some()
+            || !is_helix
+        {
+            return false;
+        }
+        // HelixContain's portable override bypasses normal TransportContain
+        // KindOf, relationship, controller, and slot-count checks.
+        self.attach_overlord_portable_occupant(source_id, child_id);
+        if self
+            .objects
+            .get(&source_id)
+            .is_some_and(|source| source.drawable_is_effectively_hidden())
+        {
+            if let Some(child) = self.objects.get_mut(&child_id) {
+                child.set_drawable_hidden(true);
+            }
+        }
+        true
     }
 
     /// Bounded receiving-session implementation of authored CreateDebris.
@@ -892,6 +1384,7 @@ impl GameLogic {
         &mut self,
         generic: &gamelogic::object_creation_list::GenericObjectCreationNugget,
         source_id: ObjectId,
+        source_birth: &std::sync::Weak<()>,
         source_team: Team,
         origin: Vec3,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
@@ -964,6 +1457,9 @@ impl GameLogic {
         let mut created = Vec::new();
         let count = u32::try_from(generic.debris_to_generate).unwrap_or_default();
         for _ in 0..count {
+            if !self.object_birth_matches(source_id, source_birth) {
+                break;
+            }
             // C++ selects ModelNames before calling GameLODManager::isDebrisSkipped.
             let upper = i32::try_from(generic.names.len().saturating_sub(1)).unwrap_or(i32::MAX);
             let pick = usize::try_from(self.logic_random.next_int(0, upper))

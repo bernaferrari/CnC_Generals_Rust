@@ -121,7 +121,11 @@ impl GameLogic {
         Some(occupant_id)
     }
 
-    fn attach_overlord_portable_occupant(&mut self, host_id: ObjectId, occupant_id: ObjectId) {
+    pub(crate) fn attach_overlord_portable_occupant(
+        &mut self,
+        host_id: ObjectId,
+        occupant_id: ObjectId,
+    ) {
         if let Some(occ) = self.objects.get_mut(&occupant_id) {
             let containment_actor_id = occ.id;
             Self::set_owned_containment_in_parts(

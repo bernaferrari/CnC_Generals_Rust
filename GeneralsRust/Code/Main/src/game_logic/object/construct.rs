@@ -300,6 +300,7 @@ impl Object {
         }
         .or(template.railed_transport_slots)
         .unwrap_or(0);
+        let authored_helix_contain = template.contain_module.is_helix_contain;
 
         // Determine object type from template
         let object_type = if template.is_kind_of(KindOf::Infantry) {
@@ -1216,7 +1217,7 @@ impl Object {
             overlord_redirection_active: false,
             overlord_portable_occupant: None,
             has_overlord_propaganda_addon: false,
-            is_helix_transport: false,
+            is_helix_transport: authored_helix_contain,
             command_set_override: None,
             demo_suicided_detonating: false,
             hive_slave_count: 0,

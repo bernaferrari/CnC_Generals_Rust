@@ -1608,7 +1608,12 @@ impl GameLogic {
         let id = match creation {
             Ok(Some(id)) => id,
             Ok(None) => return Ok(None),
-            Err(error) => return Err(CheckedFactoryError { error, committed: birth }),
+            Err(error) => {
+                return Err(CheckedFactoryError {
+                    error,
+                    committed: birth,
+                });
+            }
         };
         let Some((birth_id, birth)) = birth else {
             return Err(CheckedFactoryError {
@@ -1616,11 +1621,13 @@ impl GameLogic {
                 committed: None,
             });
         };
-        if birth_id != id || !self.objects.get(&id).is_some_and(|object| {
-            birth.ptr_eq(&std::sync::Arc::downgrade(
-                &object.visual_draw_identity_token,
-            ))
-        }) {
+        if birth_id != id
+            || !self.objects.get(&id).is_some_and(|object| {
+                birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &object.visual_draw_identity_token,
+                ))
+            })
+        {
             return Err(CheckedFactoryError {
                 error: gamelogic::GameLogicError::InvalidObject(id.0),
                 committed: Some((birth_id, birth)),
@@ -2582,7 +2589,6 @@ impl GameLogic {
                 object.overlord_bunker_capacity = Some(0);
             }
             if crate::game_logic::host_overlord_addons::is_helix_template(template_name) {
-                object.install_helix_transport();
                 // Host residual: Helix PRIMARY HelixMinigunWeapon (always retained with addons).
                 // Fail-closed: not full ChinookAIUpdate / COMANCHE_VULCAN Stinger matrix.
                 object.weapon = Some(crate::game_logic::host_helix_minigun::helix_minigun_weapon());

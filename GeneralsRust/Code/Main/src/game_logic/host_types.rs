@@ -237,6 +237,8 @@ pub enum KindOf {
     /// C++ KINDOF_SPAWNS_ARE_THE_WEAPONS (bit79); append-only gameplay
     /// capability and save ordinal88.
     SpawnsAreTheWeapons,
+    /// C++ KINDOF_PORTABLE_STRUCTURE (bit52); append-only host capability.
+    PortableStructure,
 }
 
 impl KindOf {
@@ -336,6 +338,7 @@ impl KindOf {
         KindOf::Hulk,
         KindOf::RejectUnmanned,
         KindOf::SpawnsAreTheWeapons,
+        KindOf::PortableStructure,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -429,6 +432,7 @@ impl KindOf {
             Self::Hulk => "Hulk",
             Self::RejectUnmanned => "RejectUnmanned",
             Self::SpawnsAreTheWeapons => "SpawnsAreTheWeapons",
+            Self::PortableStructure => "PortableStructure",
         }
     }
 
@@ -468,6 +472,7 @@ impl KindOf {
             "HULK" => Some(Self::Hulk),
             "REJECT_UNMANNED" | "REJECTUNMANNED" => Some(Self::RejectUnmanned),
             "SPAWNS_ARE_THE_WEAPONS" | "SPAWNSARETHEWEAPONS" => Some(Self::SpawnsAreTheWeapons),
+            "PORTABLE_STRUCTURE" | "PORTABLESTRUCTURE" => Some(Self::PortableStructure),
 
             "DRONE" => Some(Self::Drone),
             _ => None,
@@ -979,10 +984,7 @@ mod tests {
             1u128 << 15,
         );
         assert!(KindOf::ALL_KIND_OF.contains(&KindOf::LineBuild));
-        assert_eq!(
-            KindOf::ALL_KIND_OF.last(),
-            Some(&KindOf::SpawnsAreTheWeapons)
-        );
+        assert_eq!(KindOf::ALL_KIND_OF.last(), Some(&KindOf::PortableStructure));
         // Existing serde discriminants remain stable even where Xfer uses a
         // different established order (CliffJumper precedes CleanupHazard).
         for (kind, ordinal) in [
@@ -993,6 +995,7 @@ mod tests {
             (KindOf::Hulk, 86),
             (KindOf::RejectUnmanned, 87),
             (KindOf::SpawnsAreTheWeapons, 88),
+            (KindOf::PortableStructure, 89),
         ] {
             let bytes = bincode_legacy::serialize(&kind).unwrap();
             assert_eq!(bytes, ordinal.to_le_bytes());
@@ -1013,6 +1016,22 @@ mod tests {
                 KindOf::SpawnsAreTheWeapons
             ),
             1u128 << 79,
+        );
+    }
+
+    #[test]
+    fn portable_structure_kindof_keeps_cpp_bit_and_append_only_save_id() {
+        assert_eq!(
+            KindOf::from_ini_token("PORTABLE_STRUCTURE"),
+            Some(KindOf::PortableStructure)
+        );
+        assert_eq!(KindOf::PortableStructure.name(), "PortableStructure");
+        assert!(KindOf::ALL_KIND_OF.contains(&KindOf::PortableStructure));
+        assert_eq!(
+            crate::game_logic::host_radar_stealth_vision_residual::live_kind_of_cpp_mask(
+                KindOf::PortableStructure
+            ),
+            1u128 << 52,
         );
     }
 
