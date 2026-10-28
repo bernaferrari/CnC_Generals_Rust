@@ -1062,10 +1062,11 @@ impl GameLogic {
     /// C++ AIHuntState `m_nextEnemyScanTime`. First visit matches onEnter
     /// `now + GameLogicRandomValue(0, ENEMY_SCAN_RATE)`; later scans add 30.
     fn hunt_acquire_scan_due(&mut self, object_id: ObjectId, now: u32) -> bool {
-        self.unit_ai_runtime_mut(object_id).is_some_and(|runtime| {
-            runtime.hunt_scan_due(now, |rate| {
-                gamelogic::helpers::game_logic_random_value(0, rate)
-            })
+        let random = &self.logic_random;
+        self.objects.get_mut(&object_id).is_some_and(|object| {
+            object
+                .unit_ai_runtime
+                .hunt_scan_due(now, |rate| random.next_int(0, rate as i32).max(0) as u32)
         })
     }
 
@@ -1232,6 +1233,33 @@ mod hq_m6gcj_tests {
             ),
             "regular Hunt exits to Idle after map-clear; got {command:?}"
         );
+    }
+
+    #[test]
+    fn hunt_initial_scan_jitter_uses_the_receiving_world_rng() {
+        let id = ObjectId(77);
+        let seed = 0xA1_5CA7;
+        let mut owner = GameLogic::new();
+        let mut peer = GameLogic::new();
+        for world in [&mut owner, &mut peer] {
+            let mut hunter = Object::new(ThingTemplate::new("Hunter"), id, Team::USA);
+            hunter.set_hunting(true);
+            world.add_object(hunter);
+            world.set_logic_random_seed(seed);
+        }
+
+        let peer_before = peer.logic_random.seed_words();
+        let owner_due = owner.hunt_acquire_scan_due(id, 0);
+        assert_eq!(peer.logic_random.seed_words(), peer_before);
+        let peer_due = peer.hunt_acquire_scan_due(id, 0);
+        assert_eq!(owner_due, peer_due);
+
+        let expected = game_engine::common::random_value::SessionRandom::default();
+        expected.seed_random(seed);
+        let first_jitter = expected.next_int(0, 30).max(0) as u32;
+        assert_eq!(owner_due, first_jitter == 0);
+        assert_eq!(owner.logic_random.seed_words(), expected.seed_words());
+        assert_eq!(peer.logic_random.seed_words(), expected.seed_words());
     }
 
     #[test]

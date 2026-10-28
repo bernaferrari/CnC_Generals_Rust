@@ -2639,11 +2639,9 @@ impl GameLogic {
             let mut move_to = Vec3::new(pose.move_to_pos.x, pose.move_to_pos.z, pose.move_to_pos.y);
             move_to.y = spawn_height;
             let delay = if ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES > 0 {
-                gamelogic::helpers::get_game_logic_random_value(
-                    0,
-                    ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES as i32,
-                )
-                .max(0) as u32
+                self.logic_random
+                    .next_int(0, ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES as i32)
+                    .max(0) as u32
             } else {
                 0
             };

@@ -1410,6 +1410,84 @@ fn artillery_barrage_flight_drops_shells() {
 }
 
 #[test]
+fn artillery_barrage_delay_draws_use_each_receiving_world() {
+    use crate::game_logic::KindOf;
+    use crate::game_logic::special_power_strikes::{
+        ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES, ArtilleryBarrageScienceTier,
+    };
+
+    fn prepared_world() -> (GameLogic, crate::game_logic::ObjectId) {
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::China);
+        let mut cc = crate::game_logic::ThingTemplate::new("ChinaCommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("ChinaCommandCenter".into(), cc);
+        let id = logic
+            .create_object(
+                "ChinaCommandCenter",
+                Team::China,
+                Vec3::new(200.0, 0.0, 0.0),
+            )
+            .unwrap();
+        (logic, id)
+    }
+
+    let mut owner = prepared_world();
+    let mut peer = prepared_world();
+    assert_eq!(owner.1, peer.1, "same setup must admit the same source ID");
+    owner.0.set_logic_random_seed(0xA771_11E);
+    peer.0.set_logic_random_seed(0xA771_11E);
+
+    owner
+        .0
+        .spawn_artillery_barrage_flight(
+            owner.1,
+            Vec3::new(200.0, 0.0, 0.0),
+            ArtilleryBarrageScienceTier::Level1,
+        )
+        .expect("owner barrage");
+    peer.0
+        .spawn_artillery_barrage_flight(
+            peer.1,
+            Vec3::new(200.0, 0.0, 0.0),
+            ArtilleryBarrageScienceTier::Level1,
+        )
+        .expect("peer barrage");
+
+    let owner_schedule: Vec<_> = owner
+        .0
+        .artillery_barrage_flight_reg
+        .pending_drops
+        .iter()
+        .map(|drop| drop.drop_frame)
+        .collect();
+    let peer_schedule: Vec<_> = peer
+        .0
+        .artillery_barrage_flight_reg
+        .pending_drops
+        .iter()
+        .map(|drop| drop.drop_frame)
+        .collect();
+    assert_eq!(owner_schedule, peer_schedule);
+    assert_eq!(owner_schedule.len(), 12);
+
+    let expected = game_engine::common::random_value::SessionRandom::default();
+    expected.seed_random(0xA771_11E);
+    for (index, drop_frame) in owner_schedule.iter().enumerate() {
+        let delay = expected
+            .next_int(0, ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES as i32)
+            .max(0) as u32;
+        assert_eq!(
+            *drop_frame,
+            ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES + delay - 8,
+            "transport {index} must keep C++ per-transport delay draw order"
+        );
+    }
+    assert_eq!(owner.0.logic_random.seed_words(), expected.seed_words());
+    assert_eq!(peer.0.logic_random.seed_words(), expected.seed_words());
+}
+
+#[test]
 fn artillery_barrage_l3_spawns_formation_size_36() {
     use crate::game_logic::KindOf;
     use crate::game_logic::special_power_strikes::ArtilleryBarrageScienceTier;
