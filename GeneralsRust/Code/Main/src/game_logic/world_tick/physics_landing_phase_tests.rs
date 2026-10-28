@@ -255,6 +255,7 @@ fn stamp_clears_freefall_before_resting_request_and_rereads_effective_death_for_
         StampContact::Start(0.),
         false,
         0,
+        None,
         &mut crate::game_logic::ScriptPresentationEffects::default().reborrow_for_object(partition),
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     ) else {

@@ -2781,14 +2781,17 @@ impl GameLogic {
             }
             if landed {
                 // C++ ChinookAIUpdate::chooseLocomotorSet — CHINOOK_LANDED → TAXIING.
-                obj.apply_taxiing_locomotor_set();
+                obj.apply_taxiing_locomotor_set_for_surfaces_in(
+                    0,
+                    self.locomotor_definitions.as_ref(),
+                );
             } else if obj
                 .jet_ai
                 .cur_locomotor_set
                 .as_deref()
                 .is_some_and(|s| s.eq_ignore_ascii_case("SET_TAXIING"))
             {
-                obj.apply_airborne_locomotor_set();
+                obj.apply_airborne_locomotor_set_in(self.locomotor_definitions.as_ref());
             }
             // C++ ChinookTakeoffOrLandingState::onEnter/onExit (ChinookAIUpdate.cpp:223-225, :294-295).
             if precise_now {

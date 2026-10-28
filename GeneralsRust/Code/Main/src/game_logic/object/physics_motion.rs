@@ -154,7 +154,10 @@ impl Object {
     }
 
     /// Leftover `desired_locomotor_set` / Chinook landed install of SET_TAXIING.
-    pub(super) fn apply_leftover_taxiing_locomotor_set(&mut self) {
+    pub(super) fn apply_leftover_taxiing_locomotor_set(
+        &mut self,
+        locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
+    ) {
         let chinook_landed = self.chinook_ai.as_ref().is_some_and(|ai| {
             ai.flight_status
                 == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
@@ -172,12 +175,14 @@ impl Object {
             return;
         }
         if chinook_landed {
-            let _ = crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_kind(
+            let _ = crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_kind_for_surfaces_in(
                 self,
                 crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Taxiing,
+                0,
+                locomotors,
             );
         } else {
-            self.apply_taxiing_locomotor_set();
+            self.apply_taxiing_locomotor_set_for_surfaces_in(0, locomotors);
         }
     }
 
@@ -665,23 +670,7 @@ impl Object {
     /// stay `ANTI_GROUND`. Authored INI heights still flag when above threshold.
     pub fn stamp_airborne_target_from_locomotor(&mut self) {
         let height = self.get_position().y - self.ground_height;
-        self.status.airborne_target = height > self.current_airborne_targeting_height() as f32;
-    }
-
-    fn current_airborne_targeting_height(&self) -> i32 {
-        if self.airborne_targeting_height != i32::MAX {
-            return self.airborne_targeting_height;
-        }
-        // Standalone Object::new retains MAX until admission binds its name.
-        // Keep that fallback; zero is an authored threshold, not a sentinel.
-        if let Some(name) = self.cur_locomotor_name.as_deref() {
-            if !name.is_empty() {
-                if let Some(tmpl) = gamelogic::locomotor::ini_bridge::convert_named(name) {
-                    return tmpl.airborne_targeting_height;
-                }
-            }
-        }
-        self.airborne_targeting_height
+        self.status.airborne_target = height > self.airborne_targeting_height as f32;
     }
 
     /// C++ PhysicsBehavior position integrate + ground clamp residual (one frame).

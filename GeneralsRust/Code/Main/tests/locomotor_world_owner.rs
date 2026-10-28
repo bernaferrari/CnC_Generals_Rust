@@ -12,9 +12,14 @@ fn base_catalog(speed: u32, pitch: u32) -> LocomotorStore {
             "Locomotor SharedOwnerLoco\n Surfaces = GROUND\n Speed = {speed}\n Acceleration = 60\n Braking = 80\n TurnRate = 120\n Appearance = TWO_LEGS\n PitchStiffness = {pitch}\n WanderWidthFactor = 2\n StickToGround = Yes\nEnd\n\
              Locomotor CliffOwnerLoco\n Surfaces = CLIFF\n Speed = {speed}\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\n\
              Locomotor GroundOwnerLoco\n Surfaces = GROUND\n Speed = {}\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\n\
-             Locomotor PanicOwnerLoco\n Surfaces = GROUND\n Speed = {}\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\n",
+             Locomotor PanicOwnerLoco\n Surfaces = GROUND\n Speed = {}\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\n\
+             Locomotor AirOwnerLoco\n Surfaces = AIR\n Speed = {}\n Acceleration = 60\n TurnRate = 120\n Appearance = WINGS\n MinSpeed = 10\nEnd\n\
+             Locomotor TaxiOwnerLoco\n Surfaces = GROUND\n Speed = {}\n Acceleration = 60\n TurnRate = 120\n Appearance = FOUR_WHEELS\nEnd\n\
+             Locomotor ThresholdOwnerLoco\n Surfaces = GROUND\n Speed = 20\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\n",
             speed + 10,
             speed + 5,
+            speed + 100,
+            speed + 4,
         ))
         .unwrap();
     catalog
@@ -33,7 +38,9 @@ fn world_with_catalog(map: &std::path::Path, catalog: LocomotorStore) -> GameLog
             "Object OwnerMover\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL SharedOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
              Object OwnerSwitcher\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL CliffOwnerLoco GroundOwnerLoco\n Locomotor = SET_PANIC PanicOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n\
              Object OwnerBike\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL CliffOwnerLoco GroundOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = RiderChangeContain RiderTag\n Slots = 1\n Rider1 = OwnerRider RIDER1 WEAPON_RIDER1 STATUS_RIDER1 BikeSet SET_NORMAL\n End\nEnd\n\
-             Object OwnerRider\n KindOf = SELECTABLE INFANTRY\n TransportSlotCount = 1\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
+             Object OwnerRider\n KindOf = SELECTABLE INFANTRY\n TransportSlotCount = 1\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n\
+             Object OwnerJet\n KindOf = SELECTABLE AIRCRAFT\n Locomotor = SET_NORMAL AirOwnerLoco\n Locomotor = SET_TAXIING TaxiOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = JetAIUpdate JetBrain\n End\nEnd\n\
+             Object OwnerTargetProbe\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL ThresholdOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
         )])
         .unwrap();
     world.start_new_game(GameMode::SinglePlayer);
@@ -71,10 +78,13 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
     // A same-name foreign process catalog must never select either world’s data.
     {
         let mut foreign = get_locomotor_store_mut();
-        foreign.apply_source("Locomotor SharedOwnerLoco\n Surfaces = GROUND\n Speed = 999\n PitchStiffness = 99\nEnd\n\
+        foreign.apply_source("Locomotor SharedOwnerLoco\n Surfaces = GROUND\n Speed = 999\n PitchStiffness = 99\n AirborneTargetingHeight = 0\nEnd\n\
             Locomotor CliffOwnerLoco\n Surfaces = GROUND\n Speed = 999\nEnd\n\
             Locomotor GroundOwnerLoco\n Surfaces = GROUND\n Speed = 999\nEnd\n\
-            Locomotor PanicOwnerLoco\n Surfaces = GROUND\n Speed = 999\nEnd\n").unwrap();
+            Locomotor PanicOwnerLoco\n Surfaces = GROUND\n Speed = 999\nEnd\n\
+            Locomotor AirOwnerLoco\n Surfaces = AIR\n Speed = 999\nEnd\n\
+            Locomotor TaxiOwnerLoco\n Surfaces = GROUND\n Speed = 999\nEnd\n\
+            Locomotor ThresholdOwnerLoco\n Surfaces = GROUND\n Speed = 999\n AirborneTargetingHeight = 0\nEnd\n").unwrap();
     }
     let mut map = DataChunkOutput::new();
     map.open_data_chunk("HeightMapData", 3);
@@ -169,6 +179,47 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
     assert!(peer.apply_unit_locomotor_set(peer_switcher, "normal"));
     let builder = SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&first).unwrap();
+    let first_jet = first
+        .create_object_for_player("OwnerJet", 42, glam::Vec3::new(80., 0., 120.))
+        .unwrap();
+    let peer_jet = peer
+        .create_object_for_player("OwnerJet", 42, glam::Vec3::new(80., 0., 120.))
+        .unwrap();
+    assert_eq!(first_jet, peer_jet);
+    let first_probe = first
+        .create_object_for_player("OwnerTargetProbe", 42, glam::Vec3::new(0., 100., 0.))
+        .unwrap();
+    let peer_probe = peer
+        .create_object_for_player("OwnerTargetProbe", 42, glam::Vec3::new(0., 100., 0.))
+        .unwrap();
+    assert_eq!(first_probe, peer_probe);
+    for (world, id) in [(&mut first, first_probe), (&mut peer, peer_probe)] {
+        let unit = world.host_object_mut(id).unwrap();
+        assert!(unit.get_position().y > 10.0);
+        unit.ground_height = 0.0;
+        unit.stamp_airborne_target_from_locomotor();
+        assert!(!unit.status.airborne_target);
+    }
+    assert_eq!(first.update_with_dt(1.0 / 30.0).steps_run, 1);
+    assert_eq!(peer.update_with_dt(1.0 / 30.0).steps_run, 1);
+    assert_eq!(first.update_with_dt(1.0 / 30.0).steps_run, 1);
+    assert_eq!(peer.update_with_dt(1.0 / 30.0).steps_run, 1);
+    for (world, id, expected) in [(&first, first_jet, 24.0), (&peer, peer_jet, 64.0)] {
+        let jet = world.host_object(id).unwrap();
+        assert_eq!(jet.cur_locomotor_name.as_deref(), Some("TaxiOwnerLoco"));
+        assert!((jet.movement.max_speed - expected).abs() < 0.001);
+    }
+    let aircraft_snapshot = builder.create_world_snapshot(&first).unwrap();
+    let mut aircraft_restored = world(&first_map, 20, 3);
+    builder
+        .restore_from_snapshot(&aircraft_snapshot, &mut aircraft_restored)
+        .unwrap();
+    let restored_jet = aircraft_restored.host_object(first_jet).unwrap();
+    assert_eq!(
+        restored_jet.cur_locomotor_name.as_deref(),
+        Some("TaxiOwnerLoco")
+    );
+    assert!((restored_jet.movement.max_speed - 24.0).abs() < 0.001);
     let first_bike = first
         .create_object_for_player("OwnerBike", 42, glam::Vec3::new(80., 0., 80.))
         .unwrap();

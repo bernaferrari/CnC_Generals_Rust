@@ -1,5 +1,6 @@
 //! Synchronous ground-contact phases. Only owned scalar continuations cross a Body callback.
 use super::*;
+use game_engine::common::ini::ini_locomotor::LocomotorStore;
 
 pub(in crate::game_logic) struct ContactDamage {
     pub amount: f32,
@@ -257,13 +258,14 @@ impl Object {
         killed: bool,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> ContactStep<StampContact, ()> {
-        self.step_stamp_contact_with_effects(state, killed, 0, &mut Default::default(), audio)
+        self.step_stamp_contact_with_effects(state, killed, 0, None, &mut Default::default(), audio)
     }
     pub(in crate::game_logic) fn step_stamp_contact_with_effects(
         &mut self,
         state: StampContact,
         _killed: bool,
         frame: u32,
+        locomotors: Option<&LocomotorStore>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> ContactStep<StampContact, ()> {
@@ -296,6 +298,7 @@ impl Object {
                         StampContact::Grounded,
                         false,
                         frame,
+                        locomotors,
                         effects,
                         audio,
                     );
@@ -320,6 +323,7 @@ impl Object {
                     StampContact::Grounded,
                     false,
                     frame,
+                    locomotors,
                     effects,
                     audio,
                 );
@@ -331,6 +335,7 @@ impl Object {
                     StampContact::Grounded,
                     false,
                     frame,
+                    locomotors,
                     effects,
                     audio,
                 );
@@ -365,19 +370,27 @@ impl Object {
         killed: bool,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> ContactStep<MotionContact, bool> {
-        self.step_motion_contact_with_effects(state, killed, 0, &mut Default::default(), audio)
+        self.step_motion_contact_with_effects(
+            state,
+            killed,
+            0,
+            None,
+            &mut Default::default(),
+            audio,
+        )
     }
     pub(in crate::game_logic) fn step_motion_contact_with_effects(
         &mut self,
         state: MotionContact,
         killed: bool,
         frame: u32,
+        locomotors: Option<&LocomotorStore>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> ContactStep<MotionContact, bool> {
         match state {
             MotionContact::Start(ground_y) => {
-                self.apply_leftover_taxiing_locomotor_set();
+                self.apply_leftover_taxiing_locomotor_set(locomotors);
 
                 self.ground_height = ground_y;
 
@@ -509,7 +522,9 @@ impl Object {
                     return ContactStep::PositionFx { reaction, next };
                 }
                 self.finish_position_reaction(reaction);
-                self.step_motion_contact_with_effects(next, killed, frame, effects, audio)
+                self.step_motion_contact_with_effects(
+                    next, killed, frame, locomotors, effects, audio,
+                )
             }
             MotionContact::AfterPosition {
                 ground_y,
@@ -606,13 +621,14 @@ impl Object {
         killed: bool,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> ContactStep<StunContact, ()> {
-        self.step_stun_contact_with_effects(state, killed, 0, &mut Default::default(), audio)
+        self.step_stun_contact_with_effects(state, killed, 0, None, &mut Default::default(), audio)
     }
     pub(in crate::game_logic) fn step_stun_contact_with_effects(
         &mut self,
         state: StunContact,
         killed: bool,
         frame: u32,
+        _locomotors: Option<&LocomotorStore>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> ContactStep<StunContact, ()> {
@@ -871,6 +887,7 @@ impl crate::game_logic::GameLogic {
             S,
             bool,
             u32,
+            Option<&LocomotorStore>,
             &mut crate::game_logic::ScriptPresentationEffects<'_>,
             &mut crate::game_logic::ObjectAudio<'_>,
         ) -> ContactStep<S, T>,
@@ -893,6 +910,7 @@ impl crate::game_logic::GameLogic {
             S,
             bool,
             u32,
+            Option<&LocomotorStore>,
             &mut crate::game_logic::ScriptPresentationEffects<'_>,
             &mut crate::game_logic::ObjectAudio<'_>,
         ) -> ContactStep<S, T>,
@@ -922,6 +940,7 @@ impl crate::game_logic::GameLogic {
                 state,
                 killed,
                 frame,
+                self.locomotor_definitions.as_ref(),
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );

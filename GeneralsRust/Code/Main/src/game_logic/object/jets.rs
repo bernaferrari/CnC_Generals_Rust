@@ -1,4 +1,5 @@
 use super::*;
+use game_engine::common::ini::ini_locomotor::LocomotorStore;
 
 /// C++ `JetAIUpdate` live-host residual (Wave 12).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -552,21 +553,27 @@ impl Object {
     }
 
     /// C++ `friend_setAllowAirLoco(false)` + `chooseLocomotorSet(TAXIING)`.
+    #[cfg(test)]
     pub fn apply_taxiing_locomotor_set(&mut self) {
-        self.apply_taxiing_locomotor_set_for_surfaces(0);
+        self.apply_taxiing_locomotor_set_for_surfaces_in(0, None);
     }
 
     /// Same as `apply_taxiing_locomotor_set`, but a non-zero mask is the
     /// path cell under the jet. Air is not added.
-    pub fn apply_taxiing_locomotor_set_for_surfaces(&mut self, cell_surfaces: u32) {
+    pub(crate) fn apply_taxiing_locomotor_set_for_surfaces_in(
+        &mut self,
+        cell_surfaces: u32,
+        locomotors: Option<&LocomotorStore>,
+    ) {
         self.jet_ai.allow_air_loco = false;
         if cell_surfaces == 0 {
-            self.choose_jet_locomotor_set("SET_TAXIING");
+            self.choose_jet_locomotor_set("SET_TAXIING", locomotors);
         } else {
-            let _ = crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_kind_for_surfaces(
+            let _ = crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_kind_for_surfaces_in(
                 self,
                 crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Taxiing,
                 cell_surfaces,
+                locomotors,
             );
         }
         // C++ JetOrHeliTaxiState::onEnter setAllowInvalidPosition
@@ -575,19 +582,24 @@ impl Object {
     }
 
     /// C++ takeoff/airborne `friend_setAllowAirLoco(true)` + NORMAL/SUPERSONIC.
+    #[cfg(test)]
     pub fn apply_airborne_locomotor_set(&mut self) {
+        self.apply_airborne_locomotor_set_in(None);
+    }
+
+    pub(crate) fn apply_airborne_locomotor_set_in(&mut self, locomotors: Option<&LocomotorStore>) {
         self.jet_ai.allow_air_loco = true;
         if self.jet_ai.attack_loco_expire_frame != 0 {
-            self.choose_jet_locomotor_set("SET_SUPERSONIC");
+            self.choose_jet_locomotor_set("SET_SUPERSONIC", locomotors);
         } else {
-            self.choose_jet_locomotor_set("SET_NORMAL");
+            self.choose_jet_locomotor_set("SET_NORMAL", locomotors);
         }
     }
 
     /// C++ `JetAIUpdate::chooseLocomotorSet`.
-    fn choose_jet_locomotor_set(&mut self, set: &str) {
+    fn choose_jet_locomotor_set(&mut self, set: &str, locomotors: Option<&LocomotorStore>) {
         use crate::game_logic::host_upgrade_module_residuals::{
-            HostLocomotorSetKind, apply_locomotor_set_kind,
+            HostLocomotorSetKind, apply_locomotor_set_kind_for_surfaces_in,
         };
         let kind = if set.eq_ignore_ascii_case("SET_TAXIING") {
             HostLocomotorSetKind::Taxiing
@@ -604,11 +616,11 @@ impl Object {
         if already {
             return;
         }
-        let _ = apply_locomotor_set_kind(self, kind);
+        let _ = apply_locomotor_set_kind_for_surfaces_in(self, kind, 0, locomotors);
     }
 
     /// C++ `JetAIUpdate.cpp:1950-1981` persist + `chooseLocomotorSet(attackingLoco)`.
-    fn tick_jet_attack_locomotor(&mut self, now: u32) {
+    fn tick_jet_attack_locomotor(&mut self, now: u32, locomotors: Option<&LocomotorStore>) {
         if !self.jet_uses_attack_locomotor() {
             return;
         }
@@ -622,15 +634,15 @@ impl Object {
         }
         // `chooseLocomotorSet` remaps to TAXIING when `!ALLOW_AIR_LOCO`.
         if !self.jet_allows_air_loco() {
-            self.choose_jet_locomotor_set("SET_TAXIING");
+            self.choose_jet_locomotor_set("SET_TAXIING", locomotors);
             return;
         }
         if self.jet_ai.attack_loco_expire_frame != 0 {
-            self.choose_jet_locomotor_set("SET_SUPERSONIC");
+            self.choose_jet_locomotor_set("SET_SUPERSONIC", locomotors);
         } else if self.jet_ai.cur_locomotor_set.as_deref().is_some_and(|s| {
             s.to_ascii_uppercase().contains("SUPERSONIC") || s.eq_ignore_ascii_case("SET_TAXIING")
         }) {
-            self.choose_jet_locomotor_set("SET_NORMAL");
+            self.choose_jet_locomotor_set("SET_NORMAL", locomotors);
         }
     }
 
@@ -796,12 +808,30 @@ impl Object {
     }
 
     /// C++ TAXI_FROM_HANGAR / TAXI_TO_TAKEOFF: afterburners stay off.
+    #[cfg(test)]
     pub fn arm_jet_taxi_to_takeoff(
         &mut self,
         runway_start: Vec3,
         runway_end: Vec3,
         runway_dist: f32,
         waited_for_taxi: bool,
+    ) {
+        self.arm_jet_taxi_to_takeoff_in(
+            runway_start,
+            runway_end,
+            runway_dist,
+            waited_for_taxi,
+            None,
+        );
+    }
+
+    pub(crate) fn arm_jet_taxi_to_takeoff_in(
+        &mut self,
+        runway_start: Vec3,
+        runway_end: Vec3,
+        runway_dist: f32,
+        waited_for_taxi: bool,
+        locomotors: Option<&LocomotorStore>,
     ) {
         self.jet_ai.taxi_to_takeoff = true;
         self.jet_ai.takeoff_in_progress = false;
@@ -810,7 +840,7 @@ impl Object {
         self.jet_ai.takeoff_runway_end = Some([runway_end.x, runway_end.y, runway_end.z]);
         self.jet_ai.takeoff_runway_dist = runway_dist.max(1.0);
         self.jet_ai.takeoff_waited_for_taxi = waited_for_taxi;
-        self.apply_taxiing_locomotor_set();
+        self.apply_taxiing_locomotor_set_for_surfaces_in(0, locomotors);
         // C++ JetOrHeliTaxiState / JetAwaitingRunwayState (JetAIUpdate.cpp:259-260, :615-616).
         self.set_precise_z_and_ultra_accurate(true);
         let _ = self.enable_jet_afterburners(false);
@@ -831,12 +861,24 @@ impl Object {
         dx * dx + dz * dz <= 12.0 * 12.0
     }
 
+    #[cfg(test)]
     pub fn begin_jet_runway_takeoff(
         &mut self,
         now: u32,
         runway_end: Vec3,
         runway_dist: f32,
         waited_for_taxi: bool,
+    ) {
+        self.begin_jet_runway_takeoff_in(now, runway_end, runway_dist, waited_for_taxi, None);
+    }
+
+    pub(crate) fn begin_jet_runway_takeoff_in(
+        &mut self,
+        now: u32,
+        runway_end: Vec3,
+        runway_dist: f32,
+        waited_for_taxi: bool,
+        locomotors: Option<&LocomotorStore>,
     ) {
         self.jet_ai.takeoff_in_progress = true;
         self.jet_ai.takeoff_pause_armed = true;
@@ -849,14 +891,23 @@ impl Object {
         self.jet_ai.takeoff_runway_end = Some([runway_end.x, runway_end.y, runway_end.z]);
         self.jet_ai.takeoff_runway_dist = runway_dist.max(1.0);
         self.max_lift = 0.0;
-        self.apply_taxiing_locomotor_set();
+        self.apply_taxiing_locomotor_set_for_surfaces_in(0, locomotors);
         // C++ JetTakeoffOrLandingState::onEnter (JetAIUpdate.cpp:725-726).
         self.set_precise_z_and_ultra_accurate(true);
         let _ = self.enable_jet_afterburners(true);
     }
 
     /// C++ `JetTakeoffOrLandingState::update` takeoff lift ramp.
+    #[cfg(test)]
     pub fn tick_jet_takeoff_lift(&mut self, now: u32) -> bool {
+        self.tick_jet_takeoff_lift_in(now, None)
+    }
+
+    pub(crate) fn tick_jet_takeoff_lift_in(
+        &mut self,
+        now: u32,
+        locomotors: Option<&LocomotorStore>,
+    ) -> bool {
         if !self.jet_ai.takeoff_in_progress {
             return false;
         }
@@ -865,7 +916,7 @@ impl Object {
             return false;
         }
         if !self.jet_ai.allow_air_loco {
-            self.apply_airborne_locomotor_set();
+            self.apply_airborne_locomotor_set_in(locomotors);
             // C++ onEnter selects the flight locomotor, clears its lift cap,
             // then captures damage-conditioned lift (JetAIUpdate.cpp:708-724).
             // Applying the complete binding above restores its authored lift.
@@ -925,17 +976,26 @@ impl Object {
     }
 
     /// C++ idle / reload empty-clip RTB + idle timer + sneaky persist + lockon.
+    #[cfg(test)]
     pub fn tick_jet_ai_update(&mut self, now: u32) -> JetAiTickAction {
+        self.tick_jet_ai_update_in(now, None)
+    }
+
+    pub(crate) fn tick_jet_ai_update_in(
+        &mut self,
+        now: u32,
+        locomotors: Option<&LocomotorStore>,
+    ) -> JetAiTickAction {
         if !(self.is_kind_of(KindOf::Aircraft) || self.object_type == ObjectType::Aircraft) {
             return JetAiTickAction::None;
         }
         if !self.jet_allows_air_loco() {
-            self.apply_taxiing_locomotor_set();
+            self.apply_taxiing_locomotor_set_for_surfaces_in(0, locomotors);
         }
         if self.jet_ai.afterburners_on {
             let _ = self.enable_jet_afterburners(true);
         }
-        let _ = self.tick_jet_takeoff_lift(now);
+        let _ = self.tick_jet_takeoff_lift_in(now, locomotors);
         self.stamp_jet_exhaust();
         if self.jet_ai.untargetable_expire_frame != 0
             && now >= self.jet_ai.untargetable_expire_frame
@@ -954,7 +1014,7 @@ impl Object {
         {
             self.jet_ai.attackers_miss_expire_frame = 0;
         }
-        self.tick_jet_attack_locomotor(now);
+        self.tick_jet_attack_locomotor(now, locomotors);
 
         let airborne = self.status.airborne_target
             && self.contained_by.is_none()
