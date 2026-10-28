@@ -2631,11 +2631,9 @@ impl Object {
         self.has_disabled_type() || self.status.under_construction
     }
 
-    /// C++ KINDOF_SPAWNS_ARE_THE_WEAPONS residual (Stinger Site / hive).
+    /// C++ exact `KINDOF_SPAWNS_ARE_THE_WEAPONS` authored capability.
     pub fn is_spawns_are_the_weapons(&self) -> bool {
-        self.hive_slave_count > 0
-            || self.hive_slaves.iter().any(|s| s.alive)
-            || crate::game_logic::host_base_defense::is_stinger_site_structure(&self.template_name)
+        self.is_kind_of(KindOf::SpawnsAreTheWeapons)
     }
 
     /// C++ DISABLED_FREEFALL residual.

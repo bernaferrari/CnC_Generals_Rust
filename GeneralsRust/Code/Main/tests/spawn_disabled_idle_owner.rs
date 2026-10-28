@@ -22,10 +22,9 @@ fn world() -> (
     let child = world
         .create_object_for_player("SpawnDisabledIdleChild", 1, Vec3::new(5.0, 0.0, 0.0))
         .unwrap();
-    // Main currently represents this live spawn-weapon site through its hive
-    // roster; authored KindOf admission and actual SpawnBehavior ordering are
-    // tracked separately. Set that existing runtime state explicitly here.
-    world.host_object_mut(site).unwrap().hive_slave_count = 1;
+    // This fixture supplies the producer link directly. The authored KindOf
+    // is real; original SpawnBehavior roster admission and timing remain a
+    // separate ownership obligation.
     assert!(world.host_object(site).unwrap().is_spawns_are_the_weapons());
     world.host_object_mut(child).unwrap().producer_id = Some(site);
     (world, site, child)

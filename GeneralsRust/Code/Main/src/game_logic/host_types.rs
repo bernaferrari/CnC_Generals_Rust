@@ -234,6 +234,9 @@ pub enum KindOf {
     Hulk,
     /// C++ KINDOF_REJECT_UNMANNED (bit109); append-only Rust save ordinal87.
     RejectUnmanned,
+    /// C++ KINDOF_SPAWNS_ARE_THE_WEAPONS (bit79); append-only gameplay
+    /// capability and save ordinal88.
+    SpawnsAreTheWeapons,
 }
 
 impl KindOf {
@@ -332,6 +335,7 @@ impl KindOf {
         KindOf::LineBuild,
         KindOf::Hulk,
         KindOf::RejectUnmanned,
+        KindOf::SpawnsAreTheWeapons,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -424,6 +428,7 @@ impl KindOf {
             Self::LineBuild => "LineBuild",
             Self::Hulk => "Hulk",
             Self::RejectUnmanned => "RejectUnmanned",
+            Self::SpawnsAreTheWeapons => "SpawnsAreTheWeapons",
         }
     }
 
@@ -462,6 +467,7 @@ impl KindOf {
             "LINEBUILD" | "LINE_BUILD" => Some(Self::LineBuild),
             "HULK" => Some(Self::Hulk),
             "REJECT_UNMANNED" | "REJECTUNMANNED" => Some(Self::RejectUnmanned),
+            "SPAWNS_ARE_THE_WEAPONS" | "SPAWNSARETHEWEAPONS" => Some(Self::SpawnsAreTheWeapons),
 
             "DRONE" => Some(Self::Drone),
             _ => None,
@@ -973,7 +979,10 @@ mod tests {
             1u128 << 15,
         );
         assert!(KindOf::ALL_KIND_OF.contains(&KindOf::LineBuild));
-        assert_eq!(KindOf::ALL_KIND_OF.last(), Some(&KindOf::RejectUnmanned));
+        assert_eq!(
+            KindOf::ALL_KIND_OF.last(),
+            Some(&KindOf::SpawnsAreTheWeapons)
+        );
         // Existing serde discriminants remain stable even where Xfer uses a
         // different established order (CliffJumper precedes CleanupHazard).
         for (kind, ordinal) in [
@@ -983,11 +992,28 @@ mod tests {
             (KindOf::LineBuild, 85),
             (KindOf::Hulk, 86),
             (KindOf::RejectUnmanned, 87),
+            (KindOf::SpawnsAreTheWeapons, 88),
         ] {
             let bytes = bincode_legacy::serialize(&kind).unwrap();
             assert_eq!(bytes, ordinal.to_le_bytes());
             assert_eq!(bincode_legacy::deserialize::<KindOf>(&bytes).unwrap(), kind);
         }
+    }
+
+    #[test]
+    fn spawns_are_the_weapons_kindof_is_append_only_and_recognizes_authored_token() {
+        assert_eq!(
+            KindOf::from_ini_token("SPAWNS_ARE_THE_WEAPONS"),
+            Some(KindOf::SpawnsAreTheWeapons)
+        );
+        assert_eq!(KindOf::SpawnsAreTheWeapons.name(), "SpawnsAreTheWeapons");
+        assert!(KindOf::ALL_KIND_OF.contains(&KindOf::SpawnsAreTheWeapons));
+        assert_eq!(
+            crate::game_logic::host_radar_stealth_vision_residual::live_kind_of_cpp_mask(
+                KindOf::SpawnsAreTheWeapons
+            ),
+            1u128 << 79,
+        );
     }
 
     #[test]

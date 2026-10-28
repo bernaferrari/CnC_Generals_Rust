@@ -166,6 +166,12 @@ impl GameLogic {
         if has_kind("auto_rallypoint") || has_kind("auto_rally_point") {
             template.add_kind_of(KindOf::AutoRallypoint);
         }
+        // C++ Object::setDisabledUntil/clearDisabled gate slave propagation on
+        // this exact authored KindOf bit before querying SpawnBehavior. Keep it
+        // distinct from the presence of hive soldiers or a familiar basename.
+        if has_kind("spawns_are_the_weapons") {
+            template.add_kind_of(KindOf::SpawnsAreTheWeapons);
+        }
         if has_kind("mob_nexus") {
             template.add_kind_of(KindOf::MobNexus);
         }

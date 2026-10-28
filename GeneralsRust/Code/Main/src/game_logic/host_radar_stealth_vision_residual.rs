@@ -677,6 +677,7 @@ pub fn live_kind_of_cpp_mask(kind: crate::game_logic::KindOf) -> u128 {
         KindOf::LineBuild => M::LINEBUILD.bits(),
         KindOf::Hulk => M::HULK.bits(),
         KindOf::RejectUnmanned => M::REJECT_UNMANNED.bits(),
+        KindOf::SpawnsAreTheWeapons => M::SPAWNS_ARE_THE_WEAPONS.bits(),
 
         KindOf::Resource | KindOf::Worker | KindOf::Harvestable => 0,
     }
