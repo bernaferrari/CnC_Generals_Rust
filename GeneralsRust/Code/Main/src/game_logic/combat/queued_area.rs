@@ -6,6 +6,7 @@ pub(in crate::game_logic) struct AreaDamage<'a> {
     shooter_pos: Option<Vec3>,
     shooter_producer: Option<ObjectId>,
     shooter_dir_xz: Option<(f32, f32)>,
+    source_is_defector: bool,
 }
 impl<'a> AreaDamage<'a> {
     pub(in crate::game_logic) fn new(
@@ -14,6 +15,8 @@ impl<'a> AreaDamage<'a> {
     ) -> Option<Self> {
         let DamageEvent::Area {
             shooter_id,
+            radius_source_present,
+            radius_source_id,
             radius_source_producer,
             ..
         } = event
@@ -26,6 +29,11 @@ impl<'a> AreaDamage<'a> {
             shooter_pos: source.map(|o| o.get_position()),
             shooter_producer: *radius_source_producer,
             shooter_dir_xz: source.map(|o| o.unit_direction_xz()),
+            // Moving projectiles are distinct from their launcher. Only a
+            // projectileless source uses the launcher's current Object state.
+            source_is_defector: *radius_source_present
+                && radius_source_id == shooter_id
+                && source.is_some_and(Object::is_undetected_defector),
         })
     }
     /// Freeze candidate distances in this world's current HashMap encounter order.
@@ -71,8 +79,9 @@ impl<'a> AreaDamage<'a> {
         vid: ObjectId,
         obj: &Object,
         dist: f32,
-        players: Option<&HashMap<u32, crate::game_logic::Player>>,
-        team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+        players: &HashMap<u32, crate::game_logic::Player>,
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+        templates: &HashMap<String, crate::game_logic::ThingTemplate>,
     ) -> Option<(f32, Option<Vec3>)> {
         let DamageEvent::Area {
             position,
@@ -96,7 +105,7 @@ impl<'a> AreaDamage<'a> {
             shooter_template,
             primary_victim,
             radius_damage_angle,
-            shooter_team,
+            shooter_team: _,
         } = self.event
         else {
             unreachable!()
@@ -115,49 +124,61 @@ impl<'a> AreaDamage<'a> {
             && vid == *radius_source_id;
         if *radius_source_present && !is_primary && !kills_self {
             let airborne = obj.is_significantly_above_terrain();
-            let same_tmpl = crate::game_logic::weapon_bootstrap::splash_templates_equivalent(
-                shooter_template,
-                &obj.template_name,
-            );
-            let relationship = match players {
-                Some(map) if team_factory.is_some() => {
+            use gamelogic::common::Relationship;
+            let relationship = if obj.is_undetected_defector() {
+                Relationship::Neutral
+            } else if self.source_is_defector {
+                Relationship::Allies
+            } else {
+                crate::game_logic::GameLogic::object_relationship_from_identities(
+                    team_factory,
+                    players,
+                    obj.owner_player_id,
+                    obj.team_instance_id,
+                    &obj.team_instance_name,
+                    *shooter_owner_player_id,
+                    *radius_source_team_id,
+                    shooter_team_instance_name,
+                )
+            };
+            let doesnt_affect_similar = crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_DOESNT_AFFECT_SIMILAR;
+            if (*radius_damage_affects & doesnt_affect_similar) != 0
+                && crate::game_logic::weapon_bootstrap::receiving_splash_templates_equivalent(
+                    templates,
+                    shooter_template,
+                    &obj.template_name,
+                )
+            {
+                // Weapon.cpp checks source->getRelationship(victim) here;
+                // the ALLIES/ENEMIES mask below uses the reverse direction.
+                let source_relationship = if self.source_is_defector {
+                    Relationship::Neutral
+                } else if obj.is_undetected_defector() {
+                    Relationship::Allies
+                } else {
                     crate::game_logic::GameLogic::object_relationship_from_identities(
-                        team_factory.expect("guarded Some"),
-                        map,
-                        obj.owner_player_id,
-                        obj.team_instance_id,
-                        &obj.team_instance_name,
+                        team_factory,
+                        players,
                         *shooter_owner_player_id,
                         *radius_source_team_id,
                         shooter_team_instance_name,
+                        obj.owner_player_id,
+                        obj.team_instance_id,
+                        &obj.team_instance_name,
                     )
+                };
+                if source_relationship == Relationship::Allies {
+                    return None;
                 }
-                // C++ curVictim->getRelationship(source) is
-                // ownership-driven; the live host falls back to
-                // the frozen launch teams when no player
-                // registry is wired into this combat pass.
-                Some(_) if obj.owner_player_id == *shooter_owner_player_id => {
-                    gamelogic::common::Relationship::Allies
-                }
-                Some(map) => {
-                    let _ = map;
-                    if obj.team == *shooter_team {
-                        gamelogic::common::Relationship::Allies
-                    } else {
-                        gamelogic::common::Relationship::Neutral
-                    }
-                }
-                None if obj.team == *shooter_team => gamelogic::common::Relationship::Allies,
-                None => gamelogic::common::Relationship::Neutral,
-            };
+            }
             let allowed = crate::game_logic::weapon_bootstrap::radius_damage_affects_victim(
-                *radius_damage_affects,
+                *radius_damage_affects & !doesnt_affect_similar,
                 relationship,
                 *radius_source_id,
                 vid,
                 shooter_producer,
                 airborne,
-                same_tmpl,
+                false,
             );
             if !allowed {
                 return None;

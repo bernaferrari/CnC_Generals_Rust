@@ -51,6 +51,7 @@ mod scatter;
 pub(crate) use scatter::scatter_aim_offset_logic;
 pub use scatter::*;
 mod collide;
+pub(in crate::game_logic) use collide::receiving_splash_templates_equivalent;
 pub use collide::*;
 mod shock_damage;
 pub use shock_damage::*;

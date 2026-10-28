@@ -160,8 +160,10 @@ pub fn radius_damage_affects_victim(
     };
     use gamelogic::common::Relationship;
 
-    if shooter_id == victim_id || producer_id == Some(victim_id) {
-        return (affects & WEAPON_AFFECTS_SELF) != 0;
+    if (shooter_id == victim_id || producer_id == Some(victim_id))
+        && (affects & WEAPON_AFFECTS_SELF) == 0
+    {
+        return false;
     }
     if (affects & WEAPON_DOESNT_AFFECT_AIRBORNE) != 0 && victim_airborne {
         return false;
@@ -178,6 +180,20 @@ pub fn radius_damage_affects_victim(
         Relationship::Neutral => WEAPON_AFFECTS_NEUTRALS,
     };
     (affects & required_mask) != 0
+}
+
+/// Compare templates in the driving match's effective content. C++ resolves
+/// both objects' ThingTemplates and compares their reskins/build variations;
+/// another match's factory cannot supply either side of that comparison.
+pub(in crate::game_logic) fn receiving_splash_templates_equivalent(
+    templates: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
+    shooter: &str,
+    victim: &str,
+) -> bool {
+    match (templates.get(shooter), templates.get(victim)) {
+        (Some(source), Some(target)) => source.is_equivalent_to(target),
+        _ => false,
+    }
 }
 
 /// C++ `source->getTemplate()->isEquivalentTo(curVictim->getTemplate())`

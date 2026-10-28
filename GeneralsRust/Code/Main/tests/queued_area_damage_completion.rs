@@ -54,6 +54,23 @@ fn fixture_custom(
     affects: &str,
     extra: &str,
 ) -> Fixture {
+    fixture_custom_with_variation(
+        label, health, sink, speed, count, threshold, radius, affects, extra, None,
+    )
+}
+
+fn fixture_custom_with_variation(
+    label: &str,
+    health: f32,
+    sink: bool,
+    speed: u32,
+    count: usize,
+    threshold: f32,
+    radius: f32,
+    affects: &str,
+    extra: &str,
+    variation: Option<bool>,
+) -> Fixture {
     let rule = format!("LibraryQueuedArea{label}Weapon");
     let rows = format!("LibraryQueuedArea{label}Rows");
     gamelogic::initialize_weapon_store().unwrap();
@@ -131,6 +148,28 @@ End
         player.is_alive = true;
         world.add_player(player);
     }
+    if let Some(has_variation) = variation {
+        let variation_line = if has_variation {
+            "BuildVariations = QueuedVictim\n"
+        } else {
+            ""
+        };
+        let body = |name: &str, hp: f32, extra: &str| {
+            format!(
+                "Object {name}\nKindOf = INFANTRY SELECTABLE\n{extra}Body = ActiveBody Body\nMaxHealth = {hp}\nInitialHealth = {hp}\nEnd\nEnd\n"
+            )
+        };
+        let source = [
+            body("QueuedSource", 500.0, variation_line),
+            body("QueuedVictim", health, ""),
+            body("QueuedAim", 10000.0, ""),
+            body("QueuedSink", 500.0, ""),
+        ]
+        .concat();
+        world
+            .admit_object_ini_sources([("SplashVariation.ini".into(), source)])
+            .unwrap();
+    }
     let make = |name: &str, hp: f32, xp: f32| {
         let mut t = ThingTemplate::new(name);
         t.set_health(hp)
@@ -160,7 +199,21 @@ End
         make("QueuedAim", 10000.0, 0.0),
         make("QueuedSink", 500.0, 0.0),
     ] {
-        world.templates.insert(t.name.clone(), t);
+        if variation.is_some() {
+            let admitted = world.templates.get_mut(&t.name).unwrap();
+            admitted.set_health(t.max_health);
+            admitted.kind_of = t.kind_of;
+            admitted.is_trainable = t.is_trainable;
+            admitted.veterancy_xp_thresholds = t.veterancy_xp_thresholds;
+            admitted.experience_values = t.experience_values;
+            admitted.geometry_info = t.geometry_info;
+            admitted.armor_sets = t.armor_sets;
+            admitted.primary_weapon = t.primary_weapon;
+            admitted.primary_weapon_name = t.primary_weapon_name;
+            admitted.primary_weapon_explicitly_none = t.primary_weapon_explicitly_none;
+        } else {
+            world.templates.insert(t.name.clone(), t);
+        }
     }
     let shooters: Vec<_> = (0..count)
         .map(|_| {
@@ -502,6 +555,149 @@ fn projectileless_area_uses_the_receiving_worlds_exact_team_override() {
     assert_eq!(
         peer.world.objects[&peer.victim].health.current, 200.0,
         "the other world's Enemy relationship does not admit an ALLIES splash"
+    );
+}
+
+#[test]
+fn splash_similarity_uses_receiving_definitions_and_source_to_victim_relationship() {
+    fn world(label: &str, has_variation: bool) -> Fixture {
+        fixture_custom_with_variation(
+            label,
+            200.0,
+            false,
+            30,
+            1,
+            10.0,
+            5.0,
+            "ENEMIES NOT_SIMILAR",
+            "",
+            Some(has_variation),
+        )
+    }
+    fn source_considers_victim_allied(f: &mut Fixture) {
+        let mut chunks =
+            generals_main::save_load::snapshot::stamp_player_team_chunks(&f.world).unwrap();
+        let team_chunk = chunks.teams.as_mut().unwrap();
+        let victim_index = team_chunk
+            .teams
+            .iter()
+            .position(|team| {
+                team.members
+                    .as_ref()
+                    .is_some_and(|members| members.contains(&f.victim.0))
+            })
+            .unwrap();
+        let mut intended_team = team_chunk.teams[victim_index].clone();
+        intended_team.team_id = team_chunk.unique_team_id;
+        team_chunk.unique_team_id += 1;
+        intended_team.members = Some(vec![f.intended.0]);
+        team_chunk.teams[victim_index]
+            .members
+            .as_mut()
+            .unwrap()
+            .retain(|&id| id != f.intended.0);
+        team_chunk.teams.push(intended_team);
+        let teams = &mut team_chunk.teams;
+        let victim_team = teams
+            .iter()
+            .find(|team| {
+                team.members
+                    .as_ref()
+                    .is_some_and(|members| members.contains(&f.victim.0))
+            })
+            .unwrap()
+            .team_id;
+        let source_team = teams
+            .iter_mut()
+            .find(|team| {
+                team.members
+                    .as_ref()
+                    .is_some_and(|members| members.contains(&f.shooters[0].0))
+            })
+            .unwrap();
+        source_team.team_relations.push(Default::default());
+        let relationship = source_team.team_relations.last_mut().unwrap();
+        relationship.team_id = victim_team;
+        relationship.relationship = 2; // Allies in the Team continuation format.
+        generals_main::save_load::snapshot::apply_pending_player_team_chunks(&mut f.world, &chunks)
+            .unwrap();
+    }
+
+    let mut first = world("VariationFirst", true);
+    let mut peer = world("VariationPeer", false);
+    assert_eq!(
+        (first.shooters[0], first.victim),
+        (peer.shooters[0], peer.victim)
+    );
+    for f in [&mut first, &mut peer] {
+        source_considers_victim_allied(f);
+        assert_eq!(
+            f.world.object_relationship(
+                &f.world.objects[&f.shooters[0]],
+                &f.world.objects[&f.victim]
+            ),
+            gamelogic::common::Relationship::Allies
+        );
+        assert_eq!(
+            f.world.object_relationship(
+                &f.world.objects[&f.victim],
+                &f.world.objects[&f.shooters[0]]
+            ),
+            gamelogic::common::Relationship::Enemies
+        );
+        f.accept();
+        while f.world.get_current_frame() <= 110 {
+            f.world.update();
+        }
+    }
+    assert_eq!(
+        first.world.objects[&first.victim].health.current, 200.0,
+        "source-to-victim Allies protects the receiving build variation"
+    );
+    assert_eq!(
+        peer.world.objects[&peer.victim].health.current, 100.0,
+        "the same names are not equivalent in the peer's definitions"
+    );
+}
+
+#[test]
+fn self_splash_still_requires_the_allies_relationship_mask() {
+    let mut excluded = fixture_custom(
+        "SelfWithoutAllies",
+        200.0,
+        false,
+        30,
+        1,
+        10.0,
+        20.0,
+        "SELF ENEMIES",
+        "",
+    );
+    let mut included = fixture_custom(
+        "SelfWithAllies",
+        200.0,
+        false,
+        30,
+        1,
+        10.0,
+        20.0,
+        "SELF ALLIES ENEMIES",
+        "",
+    );
+    assert_eq!(excluded.shooters, included.shooters);
+    for f in [&mut excluded, &mut included] {
+        f.accept();
+        while f.world.get_current_frame() <= 110 {
+            f.world.update();
+        }
+    }
+    assert_eq!(
+        excluded.world.objects[&excluded.shooters[0]].health.current, 500.0,
+        "SELF removes the self exclusion but does not imply ALLIES"
+    );
+    assert_eq!(
+        included.world.objects[&included.shooters[0]].health.current,
+        400.0
     );
 }
 

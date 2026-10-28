@@ -1615,8 +1615,9 @@ impl GameLogic {
                 victim_id,
                 victim,
                 distance,
-                Some(&self.players),
-                Some(&self.team_factory),
+                &self.players,
+                &self.team_factory,
+                &self.templates,
             ) else {
                 continue;
             };
