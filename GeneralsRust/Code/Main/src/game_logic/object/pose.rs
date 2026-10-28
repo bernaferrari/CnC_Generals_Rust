@@ -1665,6 +1665,24 @@ impl crate::game_logic::GameLogic {
         )
     }
 
+    /// Install a complete transform through the same receiving partition and
+    /// synchronous pose callbacks as other registered Object movement.
+    pub fn set_registered_object_transform(&mut self, id: ObjectId, transform: Mat4) -> bool {
+        let frame = self.frame;
+        let mut effects = crate::game_logic::ScriptPresentationEffects::default();
+        let reaction = {
+            let Some(object) = self.objects.get_mut(&id) else {
+                return false;
+            };
+            object.prepare_transform_tree_reaction(
+                transform,
+                frame,
+                &mut effects.reborrow_for_object(&mut self.partition_manager),
+            )
+        };
+        self.complete_owned_position_reaction(id, reaction, &mut effects)
+    }
+
     pub(crate) fn set_registered_object_position_with_effects(
         &mut self,
         id: ObjectId,

@@ -397,14 +397,7 @@ impl GameLogic {
     ) -> Option<glam::Vec3> {
         use crate::game_logic::HostGeometryType;
 
-        let (geometry, origin, orientation) = {
-            let target = self.objects.get(&target_id)?;
-            (
-                *target.geometry_info(),
-                target.get_position(),
-                target.get_orientation(),
-            )
-        };
+        let geometry = *self.objects.get(&target_id)?.geometry_info();
         let (local_x, local_z) = match geometry.geom_type {
             HostGeometryType::Sphere | HostGeometryType::Cylinder => (0.0, 0.0),
             HostGeometryType::Box => {
@@ -431,12 +424,10 @@ impl GameLogic {
                 }
             }
         };
-        let (sin, cos) = orientation.sin_cos();
-        Some(glam::Vec3::new(
-            origin.x + local_x * cos - local_z * sin,
-            origin.y,
-            origin.z + local_x * sin + local_z * cos,
-        ))
+        // C++ ScriptActions reads the current complete transform after
+        // sampling the local perimeter point. Host coordinates are Y-up.
+        let transform = self.objects.get(&target_id)?.get_transform_matrix();
+        Some(transform.transform_point3(glam::Vec3::new(local_x, 0.0, local_z)))
     }
 
     /// C++ ScriptActions.cpp:3629-3693 creates the requested authored template

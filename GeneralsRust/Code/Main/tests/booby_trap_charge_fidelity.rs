@@ -223,6 +223,78 @@ fn scripted_team_boobytrap_uses_authored_module_and_keeps_object_without_module(
     );
 }
 
+#[test]
+fn scripted_sticky_perimeter_uses_each_targets_full_owned_transform() {
+    use generals_main::save_load::snapshot::SnapshotBuilder;
+    use glam::Mat4;
+
+    let center = Vec3::new(35.0, 0.0, 45.0);
+    let (mut first, _, _) = world();
+    let target = first
+        .create_object_for_player("TrapTallVictim", 1, center)
+        .unwrap();
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&first).unwrap();
+    let (mut second, _, _) = world();
+    builder
+        .restore_from_snapshot(&snapshot, &mut second)
+        .unwrap();
+
+    let angled = Mat4::from_translation(center)
+        * Mat4::from_rotation_y(0.7)
+        * Mat4::from_rotation_x(0.55)
+        * Mat4::from_rotation_z(-0.37);
+    assert!(second.set_registered_object_transform(target, angled));
+    let (first_team, first_name) = team_for_member(&first, target);
+    let (second_team, second_name) = team_for_member(&second, target);
+    assert_eq!((first_team, &first_name), (second_team, &second_name));
+    assert_eq!(
+        builder
+            .create_world_snapshot(&first)
+            .unwrap()
+            .logic_rng_seed_words,
+        builder
+            .create_world_snapshot(&second)
+            .unwrap()
+            .logic_rng_seed_words,
+        "fixture actions start from the same instance-owned random state"
+    );
+
+    for (game, name) in [(&mut first, &first_name), (&mut second, &second_name)] {
+        game.update_local_script_engine_with_owner(&scripted_team_boobytrap_engine(
+            "AuthoredStickyCharge",
+            name,
+        ))
+        .unwrap();
+    }
+    let charge_position = |game: &GameLogic| {
+        game.host_objects()
+            .registered_values()
+            .find(|object| {
+                object.template_name == "AuthoredStickyCharge"
+                    && object.booby_trap_attached_to == Some(target)
+            })
+            .expect("target's charge")
+            .get_position()
+    };
+    let local = charge_position(&first) - center;
+    assert!(local.x.abs() > 0.01 || local.z.abs() > 0.01);
+    let expected = angled.transform_point3(local);
+    let actual = charge_position(&second);
+    assert!(
+        (actual.x - expected.x).abs() < 0.001,
+        "{actual:?} vs {expected:?}"
+    );
+    assert!(
+        (actual.z - expected.z).abs() < 0.001,
+        "{actual:?} vs {expected:?}"
+    );
+    assert_eq!(
+        actual.y, 0.0,
+        "StickyBombUpdate places the charge on terrain"
+    );
+}
+
 fn move_into_same_named_team(game: &mut GameLogic, member: ObjectId) -> u32 {
     let mut chunks = stamp_player_team_chunks(game).expect("capture Team continuation");
     let teams = chunks.teams.as_mut().unwrap();
