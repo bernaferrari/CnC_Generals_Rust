@@ -38,6 +38,12 @@ pub struct ObjectVisualInfo {
 }
 
 impl Object {
+    /// Receiving-session identity of the exact Team instance that owns this
+    /// object. Unlike `team`, this distinguishes same-faction Team instances.
+    pub fn team_instance_identity(&self) -> Option<u32> {
+        self.team_instance_id
+    }
+
     /// Current model name for presentation, including a per-debris override.
     pub fn current_visual_model_name(&self) -> String {
         self.debris_draw

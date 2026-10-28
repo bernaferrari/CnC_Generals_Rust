@@ -682,10 +682,14 @@ impl SnapshotBuilder {
                 continue;
             };
             let contained_by_frame = game_logic.contained_by_frame_for_snapshot(id);
-            let original_team = object
-                .building_data
-                .as_ref()
-                .and_then(|building| building.original_team);
+            let building = object.building_data.as_ref();
+            let original_team = building.and_then(|building| building.original_team);
+            let original_team_instance = building.and_then(|building| {
+                Some((
+                    building.original_team_instance_id?,
+                    building.original_team_instance_name.clone()?,
+                ))
+            });
             let has_heal = object.sole_healing_benefactor.is_some()
                 || object.sole_healing_benefactor_expiration_frame != 0;
             let has_formation = object.formation_id != 0;
@@ -694,6 +698,7 @@ impl SnapshotBuilder {
             if !has_heal
                 && contained_by_frame.is_none()
                 && original_team.is_none()
+                && original_team_instance.is_none()
                 && !has_formation
                 && !has_decal
                 && !has_opacity
@@ -719,6 +724,28 @@ impl SnapshotBuilder {
             });
         }
         entries
+    }
+
+    fn snapshot_garrison_original_team_instances(
+        &self,
+        game_logic: &GameLogic,
+    ) -> Vec<ObjectGarrisonOriginalTeamSnapshot> {
+        let mut ids: Vec<_> = game_logic
+            .host_objects()
+            .registered_keys()
+            .copied()
+            .collect();
+        ids.sort();
+        ids.into_iter()
+            .filter_map(|object_id| {
+                let building = game_logic.host_object(object_id)?.building_data.as_ref()?;
+                Some(ObjectGarrisonOriginalTeamSnapshot {
+                    object_id,
+                    team_instance_id: building.original_team_instance_id?,
+                    team_instance_name: building.original_team_instance_name.clone()?,
+                })
+            })
+            .collect()
     }
 
     /// C++ `Object::xfer` trigger-area slots (`Object.cpp:4218-4246`).

@@ -60,7 +60,7 @@ pub(super) fn suffix_start(bytes: &[u8]) -> SaveLoadResult<usize> {
     Ok(start)
 }
 fn frame(bytes: &[u8]) -> SaveLoadResult<(usize, usize)> {
-    let end = super::player_academy_persist::suffix_start(bytes)?;
+    let end = super::garrison_team_identity_persist::suffix_start(bytes)?;
     let prefix = bytes
         .get(..end)
         .ok_or_else(|| corrupt("Body rules boundary invalid"))?;

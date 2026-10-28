@@ -887,6 +887,16 @@ impl XferData for ObjectPersistTailSnapshot {
     }
 }
 
+impl XferData for ObjectGarrisonOriginalTeamSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ObjectGarrisonOriginalTeamSnapshot")?;
+        self.object_id.xfer(xfer)?;
+        xfer.xfer_u32(&mut self.team_instance_id)?;
+        xfer.xfer_string(&mut self.team_instance_name)?;
+        Ok(())
+    }
+}
+
 impl XferData for ObjectTriggerSlotSnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
         xfer.xfer_marker_label("ObjectTriggerSlotSnapshot")?;

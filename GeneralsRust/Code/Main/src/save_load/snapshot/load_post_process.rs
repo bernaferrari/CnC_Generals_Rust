@@ -35,6 +35,11 @@ impl Snapshot for WorldSnapshot {
             validate_direct_world_snapshot_version(self.version)?;
             // Re-encode an accepted previous envelope with the current AI
             // continuation layout so old readers reject it up front.
+            if self.version < WORLD_SNAPSHOT_DIRECT_XFER_VERSION {
+                super::garrison_team_identity_persist::ensure_empty_capsule(
+                    &mut self.lifecycle_tail,
+                )?;
+            }
             self.version = WORLD_SNAPSHOT_DIRECT_XFER_VERSION;
         }
         self.version.xfer(xfer)?;
@@ -357,6 +362,21 @@ impl Snapshot for WorldSnapshot {
 
         xfer.xfer_marker_label("DynamicDebrisGenerations")?;
         xfer.xfer_u32(&mut self.dynamic_debris_generations)?;
+
+        if self.version >= 36 {
+            xfer.xfer_marker_label("GarrisonOriginalTeamInstances")?;
+            xfer_vec_default(
+                xfer,
+                &mut self.garrison_original_team_instances,
+                ObjectGarrisonOriginalTeamSnapshot {
+                    object_id: ObjectId(0),
+                    team_instance_id: 0,
+                    team_instance_name: String::new(),
+                },
+            )?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.garrison_original_team_instances.clear();
+        }
 
         Ok(())
     }

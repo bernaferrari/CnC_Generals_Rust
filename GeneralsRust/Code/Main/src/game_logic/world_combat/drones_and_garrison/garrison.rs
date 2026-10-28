@@ -412,7 +412,7 @@ impl GameLogic {
                 );
             }
             self.admit_object_drawable_deselection(occupant_id);
-            self.apply_garrison_contain_on_enter_with_effects(container_id, occupant_id, ui);
+            self.apply_garrison_contain_on_enter_with_effects(container_id, occupant_id, ui)?;
             self.stamp_player_who_entered(container_id, occupant_id);
             // C++ OpenContain::addToContain doLoadSound (once per frame).
             self.play_container_enter_sound(container_id, ui);
@@ -491,12 +491,12 @@ impl GameLogic {
         container_id: ObjectId,
         occupant_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(container) = self.objects.get(&container_id) else {
-            return;
+            return Ok(());
         };
         if !container.is_garrison_contain() {
-            return;
+            return Ok(());
         }
         self.ensure_garrison_bones(container_id);
         if let Some(container) = self.objects.get_mut(&container_id) {
@@ -504,7 +504,6 @@ impl GameLogic {
         }
         self.place_occupant_at_garrison_station(container_id, occupant_id, presentation_effects);
         self.stamp_player_who_entered(container_id, occupant_id);
-        self.recalc_garrison_apparent_controller(container_id);
         let occupant_owner = self
             .objects
             .get(&occupant_id)
@@ -519,6 +518,10 @@ impl GameLogic {
                 player.record_building_garrisoned();
             }
         }
+        // C++ GarrisonContain::onContaining records the stat before it
+        // recalculates the building's apparent controller.
+        self.recalc_garrison_apparent_controller_with_effects(container_id, presentation_effects)?;
+        Ok(())
     }
 
     /// C++ loadGarrisonPoints / loadStationGarrisonPoints.
@@ -664,26 +667,83 @@ impl GameLogic {
         &mut self,
         container_id: ObjectId,
     ) {
+        if let Err(error) = self.recalc_garrison_apparent_controller_with_effects(
+            container_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        ) {
+            log::error!("Garrison owner-team recalculation failed: {error}");
+        }
+    }
+
+    pub(in crate::game_logic) fn recalc_garrison_apparent_controller_with_effects(
+        &mut self,
+        container_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         let occupants = self
             .objects
             .get(&container_id)
             .map(|c| c.contained_units())
             .unwrap_or_default();
         if occupants.is_empty() {
+            let original = self.objects.get(&container_id).and_then(|container| {
+                let building = container.building_data.as_ref()?;
+                Some((
+                    building.original_team_instance_id,
+                    building.original_team_instance_name.clone(),
+                    building.original_team,
+                    building.original_garrison_player_id,
+                ))
+            });
             if let Some(container) = self.objects.get_mut(&container_id) {
-                container.restore_garrison_original_team_if_empty_with_partition_owner(
-                    &mut self.ownership_events,
-                    &mut self.partition_manager,
-                );
+                // C++ GarrisonContain::onRemoving clears these on the final
+                // rider before recalcApparentControllingPlayer runs.
+                container.set_garrison_can_attack(false);
+                if let Some(building) = container.building_data.as_mut() {
+                    building.garrison_guns.clear();
+                    building.garrison_point_occupant.clear();
+                }
             }
-            return;
+            if let Some((Some(original_id), _, _, _)) = original {
+                if !self.set_host_object_team_with_effects(container_id, original_id, effects) {
+                    return Err(gamelogic::GameLogicError::Configuration(
+                        "Garrison original Team is unavailable in the receiving factory".into(),
+                    ));
+                }
+            } else if let Some((_, _, Some(original_team), original_owner)) = original {
+                // Legacy snapshots only retained faction/player identity. New
+                // entries always carry the exact Team instance above.
+                if let Some(container) = self.objects.get_mut(&container_id) {
+                    container.set_team_and_owner_with_partition_owner(
+                        original_team,
+                        original_owner,
+                        &mut self.ownership_events,
+                        &mut self.partition_manager,
+                    );
+                }
+            }
+            if let Some(container) = self.objects.get_mut(&container_id) {
+                // C++ onRemoving clears m_originalTeam before calling
+                // recalcApparentControllingPlayer; recalc immediately
+                // records the now-restored current Team again. Keep that
+                // exact identity as the empty-container postcondition too.
+                if let Some(building) = container.building_data.as_mut() {
+                    building.original_team = Some(container.team);
+                    building.original_garrison_player_id = container.owner_player_id;
+                    building.original_team_instance_id = container.team_instance_id;
+                    building.original_team_instance_name =
+                        Some(container.team_instance_name.clone());
+                    building.hide_garrisoned_state = false;
+                }
+            }
+            return Ok(());
         }
         let first = occupants
             .first()
             .and_then(|id| self.objects.get(id))
             .map(|o| (o.team, o.owner_player_id, o.status.detected));
         let Some((first_team, first_owner, first_detected)) = first else {
-            return;
+            return Ok(());
         };
         let stealth_kind_count = occupants
             .iter()
@@ -699,16 +759,39 @@ impl GameLogic {
                 if bd.original_team.is_none() {
                     bd.original_team = Some(container.team);
                     bd.original_garrison_player_id = container.owner_player_id;
+                    bd.original_team_instance_id = container.team_instance_id;
+                    bd.original_team_instance_name = Some(container.team_instance_name.clone());
                 }
                 bd.hide_garrisoned_state = hide;
             }
-            container.set_team_and_owner_with_partition_owner(
-                first_team,
-                first_owner,
-                &mut self.ownership_events,
-                &mut self.partition_manager,
-            );
         }
+        let Some(owner) = first_owner else {
+            // C++ only switches when the rider has a controlling Player and
+            // that Player exposes a default Team.
+            return Ok(());
+        };
+        let player = self.players.get(&owner).ok_or_else(|| {
+            gamelogic::GameLogicError::Configuration(
+                "Garrison rider controller is missing from the receiving world".into(),
+            )
+        })?;
+        if player.default_team_id.is_none() {
+            // C++ retains the rider and leaves the current Garrison Team in
+            // place when its controlling Player has no default Team.
+            return Ok(());
+        }
+        let default_team = self.host_default_team_id(owner).ok_or_else(|| {
+            gamelogic::GameLogicError::Configuration(
+                "Garrison rider controller has no receiving default Team".into(),
+            )
+        })?;
+        if !self.set_host_object_team_with_effects(container_id, default_team, effects) {
+            return Err(gamelogic::GameLogicError::Configuration(
+                "Garrison owner failed receiving default-Team transfer".into(),
+            ));
+        }
+        let _ = first_team; // Owner faction is resolved from the exact default Team.
+        Ok(())
     }
 
     /// C++ `StealthUpdate.cpp:786-801` — DETECTED flip on a contained rider

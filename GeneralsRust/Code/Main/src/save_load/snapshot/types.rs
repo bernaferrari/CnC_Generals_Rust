@@ -30,12 +30,14 @@ use std::time::SystemTime;
 /// Prior positional bodies cannot reconstruct those owners and are rejected.
 /// Version34 persists the receiving world's dynamic debris generation counter.
 /// Version35 supports length-framed AI continuations beyond the ASCII name limit.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 35;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 35;
+/// Version36 persists exact original Garrison Team instance identity so an
+/// occupied same-faction building restores to the same receiving Team.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 36;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 36;
 
 /// Validate the Rust outer envelope before consuming or restoring its body.
 pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadResult<()> {
-    if version == WORLD_SNAPSHOT_DIRECT_XFER_VERSION || version == 34 {
+    if version == WORLD_SNAPSHOT_DIRECT_XFER_VERSION || version == 35 || version == 34 {
         Ok(())
     } else {
         Err(crate::save_load::SaveLoadError::VersionMismatch {
@@ -272,6 +274,12 @@ pub struct WorldSnapshot {
     #[serde(default)]
     pub dynamic_debris_generations: u32,
 
+    /// Exact original Garrison Team instance. The bincode world body predates
+    /// this state; it is carried in the existing lifecycle-tail capsule and
+    /// skipped here so accepted v34/v35 positional bodies remain unchanged.
+    #[serde(skip)]
+    pub garrison_original_team_instances: Vec<ObjectGarrisonOriginalTeamSnapshot>,
+
     /// Named GhostObject block travels with this decoded save. It is outside
     /// the unchanged v23-29 GameLogic positional body and direct Xfer stream.
     #[serde(skip)]
@@ -370,6 +378,13 @@ pub struct ObjectPersistTailSnapshot {
     pub stealth_opacity: f32,
     pub terrain_decal_type: u8,
     pub terrain_decal_size: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObjectGarrisonOriginalTeamSnapshot {
+    pub object_id: ObjectId,
+    pub team_instance_id: u32,
+    pub team_instance_name: String,
 }
 
 /// C++ `Object::xfer` per-area trigger slot (`entered` / `exited` / `isInside`).
@@ -562,6 +577,7 @@ impl Default for WorldSnapshot {
             pending_combat: Default::default(),
             audio_policy: Default::default(),
             dynamic_debris_generations: 0,
+            garrison_original_team_instances: Vec::new(),
             w3d_ghost_companion: None,
             particle_system_companion: None,
         };
@@ -571,6 +587,8 @@ impl Default for WorldSnapshot {
             &mut world.lifecycle_tail,
             crate::game_logic::body_damage_rules::BodyDamagePolicy::StandaloneRetail,
         );
+        super::garrison_team_identity_persist::ensure_empty_capsule(&mut world.lifecycle_tail)
+            .expect("empty Garrison Team identity capsule is serializable");
         // A current empty snapshot is still a valid session value. Encode its
         // known default admission input without constructing/publishing a world.
         // SnapshotBuilder replaces this with the driving instance's cash.

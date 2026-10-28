@@ -35,6 +35,43 @@ fn transport_world() -> (GameLogic, ObjectId, ObjectId) {
     (world, transport, passenger)
 }
 
+fn garrison_world() -> (GameLogic, ObjectId, ObjectId) {
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(1, Team::USA, "First", true));
+    world.add_player(Player::new(2, Team::USA, "Second", true));
+    let mut garrison = ThingTemplate::new("OwnerGarrison");
+    garrison
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1000.0);
+    garrison.contain_module = crate::game_logic::ContainModuleMetadata {
+        kind: crate::game_logic::ContainModuleKind::Garrison,
+        slots: Some(4),
+        ..Default::default()
+    };
+    let mut passenger = ThingTemplate::new("OwnerGarrisonPassenger");
+    passenger.add_kind_of(KindOf::Infantry).set_health(100.0);
+    world.templates.insert("OwnerGarrison".into(), garrison);
+    world
+        .templates
+        .insert("OwnerGarrisonPassenger".into(), passenger);
+    let garrison = world
+        .create_object_for_player("OwnerGarrison", 1, glam::Vec3::ZERO)
+        .unwrap();
+    let passenger = world
+        .create_object_for_player("OwnerGarrisonPassenger", 1, glam::Vec3::ZERO)
+        .unwrap();
+    assert!(
+        world
+            .objects
+            .get_mut(&garrison)
+            .unwrap()
+            .add_occupant(passenger)
+    );
+    world.set_fixture_object_contained_by(passenger, Some(garrison));
+    (world, garrison, passenger)
+}
+
 #[test]
 fn same_faction_owner_change_idles_and_orders_exit_only_in_receiving_world() {
     let (mut world, transport, passenger) = transport_world();
@@ -82,4 +119,21 @@ fn defect_post_voice_phase_ejects_immediately_after_capture_walk_order() {
             .contained_units()
             .contains(&passenger)
     );
+}
+
+#[test]
+fn ordinary_garrison_on_capture_keeps_occupants_but_defect_kicks_them_immediately() {
+    let (mut world, garrison, passenger) = garrison_world();
+    let (object, events, partition) = world.host_object_ownership_partition_mut(garrison).unwrap();
+    object.set_team_and_owner_with_partition_owner(Team::USA, Some(2), events, partition);
+    world.on_capture_object_owned(garrison, Team::USA, Team::USA, true);
+    assert_eq!(world.objects[&garrison].contained_units(), vec![passenger]);
+    assert_eq!(world.objects[&passenger].contained_by, Some(garrison));
+    assert_eq!(world.objects[&passenger].ai_state(), AIState::Garrisoned);
+
+    // Object::defect separately checks isKickOutOnCapture (OpenContain's
+    // default is TRUE) and calls removeAllContained immediately.
+    world.on_defect_kick_passengers_owned(garrison, Team::USA);
+    assert!(world.objects[&garrison].contained_units().is_empty());
+    assert_eq!(world.objects[&passenger].contained_by, None);
 }

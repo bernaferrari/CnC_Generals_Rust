@@ -1199,6 +1199,14 @@ impl GameLogic {
                         continue;
                     }
 
+                    // GarrisonContain's later onContaining callback changes
+                    // the building to the first rider's receiving default
+                    // Team. Validate that required destination before the
+                    // irreversible roster/contained-by transition below.
+                    if container_is_structure {
+                        self.validate_garrison_owner_team_transfer(container_id, object_id)?;
+                    }
+
                     let entered = if container_has_unit {
                         true
                     } else {
@@ -1350,7 +1358,7 @@ impl GameLogic {
                             container_id,
                             object_id,
                             effects,
-                        );
+                        )?;
                         if let Some(pid) = occupant_owner {
                             if let Some(player) = self.players.get_mut(&pid) {
                                 player.selected_objects.retain(|id| *id != object_id);
@@ -3129,13 +3137,12 @@ impl GameLogic {
                                 );
                                 if let Some(cid) = self
                                     .spawn_booby_trap_special_object_with_effects(
-                                        object_id,
-                                        team,
-                                        special_target_id,
-                                        crate::game_logic::game_logic::StickyBombInitPosition::Target,
-                                        effects,
-                                    )
-                                {
+                                    object_id,
+                                    team,
+                                    special_target_id,
+                                    crate::game_logic::game_logic::StickyBombInitPosition::Target,
+                                    effects,
+                                ) {
                                     self.booby_trap.set_charge_object(special_target_id, cid);
                                 } else {
                                     // C++ StickyBombUpdate sets the object bit

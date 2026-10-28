@@ -645,6 +645,13 @@ impl GameLogic {
         let Some(container) = self.objects.get(&container_id) else {
             return;
         };
+        // C++ GarrisonContain inherits OpenContain's no-op `onCapture`; only
+        // Object::defect's separate `isKickOutOnCapture` path removes occupants.
+        // Do not turn an ordinary apparent-controller recalculation on the
+        // first arriving rider into an immediate Garrison ejection.
+        if !immediate && container.is_garrison_contain() {
+            return;
+        }
         // C++ TunnelContain/CaveContain isKickOutOnCapture = false.
         if container.is_tunnel_network_style_container()
             || crate::game_logic::host_tunnel_network::is_tunnel_network_template(

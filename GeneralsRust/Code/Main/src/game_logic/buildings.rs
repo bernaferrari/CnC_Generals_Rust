@@ -50,6 +50,13 @@ pub struct BuildingData {
     pub original_team: Option<Team>,
     #[serde(default)]
     pub original_garrison_player_id: Option<u32>,
+    /// Exact session Team identity held by C++ GarrisonContain::m_originalTeam.
+    /// The enum and player ID above are not enough when a player owns multiple
+    /// same-faction Team instances.
+    #[serde(default)]
+    pub original_team_instance_id: Option<u32>,
+    #[serde(default)]
+    pub original_team_instance_name: Option<String>,
     /// C++ GarrisonContain::m_hideGarrisonedStateFromNonallies.
     #[serde(default)]
     pub hide_garrisoned_state: bool,
@@ -305,6 +312,8 @@ impl BuildingData {
             damage_percent_to_units: 0.0,
             original_team: None,
             original_garrison_player_id: None,
+            original_team_instance_id: None,
+            original_team_instance_name: None,
             hide_garrisoned_state: false,
             garrison_guns: Vec::new(),
             evac_disposition: 3,

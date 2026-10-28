@@ -11,6 +11,80 @@ pub(super) struct HostNeutralTeam {
 }
 
 impl GameLogic {
+    /// Validate the receiving-world team identities used by GarrisonContain's
+    /// owner recalculation before OpenContain commits the occupant relationship.
+    /// The actual transfer runs later, after GarrisonContain::onContaining has
+    /// completed its station/pose work, preserving the C++ callback order.
+    pub(in crate::game_logic) fn validate_garrison_owner_team_transfer(
+        &self,
+        container_id: ObjectId,
+        arriving_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some(container) = self.objects.get(&container_id) else {
+            return Ok(());
+        };
+        if !container.is_garrison_contain() {
+            return Ok(());
+        }
+        let controlling_unit = container
+            .contained_units()
+            .first()
+            .copied()
+            .unwrap_or(arriving_id);
+        let Some(owner) = self
+            .objects
+            .get(&controlling_unit)
+            .and_then(|object| object.owner_player_id)
+        else {
+            // C++ leaves the source Team unchanged when the first rider has no
+            // controlling Player or default Team.
+            return Ok(());
+        };
+        let invalid = |reason: &str| gamelogic::GameLogicError::Configuration(reason.into());
+        // GarrisonContain::recalcApparentControllingPlayer only changes the
+        // source Team when the controlling Player exposes a default Team.
+        // A missing default is an authored/runtime no-switch case; a present
+        // but unresolvable identity remains an invalid receiving-world state.
+        if self
+            .players
+            .get(&owner)
+            .ok_or_else(|| invalid("Garrison rider controller is missing"))?
+            .default_team_id
+            .is_none()
+        {
+            return Ok(());
+        }
+        let default_team = self
+            .host_default_team_id(owner)
+            .ok_or_else(|| invalid("Garrison rider has no receiving default Team"))?;
+        let destination = self
+            .inactive_controller_neutral_team(owner)?
+            .map(|neutral| neutral.identity)
+            .unwrap_or(default_team);
+        let factory = self
+            .team_factory
+            .lock()
+            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+        let team = factory
+            .find_team_by_id(destination)
+            .ok_or_else(|| invalid("Garrison destination Team is absent from receiving factory"))?;
+        let selected = team
+            .read()
+            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+        let name = selected.get_name().as_str();
+        if selected.get_controlling_player_id().is_none()
+            || factory.find_team_prototype(name).is_none()
+            || !self
+                .players
+                .contains_key(&selected.get_controlling_player_id().unwrap())
+        {
+            return Err(invalid(
+                "Garrison destination Team lacks receiving controller or prototype",
+            ));
+        }
+        Ok(())
+    }
+
     pub(super) fn inactive_controller_neutral_team(
         &self,
         owner: u32,

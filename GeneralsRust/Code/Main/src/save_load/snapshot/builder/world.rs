@@ -244,6 +244,9 @@ impl SnapshotBuilder {
                 // / particle / CPAD footer chain; actor payload schemas stay unchanged.
                 super::super::a10_flight_persist::append_to_lifecycle_tail(&mut bytes, game_logic)?;
                 super::super::body_rules_persist::append(&mut bytes, game_logic);
+                super::super::garrison_team_identity_persist::append_to_lifecycle_tail(
+                    &mut bytes, game_logic,
+                )?;
                 // Framed completion footer is last; its parser never scans
                 // arbitrary object/template payload bytes for a marker.
                 super::super::player_academy_persist::append_to_lifecycle_tail(
@@ -263,6 +266,8 @@ impl SnapshotBuilder {
             builder_tasks: self.snapshot_builder_tasks(game_logic),
             sell_list: self.snapshot_sell_list(game_logic),
             object_persist: self.snapshot_object_persist(game_logic),
+            garrison_original_team_instances: self
+                .snapshot_garrison_original_team_instances(game_logic),
             client_drawable_visuals: self.snapshot_client_drawable_visuals(game_logic),
             player_energy: self.snapshot_player_energy(game_logic),
             object_triggers: self.snapshot_object_triggers(game_logic),
@@ -587,6 +592,46 @@ impl SnapshotBuilder {
             .transpose()?
             .unwrap_or_default();
         let player_team_chunks = super::super::player_team_chunks::chunks_from_world(snapshot)?;
+        if snapshot.version >= WORLD_SNAPSHOT_BINCODE_VERSION
+            && snapshot.garrison_original_team_instances.is_empty()
+            && !super::super::garrison_team_identity_persist::has_lifecycle_capsule(
+                &snapshot.lifecycle_tail,
+            )?
+        {
+            return Err(SaveLoadError::Corrupted(
+                "current snapshot is missing its framed original Garrison Team identity continuation"
+                    .into(),
+            ));
+        }
+        let garrison_rows_from_tail =
+            super::super::garrison_team_identity_persist::rows_from_lifecycle_tail(
+                &snapshot.lifecycle_tail,
+            )?;
+        let garrison_original_team_instances =
+            if snapshot.garrison_original_team_instances.is_empty() {
+                garrison_rows_from_tail
+            } else {
+                if !garrison_rows_from_tail.is_empty()
+                    && snapshot.garrison_original_team_instances != garrison_rows_from_tail
+                {
+                    return Err(SaveLoadError::Corrupted(
+                        "conflicting original Garrison Team identity continuations".into(),
+                    ));
+                }
+                snapshot.garrison_original_team_instances.clone()
+            };
+        if !garrison_original_team_instances.is_empty() {
+            let teams = player_team_chunks.teams.as_ref().ok_or_else(|| {
+                SaveLoadError::Corrupted(
+                    "original Garrison Team identity lacks receiving TeamFactory rows".into(),
+                )
+            })?;
+            super::super::garrison_team_identity_persist::validate_snapshot_rows(
+                &garrison_original_team_instances,
+                snapshot,
+                teams,
+            )?;
+        }
         let player_chunk_has_squads = player_team_chunks.players.as_ref().is_some_and(|players| {
             players
                 .players
@@ -693,6 +738,10 @@ impl SnapshotBuilder {
             &native_lifecycle_runtimes,
             object_order.saved_order.as_deref(),
             &super::super::geometry_shape_persist::shapes(geometry_shapes.records.as_deref()),
+            game_logic,
+        )?;
+        super::super::garrison_team_identity_persist::apply_rows(
+            &garrison_original_team_instances,
             game_logic,
         )?;
         super::super::native_lifecycle_persist::apply_transport_payload_latches(
