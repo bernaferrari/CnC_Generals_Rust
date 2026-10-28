@@ -1434,11 +1434,60 @@ impl GameLogic {
         name: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Vec<ObjectId> {
-        self.resolve_owned_script_team(name, calling, condition)
-            .expect("receiving garrison team roster")
+    ) -> gamelogic::GameLogicResult<Vec<ObjectId>> {
+        Ok(self
+            .resolve_owned_script_team(name, calling, condition)?
             .map(|(_, members)| members.into_iter().map(ObjectId).collect())
-            .unwrap_or_default()
+            .unwrap_or_default())
+    }
+
+    pub(super) fn apply_receiving_team_exit_all(
+        &mut self,
+        team: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+        _effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        for id in self.receiving_garrison_members(team, calling, condition)? {
+            let Some(member) = self.host_object(id) else {
+                continue;
+            };
+            let has_ai = member.has_ai_update_interface();
+            let is_structure = member.is_kind_of(crate::game_logic::KindOf::Structure);
+            let is_always_selectable =
+                member.is_kind_of(crate::game_logic::KindOf::AlwaysSelectable);
+            let airborne_aircraft = member.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                && member.status.airborne_target;
+
+            // C++ AIGroup::add admits AIUpdate objects, structures, and
+            // AlwaysSelectable objects. The latter have no groupEvacuate
+            // branch without AI. C++ AIGroup::add also calls Object::enterGroup;
+            // Main has no corresponding owner-bound group lifetime here, so
+            // persistent AIGroup membership remains a separate migration gap.
+            if !has_ai && !is_structure && !is_always_selectable {
+                continue;
+            }
+
+            // C++ AIGroup::groupEvacuate delegates airborne aircraft to
+            // aiMoveToAndEvacuate at the highest terrain layer. Main does not
+            // yet expose that state transition through an owned world API.
+            // Leave those members untouched until that route is migrated.
+            if airborne_aircraft && has_ai {
+                log::warn!(
+                    "TEAM_EXIT_ALL skipped airborne aircraft {id:?}: owned MoveAndEvacuate is not implemented"
+                );
+                continue;
+            }
+
+            if has_ai {
+                self.order_owned_script_passengers_to_exit(id, true);
+            } else if is_structure {
+                // Buildings have no AIUpdateInterface in C++; groupEvacuate
+                // directly orders each passenger to exit without removing it.
+                self.order_owned_script_passengers_to_exit(id, false);
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn apply_receiving_garrison_request(
@@ -1465,7 +1514,7 @@ impl GameLogic {
                 let Some(dest_id) = self.owned_named_script_object(&dest, this_object) else {
                     return Ok(());
                 };
-                let members = self.receiving_garrison_members(&team, calling, condition);
+                let members = self.receiving_garrison_members(&team, calling, condition)?;
                 for id in members {
                     self.host_script_ai_enter(id, dest_id)?;
                 }
@@ -1476,17 +1525,12 @@ impl GameLogic {
                 };
                 self.host_script_ai_evacuate_with_effects(id, effects);
             }
-            HostScriptGarrisonEnterExitRequest::TeamExitAll { team } => {
-                for id in self.receiving_garrison_members(&team, calling, condition) {
-                    self.host_script_ai_evacuate_with_effects(id, effects);
-                }
-            }
             HostScriptGarrisonEnterExitRequest::TeamGarrisonSpecific { team, building } => {
                 let Some(building_id) = self.owned_named_script_object(&building, this_object)
                 else {
                     return Ok(());
                 };
-                let members = self.receiving_garrison_members(&team, calling, condition);
+                let members = self.receiving_garrison_members(&team, calling, condition)?;
                 let player_id = members
                     .first()
                     .and_then(|id| self.host_object(*id).and_then(|o| o.owner_player_id));
@@ -1513,7 +1557,7 @@ impl GameLogic {
                 self.host_script_team_garrison_nearest(&team)?;
             }
             HostScriptGarrisonEnterExitRequest::TeamExitAllBuildings { team } => {
-                for id in self.receiving_garrison_members(&team, calling, condition) {
+                for id in self.receiving_garrison_members(&team, calling, condition)? {
                     self.host_script_ai_exit_with_effects(id, effects);
                 }
             }

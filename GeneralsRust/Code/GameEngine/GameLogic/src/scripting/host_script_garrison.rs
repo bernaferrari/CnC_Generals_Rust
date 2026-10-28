@@ -19,7 +19,6 @@ pub enum HostScriptGarrisonEnterExitRequest {
     NamedEnter { unit: String, dest: String },
     TeamEnter { team: String, dest: String },
     NamedExitAll { unit: String },
-    TeamExitAll { team: String },
     TeamGarrisonSpecific { team: String, building: String },
     ExitSpecificBuilding { building: String },
     TeamGarrisonNearest { team: String },

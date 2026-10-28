@@ -470,12 +470,9 @@ impl ScriptActionDispatcher<'_> {
         let team_name = self.get_string_param(action, 0)?;
         log::info!("Team '{}' exiting all", team_name);
         if super::dual_world_registry_unavailable() {
-            crate::scripting::request_host_script_garrison_enter(
-                crate::scripting::HostScriptGarrisonEnterExitRequest::TeamExitAll {
-                    team: team_name,
-                },
-            );
-            return Ok(ScriptActionResult::Success);
+            return Err(ScriptError::ExecutionFailed(
+                "TEAM_EXIT_ALL requires the receiving ScriptExecutionDriver when the Core object registry is empty".into(),
+            ));
         }
 
         let group_arc = self.create_ai_group_from_team(&team_name)?;

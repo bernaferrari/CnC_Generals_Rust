@@ -1870,6 +1870,18 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         self.receive_garrison_request(request, this_object, calling, condition)
     }
 
+    fn team_exit_all(
+        &mut self,
+        team: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(
+            self.world
+                .apply_receiving_team_exit_all(team, calling, condition, &mut self.ui),
+        )
+    }
+
     fn named_special_power(
         &mut self,
         request: gamelogic::scripting::HostScriptNamedFireSpecialPowerRequest,

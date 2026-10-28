@@ -255,11 +255,15 @@ impl GameLogic {
     /// CPP privateEvacuate(FALSE) orders AI_EXIT in contained-list order;
     /// onEnter notifies the container synchronously, while its update waits
     /// for landing and doors before removing the passenger.
-    fn order_owned_script_passengers_to_exit(&mut self, container_id: ObjectId) {
+    pub(super) fn order_owned_script_passengers_to_exit(
+        &mut self,
+        container_id: ObjectId,
+        reject_subdued: bool,
+    ) {
         let Some(container) = self.host_object(container_id) else {
             return;
         };
-        if container.is_subdued_disabled() {
+        if reject_subdued && container.is_subdued_disabled() {
             return;
         }
         let passengers = container.contained_units();
@@ -455,7 +459,7 @@ impl GameLogic {
                     .unwrap()
                     .set_formation(0, glam::Vec2::ZERO);
                 self.apply_unit_locomotor_set(id, "normal");
-                self.order_owned_script_passengers_to_exit(id);
+                self.order_owned_script_passengers_to_exit(id, true);
                 return Ok(());
             }
             _ => {}

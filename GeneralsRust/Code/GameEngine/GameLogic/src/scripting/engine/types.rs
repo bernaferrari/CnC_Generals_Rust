@@ -902,6 +902,15 @@ pub trait ScriptExecutionDriver {
         None
     }
 
+    fn team_exit_all(
+        &mut self,
+        _team: &str,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     fn named_special_power(
         &mut self,
         _request: crate::scripting::HostScriptNamedFireSpecialPowerRequest,

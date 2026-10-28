@@ -224,6 +224,19 @@ impl ScriptActionDispatcher<'_> {
                 return Ok(ScriptActionResult::Success);
             }
         }
+        if action_type == ScriptActionType::TeamExitAll {
+            let team = self.get_string_param(action, 0)?;
+            let engine = self.context.borrowed_engine();
+            if let Some(result) = driver.team_exit_all(
+                &team,
+                engine.get_calling_team_id(),
+                engine.get_condition_team_id(),
+            ) {
+                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                return Ok(ScriptActionResult::Success);
+            }
+        }
+
         if matches!(
             action_type,
             ScriptActionType::NamedSetHeld
