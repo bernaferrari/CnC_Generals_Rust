@@ -362,7 +362,14 @@ impl GameLogic {
             })
             .unwrap_or((false, false, false, false));
         let tokens = kindof_cost_tokens(is_vehicle, is_infantry, is_aircraft, is_structure);
-        let kindof_factor = player.production_cost_factor(&tokens);
+        let kindof_factor = self
+            .receiving_module_content
+            .as_ref()
+            .and_then(|content| content.admitted_template(template_name))
+            .map(|template| {
+                player.production_cost_factor_for_kindof_mask(template.template().get_kindof_bits())
+            })
+            .unwrap_or_else(|| player.production_cost_factor(&tokens));
         let template_factor = self.player_template_production_cost_factor(player_id, template_name);
         let handicap = player.handicap_build_cost_multiplier(is_structure);
         apply_build_cost_modifiers(

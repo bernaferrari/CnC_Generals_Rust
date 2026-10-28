@@ -4,8 +4,8 @@ use crate::game_logic::{KindOf, Team, ThingTemplate};
 use glam::Vec3;
 
 #[test]
-fn keepobject_oxfr_v5_appends_new_module_state_after_retained_rows() {
-    assert_eq!(OXFR_VERSION, 5);
+fn keepobject_oxfr_v7_appends_new_module_state_after_retained_rows() {
+    assert_eq!(OXFR_VERSION, 7);
     let mut source = GameLogic::new();
     let mut template = ThingTemplate::new("TechOilDerrick");
     template.add_kind_of(KindOf::Structure);

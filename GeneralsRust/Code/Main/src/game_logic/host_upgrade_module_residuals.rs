@@ -1,15 +1,12 @@
-//! Host upgrade-module residuals: CostModifier / UnpauseSpecialPower / WeaponBonus.
+//! Host upgrade-module residuals: UnpauseSpecialPower / WeaponBonus.
 //!
 //! C++ modules:
-//! - `CostModifierUpgrade::upgradeImplementation` →
-//!   `Player::addKindOfProductionCostChange(kindOf, percentage)`
 //! - `UnpauseSpecialPowerUpgrade::upgradeImplementation` →
 //!   matching `SpecialPowerModule::pauseCountdown(FALSE)`
 //! - `WeaponBonusUpgrade::upgradeImplementation` →
 //!   `Object::setWeaponBonusCondition(WEAPONBONUSCONDITION_PLAYER_UPGRADE)`
 //!
 //! Residual playability slice:
-//! - `Upgrade_CostReduction` → VEHICLE production cost × (1 + -10%) = 0.9
 //! - AP Bullets/Rockets, Uranium Shells, Laser Missiles, Chain Guns, Camo, Composite Armor
 //!   set PLAYER_UPGRADE weapon-bonus condition bit
 //! - Cost multiplier applied at train/construct afford+spend residual
@@ -27,14 +24,14 @@ pub fn player_upgrade_weapon_bonus_bit() -> u32 {
     weapon_bonus_condition_name_index("PLAYER_UPGRADE").unwrap_or(5) as u32
 }
 
-/// Retail CostModifierUpgrade peel: Upgrade_CostReduction → VEHICLE -10%.
-pub const UPGRADE_COST_REDUCTION: &str = "Upgrade_CostReduction";
-pub const COST_REDUCTION_PERCENT: f32 = -0.10;
-pub const COST_REDUCTION_KINDOF: &str = "VEHICLE";
-
 /// One KindOfPercentProductionChange residual entry (C++ ref-counted).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KindOfProductionCostChange {
+    /// Exact C++ KindOfMaskType value. Zero is the valid NONE mask and matches
+    /// every template under TEST_KINDOFMASK_MULTI.
+    #[serde(default)]
+    pub kind_of_bits: u128,
+    /// Legacy symbolic value retained for old host-only snapshot records.
     pub kind_of: String,
     pub percent: f32,
     pub ref_count: u32,
@@ -43,11 +40,73 @@ pub struct KindOfProductionCostChange {
 impl KindOfProductionCostChange {
     pub fn new(kind_of: impl Into<String>, percent: f32) -> Self {
         Self {
+            kind_of_bits: 0,
             kind_of: kind_of.into(),
             percent,
             ref_count: 1,
         }
     }
+}
+
+/// C++ Player::addKindOfProductionCostChange: exact mask and float equality,
+/// with the native unsigned reference count behavior.
+pub fn add_authored_kind_of_production_cost_change(
+    list: &mut Vec<KindOfProductionCostChange>,
+    kind_of_bits: u128,
+    percent: f32,
+) {
+    if let Some(entry) = list
+        .iter_mut()
+        .find(|entry| entry.kind_of_bits == kind_of_bits && entry.percent == percent)
+    {
+        entry.ref_count = entry.ref_count.wrapping_add(1);
+    } else {
+        list.push(KindOfProductionCostChange {
+            kind_of_bits,
+            kind_of: if kind_of_bits == 0 {
+                "NONE".to_owned()
+            } else {
+                String::new()
+            },
+            percent,
+            ref_count: 1,
+        });
+    }
+}
+
+/// C++ Player::removeKindOfProductionCostChange exact lookup/ref decrement.
+pub fn remove_authored_kind_of_production_cost_change(
+    list: &mut Vec<KindOfProductionCostChange>,
+    kind_of_bits: u128,
+    percent: f32,
+) {
+    let Some(index) = list
+        .iter()
+        .position(|entry| entry.kind_of_bits == kind_of_bits && entry.percent == percent)
+    else {
+        return;
+    };
+    list[index].ref_count = list[index].ref_count.wrapping_sub(1);
+    if list[index].ref_count == 0 {
+        list.remove(index);
+    }
+}
+
+/// C++ TEST_KINDOFMASK_MULTI(templateKindOf, authoredKindOf, NONE): all
+/// authored bits must be present; each matching list row multiplies once.
+pub fn production_cost_factor_for_mask(
+    list: &[KindOfProductionCostChange],
+    template_kind_of_bits: u128,
+) -> f32 {
+    list.iter().fold(1.0, |factor, entry| {
+        if (entry.kind_of_bits != 0 || entry.kind_of.eq_ignore_ascii_case("NONE"))
+            && template_kind_of_bits & entry.kind_of_bits == entry.kind_of_bits
+        {
+            factor * (1.0 + entry.percent)
+        } else {
+            factor
+        }
+    })
 }
 
 /// C++ Player::addKindOfProductionCostChange residual.
@@ -123,15 +182,6 @@ pub fn kindof_cost_tokens(
         v.push("STRUCTURE");
     }
     v
-}
-
-/// CostModifierUpgrade peel for known upgrade names.
-pub fn cost_modifier_for_upgrade(upgrade: &str) -> Option<(&'static str, f32)> {
-    let n = upgrade.to_ascii_lowercase();
-    if n.contains("costreduction") || n == "upgrade_costreduction" {
-        return Some((COST_REDUCTION_KINDOF, COST_REDUCTION_PERCENT));
-    }
-    None
 }
 
 /// UnpauseSpecialPowerUpgrade peels: upgrade → special power type residual.
@@ -1563,5 +1613,26 @@ mod tests {
         // INIZH Locomotor.ini CombatBikeTerroristGroundLocomotor Speed=90
         // (";25% slower" than the SET_NORMAL 120 ground member).
         assert!((sluggish.max_speed - 90.0).abs() < 0.05);
+    }
+
+    #[test]
+    fn authored_cost_modifier_uses_exact_mask_percent_and_refcount() {
+        let mut list = Vec::new();
+        let vehicle_aircraft = (1u128 << 4) | (1u128 << 5);
+        add_authored_kind_of_production_cost_change(&mut list, vehicle_aircraft, -0.10);
+        add_authored_kind_of_production_cost_change(&mut list, vehicle_aircraft, -0.10);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].ref_count, 2);
+        assert_eq!(production_cost_factor_for_mask(&list, vehicle_aircraft), 0.9);
+        assert_eq!(production_cost_factor_for_mask(&list, 1u128 << 4), 1.0);
+
+        add_authored_kind_of_production_cost_change(&mut list, vehicle_aircraft, -0.20);
+        assert_eq!(list.len(), 2, "exact float inequality creates a separate row");
+        assert!((production_cost_factor_for_mask(&list, vehicle_aircraft) - 0.72).abs() < 1e-6);
+        remove_authored_kind_of_production_cost_change(&mut list, vehicle_aircraft, -0.10);
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].ref_count, 1);
+        remove_authored_kind_of_production_cost_change(&mut list, vehicle_aircraft, -0.10);
+        assert_eq!(list.len(), 1);
     }
 }

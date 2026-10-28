@@ -14,9 +14,16 @@ struct AuthoredStatusBitsUpgrade {
     data: gamelogic::object::upgrade::status_bits_upgrade::StatusBitsUpgradeModuleData,
 }
 
+struct AuthoredCostModifierUpgrade {
+    source_index: usize,
+    state_index: usize,
+    data: gamelogic::object::upgrade::cost_modifier_upgrade::CostModifierUpgradeModuleData,
+}
+
 enum AuthoredOrderedUpgrade {
     ObjectCreation(AuthoredObjectCreationUpgrade),
     StatusBits(AuthoredStatusBitsUpgrade),
+    CostModifier(AuthoredCostModifierUpgrade),
 }
 
 impl AuthoredOrderedUpgrade {
@@ -24,6 +31,7 @@ impl AuthoredOrderedUpgrade {
         match self {
             Self::ObjectCreation(module) => module.source_index,
             Self::StatusBits(module) => module.source_index,
+            Self::CostModifier(module) => module.source_index,
         }
     }
 }
@@ -39,6 +47,130 @@ impl GameLogic {
                 &object.visual_draw_identity_token,
             ))
         })
+    }
+
+    fn authored_cost_modifier_modules(
+        &mut self,
+        object_id: ObjectId,
+    ) -> Vec<AuthoredCostModifierUpgrade> {
+        use game_engine::common::thing::module::ModuleData;
+        let Some(object) = self.objects.get(&object_id) else {
+            return Vec::new();
+        };
+        let Some(template) = self
+            .receiving_module_content
+            .as_ref()
+            .and_then(|content| content.admitted_template(&object.template_name))
+        else {
+            return Vec::new();
+        };
+        let mut state_index = 0;
+        let modules: Vec<_> = template.behavior_modules().iter().enumerate().filter_map(|(source_index, module)| {
+            if !module.name.as_str().eq_ignore_ascii_case("CostModifierUpgrade") { return None; }
+            let data = module.data.as_any().downcast_ref::<gamelogic::object::upgrade::cost_modifier_upgrade::CostModifierUpgradeModuleData>()?;
+            let index = state_index;
+            state_index += 1;
+            Some(AuthoredCostModifierUpgrade { source_index, state_index: index, data: data.clone() })
+        }).collect();
+        if let Some(object) = self.objects.get_mut(&object_id) {
+            object
+                .cost_modifier_upgrade_executed
+                .resize(state_index, false);
+        }
+        modules
+    }
+
+    pub(in crate::game_logic) fn cost_modifier_on_capture(
+        &mut self,
+        object_id: ObjectId,
+        birth: &std::sync::Weak<()>,
+        old_owner: Option<u32>,
+        new_owner: Option<u32>,
+    ) {
+        let modules = self.authored_cost_modifier_modules(object_id);
+        for module in modules {
+            if !self.object_birth_matches(object_id, birth)
+                || self.objects.get(&object_id)
+                    .and_then(|object| self.player_owner_for_host_object(object)) != new_owner
+            {
+                return;
+            }
+            let applied = self
+                .objects
+                .get(&object_id)
+                .and_then(|object| {
+                    object
+                        .cost_modifier_upgrade_executed
+                        .get(module.state_index)
+                })
+                .copied()
+                .unwrap_or(false);
+            if !applied {
+                continue;
+            }
+            if let Some(player) = old_owner.and_then(|id| self.players.get_mut(&id)) {
+                player.remove_authored_kind_of_production_cost_change(
+                    module.data.kind_of(),
+                    module.data.percentage(),
+                );
+                if let Some(executed) = self.objects.get_mut(&object_id).and_then(|object| {
+                    object
+                        .cost_modifier_upgrade_executed
+                        .get_mut(module.state_index)
+                }) {
+                    *executed = false;
+                }
+            }
+            if let Some(player) = new_owner.and_then(|id| self.players.get_mut(&id)) {
+                player.add_authored_kind_of_production_cost_change(
+                    module.data.kind_of(),
+                    module.data.percentage(),
+                );
+                if let Some(executed) = self.objects.get_mut(&object_id).and_then(|object| {
+                    object
+                        .cost_modifier_upgrade_executed
+                        .get_mut(module.state_index)
+                }) {
+                    *executed = true;
+                }
+            }
+        }
+    }
+
+    pub(in crate::game_logic) fn cost_modifier_on_delete(&mut self, object_id: ObjectId) {
+        let owner = self
+            .objects
+            .get(&object_id)
+            .and_then(|object| self.player_owner_for_host_object(object));
+        let modules = self.authored_cost_modifier_modules(object_id);
+        for module in modules {
+            let applied = self
+                .objects
+                .get(&object_id)
+                .and_then(|object| {
+                    object
+                        .cost_modifier_upgrade_executed
+                        .get(module.state_index)
+                })
+                .copied()
+                .unwrap_or(false);
+            if !applied {
+                continue;
+            }
+            if let Some(player) = owner.and_then(|id| self.players.get_mut(&id)) {
+                player.remove_authored_kind_of_production_cost_change(
+                    module.data.kind_of(),
+                    module.data.percentage(),
+                );
+            }
+            if let Some(executed) = self.objects.get_mut(&object_id).and_then(|object| {
+                object
+                    .cost_modifier_upgrade_executed
+                    .get_mut(module.state_index)
+            }) {
+                *executed = false;
+            }
+        }
     }
 
     pub(in crate::game_logic) fn destroy_object_if_birth_matches_with_effects(
@@ -299,24 +431,6 @@ impl GameLogic {
             );
         }
 
-        // C++ CostModifierUpgrade residual — player KindOf production cost change.
-        if let Some((kind, percent)) =
-            crate::game_logic::host_upgrade_module_residuals::cost_modifier_for_upgrade(upgrade)
-                .filter(|_| status_upgrade_first_give)
-        {
-            let owner = self
-                .objects
-                .get(&object_id)
-                .filter(|object| self.live_draw_playback_identity(object) == identity)
-                .and_then(|object| object.owner_player_id);
-            if let Some(owner) = owner {
-                if let Some(player) = self.players.get_mut(&owner) {
-                    player.add_kind_of_production_cost_change(kind, percent);
-                    self.upgrade_module_residuals.record_cost(upgrade);
-                }
-            }
-        }
-
         // C++ GenerateMinefieldBehavior::upgradeImplementation residual.
         let _mines = self.apply_structure_minefield_upgrade_with_interpreter_and_effects(
             object_id,
@@ -448,6 +562,7 @@ impl GameLogic {
         };
         let mut object_creation_index = 0;
         let mut status_bits_index = 0;
+        let mut cost_modifier_index = 0;
         let modules: Vec<_> = template
             .behavior_modules()
             .iter()
@@ -474,6 +589,16 @@ impl GameLogic {
                         AuthoredStatusBitsUpgrade { source_index, state_index, data: data.clone() }
                     ));
                 }
+                if module.name.as_str().eq_ignore_ascii_case("CostModifierUpgrade") {
+                    let data = module.data.as_any().downcast_ref::<
+                        gamelogic::object::upgrade::cost_modifier_upgrade::CostModifierUpgradeModuleData,
+                    >()?;
+                    let state_index = cost_modifier_index;
+                    cost_modifier_index += 1;
+                    return Some(AuthoredOrderedUpgrade::CostModifier(
+                        AuthoredCostModifierUpgrade { source_index, state_index, data: data.clone() }
+                    ));
+                }
                 None
             })
             .collect();
@@ -484,6 +609,9 @@ impl GameLogic {
             object
                 .status_bits_upgrade_executed
                 .resize(status_bits_index, false);
+            object
+                .cost_modifier_upgrade_executed
+                .resize(cost_modifier_index, false);
         }
         modules
     }
@@ -533,6 +661,18 @@ impl GameLogic {
                         .get(&object_id)
                         .and_then(|object| {
                             object.status_bits_upgrade_executed.get(module.state_index)
+                        })
+                        .copied()
+                        .unwrap_or(false),
+                ),
+                AuthoredOrderedUpgrade::CostModifier(module) => (
+                    &module.data.upgrade_mux_data,
+                    self.objects
+                        .get(&object_id)
+                        .and_then(|object| {
+                            object
+                                .cost_modifier_upgrade_executed
+                                .get(module.state_index)
                         })
                         .copied()
                         .unwrap_or(false),
@@ -591,6 +731,24 @@ impl GameLogic {
                     }
                     Ok(())
                 }
+                AuthoredOrderedUpgrade::CostModifier(module) => {
+                    if let Some(owner_id) = self
+                        .objects
+                        .get(&object_id)
+                        .and_then(|object| self.player_owner_for_host_object(object))
+                    {
+                        if let Some(player) = self.players.get_mut(&owner_id) {
+                            player.add_authored_kind_of_production_cost_change(
+                                module.data.kind_of(),
+                                module.data.percentage(),
+                            );
+                            if let Some(upgrade) = pending_upgrade {
+                                self.upgrade_module_residuals.record_cost(upgrade);
+                            }
+                        }
+                    }
+                    Ok(())
+                }
                 AuthoredOrderedUpgrade::ObjectCreation(module) => {
                     let ocl_name = module
                         .data
@@ -636,6 +794,14 @@ impl GameLogic {
                         AuthoredOrderedUpgrade::StatusBits(module) => {
                             if let Some(executed) = object
                                 .status_bits_upgrade_executed
+                                .get_mut(module.state_index)
+                            {
+                                *executed = true;
+                            }
+                        }
+                        AuthoredOrderedUpgrade::CostModifier(module) => {
+                            if let Some(executed) = object
+                                .cost_modifier_upgrade_executed
                                 .get_mut(module.state_index)
                             {
                                 *executed = true;
@@ -733,6 +899,9 @@ impl GameLogic {
                 AuthoredOrderedUpgrade::StatusBits(module) => {
                     self.upgrade_activation_mask(&module.data.upgrade_mux_data)
                 }
+                AuthoredOrderedUpgrade::CostModifier(module) => {
+                    self.upgrade_activation_mask(&module.data.upgrade_mux_data)
+                }
             })
             .collect();
         let mut tags_to_remove = self
@@ -778,6 +947,14 @@ impl GameLogic {
                         Some(AuthoredOrderedUpgrade::StatusBits(module)) => {
                             if let Some(executed) = object
                                 .status_bits_upgrade_executed
+                                .get_mut(module.state_index)
+                            {
+                                *executed = false;
+                            }
+                        }
+                        Some(AuthoredOrderedUpgrade::CostModifier(module)) => {
+                            if let Some(executed) = object
+                                .cost_modifier_upgrade_executed
                                 .get_mut(module.state_index)
                             {
                                 *executed = false;
@@ -1388,6 +1565,137 @@ mod object_creation_upgrade_birth_tests {
             spawned_template_names(&world, source),
             vec!["ConstructedCreationUpgradeChild".to_owned()],
             "the construction-complete update must re-evaluate the existing object upgrade mask"
+        );
+    }
+}
+
+#[cfg(test)]
+mod cost_modifier_receiving_owner_tests {
+    use super::*;
+
+    const UPGRADE: &str = "Upgrade_OwnedCostModifier";
+
+    fn world(percent: &str, create_source: bool) -> (GameLogic, Option<ObjectId>) {
+        let mut world = GameLogic::new();
+        world.add_player(crate::game_logic::Player::new(
+            0,
+            Team::USA,
+            "CostOwnerA",
+            true,
+        ));
+        world.add_player(crate::game_logic::Player::new(
+            1,
+            Team::China,
+            "CostOwnerB",
+            true,
+        ));
+        let mut ini = game_engine::common::ini::INI::new();
+        ini.with_inline_source(&format!("Upgrade {UPGRADE}\nType = OBJECT\nEnd\n"), |ini| {
+            ini.read_line()?;
+            world.upgrade_definitions.parse_upgrade_definition(ini)
+        })
+        .expect("admit cost upgrade definition");
+        world
+            .admit_object_ini_sources([(
+                "cost_modifier_owner.ini".to_owned(),
+                format!(
+                    r#"
+Object CostModifierSource
+ KindOf = STRUCTURE SELECTABLE
+ Body = ActiveBody SourceBody
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = CostModifierUpgrade AuthoredCost
+  TriggeredBy = {UPGRADE}
+  EffectKindOf = VEHICLE AIRCRAFT
+  Percentage = {percent}
+ End
+End
+Object CostModifierVehicle
+ KindOf = VEHICLE SELECTABLE
+ BuildCost = 1000
+ Body = ActiveBody VehicleBody
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+Object CostModifierDualKind
+ KindOf = VEHICLE AIRCRAFT SELECTABLE
+ BuildCost = 1000
+ Body = ActiveBody DualBody
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+"#
+                ),
+            )])
+            .expect("admit typed CostModifierUpgrade content");
+        let source = create_source.then(|| {
+            world
+                .create_object_for_player("CostModifierSource", 0, glam::Vec3::ZERO)
+                .unwrap()
+        });
+        (world, source)
+    }
+
+    #[test]
+    fn authored_cost_modifier_is_world_scoped_across_capture_delete_and_snapshot() {
+        use crate::save_load::{SnapshotBuilder, snapshot::decode_bincode_world_snapshot};
+        let (mut a, source_a) = world("-10%", true);
+        let (mut b, source_b) = world("-25%", true);
+        let source_a = source_a.unwrap();
+        let source_b = source_b.unwrap();
+        assert_eq!(
+            source_a, source_b,
+            "fixture must collide on ObjectId across worlds"
+        );
+        a.apply_upgrade_to_object(source_a, UPGRADE);
+        b.apply_upgrade_to_object(source_b, UPGRADE);
+        assert_eq!(a.modified_build_cost_supplies(0, "CostModifierVehicle", 1000), 1000);
+        assert_eq!(a.modified_build_cost_supplies(0, "CostModifierDualKind", 1000), 900);
+        assert_eq!(b.modified_build_cost_supplies(0, "CostModifierDualKind", 1000), 750);
+
+        let new_team = a.players[&1]
+            .default_team_id
+            .expect("player's admitted default team");
+        assert!(a.set_host_object_team(source_a, new_team));
+        assert_eq!(
+            a.modified_build_cost_supplies(0, "CostModifierDualKind", 1000),
+            1000
+        );
+        assert_eq!(
+            a.modified_build_cost_supplies(1, "CostModifierDualKind", 1000),
+            900
+        );
+        assert_eq!(
+            b.modified_build_cost_supplies(0, "CostModifierDualKind", 1000),
+            750
+        );
+
+        let builder = SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&a).expect("capture world");
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
+        let (mut restored, _) = world("-10%", false);
+        builder
+            .restore_from_snapshot(&decoded, &mut restored)
+            .expect("restore world");
+        assert_eq!(
+            restored.modified_build_cost_supplies(1, "CostModifierDualKind", 1000),
+            900
+        );
+        restored.destroy_object(source_a).unwrap();
+        assert_eq!(
+            restored.modified_build_cost_supplies(1, "CostModifierDualKind", 1000),
+            1000
+        );
+
+        b.destroy_object(source_b).unwrap();
+        assert_eq!(
+            b.modified_build_cost_supplies(0, "CostModifierDualKind", 1000),
+            1000
         );
     }
 }

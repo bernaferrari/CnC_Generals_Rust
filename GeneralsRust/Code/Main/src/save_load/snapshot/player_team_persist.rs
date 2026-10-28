@@ -1033,8 +1033,12 @@ pub(super) fn capture_players_chunk(game_logic: &GameLogic) -> PlayersChunkPersi
             .kind_of_production_cost_changes
             .iter()
             .map(|entry| KindOfChangePersist {
-                kind_of_name: entry.kind_of.clone(),
-                kind_of_bits: 0,
+                kind_of_name: if entry.kind_of.is_empty() {
+                    "NONE".to_owned()
+                } else {
+                    entry.kind_of.clone()
+                },
+                kind_of_bits: entry.kind_of_bits,
                 percent: entry.percent,
                 refs: entry.ref_count,
             })
@@ -1201,10 +1205,25 @@ pub(super) fn apply_player_to_live(game_logic: &mut GameLogic, persist: &PlayerR
 
     player.kind_of_production_cost_changes.clear();
     for entry in &persist.kind_of_changes {
-        if entry.kind_of_name.trim().is_empty() {
+        if entry.kind_of_name.trim().is_empty() && entry.kind_of_bits == 0 {
             continue;
         }
-        player.add_kind_of_production_cost_change(&entry.kind_of_name, entry.percent);
+        if entry.kind_of_bits != 0 || entry.kind_of_name.trim().eq_ignore_ascii_case("NONE") {
+            player.add_authored_kind_of_production_cost_change(entry.kind_of_bits, entry.percent);
+        } else {
+            let restored_bits = entry
+                .kind_of_name
+                .split_whitespace()
+                .filter_map(|name| {
+                    game_engine::common::system::kind_of::KindOfMask::from_string(name)
+                })
+                .fold(0u128, |mask, flag| mask | flag.bits());
+            if restored_bits != 0 {
+                player.add_authored_kind_of_production_cost_change(restored_bits, entry.percent);
+            } else {
+                player.add_kind_of_production_cost_change(&entry.kind_of_name, entry.percent);
+            }
+        }
         if let Some(last) = player.kind_of_production_cost_changes.last_mut() {
             last.ref_count = entry.refs.max(1);
         }

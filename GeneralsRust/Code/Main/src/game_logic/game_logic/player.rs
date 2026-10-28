@@ -844,11 +844,44 @@ impl Player {
         )
     }
 
+    /// C++ Player::getProductionCostChangeBasedOnKindOf over the exact
+    /// receiving ThingTemplate KindOf mask.
+    pub fn production_cost_factor_for_kindof_mask(&self, kind_of_bits: u128) -> f32 {
+        crate::game_logic::host_upgrade_module_residuals::production_cost_factor_for_mask(
+            &self.kind_of_production_cost_changes,
+            kind_of_bits,
+        )
+    }
+
     /// C++ Player::addKindOfProductionCostChange residual.
     pub fn add_kind_of_production_cost_change(&mut self, kind_of: &str, percent: f32) {
         crate::game_logic::host_upgrade_module_residuals::add_kind_of_production_cost_change(
             &mut self.kind_of_production_cost_changes,
             kind_of,
+            percent,
+        );
+    }
+
+    pub(crate) fn add_authored_kind_of_production_cost_change(
+        &mut self,
+        kind_of_bits: u128,
+        percent: f32,
+    ) {
+        crate::game_logic::host_upgrade_module_residuals::add_authored_kind_of_production_cost_change(
+            &mut self.kind_of_production_cost_changes,
+            kind_of_bits,
+            percent,
+        );
+    }
+
+    pub(crate) fn remove_authored_kind_of_production_cost_change(
+        &mut self,
+        kind_of_bits: u128,
+        percent: f32,
+    ) {
+        crate::game_logic::host_upgrade_module_residuals::remove_authored_kind_of_production_cost_change(
+            &mut self.kind_of_production_cost_changes,
+            kind_of_bits,
             percent,
         );
     }

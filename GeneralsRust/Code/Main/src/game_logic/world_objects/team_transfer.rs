@@ -144,6 +144,7 @@ impl GameLogic {
         let old_identity = old.team_instance_id;
         let old_owner = old.owner_player_id;
         let old_faction = old.team;
+        let old_birth = std::sync::Arc::downgrade(&old.visual_draw_identity_token);
         let destination_owner = {
             let factory = self.team_factory.lock().unwrap_or_else(|e| e.into_inner());
             let Some(team) = factory.find_team_by_id(requested) else {
@@ -261,6 +262,7 @@ impl GameLogic {
                 faction,
                 old_owner != Some(owner),
                 effects,
+                Some((old_birth, old_owner, Some(owner))),
             );
         }
         if self.radar.contains_object(id.0) {

@@ -379,6 +379,7 @@ impl GameLogic {
             new_team,
             old_team != new_team,
             effects,
+            None,
         );
         if old_team != new_team {
             // Object::defect owns this phase; retain it only for unmigrated callers.
@@ -414,6 +415,7 @@ impl GameLogic {
             new_team,
             owner_changed,
             &mut Default::default(),
+            None,
         )
     }
 
@@ -424,6 +426,7 @@ impl GameLogic {
         new_team: Team,
         owner_changed: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        cost_modifier_capture: Option<(std::sync::Weak<()>, Option<u32>, Option<u32>)>,
     ) {
         let Some(object) = self.objects.get(&object_id) else {
             return;
@@ -464,6 +467,15 @@ impl GameLogic {
             ) {
                 player.statistics.record_captured(&name, &mask);
             }
+        }
+
+        // CostModifierUpgrade is an Object::onCapture module callback. The
+        // C++ path reaches it after aiIdle and score credit, before the later
+        // receiving-side capture callback residuals below. The receipt keeps
+        // this transition tied to the original object birth and owners if
+        // either earlier phase reenters the world.
+        if let Some((birth, old_owner, new_owner)) = cost_modifier_capture {
+            self.cost_modifier_on_capture(object_id, &birth, old_owner, new_owner);
         }
 
         // Module callbacks run even for different teams controlled by one player.

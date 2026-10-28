@@ -1475,6 +1475,9 @@ pub struct Object {
     /// C++ UpgradeMux execution latches for authored StatusBitsUpgrade modules.
     #[serde(default)]
     pub(crate) status_bits_upgrade_executed: Vec<bool>,
+    /// C++ CostModifierUpgrade::m_upgradeExecuted per authored module ordinal.
+    #[serde(default)]
+    pub(crate) cost_modifier_upgrade_executed: Vec<bool>,
     /// Exact outstanding Player contribution per authored module. Disabled grants
     /// and disabled capture cannot be inferred from the executed flag alone.
     #[serde(default)]

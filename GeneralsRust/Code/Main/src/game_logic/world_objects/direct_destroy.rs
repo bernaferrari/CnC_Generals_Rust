@@ -62,6 +62,7 @@ impl GameLogic {
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        self.cost_modifier_on_delete(id);
         self.detach_destroyed_object_from_contain(id);
         self.delete_direct_containment_with_effects(id, effects)?;
         self.remove_host_radar_provider(id);

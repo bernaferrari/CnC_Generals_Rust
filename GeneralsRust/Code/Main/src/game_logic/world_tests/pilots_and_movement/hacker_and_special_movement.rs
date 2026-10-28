@@ -2924,7 +2924,7 @@ fn locomotor_set_upgrade_worker_shoes_speed() {
 }
 
 #[test]
-fn cost_modifier_upgrade_reduces_vehicle_cost() {
+fn cost_modifier_upgrade_name_alone_does_not_change_vehicle_cost() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(1, Team::USA, "USA", true));
@@ -2949,7 +2949,7 @@ fn cost_modifier_upgrade_reduces_vehicle_cost() {
     logic.apply_upgrade_to_object(pad, "Upgrade_CostReduction");
     assert_eq!(
         logic.modified_build_cost_supplies(pid, "TestTank", 1000),
-        900
+        1000
     );
     assert!(logic.upgrade_module_residuals.honesty_ok());
 }

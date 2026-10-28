@@ -11,7 +11,9 @@
 //! dish snapped back to idle on load.
 //!
 //! Append a Rust-only tagged suffix after the contain/producer payload.
-//! OXFR v6 adds per-module StatusBitsUpgrade execution state. OXFR v5 adds per-module ObjectCreationUpgrade execution state. OXFR v4 adds per-module RadarUpgrade executed state and preserves Object-owned retained death status and KeepObject runtime
+//! OXFR v7 adds per-module CostModifierUpgrade execution state. OXFR v6 adds
+//! per-module StatusBitsUpgrade execution state. OXFR v5 adds per-module
+//! ObjectCreationUpgrade execution state. OXFR v4 adds per-module RadarUpgrade executed state and preserves Object-owned retained death status and KeepObject runtime
 //! separately from the existing functional onDie latch. C++ Object::xfer
 //! persists object/private status and ActiveBody::xfer persists BODY_RUBBLE;
 //! KeepObjectDie::xfer adds no custom retained fields. These are Rust runtime
@@ -27,7 +29,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const OXFR_MAGIC: &[u8; 4] = b"OXFR";
-const OXFR_VERSION: u32 = 6;
+const OXFR_VERSION: u32 = 7;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectModuleXferPersistPayload {
@@ -39,6 +41,7 @@ struct ObjectModuleXferPersistPayload {
     retained_death: Vec<RetainedDeathStatePersist>,
     object_creation_upgrade: Vec<ObjectCreationUpgradePersist>,
     status_bits_executed_present: bool,
+    cost_modifier_executed_present: bool,
 }
 
 /// OXFR v4 payload layout. Keep its field order stable for existing saves.
@@ -70,6 +73,51 @@ struct ObjectCreationUpgradePersistV5 {
     executed: Vec<bool>,
 }
 
+/// OXFR v6 payload layout; its positional field order is a saved wire contract.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectModuleXferPersistPayloadV6 {
+    stun: Vec<StunPersist>,
+    battle_bus: Vec<BattleBusPersist>,
+    slow_death: Vec<SlowDeathPersist>,
+    radar: Vec<RadarPersist>,
+    death_start: Vec<DeathStartPersist>,
+    retained_death: Vec<RetainedDeathStatePersist>,
+    object_creation_upgrade: Vec<ObjectCreationUpgradePersistV6>,
+    status_bits_executed_present: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ObjectCreationUpgradePersistV6 {
+    object_id: u32,
+    executed: Vec<bool>,
+    status_bits_executed: Vec<bool>,
+}
+
+impl From<ObjectModuleXferPersistPayloadV6> for ObjectModuleXferPersistPayload {
+    fn from(value: ObjectModuleXferPersistPayloadV6) -> Self {
+        Self {
+            stun: value.stun,
+            battle_bus: value.battle_bus,
+            slow_death: value.slow_death,
+            radar: value.radar,
+            death_start: value.death_start,
+            retained_death: value.retained_death,
+            object_creation_upgrade: value
+                .object_creation_upgrade
+                .into_iter()
+                .map(|entry| ObjectCreationUpgradePersist {
+                    object_id: entry.object_id,
+                    executed: entry.executed,
+                    status_bits_executed: entry.status_bits_executed,
+                    cost_modifier_executed: Vec::new(),
+                })
+                .collect(),
+            status_bits_executed_present: value.status_bits_executed_present,
+            cost_modifier_executed_present: false,
+        }
+    }
+}
+
 impl From<ObjectModuleXferPersistPayloadV4> for ObjectModuleXferPersistPayload {
     fn from(value: ObjectModuleXferPersistPayloadV4) -> Self {
         Self {
@@ -81,6 +129,7 @@ impl From<ObjectModuleXferPersistPayloadV4> for ObjectModuleXferPersistPayload {
             retained_death: value.retained_death,
             object_creation_upgrade: Vec::new(),
             status_bits_executed_present: false,
+            cost_modifier_executed_present: false,
         }
     }
 }
@@ -101,9 +150,11 @@ impl From<ObjectModuleXferPersistPayloadV5> for ObjectModuleXferPersistPayload {
                     object_id: entry.object_id,
                     executed: entry.executed,
                     status_bits_executed: Vec::new(),
+                    cost_modifier_executed: Vec::new(),
                 })
                 .collect(),
             status_bits_executed_present: false,
+            cost_modifier_executed_present: false,
         }
     }
 }
@@ -175,6 +226,7 @@ struct ObjectCreationUpgradePersist {
     object_id: u32,
     executed: Vec<bool>,
     status_bits_executed: Vec<bool>,
+    cost_modifier_executed: Vec<bool>,
 }
 
 impl ObjectModuleXferPersistPayload {
@@ -209,7 +261,7 @@ fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<ObjectModuleXferPersist
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
-    if version != 4 && version != 5 && version != OXFR_VERSION {
+    if version != 4 && version != 5 && version != 6 && version != OXFR_VERSION {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown OXFR suffix version {version}"
         )));
@@ -230,6 +282,12 @@ fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<ObjectModuleXferPersist
         let old: ObjectModuleXferPersistPayloadV5 =
             bincode_legacy::deserialize(&rest[..payload_len]).map_err(|err| {
                 SaveLoadError::Corrupted(format!("OXFR v5 payload decode: {err}"))
+            })?;
+        old.into()
+    } else if version == 6 {
+        let old: ObjectModuleXferPersistPayloadV6 =
+            bincode_legacy::deserialize(&rest[..payload_len]).map_err(|err| {
+                SaveLoadError::Corrupted(format!("OXFR v6 payload decode: {err}"))
             })?;
         old.into()
     } else {
@@ -392,11 +450,13 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
 
         if !object.object_creation_upgrade_executed.is_empty()
             || !object.status_bits_upgrade_executed.is_empty()
+            || !object.cost_modifier_upgrade_executed.is_empty()
         {
             object_creation_upgrade.push(ObjectCreationUpgradePersist {
                 object_id: id.0,
                 executed: object.object_creation_upgrade_executed.clone(),
                 status_bits_executed: object.status_bits_upgrade_executed.clone(),
+                cost_modifier_executed: object.cost_modifier_upgrade_executed.clone(),
             });
         }
     }
@@ -410,6 +470,7 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
         retained_death,
         object_creation_upgrade,
         status_bits_executed_present: true,
+        cost_modifier_executed_present: true,
     }
 }
 
@@ -458,9 +519,8 @@ fn apply_payload(
     }
     for entry in payload.object_creation_upgrade {
         let object_id = ObjectId(entry.object_id);
-        // OXFR v5 carried only ObjectCreationUpgrade latches. Initialize the
-        // missing StatusBits latches from this world's admitted definition so
-        // an immediate v6 save remains a valid continuation.
+        // Older versions lacked the newer module-family latch vectors. Rebuild
+        // those defaults from this receiving world's immutable admitted INI.
         let default_status_count = if payload.status_bits_executed_present {
             0
         } else {
@@ -483,12 +543,39 @@ fn apply_payload(
                 })
                 .count()
         };
+        let default_cost_modifier_count = if payload.cost_modifier_executed_present {
+            0
+        } else {
+            let object = game_logic
+                .host_object(object_id)
+                .expect("preflight validated object");
+            let template = game_logic
+                .receiving_module_content
+                .as_ref()
+                .and_then(|content| content.admitted_template(&object.template_name))
+                .expect("preflight validated receiving template");
+            template
+                .behavior_modules()
+                .iter()
+                .filter(|module| {
+                    module
+                        .name
+                        .as_str()
+                        .eq_ignore_ascii_case("CostModifierUpgrade")
+                })
+                .count()
+        };
         if let Some(object) = game_logic.host_object_mut(object_id) {
             object.object_creation_upgrade_executed = entry.executed;
             if payload.status_bits_executed_present {
                 object.status_bits_upgrade_executed = entry.status_bits_executed;
             } else {
                 object.status_bits_upgrade_executed = vec![false; default_status_count];
+            }
+            if payload.cost_modifier_executed_present {
+                object.cost_modifier_upgrade_executed = entry.cost_modifier_executed;
+            } else {
+                object.cost_modifier_upgrade_executed = vec![false; default_cost_modifier_count];
             }
         }
     }
@@ -628,6 +715,27 @@ fn validate_payload_before_apply(
                 "StatusBitsUpgrade executed-state count disagrees with authored modules",
             ));
         }
+        let mut cost_modifier_count = 0usize;
+        for module in template.behavior_modules().iter().filter(|module| {
+            module
+                .name
+                .as_str()
+                .eq_ignore_ascii_case("CostModifierUpgrade")
+        }) {
+            if !module.data.as_any().is::<
+                gamelogic::object::upgrade::cost_modifier_upgrade::CostModifierUpgradeModuleData,
+            >() {
+                return Err(corrupted("CostModifierUpgrade receiving module has an incompatible data type"));
+            }
+            cost_modifier_count += 1;
+        }
+        if payload.cost_modifier_executed_present
+            && cost_modifier_count != entry.cost_modifier_executed.len()
+        {
+            return Err(corrupted(
+                "CostModifierUpgrade executed-state count disagrees with authored modules",
+            ));
+        }
     }
     Ok(())
 }
@@ -740,6 +848,7 @@ mod object_creation_upgrade_state_tests {
                 object_id: id.0 + 100,
                 executed: vec![true],
                 status_bits_executed: Vec::new(),
+                cost_modifier_executed: Vec::new(),
             });
 
         assert!(apply_payload(&mut world, payload).is_err());
@@ -768,11 +877,13 @@ mod object_creation_upgrade_state_tests {
                 object_id: id.0,
                 executed: vec![true, false],
                 status_bits_executed: Vec::new(),
+                cost_modifier_executed: Vec::new(),
             },
             ObjectCreationUpgradePersist {
                 object_id: id.0,
                 executed: vec![false, true],
                 status_bits_executed: Vec::new(),
+                cost_modifier_executed: Vec::new(),
             },
         ];
 
@@ -790,6 +901,38 @@ mod object_creation_upgrade_state_tests {
         bytes.extend_from_slice(&encoded);
         let decoded = decode_payload(&bytes).unwrap().unwrap();
         assert!(decoded.object_creation_upgrade.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod cost_modifier_v6_compat_tests {
+    use super::*;
+
+    #[test]
+    fn v6_positional_payload_decodes_without_cost_modifier_latches() {
+        let old = ObjectModuleXferPersistPayloadV6 {
+            object_creation_upgrade: vec![ObjectCreationUpgradePersistV6 {
+                object_id: 41,
+                executed: vec![true, false],
+                status_bits_executed: vec![false],
+            }],
+            status_bits_executed_present: true,
+            ..Default::default()
+        };
+        let payload_bytes = bincode_legacy::serialize(&old).unwrap();
+        let mut bytes = OXFR_MAGIC.to_vec();
+        append_u32(&mut bytes, 6);
+        append_u32(&mut bytes, payload_bytes.len() as u32);
+        bytes.extend_from_slice(&payload_bytes);
+
+        let decoded = decode_payload(&bytes).unwrap().unwrap();
+        assert!(decoded.status_bits_executed_present);
+        assert!(!decoded.cost_modifier_executed_present);
+        assert_eq!(decoded.object_creation_upgrade[0].executed, [true, false]);
+        assert_eq!(
+            decoded.object_creation_upgrade[0].cost_modifier_executed,
+            []
+        );
     }
 }
 
