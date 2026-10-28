@@ -1981,13 +1981,21 @@ impl GameLogic {
                 .collect()
         };
         let mut n = 0usize;
+        let health_bonus = self.veterancy_health_bonus;
         for tid in targets {
             let gained = self
                 .with_object_veterancy_feedback_and_locomotors(
                     tid,
                     |object, audio, feedback, locomotors| {
                         if object.is_trainable() {
-                            object.gain_exp_for_level_in(levels, true, audio, feedback, locomotors)
+                            object.gain_exp_for_level_in(
+                                levels,
+                                true,
+                                audio,
+                                feedback,
+                                Some(&health_bonus),
+                                locomotors,
+                            )
                         } else {
                             0
                         }
@@ -2039,10 +2047,16 @@ impl GameLogic {
             if SALVAGE_LEVEL_CHANCE_RESIDUAL >= 1.0 - f32::EPSILON
                 || roll < SALVAGE_LEVEL_CHANCE_RESIDUAL
             {
+                let health_bonus = self.veterancy_health_bonus;
                 self.with_object_veterancy_feedback_and_locomotors(
                     picker_id,
                     |picker, audio, feedback, locomotors| {
-                        picker.apply_salvage_level_gain_in(audio, feedback, locomotors)
+                        picker.apply_salvage_level_gain_in(
+                            audio,
+                            feedback,
+                            Some(&health_bonus),
+                            locomotors,
+                        )
                     },
                 );
                 return ("level", 0);

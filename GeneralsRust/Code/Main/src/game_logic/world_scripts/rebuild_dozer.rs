@@ -131,10 +131,11 @@ impl GameLogic {
                 None => return false,
             };
         if is_pilot && self.can_execute_pilot_recrew(infantry_id, vehicle_id) {
+            let health_bonus = self.veterancy_health_bonus;
             self.with_object_recrew_inputs(
                 vehicle_id,
                 |vehicle, ownership, audio, feedback, partition, locomotors| {
-                    vehicle.apply_pilot_recrew_with_locomotors(
+                    vehicle.apply_pilot_recrew_with_veterancy_rules(
                         inf_team,
                         inf_owner_player_id,
                         inf_level,
@@ -142,6 +143,7 @@ impl GameLogic {
                         audio,
                         feedback,
                         partition,
+                        &health_bonus,
                         locomotors,
                     )
                 },

@@ -746,7 +746,7 @@ impl Object {
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
     ) {
         self.apply_convert_to_car_bomb_from_with_partition_context(
-            donor, audio, feedback, None, None,
+            donor, audio, feedback, None, None, None,
         )
     }
     #[cfg(test)]
@@ -763,14 +763,16 @@ impl Object {
             feedback,
             Some(partition),
             None,
+            None,
         )
     }
-    pub(crate) fn apply_convert_to_car_bomb_from_with_locomotors(
+    pub(crate) fn apply_convert_to_car_bomb_from_with_veterancy_rules(
         &mut self,
         donor: Option<&Object>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
         partition: &mut crate::game_logic::partition_manager::PartitionManager,
+        health_bonus: &[f32; game_engine::common::global_data::LEVEL_COUNT],
         locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
     ) {
         self.apply_convert_to_car_bomb_from_with_partition_context(
@@ -778,6 +780,7 @@ impl Object {
             audio,
             feedback,
             Some(partition),
+            Some(health_bonus),
             locomotors,
         )
     }
@@ -787,6 +790,7 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
         mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+        health_bonus: Option<&[f32; game_engine::common::global_data::LEVEL_COUNT]>,
         locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
     ) {
         self.require_partition_owner(partition.as_deref());
@@ -838,7 +842,14 @@ impl Object {
                     self.experience.current = need;
                 }
                 if prev != donor_level {
-                    self.apply_veterancy_bonuses_in(prev, donor_level, audio, feedback, locomotors);
+                    self.apply_veterancy_bonuses_in(
+                        prev,
+                        donor_level,
+                        audio,
+                        feedback,
+                        health_bonus,
+                        locomotors,
+                    );
                 }
             }
         }
@@ -908,7 +919,7 @@ impl Object {
         donor: Option<&Object>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        self.apply_hijacked_from_with_partition_context(donor, audio, None, None)
+        self.apply_hijacked_from_with_partition_context(donor, audio, None, None, None)
     }
     #[cfg(test)]
     pub(crate) fn apply_hijacked_from_with_partition_owner(
@@ -917,22 +928,30 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         partition: &mut crate::game_logic::partition_manager::PartitionManager,
     ) {
-        self.apply_hijacked_from_with_partition_context(donor, audio, Some(partition), None)
+        self.apply_hijacked_from_with_partition_context(donor, audio, Some(partition), None, None)
     }
-    pub(crate) fn apply_hijacked_from_with_locomotors(
+    pub(crate) fn apply_hijacked_from_with_veterancy_rules(
         &mut self,
         donor: Option<&Object>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         partition: &mut crate::game_logic::partition_manager::PartitionManager,
+        health_bonus: &[f32; game_engine::common::global_data::LEVEL_COUNT],
         locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
     ) {
-        self.apply_hijacked_from_with_partition_context(donor, audio, Some(partition), locomotors)
+        self.apply_hijacked_from_with_partition_context(
+            donor,
+            audio,
+            Some(partition),
+            Some(health_bonus),
+            locomotors,
+        )
     }
     fn apply_hijacked_from_with_partition_context(
         &mut self,
         donor: Option<&Object>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+        health_bonus: Option<&[f32; game_engine::common::global_data::LEVEL_COUNT]>,
         locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
     ) {
         self.require_partition_owner(partition.as_deref());
@@ -994,7 +1013,7 @@ impl Object {
                 if self.experience.current < need {
                     self.experience.current = need;
                 }
-                self.apply_veterancy_bonuses_quiet_in(prev, highest, locomotors);
+                self.apply_veterancy_bonuses_quiet_in(prev, highest, health_bonus, locomotors);
             }
         }
     }

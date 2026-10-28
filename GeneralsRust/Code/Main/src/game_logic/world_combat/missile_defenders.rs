@@ -1971,11 +1971,18 @@ impl GameLogic {
             };
         let (sync_master, sync_drone) =
             crate::game_logic::host_slave_drones::synced_spawn_veterancy(master_level, drone_level);
+        let health_bonus = self.veterancy_health_bonus;
         if sync_master != master_level {
             self.with_object_veterancy_feedback_and_locomotors(
                 master_id,
                 |master, audio, feedback, locomotors| {
-                    master.set_min_veterancy_level_in(sync_master, audio, feedback, locomotors)
+                    master.set_min_veterancy_level_with_health_bonus_table(
+                        sync_master,
+                        &health_bonus,
+                        audio,
+                        feedback,
+                        locomotors,
+                    )
                 },
             );
         }
@@ -1983,7 +1990,13 @@ impl GameLogic {
             self.with_object_veterancy_feedback_and_locomotors(
                 drone_id,
                 |drone, audio, feedback, locomotors| {
-                    drone.set_min_veterancy_level_in(sync_drone, audio, feedback, locomotors)
+                    drone.set_min_veterancy_level_with_health_bonus_table(
+                        sync_drone,
+                        &health_bonus,
+                        audio,
+                        feedback,
+                        locomotors,
+                    )
                 },
             );
         }

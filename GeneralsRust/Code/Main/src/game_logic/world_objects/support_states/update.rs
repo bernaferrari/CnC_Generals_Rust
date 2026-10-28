@@ -675,6 +675,7 @@ impl GameLogic {
                                     );
                                     continue;
                                 }
+                                let health_bonus = self.veterancy_health_bonus;
                                 let transferred = self
                                     .with_object_recrew_inputs(
                                         container_id,
@@ -684,7 +685,7 @@ impl GameLogic {
                                          feedback,
                                          partition,
                                          locomotors| {
-                                            vehicle.apply_pilot_recrew_with_locomotors(
+                                            vehicle.apply_pilot_recrew_with_veterancy_rules(
                                                 pilot_team,
                                                 pilot_owner_player_id,
                                                 pilot_level,
@@ -692,6 +693,7 @@ impl GameLogic {
                                                 audio,
                                                 feedback,
                                                 partition,
+                                                &health_bonus,
                                                 locomotors,
                                             )
                                         },
@@ -2144,12 +2146,13 @@ impl GameLogic {
                             self.try_eva_vehicle_stolen(special_target_id);
                             let donor_snap = self.objects.get(&object_id).cloned();
                             if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                target.apply_hijacked_from_with_locomotors(
+                                target.apply_hijacked_from_with_veterancy_rules(
                                     donor_snap.as_ref(),
                                     &mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ),
                                     &mut self.partition_manager,
+                                    &self.veterancy_health_bonus,
                                     self.locomotor_definitions.as_ref(),
                                 );
                             }
@@ -2762,14 +2765,16 @@ impl GameLogic {
                             }
                             // Snapshot donor residual (vision/vet) before consume.
                             let donor_snap = self.objects.get(&object_id).cloned();
+                            let health_bonus = self.veterancy_health_bonus;
                             self.with_object_veterancy_inputs(
                                 special_target_id,
                                 |target, audio, feedback, partition, locomotors| {
-                                    target.apply_convert_to_car_bomb_from_with_locomotors(
+                                    target.apply_convert_to_car_bomb_from_with_veterancy_rules(
                                         donor_snap.as_ref(),
                                         audio,
                                         feedback,
                                         partition,
+                                        &health_bonus,
                                         locomotors,
                                     );
                                 },

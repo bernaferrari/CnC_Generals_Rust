@@ -54,7 +54,9 @@ impl GameLogic {
     /// frozen team/rank and its fire/impact origin.  References are resolved
     /// only through the receiving session's admitted OCL and object content;
     /// unresolved lists and templates do not select another world's assets.
-    pub(crate) fn execute_parsed_weapon_ocl_at(
+    /// Object creation runs synchronously against this instance's templates,
+    /// RNG, and object ownership.
+    pub fn execute_parsed_weapon_ocl_at(
         &mut self,
         ocl_name: &str,
         source_id: Option<ObjectId>,
@@ -224,6 +226,7 @@ impl GameLogic {
                         );
                     }
                 }
+                let veterancy_health_bonus = self.veterancy_health_bonus;
                 let inherit_name = self
                     .with_object_veterancy_feedback_and_locomotors(
                         created_id,
@@ -239,8 +242,9 @@ impl GameLogic {
                             // transferObjectName only when the created tracker isTrainable.
                             let inherit_name = generic.inherit_veterancy && object.is_trainable();
                             if inherit_name {
-                                object.set_min_veterancy_level_in(
+                                object.set_min_veterancy_level_with_health_bonus_table(
                                     source_veterancy,
+                                    &veterancy_health_bonus,
                                     audio,
                                     feedback,
                                     locomotors,
@@ -277,11 +281,10 @@ impl GameLogic {
 
                 // C++ calls BodyModuleInterface::setInitialHealth with a
                 // game-logic random percent after the object is created.
-                let health_percent = gamelogic::helpers::get_game_logic_random_value_real(
-                    generic.min_health,
-                    generic.max_health,
-                )
-                .clamp(0.0, 1.0);
+                let health_percent = self
+                    .logic_random
+                    .next_real(generic.min_health, generic.max_health)
+                    .clamp(0.0, 1.0);
                 let target_health = object.body_initial_health() * health_percent;
                 object.internal_change_health(target_health - object.health.current);
 
@@ -295,10 +298,7 @@ impl GameLogic {
                     // `ON_GROUND_ALIGNED` gives every spawned object a random
                     // yaw after terrain placement (ObjectCreationList.cpp).
                     object.set_orientation_with_partition_owner(
-                        gamelogic::helpers::get_game_logic_random_value_real(
-                            0.0,
-                            std::f32::consts::TAU,
-                        ),
+                        self.logic_random.next_real(0.0, std::f32::consts::TAU),
                         &mut self.partition_manager,
                     );
                 }

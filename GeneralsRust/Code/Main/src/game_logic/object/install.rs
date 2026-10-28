@@ -320,9 +320,10 @@ impl Object {
             feedback,
             None,
             None,
+            None,
         )
     }
-    pub(crate) fn apply_pilot_recrew_with_locomotors(
+    pub(crate) fn apply_pilot_recrew_with_veterancy_rules(
         &mut self,
         pilot_team: Team,
         pilot_owner_player_id: Option<u32>,
@@ -331,6 +332,7 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
         partition: &mut crate::game_logic::partition_manager::PartitionManager,
+        health_bonus: &[f32; game_engine::common::global_data::LEVEL_COUNT],
         locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
     ) -> bool {
         self.apply_pilot_recrew_with_partition_context(
@@ -341,6 +343,7 @@ impl Object {
             audio,
             feedback,
             Some(partition),
+            Some(health_bonus),
             locomotors,
         )
     }
@@ -353,6 +356,7 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
         mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+        health_bonus: Option<&[f32; game_engine::common::global_data::LEVEL_COUNT]>,
         locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
     ) -> bool {
         self.require_partition_owner(partition.as_deref());
@@ -388,7 +392,17 @@ impl Object {
         let merged = merged_recrew_veterancy(previous, pilot_level);
         let transferred = veterancy_rank(merged) > veterancy_rank(previous);
         if transferred {
-            let _ = self.set_min_veterancy_level_in(merged, audio, feedback, locomotors);
+            if let Some(health_bonus) = health_bonus {
+                let _ = self.set_min_veterancy_level_with_health_bonus_table(
+                    merged,
+                    health_bonus,
+                    audio,
+                    feedback,
+                    locomotors,
+                );
+            } else {
+                let _ = self.set_min_veterancy_level_in(merged, audio, feedback, locomotors);
+            }
         }
         transferred
     }

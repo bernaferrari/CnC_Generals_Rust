@@ -2723,10 +2723,17 @@ impl GameLogic {
                 .and_then(|metadata| metadata.pilot_starting_level())
             {
                 if object.is_trainable() {
+                    let health_bonus = self.veterancy_health_bonus;
                     self.with_veterancy_feedback_and_locomotors(
                         &mut object,
                         |object, audio, feedback, locomotors| {
-                            object.set_min_veterancy_level_in(target, audio, feedback, locomotors)
+                            object.set_min_veterancy_level_with_health_bonus_table(
+                                target,
+                                &health_bonus,
+                                audio,
+                                feedback,
+                                locomotors,
+                            )
                         },
                     );
                 }
@@ -2776,10 +2783,17 @@ impl GameLogic {
             // Auto-fire residual runs from update_combat when idle.
 
             if let Some(level) = player_template_veterancy {
+                let health_bonus = self.veterancy_health_bonus;
                 self.with_veterancy_feedback_and_locomotors(
                     &mut object,
                     |object, audio, feedback, locomotors| {
-                        object.set_min_veterancy_level_in(level, audio, feedback, locomotors)
+                        object.set_min_veterancy_level_with_health_bonus_table(
+                            level,
+                            &health_bonus,
+                            audio,
+                            feedback,
+                            locomotors,
+                        )
                     },
                 );
             }
@@ -2880,6 +2894,7 @@ impl GameLogic {
                     .and_then(|player_id| self.players.get(&player_id))
                     .map(|player| player.unlocked_sciences.iter().cloned().collect())
                     .unwrap_or_default();
+                let health_bonus = self.veterancy_health_bonus;
                 let grant = self
                     .with_object_veterancy_feedback_and_locomotors(
                         id,
@@ -2903,14 +2918,23 @@ impl GameLogic {
                                 }
                             }
                             if let Some(level) = ini_level {
-                                let _ = obj
-                                    .set_min_veterancy_level_in(level, audio, feedback, locomotors);
+                                let _ = obj.set_min_veterancy_level_with_health_bonus_table(
+                                    level,
+                                    &health_bonus,
+                                    audio,
+                                    feedback,
+                                    locomotors,
+                                );
                             } else if let Some((kind, level)) =
                                 unit_training_level_for_template(template_name, &sciences)
                             {
-                                if obj
-                                    .set_min_veterancy_level_in(level, audio, feedback, locomotors)
-                                {
+                                if obj.set_min_veterancy_level_with_health_bonus_table(
+                                    level,
+                                    &health_bonus,
+                                    audio,
+                                    feedback,
+                                    locomotors,
+                                ) {
                                     return Some(kind);
                                 }
                             }

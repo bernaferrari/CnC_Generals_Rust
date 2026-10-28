@@ -24,6 +24,87 @@ fn spawn(world: &mut GameLogic) -> ObjectId {
         .unwrap()
 }
 
+fn veterancy_world(veteran_percent: u32, elite_percent: u32) -> GameLogic {
+    let mut world = GameLogic::new();
+    world
+        .admit_combat_bonus_ini_sources([format!(
+            "GameData\n HealthBonus_Veteran = {veteran_percent}%\n HealthBonus_Elite = {elite_percent}%\nEnd\n"
+        )])
+        .unwrap();
+    world
+        .admit_object_ini_sources([(
+            "Veterancy.ini".into(),
+            "Object BonusVeteran\n KindOf = INFANTRY\n IsTrainable = Yes\n ExperienceRequired = 0 60 150 300\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
+             Object BonusBornVeteran\n KindOf = INFANTRY\n IsTrainable = Yes\n ExperienceRequired = 0 60 150 300\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = VeterancyGainCreate Rank\n StartingLevel = VETERAN\n End\nEnd\n".into(),
+        )])
+        .unwrap();
+    world.start_new_game(GameMode::SinglePlayer);
+    world.add_player(Player::new(42, Team::USA, "BonusOwner", true));
+    world
+}
+
+#[test]
+fn veterancy_health_uses_receiving_game_data_at_creation_and_after_load() {
+    let mut first = veterancy_world(130, 160);
+    let mut peer = veterancy_world(175, 220);
+    let first_id = first
+        .create_object_for_player("BonusVeteran", 42, glam::Vec3::ZERO)
+        .unwrap();
+    let peer_id = peer
+        .create_object_for_player("BonusVeteran", 42, glam::Vec3::ZERO)
+        .unwrap();
+    assert_eq!(first_id, peer_id);
+    first.award_experience(first_id, 60.0);
+    assert!((first.host_object(first_id).unwrap().health.maximum - 130.0).abs() < 0.001);
+    assert_eq!(peer.host_object(peer_id).unwrap().health.maximum, 100.0);
+
+    let born_first = first
+        .create_object_for_player("BonusBornVeteran", 42, glam::Vec3::X)
+        .unwrap();
+    let born_peer = peer
+        .create_object_for_player("BonusBornVeteran", 42, glam::Vec3::X)
+        .unwrap();
+    assert_eq!(born_first, born_peer);
+    assert!((first.host_object(born_first).unwrap().health.maximum - 130.0).abs() < 0.001);
+    assert!((peer.host_object(born_peer).unwrap().health.maximum - 175.0).abs() < 0.001);
+
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&first).unwrap();
+    let mut restored = veterancy_world(130, 160);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    peer.award_experience(peer_id, 60.0);
+    assert!((peer.host_object(peer_id).unwrap().health.maximum - 175.0).abs() < 0.001);
+    peer.reset();
+    first.award_experience(first_id, 90.0);
+    restored.award_experience(first_id, 90.0);
+    assert!((first.host_object(first_id).unwrap().health.maximum - 160.0).abs() < 0.001);
+    assert!((restored.host_object(first_id).unwrap().health.maximum - 160.0).abs() < 0.001);
+
+    let mut crate_world = veterancy_world(145, 180);
+    let picker = crate_world
+        .create_object_for_player("BonusVeteran", 42, glam::Vec3::ZERO)
+        .unwrap();
+    let crate_id = crate_world
+        .create_object_for_player("BonusVeteran", 42, glam::Vec3::X)
+        .unwrap();
+    crate_world.host_object_mut(crate_id).unwrap().target = Some(picker);
+    assert_eq!(
+        crate_world.execute_veterancy_crate_behavior(crate_id, picker, 0.0, 1),
+        1
+    );
+    assert!((crate_world.host_object(picker).unwrap().health.maximum - 145.0).abs() < 0.001);
+
+    // Explicit 100% is a real authored value, not a missing-INI sentinel.
+    let mut unity = veterancy_world(100, 100);
+    let id = unity
+        .create_object_for_player("BonusVeteran", 42, glam::Vec3::ZERO)
+        .unwrap();
+    unity.award_experience(id, 60.0);
+    assert_eq!(unity.host_object(id).unwrap().health.maximum, 100.0);
+}
+
 #[test]
 fn construction_and_reset_keep_each_worlds_game_data() {
     let mut first = world(125);
