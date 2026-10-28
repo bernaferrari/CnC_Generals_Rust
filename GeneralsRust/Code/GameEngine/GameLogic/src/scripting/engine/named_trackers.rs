@@ -1700,6 +1700,7 @@ impl ScriptEngine {
         script: &mut Script,
         team_id: Option<TeamID>,
         player_name: Option<&str>,
+        current_frame: u32,
     ) -> bool {
         let restore = self.with_inner(|inner| CallingContextRestore {
             engine: self,
@@ -1726,8 +1727,9 @@ impl ScriptEngine {
         // production already holds write().
         let result = if let Some(or_cond) = script.condition.as_deref_mut() {
             self.with_active(|| {
-                let state =
-                    std::cell::RefCell::new(crate::scripting::executor::ScriptContext::new());
+                let state = std::cell::RefCell::new(
+                    crate::scripting::executor::ScriptContext::at_frame(current_frame),
+                );
                 let mut leftover =
                     crate::scripting::executor::ScriptConditionEvaluator::new(self, &state);
                 leftover.evaluate_or_condition(or_cond).unwrap_or(false)

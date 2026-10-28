@@ -383,7 +383,12 @@ impl TeamPrototype {
                 return false;
             };
             if let Some(script) = rt.script.as_mut() {
-                return engine.evaluate_conditions(script, None, player_name.as_deref());
+                return engine.evaluate_conditions(
+                    script,
+                    None,
+                    player_name.as_deref(),
+                    current_frame,
+                );
             }
             return false;
         }
@@ -422,7 +427,9 @@ impl TeamPrototype {
         }
 
         let player_name = self.controlling_player_name();
-        let result = engine.evaluate_conditions(&mut script, None, player_name.as_deref());
+        let current_frame = crate::helpers::TheGameLogic::get_frame();
+        let result =
+            engine.evaluate_conditions(&mut script, None, player_name.as_deref(), current_frame);
         rt.script = Some(script);
         result
     }
