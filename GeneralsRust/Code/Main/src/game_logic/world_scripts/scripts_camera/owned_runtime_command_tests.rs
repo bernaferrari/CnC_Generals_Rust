@@ -325,11 +325,43 @@ fn team_move_this_team_prefers_calling_team_identity_over_condition_team() {
 }
 
 #[test]
-fn team_transfer_retains_concrete_team_roster_and_updates_only_owned_members() {
+fn team_transfer_updates_sibling_owner_views_and_preserves_selected_team_scope() {
     let (mut owner, unit, _) = world();
     let (peer, peer_unit, _) = world();
     let team_id = roster(&owner, "TransferTeam", unit, 1);
     assert_eq!(team_id, roster(&peer, "TransferTeam", peer_unit, 1));
+    {
+        let object = owner.host_object_mut(unit).unwrap();
+        object.team_instance_id = Some(team_id);
+        object.team_instance_name = "TransferTeam".into();
+    }
+    let sibling_unit = owner
+        .create_object_for_player("OwnedNamedInfantry", 1, Vec3::new(135.0, 0.0, 145.0))
+        .expect("create same-world sibling object");
+    let sibling_team_id = {
+        let mut factory = owner.team_factory.lock().unwrap();
+        let sibling = factory
+            .create_inactive_team("TransferTeam")
+            .expect("create sibling Team instance");
+        sibling.write().unwrap().add_member(sibling_unit.0);
+        sibling.read().unwrap().get_id()
+    };
+    {
+        let sibling = owner.host_object_mut(sibling_unit).unwrap();
+        sibling.team_instance_id = Some(sibling_team_id);
+        sibling.team_instance_name = "TransferTeam".into();
+    }
+    let selected_team_id = owner
+        .team_factory
+        .with_read_without_flushing(|factory| {
+            factory
+                .find_team_instances("TransferTeam")
+                .first()
+                .and_then(|team| team.read().ok().map(|team| team.get_id()))
+        })
+        .unwrap()
+        .expect("factory has a selected TransferTeam instance");
+    assert_eq!(selected_team_id, sibling_team_id);
     assert_eq!(
         execute(
             &mut owner,
@@ -342,12 +374,21 @@ fn team_transfer_retains_concrete_team_roster_and_updates_only_owned_members() {
         1
     );
     assert_eq!(owner.host_object(unit).unwrap().owner_player_id, Some(2));
+    assert_eq!(
+        owner.host_object(sibling_unit).unwrap().owner_player_id,
+        Some(2)
+    );
     assert_eq!(owner.host_object(unit).unwrap().team, Team::China);
+    assert_eq!(owner.host_object(sibling_unit).unwrap().team, Team::China);
     assert_eq!(owner.host_object(unit).unwrap().formation_id, 19);
     let factory = owner.team_factory.lock().unwrap();
     let team = factory.find_team_by_id(team_id).unwrap();
     assert_eq!(team.read().unwrap().get_controlling_player_id(), Some(2));
     assert_eq!(team.read().unwrap().get_members(), &[unit.0]);
+    let sibling = factory.find_team_by_id(sibling_team_id).unwrap();
+    assert_eq!(sibling.read().unwrap().get_controlling_player_id(), Some(2));
+    assert_eq!(sibling.read().unwrap().get_members(), &[sibling_unit.0]);
+    assert_ne!(team_id, sibling_team_id);
     assert_eq!(
         peer.host_object(peer_unit).unwrap().owner_player_id,
         Some(1)

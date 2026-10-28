@@ -118,6 +118,79 @@ mod tests {
     }
 
     #[test]
+    fn unit_template_names_are_owned_by_each_prototype_and_reset_with_its_factory() {
+        let mut first = TeamFactory::new();
+        let mut second = TeamFactory::new();
+        let first_name = format!("{}_{}", "OwnedFirstTeamUnit", 1);
+        let second_name = format!("{}_{}", "OwnedSecondTeamUnit", 2);
+
+        let make_dictionary = |unit_name: &str| {
+            let mut dict = Dict::new();
+            dict.set_ascii_string(key_team_unit_type1(), unit_name);
+            dict.set_int(key_team_unit_min_count1(), 1);
+            dict.set_int(key_team_unit_max_count1(), 2);
+            dict
+        };
+        let first_dict = make_dictionary(&first_name);
+        let second_dict = make_dictionary(&second_name);
+        let first_prototype = first
+            .init_team_owned(
+                AsciiString::from("SharedTeam"),
+                AsciiString::from("FirstOwner"),
+                false,
+                Some(&first_dict),
+                Some(1),
+            )
+            .expect("first owned prototype");
+        let first_weak = Arc::downgrade(&first_prototype);
+        drop(first_prototype);
+        second
+            .init_team_owned(
+                AsciiString::from("SharedTeam"),
+                AsciiString::from("SecondOwner"),
+                false,
+                Some(&second_dict),
+                Some(1),
+            )
+            .expect("second owned prototype");
+        drop(first_dict);
+        drop(second_dict);
+
+        assert_eq!(
+            first
+                .find_team_prototype("SharedTeam")
+                .unwrap()
+                .units_info()[0]
+                .unit_thing_name,
+            first_name
+        );
+        assert_eq!(
+            second
+                .find_team_prototype("SharedTeam")
+                .unwrap()
+                .units_info()[0]
+                .unit_thing_name,
+            second_name
+        );
+
+        first.reset();
+        assert!(first.find_team_prototype("SharedTeam").is_none());
+        assert!(
+            first_weak.upgrade().is_none(),
+            "reset releases the first prototype"
+        );
+        assert_eq!(
+            second
+                .find_team_prototype("SharedTeam")
+                .unwrap()
+                .units_info()[0]
+                .unit_thing_name,
+            "OwnedSecondTeamUnit_2",
+            "resetting one factory does not discard the peer prototype's owned name"
+        );
+    }
+
+    #[test]
     fn create_inactive_team_requires_existing_prototype() {
         let mut factory = TeamFactory::new();
         assert!(factory.create_inactive_team("MissingTeam").is_none());

@@ -794,15 +794,25 @@ impl AIManager {
     }
 
     fn resolve_guard_supply_player(&self, game_logic: &GameLogic, team_name: &str) -> Option<u32> {
-        if let Ok(factory) = game_logic.team_factory.lock() {
-            if let Some(prototype) = factory.find_team_prototype(team_name) {
-                let owner = prototype.get_owner_name().to_string();
-                if !owner.is_empty() {
-                    if let Some(id) = Self::resolve_player_id(game_logic, &owner) {
-                        if self.ai_players.contains_key(&id) {
-                            return Some(id);
-                        }
-                    }
+        let admitted = game_logic
+            .team_factory
+            .with_read_without_flushing(|factory| factory.admitted_prototype_controller(team_name))
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(controller) = admitted {
+            return controller.filter(|id| self.ai_players.contains_key(id));
+        }
+        let authored_owner = game_logic
+            .team_factory
+            .with_read_without_flushing(|factory| {
+                factory
+                    .find_team_prototype(team_name)
+                    .map(|prototype| prototype.get_owner_name().to_string())
+            })
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(owner) = authored_owner.filter(|owner| !owner.is_empty()) {
+            if let Some(id) = Self::resolve_player_id(game_logic, &owner) {
+                if self.ai_players.contains_key(&id) {
+                    return Some(id);
                 }
             }
         }
@@ -1246,10 +1256,10 @@ mod aidata_owner_tests {
         if run_isolated("explicit_ai_data_target_keeps_interleaved_catalogs_separate") {
             return;
         }
-        use game_engine::common::ini::ini_ai_data::{
-            install_ai_data_store, uninstall_ai_data_store_if_current, AIDataStore,
-        };
         use game_engine::common::ini::INI;
+        use game_engine::common::ini::ini_ai_data::{
+            AIDataStore, install_ai_data_store, uninstall_ai_data_store_if_current,
+        };
         use std::sync::{Arc, RwLock};
 
         // Run this test in an isolated/serial harness: it temporarily exercises the

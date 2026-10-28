@@ -58,7 +58,7 @@ fn fixture(priority: i32) -> (GameLogic, ObjectId, u32) {
                 gamelogic::team::CreateUnitsInfo {
                     min_units: 1,
                     max_units: 3,
-                    unit_thing_name: "AmericaTankCrusader",
+                    unit_thing_name: "AmericaTankCrusader".into(),
                 },
             );
             factory.replace_team_prototype(prototype);

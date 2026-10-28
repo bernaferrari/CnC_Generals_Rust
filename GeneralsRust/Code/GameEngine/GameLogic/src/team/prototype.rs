@@ -157,7 +157,7 @@ impl TeamPrototype {
                     .collect(),
             )),
             attack_priority_name: String::new().into(),
-            units_info: [CreateUnitsInfo::new(); MAX_UNIT_TYPES],
+            units_info: std::array::from_fn(|_| CreateUnitsInfo::new()),
             num_units_info: 0,
             transport_unit_type: String::new().into(),
             start_reinforce_waypoint: String::new().into(),

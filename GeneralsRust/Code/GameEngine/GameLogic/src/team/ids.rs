@@ -160,11 +160,12 @@ pub fn flush_pending_team_script_events() {
 }
 
 /// Unit creation info (matching C++ TCreateUnitsInfo)
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateUnitsInfo {
     pub min_units: Int,
     pub max_units: Int,
-    pub unit_thing_name: &'static str, // Simplified for now
+    /// Authored unit template name owned by this team prototype.
+    pub unit_thing_name: String,
 }
 
 impl CreateUnitsInfo {
@@ -172,7 +173,7 @@ impl CreateUnitsInfo {
         Self {
             min_units: 0,
             max_units: 0,
-            unit_thing_name: "",
+            unit_thing_name: String::new(),
         }
     }
 }

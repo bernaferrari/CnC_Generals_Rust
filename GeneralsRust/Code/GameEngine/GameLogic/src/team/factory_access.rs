@@ -143,6 +143,22 @@ impl TeamFactoryHandle {
         }
     }
 
+    /// Change a receiving prototype's controller without flushing unrelated
+    /// factory callbacks between that change and the caller's member updates.
+    /// Team::setControllingPlayer itself does not deliver those callbacks.
+    pub fn transfer_prototype_controller_without_flushing(
+        &self,
+        team_id: TeamID,
+        controller: u32,
+    ) -> Result<Option<TeamPrototypeControllerTransfer>, String> {
+        let mut factory = self
+            .inner
+            .inner
+            .lock()
+            .map_err(|_| "receiving TeamFactory lock poisoned".to_string())?;
+        Ok(factory.transfer_team_prototype_controller(team_id, controller))
+    }
+
     /// Run one controller's Team generic-script phase with the receiving
     /// interpreter and driver. This deliberately bypasses TeamFactoryGuard:
     /// generic callbacks execute synchronously in caller order, after the

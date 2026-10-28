@@ -81,3 +81,6 @@ mod generic_script_condition_tests;
 
 #[cfg(test)]
 mod generic_script_duplicate_tests;
+
+#[cfg(test)]
+mod prototype_controller_transfer_tests;

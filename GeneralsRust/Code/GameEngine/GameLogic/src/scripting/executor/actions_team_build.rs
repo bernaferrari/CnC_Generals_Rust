@@ -423,7 +423,7 @@ impl ScriptActionDispatcher<'_> {
                         break;
                     };
                     match manager.create_object(
-                        info.unit_thing_name,
+                        &info.unit_thing_name,
                         row_origin,
                         Some(team_arc.clone()),
                         crate::object_manager::ObjectCreationFlags::from_template(),

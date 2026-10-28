@@ -27,20 +27,22 @@ impl GameLogic {
         // script caller substitutes for a missing prototype/controller.
         let controller = self
             .team_factory
-            .lock()
-            .expect("owned team definitions")
-            .find_team_prototype(team)
-            .map(|prototype| prototype.get_owner_name().to_string())
-            .filter(|owner| !owner.is_empty());
+            .with_read_without_flushing(|factory| factory.admitted_prototype_controller(team))
+            .unwrap_or_else(|error| error.into_inner())
+            .flatten();
         let Some(controller) = controller else {
             return;
         };
         if let Some(radius) = recruit_radius {
-            if let Some(id) = crate::ai::AIManager::resolve_player_id(self, &controller) {
-                self.recruit_owned_specific_ai_team_with_effects(id, team, radius, interpreter, ui);
-            }
-        } else if let Some(id) = crate::ai::AIManager::resolve_player_id(self, &controller) {
-            self.build_owned_specific_ai_team_with_effects(id, team, true, interpreter, ui);
+            self.recruit_owned_specific_ai_team_with_effects(
+                controller,
+                team,
+                radius,
+                interpreter,
+                ui,
+            );
+        } else {
+            self.build_owned_specific_ai_team_with_effects(controller, team, true, interpreter, ui);
         }
     }
 

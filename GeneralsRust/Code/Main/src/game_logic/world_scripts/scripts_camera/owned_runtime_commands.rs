@@ -223,24 +223,39 @@ impl GameLogic {
         let Some((team_id, _)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };
+        self.apply_owned_team_transfer_to_id(team_id, player)
+    }
+
+    pub(super) fn apply_owned_team_transfer_to_id(
+        &mut self,
+        team_id: u32,
+        player: u32,
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(side) = self.players.get(&player).map(|player| player.team) else {
             return Ok(());
         };
-        let members = {
-            let factory = self.team_factory.lock().expect("owned controller transfer");
-            let Some(team) = factory.find_team_by_id(team_id) else {
-                return Ok(());
-            };
-            let mut team = team.write().expect("owned controller");
-            team.set_controlling_player_id_for_owned_members(Some(player))
+        let Some(transfer) = self
+            .team_factory
+            .transfer_prototype_controller_without_flushing(team_id, player)
+            .map_err(gamelogic::GameLogicError::Threading)?
+        else {
+            return Ok(());
         };
         // CPP changes the controlling player, retaining the concrete team and
-        // roster. There is no capture command or capture behavior callback.
-        for member in members {
-            if let Some((object, partition)) = self.host_object_and_partition_mut(ObjectId(member))
-            {
+        // roster. Every sibling object's cached controlling-player/faction
+        // observation follows the shared prototype. C++ partition maintenance
+        // and ScriptActions::updateTeamAndPlayerStuff remain selected-Team-only.
+        // The latter's upgrade-module and Drawable-indicator refreshes do not
+        // yet have a corresponding host operation in this code path.
+        for member in transfer.all_member_ids {
+            if let Some(object) = self.host_object_mut(ObjectId(member)) {
                 object.owner_player_id = Some(player);
                 object.team = side;
+            }
+        }
+        for member in transfer.selected_member_ids {
+            if let Some((object, partition)) = self.host_object_and_partition_mut(ObjectId(member))
+            {
                 object.handle_partition_cell_maintenance_with_partition_owner(partition);
             }
         }

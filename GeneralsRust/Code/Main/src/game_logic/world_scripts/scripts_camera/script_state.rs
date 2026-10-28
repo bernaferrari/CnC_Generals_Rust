@@ -1492,18 +1492,22 @@ impl GameLogic {
         team_name: &str,
         dest_player: u32,
     ) {
-        let members = self.host_script_team_member_ids(team_name);
-        for id in members {
-            if let Some(obj) = self.host_object_mut(id) {
-                obj.owner_player_id = Some(dest_player);
-            }
-        }
-        if let Ok(mut factory) = self.team_factory.lock() {
-            if let Some(team) = factory.find_team(team_name) {
-                if let Ok(mut guard) = team.write() {
-                    guard.set_controlling_player_id(Some(dest_player));
-                }
-            }
+        let team_id = {
+            let mut factory = match self.team_factory.lock() {
+                Ok(factory) => factory,
+                Err(error) => error.into_inner(),
+            };
+            let Some(team) = factory.find_team(team_name) else {
+                return;
+            };
+            let team_id = match team.read() {
+                Ok(team) => team.get_id(),
+                Err(error) => error.into_inner().get_id(),
+            };
+            team_id
+        };
+        if let Err(error) = self.apply_owned_team_transfer_to_id(team_id, dest_player) {
+            log::error!("Team controller transfer failed: {error}");
         }
     }
 

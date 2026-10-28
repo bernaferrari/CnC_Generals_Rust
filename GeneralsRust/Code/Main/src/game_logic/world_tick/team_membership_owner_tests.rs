@@ -541,7 +541,7 @@ fn native_authored_reinforcement_keeps_condition_team_and_runs_callback_before_f
         gamelogic::team::CreateUnitsInfo {
             min_units: 2,
             max_units: 2,
-            unit_thing_name: "RosterUnit",
+            unit_thing_name: "RosterUnit".into(),
         },
     );
     world

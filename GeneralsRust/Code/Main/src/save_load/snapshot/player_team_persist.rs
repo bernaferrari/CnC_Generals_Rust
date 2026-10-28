@@ -22,7 +22,7 @@ pub const CHUNK_PLAYERS: &str = "CHUNK_Players";
 pub const CHUNK_TEAM_FACTORY: &str = "CHUNK_TeamFactory";
 
 const PLAYERS_CHUNK_VERSION: u8 = 9;
-const TEAM_FACTORY_CHUNK_VERSION: u8 = 5;
+const TEAM_FACTORY_CHUNK_VERSION: u8 = 7;
 const MAX_ATTACKED_BY: usize = 16;
 const MAX_GENERIC_SCRIPTS: usize = 16;
 
@@ -192,6 +192,7 @@ pub struct PlayersChunkPersist {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TeamFactoryChunkPersist {
+    pub version: u8,
     pub persist_roster: bool,
     pub unique_team_id: u32,
     pub teams: Vec<TeamRuntimePersist>,
@@ -205,6 +206,10 @@ pub struct TeamPrototypePersist {
     pub attack_priority_name: String,
     pub production_priority: i32,
     pub prototype_id: Option<u32>,
+    /// None for pre-v6 archives; Some(None) is an explicitly unowned prototype.
+    pub controller: Option<Option<u32>>,
+    /// None before v7; otherwise the index in the owning Player's team list.
+    pub owner_order: Option<u32>,
 }
 
 fn map_xfer<T>(result: std::io::Result<T>) -> SaveLoadResult<T> {
@@ -755,6 +760,20 @@ pub fn write_team_factory_block<W: Write + Seek>(
         if let Some(mut id) = proto.prototype_id {
             map_xfer(xfer.xfer_unsigned_int(&mut id))?;
         }
+        let mut has_controller = proto.controller.is_some();
+        map_xfer(xfer.xfer_bool(&mut has_controller))?;
+        if let Some(mut controller) = proto.controller {
+            let mut has_controller_id = controller.is_some();
+            map_xfer(xfer.xfer_bool(&mut has_controller_id))?;
+            if let Some(mut id) = controller {
+                map_xfer(xfer.xfer_unsigned_int(&mut id))?;
+            }
+        }
+        let mut has_owner_order = proto.owner_order.is_some();
+        map_xfer(xfer.xfer_bool(&mut has_owner_order))?;
+        if let Some(mut index) = proto.owner_order {
+            map_xfer(xfer.xfer_unsigned_int(&mut index))?;
+        }
     }
     let mut complete = persist.persist_roster;
     map_xfer(xfer.xfer_bool(&mut complete))?;
@@ -881,6 +900,31 @@ pub fn parse_team_factory_block(payload: &[u8]) -> SaveLoadResult<TeamFactoryChu
                     proto.prototype_id = Some(id);
                 }
             }
+            if version >= 6 {
+                let mut present = false;
+                map_xfer(xfer.xfer_bool(&mut present))?;
+                if present {
+                    let mut has_controller_id = false;
+                    map_xfer(xfer.xfer_bool(&mut has_controller_id))?;
+                    let controller = if has_controller_id {
+                        let mut id = 0;
+                        map_xfer(xfer.xfer_unsigned_int(&mut id))?;
+                        Some(id)
+                    } else {
+                        None
+                    };
+                    proto.controller = Some(controller);
+                }
+            }
+            if version >= 7 {
+                let mut present = false;
+                map_xfer(xfer.xfer_bool(&mut present))?;
+                if present {
+                    let mut index = 0;
+                    map_xfer(xfer.xfer_unsigned_int(&mut index))?;
+                    proto.owner_order = Some(index);
+                }
+            }
             prototypes.push(proto);
         }
     }
@@ -894,6 +938,7 @@ pub fn parse_team_factory_block(payload: &[u8]) -> SaveLoadResult<TeamFactoryChu
         ));
     }
     Ok(TeamFactoryChunkPersist {
+        version,
         persist_roster,
         unique_team_id,
         teams,
@@ -1071,9 +1116,17 @@ pub(super) fn capture_team_factory_chunk(
             prototype_id: Some(proto.get_id()),
             attack_priority_name: proto.get_attack_priority_name().to_string(),
             production_priority: proto.get_production_priority(),
+            controller: factory.admitted_prototype_controller(proto.get_name().as_str()),
+            owner_order: factory
+                .admitted_prototype_controller(proto.get_name().as_str())
+                .flatten()
+                .and_then(|controller| {
+                    factory.player_prototype_order_index(controller, proto.get_name().as_str())
+                }),
         })
         .collect();
     Ok(TeamFactoryChunkPersist {
+        version: TEAM_FACTORY_CHUNK_VERSION,
         persist_roster: true,
         unique_team_id,
         teams,
@@ -1158,10 +1211,97 @@ pub(super) fn apply_player_to_live(game_logic: &mut GameLogic, persist: &PlayerR
     }
 }
 
+fn validate_team_factory_restore(
+    factory: &gamelogic::team::TeamFactory,
+    persist: &TeamFactoryChunkPersist,
+) -> SaveLoadResult<()> {
+    // Validate every saved identity and sibling owner before changing the
+    // receiving candidate. A shared TeamPrototype has one controller, so v6+
+    // Team runtime records for that prototype must agree with it.
+    let mut prototype_names = std::collections::HashSet::new();
+    let mut owner_indices: std::collections::HashMap<u32, Vec<u32>> =
+        std::collections::HashMap::new();
+    for proto_persist in &persist.prototypes {
+        if proto_persist.team_name.trim().is_empty() {
+            continue;
+        }
+        if !prototype_names.insert(proto_persist.team_name.as_str()) {
+            return Err(SaveLoadError::Corrupted(format!(
+                "Saved prototype {} occurs more than once",
+                proto_persist.team_name
+            )));
+        }
+        let prototype = factory
+            .find_team_prototype(&proto_persist.team_name)
+            .ok_or_else(|| {
+                SaveLoadError::Corrupted(format!(
+                    "Saved prototype {} is absent from the loaded map",
+                    proto_persist.team_name
+                ))
+            })?;
+        if proto_persist
+            .prototype_id
+            .is_some_and(|id| id != prototype.get_id())
+        {
+            return Err(SaveLoadError::Corrupted(
+                "Saved prototype ID does not match map definition".into(),
+            ));
+        }
+        if let Some(controller) = proto_persist.controller {
+            for sibling in persist
+                .teams
+                .iter()
+                .filter(|team| team.team_name == proto_persist.team_name)
+            {
+                if sibling.controller != controller {
+                    return Err(SaveLoadError::Corrupted(format!(
+                        "Saved sibling Team owners disagree for prototype {}",
+                        proto_persist.team_name
+                    )));
+                }
+            }
+        }
+        if let Some(order_index) = proto_persist.owner_order {
+            let Some(Some(controller)) = proto_persist.controller else {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Saved owner order has no controller for prototype {}",
+                    proto_persist.team_name
+                )));
+            };
+            owner_indices
+                .entry(controller)
+                .or_default()
+                .push(order_index);
+        } else if persist.version >= 7 && matches!(proto_persist.controller, Some(Some(_))) {
+            return Err(SaveLoadError::Corrupted(format!(
+                "Saved owner order is missing for prototype {}",
+                proto_persist.team_name
+            )));
+        }
+    }
+    for indices in owner_indices.values_mut() {
+        indices.sort_unstable();
+        if indices
+            .iter()
+            .enumerate()
+            .any(|(expected, actual)| u32::try_from(expected).ok() != Some(*actual))
+        {
+            return Err(SaveLoadError::Corrupted(
+                "Saved Player team visitation order has duplicate or missing indices".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn apply_teams_to_leftover(
     team_factory: &gamelogic::team::TeamFactoryHandle,
     persist: &TeamFactoryChunkPersist,
 ) -> SaveLoadResult<()> {
+    team_factory
+        .with_read_without_flushing(|factory| validate_team_factory_restore(factory, persist))
+        .map_err(|e| SaveLoadError::Corrupted(e.to_string()))??;
+
     let mut factory = team_factory
         .lock()
         .map_err(|e| SaveLoadError::Corrupted(e.to_string()))?;
@@ -1192,6 +1332,14 @@ pub(super) fn apply_teams_to_leftover(
         updated.set_attack_priority_name(proto_persist.attack_priority_name.clone().into());
         updated.set_production_priority(proto_persist.production_priority);
         factory.replace_team_prototype(updated);
+        if let Some(controller) = proto_persist.controller {
+            if !factory.restore_prototype_controller(&proto_persist.team_name, controller) {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Saved controller owner refers to absent prototype {}",
+                    proto_persist.team_name
+                )));
+            }
+        }
     }
     factory
         .restore_prototype_admission_order(
@@ -1202,6 +1350,25 @@ pub(super) fn apply_teams_to_leftover(
                 .collect::<Vec<_>>(),
         )
         .map_err(|error| SaveLoadError::Corrupted(error.to_string()))?;
+    if persist.version >= 7 {
+        let owner_order = persist
+            .prototypes
+            .iter()
+            .filter_map(|prototype| {
+                let (Some(Some(controller)), Some(index)) =
+                    (prototype.controller, prototype.owner_order)
+                else {
+                    return None;
+                };
+                Some((prototype.team_name.clone(), controller, index))
+            })
+            .collect::<Vec<_>>();
+        if !factory.restore_player_prototype_orders(&owner_order) {
+            return Err(SaveLoadError::Corrupted(
+                "Saved Player team visitation order does not match map definitions".into(),
+            ));
+        }
+    }
     for team_persist in &persist.teams {
         let team_arc = if team_persist.members.is_some() {
             Some(
@@ -1348,6 +1515,7 @@ mod tests {
         players.players.push(player);
 
         let mut teams = TeamFactoryChunkPersist {
+            version: TEAM_FACTORY_CHUNK_VERSION,
             persist_roster: false,
             unique_team_id: 12,
             teams: vec![TeamRuntimePersist {
@@ -1385,6 +1553,8 @@ mod tests {
                 attack_priority_name: "PrioritySetA".into(),
                 production_priority: 42,
                 prototype_id: None,
+                controller: Some(Some(2)),
+                owner_order: Some(0),
             }],
         };
         teams.teams[0].generic_script_attempts[0] = true;
@@ -1457,7 +1627,117 @@ mod tests {
             "PrioritySetA"
         );
         assert_eq!(parsed_teams.prototypes[0].production_priority, 42);
+        assert_eq!(parsed_teams.prototypes[0].controller, Some(Some(2)));
+        assert_eq!(parsed_teams.prototypes[0].owner_order, Some(0));
+        assert_eq!(parsed_teams.version, 7);
         let _ = parsed_players;
+    }
+
+    #[test]
+    fn conflicting_v6_sibling_owners_are_rejected_before_factory_mutation() {
+        let factory_handle = gamelogic::team::TeamFactoryHandle::new();
+        let original_priority;
+        let original_next_id;
+        {
+            let mut factory = factory_handle.lock().unwrap();
+            factory.init_team_owned("Shared".into(), "Owner".into(), false, None, Some(1));
+            factory.create_inactive_team("Shared").unwrap();
+            factory.create_inactive_team("Shared").unwrap();
+            original_priority = factory
+                .find_team_prototype("Shared")
+                .unwrap()
+                .get_production_priority();
+            original_next_id = factory.get_next_team_id();
+        }
+
+        let persist = TeamFactoryChunkPersist {
+            version: 6,
+            unique_team_id: 99,
+            teams: vec![
+                TeamRuntimePersist {
+                    team_name: "Shared".into(),
+                    controller: Some(2),
+                    ..TeamRuntimePersist::default()
+                },
+                TeamRuntimePersist {
+                    team_name: "Shared".into(),
+                    controller: Some(3),
+                    ..TeamRuntimePersist::default()
+                },
+            ],
+            prototypes: vec![TeamPrototypePersist {
+                team_name: "Shared".into(),
+                attack_priority_name: "must-not-apply".into(),
+                production_priority: 77,
+                prototype_id: None,
+                controller: Some(Some(2)),
+                owner_order: None,
+            }],
+            ..TeamFactoryChunkPersist::default()
+        };
+
+        assert!(apply_teams_to_leftover(&factory_handle, &persist).is_err());
+        let factory = factory_handle.lock().unwrap();
+        let prototype = factory.find_team_prototype("Shared").unwrap();
+        assert_eq!(prototype.get_production_priority(), original_priority);
+        assert_ne!(
+            prototype.get_attack_priority_name().as_str(),
+            "must-not-apply"
+        );
+        assert_eq!(factory.get_next_team_id(), original_next_id);
+        assert_eq!(
+            factory.admitted_prototype_controller("Shared"),
+            Some(Some(1))
+        );
+    }
+
+    #[test]
+    fn v7_restore_keeps_factory_order_and_restores_player_visitation_order() {
+        let factory_handle = gamelogic::team::TeamFactoryHandle::new();
+        let factory_order;
+        {
+            let mut factory = factory_handle.lock().unwrap();
+            factory.init_team_owned("Alpha".into(), "Owner".into(), false, None, Some(1));
+            factory.init_team_owned("Beta".into(), "Receiver".into(), false, None, Some(2));
+            factory.init_team_owned("Gamma".into(), "Receiver".into(), false, None, Some(2));
+            factory_order = factory.prototype_names();
+        }
+        let persist = TeamFactoryChunkPersist {
+            version: 7,
+            prototypes: vec![
+                TeamPrototypePersist {
+                    team_name: "Alpha".into(),
+                    controller: Some(Some(2)),
+                    owner_order: Some(1),
+                    ..TeamPrototypePersist::default()
+                },
+                TeamPrototypePersist {
+                    team_name: "Beta".into(),
+                    controller: Some(Some(2)),
+                    owner_order: Some(0),
+                    ..TeamPrototypePersist::default()
+                },
+                TeamPrototypePersist {
+                    team_name: "Gamma".into(),
+                    controller: Some(Some(2)),
+                    owner_order: Some(2),
+                    ..TeamPrototypePersist::default()
+                },
+            ],
+            ..TeamFactoryChunkPersist::default()
+        };
+
+        apply_teams_to_leftover(&factory_handle, &persist).expect("restore prototype orders");
+        let factory = factory_handle.lock().unwrap();
+        assert_eq!(factory.prototype_names(), factory_order);
+        assert_eq!(
+            factory
+                .owned_team_prototypes_for_controller(2)
+                .iter()
+                .map(|prototype| prototype.get_name().to_string())
+                .collect::<Vec<_>>(),
+            ["Beta", "Alpha", "Gamma"]
+        );
     }
 
     #[test]

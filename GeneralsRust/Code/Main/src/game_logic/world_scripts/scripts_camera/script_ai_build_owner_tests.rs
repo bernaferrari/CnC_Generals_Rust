@@ -71,7 +71,7 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
             gamelogic::team::CreateUnitsInfo {
                 min_units: 1,
                 max_units: 1,
-                unit_thing_name: "AmericaInfantryRanger",
+                unit_thing_name: "AmericaInfantryRanger".into(),
             },
         );
         prototype.set_production_priority(100);

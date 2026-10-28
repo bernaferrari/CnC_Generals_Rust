@@ -15,27 +15,26 @@ impl GameLogic {
             return false;
         };
         let factory = ai.team_factory.clone();
-        let admitted = {
-            let definitions = factory.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(prototype) = definitions.find_team_prototype(name) else {
-                return false;
-            };
-            if prototype.is_singleton()
-                && definitions
-                    .find_team_instances(name)
-                    .first()
-                    .is_some_and(|team| {
-                        team.read()
-                            .unwrap_or_else(|e| e.into_inner())
-                            .has_any_objects()
-                    })
-            {
-                return false;
-            }
-            definitions.find_team_prototype(name).is_some_and(|p| {
-                AIManager::resolve_player_id(self, p.get_owner_name().as_str()) == Some(player)
+        let admitted = factory
+            .with_read_without_flushing(|definitions| {
+                let Some(prototype) = definitions.find_team_prototype(name) else {
+                    return false;
+                };
+                if prototype.is_singleton()
+                    && definitions
+                        .find_team_instances(name)
+                        .first()
+                        .is_some_and(|team| {
+                            team.read()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .has_any_objects()
+                        })
+                {
+                    return false;
+                }
+                definitions.admitted_prototype_controller(name) == Some(Some(player))
             })
-        };
+            .unwrap_or_else(|error| error.into_inner());
         if !admitted {
             return false;
         }
@@ -58,33 +57,28 @@ impl GameLogic {
             log::error!("AI recruit Team creation failed: {error}");
             return false;
         }
-        let prototype = {
-            let definitions = factory.lock().unwrap_or_else(|e| e.into_inner());
-            if !definitions
-                .find_team_by_id(identity)
-                .is_some_and(|current| std::sync::Arc::ptr_eq(&current, &created))
-            {
-                return false;
-            }
-            let Some(prototype) = definitions.find_team_prototype(name) else {
-                return false;
-            };
-            if AIManager::resolve_player_id(self, prototype.get_owner_name().as_str())
-                != Some(player)
-            {
-                return false;
-            }
-            prototype
+        let prototype = factory
+            .with_read_without_flushing(|definitions| {
+                definitions
+                    .find_team_by_id(identity)
+                    .filter(|current| std::sync::Arc::ptr_eq(current, &created))?;
+                definitions.find_team_prototype(name)
+            })
+            .unwrap_or_else(|error| error.into_inner());
+        let Some(prototype) = prototype else {
+            return false;
         };
         let Some(ai) = self.ai_manager.ai_players.get(&player) else {
             return false;
         };
         if !ai
             .team_factory
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .find_team_by_id(identity)
-            .is_some_and(|current| std::sync::Arc::ptr_eq(&current, &created))
+            .with_read_without_flushing(|definitions| {
+                definitions
+                    .find_team_by_id(identity)
+                    .is_some_and(|current| std::sync::Arc::ptr_eq(&current, &created))
+            })
+            .unwrap_or_else(|error| error.into_inner())
         {
             return false;
         }
@@ -95,7 +89,8 @@ impl GameLogic {
         let radius = if radius < 1. { 99_999. } else { radius };
         let mut recruited = 0u32;
         for unit in prototype.units_info() {
-            if unit.unit_thing_name.is_empty() || !self.templates.contains_key(unit.unit_thing_name)
+            if unit.unit_thing_name.is_empty()
+                || !self.templates.contains_key(&unit.unit_thing_name)
             {
                 continue;
             }
@@ -243,7 +238,7 @@ mod tests {
             gamelogic::team::CreateUnitsInfo {
                 min_units: 2,
                 max_units: 2,
-                unit_thing_name: "RecruitInfantry",
+                unit_thing_name: "RecruitInfantry".into(),
             },
         );
         proto.set_production_priority(1000);

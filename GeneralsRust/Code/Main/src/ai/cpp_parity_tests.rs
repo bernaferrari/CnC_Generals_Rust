@@ -36,7 +36,7 @@ fn install_player_team_prototype(
                 gamelogic::team::CreateUnitsInfo {
                     min_units: *min_u,
                     max_units: *max_u,
-                    unit_thing_name: thing,
+                    unit_thing_name: thing.to_string(),
                 },
             );
         }
@@ -375,7 +375,7 @@ fn select_team_to_build_reinforce_does_not_arm_timer() {
             gamelogic::team::CreateUnitsInfo {
                 min_units: 1,
                 max_units: 3,
-                unit_thing_name: "AmericaTankCrusader",
+                unit_thing_name: "AmericaTankCrusader".into(),
             },
         );
         tf.replace_team_prototype(proto);
@@ -421,7 +421,7 @@ fn estimate_team_unit_cost_averages_min_max() {
             gamelogic::team::CreateUnitsInfo {
                 min_units: 1,
                 max_units: 3,
-                unit_thing_name: "AmericaInfantryRanger",
+                unit_thing_name: "AmericaInfantryRanger".into(),
             },
         );
         tf.replace_team_prototype(proto);
@@ -460,7 +460,7 @@ fn build_specific_ai_team_splits_optional_and_required() {
             gamelogic::team::CreateUnitsInfo {
                 min_units: 1,
                 max_units: 4,
-                unit_thing_name: "AmericaInfantryRanger",
+                unit_thing_name: "AmericaInfantryRanger".into(),
             },
         );
         tf.replace_team_prototype(proto);
@@ -2007,7 +2007,7 @@ fn select_team_to_reinforce_tops_up_short_auto_team() {
             gamelogic::team::CreateUnitsInfo {
                 min_units: 1,
                 max_units: 3,
-                unit_thing_name: "AmericaTankCrusader",
+                unit_thing_name: "AmericaTankCrusader".into(),
             },
         );
         tf.replace_team_prototype(proto);
@@ -2058,7 +2058,7 @@ fn select_team_to_reinforce_tops_up_short_auto_team() {
             gamelogic::team::CreateUnitsInfo {
                 min_units: 1,
                 max_units: 3,
-                unit_thing_name: "AmericaTankCrusader",
+                unit_thing_name: "AmericaTankCrusader".into(),
             },
         );
         tf.replace_team_prototype(proto);

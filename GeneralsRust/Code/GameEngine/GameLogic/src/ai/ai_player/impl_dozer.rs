@@ -1017,7 +1017,7 @@ impl AIPlayer {
                     if unit_info.unit_thing_name.is_empty() {
                         continue;
                     }
-                    let Some(thing) = TheThingFactory::find_template(unit_info.unit_thing_name)
+                    let Some(thing) = TheThingFactory::find_template(&unit_info.unit_thing_name)
                     else {
                         continue;
                     };
@@ -1033,7 +1033,7 @@ impl AIPlayer {
                     }
                     // Idle factory required (findFactory(thing, false)).
                     if self
-                        .find_factory_internal(unit_info.unit_thing_name, false)?
+                        .find_factory_internal(&unit_info.unit_thing_name, false)?
                         .is_none()
                     {
                         continue;

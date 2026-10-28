@@ -612,7 +612,7 @@ impl AIPlayer {
             if unit_info.unit_thing_name.is_empty() {
                 continue;
             }
-            let Some(thing) = TheThingFactory::find_template(unit_info.unit_thing_name) else {
+            let Some(thing) = TheThingFactory::find_template(&unit_info.unit_thing_name) else {
                 continue;
             };
             let mut count = unit_info.max_units.max(0);

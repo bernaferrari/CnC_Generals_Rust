@@ -7,10 +7,12 @@
 #[derive(Debug)]
 pub struct TeamFactory {
     prototypes: HashMap<String, Arc<TeamPrototype>>,
-    /// CPP Player::addTeamToList appends definitions; map keys and IDs are lookup only.
+    /// Factory-wide prototype admission order; independent of Player list order.
     prototype_order: Vec<String>,
     /// Presence admits an exact session controller, including explicit absence.
     prototype_controllers: HashMap<String, Option<u32>>,
+    /// C++ Player::m_teamList order, keyed by the receiving session player ID.
+    player_prototype_order: HashMap<u32, Vec<String>>,
     teams: HashMap<TeamID, Arc<RwLock<Team>>>,
     /// CPP TeamInstanceList admission order; IDs do not encode list position.
     instance_order: Vec<TeamID>,
@@ -33,6 +35,15 @@ pub struct HostTeamDeletion {
     identity: Arc<RwLock<Team>>,
 }
 
+/// Effects of changing a shared TeamPrototype's controller. Effective owner
+/// observations change for every sibling roster, while C++ transfer refreshes
+/// partition and per-object upgrade/indicator work only on the selected Team.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TeamPrototypeControllerTransfer {
+    pub all_member_ids: Vec<ObjectID>,
+    pub selected_member_ids: Vec<ObjectID>,
+}
+
 impl HostTeamDeletion {
     pub fn id(&self) -> TeamID {
         self.id
@@ -52,6 +63,7 @@ impl TeamFactory {
             prototypes: HashMap::new(),
             prototype_order: Vec::new(),
             prototype_controllers: HashMap::new(),
+            player_prototype_order: HashMap::new(),
             teams: HashMap::new(),
             instance_order: Vec::new(),
             unique_team_prototype_id: 1,
@@ -78,6 +90,18 @@ impl TeamFactory {
             .iter()
             .filter(|(name, _)| names.is_none_or(|names| names.contains(name)))
             .map(|(name, owner)| (name.clone(), *owner))
+            .collect();
+        candidate.player_prototype_order = self
+            .player_prototype_order
+            .iter()
+            .filter_map(|(owner, order)| {
+                let order = order
+                    .iter()
+                    .filter(|name| names.is_none_or(|names| names.contains(name)))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                (!order.is_empty()).then_some((*owner, order))
+            })
             .collect();
         candidate.unique_team_prototype_id = self.unique_team_prototype_id;
         for (name, definition) in &self.prototypes {
@@ -131,7 +155,7 @@ impl TeamFactory {
                         .collect(),
                 )),
                 attack_priority_name: definition.attack_priority_name.clone(),
-                units_info: definition.units_info,
+                units_info: definition.units_info.clone(),
                 num_units_info: definition.num_units_info,
                 transport_unit_type: definition.transport_unit_type.clone(),
                 start_reinforce_waypoint: definition.start_reinforce_waypoint.clone(),
@@ -153,6 +177,7 @@ impl TeamFactory {
         self.prototypes.clear();
         self.prototype_order.clear();
         self.prototype_controllers.clear();
+        self.player_prototype_order.clear();
         self.teams.clear();
         self.instance_order.clear();
         self.unique_team_prototype_id = 1;
@@ -168,6 +193,7 @@ impl TeamFactory {
         self.prototypes.clear();
         self.prototype_order.clear();
         self.prototype_controllers.clear();
+        self.player_prototype_order.clear();
         self.teams.clear();
         self.instance_order.clear();
         self.unique_team_prototype_id = 1;
@@ -400,13 +426,12 @@ impl TeamFactory {
                     continue;
                 }
 
-                let leaked_name: &'static str = Box::leak(template_name.into_boxed_str());
                 prototype.set_units_info(
                     idx,
                     CreateUnitsInfo {
                         min_units,
                         max_units,
-                        unit_thing_name: leaked_name,
+                        unit_thing_name: template_name,
                     },
                 );
             }
@@ -579,6 +604,15 @@ impl TeamFactory {
         if let Some(controller) = controller {
             self.prototype_controllers
                 .insert(name.to_string(), controller);
+            for order in self.player_prototype_order.values_mut() {
+                order.retain(|candidate| candidate != name.as_str());
+            }
+            if let Some(controller) = controller {
+                self.player_prototype_order
+                    .entry(controller)
+                    .or_default()
+                    .push(name.to_string());
+            }
         } else {
             self.prototype_controllers.remove(name.as_str());
             // Standalone C++ compatibility adapter only.
@@ -691,14 +725,63 @@ impl TeamFactory {
 
     /// Exact admitted controller identity, in original player-list visitation order.
     pub fn owned_team_prototypes_for_controller(&self, controller: u32) -> Vec<Arc<TeamPrototype>> {
-        self.list_team_prototypes_in_admission_order()
+        self.player_prototype_order
+            .get(&controller)
             .into_iter()
-            .filter(|prototype| {
-                self.prototype_controllers
-                    .get(prototype.get_name().as_str())
-                    == Some(&Some(controller))
-            })
+            .flatten()
+            .filter_map(|name| self.prototypes.get(name).cloned())
             .collect()
+    }
+
+    /// Index of a prototype in the receiving Player's ordered team list.
+    pub fn player_prototype_order_index(&self, controller: u32, name: &str) -> Option<u32> {
+        self.player_prototype_order
+            .get(&controller)?
+            .iter()
+            .position(|candidate| candidate == name)
+            .and_then(|index| u32::try_from(index).ok())
+    }
+
+    /// Restore a complete saved owner visitation catalog. The input has
+    /// already been validated against the archive's saved indices.
+    pub fn restore_player_prototype_orders(&mut self, entries: &[(String, u32, u32)]) -> bool {
+        let mut grouped: HashMap<u32, Vec<(u32, String)>> = HashMap::new();
+        for (name, controller, index) in entries {
+            if !self.prototypes.contains_key(name) {
+                return false;
+            }
+            grouped
+                .entry(*controller)
+                .or_default()
+                .push((*index, name.clone()));
+        }
+        for group in grouped.values_mut() {
+            group.sort_by_key(|(index, _)| *index);
+            if group
+                .iter()
+                .enumerate()
+                .any(|(expected, (actual, _))| usize::try_from(*actual).ok() != Some(expected))
+            {
+                return false;
+            }
+        }
+        for order in self.player_prototype_order.values_mut() {
+            order.retain(|name| !entries.iter().any(|(saved, _, _)| saved == name));
+        }
+        for (controller, group) in grouped {
+            let mut restored = group.into_iter().map(|(_, name)| name).collect::<Vec<_>>();
+            restored.extend(
+                self.player_prototype_order
+                    .remove(&controller)
+                    .unwrap_or_default(),
+            );
+            self.player_prototype_order.insert(controller, restored);
+        }
+        for (name, controller, _) in entries {
+            self.prototype_controllers
+                .insert(name.clone(), Some(*controller));
+        }
+        true
     }
 
     /// CPP Player::iterateObjects: player prototype admission order, then each
@@ -980,6 +1063,98 @@ impl TeamFactory {
             .collect()
     }
 
+    /// C++ `Team::setControllingPlayer` changes the shared prototype's owner:
+    /// remove it from the old Player list, append it to the destination list,
+    /// and make every concrete instance observe the new controller. Return
+    /// all sibling rosters for owner-cache refresh and the selected instance's
+    /// roster separately for callbacks whose C++ iteration is selected-Team-only.
+    pub fn transfer_team_prototype_controller(
+        &mut self,
+        team_id: TeamID,
+        controller: u32,
+    ) -> Option<TeamPrototypeControllerTransfer> {
+        let team = self.teams.get(&team_id)?.clone();
+        let name = match team.read() {
+            Ok(team) => team.get_name().to_string(),
+            Err(error) => error.into_inner().get_name().to_string(),
+        };
+        if !self.prototypes.contains_key(&name) {
+            return None;
+        }
+        if !self.instance_order.contains(&team_id) {
+            return None;
+        }
+
+        // Player::setControllingPlayer removes from one PlayerTeamList and
+        // appends to the destination list. The factory-wide map order is stable.
+        for order in self.player_prototype_order.values_mut() {
+            order.retain(|candidate| candidate != &name);
+        }
+        self.player_prototype_order
+            .entry(controller)
+            .or_default()
+            .push(name.clone());
+        self.prototype_controllers
+            .insert(name.clone(), Some(controller));
+
+        let mut selected_members = None;
+        let mut all_member_ids = Vec::new();
+        for id in self.instance_order.iter().copied() {
+            let Some(instance) = self.teams.get(&id) else {
+                continue;
+            };
+            let mut instance = match instance.write() {
+                Ok(instance) => instance,
+                Err(error) => error.into_inner(),
+            };
+            if instance.get_name().as_str() != name {
+                continue;
+            }
+            let changed_members =
+                instance.set_controlling_player_id_for_owned_members(Some(controller));
+            let members = if changed_members.is_empty() {
+                instance.get_members().to_vec()
+            } else {
+                changed_members
+            };
+            all_member_ids.extend(members.iter().copied());
+            if id == team_id {
+                selected_members = Some(members);
+            }
+        }
+        Some(TeamPrototypeControllerTransfer {
+            all_member_ids,
+            selected_member_ids: selected_members.unwrap_or_default(),
+        })
+    }
+
+    /// Return whether this session admitted an explicit prototype controller
+    /// entry and its value (`Some(None)` is an admitted unowned prototype).
+    pub fn admitted_prototype_controller(&self, name: &str) -> Option<Option<u32>> {
+        self.prototype_controllers.get(name).copied()
+    }
+
+    /// Restore a saved prototype owner onto the receiving factory. The outer
+    /// option distinguishes older saves that lack this field from a saved
+    /// controller value of `None`.
+    pub fn restore_prototype_controller(&mut self, name: &str, controller: Option<u32>) -> bool {
+        if !self.prototypes.contains_key(name) {
+            return false;
+        }
+        for order in self.player_prototype_order.values_mut() {
+            order.retain(|candidate| candidate != name);
+        }
+        self.prototype_controllers
+            .insert(name.to_string(), controller);
+        if let Some(controller) = controller {
+            self.player_prototype_order
+                .entry(controller)
+                .or_default()
+                .push(name.to_string());
+        }
+        true
+    }
+
     /// C++ DLINK_ITERATOR rereads the current instance's next link after a
     /// synchronous script callback. Use the live admission order, without
     /// retaining a roster or team guard across that callback. A removed cursor
@@ -1208,10 +1383,22 @@ impl TeamFactory {
             })
     }
 
-    fn bind_prototype_to_owning_player(&self, prototype: &Arc<TeamPrototype>) {
+    fn bind_prototype_to_owning_player(&mut self, prototype: &Arc<TeamPrototype>) {
         let Some(player) = self.resolve_owning_player(prototype.get_owner_name().as_str()) else {
             return;
         };
+        let owner_id = match player.read() {
+            Ok(player) => player.get_player_index() as u32,
+            Err(error) => error.into_inner().get_player_index() as u32,
+        };
+        let name = prototype.get_name().to_string();
+        for order in self.player_prototype_order.values_mut() {
+            order.retain(|candidate| candidate != &name);
+        }
+        self.player_prototype_order
+            .entry(owner_id)
+            .or_default()
+            .push(name);
         if let Ok(mut player_guard) = player.write() {
             player_guard.add_team_to_list(Arc::clone(prototype));
         }

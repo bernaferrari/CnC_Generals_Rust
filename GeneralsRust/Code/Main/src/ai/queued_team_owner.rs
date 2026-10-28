@@ -685,7 +685,7 @@ mod tests {
             gamelogic::team::CreateUnitsInfo {
                 min_units: 2,
                 max_units: 2,
-                unit_thing_name: "AmericaInfantryRanger",
+                unit_thing_name: "AmericaInfantryRanger".into(),
             },
         );
         proto.set_production_condition(condition.into());
