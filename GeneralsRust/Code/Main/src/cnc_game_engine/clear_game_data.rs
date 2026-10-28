@@ -45,7 +45,6 @@ impl CnCGameEngine {
         self.reset_match_state_after_engine_reset()
             .map_err(|error| error.to_string())?;
         self.game_logic.finish_clear_game_data_after_reset();
-        self.control_groups.clear();
         self.render_pipeline.set_presentation_frame(None);
 
         // Source suffix: HideControlBar, closeWindows, then show the cursor.

@@ -161,6 +161,7 @@ pub use game_state::*;
 pub use gamelogic::system::shroud_manager::{
     ShroudCellSnapshot, ShroudGridSnapshot, ShroudPendingUndoRevealSnapshot, ShroudSnapshot,
 };
+pub(crate) use hotkey_squad_persist::apply_control_groups_to_logic;
 pub use hotkey_squad_persist::{
     ClientSaveState, ControlGroupSave, read_control_groups, write_control_groups,
 };

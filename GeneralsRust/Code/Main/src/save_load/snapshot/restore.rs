@@ -1154,6 +1154,7 @@ impl SnapshotBuilder {
                     captured_overcharge_power_delta: 0,
                     income_accumulator: 0.0,
                     selected_objects: Vec::new(),
+                    hotkey_squads: std::array::from_fn(|_| Vec::new()),
                     unlocked_sciences,
                     queued_upgrades,
                     is_human: snap.is_human,

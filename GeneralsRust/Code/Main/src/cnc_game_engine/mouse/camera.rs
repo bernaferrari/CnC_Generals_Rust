@@ -107,22 +107,12 @@ impl CnCGameEngine {
         if !self.receiving_replay_camera_for_player(player_index) {
             return;
         }
-        let live = self.game_logic.player_selected_objects(player_index as u32);
-        let leftover = crate::command_system::leftover_player_current_selection_ids(player_index);
-        let ids = if !live.is_empty() { live } else { leftover };
-        self.host_set_selection(player_index as u32, ids);
+        let selected = self.game_logic.player_selected_objects(player_index as u32);
+        self.host_mirror_owned_selection(player_index as u32, selected);
     }
 
-    fn remirror_host_replay_leftover_selection(&mut self, player_index: i32) {
-        if !self.receiving_replay_camera_for_player(player_index) {
-            return;
-        }
-        let leftover = crate::command_system::leftover_player_current_selection_ids(player_index);
-        if leftover.is_empty() {
-            self.remirror_host_replay_observer_selection(player_index);
-            return;
-        }
-        self.host_set_selection(player_index as u32, leftover);
+    fn remirror_host_replay_selection(&mut self, player_index: i32) {
+        self.remirror_host_replay_observer_selection(player_index);
     }
 
     pub(in crate::cnc_game_engine) fn update_camera(&mut self, dt: f32) {
@@ -302,16 +292,23 @@ impl CnCGameEngine {
                     ids,
                 } => {
                     if self.receiving_replay_camera_for_player(player_index) {
-                        if ids.is_empty() {
-                            self.control_groups.remove(&slot);
-                        } else {
-                            self.control_groups.insert(slot, ids);
-                        }
+                        self.game_logic
+                            .process_player_create_team(player_index as u32, slot, &ids);
                     }
                 }
-                crate::command_system::ReplayTeamOp::Select { player_index, .. }
-                | crate::command_system::ReplayTeamOp::Add { player_index, .. } => {
-                    self.remirror_host_replay_leftover_selection(player_index);
+                crate::command_system::ReplayTeamOp::Select { player_index, slot } => {
+                    if self.receiving_replay_camera_for_player(player_index) {
+                        self.game_logic
+                            .process_player_select_team(player_index as u32, slot);
+                    }
+                    self.remirror_host_replay_selection(player_index);
+                }
+                crate::command_system::ReplayTeamOp::Add { player_index, slot } => {
+                    if self.receiving_replay_camera_for_player(player_index) {
+                        self.game_logic
+                            .process_player_add_team(player_index as u32, slot);
+                    }
+                    self.remirror_host_replay_selection(player_index);
                 }
             }
         }

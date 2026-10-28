@@ -1157,24 +1157,7 @@ impl CnCGameEngine {
                 },
             );
         }
-        self.selected_objects = ids.clone();
-        self.host_match_selected_ids = Some(ids.clone());
-        // Keep presentation freeze selection residual in lockstep. Otherwise
-        // `host_ui_selected_ids_from_residuals` (presentation-first) returns empty
-        // until the next dual-tick rebuild, so host select → RMB order fails closed
-        // with selected_count>0 but ui_selected_ids empty.
-        if let Some(pres) = self
-            .last_presentation_frame
-            .as_mut()
-            .map(std::rc::Rc::make_mut)
-        {
-            let selected_set: std::collections::HashSet<_> = ids.iter().copied().collect();
-            for o in &mut pres.objects {
-                o.selected = selected_set.contains(&o.id);
-            }
-            pres.selected = ids;
-        }
-        let _ = player_id;
+        self.host_write_selection_residuals(player_id, ids);
     }
 
     /// C++ `MSG_CREATE_SELECTED_GROUP_NO_SOUND` / `MSG_ADD_TEAM` /
@@ -1193,6 +1176,30 @@ impl CnCGameEngine {
             self.host_game_logic_mut()
                 .select_objects_no_sound(player_id, ids.clone());
         }
+        self.host_write_selection_residuals(player_id, ids);
+    }
+
+    /// Reflect an already-applied Player selection in native UI state without
+    /// writing it back through GameLogic. Player squad operations may preserve
+    /// duplicate IDs in C++ order while the drawable/UI selection is unique.
+    pub(super) fn host_mirror_owned_selection(
+        &mut self,
+        player_id: u32,
+        ids: Vec<crate::game_logic::ObjectId>,
+    ) {
+        let ids = self.remap_angry_mob_selection_ids(ids);
+        let ids = self.cap_selection_ids(ids);
+        let mut seen = std::collections::HashSet::new();
+        let ids: Vec<_> = ids.into_iter().filter(|id| seen.insert(*id)).collect();
+        self.cancel_armed_gui_command_on_selection_change(&ids);
+        self.host_write_selection_residuals(player_id, ids);
+    }
+
+    fn host_write_selection_residuals(
+        &mut self,
+        player_id: u32,
+        ids: Vec<crate::game_logic::ObjectId>,
+    ) {
         self.selected_objects = ids.clone();
         self.host_match_selected_ids = Some(ids.clone());
         if let Some(pres) = self

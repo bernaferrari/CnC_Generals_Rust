@@ -1318,11 +1318,12 @@ impl CnCGameEngine {
     /// Cycle non-empty control groups residual (Ctrl+Alt+Left/Right already damaged structures).
     /// Use Ctrl+Shift+Tab residual: next/prev control group.
     pub(super) fn cycle_control_group_selection(&mut self, delta: i32) {
-        let mut groups: Vec<u8> = self
-            .control_groups
+        let squads = self.game_logic.player_hotkey_squads(self.current_player_id);
+        let mut groups: Vec<u8> = squads
             .iter()
-            .filter(|(_, v)| !v.is_empty())
-            .map(|(k, _)| *k)
+            .enumerate()
+            .filter(|(_, squad)| !squad.is_empty())
+            .map(|(slot, _)| slot as u8)
             .collect();
         groups.sort();
         if groups.is_empty() {
@@ -1347,10 +1348,8 @@ impl CnCGameEngine {
         };
         let group_num = groups[idx];
         let stored = self
-            .control_groups
-            .get(&group_num)
-            .cloned()
-            .unwrap_or_default();
+            .game_logic
+            .player_hotkey_squad_ids(self.current_player_id, group_num);
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;

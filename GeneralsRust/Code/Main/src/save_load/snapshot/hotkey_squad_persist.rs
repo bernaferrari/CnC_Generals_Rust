@@ -5,11 +5,10 @@
 //! that. Live `WorldSnapshot` had no control-group field, so Ctrl+1..0
 //! squads vanished after save/load.
 //!
-//! Append a tagged suffix after the historical v9 contain/producer payload
-//! (and after SPCD / BPPL / SUBD) so older decoders ignore the extra bytes.
-//! No world snapshot version bump. Explicit decoding supplies native
-//! `control_groups` admission through its detached save candidate; generic
-//! world capture and restore never read or write a process PlayerList.
+//! Keep the tagged HSQD record after the historical v9 contain/producer
+//! payload (and after SPCD / BPPL / SUBD) for old saves and readers. New live
+//! Player squads are also carried by CHUNK_Players v9; HSQD is a detached
+//! compatibility transfer view, never a second runtime authority.
 
 use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
@@ -43,18 +42,19 @@ pub struct ClientSaveState {
 
 #[derive(Debug, Clone)]
 pub struct ControlGroupSave {
-    pub player_index: i32,
-    pub groups: HashMap<u8, Vec<u32>>,
+    /// Detached serialization view of the receiving world's player-owned
+    /// squads. This is never retained as a live runtime authority.
+    pub players: HashMap<i32, HashMap<u8, Vec<u32>>>,
 }
 
 impl ControlGroupSave {
     pub(crate) fn validate(&self) -> SaveLoadResult<()> {
-        if self.player_index < 0
-            || self
-                .groups
-                .keys()
-                .any(|&slot| slot as usize >= NUM_HOTKEY_SQUADS)
-        {
+        if self.players.iter().any(|(player, groups)| {
+            *player < 0
+                || groups
+                    .keys()
+                    .any(|&slot| slot as usize >= NUM_HOTKEY_SQUADS)
+        }) {
             return Err(SaveLoadError::Corrupted(
                 "invalid client control-group owner or slot".into(),
             ));
@@ -80,20 +80,16 @@ fn write_control_groups_prefix(
     bytes: &mut Vec<u8>,
     owned: &ControlGroupSave,
 ) -> SaveLoadResult<()> {
-    let mut payload = decode_payload(bytes)?.unwrap_or_default();
-    let mut squads = vec![Vec::new(); NUM_HOTKEY_SQUADS];
-    for (&slot, ids) in &owned.groups {
-        squads[slot as usize] = ids.clone();
-    }
-    if let Some(player) = payload
-        .players
-        .iter_mut()
-        .find(|p| p.player_index == owned.player_index)
-    {
-        player.squads = squads;
-    } else {
+    // A new capture replaces the complete owner set. Merging would preserve
+    // HSQD records for players removed since the prior save.
+    let mut payload = HotkeySquadPersistPayload::default();
+    for (&player_index, groups) in &owned.players {
+        let mut squads = vec![Vec::new(); NUM_HOTKEY_SQUADS];
+        for (&slot, ids) in groups {
+            squads[slot as usize] = ids.clone();
+        }
         payload.players.push(PlayerHotkeySquadPersist {
-            player_index: owned.player_index,
+            player_index,
             squads,
         });
     }
@@ -136,6 +132,39 @@ pub fn read_control_groups(
             })
             .collect()
     }))
+}
+
+/// Import the legacy detached HSQD record into the canonical receiving
+/// Players. Validation finishes before any player is changed.
+pub(crate) fn apply_control_groups_to_logic(
+    game_logic: &mut GameLogic,
+    groups_by_player: &HashMap<i32, HashMap<u8, Vec<u32>>>,
+) -> SaveLoadResult<()> {
+    let mut staged = Vec::with_capacity(groups_by_player.len());
+    for (&raw_player_id, groups) in groups_by_player {
+        let player_id = u32::try_from(raw_player_id)
+            .map_err(|_| SaveLoadError::Corrupted("invalid hotkey squad player identity".into()))?;
+        if game_logic.get_player(player_id).is_none() {
+            return Err(SaveLoadError::Corrupted(format!(
+                "hotkey squads reference missing player {player_id}"
+            )));
+        }
+        let squads = std::array::from_fn(|slot| {
+            groups
+                .get(&(slot as u8))
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .map(crate::game_logic::ObjectId)
+                .collect()
+        });
+        staged.push((player_id, squads));
+    }
+    staged.sort_by_key(|(player_id, _)| *player_id);
+    for (player_id, squads) in staged {
+        game_logic.replace_player_hotkey_squads(player_id, squads);
+    }
+    Ok(())
 }
 
 fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<HotkeySquadPersistPayload>> {
@@ -283,14 +312,16 @@ mod tests {
                 write_control_groups(
                     &mut bytes,
                     &ControlGroupSave {
-                        player_index: 0,
-                        groups: HashMap::from([(
-                            1,
-                            player
-                                .get_hotkey_squad_const(1)
-                                .unwrap()
-                                .get_object_ids()
-                                .clone(),
+                        players: HashMap::from([(
+                            0,
+                            HashMap::from([(
+                                1,
+                                player
+                                    .get_hotkey_squad_const(1)
+                                    .unwrap()
+                                    .get_object_ids()
+                                    .clone(),
+                            )]),
                         )]),
                     },
                 )
@@ -322,8 +353,7 @@ mod tests {
                 write_control_groups(
                     &mut bytes,
                     &ControlGroupSave {
-                        player_index: 0,
-                        groups,
+                        players: HashMap::from([(0, groups)]),
                     },
                 )
                 .unwrap();
@@ -342,8 +372,7 @@ mod tests {
         write_control_groups(
             &mut bytes,
             &ControlGroupSave {
-                player_index: 0,
-                groups: HashMap::new(),
+                players: HashMap::from([(0, HashMap::new())]),
             },
         )
         .unwrap();
@@ -372,14 +401,16 @@ mod tests {
                 write_control_groups(
                     &mut snapshot.lifecycle_tail,
                     &ControlGroupSave {
-                        player_index: 0,
-                        groups: HashMap::from([(
-                            2,
-                            player
-                                .get_hotkey_squad_const(2)
-                                .unwrap()
-                                .get_object_ids()
-                                .clone(),
+                        players: HashMap::from([(
+                            0,
+                            HashMap::from([(
+                                2,
+                                player
+                                    .get_hotkey_squad_const(2)
+                                    .unwrap()
+                                    .get_object_ids()
+                                    .clone(),
+                            )]),
                         )]),
                     },
                 )

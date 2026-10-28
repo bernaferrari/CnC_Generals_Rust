@@ -2841,8 +2841,13 @@ impl CnCGameEngine {
             // Wave 1055: reverse map object_id → control group (lowest group wins).
             let mut object_hotkey_group: std::collections::HashMap<u32, i8> =
                 std::collections::HashMap::new();
-            for (group, ids) in &self.control_groups {
-                let g = i8::try_from(*group).unwrap_or(-1);
+            for (group, ids) in self
+                .game_logic
+                .player_hotkey_squads(self.current_player_id)
+                .iter()
+                .enumerate()
+            {
+                let g = i8::try_from(group).unwrap_or(-1);
                 if g < 0 {
                     continue;
                 }

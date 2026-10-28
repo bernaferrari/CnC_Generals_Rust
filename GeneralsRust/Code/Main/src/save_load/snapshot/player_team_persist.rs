@@ -11,7 +11,7 @@
 //! WorldSnapshot 26/27 gates admission cash and its definition source; its positional body is unchanged.
 
 use super::player_team_chunks::PlayerTeamChunks;
-use crate::game_logic::{GameLogic, ObjectId, PlayerSideRole};
+use crate::game_logic::{GameLogic, ObjectId, Player, PlayerSideRole};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use game_engine::common::system::xfer::Xfer as CommonXfer;
 use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
@@ -21,7 +21,7 @@ use std::io::{Cursor, Read, Seek, Write};
 pub const CHUNK_PLAYERS: &str = "CHUNK_Players";
 pub const CHUNK_TEAM_FACTORY: &str = "CHUNK_TeamFactory";
 
-const PLAYERS_CHUNK_VERSION: u8 = 8;
+const PLAYERS_CHUNK_VERSION: u8 = 9;
 const TEAM_FACTORY_CHUNK_VERSION: u8 = 5;
 const MAX_ATTACKED_BY: usize = 16;
 const MAX_GENERIC_SCRIPTS: usize = 16;
@@ -78,6 +78,8 @@ pub struct PlayerRuntimePersist {
     pub kind_of_changes: Vec<KindOfChangePersist>,
     pub units_should_hunt: bool,
     pub current_selection: Vec<u32>,
+    /// C++ Player::m_squads, each slot retaining its ordered ObjectID list.
+    pub hotkey_squads: Vec<Vec<u32>>,
     pub did_preorder: bool,
     /// None for legacy/native-only rows; Some(-1) is explicit host authoring.
     pub host_alliance_team: Option<i32>,
@@ -109,6 +111,7 @@ impl Default for PlayerRuntimePersist {
             kind_of_changes: Vec::new(),
             units_should_hunt: false,
             current_selection: Vec::new(),
+            hotkey_squads: vec![Vec::new(); 10],
             did_preorder: false,
             host_alliance_team: None,
             host_side_identity: None,
@@ -275,6 +278,11 @@ fn write_player_entry<W: Write + Seek>(
     xfer: &mut CommonXferSave<W>,
     player: &PlayerRuntimePersist,
 ) -> SaveLoadResult<()> {
+    if player.hotkey_squads.len() != Player::HOTKEY_SQUAD_COUNT {
+        return Err(SaveLoadError::Corrupted(
+            "invalid CHUNK_Players hotkey squad count".into(),
+        ));
+    }
     let mut player_id = player.player_id;
     map_xfer(xfer.xfer_unsigned_int(&mut player_id))?;
     xfer_string_list(xfer, &player.sciences)?;
@@ -370,6 +378,19 @@ fn write_player_entry<W: Write + Seek>(
     map_xfer(xfer.xfer_unsigned_byte(&mut has_default_team))?;
     if let Some(mut team_id) = player.host_default_team_id {
         map_xfer(xfer.xfer_unsigned_int(&mut team_id))?;
+    }
+    for squad in &player.hotkey_squads {
+        if squad.len() > u16::MAX as usize {
+            return Err(SaveLoadError::Serialization(
+                "CHUNK_Players hotkey squad exceeds u16 object count".into(),
+            ));
+        }
+        let mut count = squad.len() as u16;
+        map_xfer(xfer.xfer_unsigned_short(&mut count))?;
+        for id in squad {
+            let mut value = *id;
+            map_xfer(xfer.xfer_unsigned_int(&mut value))?;
+        }
     }
     Ok(())
 }
@@ -523,6 +544,18 @@ fn parse_player_entry<R: Read>(
                 ));
             }
         };
+    }
+    if version >= 9 {
+        for squad in &mut player.hotkey_squads {
+            let mut count = 0u16;
+            map_xfer(xfer.xfer_unsigned_short(&mut count))?;
+            squad.reserve(count as usize);
+            for _ in 0..count {
+                let mut id = 0u32;
+                map_xfer(xfer.xfer_unsigned_int(&mut id))?;
+                squad.push(id);
+            }
+        }
     }
     Ok(player)
 }
@@ -963,6 +996,11 @@ pub(super) fn capture_players_chunk(game_logic: &GameLogic) -> PlayersChunkPersi
             .collect();
         slot.units_should_hunt = player.units_should_hunt;
         slot.current_selection = player.selected_objects.iter().map(|id| id.0).collect();
+        slot.hotkey_squads = player
+            .hotkey_squads
+            .iter()
+            .map(|squad| squad.iter().map(|id| id.0).collect())
+            .collect();
         slot.did_preorder = player.did_preorder;
     }
     persist
@@ -1097,6 +1135,15 @@ pub(super) fn apply_player_to_live(game_logic: &mut GameLogic, persist: &PlayerR
         .copied()
         .map(ObjectId)
         .collect();
+    if persist.hotkey_squads.len() == Player::HOTKEY_SQUAD_COUNT {
+        player.replace_hotkey_squads(std::array::from_fn(|slot| {
+            persist.hotkey_squads[slot]
+                .iter()
+                .copied()
+                .map(ObjectId)
+                .collect()
+        }));
+    }
     player.did_preorder = persist.did_preorder;
 
     player.kind_of_production_cost_changes.clear();
@@ -1277,6 +1324,18 @@ mod tests {
             cash_bounty_percent: 0.2,
             units_should_hunt: true,
             current_selection: vec![11, 22],
+            hotkey_squads: vec![
+                vec![31, 32],
+                vec![],
+                vec![44],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+            ],
             did_preorder: true,
             ..PlayerRuntimePersist::default()
         };
@@ -1369,6 +1428,8 @@ mod tests {
         assert!(parsed_players.players[0].attacked_by[2]);
         assert!(parsed_players.players[0].units_should_hunt);
         assert_eq!(parsed_players.players[0].current_selection, [11, 22]);
+        assert_eq!(parsed_players.players[0].hotkey_squads[0], [31, 32]);
+        assert_eq!(parsed_players.players[0].hotkey_squads[2], [44]);
         assert!(parsed_players.players[0].did_preorder);
 
         let mut teams_only = Cursor::new(Vec::<u8>::new());

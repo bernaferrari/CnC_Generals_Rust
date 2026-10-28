@@ -39,18 +39,6 @@ impl CnCGameEngine {
             .collect()
     }
 
-    /// C++ `Player::removeObjectFromHotkeySquad` then `m_squads[n]->addObject`.
-    pub(crate) fn evict_ids_from_other_control_groups(&mut self, ids: &[ObjectId], keep: u8) {
-        for (&group, members) in self.control_groups.iter_mut() {
-            if group == keep {
-                continue;
-            }
-            members.retain(|id| !ids.contains(id));
-        }
-        self.control_groups
-            .retain(|&group, members| group == keep || !members.is_empty());
-    }
-
     /// C++ `Player::processCreateTeamGameMessage` leftover `m_squads` / Squad xfer.
     pub(crate) fn record_control_group_create(&mut self, group_num: u8, ids: &[ObjectId]) {
         if let Some(local_player) = self.game_logic.local_player_id() {
@@ -128,29 +116,29 @@ impl CnCGameEngine {
     /// C++ `MSG_META_CREATE_TEAM` + `Player::processCreateTeamGameMessage`.
     fn create_control_group(&mut self, group_num: u8) {
         let ids = self.locally_controlled_selected_ids();
-        if ids.is_empty() {
-            self.control_groups.remove(&group_num);
-            self.record_control_group_create(group_num, &[]);
+        self.game_logic
+            .process_player_create_team(self.current_player_id, group_num, &ids);
+        self.record_control_group_create(group_num, &ids);
+        let count = self
+            .game_logic
+            .player_hotkey_squad_ids(self.current_player_id, group_num)
+            .len();
+        if count == 0 {
             info!("Cleared control group {}", group_num);
             return;
         }
-        self.evict_ids_from_other_control_groups(&ids, group_num);
-        self.record_control_group_create(group_num, &ids);
-        let count = ids.len();
-        self.control_groups.insert(group_num, ids);
         info!("Assigned {} units to control group {}", count, group_num);
     }
 
     /// C++ `MSG_META_ADD_TEAM` — add stored squad to selection; do not rewrite the squad.
     fn add_control_group_to_selection(&mut self, group_num: u8) {
-        let stored = self
-            .control_groups
-            .get(&group_num)
-            .cloned()
-            .unwrap_or_default();
         let double_tap = self.note_control_group_double_tap(group_num);
         if double_tap {
-            if let Some(pos) = self.last_live_control_group_position(&stored) {
+            let live = self
+                .game_logic
+                .live_player_hotkey_squad_ids(self.current_player_id, group_num)
+                .unwrap_or_default();
+            if let Some(pos) = self.last_live_control_group_position(&live) {
                 let _ = self.host_center_camera_and_request_focus(pos);
             }
             return;
@@ -158,25 +146,33 @@ impl CnCGameEngine {
         if self.first_selected_is_structure() {
             self.host_set_selection(self.current_player_id, Vec::new());
         }
-        let live = {
-            let Some(frame) = self.last_presentation_frame.as_ref() else {
-                return;
-            };
-            // C++ ADD_TEAM: all getLiveObjects(), no local-owner gate.
-            frame.filter_live_squad_ids(&stored, false)
-        };
-        if live.is_empty() {
-            return;
-        }
+        // C++ Player::processAddTeamGameMessage updates canonical Player
+        // selection from GameLogic objects; the presentation list below only
+        // mirrors drawable selection and does not write back to that state.
+        self.game_logic
+            .process_player_add_team(self.current_player_id, group_num);
+        let stored = self
+            .game_logic
+            .live_player_hotkey_squad_ids(self.current_player_id, group_num)
+            .unwrap_or_default();
         let mut selection = self.ui_selected_ids(self.current_player_id);
-        for id in live {
-            if !selection.contains(&id) {
-                selection.push(id);
+        let live_ui = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            // C++ ADD_TEAM: all getLiveObjects(), no local-owner gate.
+            let live = frame.filter_live_squad_ids(&stored, false);
+            for id in live.iter().copied() {
+                if !selection.contains(&id) {
+                    selection.push(id);
+                }
             }
-        }
+            live
+        } else {
+            Vec::new()
+        };
         // C++ MSG_ADD_TEAM0..9 — m_teamExists only, no pickAndPlay (hq-xbyf3).
-        self.host_set_selection_no_sound(self.current_player_id, selection);
-        self.play_sound_effect(SoundType::Select);
+        self.host_mirror_owned_selection(self.current_player_id, selection);
+        if !live_ui.is_empty() {
+            self.play_sound_effect(SoundType::Select);
+        }
         self.record_control_group_select(group_num, true);
     }
 
@@ -187,9 +183,8 @@ impl CnCGameEngine {
             return;
         }
         let stored = self
-            .control_groups
-            .get(&group_num)
-            .cloned()
+            .game_logic
+            .live_player_hotkey_squad_ids(self.current_player_id, group_num)
             .unwrap_or_default();
         if stored.is_empty() {
             info!("Control group {} is empty (view)", group_num);
@@ -204,27 +199,15 @@ impl CnCGameEngine {
     /// C++ `MSG_META_SELECT_TEAM` + double-tap lookAt last live member.
     fn select_control_group(&mut self, group_num: u8) {
         let stored = self
-            .control_groups
-            .get(&group_num)
-            .cloned()
-            .unwrap_or_default();
-        if stored.is_empty() {
-            // C++ SelectionXlat.cpp:1107-1110 deselectAllDrawables before
-            // recalling the squad, so an empty group clears the current selection.
-            info!("Control group {} is empty", group_num);
-            self.host_set_selection(self.current_player_id, Vec::new());
-            return;
-        }
-        let selection = {
-            let Some(frame) = self.last_presentation_frame.as_ref() else {
-                return;
-            };
-            // C++ SELECT_TEAM: getLiveObjects() + controllingPlayer == local.
-            frame.filter_live_squad_ids(&stored, true)
-        };
+            .game_logic
+            .player_hotkey_squad_ids(self.current_player_id, group_num);
         let double_tap = self.note_control_group_double_tap(group_num);
         if double_tap {
-            if let Some(pos) = self.last_live_control_group_position(&stored) {
+            let live = self
+                .game_logic
+                .live_player_hotkey_squad_ids(self.current_player_id, group_num)
+                .unwrap_or_default();
+            if let Some(pos) = self.last_live_control_group_position(&live) {
                 self.host_player_look_at(pos);
                 info!(
                     "Control group {} double-tap camera jump to {:?}",
@@ -233,9 +216,32 @@ impl CnCGameEngine {
             }
             return;
         }
-        self.host_set_selection(self.current_player_id, selection);
-        self.play_sound_effect(SoundType::Select);
+
+        // Player::processSelectTeamGameMessage selects all selectable objects
+        // in the squad. SelectionXlat separately filters which local drawables
+        // appear selected; that projection never mutates Player selection.
+        self.game_logic
+            .process_player_select_team(self.current_player_id, group_num);
+        let selection = self
+            .last_presentation_frame
+            .as_ref()
+            .map(|frame| {
+                frame.filter_live_squad_ids(
+                    &self
+                        .game_logic
+                        .player_hotkey_squad_ids(self.current_player_id, group_num),
+                    true,
+                )
+            })
+            .unwrap_or_default();
+        self.host_mirror_owned_selection(self.current_player_id, selection);
+        if !stored.is_empty() {
+            self.play_sound_effect(SoundType::Select);
+        }
         self.record_control_group_select(group_num, false);
+        if stored.is_empty() {
+            info!("Control group {} is empty", group_num);
+        }
     }
 
     pub(super) fn handle_key_press(&mut self, key: &Key) -> Result<(), String> {

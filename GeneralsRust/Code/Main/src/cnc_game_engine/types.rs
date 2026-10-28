@@ -1278,7 +1278,6 @@ pub struct CnCGameEngine {
 
     // Game state
     pub(crate) selected_objects: Vec<ObjectId>,
-    pub(crate) control_groups: HashMap<u8, Vec<ObjectId>>,
     /// Last control-group digit select (group, Instant) for double-tap camera jump residual.
     pub(crate) last_control_group_select: Option<(u8, Instant)>,
     /// Retail SAVE_VIEW1..8 / VIEW_VIEW1..8 camera bookmark residual (F1-F8).

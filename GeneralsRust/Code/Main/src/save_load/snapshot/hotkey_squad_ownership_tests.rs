@@ -2,8 +2,7 @@ use super::*;
 
 fn owned(ids: &[u32]) -> ControlGroupSave {
     ControlGroupSave {
-        player_index: 0,
-        groups: HashMap::from([(3, ids.to_vec())]),
+        players: HashMap::from([(0, HashMap::from([(3, ids.to_vec())]))]),
     }
 }
 
@@ -20,6 +19,18 @@ fn owned_control_groups_interleaved_candidates_never_share_values() {
 }
 
 #[test]
+fn detached_squad_capsule_round_trips_every_player_and_explicit_empty_owner() {
+    let mut bytes = super::super::lifecycle_tail::encode_lifecycle_tail(&Default::default());
+    let owned = ControlGroupSave {
+        players: HashMap::from([(0, HashMap::from([(3, vec![42, 43])])), (1, HashMap::new())]),
+    };
+    write_control_groups(&mut bytes, &owned).unwrap();
+    let parsed = read_control_groups(&bytes).unwrap().unwrap();
+    assert_eq!(parsed[&0][&3], [42, 43]);
+    assert!(parsed[&1].is_empty());
+}
+
+#[test]
 fn owned_control_groups_empty_replaces_all_old_slots_and_keeps_later_extensions() {
     let mut bytes = Vec::new();
     write_control_groups(&mut bytes, &owned(&[42])).unwrap();
@@ -27,8 +38,7 @@ fn owned_control_groups_empty_replaces_all_old_slots_and_keeps_later_extensions(
     write_control_groups(
         &mut bytes,
         &ControlGroupSave {
-            player_index: 0,
-            groups: HashMap::new(),
+            players: HashMap::from([(0, HashMap::new())]),
         },
     )
     .unwrap();
@@ -47,7 +57,11 @@ fn owned_control_groups_failed_candidate_does_not_change_valid_owner() {
     assert_eq!(valid, expected);
     assert_eq!(read_control_groups(&valid).unwrap().unwrap()[&0][&3], [42]);
     let mut invalid_owner = owned(&[7]);
-    invalid_owner.groups.insert(10, vec![8]);
+    invalid_owner
+        .players
+        .get_mut(&0)
+        .unwrap()
+        .insert(10, vec![8]);
     assert!(write_control_groups(&mut valid, &invalid_owner).is_err());
     assert_eq!(valid, expected);
 }

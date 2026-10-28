@@ -15,6 +15,7 @@ mod energy_influence;
 mod field_lifetime;
 pub(crate) mod fog_ghosts;
 mod host_ops_writeback;
+mod hotkey_squads;
 mod internal_move;
 #[cfg(test)]
 mod native_lifecycle_owner_tests;

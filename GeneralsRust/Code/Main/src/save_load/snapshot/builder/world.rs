@@ -347,7 +347,8 @@ impl SnapshotBuilder {
         validate_direct_world_snapshot_version(snapshot.version)?;
         snapshot.audio_policy.validate()?;
         // Native input owns squads; validate its detached wire before world mutation.
-        let _ = super::super::hotkey_squad_persist::read_control_groups(&snapshot.lifecycle_tail)?;
+        let hotkey_groups =
+            super::super::hotkey_squad_persist::read_control_groups(&snapshot.lifecycle_tail)?;
         // Validate the original ScriptEngine continuation before mutating the
         // receiving world, including callers that deserialize the typed body directly.
         let mut receiving_persist = snapshot.persist_v18.clone();
@@ -585,6 +586,12 @@ impl SnapshotBuilder {
             .transpose()?
             .unwrap_or_default();
         let player_team_chunks = super::super::player_team_chunks::chunks_from_world(snapshot)?;
+        let player_chunk_has_squads = player_team_chunks.players.as_ref().is_some_and(|players| {
+            players
+                .players
+                .iter()
+                .all(|player| player.source_version >= 9)
+        });
         super::super::player_team_chunks::validate_roster(snapshot, &player_team_chunks)?;
         super::super::player_team_chunks::validate_definitions(game_logic, &player_team_chunks)?;
         // Retire outgoing callbacks while their original frame/players/teams
@@ -663,6 +670,13 @@ impl SnapshotBuilder {
         // C++ parity order: players/teams before objects, then world systems.
         self.restore_all_players(&snapshot.players, game_logic)?;
         super::super::player_team_chunks::apply_before_objects(game_logic, &player_team_chunks)?;
+        if !player_chunk_has_squads {
+            if let Some(groups) = hotkey_groups.as_ref() {
+                super::super::hotkey_squad_persist::apply_control_groups_to_logic(
+                    game_logic, groups,
+                )?;
+            }
+        }
         self.restore_player_ranks(snapshot, game_logic)?;
         self.restore_player_energy(snapshot, game_logic)?;
         self.restore_player_template_bindings(snapshot, game_logic)?;

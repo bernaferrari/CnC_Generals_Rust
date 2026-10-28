@@ -166,9 +166,12 @@ impl CnCGameEngine {
                 self.runtime_host_last_gameplay_cmd =
                     "control_group_assign_fail_no_selection".into();
             } else {
-                self.evict_ids_from_other_control_groups(&selected, group);
+                self.game_logic.process_player_create_team(
+                    self.current_player_id,
+                    group,
+                    &selected,
+                );
                 self.record_control_group_create(group, &selected);
-                self.control_groups.insert(group, selected.clone());
                 self.runtime_host_last_gameplay_cmd =
                     format!("control_group_assign_ok:{}:{}", group, selected.len());
             }
@@ -185,7 +188,10 @@ impl CnCGameEngine {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(1)
                 .clamp(0, 9);
-            if let Some(ids) = self.control_groups.get(&group).cloned() {
+            let ids = self
+                .game_logic
+                .player_hotkey_squad_ids(self.current_player_id, group);
+            if !ids.is_empty() {
                 // Wave 216: presentation-only alive identity when freeze installed.
                 let alive: Vec<_> = ids
                     .into_iter()

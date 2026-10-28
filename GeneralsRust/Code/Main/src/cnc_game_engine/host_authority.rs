@@ -63,8 +63,6 @@ struct StagedRestoreWorld {
     client_persist: crate::save_load::snapshot::WorldPersistV18,
     camera_continuation: Option<NativeCameraContinuation>,
     owns_session_camera: bool,
-    /// Detached groups decoded before candidate admission; no pending slot.
-    control_groups: Option<std::collections::HashMap<i32, std::collections::HashMap<u8, Vec<u32>>>>,
     /// Driving-instance Rust RNG state capsule captured at save time.
     /// The commit boundary restores the staged instance from these words
     /// rather than leaving it on the game-start seed. `[0; 6]` marks a
@@ -1608,7 +1606,6 @@ impl CnCGameEngine {
             client_persist,
             camera_continuation,
             owns_session_camera,
-            mut control_groups,
             logic_rng_seed_words,
         } = staged;
         let runtime_world = match runtime_world.preflight_native() {
@@ -1899,22 +1896,6 @@ impl CnCGameEngine {
         // stale timeline on a later frame.
         self.render_pipeline
             .queue_client_drawable_restore(client_drawables);
-        if let Some(groups) = control_groups
-            .as_mut()
-            .and_then(|owners| owners.remove(&(self.current_player_id as i32)))
-        {
-            self.control_groups = groups
-                .into_iter()
-                .map(|(slot, ids)| {
-                    (
-                        slot,
-                        ids.into_iter().map(crate::game_logic::ObjectId).collect(),
-                    )
-                })
-                .collect();
-        } else {
-            self.control_groups.clear();
-        }
         if self
             .game_logic
             .session_view
@@ -1993,14 +1974,7 @@ impl CnCGameEngine {
         let client_save = crate::save_load::snapshot::ClientSaveState {
             camera: Some(camera),
             camera_continuation: Some(self.capture_camera_continuation()?),
-            control_groups: Some(crate::save_load::snapshot::ControlGroupSave {
-                player_index: self.current_player_id as i32,
-                groups: self
-                    .control_groups
-                    .iter()
-                    .map(|(slot, ids)| (*slot, ids.iter().map(|id| id.0).collect()))
-                    .collect(),
-            }),
+            control_groups: None,
         };
         let visual_world = gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
             &self.game_logic.world_services,
@@ -2708,9 +2682,10 @@ impl CnCGameEngine {
             crate::save_load::snapshot::validate_game_client_xfer_bytes(bytes)
                 .map_err(|err| format!("{err}"))?;
         }
-        let control_groups =
-            crate::save_load::snapshot::read_control_groups(&snapshot.lifecycle_tail)
-                .map_err(|err| format!("{err}"))?;
+        // Validate historical HSQD bytes before staging. The generic Player
+        // restore imports them once only when CHUNK_Players predates v9.
+        let _ = crate::save_load::snapshot::read_control_groups(&snapshot.lifecycle_tail)
+            .map_err(|err| format!("{err}"))?;
         let saved_map = save_info.map_name.trim();
         if saved_map.is_empty() || saved_map == "-" || saved_map.eq_ignore_ascii_case("unknown") {
             return Err(format!(
@@ -2936,7 +2911,6 @@ impl CnCGameEngine {
             client_persist: snapshot.persist_v18.clone(),
             camera_continuation,
             owns_session_camera,
-            control_groups,
             logic_rng_seed_words: snapshot.logic_rng_seed_words,
         })
     }

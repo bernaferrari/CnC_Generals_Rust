@@ -90,6 +90,37 @@ impl GameLogic {
                             CommandActionKind::NewGame,
                         ),
                         _ => {
+                            match message.get_type() {
+                                GameMessageType::CreateTeamSlot(slot) => {
+                                    self.process_player_create_team(
+                                        message.get_player_index() as u32,
+                                        *slot,
+                                        &crate::command_system::object_ids_from_message(&message),
+                                    );
+                                    self.replay_pending
+                                        .queue_selection_remirror(message.get_player_index());
+                                    continue;
+                                }
+                                GameMessageType::SelectTeamSlot(slot) => {
+                                    self.process_player_select_team(
+                                        message.get_player_index() as u32,
+                                        *slot,
+                                    );
+                                    self.replay_pending
+                                        .queue_selection_remirror(message.get_player_index());
+                                    continue;
+                                }
+                                GameMessageType::AddTeamSlot(slot) => {
+                                    self.process_player_add_team(
+                                        message.get_player_index() as u32,
+                                        *slot,
+                                    );
+                                    self.replay_pending
+                                        .queue_selection_remirror(message.get_player_index());
+                                    continue;
+                                }
+                                _ => {}
+                            }
                             for command in self
                                 .replay_pending
                                 .dispatch_admitted_message_owned(&message)

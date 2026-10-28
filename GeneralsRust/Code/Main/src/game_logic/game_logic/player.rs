@@ -128,6 +128,9 @@ pub struct Player {
     pub captured_overcharge_power_delta: i32,
     pub income_accumulator: f32,
     pub selected_objects: Vec<ObjectId>,
+    /// C++ Player::m_squads. These ordered object-ID lists are the sole live
+    /// owner of this player's hotkey squads in the receiving world.
+    pub(crate) hotkey_squads: [Vec<ObjectId>; 10],
     pub unlocked_sciences: HashSet<String>,
     pub queued_upgrades: HashSet<String>,
     /// C++ Player::m_playerType == PLAYER_HUMAN; independent of the local view.
@@ -439,6 +442,74 @@ impl GameLogic {
 }
 
 impl Player {
+    pub(crate) const HOTKEY_SQUAD_COUNT: usize = 10;
+
+    pub(crate) fn hotkey_squad(&self, slot: u8) -> Option<&[ObjectId]> {
+        self.hotkey_squads.get(slot as usize).map(Vec::as_slice)
+    }
+
+    /// C++ Player::processCreateTeamGameMessage: clear the target first,
+    /// then process message IDs in order, skipping IDs absent from this world
+    /// and evicting each admitted ID from every squad before appending it.
+    pub(crate) fn create_hotkey_squad(
+        &mut self,
+        slot: u8,
+        ids: &[ObjectId],
+        mut exists: impl FnMut(ObjectId) -> bool,
+    ) -> bool {
+        let Some(target) = self.hotkey_squads.get_mut(slot as usize) else {
+            return false;
+        };
+        target.clear();
+        for &id in ids {
+            if !exists(id) {
+                continue;
+            }
+            for squad in &mut self.hotkey_squads {
+                if let Some(position) = squad.iter().position(|member| *member == id) {
+                    squad.remove(position);
+                }
+            }
+            self.hotkey_squads[slot as usize].push(id);
+        }
+        true
+    }
+
+    /// C++ SelectTeam clears selection then appends live members in stored order.
+    pub(crate) fn select_hotkey_squad(
+        &mut self,
+        slot: u8,
+        mut is_live: impl FnMut(ObjectId) -> bool,
+    ) -> bool {
+        let Some(squad) = self.hotkey_squads.get(slot as usize) else {
+            return false;
+        };
+        let selected = squad.iter().copied().filter(|id| is_live(*id)).collect();
+        self.selected_objects = selected;
+        if !self.selected_objects.is_empty() {
+            self.academy_stats.record_control_groups_used();
+        }
+        true
+    }
+
+    /// C++ AddTeam appends live members to the current selection in squad order.
+    pub(crate) fn add_hotkey_squad_to_selection(
+        &mut self,
+        slot: u8,
+        mut is_live: impl FnMut(ObjectId) -> bool,
+    ) -> bool {
+        let Some(squad) = self.hotkey_squads.get(slot as usize) else {
+            return false;
+        };
+        self.selected_objects
+            .extend(squad.iter().copied().filter(|id| is_live(*id)));
+        true
+    }
+
+    pub(crate) fn replace_hotkey_squads(&mut self, squads: [Vec<ObjectId>; 10]) {
+        self.hotkey_squads = squads;
+    }
+
     /// C&C Generals default starting money is $10,000 (Normal difficulty).
     /// Matches the `StartingMoney::Normal` variant from the LAN API game-info crate.
     pub const DEFAULT_STARTING_MONEY: u32 = 10_000;
@@ -481,6 +552,7 @@ impl Player {
             captured_overcharge_power_delta: 0,
             income_accumulator: 0.0,
             selected_objects: Vec::new(),
+            hotkey_squads: std::array::from_fn(|_| Vec::new()),
             unlocked_sciences: HashSet::new(),
             queued_upgrades: HashSet::new(),
             is_human,

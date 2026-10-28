@@ -567,25 +567,6 @@ pub fn tap_host_team_slot_for_recorder(slot: u8, kind: u8, ids: &[ObjectId]) {
     append_to_command_list(message);
 }
 
-/// Leftover `Player::get_current_selection_ids` for the issuing replay player.
-pub fn leftover_player_current_selection_ids(player_index: i32) -> Vec<ObjectId> {
-    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
-        return Vec::new();
-    };
-    let Some(player_arc) = list.get_player(player_index).cloned() else {
-        return Vec::new();
-    };
-    drop(list);
-    let Ok(player) = player_arc.read() else {
-        return Vec::new();
-    };
-    player
-        .get_current_selection_ids()
-        .into_iter()
-        .map(object_id_from_message)
-        .collect()
-}
-
 fn host_local_player_index() -> i32 {
     let Ok(list) = gamelogic::player::ThePlayerList().read() else {
         // Unresolvable (no player list yet): fall back to C++ player index 0.
@@ -681,32 +662,13 @@ pub fn flush_recorder_and_replay_authority(
     }
 }
 
-fn object_ids_from_message(message: &GameMessage) -> Vec<ObjectId> {
+pub(crate) fn object_ids_from_message(message: &GameMessage) -> Vec<ObjectId> {
     (0..message.get_argument_count())
         .filter_map(|index| match message.get_argument(index) {
             Some(GameMessageArgumentType::ObjectID(id)) => Some(object_id_from_message(*id)),
             _ => None,
         })
         .collect()
-}
-
-fn apply_replay_team_to_leftover_player(player_index: i32, slot: u8, kind: u8, ids: &[ObjectId]) {
-    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
-        return;
-    };
-    let Some(player_arc) = list.get_player(player_index).cloned() else {
-        return;
-    };
-    drop(list);
-    let Ok(mut player) = player_arc.write() else {
-        return;
-    };
-    let object_ids: Vec<u32> = ids.iter().map(|id| id.0).collect();
-    match kind {
-        0 => player.process_create_team_game_message(slot as i32, &object_ids),
-        1 => player.process_select_team_game_message(slot as i32),
-        _ => player.process_add_team_game_message(slot as i32),
-    }
 }
 
 fn apply_replay_messages_to_host(state: &mut ReplayPendingState, messages: &[GameMessage]) {
@@ -763,9 +725,6 @@ fn apply_replay_messages(
             }
             GameMessageType::CreateTeamSlot(slot) => {
                 let ids = object_ids_from_message(message);
-                if core_delivery {
-                    apply_replay_team_to_leftover_player(player_index, *slot, 0, &ids);
-                }
                 state.teams.push(ReplayTeamOp::Create {
                     player_index,
                     slot: *slot,
@@ -774,9 +733,6 @@ fn apply_replay_messages(
                 state.queue_selection_remirror(player_index);
             }
             GameMessageType::SelectTeamSlot(slot) => {
-                if core_delivery {
-                    apply_replay_team_to_leftover_player(player_index, *slot, 1, &[]);
-                }
                 state.teams.push(ReplayTeamOp::Select {
                     player_index,
                     slot: *slot,
@@ -784,9 +740,6 @@ fn apply_replay_messages(
                 state.queue_selection_remirror(player_index);
             }
             GameMessageType::AddTeamSlot(slot) => {
-                if core_delivery {
-                    apply_replay_team_to_leftover_player(player_index, *slot, 2, &[]);
-                }
                 state.teams.push(ReplayTeamOp::Add {
                     player_index,
                     slot: *slot,

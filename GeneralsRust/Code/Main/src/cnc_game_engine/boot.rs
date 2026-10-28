@@ -1040,7 +1040,6 @@ impl CnCGameEngine {
             is_mmb_rotating: false,
             mmb_anchor: None,
             selected_objects: Vec::new(),
-            control_groups: HashMap::new(),
             last_control_group_select: None,
             camera_view_bookmarks: [None; 8],
             camera_rotate_left_held: false,

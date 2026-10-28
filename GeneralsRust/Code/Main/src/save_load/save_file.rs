@@ -935,10 +935,15 @@ impl SaveFileManager {
         }
         if let Some(groups) = &state.control_groups {
             groups.validate()?;
-            if game_logic.get_player(groups.player_index as u32).is_none() {
-                return Err(SaveLoadError::Corrupted(
-                    "control-group owner absent from receiving roster".into(),
-                ));
+            for player_id in groups.players.keys() {
+                let player_id = u32::try_from(*player_id).map_err(|_| {
+                    SaveLoadError::Corrupted("invalid control-group owner identity".into())
+                })?;
+                if game_logic.get_player(player_id).is_none() {
+                    return Err(SaveLoadError::Corrupted(format!(
+                        "control-group owner {player_id} absent from receiving roster"
+                    )));
+                }
             }
         }
         let native_camera = state

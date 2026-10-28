@@ -42,8 +42,7 @@ fn owned_control_groups_actual_archives_keep_empty_and_peer_groups_detached() {
                     camera: Some(camera),
                     camera_continuation: None,
                     control_groups: Some(ControlGroupSave {
-                        player_index: 0,
-                        groups,
+                        players: HashMap::from([(0, groups)]),
                     }),
                 },
             )
@@ -98,8 +97,7 @@ fn owned_control_groups_actual_archives_keep_empty_and_peer_groups_detached() {
                     camera: None,
                     camera_continuation: None,
                     control_groups: Some(ControlGroupSave {
-                        player_index: 0,
-                        groups: HashMap::from([(10, vec![42])]),
+                        players: HashMap::from([(0, HashMap::from([(10, vec![42])]))]),
                     }),
                 },
             )
@@ -150,8 +148,7 @@ fn owned_control_groups_new_record_preserves_terminal_player_team_capsule() {
                         camera: None,
                         camera_continuation: None,
                         control_groups: Some(ControlGroupSave {
-                            player_index: 0,
-                            groups: HashMap::from([(3, vec![42, 43])]),
+                            players: HashMap::from([(0, HashMap::from([(3, vec![42, 43])]))]),
                         }),
                     },
                 )
@@ -213,8 +210,7 @@ fn generic_snapshot_never_imports_or_restores_foreign_core_squads() {
             crate::save_load::snapshot::write_control_groups(
                 &mut saved.lifecycle_tail,
                 &ControlGroupSave {
-                    player_index: 0,
-                    groups: HashMap::from([(3, vec![42, 43])]),
+                    players: HashMap::from([(0, HashMap::from([(3, vec![42, 43])]))]),
                 },
             )
             .unwrap();
@@ -222,6 +218,10 @@ fn generic_snapshot_never_imports_or_restores_foreign_core_squads() {
             let decoded =
                 crate::save_load::snapshot::decode_bincode_world_snapshot(&encoded).unwrap();
             builder.restore_from_snapshot(&decoded, &mut peer).unwrap();
+            assert!(
+                peer.player_hotkey_squad_ids(0, 3).is_empty(),
+                "v9 CHUNK_Players is canonical when a legacy HSQD sidecar is also present"
+            );
             assert_eq!(
                 read_control_groups(&decoded.lifecycle_tail)
                     .unwrap()
