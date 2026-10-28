@@ -592,10 +592,9 @@ impl GameLogic {
     }
 
     fn eva_local_player_id(&self) -> Option<u32> {
-        self.players
-            .values()
-            .find(|player| player.is_local && player.is_alive)
-            .map(|player| player.id)
+        // C++ keeps the selected Player after defeat; liveness is an
+        // event-specific condition, not part of local identity.
+        self.local_player_id()
     }
 
     /// Event-time controller identity stays exact, including explicit NULL.

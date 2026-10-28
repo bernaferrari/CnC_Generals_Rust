@@ -34,11 +34,16 @@ impl GameLogic {
             .filter_map(|(&id, p)| p.is_reserved_neutral().then_some(id))
             .min()
             .unwrap_or_else(|| self.next_side_player_id());
+        // PlayerList keeps m_local as a pointer to the selected slot while
+        // Player::init(NULL) reinitializes it in place. Carry that identity
+        // across this host value replacement.
+        let is_local = self.players.get(&id).is_some_and(|player| player.is_local);
         // Player.cpp444–469 init(NULL): no template or authored side overrides.
         let mut player = Player::new(id, Team::Neutral, "", false);
         player.map_side.role = PlayerSideRole::Neutral;
         player.map_side.map_player_name.clear();
         player.resources.supplies = 0;
+        player.is_local = is_local;
         player.color_rgb = (255, 255, 255);
         player.color_night_rgb = (255, 255, 255);
         player
@@ -55,6 +60,9 @@ impl GameLogic {
             .iter()
             .find_map(|(&id, p)| (p.map_side.map_player_name == name).then_some(id))
             .unwrap_or_else(|| self.next_side_player_id());
+        // C++ PlayerList::newGame reuses the existing Player slot, so its
+        // selected-local pointer stays attached during initFromDict.
+        let is_local = self.players.get(&id).is_some_and(|player| player.is_local);
         let mut player = Player::new(
             id,
             Team::Neutral,
@@ -64,6 +72,7 @@ impl GameLogic {
         // PlayerList::newGame initializes again even for an existing named
         // side. This is an admission operation, never a query/restore hook.
         player.resources.supplies = self.skirmish_rules.starting_cash;
+        player.is_local = is_local;
         player.apply_map_side_identity_from_dict(dict);
         self.add_player(player);
         if let Some(identity) =

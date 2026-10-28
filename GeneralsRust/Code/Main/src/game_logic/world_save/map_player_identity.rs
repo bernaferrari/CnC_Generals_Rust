@@ -116,7 +116,10 @@ impl GameLogic {
         } else {
             None
         };
-        let local = local.or(fallback_human);
+        // PlayerList::init selects neutral before newGame chooses an authored
+        // local/human or the first non-neutral fallback. With no named side,
+        // the neutral selection remains active.
+        let local = local.or(fallback_human).or(Some(0));
         // Every input identity/template/capacity is resolved before replacing
         // the inert records. No Object or native lifetime is dropped here.
         // PlayerList::newGame clears the OLD TeamFactory before init/new
