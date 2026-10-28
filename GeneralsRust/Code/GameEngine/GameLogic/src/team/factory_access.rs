@@ -155,56 +155,50 @@ impl TeamFactoryHandle {
         context: crate::scripting::executor::ScriptContext,
         driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
     ) -> crate::GameLogicResult<()> {
-        let entries = self
+        let prototypes = self
             .with_read_without_flushing(|factory| {
-                factory.owned_team_generic_script_entries(controller)
+                factory.owned_team_prototypes_for_controller(controller)
             })
             .unwrap_or_else(|error| error.into_inner());
 
-        for (prototype, team) in entries {
-            let team_id = match team.read() {
-                Ok(team) => team.get_id(),
-                Err(error) => error.into_inner().get_id(),
-            };
-            for script_index in 0..MAX_GENERIC_SCRIPTS {
-                if !self.owns_generic_entry(controller, &prototype, &team) {
-                    break;
-                }
-                let should_attempt = match team.read() {
-                    Ok(team) => team.should_attempt_generic_script(script_index),
-                    Err(error) => error
-                        .into_inner()
-                        .should_attempt_generic_script(script_index),
+        for prototype in prototypes {
+            // C++ opens each prototype's TeamInstanceList only when the
+            // Player::update cursor reaches it. A prior hook can create an
+            // instance for a later prototype during this same player pass.
+            if !self.owns_generic_prototype(controller, &prototype) {
+                continue;
+            }
+            let entries = self
+                .with_read_without_flushing(|factory| {
+                    factory.generic_script_entries_for_prototype(&prototype)
+                })
+                .unwrap_or_else(|error| error.into_inner());
+            for (_, team) in entries {
+                let team_id = match team.read() {
+                    Ok(team) => team.get_id(),
+                    Err(error) => error.into_inner().get_id(),
                 };
-                if !should_attempt {
-                    continue;
-                }
-
-                let script_name = prototype
-                    .get_generic_script(script_index)
-                    .map(|name| name.to_string())
-                    .unwrap_or_default();
-                if script_name.is_empty() {
-                    match team.write() {
-                        Ok(mut team) => team.disable_generic_script_attempt(script_index),
+                for script_index in 0..MAX_GENERIC_SCRIPTS {
+                    // Once Team::updateGenericScripts starts, it continues
+                    // the current instance's remaining slots synchronously.
+                    if !self.owns_generic_instance(&prototype, &team) {
+                        break;
+                    }
+                    let should_attempt = match team.read() {
+                        Ok(team) => team.should_attempt_generic_script(script_index),
                         Err(error) => error
                             .into_inner()
-                            .disable_generic_script_attempt(script_index),
+                            .should_attempt_generic_script(script_index),
+                    };
+                    if !should_attempt {
+                        continue;
                     }
-                    continue;
-                }
 
-                let mut script = match prototype
-                    .take_or_load_generic_script_runtime_owned(script_index, script_engine)
-                {
-                    Ok(Some(script)) => script,
-                    Err(crate::team::GenericScriptRuntimeBusy::InFlight) => {
-                        return Err(crate::GameLogicError::Configuration(format!(
-                            "Team generic script '{}' was reentered while its runtime was active",
-                            script_name
-                        )));
-                    }
-                    Ok(None) => {
+                    let script_name = prototype
+                        .get_generic_script(script_index)
+                        .map(|name| name.to_string())
+                        .unwrap_or_default();
+                    if script_name.is_empty() {
                         match team.write() {
                             Ok(mut team) => team.disable_generic_script_attempt(script_index),
                             Err(error) => error
@@ -213,55 +207,77 @@ impl TeamFactoryHandle {
                         }
                         continue;
                     }
-                };
 
-                // Team generic hooks call evaluateConditions directly. They
-                // bypass executeScript's root active/difficulty/periodic gates.
-                let condition_true = match script_engine.evaluate_conditions_with_driver_checked(
-                    &mut script,
-                    Some(team_id),
-                    current_player_name,
-                    context.clone(),
-                    driver,
-                ) {
-                    Ok(condition_true) => condition_true,
-                    Err(error) => {
-                        log::warn!(
-                            "Team generic script '{}' evaluation failed for team '{}': {}",
-                            script_name,
-                            prototype.get_name(),
-                            error
-                        );
-                        continue;
-                    }
-                };
-
-                let still_eligible = match team.read() {
-                    Ok(team) => team.should_attempt_generic_script(script_index),
-                    Err(error) => error
-                        .into_inner()
-                        .should_attempt_generic_script(script_index),
-                };
-                if condition_true
-                    && still_eligible
-                    && self.owns_generic_entry(controller, &prototype, &team)
-                {
-                    if script.is_one_shot() {
-                        // C++ consumes a one-shot before the synchronous action.
-                        match team.write() {
-                            Ok(mut team) => team.disable_generic_script_attempt(script_index),
-                            Err(error) => error
-                                .into_inner()
-                                .disable_generic_script_attempt(script_index),
+                    let mut script = match prototype
+                        .take_or_load_generic_script_runtime_owned(script_index, script_engine)
+                    {
+                        Ok(Some(script)) => script,
+                        Err(crate::team::GenericScriptRuntimeBusy::InFlight) => {
+                            return Err(crate::GameLogicError::Configuration(format!(
+                                "Team generic script '{}' was reentered while its runtime was active",
+                                script_name
+                            )));
                         }
-                    }
-                    if let Some(action) = script.get_action().cloned() {
-                        script_engine.friend_execute_action_with_driver_checked(
-                            &action,
+                        Ok(None) => {
+                            match team.write() {
+                                Ok(mut team) => team.disable_generic_script_attempt(script_index),
+                                Err(error) => error
+                                    .into_inner()
+                                    .disable_generic_script_attempt(script_index),
+                            }
+                            continue;
+                        }
+                    };
+
+                    // Team generic hooks call evaluateConditions directly. They
+                    // bypass executeScript's root active/difficulty/periodic gates.
+                    let condition_true = match script_engine
+                        .evaluate_conditions_with_driver_checked(
+                            &mut script,
                             Some(team_id),
+                            current_player_name,
                             context.clone(),
                             driver,
-                        )?;
+                        ) {
+                        Ok(condition_true) => condition_true,
+                        Err(error) => {
+                            log::warn!(
+                                "Team generic script '{}' evaluation failed for team '{}': {}",
+                                script_name,
+                                prototype.get_name(),
+                                error
+                            );
+                            continue;
+                        }
+                    };
+
+                    let still_eligible = match team.read() {
+                        Ok(team) => team.should_attempt_generic_script(script_index),
+                        Err(error) => error
+                            .into_inner()
+                            .should_attempt_generic_script(script_index),
+                    };
+                    if condition_true
+                        && still_eligible
+                        && self.owns_generic_instance(&prototype, &team)
+                    {
+                        if script.is_one_shot() {
+                            // C++ consumes a one-shot before the synchronous action.
+                            match team.write() {
+                                Ok(mut team) => team.disable_generic_script_attempt(script_index),
+                                Err(error) => error
+                                    .into_inner()
+                                    .disable_generic_script_attempt(script_index),
+                            }
+                        }
+                        if let Some(action) = script.get_action().cloned() {
+                            script_engine.friend_execute_action_with_driver_checked(
+                                &action,
+                                Some(team_id),
+                                context.clone(),
+                                driver,
+                            )?;
+                        }
                     }
                 }
             }
@@ -292,19 +308,26 @@ impl TeamFactoryHandle {
         .unwrap_or_else(|error| error.into_inner())
     }
 
-    fn owns_generic_entry(
+    fn owns_generic_prototype(&self, controller: u32, prototype: &Arc<TeamPrototype>) -> bool {
+        self.with_read_without_flushing(|factory| {
+            factory
+                .owned_team_prototypes_for_controller(controller)
+                .iter()
+                .any(|current| Arc::ptr_eq(current, prototype))
+        })
+        .unwrap_or_else(|error| error.into_inner())
+    }
+
+    fn owns_generic_instance(
         &self,
-        controller: u32,
         prototype: &Arc<TeamPrototype>,
         team: &Arc<RwLock<Team>>,
     ) -> bool {
         self.with_read_without_flushing(|factory| {
             factory
-                .owned_team_generic_script_entries(controller)
+                .generic_script_entries_for_prototype(prototype)
                 .iter()
-                .any(|(current_prototype, current_team)| {
-                    Arc::ptr_eq(current_prototype, prototype) && Arc::ptr_eq(current_team, team)
-                })
+                .any(|(_, current_team)| Arc::ptr_eq(current_team, team))
         })
         .unwrap_or_else(|error| error.into_inner())
     }

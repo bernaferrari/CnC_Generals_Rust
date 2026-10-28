@@ -728,6 +728,27 @@ impl TeamFactory {
             .collect()
     }
 
+    /// Snapshot one prototype's TeamInstanceList at the moment C++ Player::update
+    /// reaches that prototype. A previous prototype's synchronous generic hook
+    /// can create a team instance that the later prototype's live traversal sees.
+    pub(crate) fn generic_script_entries_for_prototype(
+        &self,
+        prototype: &Arc<TeamPrototype>,
+    ) -> Vec<(Arc<TeamPrototype>, Arc<RwLock<Team>>)> {
+        let name = prototype.get_name().as_str();
+        if !self
+            .prototypes
+            .get(name)
+            .is_some_and(|current| Arc::ptr_eq(current, prototype))
+        {
+            return Vec::new();
+        }
+        self.find_team_instances(name)
+            .into_iter()
+            .map(|team| (Arc::clone(prototype), team))
+            .collect()
+    }
+
     /// Restore the saved visitation sequence after validating every identity.
     /// Definitions not included in an older partial capsule retain their order.
     pub fn restore_prototype_admission_order(&mut self, names: &[String]) -> GameLogicResult<()> {
