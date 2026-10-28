@@ -381,8 +381,6 @@ impl<'a, 'ambient> NativeRenderReceiver<'a, 'ambient> {
         id: DrawableId,
         mut particles: Option<&mut crate::effects::particle_manager::ParticleSystemManager>,
     ) -> GameClientResult<()> {
-        BasicDrawable::preflight_native_audio_device(self.audio_device)
-            .map_err(GameClientError::InvalidOperation)?;
         let mut laser_particles = false;
         let mut state_particles = 0;
         if let Some(basic) = self
@@ -391,6 +389,9 @@ impl<'a, 'ambient> NativeRenderReceiver<'a, 'ambient> {
             .get_mut(&id)
             .and_then(|draw| draw.as_any_mut().downcast_mut::<BasicDrawable>())
         {
+            basic
+                .preflight_native_retirement_with_device(self.audio_device)
+                .map_err(GameClientError::InvalidOperation)?;
             state_particles = basic.native_state_particle_count();
             laser_particles = basic
                 .native_client_particle_retirement_required()

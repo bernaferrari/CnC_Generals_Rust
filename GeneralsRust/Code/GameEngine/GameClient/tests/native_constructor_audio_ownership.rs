@@ -52,6 +52,20 @@ fn admitted() -> (ReceivingModuleContent, Arc<AdmittedReceivingTemplate>) {
     (content, template)
 }
 
+fn admitted_silent() -> (ReceivingModuleContent, Arc<AdmittedReceivingTemplate>) {
+    let mut factory = ModuleFactory::new_receiving(NameKeyNamespace::new());
+    gamelogic::contain_module_overrides::register_native_module_overrides(&mut factory).unwrap();
+    let mut content = ReceivingModuleContent::new(factory);
+    content
+        .load_ini_text(
+            "Object OwnedSilent\nDraw = W3DModelDraw SilentTag\nDefaultConditionState\nModel = NONE\nEnd\nEnd\nEnd\n",
+            INILoadType::Overwrite,
+        )
+        .unwrap();
+    let template = content.admitted_template("OwnedSilent").unwrap();
+    (content, template)
+}
+
 fn audio() -> AudioManager {
     let mut audio = AudioManager::new();
     audio.init();
@@ -742,6 +756,170 @@ fn auxiliary_retirement_stops_only_on_its_bound_manager() {
         &[('P', handle_a), ('S', handle_a)]
     );
     assert_eq!(events_b.lock().unwrap().as_slice(), &[('P', handle_b)]);
+}
+
+#[test]
+fn shared_device_retirement_stops_only_the_same_id_client_handle() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let device = Arc::new(Mutex::new(recording_audio(Arc::clone(&events))));
+    let mut a = client(Arc::clone(&device));
+    let mut b = client(Arc::clone(&device));
+    let (mut content_a, plan_a) = admitted();
+    let (mut content_b, plan_b) = admitted();
+    let policy = ReceivingDrawablePolicy {
+        time_of_day: Some(game_client_rust::system::TimeOfDay::Night),
+        use_draw_module_lod: true,
+        static_game_lod: StaticGameLodLevel::High,
+        use_tree_sway: true,
+    };
+    for (world, content, plan) in [
+        (&mut a, &mut content_a, plan_a),
+        (&mut b, &mut content_b, plan_b),
+    ] {
+        world
+            .sync_presentation_drawables_observed_with_content(
+                [entry(plan)],
+                0,
+                content.module_factory_mut(),
+                policy,
+                |_| {},
+            )
+            .unwrap();
+    }
+    let drawable_a = a.get_drawable_for_object(77).unwrap();
+    let drawable_b = b.get_drawable_for_object(77).unwrap();
+    assert_eq!(drawable_a, drawable_b, "peer clients reuse DrawableId");
+    device.lock().unwrap().process_request_list();
+    let ambient_handle = |world: &GameClient| {
+        world
+            .find_drawable_by_id(drawable_a)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<game_client_rust::drawable::BasicDrawable>()
+            .unwrap()
+            .owned_ambient_audio_handle()
+            .unwrap()
+    };
+    let handle_a = ambient_handle(&a);
+    let handle_b = ambient_handle(&b);
+    assert_ne!(
+        handle_a, handle_b,
+        "shared manager owns distinct voice handles"
+    );
+    assert_eq!(
+        events.lock().unwrap().as_slice(),
+        &[('P', handle_a), ('P', handle_b)]
+    );
+
+    a.retire_native_drawables_for_application_shutdown()
+        .unwrap();
+    assert_eq!(a.get_drawable_for_object(77), None);
+    assert_eq!(b.get_drawable_for_object(77), Some(drawable_b));
+    device.lock().unwrap().process_request_list();
+    assert_eq!(
+        events.lock().unwrap().as_slice(),
+        &[('P', handle_a), ('P', handle_b), ('S', handle_a)],
+        "retiring one client stops its voice in the shared application mixer"
+    );
+    assert_eq!(ambient_handle(&b), handle_b);
+}
+
+#[test]
+fn admitted_silent_drawable_can_retire_without_an_audio_device() {
+    let mut world =
+        GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted).unwrap();
+    world.particle_systems_mut().finish_definition_admission();
+    let (mut content, plan) = admitted_silent();
+    let mut source = entry(plan);
+    source.template_name = "OwnedSilent".into();
+    source.visual_template_name = "OwnedSilent".into();
+    world
+        .sync_presentation_drawables_observed_with_content(
+            [source],
+            0,
+            content.module_factory_mut(),
+            ReceivingDrawablePolicy {
+                time_of_day: Some(game_client_rust::system::TimeOfDay::Night),
+                use_draw_module_lod: true,
+                static_game_lod: StaticGameLodLevel::High,
+                use_tree_sway: true,
+            },
+            |_| {},
+        )
+        .unwrap();
+    let drawable = world.get_drawable_for_object(77).unwrap();
+    world
+        .retire_native_drawables_for_application_shutdown()
+        .unwrap();
+    assert_eq!(world.get_drawable_for_object(77), None);
+    assert_ne!(drawable, game_client_rust::drawable::INVALID_DRAWABLE_ID);
+}
+
+#[test]
+fn live_ambient_retirement_preflights_unavailable_owner_and_retries() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let device = Arc::new(Mutex::new(recording_audio(Arc::clone(&events))));
+    let mut world = client(Arc::clone(&device));
+    let (mut content, plan) = admitted();
+    world
+        .sync_presentation_drawables_observed_with_content(
+            [entry(plan)],
+            0,
+            content.module_factory_mut(),
+            ReceivingDrawablePolicy {
+                time_of_day: Some(game_client_rust::system::TimeOfDay::Night),
+                use_draw_module_lod: true,
+                static_game_lod: StaticGameLodLevel::High,
+                use_tree_sway: true,
+            },
+            |_| {},
+        )
+        .unwrap();
+    let drawable = world.get_drawable_for_object(77).unwrap();
+    device.lock().unwrap().process_request_list();
+    let ambient_handle = |world: &GameClient| {
+        world
+            .find_drawable_by_id(drawable)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<game_client_rust::drawable::BasicDrawable>()
+            .unwrap()
+            .owned_ambient_audio_handle()
+            .unwrap()
+    };
+    let handle = ambient_handle(&world);
+    assert_eq!(events.lock().unwrap().as_slice(), &[('P', handle)]);
+
+    // Simulate the application-owned mixer becoming unusable while its Arc
+    // remains bound to this client. The native retirement API has no public
+    // unbind operation, but a poisoned mutex exercises the same fail-closed
+    // owner boundary through public GameClient methods.
+    let poison_target = Arc::clone(&device);
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _guard = poison_target.lock().unwrap();
+        panic!("poison receiving audio owner for the regression");
+    }));
+    assert!(device.is_poisoned());
+
+    let error = world
+        .retire_native_drawables_for_application_shutdown()
+        .unwrap_err();
+    assert!(error.to_string().contains("audio device lock poisoned"));
+    assert_eq!(world.get_drawable_for_object(77), Some(drawable));
+    assert_eq!(ambient_handle(&world), handle);
+    assert_eq!(events.lock().unwrap().as_slice(), &[('P', handle)]);
+
+    // Recover the same owner's lock and retry the exact same retirement.
+    device.clear_poison();
+    world
+        .retire_native_drawables_for_application_shutdown()
+        .unwrap();
+    assert_eq!(world.get_drawable_for_object(77), None);
+    device.lock().unwrap().process_request_list();
+    assert_eq!(
+        events.lock().unwrap().as_slice(),
+        &[('P', handle), ('S', handle)]
+    );
 }
 
 #[test]

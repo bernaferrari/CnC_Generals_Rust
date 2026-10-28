@@ -3,19 +3,30 @@ use super::*;
 use crate::effects::particle_manager::ParticleSystemManager;
 
 impl BasicDrawable {
-    pub(crate) fn preflight_native_audio_device(
+    pub(crate) fn preflight_native_retirement_with_device(
+        &self,
         audio_device: Option<
             &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
         >,
     ) -> Result<(), String> {
-        if let Some(device) = audio_device {
-            drop(
-                device.lock().map_err(
-                    |_| "receiving audio device lock poisoned during Drawable retirement",
-                )?,
-            );
+        if !self.native_ambient_stop_required() {
+            return Ok(());
         }
+        let Some(audio_device) = audio_device else {
+            return Err("receiving Drawable retirement requires its bound audio service".into());
+        };
+        drop(
+            audio_device
+                .lock()
+                .map_err(|_| "receiving audio device lock poisoned during Drawable retirement")?,
+        );
         Ok(())
+    }
+
+    fn native_ambient_stop_required(&self) -> bool {
+        self.ambient_sound_event
+            .as_ref()
+            .is_some_and(|event| event.get_playing_handle() != 0)
     }
 
     pub(crate) fn native_client_particle_retirement_required(&mut self) -> Result<bool, String> {
@@ -51,7 +62,7 @@ impl BasicDrawable {
     /// Explicit destruction tail; never called by ordinary particle retirement.
     /// C++ Drawable.cpp525–542 deletes both module arrays before ambient stop.
     pub(crate) fn finish_native_retirement(&mut self) {
-        self.finish_native_retirement_with_device(None)
+        self.finish_native_retirement_inner(None, self.receiving_template.is_some())
             .expect("legacy Drawable retirement has no fallible audio loan");
     }
 
@@ -64,8 +75,26 @@ impl BasicDrawable {
             &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
         >,
     ) -> Result<(), String> {
-        // Reject an already-poisoned owner before destroying any module state.
-        Self::preflight_native_audio_device(audio_device)?;
+        self.finish_native_retirement_inner(audio_device, true)
+    }
+
+    fn finish_native_retirement_inner(
+        &mut self,
+        audio_device: Option<
+            &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+        >,
+        require_receiving_audio: bool,
+    ) -> Result<(), String> {
+        // Admitted native drawables can own a live ambient handle. Letting an
+        // application teardown fall through to TheAudio can stop a peer
+        // session's same-ID handle, so reject before module destruction and
+        // leave the Drawable intact until its receiving service is rebound.
+        // Reject a missing or already-poisoned owner before destroying any
+        // module state. The explicit compatibility entrypoint above is the
+        // only route allowed to use process-global audio.
+        if require_receiving_audio || audio_device.is_some() {
+            self.preflight_native_retirement_with_device(audio_device)?;
+        }
         while let Some(bucket) = self
             .draw_modules
             .iter()
@@ -80,11 +109,19 @@ impl BasicDrawable {
                 drop(self.draw_modules.remove(index));
             }
         }
-        if let Some(device) = audio_device {
-            let mut audio = device
-                .lock()
-                .map_err(|_| "receiving audio device lock poisoned during Drawable retirement")?;
-            self.stop_ambient_sound_with_audio(&mut audio);
+        if require_receiving_audio || audio_device.is_some() {
+            if self.native_ambient_stop_required() {
+                let device = audio_device.ok_or_else(|| {
+                    "receiving Drawable retirement requires its bound audio service".to_owned()
+                })?;
+                let mut audio = device.lock().map_err(
+                    |_| "receiving audio device lock poisoned during Drawable retirement",
+                )?;
+                self.stop_ambient_sound_with_audio(&mut audio);
+            } else {
+                // An inert event has no mixer request to stop.
+                self.ambient_sound_event.take();
+            }
         } else {
             // Standalone compatibility path for clients that were never bound
             // to a native application's audio service.

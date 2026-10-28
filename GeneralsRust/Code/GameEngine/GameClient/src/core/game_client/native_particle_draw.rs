@@ -210,6 +210,39 @@ impl GameClient {
 }
 
 impl drawable_world::DrawableState {
+    fn preflight_native_drawable_retirement_with_device(
+        &self,
+        id: Option<DrawableId>,
+        audio_device: Option<
+            &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+        >,
+    ) -> GameClientResult<()> {
+        for &known in &self.native_drawable_order {
+            if id.is_some_and(|id| id != known) {
+                continue;
+            }
+            if let Some(basic) = self
+                .drawable_map
+                .get(&known)
+                .and_then(|draw| draw.as_any().downcast_ref::<BasicDrawable>())
+            {
+                basic
+                    .preflight_native_retirement_with_device(audio_device)
+                    .map_err(GameClientError::InvalidOperation)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn preflight_native_retirement_with_device(
+        &self,
+        audio_device: Option<
+            &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+        >,
+    ) -> GameClientResult<()> {
+        self.preflight_native_drawable_retirement_with_device(None, audio_device)
+    }
+
     /// Same preflight as physical Drawable deletion, over actual native roster.
     /// No flush/update, no ID unlink, and no manager discovery occurs here.
     fn native_particle_retirement_required(
@@ -276,8 +309,7 @@ impl drawable_world::DrawableState {
             &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
         >,
     ) -> GameClientResult<()> {
-        BasicDrawable::preflight_native_audio_device(audio_device)
-            .map_err(GameClientError::InvalidOperation)?;
+        self.preflight_native_drawable_retirement_with_device(Some(id), audio_device)?;
         let required = self.native_particle_retirement_required(Some(id))?;
         if required && particles.is_none() {
             return Err(GameClientError::SubsystemError(
@@ -333,8 +365,7 @@ impl drawable_world::DrawableState {
             &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
         >,
     ) -> GameClientResult<()> {
-        BasicDrawable::preflight_native_audio_device(audio_device)
-            .map_err(GameClientError::InvalidOperation)?;
+        self.preflight_native_drawable_retirement_with_device(None, audio_device)?;
         let required = self.native_particle_retirement_required(None)?;
         if required && particles.is_none() {
             return Err(GameClientError::SubsystemError(
@@ -361,8 +392,15 @@ impl drawable_world::DrawableState {
     }
 
     fn finish_native_retirement(&mut self) {
-        self.finish_native_retirement_with_device(None)
-            .expect("legacy Drawable retirement has no fallible audio loan");
+        for &known in &self.native_drawable_order {
+            let draw = self
+                .drawable_map
+                .get_mut(&known)
+                .expect("native Drawable roster references a live receiver");
+            if let Some(basic) = draw.as_any_mut().downcast_mut::<BasicDrawable>() {
+                basic.finish_native_retirement();
+            }
+        }
     }
 
     fn finish_native_retirement_with_device(
@@ -371,8 +409,7 @@ impl drawable_world::DrawableState {
             &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
         >,
     ) -> GameClientResult<()> {
-        BasicDrawable::preflight_native_audio_device(audio_device)
-            .map_err(GameClientError::InvalidOperation)?;
+        self.preflight_native_drawable_retirement_with_device(None, audio_device)?;
         for &known in &self.native_drawable_order {
             let draw = self
                 .drawable_map
