@@ -8,8 +8,6 @@
 //! - `ScreenCrossFadeFilter` fade-pattern / `ST_MASK_TEXTURE`
 
 use crate::display::view::{FilterMode, FilterType, ViewFilterComposite};
-use std::cell::RefCell;
-
 use crate::display::view_filter::FilterPostRender;
 /// C++ `ScreenMotionBlurFilter::MAX_COUNT`.
 pub use crate::display::view_filter::MOTION_BLUR_MAX_COUNT;
@@ -28,12 +26,6 @@ struct ShaderFilterGpu {
     params: wgpu::Buffer,
     pipeline: wgpu::RenderPipeline,
     bind_layout: wgpu::BindGroupLayout,
-}
-
-// `ShaderFilterGpu` holds `Rc`-backed wgpu handles (`!Send` on the web backend);
-// the thread-local slot keeps them on the GUI thread that created them.
-thread_local! {
-    static FILTER_GPU: RefCell<Option<ShaderFilterGpu>> = const { RefCell::new(None) };
 }
 
 fn needs_rtt(composite: &ViewFilterComposite) -> bool {
@@ -335,61 +327,6 @@ impl ShaderFilterGpu {
     }
 }
 
-/// C++ `W3DShaderManager::startRenderToTexture` — scene dest when a filter is live.
-pub fn start_render_to_texture(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    format: wgpu::TextureFormat,
-    width: u32,
-    height: u32,
-    composite: &ViewFilterComposite,
-) -> Option<wgpu::TextureView> {
-    if !needs_rtt(composite) {
-        return None;
-    }
-    FILTER_GPU.with_borrow_mut(|slot| {
-        if slot.is_none() {
-            *slot = Some(ShaderFilterGpu::new(device, queue, format, width, height));
-        }
-        let gpu = slot.as_mut()?;
-        gpu.ensure(device, queue, format, width, height);
-        Some(gpu.scene_view.clone())
-    })
-}
-
-/// C++ `W3DShaderManager::endRenderToTexture` + `filterPostRender`.
-pub fn filter_post_render(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    encoder: &mut wgpu::CommandEncoder,
-    dest: &wgpu::TextureView,
-    composite: &ViewFilterComposite,
-) {
-    if !needs_rtt(composite) {
-        return;
-    }
-    // Retained Core adapter delegates the same CPU owner as native rendering.
-    // No tactical borrow survives GPU work or the resulting lookAt callback.
-    if !FILTER_GPU.with_borrow(|slot| slot.is_some()) {
-        return;
-    }
-    let frame = gamelogic::helpers::TheGameLogic::get_frame();
-    let post = crate::display::view::with_tactical_view(|view| {
-        view.tick_filter_fade();
-        view.filter_post_render(frame)
-    });
-    FILTER_GPU.with_borrow_mut(|slot| {
-        if let Some(gpu) = slot.as_mut() {
-            draw_filter_gpu(gpu, device, queue, encoder, dest, composite, &post);
-        }
-    });
-    if let Some(position) = post.look_at {
-        crate::display::view::with_tactical_view(|view| {
-            view.look_at(&position);
-        });
-    }
-}
-
 fn draw_filter_gpu(
     gpu: &mut ShaderFilterGpu,
     device: &wgpu::Device,
@@ -491,50 +428,6 @@ fn draw_filter_gpu(
     );
 }
 
-/// C++ `W3DShaderManager::endRenderToTexture` — dest view of the last scene capture.
-pub fn end_render_to_texture() -> Option<wgpu::TextureView> {
-    FILTER_GPU.with_borrow(|g| g.as_ref().map(|gpu| gpu.scene_view.clone()))
-}
-
-/// Live `render_pipeline` hook: the 3D scene already sits on `dest_texture`.
-/// Copy it into the leftover RTT, then `filterPostRender` onto `dest_view`.
-pub fn composite_live_view_filter(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    encoder: &mut wgpu::CommandEncoder,
-    dest_view: &wgpu::TextureView,
-    dest_texture: &wgpu::Texture,
-    format: wgpu::TextureFormat,
-    width: u32,
-    height: u32,
-    composite: &ViewFilterComposite,
-) {
-    if !needs_rtt(composite) {
-        return;
-    }
-    let _ = start_render_to_texture(device, queue, format, width, height, composite);
-    FILTER_GPU.with_borrow(|slot| {
-        let Some(gpu) = slot.as_ref() else {
-            return;
-        };
-        let width = width.max(1);
-        let height = height.max(1);
-        if gpu.width != width || gpu.height != height {
-            return;
-        }
-        encoder.copy_texture_to_texture(
-            dest_texture.as_image_copy(),
-            gpu.scene_tex.as_image_copy(),
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-        );
-    });
-    filter_post_render(device, queue, encoder, dest_view, composite);
-}
-
 /// GPU resources belong to one renderer. Resizing never resets CPU filter phase.
 #[derive(Default)]
 pub struct ShaderFilterResources {
@@ -552,6 +445,34 @@ impl ShaderFilterResources {
             && self.gpu.as_ref().is_some_and(|gpu| {
                 gpu.width == width.max(1) && gpu.height == height.max(1) && gpu.format == format
             })
+    }
+
+    /// The receiving Display renders its complete scene into this target before
+    /// finishing the filter phase. The returned view is a clone of that owner's
+    /// texture view; it never selects another Display's allocations.
+    pub(crate) fn scene_view(&self) -> Option<wgpu::TextureView> {
+        self.gpu.as_ref().map(|gpu| gpu.scene_view.clone())
+    }
+
+    /// Finish the direct RTT path used by `Display::draw_with_snow_state`.
+    pub(crate) fn finish_render_to_texture(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        dest: &wgpu::TextureView,
+        composite: &ViewFilterComposite,
+        post: &FilterPostRender,
+    ) -> bool {
+        if !needs_rtt(composite) {
+            return false;
+        }
+        let Some(gpu) = self.gpu.as_mut() else {
+            return false;
+        };
+        draw_filter_gpu(gpu, device, queue, encoder, dest, composite, post);
+        self.has_scene_capture = true;
+        true
     }
 
     /// Native caller invokes this before advancing its CPU postRender owner.

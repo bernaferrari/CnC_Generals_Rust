@@ -4,6 +4,17 @@ use crate::display::view::{Point3, Vector2};
 use crate::display::view_filter::ViewFilterState;
 
 #[test]
+fn filter_gpu_resource_slots_are_distinct_without_gpu_initialization() {
+    let a = ShaderFilterResources::default();
+    let b = ShaderFilterResources::default();
+    assert!(!std::ptr::eq(&a, &b));
+    assert!(a.scene_view().is_none());
+    assert!(b.scene_view().is_none());
+    assert!(!a.has_scene_capture_for(8, 8, wgpu::TextureFormat::Rgba8Unorm));
+    assert!(!b.has_scene_capture_for(8, 8, wgpu::TextureFormat::Rgba8Unorm));
+}
+
+#[test]
 #[ignore = "requires a native WGPU adapter; run this explicit GPU acceptance test"]
 fn owned_filter_gpu_admits_zero_fade_and_preserves_independent_cpu_phase_on_resize() {
     let instance = wgpu::Instance::default();
@@ -68,6 +79,7 @@ fn owned_filter_gpu_admits_zero_fade_and_preserves_independent_cpu_phase_on_resi
     ));
     queue.submit([encoder.finish()]);
     assert!(a.has_scene_capture_for(8, 8, format));
+    assert!(!b.has_scene_capture_for(8, 8, format));
     let green = [0u8, 255, 0, 255].repeat(8 * 8);
     queue.write_texture(
         texture.as_image_copy(),
@@ -178,4 +190,28 @@ fn owned_filter_gpu_admits_zero_fade_and_preserves_independent_cpu_phase_on_resi
         phase.post_render(4, Vector2::zero()).motion_blur_count,
         count + 5
     );
+
+    // Exercise the exact prepare -> render-to-owned-view -> finish sequence
+    // used by Display::draw_with_snow_state. One renderer's completion must
+    // not publish a capture into its peer's retained history.
+    let mut direct = ShaderFilterResources::default();
+    let mut direct_peer = ShaderFilterResources::default();
+    assert!(direct.prepare(&device, &queue, format, 8, 8, &composite));
+    assert!(direct_peer.prepare(&device, &queue, format, 16, 16, &composite));
+    assert!(direct.scene_view().is_some());
+    assert!(direct_peer.scene_view().is_some());
+    assert!(!direct_peer.has_scene_capture_for(16, 16, format));
+    let mut direct_encoder =
+        device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    assert!(direct.finish_render_to_texture(
+        &device,
+        &queue,
+        &mut direct_encoder,
+        &view,
+        &composite,
+        &post,
+    ));
+    queue.submit([direct_encoder.finish()]);
+    assert!(direct.has_scene_capture_for(8, 8, format));
+    assert!(!direct_peer.has_scene_capture_for(16, 16, format));
 }

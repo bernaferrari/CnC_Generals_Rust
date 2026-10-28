@@ -151,6 +151,8 @@ pub struct Display {
     windowed: bool,
     view_list: Vec<Box<dyn ViewTrait>>,
     hint_model_cache: RefCell<crate::display::view::HintModelCache>,
+    /// Filter RTT/history resources are tied to this Display's device and lifetime.
+    shader_filter_resources: crate::display::shader_filter::ShaderFilterResources,
     video_buffer: Option<Box<dyn VideoBuffer + Send>>,
     video_stream: Option<Box<dyn VideoStreamInterface>>,
     currently_playing_movie: String,
@@ -236,6 +238,8 @@ impl Display {
             windowed: true,
             view_list: Vec::new(),
             hint_model_cache: RefCell::new(crate::display::view::HintModelCache::default()),
+            shader_filter_resources: crate::display::shader_filter::ShaderFilterResources::default(
+            ),
             video_buffer: None,
             video_stream: None,
             currently_playing_movie: String::new(),
@@ -893,7 +897,7 @@ impl SubsystemInterface for Display {
 impl Display {
     /// Receiving Client snapshot; compatibility load-screen draws keep the adapter.
     pub fn draw_with_snow(
-        &self,
+        &mut self,
         snow: &crate::snow::SnowRenderState,
         fx: &mut display_fx::DisplayFxState,
         renderer: Option<&mut crate::gui::ui_renderer::UIRenderer>,
@@ -916,7 +920,7 @@ impl Display {
     /// Live receiving-client draw. Drawable admission and retirement share
     /// the GameClient's manager instead of selecting a process-global slot.
     pub fn draw_with_snow_owned(
-        &self,
+        &mut self,
         snow: &crate::snow::SnowRenderState,
         fx: &mut display_fx::DisplayFxState,
         renderer: Option<&mut crate::gui::ui_renderer::UIRenderer>,
@@ -939,7 +943,7 @@ impl Display {
     }
 
     fn draw_with_snow_state(
-        &self,
+        &mut self,
         snow: Option<&crate::snow::SnowRenderState>,
         fx: &mut display_fx::DisplayFxState,
         mut renderer: Option<&mut crate::gui::ui_renderer::UIRenderer>,
@@ -969,14 +973,21 @@ impl Display {
                 });
 
         let filter_composite = with_tactical_view_ref(|v| v.filter_composite());
-        let rtt_view = crate::display::shader_filter::start_render_to_texture(
-            self.graphics.device(),
-            self.graphics.queue(),
-            self.graphics.config().format,
-            self.width.max(1),
-            self.height.max(1),
-            &filter_composite,
-        );
+        let rtt_view = {
+            let resources = &mut self.shader_filter_resources;
+            if resources.prepare(
+                self.graphics.device(),
+                self.graphics.queue(),
+                self.graphics.config().format,
+                self.width.max(1),
+                self.height.max(1),
+                &filter_composite,
+            ) {
+                resources.scene_view()
+            } else {
+                None
+            }
+        };
         let scene_view = rtt_view.as_ref().unwrap_or(&view);
 
         {
@@ -1269,13 +1280,27 @@ impl Display {
             }
         }
         if rtt_view.is_some() {
-            crate::display::shader_filter::filter_post_render(
+            // Preserve the old CPU phase ordering: only a live filter with a
+            // prepared RTT advances the tactical filter, after scene/decal
+            // rendering and before presentation/UI composition.
+            let frame = gamelogic::helpers::TheGameLogic::get_frame();
+            let post = crate::display::view::with_tactical_view(|view| {
+                view.tick_filter_fade();
+                view.filter_post_render(frame)
+            });
+            self.shader_filter_resources.finish_render_to_texture(
                 self.graphics.device(),
                 self.graphics.queue(),
                 &mut encoder,
                 &view,
                 &filter_composite,
+                &post,
             );
+            if let Some(position) = post.look_at {
+                crate::display::view::with_tactical_view(|view| {
+                    view.look_at(&position);
+                });
+            }
         }
 
         // This frame borrows its actual UI renderer and immutable display facts.
@@ -1356,7 +1381,7 @@ impl Display {
 
 impl DisplayInterface for Display {
     fn draw(
-        &self,
+        &mut self,
         fx: &mut display_fx::DisplayFxState,
         renderer: Option<&mut crate::gui::ui_renderer::UIRenderer>,
         owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
@@ -1367,7 +1392,7 @@ impl DisplayInterface for Display {
     }
 
     fn draw_owned(
-        &self,
+        &mut self,
         fx: &mut display_fx::DisplayFxState,
         renderer: Option<&mut crate::gui::ui_renderer::UIRenderer>,
         owner: Option<&crate::gui::window_manager::WindowManagerOwner>,

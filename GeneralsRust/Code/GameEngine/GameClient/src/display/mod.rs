@@ -60,7 +60,7 @@ pub use image::{Image, ImageCollection};
 /// Legacy Display interface for compatibility
 pub trait DisplayInterface: SubsystemInterface {
     fn draw(
-        &self,
+        &mut self,
         fx: &mut display_fx::DisplayFxState,
         renderer: Option<&mut crate::gui::ui_renderer::UIRenderer>,
         owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
@@ -68,7 +68,7 @@ pub trait DisplayInterface: SubsystemInterface {
         client_frame: u32,
     ) -> Result<(), Box<dyn Error>>;
     fn draw_owned(
-        &self,
+        &mut self,
         fx: &mut display_fx::DisplayFxState,
         renderer: Option<&mut crate::gui::ui_renderer::UIRenderer>,
         owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
