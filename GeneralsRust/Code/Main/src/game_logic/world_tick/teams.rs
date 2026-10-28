@@ -1769,11 +1769,7 @@ impl GameLogic {
             return;
         }
         if !self.templates.contains_key(&proj_name) {
-            let mut tmpl = ThingTemplate::new(&proj_name);
-            tmpl.set_health(100.0)
-                .add_kind_of(KindOf::Projectile)
-                .add_kind_of(KindOf::Aircraft);
-            self.templates.insert(proj_name.clone(), tmpl);
+            return;
         }
         let Some(proj_id) =
             self.create_object_with_script_effects(&proj_name, team, pos, None, effects)

@@ -1,5 +1,6 @@
 use game_engine::common::{
     dict::Dict,
+    ini::ini_locomotor::LocomotorStore,
     name_key_generator::NameKeyGenerator,
     system::DataChunkOutput,
     well_known_keys::{key_player_faction, key_player_is_human, key_player_name},
@@ -134,14 +135,19 @@ fn admitted_world(
     secondary_weapon: Option<(&str, &str, bool)>,
 ) -> GameLogic {
     let mut game = GameLogic::new();
+    let mut locomotors = LocomotorStore::new_owned();
+    locomotors
+        .apply_source("Locomotor OwnedProjectileLoco\n Surfaces = AIR\n Speed = 100\n Acceleration = 100\n TurnRate = 120\n Appearance = WINGS\n End\n")
+        .unwrap();
+    game.admit_locomotor_definitions(locomotors).unwrap();
     let secondary_weapon_set = secondary_weapon
         .map(|(name, _, _)| format!(" Weapon = SECONDARY {name}\n"))
         .unwrap_or_default();
     game.admit_object_ini_sources([(
         "NamedFireOwner.ini".into(),
         format!(
-            "Object {UNIT_NAME}\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 400\n InitialHealth = 400\n WeaponSet\n  Conditions = NONE\n  Weapon = PRIMARY {WEAPON}\n{secondary_weapon_set} End\nEnd\n\
-             Object {projectile_name}\n KindOf = PROJECTILE\n Body = ActiveBody ProjectileBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"
+            "Object {UNIT_NAME}\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 400\n InitialHealth = 400\n End\n WeaponSet\n  Conditions = NONE\n  Weapon = PRIMARY {WEAPON}\n{secondary_weapon_set} End\nEnd\n\
+             Object {projectile_name}\n KindOf = PROJECTILE AIRCRAFT\n Locomotor = SET_NORMAL OwnedProjectileLoco\n Body = ActiveBody ProjectileBody\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface ProjectileAI\n End\nEnd\n"
         ),
     )])
     .expect("admit launcher and projectile object definitions");
@@ -245,28 +251,29 @@ fn authored_named_fire_script_uses_receiving_weapon_projectile_and_waypoint_path
 fn first_capable_slot_with_no_projectile_does_not_fall_through_to_primary() {
     let root = tempfile::tempdir().unwrap();
     let map = waypoint_map(root.path(), 200.0);
-    let mut world = admitted_world(
-        &map,
-        OWNER_PROJECTILE,
-        true,
-        Some((HIGHER_PRIORITY_WEAPON, "NONE", true)),
-    );
-    let shooter = world
-        .host_objects()
-        .registered_values()
-        .find(|object| object.name == OBJECT_NAME)
-        .expect("map admits named launcher")
-        .id;
-
-    // Secondary precedes Primary in C++ findWaypointFollowingCapableWeapon.
-    // The selected Secondary can follow waypoints but has ProjectileObject
-    // NONE, so force-fire stops without trying the capable Primary below it.
-    world.update();
-    assert!(
-        world
+    for projectile in ["NONE", "UnadmittedProjectile"] {
+        let mut world = admitted_world(
+            &map,
+            OWNER_PROJECTILE,
+            true,
+            Some((HIGHER_PRIORITY_WEAPON, projectile, true)),
+        );
+        let shooter = world
             .host_objects()
             .registered_values()
-            .all(|object| object.producer_id != Some(shooter)),
-        "missing projectile on first capable slot must not fall through"
-    );
+            .find(|object| object.name == OBJECT_NAME)
+            .expect("map admits named launcher")
+            .id;
+
+        // Secondary precedes Primary in C++ findWaypointFollowingCapableWeapon.
+        // A missing selected projectile cannot fall through or be invented.
+        world.update();
+        assert!(
+            world
+                .host_objects()
+                .registered_values()
+                .all(|object| object.producer_id != Some(shooter)),
+            "missing selected projectile {projectile} must not fire"
+        );
+    }
 }
