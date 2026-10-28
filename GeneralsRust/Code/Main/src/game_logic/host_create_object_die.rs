@@ -46,16 +46,35 @@ pub fn create_object_die_config_from_creation_list(
     if ocl_name.is_empty() {
         return None;
     }
-    let mut spawn_templates = peel_ocl_spawn_templates(ocl_name);
-    if spawn_templates.is_empty() {
-        spawn_templates = ocl_store_spawn_templates(ocl_name);
-    }
+    let spawn_templates = peel_ocl_spawn_templates(ocl_name);
     if spawn_templates.is_empty() {
         return None;
     }
     Some(HostCreateObjectDieData {
         ocl_name: ocl_name.to_string(),
         spawn_templates,
+        transfer_previous_health,
+        fired: false,
+    })
+}
+
+/// Bind a C++ CreateObjectDie module's deferred OCL identity. Runtime lookup
+/// belongs to the receiving GameLogic at onDie; the list need not be a known
+/// compatibility peel at template-admission time.
+pub(crate) fn declaration_from_creation_list(
+    ocl_name: &str,
+    transfer_previous_health: bool,
+) -> Option<HostCreateObjectDieData> {
+    let ocl_name = ocl_name.trim();
+    if ocl_name.is_empty() {
+        return None;
+    }
+    Some(HostCreateObjectDieData {
+        ocl_name: ocl_name.to_string(),
+        // The C++ module retains an OCL handle and runs it from onDie. Resolve
+        // the receiving session's definition at that callback, not while an
+        // Object template is being admitted.
+        spawn_templates: peel_ocl_spawn_templates(ocl_name),
         transfer_previous_health,
         fired: false,
     })
@@ -95,30 +114,6 @@ fn authored_create_object_die_config(name: &str) -> Option<HostCreateObjectDieDa
             module.attribute("TransferPreviousHealth"),
         )
     }))
-}
-
-fn ocl_store_spawn_templates(ocl_name: &str) -> Vec<String> {
-    use gamelogic::object_creation_list::GenericObjectCreationNugget;
-    let Some(ocl) =
-        gamelogic::helpers::TheObjectCreationListStore::lookup_object_creation_list(ocl_name)
-    else {
-        return Vec::new();
-    };
-    let mut names = Vec::new();
-    for nugget in ocl.nuggets() {
-        if let Some(generic) = nugget
-            .as_any()
-            .downcast_ref::<GenericObjectCreationNugget>()
-        {
-            if generic.name_are_objects {
-                let copies = generic.debris_to_generate.max(1) as usize;
-                for _ in 0..copies {
-                    names.extend(generic.names.iter().cloned());
-                }
-            }
-        }
-    }
-    names
 }
 
 /// Map common OCL / CreateObjectDie peels to spawn template names.
@@ -243,11 +238,10 @@ mod tests {
     fn fuel_air_bomb_peel() {
         let d = create_object_die_config_for_template("DaisyCutterBomb").unwrap();
         assert_eq!(d.ocl_name, "SupW_OCL_FuelAirBomb");
-        assert!(
-            d.spawn_templates
-                .iter()
-                .any(|s| s.contains("FuelAirGas") || s.contains("Gas"))
-        );
+        assert!(d
+            .spawn_templates
+            .iter()
+            .any(|s| s.contains("FuelAirGas") || s.contains("Gas")));
         assert!(d.spawn_templates.iter().any(|s| s.contains("Debris")));
         let m = create_object_die_config_for_template("MOAB").unwrap();
         assert_eq!(m.spawn_templates.len(), 2);

@@ -1,6 +1,6 @@
 //! Immutable receiving Die declarations; runtime receipts live on the Object.
 use crate::assets::ini_parser::BehaviorModuleDefinition;
-use crate::game_logic::host_fx_list_die::{HostFxListDieData, fx_list_die_from_behavior_attrs};
+use crate::game_logic::host_fx_list_die::{fx_list_die_from_behavior_attrs, HostFxListDieData};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -88,8 +88,7 @@ impl NativeDieCreate {
     }
 }
 fn bind_creation(list: &str, transfer: bool) -> Option<NativeDieCreate> {
-    let config =
-        super::host_create_object_die::create_object_die_config_from_creation_list(list, transfer)?;
+    let config = super::host_create_object_die::declaration_from_creation_list(list, transfer)?;
     Some(NativeDieCreate {
         ocl_name: config.ocl_name,
         spawn_templates: config.spawn_templates,

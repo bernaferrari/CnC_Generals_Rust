@@ -1,13 +1,84 @@
 //! One installed-object authored Die traversal. Each world callback ends its
 //! bounded Object borrow before the next slot resolves identities again.
 use super::*;
-use crate::game_logic::native_die_definition::{NativeDieKind, NativeSlowFamily};
+use crate::game_logic::native_die_definition::{NativeDieCreate, NativeDieKind, NativeSlowFamily};
 use crate::game_logic::object::OnDieInput;
 #[cfg(test)]
 #[path = "authored_credit_tests.rs"]
 mod credit_tests;
 
 impl GameLogic {
+    /// Execute the host-supported generic-object part of an admitted OCL
+    /// synchronously at the C++ onDie callback. The shared receiving dispatcher
+    /// preserves nugget order, count, and per-object random selection; other
+    /// nugget kinds remain unsupported instead of becoming guessed spawns.
+    pub(super) fn execute_receiving_die_ocl_with_effects(
+        &mut self,
+        id: ObjectId,
+        config: &NativeDieCreate,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        if self
+            .object_creation_list_definition(&config.ocl_name)
+            .is_none()
+        {
+            // A missing receiving OCL is a null C++ handle. Never select a
+            // name-based compatibility peel from another source.
+            return;
+        }
+        let Some((team, position, orientation, veterancy, velocity)) =
+            self.objects.get(&id).map(|object| {
+                (
+                    object.team,
+                    object.get_position(),
+                    object.get_orientation(),
+                    object.experience.level,
+                    object.movement.velocity,
+                )
+            })
+        else {
+            return;
+        };
+        let created = self.execute_parsed_weapon_ocl_at_with_interpreter_and_effects(
+            &config.ocl_name,
+            Some(id),
+            team,
+            veterancy,
+            orientation,
+            velocity,
+            position,
+            interpreter,
+            presentation_effects,
+        );
+        if config.transfer_previous_health {
+            if let Some(first) = created.first() {
+                // C++ create returns the first created object after every
+                // nugget has run. Re-read the dying Body after synchronous
+                // creation callbacks, then transfer only to that first Object.
+                let transfer = self.objects.get(&id).map(|object| {
+                    (
+                        object.health.maximum.max(object.max_health).max(1.0),
+                        object.previous_health,
+                        object.subdual_damage.max(0.0),
+                        object.last_damage_source,
+                    )
+                });
+                let Some((maximum, previous, subdual, source)) = transfer else {
+                    return;
+                };
+                self.apply_death_transfer_damage_with_effects(
+                    first,
+                    subdual,
+                    (maximum - previous).max(0.0),
+                    source,
+                    presentation_effects,
+                );
+                let _ = self.transfer_attack(id, *first);
+            }
+        }
+    }
+
     pub(super) fn run_authored_die_modules(
         &mut self,
         id: ObjectId,
@@ -44,7 +115,11 @@ impl GameLogic {
                 break;
             };
             if object.native_die_runtime.pending_create == Some(declaration.source_index) {
-                self.apply_pending_create_object_die_with_effects(id, presentation_effects);
+                self.apply_pending_create_object_die_with_interpreter_and_effects(
+                    id,
+                    interpreter,
+                    presentation_effects,
+                );
                 continue;
             }
             let jet_ground = matches!(
@@ -89,23 +164,10 @@ impl GameLogic {
                 ),
                 NativeDieKind::Create { config } => {
                     if let Some(config) = config {
-                        let Some(object) = self.objects.get(&id) else {
-                            continue;
-                        };
-                        // TransferPreviousHealth intentionally uses prior Body
-                        // history, unlike the current OCL damage-dealer input.
-                        let maximum = object.health.maximum.max(object.max_health).max(1.0);
-                        let previous = object.previous_health;
-                        self.execute_create_object_die_spawns_with_effects(
+                        self.execute_receiving_die_ocl_with_effects(
                             id,
-                            config.spawn_templates.clone(),
-                            (maximum - previous).max(0.0),
-                            config.transfer_previous_health,
-                            object.subdual_damage.max(0.0),
-                            object.last_damage_source,
-                            object.team,
-                            object.owner_player_id,
-                            object.get_position(),
+                            config,
+                            interpreter,
                             presentation_effects,
                         );
                     }
@@ -165,20 +227,12 @@ impl GameLogic {
                             .and_then(|index| creations.get(index))
                             .and_then(Option::as_ref)
                         {
-                            if let Some(object) = self.objects.get(&id) {
-                                self.execute_create_object_die_spawns_with_effects(
-                                    id,
-                                    config.spawn_templates.clone(),
-                                    0.0,
-                                    false,
-                                    0.0,
-                                    None,
-                                    object.team,
-                                    object.owner_player_id,
-                                    object.get_position(),
-                                    presentation_effects,
-                                );
-                            }
+                            self.execute_receiving_die_ocl_with_effects(
+                                id,
+                                config,
+                                interpreter,
+                                presentation_effects,
+                            );
                         }
                     }
                     if let Some(weapon) = self.choose_authored_die_entry(&ini.weapons) {

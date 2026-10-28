@@ -608,6 +608,12 @@ impl Object {
     }
 
     pub fn ensure_create_object_die(&mut self) {
+        // Receiving Object definitions own their Die declarations. The
+        // legacy template-name fallback reads the process AssetManager and
+        // can attach another session's authored OCL to this Object.
+        if self.thing.template.receiving_object_definition.is_some() {
+            return;
+        }
         if self.create_object_die.is_some() {
             return;
         }

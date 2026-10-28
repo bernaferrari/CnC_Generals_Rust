@@ -61,6 +61,20 @@ impl GameLogic {
         self.weapon_effect_definitions.ocls = definitions;
         Ok(())
     }
+
+    /// Admit the immutable OCL application catalog owned by this session.
+    /// The application baseline is fixed before live Objects capture die
+    /// declarations; later map-specific OCL changes use the override path.
+    pub fn admit_object_creation_list_sources<I>(&mut self, sources: I) -> Result<(), String>
+    where
+        I: IntoIterator<Item = String>,
+    {
+        if !self.objects.registered_is_empty() {
+            return Err("Object creation lists must be admitted before live Objects".into());
+        }
+        let sources: Vec<String> = sources.into_iter().collect();
+        self.admit_ocl_application_sources(&sources)
+    }
     pub(crate) fn ocl_application_definitions(
         &self,
     ) -> std::sync::Arc<HashMap<String, ObjectCreationList>> {

@@ -46,23 +46,19 @@ fn application_map_solo_reset_are_receiving_and_failed_parse_is_transactional() 
                 .unwrap();
             assert_eq!(model(&owner), "Solo");
             assert_eq!(model(&peer), "Peer");
-            assert!(
-                owner
-                    .apply_receiving_ocl_overrides(&[
-                        text("WouldHaveReplaced"),
-                        "ObjectCreationList Broken\n CreateDebris\n".into()
-                    ])
-                    .is_err()
-            );
+            assert!(owner
+                .apply_receiving_ocl_overrides(&[
+                    text("WouldHaveReplaced"),
+                    "ObjectCreationList Broken\n CreateDebris\n".into()
+                ])
+                .is_err());
             assert_eq!(model(&owner), "Solo");
-            assert!(
-                owner
-                    .admit_ocl_application_sources(&[
-                        text("WouldReplaceBase"),
-                        "ObjectCreationList Broken\n".into()
-                    ])
-                    .is_err()
-            );
+            assert!(owner
+                .admit_ocl_application_sources(&[
+                    text("WouldReplaceBase"),
+                    "ObjectCreationList Broken\n".into()
+                ])
+                .is_err());
             assert!(std::sync::Arc::ptr_eq(
                 &base,
                 &owner.ocl_application_definitions()

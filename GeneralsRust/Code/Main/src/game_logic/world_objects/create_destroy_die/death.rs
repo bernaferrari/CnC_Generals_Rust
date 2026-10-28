@@ -1508,6 +1508,60 @@ impl GameLogic {
         dying_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        self.apply_pending_create_object_die_with_interpreter_and_effects(
+            dying_id,
+            None,
+            presentation_effects,
+        );
+    }
+
+    pub(crate) fn apply_pending_create_object_die_with_interpreter_and_effects(
+        &mut self,
+        dying_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let receiving_pending = self.objects.get(&dying_id).is_some_and(|object| {
+            object.native_die_runtime.pending_create.is_some()
+                && object
+                    .thing()
+                    .template
+                    .receiving_object_definition
+                    .is_some()
+        });
+        let receiving_declaration = self.objects.get(&dying_id).and_then(|object| {
+            let source_index = object.native_die_runtime.pending_create?;
+            object
+                .thing()
+                .template
+                .native_die_declarations
+                .as_deref()?
+                .iter()
+                .find(|declaration| declaration.source_index == source_index)
+                .and_then(|declaration| match &declaration.kind {
+                    crate::game_logic::native_die_definition::NativeDieKind::Create {
+                        config: Some(config),
+                    } => Some(config.clone()),
+                    _ => None,
+                })
+        });
+        if receiving_pending {
+            if let Some(object) = self.objects.get_mut(&dying_id) {
+                let _ = object.take_pending_create_object_die_spawns();
+                if let Some(index) = object.native_die_runtime.pending_create.take() {
+                    object.native_die_runtime.completed.insert(index);
+                }
+            }
+            if let Some(config) = receiving_declaration {
+                self.execute_receiving_die_ocl_with_effects(
+                    dying_id,
+                    &config,
+                    interpreter,
+                    presentation_effects,
+                );
+            }
+            return;
+        }
         let (spawns, transfer_dmg, transfer, subdual, source, team, owner_player_id, pos) = {
             let Some(o) = self.objects.get_mut(&dying_id) else {
                 return;

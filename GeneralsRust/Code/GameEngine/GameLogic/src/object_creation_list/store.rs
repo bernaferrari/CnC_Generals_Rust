@@ -539,7 +539,10 @@ fn apply_nugget_property(nugget: &mut GenericObjectCreationNugget, key: &str, va
                 .unwrap_or_default()
                 .parse::<i32>()
             {
-                nugget.debris_to_generate = count.max(1);
+                // The nugget constructor supplies C++'s default Count=1;
+                // preserve an explicit INI zero instead of treating it as
+                // an omitted field.
+                nugget.debris_to_generate = count;
             }
         }
         "OFFSET" => nugget.offset = parse_coord3d_value(value),
@@ -1611,6 +1614,27 @@ End
             .and_then(|s| s.find_object_creation_list("OCL_Test"))
             .expect("OCL_Test missing after parse");
         assert_eq!(ocl.get_nugget_count(), 1);
+    }
+
+    #[test]
+    fn explicit_zero_count_is_not_replaced_by_the_default() {
+        let parsed = parse_object_creation_lists_from_ini(
+            "ObjectCreationList Zero\nCreateObject\nObjectNames = UnitA\nCount = 0\nEnd\nEnd\nObjectCreationList Default\nCreateObject\nObjectNames = UnitB\nEnd\nEnd\n",
+        )
+        .unwrap();
+        let count_for = |name: &str| {
+            let (_, list) = parsed
+                .iter()
+                .find(|(candidate, _)| candidate == name)
+                .unwrap();
+            let nugget = list.nuggets()[0]
+                .as_any()
+                .downcast_ref::<GenericObjectCreationNugget>()
+                .unwrap();
+            nugget.debris_to_generate
+        };
+        assert_eq!(count_for("Zero"), 0);
+        assert_eq!(count_for("Default"), 1);
     }
 
     #[test]

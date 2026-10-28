@@ -61,6 +61,12 @@ fn world_with_kind(middle: &str, kind: &str) -> (GameLogic, ObjectId, ObjectId) 
     assert!(parser.get_definition("AuthoredDieChild").is_some());
     let mut world = GameLogic::new();
     world
+        .admit_ocl_application_sources(&[
+            "ObjectCreationList OCL_AuthoredDieChild\nCreateObject\nObjectNames = AuthoredDieChild\nCount = 1\nEnd\nEnd\n"
+                .into(),
+        ])
+        .unwrap();
+    world
         .admit_receiving_module_content(
             crate::assets::ReceivingObjectContent::from_sources([(
                 "authored-die-owner.ini".to_owned(),
@@ -381,20 +387,7 @@ fn duplicate_create_slots_interleave_with_fx_and_transfer_previous_body_history(
         "duplicate_create_slots_interleave_with_fx_and_transfer_previous_body_history",
         || {
             use game_engine::common::ini::ini_damage_fx as rules;
-            use gamelogic::object_creation_list::{
-                GenericObjectCreationNugget, store::ObjectCreationList,
-            };
             let events = install();
-            let mut ocl = ObjectCreationList::new();
-            ocl.add_nugget(std::sync::Arc::new(GenericObjectCreationNugget {
-                names: vec!["AuthoredDieChild".into()],
-                name_are_objects: true,
-                ..Default::default()
-            }));
-            gamelogic::helpers::TheObjectCreationListStore::register_object_creation_list(
-                "OCL_AuthoredDieChild",
-                ocl,
-            );
             let mut damage_fx = rules::DamageFX::new();
             damage_fx.set_major_minor_fx(
                 rules::DamageType::Unresistable,
@@ -439,6 +432,35 @@ fn duplicate_create_slots_interleave_with_fx_and_transfer_previous_body_history(
             assert_eq!(children.len(), 2, "each authored Create slot executes once");
             assert!(children.iter().all(|o| o.health.current == 99.));
         },
+    );
+}
+
+#[test]
+fn standalone_body_create_receipt_resolves_against_the_receiving_world() {
+    let (mut owner, victim, _) =
+        world("Behavior = CreateObjectDie CreateTag\nCreationList = OCL_AuthoredDieChild\nEnd");
+    let frame = owner.frame;
+    {
+        let object = owner.host_object_mut(victim).unwrap();
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+        let _ = object.take_damage_from_immediate(1000.0, None, frame, &mut health_events);
+        assert_eq!(object.native_die_runtime.pending_create, Some(0));
+        assert!(object.pending_create_object_die_spawns.is_empty());
+    }
+    // Deliver the real bounded-body pending receipt through the receiving
+    // owner's continuation. It must resolve the admitted list at this point.
+    owner.apply_pending_create_object_die(victim);
+    assert!(owner
+        .host_objects()
+        .registered_values()
+        .any(|object| object.template_name == "AuthoredDieChild"));
+    assert_eq!(
+        owner
+            .host_object(victim)
+            .unwrap()
+            .native_die_runtime
+            .pending_create,
+        None
     );
 }
 
