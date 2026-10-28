@@ -7,17 +7,20 @@ pub(in crate::game_logic) struct AreaDamage<'a> {
     shooter_producer: Option<ObjectId>,
     shooter_dir_xz: Option<(f32, f32)>,
     source_is_defector: bool,
+    radius_damage_angle: f32,
 }
 impl<'a> AreaDamage<'a> {
     pub(in crate::game_logic) fn new(
         event: &'a DamageEvent,
         objects: HostObjectRead<'_>,
+        radius_damage_angle: f32,
     ) -> Option<Self> {
         let DamageEvent::Area {
             shooter_id,
             radius_source_present,
             radius_source_id,
             radius_source_producer,
+            radius_source_pose,
             ..
         } = event
         else {
@@ -26,14 +29,19 @@ impl<'a> AreaDamage<'a> {
         let source = objects.lookup(shooter_id);
         Some(Self {
             event,
-            shooter_pos: source.map(|o| o.get_position()),
+            shooter_pos: radius_source_pose
+                .map(|(position, _)| position)
+                .or_else(|| source.map(|o| o.get_position())),
             shooter_producer: *radius_source_producer,
-            shooter_dir_xz: source.map(|o| o.unit_direction_xz()),
+            shooter_dir_xz: radius_source_pose
+                .map(|(_, direction)| direction)
+                .or_else(|| source.map(|o| o.unit_direction_xz())),
             // Moving projectiles are distinct from their launcher. Only a
             // projectileless source uses the launcher's current Object state.
             source_is_defector: *radius_source_present
                 && radius_source_id == shooter_id
                 && source.is_some_and(Object::is_undetected_defector),
+            radius_damage_angle,
         })
     }
     /// Freeze candidate distances in this world's current HashMap encounter order.
@@ -100,11 +108,12 @@ impl<'a> AreaDamage<'a> {
             radius_source_id,
             radius_source_producer: _,
             radius_source_team_id,
+            radius_source_pose: _,
             shooter_owner_player_id,
             shooter_team_instance_name,
             shooter_template,
             primary_victim,
-            radius_damage_angle,
+            radius_weapon_name: _,
             shooter_team: _,
         } = self.event
         else {
@@ -185,7 +194,7 @@ impl<'a> AreaDamage<'a> {
             }
         }
         if !leftover_radius_damage_cone_allows(
-            *radius_damage_angle,
+            self.radius_damage_angle,
             shooter_pos,
             shooter_dir_xz,
             op,

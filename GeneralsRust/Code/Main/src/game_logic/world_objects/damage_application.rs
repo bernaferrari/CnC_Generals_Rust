@@ -1600,12 +1600,29 @@ impl GameLogic {
             shooter_id,
             damage_type,
             death_type,
+            radius_weapon_name,
             ..
         } = event
         else {
             return;
         };
-        let area = AreaDamage::new(event, self.objects.read()).expect("Area event");
+        let radius_damage_angle = if radius_weapon_name.is_empty() {
+            std::f32::consts::PI
+        } else if let Some(definitions) = &self.weapon_definitions {
+            let Some(weapon) = definitions.get(&radius_weapon_name.to_ascii_lowercase()) else {
+                log::error!(
+                    "Receiving weapon definition '{}' is missing for directional splash",
+                    radius_weapon_name
+                );
+                return;
+            };
+            weapon.radius_damage_angle
+        } else {
+            // Unbound programmatic shots have the C++ full-circle default.
+            std::f32::consts::PI
+        };
+        let area =
+            AreaDamage::new(event, self.objects.read(), radius_damage_angle).expect("Area event");
         let candidates = area.candidates(self.objects.read());
         for (victim_id, distance) in candidates {
             let Some(victim) = self.objects.get(&victim_id) else {

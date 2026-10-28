@@ -391,8 +391,12 @@ impl CombatSystem {
             } else {
                 live.and_then(|o| o.team_instance_id)
             },
+            radius_source_pose: moving_projectile.then_some((
+                projectile.position,
+                (projectile.velocity.x, projectile.velocity.z),
+            )),
             primary_victim,
-            radius_damage_angle: leftover_radius_damage_angle(&projectile.historic_weapon_key),
+            radius_weapon_name: projectile.historic_weapon_key.clone(),
         }
     }
 
@@ -687,11 +691,12 @@ impl CombatSystem {
                     radius_source_id,
                     radius_source_producer,
                     radius_source_team_id,
+                    radius_source_pose,
                     shooter_owner_player_id,
                     shooter_team_instance_name,
                     shooter_template,
                     primary_victim,
-                    radius_damage_angle,
+                    radius_weapon_name,
                     shooter_team,
                 } => {
                     let context = crate::game_logic::object::DamageHitContext::new(
@@ -706,9 +711,14 @@ impl CombatSystem {
                     let shock_r = (*shock_wave_radius).max(0.0);
                     let shock_amt = (*shock_wave_amount).max(0.0);
                     let shock_taper = (*shock_wave_taper_off).clamp(0.0, 1.0);
-                    let shooter_pos = objects.get(shooter_id).map(|s| s.get_position());
+                    let shooter_pos = radius_source_pose
+                        .map(|(position, _)| position)
+                        .or_else(|| objects.get(shooter_id).map(|s| s.get_position()));
                     let shooter_producer = *radius_source_producer;
-                    let shooter_dir_xz = objects.get(shooter_id).map(|s| s.unit_direction_xz());
+                    let shooter_dir_xz = radius_source_pose
+                        .map(|(_, direction)| direction)
+                        .or_else(|| objects.get(shooter_id).map(|s| s.unit_direction_xz()));
+                    let radius_damage_angle = leftover_radius_damage_angle(radius_weapon_name);
                     for (vid, obj) in objects.registered_mut() {
                         let op = obj.get_position();
                         let dist = splash_from_bounding_sphere_3d(
@@ -779,7 +789,7 @@ impl CombatSystem {
                             }
                         }
                         if !leftover_radius_damage_cone_allows(
-                            *radius_damage_angle,
+                            radius_damage_angle,
                             shooter_pos,
                             shooter_dir_xz,
                             op,

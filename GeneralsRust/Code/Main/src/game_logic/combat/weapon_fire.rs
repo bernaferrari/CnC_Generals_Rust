@@ -36,6 +36,9 @@ pub enum DamageEvent {
         radius_source_id: ObjectId,
         radius_source_producer: Option<ObjectId>,
         radius_source_team_id: Option<u32>,
+        /// Moving projectiles are not stored in the host Object arena. Their
+        /// actual impact pose is distinct from the launcher's current pose.
+        radius_source_pose: Option<(Vec3, (f32, f32))>,
         /// Shooter controlling player frozen at impact (C++ getRelationship).
         shooter_owner_player_id: Option<u32>,
         /// Shooter team instance frozen at impact (PLAYER_SET_OVERRIDE_RELATION_TO_TEAM).
@@ -44,8 +47,8 @@ pub enum DamageEvent {
         shooter_template: String,
         /// C++ `primaryVictim`: intended target skips RadiusDamageAffects.
         primary_victim: Option<ObjectId>,
-        /// Leftover WeaponStore `radius_damage_angle` (C++ PI = full circle).
-        radius_damage_angle: f32,
+        /// Effective WeaponTemplate identity resolved by the receiving match.
+        radius_weapon_name: String,
     },
 }
 

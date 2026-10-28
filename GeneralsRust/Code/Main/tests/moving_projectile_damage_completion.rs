@@ -71,7 +71,7 @@ fn fixture_custom(
     extra: &str,
 ) -> Fixture {
     fixture_custom_with_ai(
-        label, health, sink, speed, count, threshold, radius, affects, extra, false,
+        label, health, sink, speed, count, threshold, radius, affects, extra, false, None,
     )
 }
 
@@ -86,6 +86,7 @@ fn fixture_custom_with_ai(
     affects: &str,
     extra: &str,
     with_ai: bool,
+    owned_angle: Option<f32>,
 ) -> Fixture {
     let rule = format!("LibraryMoving{label}Weapon");
     let rows = format!("LibraryMoving{label}Rows");
@@ -164,19 +165,34 @@ End
         player.is_alive = true;
         world.add_player(player);
     }
+    if let Some(angle) = owned_angle {
+        let mut weapon = gamelogic::weapon::with_weapon_store(|store| {
+            (**store.find_weapon_template(&rule).unwrap()).clone()
+        })
+        .unwrap();
+        weapon.radius_damage_angle = angle;
+        world
+            .admit_receiving_weapon_snapshot(vec![(rule.clone(), weapon)])
+            .unwrap();
+    }
     // Give snapshot capture the same admitted receiving AI source used by
     // the production continuation fixtures. The fixture's host-only combat
     // fields below remain customized after receiving admission.
     if with_ai {
+        let projectile = if owned_angle.is_some() {
+            format!(
+                "Object LibraryMoving{label}Projectile\nKindOf = PROJECTILE\nBehavior = DumbProjectileBehavior Flight\n FirstHeight = 0\n SecondHeight = 0\n FirstPercentIndent = 0.25\n SecondPercentIndent = 0.75\nEnd\nEnd\n"
+            )
+        } else {
+            String::new()
+        };
         world
-            .admit_object_ini_sources([
-            (
+            .admit_object_ini_sources([(
                 "MovingProjectileFixture.ini".into(),
                 format!(
-                    "Object QueuedSource\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 500\nInitialHealth = 500\nEnd\nBehavior = AIUpdateInterface ActualQueuedSourceAI\nEnd\nEnd\nObject QueuedVictim\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody Body\nMaxHealth = {health}\nInitialHealth = {health}\nEnd\nBehavior = AIUpdateInterface ActualQueuedVictimAI\nEnd\nEnd\nObject QueuedSink\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 500\nInitialHealth = 500\nEnd\nBehavior = AIUpdateInterface ActualQueuedSinkAI\nEnd\nEnd\n"
+                    "Object QueuedSource\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 500\nInitialHealth = 500\nEnd\nBehavior = AIUpdateInterface ActualQueuedSourceAI\nEnd\nEnd\nObject QueuedVictim\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody Body\nMaxHealth = {health}\nInitialHealth = {health}\nEnd\nBehavior = AIUpdateInterface ActualQueuedVictimAI\nEnd\nEnd\nObject QueuedSink\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 500\nInitialHealth = 500\nEnd\nBehavior = AIUpdateInterface ActualQueuedSinkAI\nEnd\nEnd\n{projectile}"
                 ),
-            ),
-            ])
+            )])
             .unwrap();
     }
     let make = |name: &str, hp: f32, xp: f32| {
@@ -803,6 +819,7 @@ fn moving_area_projectile_default_team_identity_controls_collateral_filter() {
         "ALLIES",
         "",
         true,
+        None,
     );
     let collateral = f
         .world
@@ -833,6 +850,7 @@ fn moving_area_projectile_default_team_identity_controls_collateral_filter() {
         "ALLIES",
         "",
         true,
+        None,
     )
     .world;
     builder
@@ -842,6 +860,68 @@ fn moving_area_projectile_default_team_identity_controls_collateral_filter() {
     advance_to_impact(&mut f, &observer, 150.0);
     assert_eq!(f.world.objects[&collateral].health.current, 50.0);
 }
+
+#[test]
+fn moving_directional_splash_uses_projectile_pose_and_receiving_weapon_angle() {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let _clear = ClearObserver;
+    fn world(angle: f32) -> (Fixture, ObjectId) {
+        let mut f = fixture_custom_with_ai(
+            "SharedDirectional",
+            150.0,
+            false,
+            30,
+            1,
+            10.0,
+            10.0,
+            "ENEMIES NEUTRALS",
+            "",
+            true,
+            Some(angle),
+        );
+        let behind_impact = f
+            .world
+            .create_object_for_player("QueuedVictim", 1, Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+        (f, behind_impact)
+    }
+    let (mut narrow, narrow_victim) = world(0.1);
+    let (mut full, full_victim) = world(std::f32::consts::PI);
+    assert_eq!(narrow_victim, full_victim);
+    assert_eq!(narrow.shooters, full.shooters);
+
+    narrow.accept();
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&narrow.world).unwrap();
+    let encoded = bincode_legacy::serialize(&snapshot).unwrap();
+    let decoded: generals_main::save_load::snapshot::WorldSnapshot =
+        bincode_legacy::deserialize(&encoded).unwrap();
+    let (candidate, _) = world(0.1);
+    let mut restored = candidate.world;
+    builder
+        .restore_from_snapshot(&decoded, &mut restored)
+        .unwrap();
+    narrow.world = restored;
+    full.accept();
+    for f in [&mut narrow, &mut full] {
+        for _ in 0..50 {
+            if f.world.combat_system().projectiles_snapshot().is_empty() {
+                break;
+            }
+            f.world.update();
+        }
+        assert!(f.world.combat_system().projectiles_snapshot().is_empty());
+    }
+    assert_eq!(
+        narrow.world.objects[&narrow_victim].health.current, 150.0,
+        "the victim is behind the moving projectile even though it is ahead of the launcher"
+    );
+    assert_eq!(
+        full.world.objects[&full_victim].health.current, 50.0,
+        "the same-named weapon in the peer session has a full-circle angle"
+    );
+}
+
 #[test]
 fn moving_area_shock_final_state() {
     let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
