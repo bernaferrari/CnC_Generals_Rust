@@ -37,7 +37,10 @@ fn map_file(root: &std::path::Path, destination: [f32; 3]) -> std::path::PathBuf
 
     let mut action = ScriptAction::new(ScriptActionType::MoveTeamTo);
     action
-        .add_parameter(Parameter::with_string(ParameterType::Team, THIS_TEAM.into()))
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            THIS_TEAM.into(),
+        ))
         .unwrap();
     action
         .add_parameter(Parameter::with_string(
@@ -133,7 +136,10 @@ fn world(map: &std::path::Path) -> (GameLogic, ObjectId, ObjectId) {
     census.sort_unstable();
     let mut expected = vec![first.0, survivor.0];
     expected.sort_unstable();
-    assert_eq!(census, expected, "both map-admitted members belong to the team");
+    assert_eq!(
+        census, expected,
+        "both map-admitted members belong to the team"
+    );
     assert_eq!(
         game.host_object(survivor).unwrap().requested_destination,
         None,
@@ -208,5 +214,83 @@ fn resident_team_death_subroutine_runs_synchronously_in_its_receiving_world() {
             .requested_destination,
         Some(Vec3::new(180.0, 0.0, 210.0)),
         "the second callback cannot overwrite the first world"
+    );
+}
+
+#[test]
+fn scripted_death_runs_the_callback_on_the_already_borrowed_interpreter() {
+    let owner_root = tempfile::tempdir().unwrap();
+    let peer_root = tempfile::tempdir().unwrap();
+    let owner_map = map_file(owner_root.path(), [180.0, 0.0, 210.0]);
+    let peer_map = map_file(peer_root.path(), [300.0, 0.0, 320.0]);
+    let (mut owner, owner_dead, owner_survivor) = world(&owner_map);
+    let (peer, peer_dead, peer_survivor) = world(&peer_map);
+    assert_eq!((owner_dead, owner_survivor), (peer_dead, peer_survivor));
+
+    let true_condition = || {
+        let mut condition = OrCondition::new();
+        condition
+            .set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+        Some(Box::new(condition))
+    };
+
+    let mut move_team = ScriptAction::new(ScriptActionType::MoveTeamTo);
+    move_team
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            THIS_TEAM.into(),
+        ))
+        .unwrap();
+    move_team
+        .add_parameter(Parameter::with_string(
+            ParameterType::Waypoint,
+            WAYPOINT.into(),
+        ))
+        .unwrap();
+    let mut callback = Script::new();
+    callback.script_name = SCRIPT.into();
+    callback.is_subroutine = true;
+    callback.condition = true_condition();
+    callback.action = Some(Box::new(move_team));
+
+    let mut kill = ScriptAction::new(ScriptActionType::NamedKill);
+    kill.add_parameter(Parameter::with_string(
+        ParameterType::Unit,
+        "ResidentDeathVictim".into(),
+    ))
+    .unwrap();
+    let mut trigger = Script::new();
+    trigger.script_name = "KillResidentTeamMember".into();
+    trigger.is_one_shot = true;
+    trigger.delay_evaluation_seconds = 0;
+    trigger.condition = true_condition();
+    trigger.action = Some(Box::new(kill));
+
+    let mut scripts = ScriptList::new();
+    scripts.append_script(Box::new(callback));
+    scripts.append_script(Box::new(trigger));
+    let interpreter = ScriptEngine::new().unwrap();
+    interpreter
+        .set_script_list_for_player(0, Some(Box::new(scripts)))
+        .unwrap();
+    owner
+        .update_local_script_engine_with_owner(&interpreter)
+        .unwrap();
+
+    assert!(!owner.host_object(owner_dead).unwrap().is_alive());
+    assert_eq!(
+        owner
+            .host_object(owner_survivor)
+            .unwrap()
+            .requested_destination,
+        Some(Vec3::new(180.0, 0.0, 210.0)),
+        "the nested death callback uses the interpreter already executing the kill"
+    );
+    assert!(peer.host_object(peer_dead).unwrap().is_alive());
+    assert_eq!(
+        peer.host_object(peer_survivor)
+            .unwrap()
+            .requested_destination,
+        None
     );
 }
