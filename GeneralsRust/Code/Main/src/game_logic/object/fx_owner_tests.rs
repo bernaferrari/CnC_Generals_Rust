@@ -236,15 +236,27 @@ fn native_second_life_start_uses_receiving_view_for_normal_and_indestructible_bo
             .max_shake_range;
         let mut peer = world(id, Vec3::new(10. + range * 2., 0., 12.), &catalog);
         for world in [&mut owner, &mut peer] {
+            let particle = world.combat_particles.spawn(
+                crate::game_logic::CombatParticleKind::DeathSmoke,
+                Vec3::ZERO,
+                0,
+                Some(id),
+                None,
+            );
+            let mut transition =
+                crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxData::default();
+            transition.enabled = true;
+            transition.attached_ids[2] = vec![particle];
             let object = world.objects.get_mut(&id).unwrap();
             object.install_battle_bus_transport();
             object.indestructible = indestructible;
+            object.transition_damage_fx = Some(transition);
         }
         for world in [&mut peer, &mut owner] {
             let damage = world.objects[&id].health.current + 100.;
             assert!(
                 with_audio(world, id, &sent, |world, effects| world
-                    .apply_owned_damage_with_effects(
+                    .apply_owned_damage_with_killer_team_and_after_fx_with_effects(
                         id,
                         damage,
                         None,
@@ -252,6 +264,23 @@ fn native_second_life_start_uses_receiving_view_for_normal_and_indestructible_bo
                         crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                         None,
                         &DamageHitContext::default(),
+                        None,
+                        |world, victim_id| {
+                            if !indestructible {
+                                let victim = world.objects.get(&victim_id).unwrap();
+                                assert_eq!(
+                                    victim.body_damage_state,
+                                    crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged,
+                                    "the ActiveBody damage clamp leaves 1 HP before UndeadBody FULLY_HEAL"
+                                );
+                                let state_two_particle = victim
+                                    .transition_damage_fx
+                                    .as_ref()
+                                    .unwrap()
+                                    .attached_ids[2][0];
+                                assert!(world.combat_particles.get(state_two_particle).unwrap().active);
+                            }
+                        },
                         effects
                     ))
                 .is_some()
@@ -269,6 +298,18 @@ fn native_second_life_start_uses_receiving_view_for_normal_and_indestructible_bo
                 crate::game_logic::host_battle_bus::BATTLE_BUS_SECOND_LIFE_MAX_HEALTH
             );
             assert!(world.objects[&id].armor_set_second_life);
+            let retained = world.objects[&id]
+                .transition_damage_fx
+                .as_ref()
+                .unwrap()
+                .attached_ids[2][0];
+            assert!(
+                world
+                    .combat_particles
+                    .get(retained)
+                    .is_some_and(|entry| entry.active),
+                "setMaxHealth(FULLY_HEAL) must not call TransitionDamageFX::onBodyDamageStateChange"
+            );
         }
         assert_eq!(peer.session_view.impulse.intensity, 0.);
         assert_eq!(

@@ -79,14 +79,17 @@ impl Object {
             return;
         }
         body.begin_first_life_undeath(frame);
-        self.health.maximum = BATTLE_BUS_SECOND_LIFE_MAX_HEALTH;
-        self.health.current = BATTLE_BUS_SECOND_LIFE_MAX_HEALTH;
-        self.armor_set_second_life = true;
+        // The receiving Body refresh in FULLY_HEAL must classify the restored
+        // health with the BattleBus no-longer-destroyed status, matching the
+        // state visible to C++ evaluateVisualCondition.
         self.status.destroyed = false;
+        self.set_body_max_health_with_mode_and_body_fx(
+            BATTLE_BUS_SECOND_LIFE_MAX_HEALTH,
+            crate::game_logic::object::MaxHealthChange::FullyHeal,
+            body_fx,
+        );
+        self.armor_set_second_life = true;
         self.status.effectively_dead = false;
-        // setMaxHealth(FULLY_HEAL) evaluates the Body immediately. Do this
-        // before ordinary AI/pose setters can observe the restored health.
-        self.refresh_model_condition_bits_with_body_fx(source, frame, body_fx);
         // C++ applyShock throwForce.z (up). Host is Y-up, so +Y.
         // scrubVelocity2D then throw — do not stop_moving (that zeroes the hop).
         let _ = self.apply_shock_wave_impulse_with_operation(
