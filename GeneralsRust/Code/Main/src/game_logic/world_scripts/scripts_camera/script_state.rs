@@ -543,7 +543,7 @@ impl GameLogic {
         let player_rows: Vec<(u32, String, crate::game_logic::Team)> = self
             .players
             .values()
-            .map(|p| (p.id, p.name.clone(), p.team))
+            .map(|p| (p.id, p.map_side.map_player_name.clone(), p.team))
             .collect();
         for (pid, name, _team) in player_rows {
             let key = name.trim().to_ascii_lowercase();
