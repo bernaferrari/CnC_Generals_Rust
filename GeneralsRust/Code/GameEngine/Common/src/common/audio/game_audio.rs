@@ -1127,6 +1127,25 @@ impl AudioManager {
             .any(|event| event.get_event_name() == event_name && event.get_object_id() == object_id)
     }
 
+    /// Same observation, limited to playback receipts admitted by one
+    /// receiving session. The shared device may contain peers with identical
+    /// object ids and event names.
+    pub fn is_owned_named_event_playing_for_object(
+        &self,
+        object_id: u32,
+        event_name: &str,
+        receipts: &[AudioHandle],
+    ) -> bool {
+        if object_id == 0 || event_name.is_empty() {
+            return false;
+        }
+        self.active_audio_events.iter().any(|(handle, event)| {
+            receipts.contains(handle)
+                && event.get_event_name() == event_name
+                && event.get_object_id() == object_id
+        })
+    }
+
     /// Test hook: pretend Miles is still playing this object-owned event.
     pub fn test_insert_active_named_event(&mut self, object_id: u32, event_name: &str) {
         let mut event = AudioEventRts::with_event_name(event_name);

@@ -25,12 +25,63 @@ impl GameLogic {
         self.retry_dropped_ambient_sounds_with_audio(guard.as_deref());
     }
 
-    /// Explicit receiving mixer observation. `None` preserves the compatibility
-    /// adapter's historical poisoned-lock policy: not playing, unknown permanent
-    /// resource, and the default retry interval. No ambient service discovery.
+    /// Compatibility adapter for tests and detached callers. Native frame
+    /// dispatch uses the receiving-service path below; this method alone may
+    /// apply the legacy no-mixer fallback after a poisoned lookup.
     fn retry_dropped_ambient_sounds_with_audio(
         &mut self,
         audio: Option<&game_engine::common::audio::AudioManager>,
+    ) {
+        let retry_frames = audio
+            .map(|audio| audio.get_audio_settings().drawable_ambient_frames)
+            .filter(|frames| *frames > 0)
+            .unwrap_or(DEFAULT_DRAWABLE_AMBIENT_RETRY_FRAMES);
+        self.retry_dropped_ambient_sounds_using(retry_frames, |id, name| {
+            let is_playing =
+                audio.is_some_and(|audio| audio.is_named_event_playing_for_object(id.0, name));
+            let is_permanent = (!is_playing).then(|| {
+                audio
+                    .and_then(|audio| audio.find_audio_event_info(name))
+                    .map(|info| info.is_permanent_sound())
+                    .unwrap_or(true)
+            });
+            Some(super::super::AmbientAudioRetryObservation {
+                is_playing,
+                is_permanent,
+            })
+        });
+    }
+
+    /// Live engine audio phase: observe only records admitted by the receiving
+    /// NativeAudioEffects receipt set. The logic queue remains the producer;
+    /// this callback only changes the same synchronous retry decision.
+    pub(crate) fn retry_dropped_ambient_sounds_with_receiving_audio(
+        &mut self,
+        audio: Option<&mut dyn super::super::NativeAudioEffects>,
+    ) {
+        let Some(audio) = audio else {
+            // No receiving service means no trustworthy playback observation;
+            // do not reinterpret every permanent loop as culled.
+            return;
+        };
+        let mut audio = audio;
+        let Some(observed_retry_frames) = audio.ambient_retry_frames() else {
+            return;
+        };
+        let retry_frames = if observed_retry_frames > 0 {
+            observed_retry_frames
+        } else {
+            DEFAULT_DRAWABLE_AMBIENT_RETRY_FRAMES
+        };
+        self.retry_dropped_ambient_sounds_using(retry_frames, |id, name| {
+            audio.ambient_retry_observation(id.0, name)
+        });
+    }
+
+    fn retry_dropped_ambient_sounds_using(
+        &mut self,
+        retry_frames: u32,
+        mut observe: impl FnMut(ObjectId, &str) -> Option<super::super::AmbientAudioRetryObservation>,
     ) {
         let candidates: Vec<(ObjectId, String, glam::Vec3)> = self
             .objects
@@ -48,10 +99,6 @@ impl GameLogic {
         self.ambient_sound_retries
             .retain_objects(|id| candidates.iter().any(|(candidate, _, _)| *candidate == id));
         let now = self.frame;
-        let retry_frames = audio
-            .map(|audio| audio.get_audio_settings().drawable_ambient_frames)
-            .filter(|frames| *frames > 0)
-            .unwrap_or(DEFAULT_DRAWABLE_AMBIENT_RETRY_FRAMES);
         for (id, name, pos) in candidates {
             if self.queued_audio_events.iter().any(|event| {
                 event.object_id == Some(id)
@@ -61,18 +108,16 @@ impl GameLogic {
             }) {
                 continue;
             }
+            let Some(observation) = observe(id, &name) else {
+                continue;
+            };
             let should_restart = self.ambient_sound_retries.should_restart(
                 id,
                 &name,
                 now,
                 retry_frames,
-                || audio.is_some_and(|audio| audio.is_named_event_playing_for_object(id.0, &name)),
-                || {
-                    audio
-                        .and_then(|audio| audio.find_audio_event_info(&name))
-                        .map(|info| info.is_permanent_sound())
-                        .unwrap_or(true)
-                },
+                || observation.is_playing,
+                || observation.is_permanent.unwrap_or(true),
             );
             if should_restart {
                 self.queue_audio_event(

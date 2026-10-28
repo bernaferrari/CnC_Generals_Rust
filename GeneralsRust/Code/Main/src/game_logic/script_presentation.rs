@@ -42,6 +42,14 @@ impl PartialEq for NativeAuxiliarySource {
 
 use crate::presentation_frame::camera::build::SlaveCameraSample;
 
+/// Playback observation for one receiving session's ambient loop retry.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct AmbientAudioRetryObservation {
+    pub(crate) is_playing: bool,
+    /// `None` while playing keeps the source's lazy permanence query.
+    pub(crate) is_permanent: Option<bool>,
+}
+
 /// One immediate receiving audio admission, borrowed for a synchronous operation.
 /// The service owns its actual pending AR_Play requests; gameplay keeps no receipt log.
 pub(crate) trait NativeAudioEffects {
@@ -68,6 +76,20 @@ pub(crate) trait NativeAudioEffects {
         _additional_handles: &[u32],
     ) -> Result<(), String> {
         Err("receiving audio service does not own script policy receipts".into())
+    }
+
+    /// Receiving-session observation used by Drawable's permanent ambient
+    /// loop retry. Implementations filter playing records by this session's
+    /// accepted audio receipts; event definitions/settings remain shared data.
+    fn ambient_retry_frames(&mut self) -> Option<u32> {
+        None
+    }
+    fn ambient_retry_observation(
+        &mut self,
+        _object_id: u32,
+        _name: &str,
+    ) -> Option<AmbientAudioRetryObservation> {
+        None
     }
 
     fn submit_selected_audio(

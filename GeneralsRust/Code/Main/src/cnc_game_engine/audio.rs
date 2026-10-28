@@ -6,7 +6,15 @@ impl CnCGameEngine {
     /// preserving C++ GameEngine::update ordering and request metadata.
     pub(super) fn dispatch_game_logic_audio_events(&mut self) {
         let observer = self.receiving_audio_observer_target();
-        let events = self.game_logic.process_audio_events(observer);
+        let events = {
+            let mut audio_service = super::native_audio_effects::NativeAudioService::receiving(
+                &mut self.subsystem_manager,
+            );
+            self.game_logic.process_audio_events_with_receiving_audio(
+                observer,
+                audio_service.as_mut().map(|service| service.receiver()),
+            )
+        };
         if let Some(audio) = self
             .subsystem_manager
             .get_mut::<crate::subsystem_manager::AudioManagerSubsystem>()

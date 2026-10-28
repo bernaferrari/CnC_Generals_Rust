@@ -208,3 +208,95 @@ fn receiving_retry_borrows_exact_audio_manager_for_same_id_and_event_name() {
     peer.retry_dropped_ambient_sounds_with_audio(Some(&peer_audio));
     assert_cues(&mut peer, b, &[]);
 }
+
+#[test]
+fn live_retry_uses_the_receiving_audio_observation_for_same_id_peers() {
+    struct Observation {
+        available: bool,
+        playing: bool,
+        permanent: bool,
+        retry_frames: u32,
+    }
+    impl crate::game_logic::NativeAudioEffects for Observation {
+        fn ambient_retry_frames(&mut self) -> Option<u32> {
+            self.available.then_some(self.retry_frames)
+        }
+        fn ambient_retry_observation(
+            &mut self,
+            _object_id: u32,
+            _name: &str,
+        ) -> Option<crate::game_logic::AmbientAudioRetryObservation> {
+            self.available
+                .then_some(crate::game_logic::AmbientAudioRetryObservation {
+                    is_playing: self.playing,
+                    is_permanent: (!self.playing).then_some(self.permanent),
+                })
+        }
+        fn add_audio_event(
+            &mut self,
+            _event: &game_engine::common::audio::AudioEventRts,
+            _locality: &game_engine::common::audio::AudioSubmissionLocality,
+        ) {
+        }
+    }
+
+    let mut receiving = world("SoundAmbient = SharedReceivingLoop");
+    let mut peer = world("SoundAmbient = SharedReceivingLoop");
+    let id = spawn(&mut receiving);
+    assert_eq!(id, spawn(&mut peer));
+    assert_cues(&mut receiving, id, &[("SharedReceivingLoop", true)]);
+    assert_cues(&mut peer, id, &[("SharedReceivingLoop", true)]);
+    receiving.frame = 100;
+    peer.frame = 100;
+
+    let mut receiving_audio = Observation {
+        available: true,
+        playing: true,
+        permanent: true,
+        retry_frames: 30,
+    };
+    let own_events =
+        receiving.process_audio_events_with_receiving_audio(None, Some(&mut receiving_audio));
+    assert!(own_events.is_empty(), "its active loop suppresses a retry");
+
+    let mut peer_audio = Observation {
+        available: true,
+        playing: false,
+        permanent: true,
+        retry_frames: 30,
+    };
+    let peer_events = peer.process_audio_events_with_receiving_audio(None, Some(&mut peer_audio));
+    assert_eq!(
+        peer_events.len(),
+        1,
+        "the receiving peer retries its culled loop"
+    );
+    let (event, _) = peer_events.into_iter().next().unwrap().into_parts();
+    assert_eq!(event.event_type, "SharedReceivingLoop");
+    assert_eq!(event.object_id, Some(id));
+    assert!(event.is_looping);
+
+    let mut unavailable = world("SoundAmbient = SharedReceivingLoop");
+    let unavailable_id = spawn(&mut unavailable);
+    assert_eq!(unavailable_id, id);
+    assert_cues(&mut unavailable, id, &[("SharedReceivingLoop", true)]);
+    unavailable.frame = 100;
+    assert!(
+        unavailable
+            .process_audio_events_with_receiving_audio(None, None)
+            .is_empty(),
+        "missing receiver cannot imply a culled loop"
+    );
+    let mut unavailable_audio = Observation {
+        available: false,
+        playing: false,
+        permanent: true,
+        retry_frames: 30,
+    };
+    assert!(
+        unavailable
+            .process_audio_events_with_receiving_audio(None, Some(&mut unavailable_audio))
+            .is_empty(),
+        "unavailable observation cannot imply a culled loop"
+    );
+}

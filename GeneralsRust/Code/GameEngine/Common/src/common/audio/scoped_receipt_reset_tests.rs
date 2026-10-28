@@ -124,3 +124,22 @@ fn scoped_name_stop_preserves_peer_and_original_immediate_release_phase() {
                 && request.get_handle() == Some(1002))
     );
 }
+
+#[test]
+fn ambient_playing_observation_filters_shared_device_to_receiving_receipts() {
+    let mut device = AudioManager::new();
+    let mut owner = event(1001, "SharedAmbient");
+    owner.set_object_id(77);
+    let mut peer = event(1002, "SharedAmbient");
+    peer.set_object_id(77);
+    device.active_audio_events.insert(1001, owner);
+    device.active_audio_events.insert(1002, peer);
+
+    assert!(device.is_owned_named_event_playing_for_object(77, "SharedAmbient", &[1001]));
+    assert!(device.is_owned_named_event_playing_for_object(77, "SharedAmbient", &[1002]));
+    assert!(!device.is_owned_named_event_playing_for_object(77, "SharedAmbient", &[]));
+
+    device.active_audio_events.remove(&1001);
+    assert!(!device.is_owned_named_event_playing_for_object(77, "SharedAmbient", &[1001]));
+    assert!(device.is_owned_named_event_playing_for_object(77, "SharedAmbient", &[1002]));
+}

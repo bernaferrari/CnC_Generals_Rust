@@ -105,8 +105,16 @@ impl GameLogic {
         &mut self,
         observer_look_at: Option<i32>,
     ) -> Vec<crate::game_logic::audio_dispatch_impl::AdmittedAudioRequest> {
+        self.process_audio_events_with_receiving_audio(observer_look_at, None)
+    }
+
+    pub(crate) fn process_audio_events_with_receiving_audio(
+        &mut self,
+        observer_look_at: Option<i32>,
+        audio: Option<&mut dyn super::super::super::NativeAudioEffects>,
+    ) -> Vec<crate::game_logic::audio_dispatch_impl::AdmittedAudioRequest> {
         let locality = self.receiving_audio_locality(observer_look_at);
-        self.retry_dropped_ambient_sounds();
+        self.retry_dropped_ambient_sounds_with_receiving_audio(audio);
         let mut outgoing = Vec::new();
 
         let pending = self.queued_audio_events.drain_requests();

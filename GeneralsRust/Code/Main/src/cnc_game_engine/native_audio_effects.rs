@@ -50,6 +50,33 @@ impl crate::game_logic::NativeAudioEffects for NativeAudioService<'_> {
         Arc::ptr_eq(device, self.device)
     }
 
+    fn ambient_retry_frames(&mut self) -> Option<u32> {
+        self.device
+            .lock()
+            .ok()
+            .map(|device| device.get_audio_settings().drawable_ambient_frames)
+    }
+
+    fn ambient_retry_observation(
+        &mut self,
+        object_id: u32,
+        name: &str,
+    ) -> Option<crate::game_logic::AmbientAudioRetryObservation> {
+        let device = self.device.lock().ok()?;
+        let is_playing =
+            device.is_owned_named_event_playing_for_object(object_id, name, self.receipts);
+        let is_permanent = (!is_playing).then(|| {
+            device
+                .find_audio_event_info(name)
+                .map(|info| info.is_permanent_sound())
+                .unwrap_or(true)
+        });
+        Some(crate::game_logic::AmbientAudioRetryObservation {
+            is_playing,
+            is_permanent,
+        })
+    }
+
     fn script_audio(
         &mut self,
         request: gamelogic::scripting::engine::ScriptAudioRequest<'_>,

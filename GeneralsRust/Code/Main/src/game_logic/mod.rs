@@ -33,8 +33,8 @@ mod script_presentation;
 #[cfg(feature = "game_client")]
 pub(crate) use script_presentation::NativeAuxiliarySource;
 pub(crate) use script_presentation::{
-    NativeAudioEffects, NativeMapAdmission, NativeSlaveSource, NativeTerrainEffects,
-    NativeViewEffects, ScriptPresentationEffects,
+    AmbientAudioRetryObservation, NativeAudioEffects, NativeMapAdmission, NativeSlaveSource,
+    NativeTerrainEffects, NativeViewEffects, ScriptPresentationEffects,
 };
 #[cfg(feature = "game_client")]
 pub(crate) use script_presentation::{NativeBodyVisualChange, NativeProjectedRadiusAllocator};
