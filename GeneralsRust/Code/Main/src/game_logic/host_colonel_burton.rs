@@ -348,15 +348,6 @@ pub fn can_plant_timed_charge(active_timed_count: u32) -> bool {
     active_timed_count < BURTON_MAX_TIMED_CHARGES
 }
 
-/// C++ `SpecialAbilityUpdate::startUnpacking` frames with PackUnpackVariationFactor.
-pub fn burton_charge_unpack_frames(variation_factor: f32) -> u32 {
-    let ms = crate::game_logic::vary_pack_unpack_duration_ms(
-        BURTON_CHARGE_UNPACK_TIME_MS,
-        variation_factor,
-    );
-    burton_ms_to_frames(ms.max(1))
-}
-
 /// C++ `SpecialAbilityUpdate::finishAbility` flee point
 /// (`SpecialAbilityUpdate.cpp:1733-1818`): `±dir * FleeRangeAfterCompletion`.
 /// Flip-after-pack/unpack adds the facing vector; otherwise subtract.
@@ -576,16 +567,11 @@ mod tests {
     }
 
     #[test]
-    fn unpack_variation_and_flee_after_charge() {
-        assert_eq!(
-            burton_charge_unpack_frames(0.0),
-            BURTON_CHARGE_UNPACK_TIME_FRAMES
-        );
+    fn flee_after_charge() {
         let pos = Vec3::new(10.0, 0.0, 0.0);
         let away = flee_point_after_charge(pos, 1.0, 0.0, BURTON_FLEE_RANGE_AFTER_CHARGE, false);
         assert!((away.x - (10.0 - 100.0)).abs() < 0.01);
         let flip = flee_point_after_charge(pos, 1.0, 0.0, BURTON_FLEE_RANGE_AFTER_CHARGE, true);
         assert!((flip.x - (10.0 + 100.0)).abs() < 0.01);
-        assert!(crate::game_logic::vary_pack_unpack_duration_ms(5500, 0.0) == 5500);
     }
 }

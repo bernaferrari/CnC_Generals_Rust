@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 mod template_metadata;
+pub(crate) use template_metadata::vary_pack_unpack_duration_ms;
 pub use template_metadata::{
     CapturePowerKind, ChargePlantAbilityMetadata, ContainAdmission, ContainDeathRules,
     ContainModuleKind, ContainModuleMetadata, DeployStyleMetadata, DockKind,
@@ -16,7 +17,6 @@ pub use template_metadata::{
     RiderChangeRiderMetadata, SpecialPowerModuleKind, SpecialPowerModuleMetadata,
     SupplyTruckMetadata, SupplyTruckState, VeterancyCrateCollideMetadata,
     VeterancyGainCreateMetadata, apply_pack_unpack_variation_ms, pack_unpack_variation_multiplier,
-    vary_pack_unpack_duration_ms,
 };
 
 mod template;

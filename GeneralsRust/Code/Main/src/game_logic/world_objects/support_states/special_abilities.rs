@@ -1763,8 +1763,11 @@ impl GameLogic {
                     );
                     return Ok(LeftoverSaTick::Waiting);
                 }
-                let unpack_ms =
-                    crate::game_logic::vary_pack_unpack_duration_ms(timings.unpack_ms, variation);
+                let unpack_ms = crate::game_logic::thing::vary_pack_unpack_duration_ms(
+                    timings.unpack_ms,
+                    variation,
+                    &self.logic_random,
+                );
                 if unpack_ms > 0 {
                     self.leftover_begin_unpacking(object_id, target_id, kind, unpack_ms);
                     return Ok(LeftoverSaTick::Waiting);
@@ -1791,8 +1794,11 @@ impl GameLogic {
                     self.hero_abilities.set_leftover_channel(object_id, channel);
                     return Ok(LeftoverSaTick::Waiting);
                 }
-                let unpack_ms =
-                    crate::game_logic::vary_pack_unpack_duration_ms(timings.unpack_ms, variation);
+                let unpack_ms = crate::game_logic::thing::vary_pack_unpack_duration_ms(
+                    timings.unpack_ms,
+                    variation,
+                    &self.logic_random,
+                );
                 if unpack_ms > 0 {
                     self.leftover_begin_unpacking(object_id, target_id, kind, unpack_ms);
                     return Ok(LeftoverSaTick::Waiting);
@@ -1857,8 +1863,11 @@ impl GameLogic {
                     kind,
                     timings.abort_range,
                 ) {
-                    let pack_ms =
-                        crate::game_logic::vary_pack_unpack_duration_ms(timings.pack_ms, variation);
+                    let pack_ms = crate::game_logic::thing::vary_pack_unpack_duration_ms(
+                        timings.pack_ms,
+                        variation,
+                        &self.logic_random,
+                    );
                     if pack_ms > 0 {
                         self.leftover_begin_packing_with_effects(
                             object_id, target_id, kind, pack_ms, effects,
@@ -3114,9 +3123,10 @@ impl GameLogic {
             .get(&object_id)
             .and_then(|object| object.thing().template.hacker_disable_building.as_ref())
             .map(|meta| {
-                crate::game_logic::vary_pack_unpack_duration_ms(
+                crate::game_logic::thing::vary_pack_unpack_duration_ms(
                     pack_time_ms,
                     meta.pack_unpack_variation_factor,
+                    &self.logic_random,
                 )
             })
             .unwrap_or(pack_time_ms);
@@ -3619,9 +3629,10 @@ impl GameLogic {
                             )?;
                         }
                     } else {
-                        let unpack_ms = crate::game_logic::vary_pack_unpack_duration_ms(
+                        let unpack_ms = crate::game_logic::thing::vary_pack_unpack_duration_ms(
                             metadata.unpack_time_ms,
                             metadata.pack_unpack_variation_factor,
+                            &self.logic_random,
                         );
                         if let Some(object) = self.objects.get_mut(&object_id) {
                             object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(

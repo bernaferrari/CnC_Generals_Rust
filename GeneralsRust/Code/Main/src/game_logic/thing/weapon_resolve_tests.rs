@@ -193,8 +193,9 @@ fn pack_unpack_variation_matches_cpp_inclusive_range() {
         apply_pack_unpack_variation_ms(5500, pack_unpack_variation_multiplier(0.0, 0.37)),
         5500
     );
-    assert_eq!(vary_pack_unpack_duration_ms(0, 0.5), 0);
-    assert_eq!(vary_pack_unpack_duration_ms(5500, 0.0), 5500);
+    let random = game_engine::common::random_value::SessionRandom::default();
+    assert_eq!(vary_pack_unpack_duration_ms(0, 0.5, &random), 0);
+    assert_eq!(vary_pack_unpack_duration_ms(5500, 0.0, &random), 5500);
 }
 
 #[test]

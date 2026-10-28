@@ -1277,10 +1277,11 @@ impl GameLogic {
                         // C++ onContaining snaps enclosing occupants to the building
                         // origin. Fire Base (IsEnclosingContainer=No) stays at stations.
                         if enclosing_garrison || !container_is_structure {
-                            obj.set_position_with_effects(
+                            obj.set_position_with_effects_and_team_factory(
                                 container_pos,
                                 tree_move_frame,
                                 &mut effects.reborrow_for_object(&mut self.partition_manager),
+                                &self.team_factory,
                             );
                             {}
                         }
@@ -1525,9 +1526,10 @@ impl GameLogic {
                                     })
                                     .unwrap_or(0.0);
                                 let unpack_time_ms =
-                                    crate::game_logic::vary_pack_unpack_duration_ms(
+                                    crate::game_logic::thing::vary_pack_unpack_duration_ms(
                                         unpack_time_ms,
                                         factor,
+                                        &self.logic_random,
                                     );
                                 if let Some(object) = self.objects.get_mut(&object_id) {
                                     object.capture_channel =
@@ -1716,12 +1718,13 @@ impl GameLogic {
                             object.capture_channel =
                                 Some(crate::game_logic::CaptureChannelState::new(
                                     crate::game_logic::CaptureChannelPhase::Packing,
-                                    crate::game_logic::vary_pack_unpack_duration_ms(
+                                    crate::game_logic::thing::vary_pack_unpack_duration_ms(
                                         pack_time_ms,
                                         object
                                             .thing()
                                             .template
                                             .capture_pack_unpack_variation_factor,
+                                        &self.logic_random,
                                     ),
                                 ));
 
@@ -3072,9 +3075,10 @@ impl GameLogic {
                                 timings.flip_after_unpack,
                             );
                         } else {
-                            let pack_ms = crate::game_logic::vary_pack_unpack_duration_ms(
+                            let pack_ms = crate::game_logic::thing::vary_pack_unpack_duration_ms(
                                 timings.pack_ms,
                                 variation,
+                                &self.logic_random,
                             );
                             self.leftover_begin_packing_with_effects(
                                 object_id,
@@ -3204,11 +3208,12 @@ impl GameLogic {
                                         let mut pos = obj.get_position();
                                         pos.x += dx;
                                         pos.z += dz;
-                                        obj.set_position_with_effects(
+                                        obj.set_position_with_effects_and_team_factory(
                                             pos,
                                             tree_move_frame,
                                             &mut effects
                                                 .reborrow_for_object(&mut self.partition_manager),
+                                            &self.team_factory,
                                         );
                                     }
                                 }
@@ -3949,10 +3954,11 @@ impl GameLogic {
                             .objects
                             .get_mut(&containment_actor_id)
                             .expect("containment operation preserves this birth");
-                        obj.set_position_with_effects(
+                        obj.set_position_with_effects_and_team_factory(
                             pin_pos,
                             tree_move_frame,
                             &mut effects.reborrow_for_object(&mut self.partition_manager),
+                            &self.team_factory,
                         );
                         {}
                         obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(

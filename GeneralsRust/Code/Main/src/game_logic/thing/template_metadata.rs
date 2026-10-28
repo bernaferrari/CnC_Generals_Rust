@@ -1232,8 +1232,20 @@ pub fn apply_pack_unpack_variation_ms(base_ms: u32, variation: f32) -> u32 {
     (base_ms as f32 * variation) as u32
 }
 
-/// Live-path pack/unpack duration. Factor 0 is deterministic (C++ range is 1..1).
-pub fn vary_pack_unpack_duration_ms(base_ms: u32, factor: f32) -> u32 {
+/// Compute a duration using the stream owned by the receiving session.
+pub(crate) fn vary_pack_unpack_duration_ms(
+    base_ms: u32,
+    factor: f32,
+    random: &game_engine::common::random_value::SessionRandom,
+) -> u32 {
+    vary_pack_unpack_duration_ms_using(base_ms, factor, |lo, hi| random.next_real(lo, hi))
+}
+
+fn vary_pack_unpack_duration_ms_using(
+    base_ms: u32,
+    factor: f32,
+    draw: impl FnOnce(f32, f32) -> f32,
+) -> u32 {
     if base_ms == 0 {
         return 0;
     }
@@ -1245,10 +1257,7 @@ pub fn vary_pack_unpack_duration_ms(base_ms: u32, factor: f32) -> u32 {
     let variation = if factor <= 0.0 {
         1.0
     } else {
-        game_engine::common::random_value::get_game_logic_random_value_real(
-            1.0 - factor,
-            1.0 + factor,
-        )
+        draw(1.0 - factor, 1.0 + factor)
     };
     apply_pack_unpack_variation_ms(base_ms, variation)
 }
