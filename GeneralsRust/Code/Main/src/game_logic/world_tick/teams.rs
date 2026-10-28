@@ -1124,7 +1124,6 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         self.apply_host_team_factory_script_requests();
-        self.apply_host_merge_team_script_requests_with_effects(effects);
         self.apply_host_named_fire_weapon_path_script_requests_with_effects(effects);
         Ok(())
     }
@@ -2944,16 +2943,11 @@ mod tests {
 
     #[test]
     fn team_merge_rewrites_live_team_instance_name() {
-        use gamelogic::object::registry::OBJECT_REGISTRY;
-        use gamelogic::scripting::{
-            request_host_script_merge_team, take_host_script_merge_team_requests,
-        };
-
-        OBJECT_REGISTRY.clear();
-        let _ = take_host_script_merge_team_requests();
-
         let mut logic = GameLogic::new();
-        logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
+        logic.add_player(
+            Player::new(1, Team::USA, "PlyrAmerica", true)
+                .with_script_identity("PlyrAmerica"),
+        );
         let mut tmpl = ThingTemplate::new("W29MergeRanger");
         tmpl.add_kind_of(KindOf::Infantry);
         tmpl.set_health(100.0);
@@ -3004,8 +2998,9 @@ mod tests {
         for id in [a, b, keep] {
             logic.activate_leftover_team_for_host_object(id);
         }
-        request_host_script_merge_team("USA_SrcSquad", "USA_DestSquad");
-        logic.apply_host_merge_team_script_requests();
+        logic
+            .merge_owned_script_team("USA_SrcSquad", "USA_DestSquad", None, None, None)
+            .unwrap();
 
         assert_eq!(logic.objects[&a].team_instance_name, "USA_DestSquad");
         assert_eq!(logic.objects[&b].team_instance_name, "USA_DestSquad");

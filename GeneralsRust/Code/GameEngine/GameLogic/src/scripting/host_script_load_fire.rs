@@ -1,6 +1,6 @@
 //! Live host drain for NAMED_FIRE_WEAPON_FOLLOWING_WAYPOINT_PATH.
 //!
-//! Kept out of `executor/mod.rs` / `host_script_team_act.rs` so leftover
+//! Kept out of `executor/mod.rs` so leftover
 //! action files can queue without colliding with other wave-29 executor edits.
 
 use std::cell::RefCell;

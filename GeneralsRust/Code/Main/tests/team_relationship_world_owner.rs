@@ -295,6 +295,54 @@ fn player_team_overrides_keep_exact_team_identity_across_worlds_and_saves() {
         relation(&restored, restored_source, selected),
         Relationship::Allies
     );
+
+    // Team deletion occurs synchronously inside the merge action. It must
+    // remove only the deleted Team's Player override in the driving world.
+    execute_player_override(
+        &mut owner,
+        ScriptActionType::PlayerSetOverrideRelationToTeam,
+        Some(2),
+    );
+    let mut merge = ScriptAction::new(ScriptActionType::TeamMergeIntoTeam);
+    for name in ["TargetRoster", "SourceRoster"] {
+        merge
+            .add_parameter(Parameter::with_string(ParameterType::Team, name.into()))
+            .unwrap();
+    }
+    run_action(&mut owner, merge);
+    assert!(
+        !owner
+            .get_player(1)
+            .unwrap()
+            .team_relations
+            .contains_key(&first.team_id)
+    );
+    let remaining = stamp_player_team_chunks(&owner).unwrap();
+    let teams = &remaining.teams.unwrap().teams;
+    assert!(!teams.iter().any(|team| team.team_id == first.team_id));
+    let destination = teams
+        .iter()
+        .find(|team| team.team_name == "SourceRoster")
+        .unwrap();
+    assert!(destination.active);
+    assert!(destination.members.as_ref().unwrap().contains(&selected.0));
+    assert_eq!(
+        owner.host_object(selected).unwrap().team_instance_name,
+        "SourceRoster"
+    );
+    assert_eq!(
+        owner.host_object(selected).unwrap().owner_player_id,
+        Some(1)
+    );
+    assert_eq!(relation(&owner, source, unselected), Relationship::Enemies);
+    assert_eq!(
+        relation(&peer, peer_source, peer_target),
+        Relationship::Enemies
+    );
+    assert_eq!(
+        relation(&restored, restored_source, selected),
+        Relationship::Allies
+    );
 }
 
 fn relation(world: &GameLogic, source: ObjectId, target: ObjectId) -> Relationship {

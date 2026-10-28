@@ -156,40 +156,6 @@ impl GameLogic {
         }
     }
 
-    /// C++ `ScriptActions::doMergeTeamIntoTeam` live drain.
-    /// Leftover `set_team` misses empty `OBJECT_REGISTRY`; rewrite live
-    /// `team_instance_name` so TEAM/NAMED census follows dest.
-    pub fn apply_host_merge_team_script_requests(&mut self) {
-        self.apply_host_merge_team_script_requests_with_effects(&mut Default::default())
-    }
-
-    pub(crate) fn apply_host_merge_team_script_requests_with_effects(
-        &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        for req in gamelogic::scripting::take_host_script_merge_team_requests() {
-            self.host_script_merge_team_into_team_with_effects(&req.source, &req.dest, effects);
-        }
-    }
-
-    /// C++ `obj->setTeam(teamDest)` + `updateTeamAndPlayerStuff` + dest `setActive`.
-    fn host_script_merge_team_into_team(&mut self, source: &str, dest: &str) {
-        self.host_script_merge_team_into_team_with_effects(source, dest, &mut Default::default())
-    }
-
-    fn host_script_merge_team_into_team_with_effects(
-        &mut self,
-        source: &str,
-        dest: &str,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        if let Err(error) =
-            self.merge_owned_script_team_with_effects(source, dest, None, None, None, effects)
-        {
-            log::error!("owned team merge failed: {error}");
-        }
-    }
-
     pub(crate) fn merge_owned_script_team(
         &mut self,
         source: &str,
