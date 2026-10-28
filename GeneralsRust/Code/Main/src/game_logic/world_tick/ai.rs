@@ -304,7 +304,37 @@ impl GameLogic {
                     }
                     #[cfg(not(feature = "game_client"))]
                     {
-                        topple_kill = obj.tick_topple();
+                        // The no-client production path still publishes the
+                        // event-time host pose before executing leftover FX.
+                        // Resolve its visibility from this receiving match;
+                        // the standalone Object adapter would consult Core's
+                        // active shroud service instead.
+                        let shroud = self.world_services.shroud();
+                        let players = &self.players;
+                        let mut dispatch = |name: &str, object: &Object, at_object: bool| {
+                            if at_object {
+                                let viewer = players
+                                    .values()
+                                    .find(|player| player.is_local)
+                                    .map(|player| player.id);
+                                crate::game_logic::host_fx_list_dispatch::publish_host_fx_object_from_receiver(
+                                    object,
+                                    viewer,
+                                    shroud,
+                                );
+                                let _ = crate::game_logic::dispatch_fx_list_at_object(
+                                    name,
+                                    object.id.0,
+                                    None,
+                                );
+                            } else {
+                                let _ = crate::game_logic::dispatch_fx_list_at_pos(
+                                    name,
+                                    object.get_position(),
+                                );
+                            }
+                        };
+                        topple_kill = obj.tick_topple_with_fx(&mut dispatch);
                     }
                     let stump_pos = obj.get_position();
                     let stump_ori = obj.get_orientation();

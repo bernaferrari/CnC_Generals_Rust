@@ -175,6 +175,27 @@ pub fn publish_host_fx_object_with_visibility(
     );
 }
 
+/// Publish one standalone host-FX pose using the visibility of its receiving
+/// session. The reader is borrowed for the synchronous observation only.
+pub(crate) fn publish_host_fx_object_from_receiver(
+    object: &crate::game_logic::Object,
+    viewer: Option<u32>,
+    shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
+) {
+    publish_host_fx_object_with_visibility(
+        object.id.0,
+        object.get_position(),
+        object.get_orientation(),
+        object
+            .owner_player_id
+            .map(|player| player as i32)
+            .unwrap_or(-1),
+        // Match the existing standalone Topple adapter's pose publication.
+        0.0,
+        crate::game_logic::GameLogic::host_fx_visibility_for(viewer, shroud, object.id.0),
+    );
+}
+
 fn publish_host_fx_object_pose(
     id: u32,
     pos: Vec3,
@@ -559,7 +580,7 @@ impl crate::game_logic::GameLogic {
     }
     pub(crate) fn host_fx_visibility_for(
         player: Option<u32>,
-        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
         id: u32,
     ) -> bool {
         use gamelogic::common::types::ObjectShroudStatus;
@@ -857,6 +878,33 @@ mod emission_player_owner_tests {
         gamelogic::helpers::host_fx_object_pose(id.0)
             .expect("actual particle create publishes its attachment pose")
     }
+    #[test]
+    fn standalone_pose_publication_borrows_receiving_shroud_for_same_id_worlds() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "standalone_pose_publication_borrows_receiving_shroud_for_same_id_worlds",
+            || {
+                let (source, id) = world(ObjectShroudStatus::Clear);
+                let (peer, peer_id) = world(ObjectShroudStatus::Fogged);
+                assert_eq!(id, peer_id);
+
+                let publish = |world: &GameLogic| {
+                    let object = world.host_object(id).unwrap();
+                    publish_host_fx_object_from_receiver(
+                        object,
+                        world.local_player_id(),
+                        world.world_services.shroud(),
+                    );
+                    gamelogic::helpers::host_fx_object_pose(id.0).unwrap()
+                };
+
+                assert!(!publish(&source).is_shrouded);
+                assert!(publish(&peer).is_shrouded);
+                assert!(!publish(&source).is_shrouded);
+            },
+        );
+    }
+
     #[test]
     fn actual_emp_attachment_observes_each_receiving_world_and_encoded_restore() {
         crate::game_logic::game_logic::pose_owner_tests::isolated_at(
