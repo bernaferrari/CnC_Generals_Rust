@@ -56,8 +56,8 @@ fn assert_isolated(object: &Object) {
     assert_eq!(object.wander_width_factor, 0.0);
     assert_eq!(object.contained_items_mass, 0.0);
     assert!(!object.worker_ai_update);
-    assert!(object.dozer_task_build_target.is_none());
-    assert!(object.dozer_task_repair_target.is_none());
+    assert!(object.dozer_tasks.requests[0].target.is_none());
+    assert!(object.dozer_tasks.requests[1].target.is_none());
     assert!(object.preferred_dock_id.is_none());
     assert_eq!(object.physics_get_mass(), 1.0);
     assert_eq!(object.physics_accel.x, 0.0);
@@ -112,6 +112,7 @@ fn run_case(name: &str) {
         .create_object(&unit_name, Team::USA, Vec3::ZERO)
         .unwrap();
     assert_eq!(game.host_objects().registered_len(), 1);
+    assert!(game.unit_command_set_orientation(id, 0.0));
     {
         let object = game.host_object_mut(id).unwrap();
         eq_bits(
@@ -130,7 +131,6 @@ fn run_case(name: &str) {
         assert!(object.can_move());
         assert_eq!(object.movement.velocity, Vec3::ZERO);
         assert_eq!(object.physics_accel, Vec3::ZERO);
-        object.set_orientation(0.0);
         object.add_velocity(Vec3::new(scalar(row[3]), 0.0, 0.0));
     }
     assert!(game.move_object_to(id, TARGET));

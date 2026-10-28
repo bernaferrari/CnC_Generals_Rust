@@ -99,7 +99,7 @@ fn paused_for(logic: &GameLogic, id: ObjectId) -> bool {
 fn combat(logic: &GameLogic, id: ObjectId) -> Value {
     let o = logic.host_object(id).unwrap();
     json!({"target":o.target.map(|id| id.0),"location":o.target_location.map(|p| p.to_array()),
-        "force":o.force_attack,"ai":format!("{:?}",o.ai_state),
+        "force":o.force_attack,"ai":format!("{:?}",o.ai_state()),
         "movement":format!("{:?}",o.movement),"queue":o.building_data.as_ref().map(|b| &b.production_queue)})
 }
 
@@ -119,7 +119,7 @@ fn human_orders_survive_same_faction_unregistered_active_and_paused_ai() {
         }
         let a = logic.host_object(attacker).unwrap();
         assert_eq!(a.target, Some(target), "foreign AI state={state:?}");
-        assert_eq!(a.ai_state, AIState::Attacking);
+        assert_eq!(a.ai_state(), AIState::Attacking);
         assert_eq!(a.weapon_discharge_marker().sequence, 1);
         assert_eq!(logic.host_object(target).unwrap().health.current, 975.0);
     }
@@ -312,7 +312,7 @@ fn immediate_pause_only_clears_living_exact_owner_and_refunds_once() {
         assert_eq!(o.target, None);
         assert_eq!(o.target_location, None);
         assert!(!o.force_attack);
-        assert_eq!(o.ai_state, AIState::Idle);
+        assert_eq!(o.ai_state(), AIState::Idle);
         if let Some(b) = &o.building_data {
             assert!(b.production_queue.is_empty());
         }
@@ -362,7 +362,7 @@ fn clear_keeps_existing_production_validation_for_dead_or_mismatched_owner() {
         logic.pause_skirmish_ai_and_clear_combat(1);
         let o = logic.host_object(producer).unwrap();
         assert_eq!(o.target, None);
-        assert_eq!(o.ai_state, AIState::Idle);
+        assert_eq!(o.ai_state(), AIState::Idle);
         assert_eq!(o.building_data.as_ref().unwrap().production_queue.len(), 1);
         assert_eq!(logic.get_player(1).unwrap().resources.supplies, balance);
     }

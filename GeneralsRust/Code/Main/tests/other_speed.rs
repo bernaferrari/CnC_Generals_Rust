@@ -75,7 +75,10 @@ fn active_guards(object: &Object, ultra: bool) {
     assert_eq!(object.contained_items_mass, 0.0);
     assert_eq!(object.physics_get_mass(), 1.0);
     assert!(!object.worker_ai_update);
-    assert!(object.dozer_task_build_target.is_none() && object.dozer_task_repair_target.is_none());
+    assert!(
+        object.dozer_tasks.requests[0].target.is_none()
+            && object.dozer_tasks.requests[1].target.is_none()
+    );
     assert!(object.preferred_dock_id.is_none());
     assert!(
         object.weapon.is_none()
@@ -188,6 +191,8 @@ fn run_case(name: &str, assert_original_force: bool) {
     game.templates.insert(unit.clone(), template);
     let id = game.create_object(&unit, Team::USA, Vec3::ZERO).unwrap();
     assert_eq!(game.host_objects().registered_len(), 1);
+    assert!(game.set_registered_object_position(id, start));
+    assert!(game.unit_command_set_orientation(id, scalar(expected[11])));
     {
         let object = game.host_object_mut(id).unwrap();
         assert_eq!(object.movement.velocity, Vec3::ZERO);
@@ -201,8 +206,6 @@ fn run_case(name: &str, assert_original_force: bool) {
             object.ultra_accurate_slide_factor,
             binding.ultra_accurate_slide_factor
         );
-        object.set_position(start);
-        object.set_orientation(scalar(expected[11]));
         object.set_ultra_accurate(ultra);
         object.add_velocity(initial);
         assert_eq!(object.movement.velocity, initial);

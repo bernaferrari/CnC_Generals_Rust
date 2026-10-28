@@ -131,9 +131,9 @@ fn prepare_motion(
     position: Vec3,
     goal_y: f32,
 ) -> Vec3 {
+    assert!(game.set_registered_object_position(id, position));
+    assert!(game.unit_command_set_orientation(id, scalar(row[5])));
     let object = game.host_object_mut(id).unwrap();
-    object.set_position(position);
-    object.set_orientation(scalar(row[5]));
     let velocity = Vec3::new(scalar(row[2]), scalar(row[3]), scalar(row[4]));
     // Two public operations avoid rounding the combined (desired - current)
     // delta during a sign reversal; the requested input must be exact.
