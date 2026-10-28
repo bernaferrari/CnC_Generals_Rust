@@ -86,7 +86,8 @@ impl GameLogic {
                 if turret_angles_are_natural(angle, pitch) {
                     idle_recentering = false;
                     // Back to IDLE: schedule next idle-scan residual.
-                    next_frame = frame.saturating_add(idle_scan_interval_frames(scan_index));
+                    next_frame =
+                        frame.saturating_add(idle_scan_interval_frames(&self.logic_random));
                     idle_recenter_completed = idle_recenter_completed.saturating_add(1);
                 }
             } else if holding {
@@ -103,7 +104,8 @@ impl GameLogic {
                     pitch = p;
                     if turret_angles_are_natural(angle, pitch) {
                         idle_recentering = false;
-                        next_frame = frame.saturating_add(idle_scan_interval_frames(scan_index));
+                        next_frame =
+                            frame.saturating_add(idle_scan_interval_frames(&self.logic_random));
                         idle_recenter_completed = idle_recenter_completed.saturating_add(1);
                     }
                 }
@@ -133,7 +135,7 @@ impl GameLogic {
                 }
             } else if next_frame > 0 && frame >= next_frame {
                 // Start idle-scan residual toward natural + offset.
-                desired = idle_scan_desired_angle_deg(scan_index);
+                desired = idle_scan_desired_angle_deg(&self.logic_random);
                 scanning = true;
                 scan_started = scan_started.saturating_add(1);
                 // First step this frame.
@@ -1059,7 +1061,7 @@ impl GameLogic {
                             center.turret_idle_recentering = false;
                             center.turret_idle_scan_next_frame = frame.saturating_add(
                                 crate::game_logic::host_strategy_center::idle_scan_interval_frames(
-                                    0,
+                                    &self.logic_random,
                                 ),
                             );
                             building_bonus = true;

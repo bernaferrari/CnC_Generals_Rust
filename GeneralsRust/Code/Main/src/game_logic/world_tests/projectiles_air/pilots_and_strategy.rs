@@ -1391,7 +1391,7 @@ fn strategy_center_turret_hold_and_idle_recenter_residual() {
         HostBattlePlan, STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES,
         STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES, STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG,
         STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG, STRATEGY_CENTER_RECENTER_TIME_FRAMES,
-        hold_turret_until_frame, idle_scan_desired_angle_deg, turret_angles_are_natural,
+        hold_turret_until_frame, turret_angles_are_natural,
     };
 
     let mut game_logic = GameLogic::new();
@@ -1418,7 +1418,7 @@ fn strategy_center_turret_hold_and_idle_recenter_residual() {
     advance_battle_plan_door_to_active(&mut game_logic);
 
     // Force idle-scan complete at desired angle → enter Hold immediately.
-    let desired = idle_scan_desired_angle_deg(0);
+    let desired = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG + 30.0;
     let hold_start = game_logic.frame;
     {
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
