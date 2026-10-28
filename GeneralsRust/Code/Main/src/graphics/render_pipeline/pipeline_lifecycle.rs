@@ -16,28 +16,6 @@ impl RenderPipeline {
 
         // Initialize forward pass
         let forward_pass = ForwardPass::initialize(graphics_system)?;
-        // C++ WW3DAssetManager::Get_Texture parity: let the ww3d mesh lane
-        // hydrate W3D pass textures from the archive-backed TextureManager
-        // (unit/building skins otherwise bind the white fallback).
-        install_archive_pass_texture_provider(&forward_pass.renderer);
-        // Same source of truth for the legacy GameClient drawable lane
-        // (Display::draw render_pass_through): without it in-match units
-        // resolve no texture and draw as flat silhouettes.
-        #[cfg(feature = "game_client")]
-        install_drawable_pipeline_texture_provider();
-        // Late-provider recovery: startup model attempts that failed before
-        // the archive-backed providers existed must get a second chance now
-        // that the full asset path is installed. Drop the session negative
-        // caches — the asset manager's known-missing blacklist (so loader
-        // attempts really re-run) and the render collector's failed-resolution
-        // cache. This new pipeline starts with an empty failed-resolution
-        // cache, so it retries without clearing another pipeline's state.
-        // Fail-closed keys re-fail once and re-cache; recoverable keys resolve.
-        if let Some(manager_arc) = get_asset_manager() {
-            if let Ok(mut manager) = manager_arc.lock() {
-                manager.clear_missing_model_cache();
-            }
-        }
         let (ambient_light, sun_color, sun_direction) = graphics_system.current_lighting();
         let initial_lighting = CachedLighting {
             #[cfg(feature = "game_client")]
@@ -122,6 +100,24 @@ impl RenderPipeline {
             debug_last_particle_pack_ok: false,
             tactical_viewport: Default::default(),
         })
+    }
+
+    /// Bind this renderer to its application asset owner after asset
+    /// initialization. The renderer captures that owner and still resolves
+    /// textures lazily at first material use.
+    pub(crate) fn bind_application_assets(
+        &self,
+        application_assets: Arc<Mutex<crate::assets::AssetManager>>,
+    ) {
+        install_archive_pass_texture_provider(
+            &self.forward_pass.renderer,
+            Arc::clone(&application_assets),
+        );
+        if let Ok(mut manager) = application_assets.lock() {
+            // Startup model misses before archive-backed resolution was bound
+            // need one retry through this renderer's asset owner.
+            manager.clear_missing_model_cache();
+        }
     }
 
     /// Keep selection GPU resources on the same device as the scene renderer.

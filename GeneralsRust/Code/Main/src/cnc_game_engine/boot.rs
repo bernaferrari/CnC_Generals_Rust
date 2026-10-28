@@ -459,6 +459,11 @@ impl CnCGameEngine {
             .await?;
         let asset_duration = asset_timer.elapsed();
 
+        // The scene renderer was created before the archive-backed application
+        // assets. Bind its lazy pass-texture resolver now to this engine's
+        // retained asset owner rather than a process-global lookup.
+        render_pipeline.bind_application_assets(Arc::clone(&application_assets));
+
         if let Err(err) = crate::assets::archive::init_big_archive_file_reader() {
             warn!(
                 "BIG archive texture reader init failed: {err}. Continuing without archive texture reader."
@@ -1138,6 +1143,11 @@ impl CnCGameEngine {
             {
                 warn!("GameClient display subsystems init failed: {}", e);
             }
+            engine.game_client.set_drawable_texture_provider(Some(
+                crate::graphics::render_pipeline::drawable_pipeline_texture_provider(Arc::clone(
+                    &engine.application_assets,
+                )),
+            ));
 
             // Create UIRenderer from GraphicsSystem instead of PlatformContext.
             // C++ SAGE uses PlatformContext (OpenGL window) for UI rendering, but we skip

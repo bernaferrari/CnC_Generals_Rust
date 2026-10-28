@@ -7,7 +7,7 @@
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use super::drawable::{
     BasicDrawable, Color, Drawable, DrawableId, DrawableStatus, DrawableType, INVALID_DRAWABLE_ID,
@@ -529,11 +529,16 @@ impl DrawableManager {
     ///          the culled/sorted submissions.
     /// Phase 3: Use the DrawableDrawPipeline to record actual wgpu draw calls
     ///          into the given RenderPass.
+    /// The exact Display-owned pipeline is supplied by the caller and locked
+    /// only after Phase 1, whose callbacks may register meshes or textures.
+    /// RenderBridge and DrawableManager remain shared compatibility owners, so
+    /// this removes pipeline selection ambiguity but not full two-display isolation.
     pub fn render_pass_through(
         &mut self,
         pass: &mut wgpu::RenderPass,
         view_matrix: &glam::Mat4,
         proj_matrix: &glam::Mat4,
+        pipeline: Option<&Mutex<super::drawable_draw_pipeline::DrawableDrawPipeline>>,
     ) {
         let opaque = self.opaque_render_list.clone();
         let transparent = self.transparent_render_list.clone();
@@ -567,10 +572,8 @@ impl DrawableManager {
         }
 
         // Phase 2+3: Flush the bridge and record wgpu draw calls
-        if let Some(pipeline_arc) =
-            super::drawable_draw_pipeline::with_drawable_pipeline(Arc::clone)
-        {
-            let mut pipeline = pipeline_arc.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(pipeline) = pipeline {
+            let mut pipeline = pipeline.lock().unwrap_or_else(|e| e.into_inner());
             pipeline.update_camera(view_matrix, proj_matrix);
             pipeline.record_draw(pass);
         }

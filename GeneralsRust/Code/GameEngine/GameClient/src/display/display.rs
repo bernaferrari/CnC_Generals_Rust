@@ -136,6 +136,8 @@ fn time_of_day_index(time_of_day: TimeOfDay) -> usize {
 
 pub struct Display {
     graphics: GraphicsContext,
+    drawable_pipeline:
+        Option<Arc<Mutex<crate::drawable::drawable_draw_pipeline::DrawableDrawPipeline>>>,
     particle_renderer: Option<Mutex<GpuParticleRenderer>>,
     #[cfg(feature = "w3d_support")]
     particle_bridge: Mutex<W3DParticleSystemBridge>,
@@ -164,6 +166,19 @@ pub struct Display {
 }
 
 impl Display {
+    /// Install an archive resolver on this Display's drawable pipeline.
+    pub fn set_drawable_texture_provider(
+        &mut self,
+        provider: Option<crate::drawable::drawable_draw_pipeline::DrawableTextureProvider>,
+    ) {
+        let Some(pipeline) = self.drawable_pipeline.as_ref() else {
+            return;
+        };
+        if let Ok(mut pipeline) = pipeline.lock() {
+            pipeline.set_texture_provider(provider);
+        }
+    }
+
     pub fn new(graphics: GraphicsContext) -> Self {
         let (surface_format, width, height) = {
             let config = graphics.config();
@@ -184,21 +199,27 @@ impl Display {
             }
         };
 
-        // Initialize the drawable draw pipeline (for units/buildings geometry)
-        if let Ok(drawable_pipeline) =
+        // Initialize the drawable draw pipeline (for units/buildings geometry).
+        // Display retains its exact instance; the compatibility render path
+        // may also use the legacy pipeline registry while it is being retired.
+        let drawable_pipeline = if let Ok(drawable_pipeline) =
             crate::drawable::drawable_draw_pipeline::DrawableDrawPipeline::new(
                 graphics.device_arc(),
                 graphics.queue_arc(),
                 surface_format,
-            )
-        {
+            ) {
             let drawable_pipeline = Arc::new(Mutex::new(drawable_pipeline));
-            crate::drawable::drawable_draw_pipeline::register_drawable_pipeline(drawable_pipeline);
+            crate::drawable::drawable_draw_pipeline::register_drawable_pipeline(Arc::clone(
+                &drawable_pipeline,
+            ));
+            Some(drawable_pipeline)
         } else {
             error!("Failed to initialize drawable draw pipeline");
-        }
+            None
+        };
         Self {
             graphics,
+            drawable_pipeline,
             particle_renderer,
             #[cfg(feature = "w3d_support")]
             particle_bridge: Mutex::new(W3DParticleSystemBridge::new()),
@@ -1016,6 +1037,7 @@ impl Display {
                     multiview_mask: None,
                 });
 
+                let drawable_pipeline = self.drawable_pipeline.as_deref();
                 crate::drawable::drawable_manager::with_drawable_manager(|manager| {
                     manager.set_camera(
                         Self::glam_to_game_matrix(&view_matrix),
@@ -1023,7 +1045,12 @@ impl Display {
                         crate::drawable::Vector3::new(camera_pos.x, camera_pos.y, camera_pos.z),
                     );
                     manager.cull_and_sort();
-                    manager.render_pass_through(&mut pass, &view_glam, &proj_glam);
+                    manager.render_pass_through(
+                        &mut pass,
+                        &view_glam,
+                        &proj_glam,
+                        drawable_pipeline,
+                    );
                 });
             }
 

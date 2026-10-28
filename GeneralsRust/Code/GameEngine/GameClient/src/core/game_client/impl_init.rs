@@ -626,6 +626,21 @@ impl GameClient {
         self.init_display_subsystems_with_replay_menu_scoped(replay_menu)
     }
 
+    /// Bind a host-owned texture resolver to this client's actual Display
+    /// drawable pipeline. A client without a Display simply has no legacy
+    /// drawable lane to configure.
+    pub fn set_drawable_texture_provider(
+        &mut self,
+        provider: Option<crate::drawable::drawable_draw_pipeline::DrawableTextureProvider>,
+    ) {
+        if let Some(display) = self.subsystem_manager.display.as_ref() {
+            display
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .set_drawable_texture_provider(provider);
+        }
+    }
+
     fn init_display_subsystems_with_replay_menu_scoped(
         &mut self,
         replay_menu: Option<crate::gui::shell::replay_menu::ReplayMenuInputs>,

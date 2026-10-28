@@ -67,6 +67,43 @@ mod tests {
         assert!((tint[2] - 0.7775).abs() < 0.0001);
         assert_eq!(tint[3], 1.0);
     }
+
+    #[test]
+    fn drawable_texture_resolvers_keep_their_captured_owner_and_stay_lazy() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let calls_a = Arc::new(AtomicUsize::new(0));
+        let calls_b = Arc::new(AtomicUsize::new(0));
+        let owner_a = Arc::clone(&calls_a);
+        let owner_b = Arc::clone(&calls_b);
+        let mut first = DrawableTextureResolver::default();
+        let mut second = DrawableTextureResolver::default();
+        first.set_provider(Some(Arc::new(move |name| {
+            owner_a.fetch_add(1, Ordering::SeqCst);
+            Some(DecodedTexturePixels {
+                rgba: vec![1, 2, 3, 4],
+                width: name.len() as u32,
+                height: 1,
+            })
+        })));
+        second.set_provider(Some(Arc::new(move |name| {
+            owner_b.fetch_add(1, Ordering::SeqCst);
+            Some(DecodedTexturePixels {
+                rgba: vec![5, 6, 7, 8],
+                width: (name.len() + 1) as u32,
+                height: 1,
+            })
+        })));
+
+        assert_eq!(calls_a.load(Ordering::SeqCst), 0);
+        assert_eq!(calls_b.load(Ordering::SeqCst), 0);
+        assert_eq!(first.resolve("skin.tga").unwrap().rgba, vec![1, 2, 3, 4]);
+        assert_eq!(calls_a.load(Ordering::SeqCst), 1);
+        assert_eq!(calls_b.load(Ordering::SeqCst), 0);
+        assert_eq!(second.resolve("skin.tga").unwrap().rgba, vec![5, 6, 7, 8]);
+        assert_eq!(calls_a.load(Ordering::SeqCst), 1);
+        assert_eq!(calls_b.load(Ordering::SeqCst), 1);
+    }
 }
 
 /// Camera uniform buffer (view-projection matrix).
@@ -163,21 +200,19 @@ pub struct DecodedTexturePixels {
 /// Host-side resolver for authored W3D texture names (archive-backed).
 pub type DrawableTextureProvider = Arc<dyn Fn(&str) -> Option<DecodedTexturePixels> + Send + Sync>;
 
-thread_local! {
-    static DRAWABLE_TEXTURE_PROVIDER: RefCell<Option<DrawableTextureProvider>> =
-        const { RefCell::new(None) };
+#[derive(Default)]
+struct DrawableTextureResolver {
+    provider: Option<DrawableTextureProvider>,
 }
 
-/// Register the host archive texture resolver (C++ WW3DAssetManager::Get_Texture
-/// parity). GameClient cannot reach the BIG archives itself, so Main installs a
-/// provider at pipeline lifecycle; without it authored skins can never bind.
-pub fn set_drawable_texture_provider(provider: Option<DrawableTextureProvider>) {
-    DRAWABLE_TEXTURE_PROVIDER.with_borrow_mut(|slot| *slot = provider);
-}
+impl DrawableTextureResolver {
+    fn set_provider(&mut self, provider: Option<DrawableTextureProvider>) {
+        self.provider = provider;
+    }
 
-fn resolve_drawable_texture_pixels(name: &str) -> Option<DecodedTexturePixels> {
-    let provider = DRAWABLE_TEXTURE_PROVIDER.with_borrow(|slot| slot.as_ref().cloned())?;
-    (provider)(name)
+    fn resolve(&self, name: &str) -> Option<DecodedTexturePixels> {
+        (self.provider.as_ref()?)(name)
+    }
 }
 
 /// Main pipeline struct for rendering drawable geometry via wgpu.
@@ -209,6 +244,7 @@ pub struct DrawableDrawPipeline {
     texture_sampler: wgpu::Sampler,
     /// Names the archive provider could not resolve — warn-once set.
     failed_textures: HashSet<String>,
+    texture_resolver: DrawableTextureResolver,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -487,6 +523,7 @@ impl DrawableDrawPipeline {
             default_texture_bind_group,
             texture_sampler: sampler,
             failed_textures: HashSet::new(),
+            texture_resolver: DrawableTextureResolver::default(),
         })
     }
 
@@ -625,7 +662,8 @@ impl DrawableDrawPipeline {
         {
             return;
         }
-        match resolve_drawable_texture_pixels(name) {
+        let pixels = self.texture_resolver.resolve(name);
+        match pixels {
             Some(pixels) => {
                 if !self.upload_texture_pixels(&key, &pixels) {
                     self.failed_textures.insert(key.clone());
@@ -641,6 +679,14 @@ impl DrawableDrawPipeline {
                 );
             }
         }
+    }
+
+    /// Bind the archive resolver to this drawable pipeline instance. The
+    /// resolver remains lazy and is invoked only on the first visible use.
+    pub fn set_texture_provider(&mut self, provider: Option<DrawableTextureProvider>) {
+        self.texture_resolver.set_provider(provider);
+        self.texture_bind_groups.clear();
+        self.failed_textures.clear();
     }
 
     /// Upload decoded RGBA8 pixels as `Rgba8UnormSrgb` (the lane's sRGB
