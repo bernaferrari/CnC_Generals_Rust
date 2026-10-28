@@ -2,6 +2,7 @@ use game_engine::common::system::DataChunkOutput;
 use generals_main::command_executor::CommandExecutor;
 use generals_main::command_system::{CommandResult, CommandType, GameCommand, ModifierKeys};
 use generals_main::game_logic::{GameLogic, GameMode, ObjectId, Player, Team};
+use generals_main::save_load::SnapshotBuilder;
 use std::time::SystemTime;
 
 fn minimal_map(root: &std::path::Path) -> std::path::PathBuf {
@@ -150,4 +151,38 @@ fn minimap_beacons_use_receiving_objects_with_same_ids_and_conflicting_global_ma
         first_nearby_actual
     );
     assert!(peer.host_object(peer_id).is_some());
+}
+
+#[test]
+fn minimap_beacon_comes_from_restored_receiving_world_objects() {
+    let source_root = tempfile::tempdir().unwrap();
+    let restored_root = tempfile::tempdir().unwrap();
+    let source_map = minimal_map(source_root.path());
+    let restored_map = minimal_map(restored_root.path());
+    let mut source = world(&source_map);
+    let beacon_id = place(&mut source, glam::Vec3::new(-300.0, 0.0, 450.0));
+    // Placement clamps to the loaded map before the object is created.
+    let position = source.host_object(beacon_id).unwrap().get_position();
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).unwrap();
+    let mut restored = world(&restored_map);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+
+    let restored_beacon = restored
+        .host_object(beacon_id)
+        .expect("snapshot restores the receiving beacon object");
+    assert_eq!(restored_beacon.get_position(), position);
+    let bounds = restored.world_bounds();
+    let expected = glam::Vec2::new(
+        ((position.x - bounds.0.x) / (bounds.1.x - bounds.0.x).max(1.0)).clamp(0.0, 1.0),
+        ((position.z - bounds.0.z) / (bounds.1.z - bounds.0.z).max(1.0)).clamp(0.0, 1.0),
+    );
+    let ui = restored.update_ui_state(1);
+    assert_eq!(ui.minimap_beacons.len(), 1);
+    let dot = ui.minimap_beacons[0].position;
+    assert!((dot.x - expected.x).abs() < 0.001);
+    assert!((dot.y - expected.y).abs() < 0.001);
 }
