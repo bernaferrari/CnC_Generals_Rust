@@ -1048,7 +1048,6 @@ impl GameClientSubsystem {
         {
             use game_client::system::SubsystemInterface as _;
             use game_client::video_player::VideoPlayerInterface as _;
-            game_client::eva::update_eva_system();
             client.with_window_event_effects(Some(menu_world), |effects| {
                 effects.with_manager(|manager, effects| manager.update(effects))
             });
@@ -1097,18 +1096,11 @@ impl SubsystemInterface for GameClientSubsystem {
         info!("Initializing GameClient subsystem");
         self.initialized = true;
         self.frame = 0;
-        // C++ GameClient::init → Eva::init / INI::parseEvaEvent (Eva.ini).
-        #[cfg(feature = "game_client")]
-        if let Err(err) = game_client::eva::initialize_eva_system() {
-            warn!("Eva.ini load failed: {err}");
-        }
         Ok(())
     }
 
     fn reset(&mut self) -> Result<()> {
         self.frame = 0;
-        #[cfg(feature = "game_client")]
-        game_client::eva::reset_eva_system();
         Ok(())
     }
 

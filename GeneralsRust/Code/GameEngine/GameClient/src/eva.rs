@@ -516,21 +516,41 @@ impl Eva {
         Ok(())
     }
 
+    /// Parse the application's ordered EVA sources into a fresh speaker.
+    /// A failed candidate never changes another speaker or a published catalog.
+    pub fn from_ordered_ini_sources<'a>(
+        sources: impl IntoIterator<Item = &'a str>,
+    ) -> INIResult<Self> {
+        let mut eva = Self::new();
+        for source in sources {
+            let mut ini = INI::new();
+            ini.with_inline_source(source, |ini| {
+                while !ini.is_eof() {
+                    ini.read_line()?;
+                    if ini.is_eof() {
+                        break;
+                    }
+                    let tokens = ini.get_line_tokens();
+                    let Some(token) = tokens.first() else {
+                        continue;
+                    };
+                    if !token.eq_ignore_ascii_case("EvaEvent") {
+                        return Err(INIError::UnknownToken);
+                    }
+                    parse_eva_event_into(ini, &mut eva)?;
+                }
+                Ok(())
+            })?;
+        }
+        Ok(eva)
+    }
+
     pub fn reset(&mut self) {
         self.checks.clear();
         for flag in &mut self.should_play {
             *flag = false;
         }
         self.enabled = true;
-    }
-
-    /// Temporary startup adapter: only immutable Eva.ini definitions are copied.
-    pub fn from_startup_definitions() -> Self {
-        let all_check_infos = with_eva(|eva| eva.all_check_infos.clone());
-        Self {
-            all_check_infos,
-            ..Self::new()
-        }
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -987,7 +1007,7 @@ fn map_logic_event(event: LogicEvaEvent) -> Option<EvaMessage> {
     }
 }
 
-pub fn parse_eva_event(ini: &mut INI) -> INIResult<()> {
+fn parse_eva_event_into(ini: &mut INI, eva: &mut Eva) -> INIResult<()> {
     let tokens = ini.get_line_tokens();
     // Own the event name: `tokens` borrows the INI buffer, and the parse arms
     // below each need `&mut INI` again.
@@ -1002,13 +1022,15 @@ pub fn parse_eva_event(ini: &mut INI) -> INIResult<()> {
         return Ok(());
     }
 
-    // THREAD: main thread only — Eva.ini is parsed by client init and its tests.
-    // Never hold the cell borrow across INI load (parse callbacks re-enter this
-    // function), so each arm borrows only for its own work.
-    with_eva(|eva| match eva.new_eva_check_info(&name) {
+    match eva.new_eva_check_info(&name) {
         Some(check) => parse_eva_check_info_fields(ini, check),
         None => skip_eva_event_block(ini),
-    })
+    }
+}
+
+pub fn parse_eva_event(ini: &mut INI) -> INIResult<()> {
+    // Compatibility parser for standalone Core clients.
+    with_eva(|eva| parse_eva_event_into(ini, eva))
 }
 
 thread_local! {

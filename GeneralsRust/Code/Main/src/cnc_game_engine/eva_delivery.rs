@@ -22,12 +22,17 @@ pub(super) struct EvaRecipient {
     enabled: bool,
 }
 impl EvaRecipient {
-    pub(super) fn from_startup_definitions() -> Self {
+    #[cfg(feature = "game_client")]
+    pub(super) fn new(speaker: game_client::eva::Eva) -> Self {
         Self {
             last_receipt: None,
-            #[cfg(feature = "game_client")]
-            speaker: game_client::eva::Eva::from_startup_definitions(),
-            #[cfg(not(feature = "game_client"))]
+            speaker,
+        }
+    }
+    #[cfg(not(feature = "game_client"))]
+    pub(super) fn new() -> Self {
+        Self {
+            last_receipt: None,
             enabled: true,
         }
     }

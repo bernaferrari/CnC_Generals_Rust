@@ -338,13 +338,28 @@ impl CnCGameEngine {
             owner.bind(std::sync::Arc::clone(&native_audio_device));
             owner
         };
-        // C++ GameClient::init loads Data/INI/Eva.ini into TheEva (Eva.cpp:43-57).
-        // Live ticks update_eva_system without leftover GameClient::init, so
-        // playMessage would drop on an empty check-info table without this.
+        // C++ Eva::init loads these definitions before they are used. Each
+        // application admits its own source into its own mutable speaker.
         #[cfg(feature = "game_client")]
-        if let Err(err) = game_client::eva::initialize_eva_system() {
-            warn!("Eva.ini load failed: {err}");
-        }
+        let eva_speaker = match Self::load_startup_ini_texts(&["Data/INI/Eva.ini"], None).await {
+            Ok(sources) if sources.is_empty() => {
+                warn!("Eva.ini is unavailable at startup");
+                game_client::eva::Eva::new()
+            }
+            Ok(sources) => match game_client::eva::Eva::from_ordered_ini_sources(
+                sources.iter().map(|(_, source)| source.as_str()),
+            ) {
+                Ok(speaker) => speaker,
+                Err(error) => {
+                    warn!("Eva.ini load failed: {error}");
+                    game_client::eva::Eva::new()
+                }
+            },
+            Err(error) => {
+                warn!("Eva.ini load failed: {error}");
+                game_client::eva::Eva::new()
+            }
+        };
 
         Self::apply_startup_audio_channel_flags(&mut subsystem_manager);
         // C++ parity: initialize startup RNG stream during engine init.
@@ -1035,7 +1050,16 @@ impl CnCGameEngine {
             last_eva_insufficient_funds_count: 0,
             last_eva_base_under_attack_count: 0,
             last_eva_ally_under_attack_count: 0,
-            eva_recipient: super::eva_delivery::EvaRecipient::from_startup_definitions(),
+            eva_recipient: {
+                #[cfg(feature = "game_client")]
+                {
+                    super::eva_delivery::EvaRecipient::new(eva_speaker)
+                }
+                #[cfg(not(feature = "game_client"))]
+                {
+                    super::eva_delivery::EvaRecipient::new()
+                }
+            },
             sticky_waypoint_mode: false,
             sticky_auto_attack: false,
             use_alternate_mouse,

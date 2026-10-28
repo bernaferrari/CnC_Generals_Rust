@@ -2738,7 +2738,9 @@ impl GameClient {
             })?;
         }
 
-        crate::eva::update_eva_system();
+        if self.input_authority == ClientInputAuthority::StandaloneCore {
+            crate::eva::update_eva_system();
+        }
 
         Ok(())
     }

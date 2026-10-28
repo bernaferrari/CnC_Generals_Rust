@@ -489,6 +489,9 @@ impl GameClient {
         // Reset subsystems
         self.subsystem_manager
             .reset_all(self.script_display.fx_mut(), &self.session_lighting)?;
+        if self.input_authority == ClientInputAuthority::StandaloneCore {
+            crate::eva::reset_eva_system();
+        }
         self.drawables.particles.reset_runtime();
         self.window_manager_owner
             .with_manager(|manager| self.ime.reset(manager));
@@ -884,8 +887,11 @@ impl GameClient {
     pub fn init_game_subsystems(&mut self) -> GameClientResult<()> {
         register_game_client_snapshot_block();
         crate::snow::register_weather_definition_parser();
-        crate::eva::initialize_eva_system()
-            .map_err(|err| GameClientError::SubsystemError(format!("Eva init failed: {err}")))?;
+        if self.input_authority == ClientInputAuthority::StandaloneCore {
+            crate::eva::initialize_eva_system().map_err(|err| {
+                GameClientError::SubsystemError(format!("Eva init failed: {err}"))
+            })?;
+        }
         if self.subsystem_manager.terrain_visual.is_none() {
             let mut terrain_visual = TerrainVisualStub::default();
             terrain_visual.init()?;

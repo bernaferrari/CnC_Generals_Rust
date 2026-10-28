@@ -110,8 +110,6 @@ impl SubsystemManager {
             }
         }
 
-        crate::eva::reset_eva_system();
-
         Ok(())
     }
 }
