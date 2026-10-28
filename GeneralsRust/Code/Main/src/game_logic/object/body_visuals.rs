@@ -199,6 +199,26 @@ impl Object {
         self.react_to_body_damage_state_change_with_body_fx(old_state, source, frame, body_fx);
     }
 
+    /// Receiving owner variant for native callbacks that must yield a
+    /// TransitionDamageFX event before continuing their own operation.
+    pub(super) fn refresh_model_condition_bits_yield_transition(
+        &mut self,
+        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+        frame: u32,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+    ) -> Option<crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent> {
+        if self.is_inactive_body() {
+            self.status.effectively_dead = true;
+            self.rebuild_model_condition_bits();
+            return None;
+        }
+        let (old_state, _) = self.recalculate_body_damage_state();
+        self.status.effectively_dead = self.health.current <= 0.0;
+        self.react_to_body_damage_state_change_yield_transition(
+            old_state, source, frame, body_fx, true,
+        )
+    }
+
     /// Timed DamageModule callbacks observe the already committed Body. CPP
     /// ActiveBody603 rereads its current state against the pre-mutation state.
     pub(super) fn react_to_body_damage_state_change(

@@ -504,8 +504,9 @@ impl GameLogic {
             );
         let frame = self.frame;
         let before_hp = self.objects.get(&victim_id)?.health.current;
+        let callback_player = self.local_player_id();
         #[cfg(feature = "game_client")]
-        let begin_player = self.local_player_id();
+        let begin_player = callback_player;
         #[cfg(feature = "game_client")]
         let begin_armor_source = source_id
             .and_then(|id| self.objects.get(&id))
@@ -625,6 +626,7 @@ impl GameLogic {
                     self.frame,
                     &mut crate::game_logic::ScriptPresentationEffects::default()
                         .reborrow_for_object(&mut self.partition_manager),
+                    true,
                 )
             },
         );
@@ -632,7 +634,7 @@ impl GameLogic {
         let mut application: DamageApplication = {
             #[cfg(feature = "game_client")]
             let fx_operation_environment = self.observe_object_fx_environment();
-            let body_particle_player = self.local_player_id();
+            let body_particle_player = callback_player;
             #[cfg(not(feature = "game_client"))]
             let mut body_particles =
                 crate::game_logic::body_particle_runtime::HeadlessBodyParticleUpdate {
@@ -675,8 +677,138 @@ impl GameLogic {
                     self.frame,
                     &mut crate::game_logic::ScriptPresentationEffects::default()
                         .reborrow_for_object(&mut self.partition_manager),
+                    true,
                 )
         };
+        if let Some(continuation) = application.take_rider_change_kill_pilot() {
+            if let Some(transition) = continuation.transition.as_ref() {
+                let Some(victim) = self.objects.get(&victim_id) else {
+                    return None;
+                };
+                let rider_identity = self.live_draw_playback_identity(victim);
+                self.execute_receiving_transition_damage_fx(
+                    victim_id,
+                    &rider_identity,
+                    transition.clone(),
+                    continuation.source_fx.as_ref(),
+                    self.frame,
+                    callback_player,
+                    effects,
+                );
+                if !self.objects.get(&victim_id).is_some_and(|object| {
+                    self.live_draw_playback_identity(object) == rider_identity
+                }) {
+                    return None;
+                }
+            }
+
+            #[cfg(feature = "game_client")]
+            {
+                let environment = self.observe_object_fx_environment();
+                Self::with_object_fx_services(
+                    &mut self.session_view,
+                    self.queued_audio_events.policy().clone(),
+                    callback_player,
+                    self.world_services.shroud(),
+                    effects,
+                    &environment,
+                    self.world_services.terrain(),
+                    &self.logic_random,
+                    |view| {
+                        let players = &mut self.players;
+                        let Some(victim) = self.objects.get_mut(&victim_id) else {
+                            return;
+                        };
+                        victim.finish_rider_change_kill_pilot_after_transition(
+                            &continuation,
+                            &mut self.health_events,
+                            |effect| {
+                                Self::apply_body_player_effect(
+                                    players,
+                                    frame,
+                                    &source_players,
+                                    effect,
+                                )
+                            },
+                            &mut |object, effect, source| {
+                                let source = if matches!(
+                                    &effect,
+                                    crate::game_logic::object::BodyStateFx::ArmorDamage { .. }
+                                ) {
+                                    continuation.source_fx.as_ref()
+                                } else {
+                                    source
+                                };
+                                let secondary_id = if matches!(
+                                    &effect,
+                                    crate::game_logic::object::BodyStateFx::ArmorDamage { .. }
+                                ) {
+                                    source.map(|source| ObjectId(source.id))
+                                } else {
+                                    object.last_damage_source
+                                };
+                                let secondary = begin_secondaries
+                                    .iter()
+                                    .flatten()
+                                    .find(|pose| Some(ObjectId(pose.id)) == secondary_id);
+                                Self::execute_body_state_fx_with_view(
+                                    object,
+                                    effect,
+                                    source,
+                                    secondary,
+                                    callback_player,
+                                    self.world_services.shroud(),
+                                    &mut self.combat_particles,
+                                    &mut self.queued_audio_events,
+                                    frame,
+                                    view,
+                                );
+                            },
+                        );
+                    },
+                );
+            }
+            #[cfg(not(feature = "game_client"))]
+            {
+                let mut body_particles =
+                    crate::game_logic::body_particle_runtime::HeadlessBodyParticleUpdate {
+                        source: callback_player.and_then(|player| {
+                            self.current_native_slave_source(victim_id, player).ok()
+                        }),
+                        pristine_bones: effects.pristine_bones,
+                        particles: &mut self.combat_particles,
+                        random: &mut self.session_view.client_random,
+                        player: callback_player,
+                        shroud: self.world_services.shroud(),
+                        frame: frame as u32,
+                    };
+                let players = &mut self.players;
+                if let Some(victim) = self.objects.get_mut(&victim_id) {
+                    victim.finish_rider_change_kill_pilot_after_transition(
+                        &continuation,
+                        &mut self.health_events,
+                        |effect| {
+                            Self::apply_body_player_effect(
+                                players,
+                                frame,
+                                &source_players,
+                                effect,
+                            )
+                        },
+                        &mut |object, effect, source| {
+                            Self::execute_body_state_fx_without_view_with_particles(
+                                object,
+                                effect,
+                                source,
+                                &mut self.queued_audio_events,
+                                &self.logic_random,
+                                &mut body_particles,
+                            )
+                        },
+                    );
+                }
+            }
+        }
         let victim = self
             .objects
             .get(&victim_id)
@@ -1576,6 +1708,10 @@ mod repulsor_fx_order_tests;
 #[cfg(test)]
 #[path = "sniper_academy_owner_tests.rs"]
 mod sniper_academy_owner_tests;
+
+#[cfg(test)]
+#[path = "rider_kill_pilot_transition_owner_tests.rs"]
+mod rider_kill_pilot_transition_owner_tests;
 
 #[cfg(all(test, feature = "game_client"))]
 #[path = "early_native_body_tests.rs"]

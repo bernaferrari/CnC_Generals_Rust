@@ -8,8 +8,29 @@ use crate::game_logic::host_transition_damage_fx::HostDamageFxVictim;
 pub(in crate::game_logic) enum DamageApplication {
     // Special/no-HP branches already complete their existing effects.
     Complete(bool),
+    RiderChangeKillPilot(RiderChangeKillPilotContinuation),
     Active(ActiveDamageContinuation),
     Healing(HealingContinuation),
+}
+
+/// Paused tail of the moving RiderChange/CombatCycle KillPilot callback. The
+/// owner runs `transition` while the victim remains installed and unborrowed,
+/// then reacquires it to finish the native callback sequence.
+#[derive(Debug)]
+pub(in crate::game_logic) struct RiderChangeKillPilotContinuation {
+    pub(in crate::game_logic) victim_id: ObjectId,
+    pub(in crate::game_logic) source: Option<ObjectId>,
+    pub(in crate::game_logic) transition:
+        Option<crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent>,
+    pub(in crate::game_logic) source_fx: Option<HostDamageFxVictim>,
+    pub(in crate::game_logic) incoming: super::LastDamageSourceObservation,
+    pub(in crate::game_logic) previous: super::LastDamageSourceObservation,
+    pub(in crate::game_logic) damage_type: crate::game_logic::combat::DamageType,
+    pub(in crate::game_logic) fx_type: crate::game_logic::combat::DamageType,
+    pub(in crate::game_logic) amount: f32,
+    pub(in crate::game_logic) frame: u32,
+    pub(in crate::game_logic) is_kill: bool,
+    pub(in crate::game_logic) rebuild_model_bits_after_transition: bool,
 }
 
 /// Owned data crossing the released body borrow at the original callback point.
@@ -61,6 +82,7 @@ impl DamageApplication {
     pub(in crate::game_logic) fn killed(&self) -> bool {
         match self {
             Self::Complete(killed) => *killed,
+            Self::RiderChangeKillPilot(_) => true,
             Self::Active(tail) => tail.lethal,
             Self::Healing(_) => false,
         }
@@ -71,7 +93,7 @@ impl DamageApplication {
     pub(in crate::game_logic) fn actual_damage_dealt(&self) -> Option<f32> {
         match self {
             Self::Active(tail) => Some(tail.actual_damage),
-            Self::Complete(_) | Self::Healing(_) => None,
+            Self::Complete(_) | Self::RiderChangeKillPilot(_) | Self::Healing(_) => None,
         }
     }
 
@@ -84,6 +106,7 @@ impl DamageApplication {
     pub(in crate::game_logic) fn source_id(&self) -> Option<ObjectId> {
         match self {
             Self::Complete(_) => None,
+            Self::RiderChangeKillPilot(tail) => tail.source,
             Self::Active(tail) => tail.source,
             Self::Healing(tail) => tail.source,
         }
@@ -93,7 +116,22 @@ impl DamageApplication {
         match self {
             Self::Active(tail) => tail.bridge_callbacks,
             Self::Healing(tail) => tail.bridge_callbacks,
-            Self::Complete(_) => None,
+            Self::Complete(_) | Self::RiderChangeKillPilot(_) => None,
+        }
+    }
+
+    pub(in crate::game_logic) fn take_rider_change_kill_pilot(
+        &mut self,
+    ) -> Option<RiderChangeKillPilotContinuation> {
+        if matches!(self, Self::RiderChangeKillPilot(_)) {
+            let Self::RiderChangeKillPilot(continuation) =
+                std::mem::replace(self, Self::Complete(true))
+            else {
+                unreachable!("matched rider transition continuation")
+            };
+            Some(continuation)
+        } else {
+            None
         }
     }
 
@@ -187,6 +225,7 @@ impl DamageApplication {
                 false,
             ),
             Self::Complete(_) => return None,
+            Self::RiderChangeKillPilot(_) => return None,
         };
         assert_eq!(
             victim_id, victim.id,
@@ -249,6 +288,7 @@ impl DamageApplication {
                 false,
             ),
             Self::Complete(_) => return,
+            Self::RiderChangeKillPilot(_) => return,
         };
         assert_eq!(
             victim_id, victim.id,
@@ -428,6 +468,7 @@ impl DamageAfterFx {
     ) -> bool {
         match self.0 {
             DamageApplication::Complete(killed) => killed,
+            DamageApplication::RiderChangeKillPilot(_) => true,
             DamageApplication::Healing(_) => false,
             DamageApplication::Active(tail) => tail.finish_after_damage_fx(
                 victim,
