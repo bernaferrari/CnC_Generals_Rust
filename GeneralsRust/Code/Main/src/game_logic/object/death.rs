@@ -761,10 +761,19 @@ impl Object {
         if self.fx_list_die.is_some() {
             return;
         }
-        if let Some(cfg) = crate::game_logic::host_fx_list_die::fx_list_die_config_for_template(
-            &self.template_name,
-        ) {
-            self.fx_list_die = Some(cfg);
+        self.fx_list_die = self
+            .thing
+            .template
+            .receiving_object_definition
+            .as_deref()
+            .and_then(crate::game_logic::host_fx_list_die::fx_list_die_config_for_definition);
+        // Old component fixtures may deliberately install a test-only named
+        // definition. An admitted empty definition must never fall through.
+        #[cfg(test)]
+        if self.fx_list_die.is_none() && self.thing.template.receiving_object_definition.is_none() {
+            self.fx_list_die = crate::game_logic::host_fx_list_die::fx_list_die_config_for_template(
+                &self.template_name,
+            );
         }
     }
 

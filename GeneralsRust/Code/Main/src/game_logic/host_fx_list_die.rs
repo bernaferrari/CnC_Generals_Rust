@@ -378,10 +378,10 @@ pub fn fx_list_die_from_behavior_attrs(attrs: &[(&str, &str)]) -> HostFxListDieD
     }
 }
 
-fn authored_fx_list_die(name: &str) -> Option<HostFxListDieData> {
-    let manager = crate::assets::get_asset_manager()?;
-    let manager = manager.lock().ok()?;
-    let definition = manager.get_object_definition(name)?;
+/// Read the immutable effective definition supplied by the receiving session.
+pub(crate) fn fx_list_die_config_for_definition(
+    definition: &crate::assets::ObjectDefinition,
+) -> Option<HostFxListDieData> {
     let mut found = Vec::new();
     for module in &definition.behavior_modules {
         if !module.class_name.eq_ignore_ascii_case("FXListDie") {
@@ -400,6 +400,13 @@ fn authored_fx_list_die(name: &str) -> Option<HostFxListDieData> {
     let mut first = found.drain(..).next()?;
     first.more = found;
     Some(first)
+}
+
+fn authored_fx_list_die(name: &str) -> Option<HostFxListDieData> {
+    let manager = crate::assets::get_asset_manager()?;
+    let manager = manager.lock().ok()?;
+    let definition = manager.get_object_definition(name)?;
+    fx_list_die_config_for_definition(definition)
 }
 
 #[cfg(test)]
