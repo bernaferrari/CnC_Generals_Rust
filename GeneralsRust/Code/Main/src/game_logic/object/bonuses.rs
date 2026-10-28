@@ -919,7 +919,7 @@ impl Object {
         donor: Option<&Object>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        self.apply_hijacked_from_with_partition_context(donor, audio, None, None, None)
+        self.apply_hijacked_from_with_partition_context(donor, audio, None, None, None, 0)
     }
     #[cfg(test)]
     pub(crate) fn apply_hijacked_from_with_partition_owner(
@@ -928,7 +928,14 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         partition: &mut crate::game_logic::partition_manager::PartitionManager,
     ) {
-        self.apply_hijacked_from_with_partition_context(donor, audio, Some(partition), None, None)
+        self.apply_hijacked_from_with_partition_context(
+            donor,
+            audio,
+            Some(partition),
+            None,
+            None,
+            0,
+        )
     }
     pub(crate) fn apply_hijacked_from_with_veterancy_rules(
         &mut self,
@@ -937,6 +944,7 @@ impl Object {
         partition: &mut crate::game_logic::partition_manager::PartitionManager,
         health_bonus: &[f32; game_engine::common::global_data::LEVEL_COUNT],
         locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
+        frame: u32,
     ) {
         self.apply_hijacked_from_with_partition_context(
             donor,
@@ -944,6 +952,7 @@ impl Object {
             Some(partition),
             Some(health_bonus),
             locomotors,
+            frame,
         )
     }
     fn apply_hijacked_from_with_partition_context(
@@ -953,6 +962,7 @@ impl Object {
         mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
         health_bonus: Option<&[f32; game_engine::common::global_data::LEVEL_COUNT]>,
         locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
+        frame: u32,
     ) {
         self.require_partition_owner(partition.as_deref());
         self.set_status_hijacked(true);
@@ -1013,7 +1023,13 @@ impl Object {
                 if self.experience.current < need {
                     self.experience.current = need;
                 }
-                self.apply_veterancy_bonuses_quiet_in(prev, highest, health_bonus, locomotors);
+                self.apply_veterancy_bonuses_quiet_in(
+                    prev,
+                    highest,
+                    health_bonus,
+                    locomotors,
+                    frame,
+                );
             }
         }
     }

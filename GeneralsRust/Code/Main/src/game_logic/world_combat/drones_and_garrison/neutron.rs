@@ -393,11 +393,12 @@ impl GameLogic {
                         // Dead-man trigger residual — detonate after this borrow ends.
                         bomb_detonate_ids.push(id);
                     } else {
-                        obj.apply_kill_pilot_unmanned(
+                        obj.apply_kill_pilot_unmanned_at_frame(
                             &mut self.health_events,
                             &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
+                            self.frame,
                         );
                         // C++ NeutonBlastBehavior.cpp:124-127 neutronBlastToObject:
                         //   getAI()->aiIdle(CMD_FROM_AI);

@@ -2451,6 +2451,7 @@ impl GameLogic {
                         bike_veterancy,
                         &veterancy_health_bonus,
                         self.locomotor_definitions.as_ref(),
+                        self.frame,
                     );
                 }
             }
@@ -2462,6 +2463,7 @@ impl GameLogic {
                         VeterancyLevel::Rookie,
                         &veterancy_health_bonus,
                         self.locomotor_definitions.as_ref(),
+                        self.frame,
                     );
                 }
             }
@@ -2543,6 +2545,7 @@ impl GameLogic {
                 VeterancyLevel::Rookie,
                 &veterancy_health_bonus,
                 self.locomotor_definitions.as_ref(),
+                self.frame,
             );
             rider.deselect();
         }
@@ -2564,6 +2567,7 @@ impl GameLogic {
                 plan.incoming_veterancy,
                 &veterancy_health_bonus,
                 self.locomotor_definitions.as_ref(),
+                self.frame,
             );
             if plan.incoming_was_selected && !container.selected {
                 container.select();
@@ -2721,6 +2725,7 @@ impl GameLogic {
                     bike_veterancy,
                     &veterancy_health_bonus,
                     self.locomotor_definitions.as_ref(),
+                    self.frame,
                 );
             }
         }
@@ -2731,6 +2736,7 @@ impl GameLogic {
                     VeterancyLevel::Rookie,
                     &veterancy_health_bonus,
                     self.locomotor_definitions.as_ref(),
+                    self.frame,
                 );
             }
             container.rider_change_scuttled_on_frame = self.frame.max(1);

@@ -818,16 +818,64 @@ impl Object {
     }
 
     /// C++ `Object::onVeterancyLevelChanged` exclusive WEAPONSET + WEAPONBONUSCONDITION.
-    fn set_veterancy_weapon_set_and_bonus_flags(&mut self, level: VeterancyLevel) {
+    fn set_veterancy_weapon_set_and_bonus_flags(&mut self, level: VeterancyLevel, frame: u32) {
+        // Object.cpp updates the WeaponSet after each set/clear call. Preserve
+        // that transient order because changing rows resets live Weapon state.
+        match level {
+            VeterancyLevel::Rookie => {
+                self.set_veterancy_weapon_flag(0, false, frame);
+                self.set_veterancy_weapon_flag(1, false, frame);
+                self.set_veterancy_weapon_flag(2, false, frame);
+            }
+            VeterancyLevel::Veteran => {
+                self.set_veterancy_weapon_flag(0, true, frame);
+                self.set_veterancy_weapon_flag(1, false, frame);
+                self.set_veterancy_weapon_flag(2, false, frame);
+            }
+            VeterancyLevel::Elite => {
+                self.set_veterancy_weapon_flag(0, false, frame);
+                self.set_veterancy_weapon_flag(1, true, frame);
+                self.set_veterancy_weapon_flag(2, false, frame);
+            }
+            VeterancyLevel::Heroic => {
+                self.set_veterancy_weapon_flag(0, false, frame);
+                self.set_veterancy_weapon_flag(1, false, frame);
+                self.set_veterancy_weapon_flag(2, true, frame);
+            }
+        }
         let (vet, elite, hero) =
             crate::game_logic::host_unit_training::veterancy_weapon_set_flags(level);
-        self.weapon_set_veteran = vet;
-        self.weapon_set_elite = elite;
-        self.weapon_set_hero = hero;
         self.weapon_bonus_veteran = vet;
         self.weapon_bonus_elite = elite;
         self.weapon_bonus_hero = hero;
         self.stamp_veterancy_weaponset_model_bits();
+    }
+
+    fn set_veterancy_weapon_flag(&mut self, index: u8, enabled: bool, frame: u32) {
+        let current = match index {
+            0 => self.weapon_set_veteran,
+            1 => self.weapon_set_elite,
+            2 => self.weapon_set_hero,
+            _ => return,
+        };
+        if current == enabled {
+            return;
+        }
+        let receiving = self.thing.template.has_receiving_weapon_sets();
+        let previous = receiving
+            .then(|| self.selected_weapon_row_identity())
+            .flatten();
+        match index {
+            0 => self.weapon_set_veteran = enabled,
+            1 => self.weapon_set_elite = enabled,
+            2 => self.weapon_set_hero = enabled,
+            _ => unreachable!(),
+        }
+        if receiving {
+            let _ = self.rebind_receiving_weapon_row_if_changed(previous, frame);
+        } else {
+            self.release_weapon_lock_on_set_change();
+        }
     }
 
     /// C++ `TheWeaponSetTypeToModelConditionTypeMap` WEAPONSET_VETERAN/ELITE/HERO.
@@ -881,42 +929,6 @@ impl Object {
         if let Some(sharing) = sharing {
             self.thing.template.weapon_lock_shared_across_sets = sharing;
         }
-    }
-
-    /// Bind authored WeaponTemplateSet for this rank when INI declares one.
-    /// Returns true when a slot was replaced (skip in-place damage/ROF scale).
-    fn try_bind_authored_veterancy_weapon_set(&mut self, level: VeterancyLevel) -> bool {
-        let Some((primary, secondary, tertiary)) =
-            crate::game_logic::host_unit_training::authored_veterancy_weapon_set(
-                &self.template_name,
-                level,
-            )
-        else {
-            return false;
-        };
-        let mut rebound = false;
-        if let Some(name) = primary {
-            if let Some(weapon) = crate::game_logic::thing::ThingTemplate::weapon_from_store(&name)
-            {
-                let _ = self.replace_weapon_set_slot(0, Some(weapon));
-                rebound = true;
-            }
-        }
-        if let Some(name) = secondary {
-            if let Some(weapon) = crate::game_logic::thing::ThingTemplate::weapon_from_store(&name)
-            {
-                let _ = self.replace_weapon_set_slot(1, Some(weapon));
-                rebound = true;
-            }
-        }
-        if let Some(name) = tertiary {
-            if let Some(weapon) = crate::game_logic::thing::ThingTemplate::weapon_from_store(&name)
-            {
-                let _ = self.replace_weapon_set_slot(2, Some(weapon));
-                rebound = true;
-            }
-        }
-        rebound
     }
 
     /// C++ SalvageCrateCollide::doLevelGain residual.
@@ -1125,6 +1137,7 @@ impl Object {
                 health_bonus,
                 Some((audio, feedback)),
                 locomotors,
+                0,
             );
         }
     }
@@ -1217,6 +1230,7 @@ impl Object {
             health_bonus,
             Some((audio, feedback)),
             locomotors,
+            0,
         );
     }
 
@@ -1228,6 +1242,7 @@ impl Object {
         new_level: VeterancyLevel,
         health_bonus: Option<&[f32; game_engine::common::global_data::LEVEL_COUNT]>,
         locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
+        frame: u32,
     ) {
         self.apply_veterancy_bonuses_impl(
             previous_level,
@@ -1235,6 +1250,7 @@ impl Object {
             health_bonus,
             None,
             locomotors,
+            frame,
         );
     }
 
@@ -1248,7 +1264,12 @@ impl Object {
             &mut crate::game_logic::VeterancyFeedback<'_>,
         )>,
         locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
+        quiet_frame: u32,
     ) {
+        let frame = outputs
+            .as_ref()
+            .map(|(_, feedback)| feedback.logic_frame())
+            .unwrap_or(quiet_frame);
         let (_, old_damage_bonus, old_rof_bonus) = Self::veterancy_bonuses(previous_level);
         let (_, damage_bonus, rof_bonus) = Self::veterancy_bonuses(new_level);
 
@@ -1275,14 +1296,9 @@ impl Object {
         self.validate_armor_and_damage_fx();
 
         // C++ Object::onVeterancyLevelChanged: exclusive WEAPONSET + WEAPONBONUSCONDITION.
-        self.set_veterancy_weapon_set_and_bonus_flags(new_level);
-        if let Some(condition) =
-            crate::game_logic::host_unit_training::veterancy_weapon_set_condition(new_level)
-        {
-            self.adopt_weapon_set_lock_share_for_condition(condition);
-        }
-        self.release_weapon_lock_on_set_change();
-        let rebound_authored = self.try_bind_authored_veterancy_weapon_set(new_level);
+        self.set_veterancy_weapon_set_and_bonus_flags(new_level, frame);
+        let rebound_authored = self.thing.template.has_receiving_weapon_sets()
+            && self.selected_weapon_row_is_veterancy_specific();
 
         // In-place damage/ROF scale is the host residual for units that keep
         // the rookie WeaponSet. Authored VETERAN/ELITE/HERO sets already
@@ -1357,6 +1373,7 @@ impl Object {
             health_bonus,
             Some((audio, feedback)),
             locomotors,
+            0,
         );
         true
     }
@@ -1439,6 +1456,7 @@ impl Object {
             health_bonus,
             Some((audio, feedback)),
             locomotors,
+            0,
         );
         true
     }
@@ -1449,7 +1467,15 @@ impl Object {
     /// so this assigns the exact level and resets XP to this template's level
     /// threshold rather than carrying arbitrary source XP across templates.
     pub(crate) fn set_rider_change_veterancy_level(&mut self, level: VeterancyLevel) {
-        self.set_rider_change_veterancy_level_inner(level, None, None);
+        self.set_rider_change_veterancy_level_at_frame(level, 0);
+    }
+
+    pub(crate) fn set_rider_change_veterancy_level_at_frame(
+        &mut self,
+        level: VeterancyLevel,
+        frame: u32,
+    ) {
+        self.set_rider_change_veterancy_level_inner(level, None, None, frame);
     }
 
     pub(crate) fn set_rider_change_veterancy_level_with_health_bonus_table(
@@ -1457,8 +1483,9 @@ impl Object {
         level: VeterancyLevel,
         health_bonus: &[f32; game_engine::common::global_data::LEVEL_COUNT],
         locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
+        frame: u32,
     ) {
-        self.set_rider_change_veterancy_level_inner(level, Some(health_bonus), locomotors);
+        self.set_rider_change_veterancy_level_inner(level, Some(health_bonus), locomotors, frame);
     }
 
     fn set_rider_change_veterancy_level_inner(
@@ -1466,6 +1493,7 @@ impl Object {
         level: VeterancyLevel,
         health_bonus: Option<&[f32; game_engine::common::global_data::LEVEL_COUNT]>,
         locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
+        frame: u32,
     ) {
         let threshold = match level {
             VeterancyLevel::Rookie => 0.0,
@@ -1477,7 +1505,14 @@ impl Object {
         self.experience.level = level;
         self.experience.current = threshold.max(0.0);
         if previous != level {
-            self.apply_veterancy_bonuses_impl(previous, level, health_bonus, None, locomotors);
+            self.apply_veterancy_bonuses_impl(
+                previous,
+                level,
+                health_bonus,
+                None,
+                locomotors,
+                frame,
+            );
         }
     }
 }

@@ -264,6 +264,15 @@ impl Object {
         health_events: &mut crate::game_logic::HostHealthEvents,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
+        self.apply_kill_pilot_unmanned_at_frame(health_events, audio, 0);
+    }
+
+    pub(crate) fn apply_kill_pilot_unmanned_at_frame(
+        &mut self,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        frame: u32,
+    ) {
         // Preserve original controller for same-player PartitionFilter residual.
         // Only snapshot on the edge into unmanned (refresh would overwrite Neutral).
         if !self.status.disabled_unmanned {
@@ -290,7 +299,10 @@ impl Object {
         // C++ Object.cpp:2145-2179 non-drone unmanned enter:
         // carbomb detonates elsewhere; else wipe XP and undo AutoHeal.
         if !self.is_kind_of(KindOf::Drone) && !self.status.is_carbomb {
-            self.set_rider_change_veterancy_level(crate::game_logic::VeterancyLevel::Rookie);
+            self.set_rider_change_veterancy_level_at_frame(
+                crate::game_logic::VeterancyLevel::Rookie,
+                frame,
+            );
             if let Some(heal) = self.default_auto_heal.as_mut() {
                 heal.undo_upgrade();
             }

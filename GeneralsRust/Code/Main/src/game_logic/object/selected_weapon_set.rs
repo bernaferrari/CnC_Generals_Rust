@@ -25,11 +25,21 @@ pub(crate) struct WeaponRow {
     slots: [Option<WeaponDefinition>; 3],
     pub(crate) names: [Option<String>; 3],
     shared: bool,
+    condition_alternatives: Vec<u32>,
 }
 #[derive(Debug, Clone)]
 pub(crate) struct BoundWeaponSets {
     base: WeaponRow,
     mine: Option<WeaponRow>,
+    conditional: Vec<WeaponRow>,
+    receiving: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WeaponRowIdentity {
+    Base,
+    Mine,
+    Conditional(usize),
 }
 impl ThingTemplate {
     /// Factory installs the already admitted immutable base row at its frame.
@@ -68,8 +78,11 @@ impl ThingTemplate {
                 slots,
                 names,
                 shared: self.weapon_lock_shared_across_sets,
+                condition_alternatives: Vec::new(),
             },
             mine,
+            conditional: Vec::new(),
+            receiving: true,
         });
     }
     /// Resolve both active three-slot modes from this match's effective content.
@@ -83,6 +96,7 @@ impl ThingTemplate {
         fn row(
             names: [Option<String>; 3],
             shared: bool,
+            condition_alternatives: Vec<u32>,
             catalog: &std::collections::HashMap<
                 String,
                 std::sync::Arc<gamelogic::weapon::WeaponTemplate>,
@@ -103,6 +117,7 @@ impl ThingTemplate {
                 slots,
                 names,
                 shared,
+                condition_alternatives,
             }
         }
         let names = [
@@ -118,10 +133,64 @@ impl ThingTemplate {
                     .as_ref()
                     .map(|name| [Some(name.clone()), None, None])
             })
-            .map(|names| row(names, self.mine_weapon_set_shared, catalog));
+            .map(|names| row(names, self.mine_weapon_set_shared, Vec::new(), catalog));
+        let conditional = self
+            .receiving_object_definition
+            .as_ref()
+            .map(|definition| {
+                definition
+                    .weapon_sets
+                    .iter()
+                    .map(|set| {
+                        let tokens = set
+                            .conditions
+                            .iter()
+                            .flat_map(|condition| {
+                                condition.split(|ch: char| {
+                                    ch.is_ascii_whitespace() || matches!(ch, ',' | '|')
+                                })
+                            })
+                            .map(str::trim)
+                            .filter(|token| {
+                                !token.is_empty() && !token.eq_ignore_ascii_case("none")
+                            })
+                            .collect::<Vec<_>>();
+                        let alternatives = if set.is_unconditional() {
+                            vec![0]
+                        } else {
+                            tokens
+                                .iter()
+                                .map(|token| weapon_condition_mask(token))
+                                .collect::<Option<Vec<_>>>()
+                                .map(|bits| bits.into_iter().fold(0, |mask, bit| mask | bit))
+                                .filter(|mask| *mask != 0)
+                                .into_iter()
+                                .collect()
+                        };
+                        row(
+                            [
+                                set.primary_weapon.clone(),
+                                set.secondary_weapon.clone(),
+                                set.tertiary_weapon.clone(),
+                            ],
+                            weapon_lock_shared(&set.attributes),
+                            alternatives,
+                            catalog,
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         self.selected_weapon_sets = Some(BoundWeaponSets {
-            base: row(names, self.weapon_lock_shared_across_sets, catalog),
+            base: row(
+                names,
+                self.weapon_lock_shared_across_sets,
+                Vec::new(),
+                catalog,
+            ),
             mine,
+            conditional,
+            receiving: true,
         });
     }
     pub(crate) fn bind_selected_weapon_sets(&mut self, base: [Option<Weapon>; 3]) {
@@ -172,37 +241,166 @@ impl ThingTemplate {
             }),
             names,
             shared: self.mine_weapon_set_shared,
+            condition_alternatives: Vec::new(),
         });
         self.selected_weapon_sets = Some(BoundWeaponSets {
             base: WeaponRow {
                 slots,
                 names: base_names,
                 shared: self.weapon_lock_shared_across_sets,
+                condition_alternatives: Vec::new(),
             },
             mine,
+            conditional: Vec::new(),
+            receiving: false,
         });
     }
+    pub(crate) fn has_receiving_weapon_sets(&self) -> bool {
+        self.selected_weapon_sets
+            .as_ref()
+            .is_some_and(|rows| rows.receiving)
+    }
 }
+
+fn weapon_condition_mask(condition: &str) -> Option<u32> {
+    let condition = condition.trim().trim_matches(',').to_ascii_uppercase();
+    let condition = condition.strip_prefix("WEAPONSET_").unwrap_or(&condition);
+    let bit = match condition {
+        "VETERAN" => 0,
+        "ELITE" => 1,
+        "HERO" => 2,
+        "PLAYER_UPGRADE" => 3,
+        "CRATEUPGRADE_ONE" | "CRATE_UPGRADE_ONE" => 4,
+        "CRATEUPGRADE_TWO" | "CRATE_UPGRADE_TWO" => 5,
+        "VEHICLE_HIJACK" => 6,
+        "CARBOMB" | "CAR_BOMB" => 7,
+        "MINE_CLEARING_DETAIL" => 8,
+        "WEAPON_RIDER1" | "RIDER1" => 9,
+        "WEAPON_RIDER2" | "RIDER2" => 10,
+        "WEAPON_RIDER3" | "RIDER3" => 11,
+        "WEAPON_RIDER4" | "RIDER4" => 12,
+        "WEAPON_RIDER5" | "RIDER5" => 13,
+        "WEAPON_RIDER6" | "RIDER6" => 14,
+        "WEAPON_RIDER7" | "RIDER7" => 15,
+        "WEAPON_RIDER8" | "RIDER8" => 16,
+        "NONE" | "" => return None,
+        _ => return None,
+    };
+    Some(1u32 << bit)
+}
+
+fn weapon_lock_shared(attributes: &std::collections::HashMap<String, String>) -> bool {
+    attributes.iter().any(|(key, value)| {
+        (key.eq_ignore_ascii_case("WeaponLockSharedAcrossSets")
+            || key.eq_ignore_ascii_case("ShareWeaponLock"))
+            && matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "yes" | "true" | "1"
+            )
+    })
+}
+fn select_conditional_weapon_row(rows: &[WeaponRow], flags: u32) -> Option<(usize, &WeaponRow)> {
+    let mut best: Option<(usize, &WeaponRow)> = None;
+    let mut best_yes = 0;
+    let mut best_extra = 999;
+    for (index, row) in rows.iter().enumerate() {
+        // WeaponTemplateSet currently exposes one mask. Keep C++'s reverse
+        // alternative iteration so multiple authored masks keep source order.
+        for &condition in row.condition_alternatives.iter().rev() {
+            let yes = (condition & flags).count_ones();
+            let extraneous = (condition & !flags).count_ones();
+            if yes > best_yes || (yes >= best_yes && extraneous < best_extra) {
+                best = Some((index, row));
+                best_yes = yes;
+                best_extra = extraneous;
+            }
+        }
+    }
+    best
+}
+
 impl Object {
+    fn active_weapon_condition_mask(&self) -> u32 {
+        // Rank and mine rows are the only conditional transitions which
+        // currently rebind these receiving Weapon instances. Leave unrelated
+        // runtime flags out until their setters share that owner path.
+        u32::from(self.weapon_set_veteran)
+            | (u32::from(self.weapon_set_elite) << 1)
+            | (u32::from(self.weapon_set_hero) << 2)
+            | (u32::from(self.weapon_set_mine_clearing_detail) << 8)
+    }
+
+    fn selected_weapon_row_binding(&self) -> Option<(WeaponRowIdentity, &WeaponRow)> {
+        let rows = self.thing.template.selected_weapon_sets.as_ref()?;
+        if let Some((index, row)) =
+            select_conditional_weapon_row(&rows.conditional, self.active_weapon_condition_mask())
+        {
+            return Some((WeaponRowIdentity::Conditional(index), row));
+        }
+        if self.weapon_set_mine_clearing_detail {
+            if let Some(row) = rows.mine.as_ref() {
+                return Some((WeaponRowIdentity::Mine, row));
+            }
+        }
+        Some((WeaponRowIdentity::Base, &rows.base))
+    }
+
+    fn selected_weapon_row(&self) -> Option<&WeaponRow> {
+        self.selected_weapon_row_binding().map(|(_, row)| row)
+    }
+
+    pub(crate) fn selected_weapon_row_identity(&self) -> Option<WeaponRowIdentity> {
+        self.selected_weapon_row_binding()
+            .map(|(identity, _)| identity)
+    }
+
+    pub(crate) fn selected_weapon_row_is_veterancy_specific(&self) -> bool {
+        self.selected_weapon_row_binding()
+            .is_some_and(|(identity, row)| {
+                matches!(identity, WeaponRowIdentity::Conditional(_))
+                    && row
+                        .condition_alternatives
+                        .iter()
+                        .any(|conditions| conditions & 0b111 != 0)
+            })
+    }
+
+    pub(crate) fn rebind_receiving_weapon_row_if_changed(
+        &mut self,
+        previous: Option<WeaponRowIdentity>,
+        frame: u32,
+    ) -> bool {
+        let Some((identity, row)) = self.selected_weapon_row_binding() else {
+            return false;
+        };
+        if previous == Some(identity) {
+            return false;
+        }
+        let slots: [Option<Weapon>; 3] = std::array::from_fn(|i| {
+            row.slots[i]
+                .as_ref()
+                .map(|definition| definition.instantiate(frame))
+        });
+        if !row.shared {
+            self.release_weapon_lock(WeaponLockType::LockedPermanently);
+            self.set_active_weapon_slot(0);
+        }
+        let [primary, secondary, tertiary] = slots;
+        self.tertiary_weapon = tertiary;
+        self.secondary_weapon = secondary;
+        self.weapon = primary;
+        self.reset_weapon_barrel_states();
+        true
+    }
     pub(in crate::game_logic) fn selected_native_weapon_rule(
         &self,
         slot: u8,
     ) -> Option<std::sync::Arc<gamelogic::weapon::WeaponTemplate>> {
-        let rows = self.thing.template.selected_weapon_sets.as_ref()?;
-        let row = if self.weapon_set_mine_clearing_detail {
-            rows.mine.as_ref().unwrap_or(&rows.base)
-        } else {
-            &rows.base
-        };
+        let row = self.selected_weapon_row()?;
         row.slots.get(usize::from(slot))?.as_ref()?.native.clone()
     }
     pub(in crate::game_logic) fn selected_projectile_name(&self, slot: u8) -> Option<&str> {
-        let rows = self.thing.template.selected_weapon_sets.as_ref()?;
-        let row = if self.weapon_set_mine_clearing_detail {
-            rows.mine.as_ref().unwrap_or(&rows.base)
-        } else {
-            &rows.base
-        };
+        let row = self.selected_weapon_row()?;
         row.slots
             .get(usize::from(slot))?
             .as_ref()?
@@ -210,50 +408,21 @@ impl Object {
             .as_deref()
     }
     pub(crate) fn selected_weapon_name(&self, slot: u8) -> Option<&str> {
-        let rows = self.thing.template.selected_weapon_sets.as_ref()?;
-        let row = if self.weapon_set_mine_clearing_detail {
-            rows.mine.as_ref().unwrap_or(&rows.base)
-        } else {
-            &rows.base
-        };
+        let row = self.selected_weapon_row()?;
         row.names.get(slot as usize)?.as_deref()
     }
     pub fn set_weapon_set_mine_clearing_detail_at_frame(&mut self, enabled: bool, frame: u32) {
         if enabled == self.weapon_set_mine_clearing_detail {
             return;
         }
-        let Some(rows) = self.thing.template.selected_weapon_sets.as_ref() else {
+        let Some(_) = self.thing.template.selected_weapon_sets.as_ref() else {
             // A plain inert object has no conditional row to replace.
             self.weapon_set_mine_clearing_detail = enabled;
             return;
         };
-        let previous_mine = self.weapon_set_mine_clearing_detail && rows.mine.is_some();
-        let next_mine = enabled && rows.mine.is_some();
+        let previous = self.selected_weapon_row_identity();
         self.weapon_set_mine_clearing_detail = enabled;
-        if previous_mine == next_mine {
-            return;
-        }
-        let row = if next_mine {
-            rows.mine.as_ref().unwrap()
-        } else {
-            &rows.base
-        };
-        let slots: [Option<Weapon>; 3] = std::array::from_fn(|i| {
-            row.slots[i]
-                .as_ref()
-                .map(|definition| definition.instantiate(frame))
-        });
-        let shared = row.shared;
-        if !shared {
-            self.release_weapon_lock(WeaponLockType::LockedPermanently);
-            self.set_active_weapon_slot(0);
-        }
-        // Replace the owned slots in the original TERTIARY → PRIMARY order.
-        let [primary, secondary, tertiary] = slots;
-        self.tertiary_weapon = tertiary;
-        self.secondary_weapon = secondary;
-        self.weapon = primary;
-        self.reset_weapon_barrel_states();
+        let _ = self.rebind_receiving_weapon_row_if_changed(previous, frame);
     }
 }
 
@@ -261,6 +430,54 @@ impl Object {
 mod tests {
     use super::*;
     use crate::game_logic::{GameLogic, ObjectId, Team};
+
+    fn conditional_row(name: &str, conditions: Vec<u32>) -> WeaponRow {
+        WeaponRow {
+            slots: std::array::from_fn(|_| None),
+            names: [Some(name.into()), None, None],
+            shared: false,
+            condition_alternatives: conditions,
+        }
+    }
+
+    #[test]
+    fn matching_keeps_base_at_rookie_and_first_exact_tie_then_prefers_more_yes() {
+        let base = conditional_row("base", vec![0]);
+        let veteran = conditional_row("veteran", vec![1]);
+        let selected = select_conditional_weapon_row(&[base, veteran], 0);
+        assert_eq!(selected.unwrap().1.names[0].as_deref(), Some("base"));
+
+        let first = conditional_row("first", vec![1 | 2]);
+        let tied_later = conditional_row("tied-later", vec![1 | 2]);
+        let selected = select_conditional_weapon_row(&[first, tied_later], 1);
+        assert_eq!(selected.unwrap().1.names[0].as_deref(), Some("first"));
+
+        let one_yes = conditional_row("one-yes", vec![1]);
+        let two_yes = conditional_row("two-yes", vec![1 | 2]);
+        let selected = select_conditional_weapon_row(&[one_yes, two_yes], 1 | 2);
+        assert_eq!(selected.unwrap().1.names[0].as_deref(), Some("two-yes"));
+    }
+
+    #[test]
+    fn active_mask_only_includes_flags_with_receiving_rebind_transitions() {
+        let (mut world, id) = world(30.0);
+        let object = world.host_object_mut(id).unwrap();
+        object.weapon_set_veteran = true;
+        object.weapon_set_mine_clearing_detail = true;
+        object.weapon_crate_upgrade = 2;
+        object.weapon_set_player_upgrade = true;
+        object.weapon_set_carbomb = true;
+        object.weapon_set_vehicle_hijack = true;
+        object.rider_change_active_slot = Some(3);
+        object.armed_riders_upgrade_weapon_set = true;
+        let mask = object.active_weapon_condition_mask();
+        assert_ne!(mask & 1, 0);
+        assert_ne!(mask & (1 << 8), 0);
+        for unsupported in [3, 4, 5, 6, 7, 11] {
+            assert_eq!(mask & (1 << unsupported), 0);
+        }
+    }
+
     fn world(mine_damage: f32) -> (GameLogic, ObjectId) {
         let mut world = GameLogic::new();
         let mut definition = ThingTemplate::new("ReceivingMineSet");

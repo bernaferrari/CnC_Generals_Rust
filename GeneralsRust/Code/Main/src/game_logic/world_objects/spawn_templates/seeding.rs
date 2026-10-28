@@ -223,6 +223,28 @@ impl GameLogic {
         )
     }
 
+    /// Admit a resolved weapon catalog for this world's already admitted Object
+    /// definitions. This is an application boundary: weapons cannot be replaced
+    /// after live objects have captured their immutable rows.
+    pub fn admit_receiving_weapon_snapshot(
+        &mut self,
+        weapons: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
+    ) -> Result<(), String> {
+        if !self.objects.registered_is_empty() {
+            return Err("Receiving weapon content must be admitted before live Objects".into());
+        }
+        let definitions = self
+            .receiving_object_definitions
+            .as_ref()
+            .map(|rows| {
+                rows.rows()
+                    .map(|row| (row.name.clone(), (**row).clone()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        self.admit_weapon_content_snapshot(weapons, &definitions)
+    }
+
     /// Admit an already-resolved archive snapshot transactionally. Definitions
     /// are immutable content; neither parsing nor rejection invokes callbacks.
     pub(in crate::game_logic) fn admit_weapon_content_snapshot(

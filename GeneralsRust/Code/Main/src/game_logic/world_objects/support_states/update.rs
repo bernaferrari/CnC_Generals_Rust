@@ -2154,6 +2154,7 @@ impl GameLogic {
                                     &mut self.partition_manager,
                                     &self.veterancy_health_bonus,
                                     self.locomotor_definitions.as_ref(),
+                                    self.frame,
                                 );
                             }
                             match owner_player_id {
@@ -2490,11 +2491,12 @@ impl GameLogic {
                                     effects,
                                 );
                             } else if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                target.apply_kill_pilot_unmanned(
+                                target.apply_kill_pilot_unmanned_at_frame(
                                     &mut self.health_events,
                                     &mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ),
+                                    self.frame,
                                 );
                                 target.set_team_with_partition_owner(
                                     Team::Neutral,

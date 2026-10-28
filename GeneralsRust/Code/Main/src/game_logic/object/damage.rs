@@ -655,11 +655,12 @@ impl Object {
                 if self.is_car_bomb() {
                     // Detonation handled by combat caller; mark unmanned edge.
                 }
-                self.apply_kill_pilot_unmanned(
+                self.apply_kill_pilot_unmanned_at_frame(
                     health_events,
                     &mut crate::game_logic::ObjectAudio::callback(&mut |object, request| {
                         body_fx(object, BodyStateFx::MovementStop(request), None)
                     }),
+                    frame,
                 );
                 if let Some(output) = ownership_events {
                     self.set_team_and_owner_with_partition_context(

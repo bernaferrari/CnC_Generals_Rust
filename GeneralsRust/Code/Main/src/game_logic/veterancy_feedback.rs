@@ -15,6 +15,10 @@ pub struct VeterancyFeedback<'a> {
     animations: Option<&'a mut WorldAnimations>,
 }
 impl<'a> VeterancyFeedback<'a> {
+    pub(crate) fn logic_frame(&self) -> u32 {
+        self.frame
+    }
+
     /// Detached component operations have no UI owner or MiscAudio definitions.
     /// Their authored Body sound still reaches the explicitly supplied audio sink.
     pub fn standalone() -> Self {

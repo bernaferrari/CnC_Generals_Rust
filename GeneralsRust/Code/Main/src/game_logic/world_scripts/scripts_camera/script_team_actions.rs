@@ -396,9 +396,10 @@ impl GameLogic {
             if !obj.is_alive() || obj.status.destroyed {
                 return;
             }
-            obj.apply_kill_pilot_unmanned(
+            obj.apply_kill_pilot_unmanned_at_frame(
                 &mut self.health_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
             );
             obj.deselect();
             obj.set_team_with_partition_owner(
