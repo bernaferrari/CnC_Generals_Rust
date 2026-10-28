@@ -11,6 +11,7 @@ mod camera_player_defaults;
 mod camera_player_input;
 mod eva_camera;
 mod helix_radar;
+pub(crate) use helix_radar::StickyBombInitPosition;
 mod instant_build_completion;
 mod move_ambient_audio;
 mod production_eva;

@@ -84,6 +84,7 @@ pub(crate) mod world_objects;
 mod world_save;
 #[path = "../world_scripts/mod.rs"]
 mod world_scripts;
+pub(crate) use world_scripts::StickyBombInitPosition;
 #[path = "../world_tick/mod.rs"]
 mod world_tick;
 pub(crate) use world_tick::FlightTerrainView;
