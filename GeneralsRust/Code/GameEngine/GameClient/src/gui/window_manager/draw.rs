@@ -79,6 +79,7 @@ impl WindowManager {
             manager: Some(self),
             ime: draw_context.ime,
             shell_scheme: draw_context.shell_scheme,
+            receiving_power: draw_context.receiving_power,
         };
         // Match C++ WinRepaint ordering: top-level windows are stored head-first,
         // but repaint walks from tail to head in BELOW / normal / ABOVE passes.

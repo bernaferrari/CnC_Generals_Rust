@@ -556,6 +556,7 @@ impl GameClient {
                                     display: display_facts.clone(),
                                     ime: Some(&self.ime),
                                     manager: Some(manager),
+                                    receiving_power: None,
                                 };
                             if let Some(image) = manager.win_find_image(name) {
                                 let w = image.width.max(1);
@@ -595,6 +596,7 @@ impl GameClient {
                                     display: display_facts.clone(),
                                     ime: Some(&self.ime),
                                     manager: Some(manager),
+                                    receiving_power: None,
                                 };
                             if let Some(image) = manager.win_find_image(name) {
                                 manager.win_draw_image(
@@ -649,6 +651,7 @@ impl GameClient {
                                     display: display_facts.clone(),
                                     ime: Some(&self.ime),
                                     manager: Some(manager),
+                                    receiving_power: None,
                                 };
                             if let Some(image) = manager.win_find_image(name) {
                                 manager.win_draw_image(

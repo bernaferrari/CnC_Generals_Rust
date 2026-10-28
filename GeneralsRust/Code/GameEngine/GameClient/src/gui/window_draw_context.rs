@@ -11,6 +11,17 @@ pub struct WindowDrawContext<'a> {
     pub display: DisplayDrawFacts,
     pub ime: Option<&'a crate::gui::ime_manager::ImeManager>,
     pub manager: Option<&'a WindowManager>,
+    /// Explicit owner-derived Energy facts for a hosted PowerWindow draw.
+    /// The outer `Some` marks this callback as receiving-context work; an
+    /// inner `None` means that owner has no selected/local player. Standalone
+    /// Core callbacks leave this unset and keep their compatibility lookup.
+    pub receiving_power: Option<Option<ReceivingPowerObservation>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReceivingPowerObservation {
+    pub production: i32,
+    pub consumption: i32,
 }
 impl<'a> WindowDrawContext<'a> {
     pub fn new(renderer: Option<&'a mut UIRenderer>, display: DisplayDrawFacts) -> Self {
@@ -20,6 +31,7 @@ impl<'a> WindowDrawContext<'a> {
             display,
             manager: None,
             ime: None,
+            receiving_power: None,
         }
     }
     pub fn with_renderer<R>(

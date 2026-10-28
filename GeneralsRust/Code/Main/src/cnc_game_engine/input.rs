@@ -2252,6 +2252,18 @@ impl CnCGameEngine {
             });
             let filter_scroll = self.game_logic.session_view.camera.native_filter_scroll;
             let snow = self.game_client.snow_render_state();
+            let receiving_power_target = self
+                .receiving_observer_look_at_player()
+                .and_then(|index| u32::try_from(index).ok())
+                .or_else(|| self.game_logic.local_player_id());
+            let receiving_power = receiving_power_target
+                .and_then(|player_id| self.game_logic.get_player(player_id))
+                .map(
+                    |player| game_client::gui::window_draw_context::ReceivingPowerObservation {
+                        production: player.energy_production_at(self.game_logic.frame),
+                        consumption: player.power_consumed,
+                    },
+                );
             let (render_pipeline, graphics_system, game_client) = (
                 &mut self.render_pipeline,
                 &mut self.graphics_system,
@@ -2278,6 +2290,7 @@ impl CnCGameEngine {
                     ime,
                 )
                 .with_command_hints(command_hints, client_frame)
+                .with_receiving_power_observation(receiving_power)
                 .with_receiving_ui(receiving_ui)
             });
             let mut ui_overlay =

@@ -191,6 +191,7 @@ fn draw_radar_in_hud_with_context(
     let terrain_generation = radar.terrain_generation();
     let receiving_manager = draw_context.manager;
     let receiving_ime = draw_context.ime;
+    let receiving_power = draw_context.receiving_power;
     let _ = draw_context.with_renderer(|renderer, display_facts| {
         // C++ keeps `m_terrainTexture` resident and repaints it only on
         // `newMap`/`refreshTerrain`; key the upload on extent + generation.
@@ -396,6 +397,7 @@ fn draw_radar_in_hud_with_context(
                         display: display_facts.clone(),
                         manager: Some(manager),
                         ime: receiving_ime,
+                        receiving_power,
                     };
                     for reticle in hero_reticles {
                         manager.win_draw_image(

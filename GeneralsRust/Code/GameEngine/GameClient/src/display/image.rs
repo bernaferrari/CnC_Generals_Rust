@@ -1578,6 +1578,7 @@ mod tests {
             display: Default::default(),
             ime: None,
             manager: Some(&manager),
+            receiving_power: None,
         };
         manager.win_draw_image(
             &gui_image,

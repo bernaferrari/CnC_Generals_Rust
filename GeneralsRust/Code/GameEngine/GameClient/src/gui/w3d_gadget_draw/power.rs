@@ -1,5 +1,29 @@
 use super::*;
 
+fn power_observation(
+    draw_context: &crate::gui::window_draw_context::WindowDrawContext<'_>,
+) -> Option<(i32, i32)> {
+    if let Some(receiving) = draw_context.receiving_power {
+        return receiving.map(|facts| (facts.production, facts.consumption));
+    }
+
+    let list = ThePlayerList().read().ok()?;
+    let player_arc = TheControlBar::get_observer_look_at_player_index()
+        .and_then(|index| {
+            if index >= 0 {
+                list.get_player(index).cloned()
+            } else {
+                None
+            }
+        })
+        .or_else(|| list.get_local_player().cloned());
+    let player_arc = player_arc?;
+    drop(list);
+    let player = player_arc.read().ok()?;
+    let energy = player.get_energy();
+    Some((energy.production(), energy.consumption()))
+}
+
 pub fn w3d_power_draw_a(
     window: &GameWindow,
     _inst_data: &WindowInstanceData,
@@ -16,28 +40,9 @@ pub fn w3d_power_draw_a(
     let yellow_range = global.power_bar_yellow_range;
     drop(global);
 
-    let Ok(list) = ThePlayerList().read() else {
+    let Some((production, consumption)) = power_observation(draw_context) else {
         return;
     };
-    let player_arc = TheControlBar::get_observer_look_at_player_index()
-        .and_then(|index| {
-            if index >= 0 {
-                list.get_player(index).cloned()
-            } else {
-                None
-            }
-        })
-        .or_else(|| list.get_local_player().cloned());
-    let Some(player_arc) = player_arc else {
-        return;
-    };
-    let Ok(player) = player_arc.read() else {
-        return;
-    };
-    let energy = player.get_energy();
-    let consumption = energy.consumption();
-    let production = energy.production();
-    drop(player);
 
     let (end_bar, begin_bar, center_bar) =
         if consumption > production - yellow_range && consumption <= production {
@@ -215,28 +220,9 @@ pub fn w3d_power_draw(
     let yellow_range = global.power_bar_yellow_range;
     drop(global);
 
-    let Ok(list) = ThePlayerList().read() else {
+    let Some((production, consumption)) = power_observation(draw_context) else {
         return;
     };
-    let player_arc = TheControlBar::get_observer_look_at_player_index()
-        .and_then(|index| {
-            if index >= 0 {
-                list.get_player(index).cloned()
-            } else {
-                None
-            }
-        })
-        .or_else(|| list.get_local_player().cloned());
-    let Some(player_arc) = player_arc else {
-        return;
-    };
-    let Ok(player) = player_arc.read() else {
-        return;
-    };
-    let energy = player.get_energy();
-    let consumption = energy.consumption();
-    let production = energy.production();
-    drop(player);
 
     let center_name = if consumption > production - yellow_range && consumption <= production {
         "PowerPointY"
@@ -321,6 +307,34 @@ pub fn w3d_power_draw(
             draw_context,
         );
     });
+}
+
+#[cfg(test)]
+mod receiving_power_context_tests {
+    use super::power_observation;
+    use crate::gui::window_draw_context::{ReceivingPowerObservation, WindowDrawContext};
+
+    #[test]
+    fn same_player_identity_can_draw_from_two_receiving_contexts() {
+        let mut first = WindowDrawContext::default();
+        first.receiving_power = Some(Some(ReceivingPowerObservation {
+            production: 81,
+            consumption: 24,
+        }));
+        let mut second = WindowDrawContext::default();
+        second.receiving_power = Some(Some(ReceivingPowerObservation {
+            production: 19,
+            consumption: 7,
+        }));
+
+        assert_eq!(power_observation(&first), Some((81, 24)));
+        assert_eq!(power_observation(&second), Some((19, 7)));
+        assert_eq!(power_observation(&first), Some((81, 24)));
+
+        let mut no_receiving_player = WindowDrawContext::default();
+        no_receiving_player.receiving_power = Some(None);
+        assert_eq!(power_observation(&no_receiving_player), None);
+    }
 }
 
 pub(super) fn draw_vertical_meter(
