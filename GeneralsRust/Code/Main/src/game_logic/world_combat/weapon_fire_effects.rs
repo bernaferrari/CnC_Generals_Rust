@@ -5,7 +5,6 @@ use super::AcceptedWeaponDischarge;
 struct AcceptedSelfDamagePose {
     epoch: u64,
     generation: u64,
-    at_self: bool,
 }
 
 impl GameLogic {
@@ -42,7 +41,7 @@ impl GameLogic {
                 }
             })
         });
-        let source_pose = self.prepare_accepted_self_damage_pose(shot.shooter_id, slot);
+        let source_pose = self.prepare_accepted_self_damage_pose(shot.shooter_id);
         let epoch = source_pose.epoch;
         let accepted = self.begin_owned_weapon_effects_with_effects(
             shot.shooter_id,
@@ -75,21 +74,11 @@ impl GameLogic {
         }
     }
 
-    /// Freeze template identity before callbacks, not the source's final pose.
-    fn prepare_accepted_self_damage_pose(
-        &mut self,
-        source: ObjectId,
-        slot: u8,
-    ) -> AcceptedSelfDamagePose {
-        let at_self = self.objects.get(&source).is_some_and(|object| {
-            object.selected_native_weapon_rule(slot).map(|rule| rule.damage_dealt_at_self_position)
-                .unwrap_or_else(|| object.weapon_name_for_slot(slot).is_some_and(
-                    crate::game_logic::weapon_bootstrap::host_damage_dealt_at_self_position_for_weapon_name))
-        });
+    /// Retain source identity across callbacks without retaining a borrow.
+    fn prepare_accepted_self_damage_pose(&mut self, source: ObjectId) -> AcceptedSelfDamagePose {
         AcceptedSelfDamagePose {
             epoch: self.visual_world_epoch,
             generation: self.stamp_visual_object_generation(source),
-            at_self,
         }
     }
 
@@ -101,14 +90,13 @@ impl GameLogic {
         shot: &mut crate::game_logic::combat::PendingProjectile,
         pose: AcceptedSelfDamagePose,
     ) {
-        if !pose.at_self || pose.epoch != self.visual_world_epoch {
+        if shot.self_damage_position.is_none() || pose.epoch != self.visual_world_epoch {
             return;
         }
         if let Some(source) = self.objects.get(&shot.shooter_id).filter(|object| {
             pose.generation != 0 && object.visual_object_generation == pose.generation
         }) {
-            shot.target_id = None;
-            shot.target_pos = Some(source.get_position());
+            shot.self_damage_position = Some(source.get_position());
         }
     }
 
@@ -292,19 +280,20 @@ End
     fn accepted_self_damage_pose_rereads_original_owner_after_effect_phase() {
         // Explicit continuation control; not a claim of native FX execution.
         let (mut world, mut shot) = prepared();
-        let pose = world.prepare_accepted_self_damage_pose(shot.shooter_id, 0);
-        assert_eq!(shot.target_pos, Some(Vec3::ZERO));
+        let pose = world.prepare_accepted_self_damage_pose(shot.shooter_id);
+        let target = shot.target_id;
+        assert_eq!(shot.self_damage_position, Some(Vec3::ZERO));
         let changed = Vec3::new(7.0, 3.0, 5.0);
         world.set_fixture_object_position(shot.shooter_id, changed);
         world.refresh_accepted_self_damage_pose(&mut shot, pose);
-        assert_eq!(shot.target_id, None);
-        assert_eq!(shot.target_pos, Some(changed));
+        assert_eq!(shot.target_id, target);
+        assert_eq!(shot.self_damage_position, Some(changed));
     }
     #[test]
     fn accepted_self_damage_pose_rejects_reused_birth_after_reset() {
         let (mut world, mut shot) = prepared();
-        let pose = world.prepare_accepted_self_damage_pose(shot.shooter_id, 0);
-        let before = shot.target_pos;
+        let pose = world.prepare_accepted_self_damage_pose(shot.shooter_id);
+        let before = shot.self_damage_position;
         world.reset();
         world.add_player(Player::new(0, Team::USA, "new owner", false));
         let replacement = world
@@ -313,7 +302,7 @@ End
         assert_eq!(replacement, shot.shooter_id);
         world.refresh_accepted_self_damage_pose(&mut shot, pose);
         assert_eq!(
-            shot.target_pos, before,
+            shot.self_damage_position, before,
             "new match cannot supply an old accepted source pose"
         );
     }

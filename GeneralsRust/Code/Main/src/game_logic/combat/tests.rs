@@ -54,6 +54,8 @@ pub(in crate::game_logic) mod tests {
         PendingProjectile {
             shooter_id: ObjectId(9_001),
             shooter_pos: Vec3::ZERO,
+            self_damage_position: None,
+            selected_weapon_is_laser: None,
             source_context: Some(ProjectileLaunchContext {
                 source_team: Team::China,
                 projectile_team_id: None,
@@ -1339,6 +1341,8 @@ pub(in crate::game_logic) mod tests {
         queue_projectile(&mut combat, PendingProjectile {
             shooter_id: ObjectId(1),
             shooter_pos: Vec3::ZERO,
+            self_damage_position: None,
+            selected_weapon_is_laser: None,
             source_context: Some(ProjectileLaunchContext {
                 source_team: Team::China,
                 projectile_team_id: None,
@@ -1944,99 +1948,26 @@ pub(in crate::game_logic) mod tests {
     }
 
     #[test]
-    fn splash_damage_dealt_at_self_position_recenters_and_clears_victim() {
-        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
-
-        let mut health_events = crate::game_logic::HostHealthEvents::default();
-
-        let _combat_serial = combat_test_guard();
-        crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
-        const NAME: &str = "HuntLiveDamageAtSelfSplash";
-        let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
-            let mut template = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
-            template.damage_dealt_at_self_position = true;
-            store.add_weapon_template(template);
-        });
-
-        let mut objects = crate::game_logic::HostObjectStore::new();
-        let atk = ObjectId(190);
-        let near = ObjectId(191);
-        let far = ObjectId(192);
-        objects.insert(
-            atk,
-            make_obj(
-                "USA_Ranger",
-                atk,
-                Team::USA,
-                Vec3::ZERO,
-                &[KindOf::Infantry, KindOf::Attackable],
-                5.0,
-            ),
-        );
-        objects.insert(
-            near,
-            make_obj(
-                "GLA_Rebel",
-                near,
-                Team::GLA,
-                Vec3::new(3.0, 0.0, 0.0),
-                &[KindOf::Infantry, KindOf::Attackable],
-                5.0,
-            ),
-        );
-        objects.insert(
-            far,
-            make_obj(
-                "GLA_Rebel",
-                far,
-                Team::GLA,
-                Vec3::new(80.0, 0.0, 0.0),
-                &[KindOf::Infantry, KindOf::Attackable],
-                5.0,
-            ),
-        );
-        let near0 = objects.get(&near).unwrap().health.current;
-        let far0 = objects.get(&far).unwrap().health.current;
-
-        let mut combat = CombatSystem::new();
-        let w = Weapon {
-            damage: 40.0,
-            splash_radius: 20.0,
-            projectile_speed: 0.0,
-            ..Weapon::default()
-        };
-        let pid = combat.fire_projectile_ex(
-            Vec3::ZERO,
+    fn moving_self_damage_uses_projectile_pose_and_clears_primary_victim() {
+        let objects = crate::game_logic::HostObjectStore::new();
+        let projectile = Projectile::new(
+            ObjectId(190),
+            Vec3::new(3.0, 0.0, 0.0),
             Vec3::new(80.0, 0.0, 0.0),
-            &w,
-            atk,
-            Some(far),
-            0.0,
-            false,
+            40.0,
+            DamageType::Explosive,
+            ObjectId(191),
+            Some(ObjectId(192)),
         );
-        if let Some(p) = combat.projectile_mut(pid) {
-            p.explosion_radius = 20.0;
-            p.historic_weapon_key = NAME.to_string();
-            p.radius_damage_affects =
-                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
-                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS;
-        }
-        let _ = combat.update_projectiles(
-            1.0 / 30.0,
-            &mut objects,
-            &mut health_events,
-            &mut _ownership_output,
-        );
-        let near1 = objects.get(&near).unwrap().health.current;
-        let far1 = objects.get(&far).unwrap().health.current;
-        assert!(
-            near1 < near0 - 1.0,
-            "splash must recenter on shooter ({near0}->{near1})"
-        );
-        assert_eq!(
-            far1, far0,
-            "cleared victim at impact must not take splash ({far0}->{far1})"
-        );
+        let impact = Vec3::new(80.0, 0.0, 0.0);
+        let event = CombatSystem::splash_area_event(&projectile, objects.read(), impact, true);
+        let area = AreaDamage::new(&event, objects.read(), std::f32::consts::PI, true).unwrap();
+        assert_eq!(area.position, projectile.position);
+        assert_eq!(area.primary_victim, None);
+
+        let ordinary = AreaDamage::new(&event, objects.read(), std::f32::consts::PI, false).unwrap();
+        assert_eq!(ordinary.position, impact);
+        assert_eq!(ordinary.primary_victim, Some(ObjectId(192)));
     }
 
     #[test]
@@ -2214,6 +2145,8 @@ pub(in crate::game_logic) mod tests {
         queue_projectile(&mut combat, PendingProjectile {
             shooter_id: atk,
             shooter_pos: Vec3::ZERO,
+            self_damage_position: None,
+            selected_weapon_is_laser: None,
             source_context: None,
             target_id: Some(tgt),
             target_pos: Some(Vec3::new(50.0, 0.0, 0.0)),
@@ -2292,6 +2225,8 @@ pub(in crate::game_logic) mod tests {
         queue_projectile(&mut combat, PendingProjectile {
             shooter_id: atk,
             shooter_pos: Vec3::ZERO,
+            self_damage_position: None,
+            selected_weapon_is_laser: None,
             source_context: None,
             target_id: Some(tgt),
             target_pos: Some(Vec3::new(50.0, 0.0, 0.0)),
@@ -2351,6 +2286,8 @@ pub(in crate::game_logic) mod tests {
         queue_projectile(&mut combat2, PendingProjectile {
             shooter_id: atk,
             shooter_pos: Vec3::ZERO,
+            self_damage_position: None,
+            selected_weapon_is_laser: None,
             source_context: None,
             target_id: None,
             target_pos: Some(Vec3::new(375.0, 0.0, 0.0)),
@@ -2414,6 +2351,8 @@ pub(in crate::game_logic) mod tests {
         PendingProjectile {
             shooter_id: ObjectId(501),
             shooter_pos: Vec3::ZERO,
+            self_damage_position: None,
+            selected_weapon_is_laser: None,
             source_context: Some(ProjectileLaunchContext {
                 source_team: Team::USA,
                 projectile_team_id: None,

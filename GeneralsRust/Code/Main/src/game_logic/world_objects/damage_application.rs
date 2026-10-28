@@ -1606,8 +1606,8 @@ impl GameLogic {
         else {
             return;
         };
-        let radius_damage_angle = if radius_weapon_name.is_empty() {
-            std::f32::consts::PI
+        let (radius_damage_angle, damage_at_self) = if radius_weapon_name.is_empty() {
+            (std::f32::consts::PI, false)
         } else if let Some(definitions) = &self.weapon_definitions {
             let Some(weapon) = definitions.get(&radius_weapon_name.to_ascii_lowercase()) else {
                 log::error!(
@@ -1616,13 +1616,21 @@ impl GameLogic {
                 );
                 return;
             };
-            weapon.radius_damage_angle
+            (
+                weapon.radius_damage_angle,
+                weapon.damage_dealt_at_self_position,
+            )
         } else {
             // Unbound programmatic shots have the C++ full-circle default.
-            std::f32::consts::PI
+            (std::f32::consts::PI, false)
         };
-        let area =
-            AreaDamage::new(event, self.objects.read(), radius_damage_angle).expect("Area event");
+        let area = AreaDamage::new(
+            event,
+            self.objects.read(),
+            radius_damage_angle,
+            damage_at_self,
+        )
+        .expect("Area event");
         let candidates = area.candidates(self.objects.read());
         for (victim_id, distance) in candidates {
             let Some(victim) = self.objects.get(&victim_id) else {

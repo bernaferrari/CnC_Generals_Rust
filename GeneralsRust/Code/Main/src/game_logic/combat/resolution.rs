@@ -332,18 +332,10 @@ impl CombatSystem {
         } else {
             projectile.shooter_id
         };
-        // C++ fireWeaponTemplate: DamageDealtAtSelfPosition → damageID=INVALID,
-        // damagePos=sourcePos (Weapon.cpp:1008, 1035). Stay off cone field.
-        let at_self =
-            crate::game_logic::weapon_bootstrap::host_damage_dealt_at_self_position_for_weapon_name(
-                &projectile.historic_weapon_key,
-            );
-        let position = if at_self {
-            live.map(|o| o.get_position()).unwrap_or(position)
-        } else {
-            position
-        };
-        let primary_victim = if at_self { None } else { projectile.target_id };
+        // Projectileless damage position and primary ID were fixed when the
+        // firing owner accepted the shot. A moving detonation's self-position
+        // rule is resolved later from this world's effective weapon content.
+        let primary_victim = projectile.target_id;
         DamageEvent::Area {
             position,
             damage: projectile.damage,

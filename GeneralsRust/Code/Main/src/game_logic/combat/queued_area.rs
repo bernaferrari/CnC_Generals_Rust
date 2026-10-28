@@ -8,15 +8,20 @@ pub(in crate::game_logic) struct AreaDamage<'a> {
     shooter_dir_xz: Option<(f32, f32)>,
     source_is_defector: bool,
     radius_damage_angle: f32,
+    position: Vec3,
+    primary_victim: Option<ObjectId>,
 }
 impl<'a> AreaDamage<'a> {
     pub(in crate::game_logic) fn new(
         event: &'a DamageEvent,
         objects: HostObjectRead<'_>,
         radius_damage_angle: f32,
+        damage_at_self: bool,
     ) -> Option<Self> {
         let DamageEvent::Area {
             shooter_id,
+            position,
+            primary_victim,
             radius_source_present,
             radius_source_id,
             radius_source_producer,
@@ -42,6 +47,18 @@ impl<'a> AreaDamage<'a> {
                 && radius_source_id == shooter_id
                 && source.is_some_and(Object::is_undetected_defector),
             radius_damage_angle,
+            // A projectile detonation is itself the source. Projectileless
+            // shots already carry the fire-time damage position and ID.
+            position: if damage_at_self {
+                radius_source_pose.map_or(*position, |(position, _)| position)
+            } else {
+                *position
+            },
+            primary_victim: if damage_at_self && radius_source_pose.is_some() {
+                None
+            } else {
+                *primary_victim
+            },
         })
     }
     /// Freeze candidate distances in this world's current HashMap encounter order.
@@ -51,7 +68,6 @@ impl<'a> AreaDamage<'a> {
         objects: HostObjectRead<'_>,
     ) -> Vec<(ObjectId, f32)> {
         let DamageEvent::Area {
-            position,
             radius,
             secondary_radius,
             secondary_damage,
@@ -67,7 +83,7 @@ impl<'a> AreaDamage<'a> {
             .registered()
             .filter_map(|(id, obj)| {
                 let distance = splash_from_bounding_sphere_3d(
-                    *position,
+                    self.position,
                     obj.get_position(),
                     victim_splash_sphere_radius(obj),
                 );
@@ -92,7 +108,7 @@ impl<'a> AreaDamage<'a> {
         templates: &HashMap<String, crate::game_logic::ThingTemplate>,
     ) -> Option<(f32, Option<Vec3>)> {
         let DamageEvent::Area {
-            position,
+            position: _,
             damage,
             damage_type: _,
             death_type: _,
@@ -112,7 +128,7 @@ impl<'a> AreaDamage<'a> {
             shooter_owner_player_id,
             shooter_team_instance_name,
             shooter_template,
-            primary_victim,
+            primary_victim: _,
             radius_weapon_name: _,
             shooter_team: _,
         } = self.event
@@ -125,7 +141,7 @@ impl<'a> AreaDamage<'a> {
         let shooter_producer = self.shooter_producer;
         let shooter_dir_xz = self.shooter_dir_xz;
         let op = obj.get_position();
-        let is_primary = *primary_victim == Some(vid);
+        let is_primary = self.primary_victim == Some(vid);
         let kills_self = *radius_source_present
             && (*radius_damage_affects
                 & crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF)
@@ -220,7 +236,7 @@ impl<'a> AreaDamage<'a> {
         let shock_taper = (*shock_wave_taper_off).clamp(0.0, 1.0);
         let shock = if shock_amt > 0.0 && shock_r > 0.0 {
             crate::game_logic::weapon_bootstrap::compute_shock_wave_force(
-                shooter_pos.unwrap_or(*position),
+                shooter_pos.unwrap_or(self.position),
                 op,
                 shock_amt,
                 shock_r,

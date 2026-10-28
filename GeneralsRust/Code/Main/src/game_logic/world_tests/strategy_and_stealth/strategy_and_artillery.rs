@@ -457,6 +457,8 @@ fn projectiles_step_inside_game_logic_update() {
     crate::game_logic::combat::queue_projectile(&mut logic.combat_system, crate::game_logic::combat::PendingProjectile {
         shooter_id: shooter,
         shooter_pos: glam::Vec3::ZERO,
+        self_damage_position: None,
+            selected_weapon_is_laser: None,
         source_context: None,
         target_id: Some(target),
         target_pos: Some(glam::Vec3::new(5.0, 0.0, 0.0)),

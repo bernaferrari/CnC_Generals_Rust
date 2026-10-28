@@ -34,20 +34,27 @@ pub(super) fn xfer_pending_combat(
     snapshot: &mut crate::game_logic::combat::PendingCombatSnapshot,
 ) -> SaveLoadResult<()> {
     #[derive(Serialize, Deserialize)]
-    struct ProjectileTeamIdentityEnvelope {
+    struct PendingCombatEnvelopeV1 {
         pending: Vec<u8>,
         team_ids: Vec<Option<u32>>,
     }
+    #[derive(Serialize, Deserialize)]
+    struct PendingCombatEnvelopeV2 {
+        pending: Vec<u8>,
+        team_ids: Vec<Option<u32>>,
+        projectileless_weapon_details: Vec<(Option<[f32; 3]>, Option<bool>)>,
+    }
     const TAG: &[u8; 4] = b"PCID";
-    const VERSION: u32 = 1;
+    const VERSION: u32 = 2;
     let mut bytes = if xfer.get_mode() == XferMode::Load {
         Vec::new()
     } else {
         let pending = bincode_legacy::serialize(snapshot)
             .map_err(|error| SaveLoadError::Serialization(error.to_string()))?;
-        let envelope = ProjectileTeamIdentityEnvelope {
+        let envelope = PendingCombatEnvelopeV2 {
             pending,
             team_ids: snapshot.projectile_team_ids(),
+            projectileless_weapon_details: snapshot.projectileless_weapon_details(),
         };
         let mut bytes = Vec::from(TAG.as_slice());
         bytes.extend_from_slice(&VERSION.to_le_bytes());
@@ -72,17 +79,41 @@ pub(super) fn xfer_pending_combat(
             bytes.extend_from_slice(&block);
         }
         let decoded = if bytes.starts_with(TAG) {
-            if bytes.len() < 8 || u32::from_le_bytes(bytes[4..8].try_into().unwrap()) != VERSION {
+            if bytes.len() < 8 {
                 return Err(SaveLoadError::Serialization(
                     "Unsupported pending projectile Team identity frame".to_string(),
                 ));
             }
-            let envelope: ProjectileTeamIdentityEnvelope = decode_exact(&bytes[8..])?;
+            let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+            let (encoded_pending, team_ids, weapon_details) = match version {
+                1 => {
+                    let envelope: PendingCombatEnvelopeV1 = decode_exact(&bytes[8..])?;
+                    (envelope.pending, envelope.team_ids, None)
+                }
+                VERSION => {
+                    let envelope: PendingCombatEnvelopeV2 = decode_exact(&bytes[8..])?;
+                    (
+                        envelope.pending,
+                        envelope.team_ids,
+                        Some(envelope.projectileless_weapon_details),
+                    )
+                }
+                _ => {
+                    return Err(SaveLoadError::Serialization(
+                        "Unsupported pending projectile Team identity frame".to_string(),
+                    ));
+                }
+            };
             let mut pending: crate::game_logic::combat::PendingCombatSnapshot =
-                decode_exact(&envelope.pending)?;
+                decode_exact(&encoded_pending)?;
             pending
-                .restore_projectile_team_ids(&envelope.team_ids)
+                .restore_projectile_team_ids(&team_ids)
                 .map_err(SaveLoadError::Serialization)?;
+            if let Some(details) = weapon_details {
+                pending
+                    .restore_projectileless_weapon_details(&details)
+                    .map_err(SaveLoadError::Serialization)?;
+            }
             pending
         } else {
             // The pre-PCID typed frame stores only PendingCombatSnapshot.

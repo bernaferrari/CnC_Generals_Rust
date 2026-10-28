@@ -203,14 +203,29 @@ fn handle_projectileless_pending(
     flight_speed: f32,
     frame: u32,
 ) -> Option<LiveProjectilelessDelayedDamage> {
+    let source_pos = pending.self_damage_position.unwrap_or(pending.shooter_pos);
     let speed_per_logic_frame = pending.speed_unit.distance_per_logic_frame(flight_speed);
     let delay_in_frames =
         if speed_per_logic_frame > 0.0 && !Projectile::is_instant_speed(flight_speed) {
-            pending.shooter_pos.distance(damage_pos) / speed_per_logic_frame
+            source_pos.distance(damage_pos) / speed_per_logic_frame
         } else {
             0.0
         };
-    let laser = leftover_weapon_is_laser(&pending.historic_weapon_key);
+    let laser = pending
+        .selected_weapon_is_laser
+        .unwrap_or_else(|| leftover_weapon_is_laser(&pending.historic_weapon_key));
+    let damage_id = if pending.self_damage_position.is_some() {
+        None
+    } else {
+        damage_id
+    };
+    // C++ laser damage uses projectileDestination; other self-position
+    // weapons capture the source position while retaining target travel time.
+    let damage_pos = if pending.self_damage_position.is_some() && !laser {
+        source_pos
+    } else {
+        damage_pos
+    };
     if laser || delay_in_frames < 1.0 {
         return Some(LiveProjectilelessDelayedDamage {
             when: frame,
@@ -300,6 +315,14 @@ pub struct PendingProjectile {
     /// (target_id = Some), the drain function resolves the position from the
     /// objects map and falls back to this value if the target is gone.
     pub target_pos: Option<Vec3>,
+    /// Source position for a self-position weapon, sampled after fire effects.
+    /// The intended target remains separate for travel-time calculation.
+    #[serde(skip)]
+    pub self_damage_position: Option<Vec3>,
+    /// Whether the accepted weapon is a laser, from its owning definition.
+    /// None is reserved for old or unbound programmatic shots.
+    #[serde(skip)]
+    pub selected_weapon_is_laser: Option<bool>,
     pub damage: f32,
     pub speed: f32,
     /// Shared by `speed` and `min_weapon_speed`; both come from the same source.
@@ -670,9 +693,8 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         fire_target_id = None;
     }
 
-    // DamageDealtAtSelfPosition was frozen by the firing owner's selected
-    // definition into target_id/target_pos. A different named catalogue cannot
-    // reinterpret an already accepted shot during materialization.
+    // The firing owner captured any self-damage source position separately
+    // from the target used for travel and projectile flight.
 
     // C++ DumbProjectileBehavior ScaleWeaponSpeed residual (2D range ratio).
     let mut flight_speed = p.speed;

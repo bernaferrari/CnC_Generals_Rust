@@ -20,6 +20,45 @@ impl PendingCombatSnapshot {
             .collect()
     }
 
+    pub(crate) fn projectileless_weapon_details(&self) -> Vec<(Option<[f32; 3]>, Option<bool>)> {
+        self.accepted
+            .iter()
+            .chain(self.delayed.iter().map(|entry| &entry.pending))
+            .map(|pending| {
+                (
+                    pending
+                        .self_damage_position
+                        .map(|position| position.to_array()),
+                    pending.selected_weapon_is_laser,
+                )
+            })
+            .collect()
+    }
+
+    pub(crate) fn restore_projectileless_weapon_details(
+        &mut self,
+        details: &[(Option<[f32; 3]>, Option<bool>)],
+    ) -> Result<(), String> {
+        if details.len() != self.accepted.len() + self.delayed.len() {
+            return Err("Pending projectileless weapon detail count mismatch".into());
+        }
+        if details.iter().any(|(position, _)| {
+            position.is_some_and(|position| position.iter().any(|value| !value.is_finite()))
+        }) {
+            return Err("Invalid pending self-position damage location".into());
+        }
+        for (pending, (position, is_laser)) in self
+            .accepted
+            .iter_mut()
+            .chain(self.delayed.iter_mut().map(|entry| &mut entry.pending))
+            .zip(details.iter().copied())
+        {
+            pending.self_damage_position = position.map(Vec3::from_array);
+            pending.selected_weapon_is_laser = is_laser;
+        }
+        Ok(())
+    }
+
     pub(crate) fn restore_projectile_team_ids(
         &mut self,
         team_ids: &[Option<u32>],

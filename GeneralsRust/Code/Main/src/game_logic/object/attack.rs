@@ -960,9 +960,12 @@ impl Object {
                 source_orientation: self.get_orientation(),
                 source_velocity: self.movement.velocity,
             }),
-            // C++ DamageDealtAtSelfPosition: damageID=INVALID, damagePos=source.
-            target_id: if at_self { None } else { Some(target_id) },
-            target_pos: if at_self { Some(shooter_pos) } else { None },
+            // Weapon.cpp uses the intended target to determine travel time,
+            // even when the eventual projectileless damage is at the source.
+            target_id: Some(target_id),
+            target_pos: None,
+            self_damage_position: at_self.then_some(shooter_pos),
+            selected_weapon_is_laser: native_rule.as_ref().map(|rule| rule.is_laser()),
             damage: weapon_damage,
             speed: weapon_speed,
             speed_unit: super::combat::ProjectileSpeedUnit::DistancePerLogicFrame,

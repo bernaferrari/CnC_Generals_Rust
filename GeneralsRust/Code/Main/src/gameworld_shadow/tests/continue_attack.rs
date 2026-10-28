@@ -860,6 +860,8 @@ fn fire_spawn_authority_defers_queue_until_shadow() {
         PendingProjectile {
             shooter_id: ObjectId(1),
             shooter_pos: glam::Vec3::ZERO,
+            self_damage_position: None,
+            selected_weapon_is_laser: None,
             source_context: None,
             target_id: Some(ObjectId(2)),
             target_pos: Some(glam::Vec3::new(50.0, 0.0, 0.0)),
@@ -938,6 +940,8 @@ fn fire_spawn_authority_enqueues_host_when_shadow_disabled() {
         PendingProjectile {
             shooter_id: ObjectId(9),
             shooter_pos: glam::Vec3::ZERO,
+            self_damage_position: None,
+            selected_weapon_is_laser: None,
             source_context: None,
             target_id: Some(ObjectId(10)),
             target_pos: Some(glam::Vec3::new(10.0, 0.0, 0.0)),
