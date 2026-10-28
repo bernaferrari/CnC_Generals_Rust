@@ -594,13 +594,40 @@ impl Object {
         goal: glam::Vec3,
         other: &Object,
     ) -> bool {
+        self.is_within_attack_range_for_slot_from_goal_with_optional_solo_set(
+            slot, goal, other, None,
+        )
+    }
+
+    pub(crate) fn is_within_attack_range_for_slot_from_goal_with_solo_set(
+        &self,
+        slot: u8,
+        goal: glam::Vec3,
+        other: &Object,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> bool {
+        self.is_within_attack_range_for_slot_from_goal_with_optional_solo_set(
+            slot,
+            goal,
+            other,
+            Some(solo_set),
+        )
+    }
+
+    fn is_within_attack_range_for_slot_from_goal_with_optional_solo_set(
+        &self,
+        slot: u8,
+        goal: glam::Vec3,
+        other: &Object,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) -> bool {
         let ra = (*self.geometry_info()).bounding_circle_radius();
         let rb = (*other.geometry_info()).bounding_circle_radius();
         let b = other.get_position();
         let dx = goal.x - b.x;
         let dz = goal.z - b.z;
         let dist = ((dx * dx + dz * dz).sqrt() - ra - rb).max(0.0);
-        self.is_within_attack_range_at_distance(slot, dist)
+        self.is_within_attack_range_at_distance_with_optional_solo_set(slot, dist, solo_set)
     }
 
     /// Goal-pose range to a world position (no victim radius).
@@ -610,11 +637,38 @@ impl Object {
         goal: glam::Vec3,
         pos: glam::Vec3,
     ) -> bool {
+        self.is_within_attack_range_pos_for_slot_from_goal_with_optional_solo_set(
+            slot, goal, pos, None,
+        )
+    }
+
+    pub(crate) fn is_within_attack_range_pos_for_slot_from_goal_with_solo_set(
+        &self,
+        slot: u8,
+        goal: glam::Vec3,
+        pos: glam::Vec3,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+    ) -> bool {
+        self.is_within_attack_range_pos_for_slot_from_goal_with_optional_solo_set(
+            slot,
+            goal,
+            pos,
+            Some(solo_set),
+        )
+    }
+
+    fn is_within_attack_range_pos_for_slot_from_goal_with_optional_solo_set(
+        &self,
+        slot: u8,
+        goal: glam::Vec3,
+        pos: glam::Vec3,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) -> bool {
         let ra = (*self.geometry_info()).bounding_circle_radius();
         let dx = goal.x - pos.x;
         let dz = goal.z - pos.z;
         let dist = ((dx * dx + dz * dz).sqrt() - ra).max(0.0);
-        self.is_within_attack_range_at_distance(slot, dist)
+        self.is_within_attack_range_at_distance_with_optional_solo_set(slot, dist, solo_set)
     }
 
     fn slot_is_contact_weapon(&self, slot: u8) -> bool {

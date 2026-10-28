@@ -1299,23 +1299,31 @@ impl GameLogic {
         });
         // C++ WeaponSet.cpp:621-647 — range is always m_curWeapon, not any slot.
         let range_slot = source.selected_weapon_slot();
+        let solo_set = &self.solo_weapon_bonus_set;
         let within = if let Some(goal) = fire_goal {
             if let Some(vid) = victim_id {
                 let v = self.objects.get(&vid).unwrap();
                 range_slot.is_some_and(|slot| {
-                    source.is_within_attack_range_for_slot_from_goal(slot, goal, v)
+                    source.is_within_attack_range_for_slot_from_goal_with_solo_set(
+                        slot, goal, v, solo_set,
+                    )
                 })
             } else {
                 range_slot.is_some_and(|slot| {
-                    source.is_within_attack_range_pos_for_slot_from_goal(slot, goal, target_pos)
+                    source.is_within_attack_range_pos_for_slot_from_goal_with_solo_set(
+                        slot, goal, target_pos, solo_set,
+                    )
                 })
             }
         } else if let Some(vid) = victim_id {
             let v = self.objects.get(&vid).unwrap();
-            range_slot.is_some_and(|slot| source.is_within_attack_range_for_slot(slot, v))
+            range_slot.is_some_and(|slot| {
+                source.is_within_attack_range_for_slot_with_solo_set(slot, v, solo_set)
+            })
         } else {
-            range_slot
-                .is_some_and(|slot| source.is_within_attack_range_pos_for_slot(slot, target_pos))
+            range_slot.is_some_and(|slot| {
+                source.is_within_attack_range_pos_for_slot_with_solo_set(slot, target_pos, solo_set)
+            })
         };
 
         // C++ WeaponSet.cpp:656-660 — immobile / spawn-weapons / contained

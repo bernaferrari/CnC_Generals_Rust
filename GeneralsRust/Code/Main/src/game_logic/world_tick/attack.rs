@@ -311,7 +311,11 @@ impl GameLogic {
     /// True when view is LOS-blocked or target is outside attack range
     /// (unless leech-range is active).
     pub fn out_of_weapon_range_object(&self, unit_id: ObjectId, victim_id: ObjectId) -> bool {
-        self.out_of_weapon_range_object_with_optional_solo_set(unit_id, victim_id, None)
+        self.out_of_weapon_range_object_with_optional_solo_set(
+            unit_id,
+            victim_id,
+            Some(&self.solo_weapon_bonus_set),
+        )
     }
 
     pub(crate) fn out_of_weapon_range_object_with_solo_set(
@@ -543,8 +547,13 @@ impl GameLogic {
             let Some(v) = self.objects.get(&victim_id) else {
                 return Ok(AttackMachineResult::Success);
             };
-            u.selected_weapon_slot()
-                .is_some_and(|slot| u.is_within_attack_range_for_slot(slot, v))
+            u.selected_weapon_slot().is_some_and(|slot| {
+                u.is_within_attack_range_for_slot_with_solo_set(
+                    slot,
+                    v,
+                    &self.solo_weapon_bonus_set,
+                )
+            })
         };
         // C++ outOfWeaponRangeObject condition (range + LOS, leech-aware).
         let out_of_wr = self.out_of_weapon_range_object(unit_id, victim_id);
