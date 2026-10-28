@@ -94,27 +94,32 @@ impl GameLogic {
         source: u32,
         target: u32,
     ) -> Option<gamelogic::common::Relationship> {
-        use gamelogic::common::Relationship;
         let factory = self.team_factory.lock().unwrap_or_else(|e| e.into_inner());
         let source_team = factory.find_team_by_id(source)?;
         let target_team = factory.find_team_by_id(target)?;
         drop(factory);
-        if source == target {
-            return Some(Relationship::Allies);
-        }
         let source_team = source_team.read().unwrap_or_else(|e| e.into_inner());
-        let target_team = target_team.read().unwrap_or_else(|e| e.into_inner());
-        if let Some(relation) = source_team.override_relationship_with_team(&target_team) {
+        let (relation, target_owner) = if source == target {
+            (
+                source_team.override_relationship_with_team(&source_team),
+                source_team.get_controlling_player_id()?,
+            )
+        } else {
+            let target_team = target_team.read().unwrap_or_else(|e| e.into_inner());
+            (
+                source_team.override_relationship_with_team(&target_team),
+                target_team.get_controlling_player_id()?,
+            )
+        };
+        if let Some(relation) = relation {
             return Some(relation);
         }
         let source_owner = source_team.get_controlling_player_id()?;
-        let target_owner = target_team.get_controlling_player_id()?;
-        drop(target_team);
         drop(source_team);
-        if let Some(relation) = self
-            .players
-            .get(&source_owner)?
+        let player = self.players.get(&source_owner)?;
+        if let Some(relation) = player
             .team_relationship_override(target)
+            .or_else(|| player.map_relationship(target_owner))
         {
             return Some(relation);
         }

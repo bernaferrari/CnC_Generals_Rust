@@ -1200,8 +1200,6 @@ impl SnapshotBuilder {
                     resource_supply_warehouses: Vec::new(),
                     map_side: initialized.map(|p| p.map_side).unwrap_or_default(),
                     team_relations: std::collections::BTreeMap::new(),
-                    team_instance_team_relations: std::collections::HashMap::new(),
-                    team_instance_player_relations: std::collections::HashMap::new(),
                     sciences_disabled: std::collections::HashSet::new(),
                     sciences_hidden: std::collections::HashSet::new(),
                     attacked_by: [false; crate::game_logic::Player::MAX_ATTACKED_BY_PLAYERS],

@@ -657,24 +657,32 @@ fn moving_area_team_instance_admission_uses_live_relationship_policy() {
         .world
         .create_object_for_player("QueuedVictim", 1, Vec3::new(31.0, 0.0, 0.0))
         .unwrap();
-    f.world
-        .objects
-        .get_mut(&f.shooters[0])
+    let mut chunks =
+        generals_main::save_load::snapshot::stamp_player_team_chunks(&f.world).unwrap();
+    let teams = &mut chunks.teams.as_mut().unwrap().teams;
+    let source_team = teams
+        .iter()
+        .find(|team| {
+            team.members
+                .as_ref()
+                .is_some_and(|members| members.contains(&f.shooters[0].0))
+        })
         .unwrap()
-        .team_instance_name = "LauncherTeam".into();
-    f.world
-        .objects
-        .get_mut(&collateral)
-        .unwrap()
-        .team_instance_name = "CollateralTeam".into();
-    f.world
-        .get_player_mut(1)
-        .unwrap()
-        .set_team_instance_team_override(
-            "CollateralTeam",
-            "LauncherTeam",
-            gamelogic::common::Relationship::Allies,
-        );
+        .team_id;
+    let collateral_team = teams
+        .iter_mut()
+        .find(|team| {
+            team.members
+                .as_ref()
+                .is_some_and(|members| members.contains(&collateral.0))
+        })
+        .unwrap();
+    collateral_team.team_relations.push(Default::default());
+    let override_ = collateral_team.team_relations.last_mut().unwrap();
+    override_.team_id = source_team;
+    override_.relationship = 2;
+    generals_main::save_load::snapshot::apply_pending_player_team_chunks(&mut f.world, &chunks)
+        .unwrap();
     assert_eq!(
         f.world.player_relationship(0, 1),
         gamelogic::common::Relationship::Enemies

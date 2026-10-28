@@ -190,14 +190,24 @@ fn capture_uses_ai_member_center_and_rejects_allied_unmanned_units() {
             .get_player_mut(1)
             .unwrap()
             .set_map_relationship(3, gamelogic::common::Relationship::Allies);
-        world
-            .get_player_mut(1)
+        // The conflicting override belongs to the actual Team, not its
+        // controlling Player. Keep it distinct from Player's allied relation.
+        let mut chunks =
+            generals_main::save_load::snapshot::stamp_player_team_chunks(world).unwrap();
+        let team = chunks
+            .teams
+            .as_mut()
             .unwrap()
-            .set_team_instance_player_override(
-                "CaptureRoster",
-                3,
-                gamelogic::common::Relationship::Enemies,
-            );
+            .teams
+            .iter_mut()
+            .find(|team| team.team_name == "CaptureRoster")
+            .unwrap();
+        team.player_relations.push(Default::default());
+        let override_ = team.player_relations.last_mut().unwrap();
+        override_.player_index = 3;
+        override_.relationship = 0;
+        generals_main::save_load::snapshot::apply_pending_player_team_chunks(world, &chunks)
+            .unwrap();
         let allied = world
             .create_object_for_player("CaptureHusk", 3, Vec3::new(11.0, 0.0, 50.0))
             .unwrap();

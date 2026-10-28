@@ -164,16 +164,18 @@ fn owned_source_team_override(
                 resolve(target_team_id, target_team_name),
             )
         })
-        .ok()?;
+        .unwrap_or_else(|error| error.into_inner());
     let source = source?;
-    let Ok(source_guard) = source.read() else {
-        return None;
-    };
+    let source_guard = source.read().unwrap_or_else(|error| error.into_inner());
     if let Some(target_arc) = target {
-        if let Ok(target_guard) = target_arc.read() {
-            if let Some(rel) = source_guard.override_relationship_with_team(&target_guard) {
-                return Some(rel);
-            }
+        let relationship = if std::sync::Arc::ptr_eq(&source, &target_arc) {
+            source_guard.override_relationship_with_team(&source_guard)
+        } else {
+            let target_guard = target_arc.read().unwrap_or_else(|error| error.into_inner());
+            source_guard.override_relationship_with_team(&target_guard)
+        };
+        if let Some(rel) = relationship {
+            return Some(rel);
         }
     }
     if let Some(pid) = target_owner {
@@ -547,13 +549,13 @@ impl GameLogic {
         let Some(target) = players.get(&target_player_id) else {
             return Relationship::Neutral;
         };
-        if source_player_id == target_player_id {
-            return Relationship::Allies;
-        }
         // Player::getRelationship reads the stored team/player relations even
         // after defeat; activity is a separate predicate at callers that need it.
         if let Some(rel) = source.map_relationship(target_player_id) {
             return rel;
+        }
+        if source_player_id == target_player_id {
+            return Relationship::Allies;
         }
         if source.alliance_team >= 0 && source.alliance_team == target.alliance_team {
             Relationship::Allies
@@ -644,28 +646,8 @@ impl GameLogic {
         let Some(player) = source.owner_player_id.and_then(|id| self.players.get(&id)) else {
             return Relationship::Neutral;
         };
-        let legacy_team_override = source
-            .team_instance_id
-            .is_none()
-            .then(|| {
-                player
-                    .team_instance_team_override(&source_team, &target_team)
-                    .or_else(|| {
-                        target
-                            .owner_player_id
-                            .and_then(|id| player.team_instance_player_override(&source_team, id))
-                    })
-            })
-            .flatten();
-        legacy_team_override
-            .or_else(|| {
-                Self::team_id_for_relationship(
-                    &self.team_factory,
-                    target.team_instance_id,
-                    &target_team,
-                )
-                .and_then(|id| player.team_relationship_override(id))
-            })
+        Self::team_id_for_relationship(&self.team_factory, target.team_instance_id, &target_team)
+            .and_then(|id| player.team_relationship_override(id))
             .or_else(|| {
                 target
                     .owner_player_id
@@ -717,28 +699,6 @@ impl GameLogic {
                 target_owner,
             ) {
                 return rel;
-            }
-            if source_team_id.is_none() {
-                if let Some(source_player_id) = source_owner {
-                    if let Some(source_player) = players.get(&source_player_id) {
-                        if !target_team_instance.is_empty() {
-                            if let Some(rel) = source_player.team_instance_team_override(
-                                source_team_instance,
-                                target_team_instance,
-                            ) {
-                                return rel;
-                            }
-                        }
-                        if let Some(target_player_id) = target_owner {
-                            if let Some(rel) = source_player.team_instance_player_override(
-                                source_team_instance,
-                                target_player_id,
-                            ) {
-                                return rel;
-                            }
-                        }
-                    }
-                }
             }
         }
 
@@ -3115,18 +3075,36 @@ mod sides_relationship_tests {
         let mut usa = Player::new(0, Team::USA, "PlyrAmerica", true);
         let gla = Player::new(1, Team::GLA, "PlyrGLA", false);
         usa.set_map_relationship(1, Relationship::Enemies);
-        usa.set_team_instance_team_override("RangerTeam", "CivilianConvoy", Relationship::Allies);
-        logic.add_player(usa);
-        logic.add_player(gla);
+        logic.add_player(usa.with_script_identity("PlyrAmerica"));
+        logic.add_player(gla.with_script_identity("PlyrGLA"));
+        let (source_id, target_id) = {
+            let mut factory = logic.team_factory.lock().unwrap();
+            for name in ["RangerTeam", "CivilianConvoy"] {
+                factory.replace_team_prototype(gamelogic::team::TeamPrototype::new(name.into()));
+            }
+            let source = factory.create_inactive_team("RangerTeam").unwrap();
+            let target = factory.create_inactive_team("CivilianConvoy").unwrap();
+            source.write().unwrap().set_controlling_player_id(Some(0));
+            target.write().unwrap().set_controlling_player_id(Some(1));
+            let source_id = source.read().unwrap().get_id();
+            let target_id = target.read().unwrap().get_id();
+            source
+                .write()
+                .unwrap()
+                .set_override_team_relationship(target_id, Relationship::Allies);
+            (source_id, target_id)
+        };
 
         let mut tmpl = ThingTemplate::new("Ranger");
         tmpl.add_kind_of(KindOf::Infantry);
         let mut src = Object::new(tmpl.clone(), ObjectId(1), Team::USA);
         src.owner_player_id = Some(0);
         src.team_instance_name = "RangerTeam".into();
+        src.team_instance_id = Some(source_id);
         let mut convoy = Object::new(tmpl.clone(), ObjectId(2), Team::GLA);
         convoy.owner_player_id = Some(1);
         convoy.team_instance_name = "CivilianConvoy".into();
+        convoy.team_instance_id = Some(target_id);
         let mut other = Object::new(tmpl, ObjectId(3), Team::GLA);
         other.owner_player_id = Some(1);
 

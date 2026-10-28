@@ -296,13 +296,18 @@ fn retry_with_different_map_retires_previous_authored_owners() {
                 .get_mut(&0)
                 .unwrap()
                 .set_map_relationship(previous, gamelogic::common::Relationship::Enemies);
-            world
-                .players
-                .get_mut(&0)
+            let lobby_team_id = world.players[&0].default_team_id.unwrap();
+            let lobby_team = world
+                .team_factory
+                .lock()
                 .unwrap()
-                .set_team_instance_player_override(
-                    "LobbyTeam",
-                    previous,
+                .find_team_by_id(lobby_team_id)
+                .unwrap();
+            lobby_team
+                .write()
+                .unwrap()
+                .set_override_player_relationship(
+                    previous as i32,
                     gamelogic::common::Relationship::Enemies,
                 );
             prepare(&mut world, "SecondCivilian", true);
@@ -330,11 +335,13 @@ fn retry_with_different_map_retires_previous_authored_owners() {
                 "retired map relationship does not attach to reused identity"
             );
             assert_eq!(
-                world.players[&0].team_instance_player_override("LobbyTeam", previous),
+                lobby_team
+                    .read()
+                    .unwrap()
+                    .override_relationship_with_player(previous as i32),
                 None,
                 "retired team override does not attach to reused identity"
             );
-            assert!(world.players[&0].team_instance_player_relations.is_empty());
             let sides = world.prepared_map_sides();
             assert!(
                 sides.find_side_info("FirstCivilian").is_none(),

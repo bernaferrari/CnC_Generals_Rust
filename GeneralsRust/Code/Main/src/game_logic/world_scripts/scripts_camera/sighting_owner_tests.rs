@@ -329,6 +329,17 @@ fn sighting_relationship_precedence_and_defection_use_owned_maps() {
         world.host_object_mut(observer).unwrap().team_instance_name = "LookerTeam".into();
         world.host_object_mut(target).unwrap().team_instance_name = "TargetTeam".into();
         let target_team = world.host_object(target).unwrap().team_instance_id.unwrap();
+        let source_team = world
+            .host_object(observer)
+            .unwrap()
+            .team_instance_id
+            .unwrap();
+        let source = world
+            .team_factory
+            .lock()
+            .unwrap()
+            .find_team_by_id(source_team)
+            .unwrap();
         world.players.get_mut(&2).unwrap().is_alive = false;
         both(&mut world, true); // defeated player still has relationships
         world
@@ -342,17 +353,15 @@ fn sighting_relationship_precedence_and_defection_use_owned_maps() {
             observed(&mut world, types(OBSERVER, TYPE, "Opponent")),
             "type query ignores relation"
         );
-        world
-            .players
-            .get_mut(&1)
+        source
+            .write()
             .unwrap()
-            .set_team_instance_player_override("LookerTeam", 2, Relationship::Neutral);
+            .set_override_player_relationship(2, Relationship::Neutral);
         assert!(observed(&mut world, enemy(OBSERVER, 1, "Opponent")));
-        world
-            .players
-            .get_mut(&1)
+        source
+            .write()
             .unwrap()
-            .set_team_instance_team_override("LookerTeam", "TargetTeam", Relationship::Enemies);
+            .set_override_team_relationship(target_team, Relationship::Enemies);
         assert!(observed(&mut world, enemy(OBSERVER, 0, "Opponent")));
         let mut defector =
             crate::game_logic::host_defection_helper::HostDefectionHelperData::default();
@@ -404,15 +413,14 @@ fn sighting_owned_factory_overrides_precede_host_player_maps() {
             .unwrap()
             .set_controlling_player_id(Some(2));
         let target_id = destination.read().unwrap().get_id();
+        world.host_object_mut(observer).unwrap().team_instance_id =
+            Some(source.read().unwrap().get_id());
+        world.host_object_mut(target).unwrap().team_instance_id = Some(target_id);
         world
             .players
             .get_mut(&1)
             .unwrap()
-            .set_team_instance_team_override(
-                "FactoryLooker",
-                "FactoryTarget",
-                Relationship::Enemies,
-            );
+            .set_team_relationship_override(target_id, Relationship::Enemies);
         source
             .write()
             .unwrap()

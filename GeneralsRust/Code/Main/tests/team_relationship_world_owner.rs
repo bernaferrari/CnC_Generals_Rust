@@ -477,6 +477,23 @@ fn scripted_team_overrides_are_immediate_directed_and_world_owned() {
         relation(&peer, peer_source, peer_target),
         Relationship::Enemies
     );
+    execute(
+        &mut owner,
+        ScriptActionType::TeamSetOverrideRelationToTeam,
+        Some("SourceRoster"),
+        Some(0),
+    );
+    assert_eq!(
+        relation(&owner, source, source),
+        Relationship::Enemies,
+        "C++ consults an explicit self-Team override before the Player relation"
+    );
+    execute(
+        &mut owner,
+        ScriptActionType::TeamRemoveOverrideRelationToTeam,
+        Some("SourceRoster"),
+        None,
+    );
 }
 
 #[test]

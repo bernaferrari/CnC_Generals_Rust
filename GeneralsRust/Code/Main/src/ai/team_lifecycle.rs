@@ -75,13 +75,8 @@ impl GameLogic {
         };
 
         // C++ teamAboutToBeDeleted removes relationship entries before dtor.
-        let key = deletion.name().trim().to_ascii_lowercase();
         for player in self.get_players_mut().values_mut() {
             player.remove_team_relationship_override(id);
-            player.clear_team_instance_overrides(deletion.name());
-            for relationships in player.team_instance_team_relations.values_mut() {
-                relationships.remove(&key);
-            }
         }
         // The engine is resolved once by the caller. Its process lifetime is
         // still a documented application seam; deletion cannot choose one.

@@ -158,12 +158,21 @@ impl GameLogic {
                     .map_side
                     .relations
                     .retain(|id, _| !retired.contains(id));
-                player
-                    .team_instance_player_relations
-                    .retain(|_, relations| {
-                        relations.retain(|id, _| !retired.contains(id));
-                        !relations.is_empty()
-                    });
+            }
+            // Team overrides are owned by the Team, not copied onto Players.
+            // Remove references to retired Player IDs before those IDs can be
+            // reused by the next map's authored owners.
+            if !retired.is_empty() {
+                let teams = self
+                    .team_factory
+                    .with_read_without_flushing(|factory| factory.get_all_teams())
+                    .unwrap_or_else(|error| error.into_inner());
+                for team in teams {
+                    let mut team = team.write().unwrap_or_else(|error| error.into_inner());
+                    for id in &retired {
+                        team.remove_override_player_relationship(*id as i32);
+                    }
+                }
             }
             self.admit_retained_map_civilians(&rows);
         }
