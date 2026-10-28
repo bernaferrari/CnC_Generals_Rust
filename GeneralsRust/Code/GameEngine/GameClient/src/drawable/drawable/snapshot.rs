@@ -31,19 +31,16 @@ use std::sync::Arc;
 fn load_custom_ambient_info(
     xfer: &mut dyn Xfer,
     base: Option<&game_engine::common::audio::audio_event_rts::AudioEventInfo>,
+    base_name: &str,
     drawable: DrawableId,
-) -> Result<Option<DynamicAudioEventInfo>, String> {
+) -> Result<DynamicAudioEventInfo, String> {
     let mut info = base
         .map(DynamicAudioEventInfo::from_base_info)
         .unwrap_or_default();
-    let customized_name = format!(
-        " CUSTOM {} {}",
-        drawable.0 as i32,
-        info.get_audio_event_info().audio_name
-    );
+    let customized_name = format!(" CUSTOM {} {}", drawable.0 as i32, base_name);
     info.override_audio_name(&customized_name);
     info.xfer_no_name(xfer).map_err(|error| error.to_string())?;
-    Ok(base.map(|_| info))
+    Ok(info)
 }
 
 impl BasicDrawable {
@@ -438,16 +435,17 @@ impl BasicDrawable {
                             None
                         };
                         // No native catalog borrow survives Xfer or callbacks.
-                        let custom_info = load_custom_ambient_info(xfer, base.as_deref(), self.id)?;
-                        if let Some(custom_info) = custom_info {
-                            if let Some(device) = receiving_audio_device {
-                                let mut audio = device.lock().map_err(|_| {
-                                    "receiving drawable audio manager poisoned".to_string()
-                                })?;
-                                audio.register_audio_event_info(
-                                    custom_info.get_audio_event_info().clone(),
-                                );
-                            } else if !native_receiving_context {
+                        let custom_info = load_custom_ambient_info(
+                            xfer,
+                            base.as_deref(),
+                            &base_info_name,
+                            self.id,
+                        )?;
+                        if base.is_some() || native_receiving_context {
+                            // Native events carry their own Arc<AudioEventInfo>
+                            // at submission. Registering this C++ custom name
+                            // in a shared manager aliases same-ID worlds.
+                            if !native_receiving_context {
                                 if let Some(manager) = compatibility_manager.as_ref() {
                                     manager
                                         .lock()
@@ -461,13 +459,16 @@ impl BasicDrawable {
                             }
                             self.custom_sound_ambient_base_name = Some(base_info_name);
                             self.custom_sound_ambient_dynamic_info = Some(custom_info);
+                            self.custom_sound_ambient_base_resolved = base.is_some();
                         } else {
                             self.custom_sound_ambient_base_name = None;
                             self.custom_sound_ambient_dynamic_info = None;
+                            self.custom_sound_ambient_base_resolved = false;
                         }
                     } else {
                         self.custom_sound_ambient_base_name = None;
                         self.custom_sound_ambient_dynamic_info = None;
+                        self.custom_sound_ambient_base_resolved = false;
                     }
                 } else if !customized_to_silence {
                     let mut base_info_name = self
@@ -495,6 +496,7 @@ impl BasicDrawable {
                 self.custom_sound_ambient_off = false;
                 self.custom_sound_ambient_base_name = None;
                 self.custom_sound_ambient_dynamic_info = None;
+                self.custom_sound_ambient_base_resolved = false;
             }
         }
 

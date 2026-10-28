@@ -157,6 +157,33 @@ impl<'a> NativeAmbientUpdate<'a> {
             return Ok(());
         }
 
+        // A snapshot can precede admission of its ambient base even when the
+        // native AudioManager already exists. Keep the override on this
+        // Drawable and retry it from the ordinary receiving update once the
+        // owner catalog exposes the base; do not publish a custom alias.
+        if !drawable.custom_sound_ambient_base_resolved
+            && let Some(base_name) = drawable.custom_sound_ambient_base_name.as_deref()
+        {
+            let locality = (self.locality_for_object)(drawable.object_id);
+            let mut audio = audio_device.lock().map_err(|_| {
+                "receiving audio manager lock poisoned during Drawable ambient refresh".to_owned()
+            })?;
+            if audio.find_audio_event_info(base_name).is_some() {
+                let state = drawable.current_body_damage_type();
+                drawable.start_ambient_sound_for_state_with_audio(
+                    state,
+                    time_of_day,
+                    true,
+                    &mut audio,
+                    &locality,
+                )?;
+                apply_pending_model_tod(drawable);
+                drawable.ambient_tod_changed = false;
+                drawable.pending_ambient_tod = None;
+                return Ok(());
+            }
+        }
+
         let Some((event_name_empty, handle, _, permanent)) = event else {
             if !time_changed {
                 apply_pending_model_tod(drawable);
@@ -316,10 +343,18 @@ impl BasicDrawable {
             if self.custom_sound_ambient_off {
                 None
             } else if let Some(info) = self.custom_sound_ambient_dynamic_info.as_ref() {
+                let base = self
+                    .custom_sound_ambient_base_name
+                    .as_deref()
+                    .and_then(|base_name| audio.find_audio_event_info(base_name));
+                self.custom_sound_ambient_base_resolved =
+                    base.is_some() || self.custom_sound_ambient_base_name.is_none();
+                let event_info = base
+                    .map(|base| info.rebase_onto(&base).get_audio_event_info().clone())
+                    .unwrap_or_else(|| info.get_audio_event_info().clone());
                 let mut event = AudioEventRts::new();
-                event.set_event_name(info.get_audio_event_info().audio_name.clone());
-                event
-                    .set_audio_event_info(std::sync::Arc::new(info.get_audio_event_info().clone()));
+                event.set_event_name(event_info.audio_name.clone());
+                event.set_audio_event_info(std::sync::Arc::new(event_info));
                 Some(event)
             } else {
                 read(state)

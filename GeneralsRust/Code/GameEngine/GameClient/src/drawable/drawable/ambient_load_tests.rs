@@ -29,9 +29,8 @@ fn overrides(base: &AudioEventInfo) -> Vec<u8> {
 fn base_definition_preserves_unoverridden_permanent_loop_and_custom_name() {
     let base = definition();
     let mut load = XferLoad::new(Cursor::new(overrides(&base)), 1);
-    let loaded = load_custom_ambient_info(&mut load, Some(&base), DrawableId(77))
-        .unwrap()
-        .unwrap();
+    let loaded =
+        load_custom_ambient_info(&mut load, Some(&base), &base.audio_name, DrawableId(77)).unwrap();
     let info = loaded.get_audio_event_info();
     assert_eq!(info.audio_name, " CUSTOM 77 OwnedAmbientBase");
     assert_eq!(loaded.get_original_name(), "OwnedAmbientBase");
@@ -44,11 +43,9 @@ fn missing_base_consumes_overrides_and_preserves_following_xfer_field() {
     let mut bytes = overrides(&definition());
     bytes.extend_from_slice(&0xC001_C0DEu32.to_le_bytes());
     let mut load = XferLoad::new(Cursor::new(bytes), 1);
-    assert!(
-        load_custom_ambient_info(&mut load, None, DrawableId(77))
-            .unwrap()
-            .is_none()
-    );
+    let loaded =
+        load_custom_ambient_info(&mut load, None, "OwnedAmbientBase", DrawableId(77)).unwrap();
+    assert_eq!(loaded.get_audio_event_info().volume, 0.75);
     let mut following = 0;
     load.xfer_unsigned_int(&mut following).unwrap();
     assert_eq!(following, 0xC001_C0DE);
@@ -59,7 +56,9 @@ fn malformed_override_does_not_produce_custom_definition() {
     let mut bytes = overrides(&base);
     bytes.pop();
     let mut load = XferLoad::new(Cursor::new(bytes), 1);
-    assert!(load_custom_ambient_info(&mut load, Some(&base), DrawableId(77)).is_err());
+    assert!(
+        load_custom_ambient_info(&mut load, Some(&base), &base.audio_name, DrawableId(77)).is_err()
+    );
     assert_eq!((base.control, base.loop_count), (1, 0));
     assert_eq!(base.audio_name, "OwnedAmbientBase");
 }
@@ -143,6 +142,6 @@ fn native_snapshot_resolves_custom_ambient_from_receiving_catalog() {
             .lock()
             .unwrap()
             .find_audio_event_info(" CUSTOM 77 OwnedAmbientBase")
-            .is_some()
+            .is_none()
     );
 }

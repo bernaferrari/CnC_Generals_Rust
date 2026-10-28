@@ -240,7 +240,7 @@ pub(crate) fn xfer_game_client_state(
 
         let save_entries = if adapter.is_writing() {
             client
-                .collect_saveable_drawables_sorted()
+                .collect_saveable_drawables_in_list_order()
                 .map_err(|_| RuntimeXferStatus::InvalidData)?
         } else {
             client

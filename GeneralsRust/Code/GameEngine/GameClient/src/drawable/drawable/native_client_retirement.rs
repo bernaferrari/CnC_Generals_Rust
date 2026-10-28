@@ -91,6 +91,7 @@ impl BasicDrawable {
             self.stop_ambient_sound();
         }
         self.custom_sound_ambient_dynamic_info = None;
+        self.custom_sound_ambient_base_resolved = false;
         Ok(())
     }
 }

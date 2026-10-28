@@ -143,6 +143,9 @@ pub struct BasicDrawable {
     custom_sound_ambient_off: bool,
     custom_sound_ambient_base_name: Option<String>,
     custom_sound_ambient_dynamic_info: Option<DynamicAudioEventInfo>,
+    /// False while a native save's base catalog entry is not yet admitted.
+    /// The receiving update retries the rebase when that definition arrives.
+    custom_sound_ambient_base_resolved: bool,
     /// Live C++ `m_ambientSound` event after startAmbientSound.
     ambient_sound_event: Option<AudioEventRts>,
     /// C++ `setTimeOfDay` is invoked via `&self` iterate; applied on next `update()`.
@@ -327,6 +330,7 @@ impl BasicDrawable {
             custom_sound_ambient_off: false,
             custom_sound_ambient_base_name: None,
             custom_sound_ambient_dynamic_info: None,
+            custom_sound_ambient_base_resolved: false,
             ambient_sound_event: None,
             pending_time_of_day: AtomicU8::new(0),
             receiving_time_of_day: None,

@@ -235,7 +235,9 @@ impl AdmittedReceivingTemplate {
             .get_per_unit_sound(&name.into())
             .map(|event| event.get_event_name())
     }
-    pub(crate) fn template(&self) -> &ThingTemplate {
+    /// Immutable template data for receiving construction; admitted definitions
+    /// have frozen override links and cannot mutate catalog identity.
+    pub fn template(&self) -> &ThingTemplate {
         &self.template
     }
 

@@ -1739,11 +1739,29 @@ impl CnCGameEngine {
             )));
         #[cfg(feature = "game_client")]
         if let Some(bytes) = game_client_xfer_bytes.as_deref() {
-            crate::save_load::snapshot::restore_game_client_from_xfer_bytes(
-                &mut self.game_client,
-                bytes,
-            )
-            .map_err(|err| {
+            let policy =
+                super::native_view_effects::receiving_native_drawable_policy_for(&self.game_logic);
+            let is_night = matches!(
+                policy.time_of_day,
+                Some(game_client::system::TimeOfDay::Night)
+            );
+            let (content, mut color_for_object) = self.game_logic.drawable_restore_inputs(is_night);
+            let restore_result = if let Some(content) = content {
+                self.game_client
+                    .restore_from_xfer_bytes_with_receiving_content_and_indicator_colors(
+                        bytes,
+                        content,
+                        policy,
+                        &mut color_for_object,
+                    )
+            } else {
+                crate::save_load::snapshot::restore_game_client_from_xfer_bytes(
+                    &mut self.game_client,
+                    bytes,
+                )
+                .map_err(|err| err.to_string())
+            };
+            restore_result.map_err(|err| {
                 format!("failed to restore CHUNK_GameClient after world commit: {err}")
             })?;
         }

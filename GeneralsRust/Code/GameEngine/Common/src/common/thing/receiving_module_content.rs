@@ -26,6 +26,72 @@ struct TemplateVersion {
     current: Arc<AdmittedReceivingTemplate>,
 }
 
+/// Read-only resolution of a saved template name in one receiving catalog.
+/// The named base matches C++ `findTemplate`; the effective admission matches
+/// the final override used to construct and compare its Drawable.
+#[derive(Clone)]
+pub struct ReceivingTemplateResolution {
+    base: Arc<AdmittedReceivingTemplate>,
+    effective: Arc<AdmittedReceivingTemplate>,
+}
+
+/// Stable identity for one admitted definition. Equality is identity, not name.
+#[derive(Clone)]
+pub struct ReceivingTemplateIdentity(Arc<AdmittedReceivingTemplate>);
+
+impl std::fmt::Debug for ReceivingTemplateIdentity {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("ReceivingTemplateIdentity")
+            .field(&self.0.name())
+            .finish()
+    }
+}
+
+impl PartialEq for ReceivingTemplateIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for ReceivingTemplateIdentity {}
+
+impl ReceivingTemplateIdentity {
+    pub fn name(&self) -> &str {
+        self.0.name()
+    }
+
+    pub fn admitted_template(&self) -> &AdmittedReceivingTemplate {
+        &self.0
+    }
+
+    pub fn matches_admission(&self, candidate: &AdmittedReceivingTemplate) -> bool {
+        std::ptr::eq(self.0.as_ref(), candidate)
+    }
+}
+
+impl ReceivingTemplateResolution {
+    pub fn base_admission(&self) -> &AdmittedReceivingTemplate {
+        &self.base
+    }
+
+    pub fn effective_admission(&self) -> &AdmittedReceivingTemplate {
+        &self.effective
+    }
+
+    pub fn effective_admission_arc(&self) -> Arc<AdmittedReceivingTemplate> {
+        Arc::clone(&self.effective)
+    }
+
+    pub fn effective_identity(&self) -> ReceivingTemplateIdentity {
+        ReceivingTemplateIdentity(Arc::clone(&self.effective))
+    }
+
+    pub fn base_identity(&self) -> ReceivingTemplateIdentity {
+        ReceivingTemplateIdentity(Arc::clone(&self.base))
+    }
+}
+
 #[derive(Clone)]
 pub struct ReceivingModuleContent {
     action_base: Arc<ReceivingActionDefinitions>,
@@ -149,6 +215,14 @@ impl ReceivingModuleContent {
         self.templates
             .get(name)
             .map(|entry| Arc::clone(&entry.current))
+    }
+
+    pub fn resolve_template(&self, name: &str) -> Option<ReceivingTemplateResolution> {
+        let version = self.templates.get(name)?;
+        Some(ReceivingTemplateResolution {
+            base: Arc::clone(version.base.as_ref().unwrap_or(&version.current)),
+            effective: Arc::clone(&version.current),
+        })
     }
     /// Original master-list order is newest first; overrides do not add nodes.
     pub fn admitted_templates(

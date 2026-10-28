@@ -1654,6 +1654,40 @@ impl GameLogic {
         self.players.get(&player_id)
     }
 
+    /// Lend the saved Drawable loader this session's definitions and object
+    /// colors without publishing or copying another world's mutable state.
+    pub(crate) fn drawable_restore_inputs(
+        &mut self,
+        is_night: bool,
+    ) -> (
+        Option<&mut game_engine::common::thing::receiving_module_content::ReceivingModuleContent>,
+        impl FnMut(u32) -> Result<(u8, u8, u8), String> + '_,
+    ) {
+        let objects = &self.objects;
+        let players = &self.players;
+        let content = self.receiving_module_content.as_mut();
+        let color_for_object = move |object_id| {
+            let object = objects
+                .get(&ObjectId(object_id))
+                .ok_or_else(|| format!("missing receiving Object {object_id} for Drawable"))?;
+            if let Some(raw) = object.custom_indicator_color {
+                return Ok(((raw >> 16) as u8, (raw >> 8) as u8, raw as u8));
+            }
+            Ok(object
+                .owner_player_id
+                .and_then(|owner| players.get(&owner))
+                .map(|player| {
+                    if is_night {
+                        player.color_night_rgb
+                    } else {
+                        player.color_rgb
+                    }
+                })
+                .unwrap_or((0, 0, 0)))
+        };
+        (content, color_for_object)
+    }
+
     /// Install application definitions before binding any player to a template.
     pub fn admit_player_template_definitions(
         &mut self,

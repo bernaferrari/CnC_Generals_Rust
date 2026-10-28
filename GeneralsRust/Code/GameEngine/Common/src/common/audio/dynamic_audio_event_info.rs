@@ -121,6 +121,37 @@ impl DynamicAudioEventInfo {
         }
     }
 
+    /// Rebuild customized fields over the receiving catalog entry, retaining
+    /// only explicit overrides from the saved Drawable.
+    pub fn rebase_onto(&self, base_info: &AudioEventInfo) -> Self {
+        let mut rebased = Self::from_base_info(base_info);
+        if self.was_audio_name_overridden() {
+            rebased.override_audio_name(&self.audio_event_info.audio_name);
+        }
+        if self.was_loop_flag_overridden() {
+            rebased.override_loop_flag(self.audio_event_info.control & AC_LOOP != 0);
+        }
+        if self.was_loop_count_overridden() {
+            rebased.override_loop_count(self.audio_event_info.loop_count);
+        }
+        if self.was_volume_overridden() {
+            rebased.override_volume(self.audio_event_info.volume);
+        }
+        if self.was_min_volume_overridden() {
+            rebased.override_min_volume(self.audio_event_info.min_volume);
+        }
+        if self.was_min_range_overridden() {
+            rebased.override_min_range(self.audio_event_info.min_distance);
+        }
+        if self.was_max_range_overridden() {
+            rebased.override_max_range(self.audio_event_info.max_distance);
+        }
+        if self.was_priority_overridden() {
+            rebased.override_priority(self.audio_event_info.priority);
+        }
+        rebased
+    }
+
     /// Override; dynamic audio events are used only for level-specific stuff at the moment
     pub fn is_level_specific(&self) -> bool {
         true

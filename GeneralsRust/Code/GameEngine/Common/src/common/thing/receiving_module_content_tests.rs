@@ -21,6 +21,48 @@ fn content() -> ReceivingModuleContent {
     modules.register_fallible_data_constructor("ReceivingDraw", ModuleType::Draw, parse);
     ReceivingModuleContent::new(modules)
 }
+
+#[test]
+fn receiving_template_resolution_preserves_base_and_effective_identity_per_catalog() {
+    let mut base = content();
+    base.load_ini_text(
+        "Object DefaultThingTemplate\nDraw = ReceivingDraw DefaultTag\nEnd\nEnd\n\
+         Object RestoreTarget\nBuildCost = 50\nDraw = ReceivingDraw BaseTag\nEnd\nEnd",
+        INILoadType::Overwrite,
+    )
+    .unwrap();
+    let mut world_a = base.clone();
+    let mut world_b = base.clone();
+    world_a
+        .load_ini_text(
+            "Object RestoreTarget\nBuildCost = 100\nAddModule\nDraw = ReceivingDraw MapA\nEnd\nEnd\nEnd",
+            INILoadType::CreateOverrides,
+        )
+        .unwrap();
+    world_b
+        .load_ini_text(
+            "Object RestoreTarget\nBuildCost = 200\nAddModule\nDraw = ReceivingDraw MapB\nEnd\nEnd\nEnd",
+            INILoadType::CreateOverrides,
+        )
+        .unwrap();
+
+    let a = world_a.resolve_template("RestoreTarget").unwrap();
+    let b = world_b.resolve_template("RestoreTarget").unwrap();
+    assert_eq!(a.base_admission().name(), "RestoreTarget");
+    assert_eq!(a.effective_admission().name(), "RestoreTarget");
+    assert_eq!(a.base_admission().template().get_build_cost(), 50);
+    assert_eq!(a.effective_admission().template().get_build_cost(), 100);
+    assert_eq!(b.base_admission().template().get_build_cost(), 50);
+    assert_eq!(b.effective_admission().template().get_build_cost(), 200);
+    assert_eq!(a.base_identity(), b.base_identity());
+    assert_ne!(a.effective_identity(), b.effective_identity());
+    assert_eq!(a.effective_identity().name(), b.effective_identity().name());
+
+    world_a.reset_map_overrides();
+    let reset = world_a.resolve_template("RestoreTarget").unwrap();
+    assert_eq!(reset.base_identity(), reset.effective_identity());
+}
+
 fn first_data(plan: &AdmittedReceivingTemplate) -> &Arc<dyn ModuleData> {
     plan.template()
         .get_draw_module_info()

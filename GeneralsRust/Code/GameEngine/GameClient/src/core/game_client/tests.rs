@@ -1812,10 +1812,10 @@ mod tests {
     }
 
     #[test]
-    fn test_snapshot_serialization_is_stable_across_drawable_hashmap_insertion_order() {
+    fn test_snapshot_serialization_uses_native_roster_not_hashmap_iteration() {
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
-            "test_snapshot_serialization_is_stable_across_drawable_hashmap_insertion_order",
+            "test_snapshot_serialization_uses_native_roster_not_hashmap_iteration",
         ) {
             return;
         }
@@ -1825,9 +1825,9 @@ mod tests {
         insert_basic_drawable_for_test(&mut client_a, 55, "Humvee", Vector3::new(1.0, 9.0, 0.0));
 
         let mut client_b = GameClient::new().unwrap();
-        insert_basic_drawable_for_test(&mut client_b, 55, "Humvee", Vector3::new(1.0, 9.0, 0.0));
         insert_basic_drawable_for_test(&mut client_b, 100, "Tank", Vector3::new(10.0, 20.0, 0.0));
         insert_basic_drawable_for_test(&mut client_b, 10, "Jeep", Vector3::new(-2.0, 3.0, 0.0));
+        insert_basic_drawable_for_test(&mut client_b, 55, "Humvee", Vector3::new(1.0, 9.0, 0.0));
 
         let bytes_a = serialize_client(&mut client_a);
         let bytes_b = serialize_client(&mut client_b);
@@ -1835,10 +1835,10 @@ mod tests {
     }
 
     #[test]
-    fn test_snapshot_round_trip_serialization_is_stable() {
+    fn test_snapshot_round_trip_reconstructs_cpp_prepend_order() {
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
-            "test_snapshot_round_trip_serialization_is_stable",
+            "test_snapshot_round_trip_reconstructs_cpp_prepend_order",
         ) {
             return;
         }
@@ -1868,14 +1868,34 @@ mod tests {
         let mut loaded = deserialize_client(&first_save);
         let second_save = serialize_client(&mut loaded);
 
-        assert_eq!(first_save, second_save);
+        let mut reversed_roster = GameClient::new().unwrap();
+        insert_basic_drawable_for_test(
+            &mut reversed_roster,
+            77,
+            "RoundTripGamma",
+            Vector3::new(9.0, -3.0, 0.0),
+        );
+        insert_basic_drawable_for_test(
+            &mut reversed_roster,
+            5,
+            "RoundTripBeta",
+            Vector3::new(-4.0, 7.5, 0.0),
+        );
+        insert_basic_drawable_for_test(
+            &mut reversed_roster,
+            30,
+            "RoundTripAlpha",
+            Vector3::new(1.0, 2.0, 0.0),
+        );
+        assert_eq!(second_save, serialize_client(&mut reversed_roster));
+        assert_ne!(first_save, second_save);
     }
 
     #[test]
-    fn test_snapshot_serialization_is_stable_across_many_insertion_permutations() {
+    fn test_snapshot_archive_tracks_native_roster_with_nonmonotonic_ids() {
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
-            "test_snapshot_serialization_is_stable_across_many_insertion_permutations",
+            "test_snapshot_archive_tracks_native_roster_with_nonmonotonic_ids",
         ) {
             return;
         }
@@ -1895,35 +1915,32 @@ mod tests {
             insert_basic_drawable_for_test(&mut baseline_client, *id, name, *pos);
         }
         let baseline = serialize_client(&mut baseline_client);
-
-        for seed in 0_u64..32_u64 {
-            let mut indices: Vec<usize> = (0..fixtures.len()).collect();
-            let mut state = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
-            for i in (1..indices.len()).rev() {
-                state = state
-                    .wrapping_mul(6364136223846793005)
-                    .wrapping_add(1442695040888963407);
-                let j = (state as usize) % (i + 1);
-                indices.swap(i, j);
-            }
-
-            let mut client = GameClient::new().unwrap();
-            for idx in indices {
-                let (id, name, pos) = fixtures[idx];
-                insert_basic_drawable_for_test(&mut client, id, name, pos);
-            }
-
-            let bytes = serialize_client(&mut client);
-            assert_eq!(
-                bytes, baseline,
-                "serialization drift for permutation seed {}",
-                seed
-            );
+        let mut same_roster = GameClient::new().unwrap();
+        for (id, name, pos) in &fixtures {
+            insert_basic_drawable_for_test(&mut same_roster, *id, name, *pos);
         }
+        assert_eq!(serialize_client(&mut same_roster), baseline);
+
+        let mut reverse_roster = GameClient::new().unwrap();
+        for (id, name, pos) in fixtures.iter().rev() {
+            insert_basic_drawable_for_test(&mut reverse_roster, *id, name, *pos);
+        }
+        let reverse_bytes = serialize_client(&mut reverse_roster);
+        assert_ne!(reverse_bytes, baseline);
+        let ids: Vec<_> = reverse_roster
+            .collect_saveable_drawables_in_list_order()
+            .unwrap()
+            .into_iter()
+            .map(|(id, _)| id.0)
+            .collect();
+        assert_eq!(
+            ids,
+            fixtures.iter().map(|(id, _, _)| *id).collect::<Vec<_>>()
+        );
     }
 
     #[test]
-    fn test_collect_saveable_drawables_sorted_orders_by_drawable_id_and_skips_nonsave() {
+    fn test_collect_saveable_drawables_follows_roster_and_skips_nonsave() {
         let mut client = GameClient::new().unwrap();
         insert_basic_drawable_for_test(&mut client, 7, "Seven", Vector3::new(0.0, 0.0, 0.0));
         insert_basic_drawable_for_test(&mut client, 2, "Two", Vector3::new(0.0, 0.0, 0.0));
@@ -1939,11 +1956,11 @@ mod tests {
             .drawables
             .admit_native_drawable(DrawableId(4), Box::new(skipped));
 
-        let saveable = client.collect_saveable_drawables_sorted().unwrap();
+        let saveable = client.collect_saveable_drawables_in_list_order().unwrap();
         let ids: Vec<u32> = saveable.iter().map(|(id, _)| id.0).collect();
         let names: Vec<&str> = saveable.iter().map(|(_, name)| name.as_str()).collect();
-        assert_eq!(ids, vec![2, 5, 7]);
-        assert_eq!(names, vec!["Two", "Five", "Seven"]);
+        assert_eq!(ids, vec![5, 2, 7]);
+        assert_eq!(names, vec!["Five", "Two", "Seven"]);
     }
 
     #[test]

@@ -2,7 +2,120 @@
 // Split from `core/game_client.rs` dump. Included by `game_client/mod.rs`
 // so this stays one logical `game_client` module (public API identical).
 
+enum XferDrawableTemplate {
+    Receiving(game_engine::common::thing::receiving_module_content::ReceivingTemplateResolution),
+    Compatibility(Arc<ThingTemplate>),
+}
+
+impl XferDrawableTemplate {
+    fn template(&self) -> &ThingTemplate {
+        match self {
+            Self::Receiving(resolution) => resolution.effective_admission().template(),
+            Self::Compatibility(template) => template.as_ref(),
+        }
+    }
+
+    fn receiving_admission(
+        &self,
+    ) -> Option<Arc<game_engine::common::thing::thing_template::AdmittedReceivingTemplate>> {
+        match self {
+            Self::Receiving(resolution) => Some(resolution.effective_admission_arc()),
+            Self::Compatibility(_) => None,
+        }
+    }
+
+    fn matches_existing(&self, drawable: &dyn Drawable) -> Result<bool, String> {
+        match self {
+            Self::Receiving(resolution) => {
+                let Some(basic) = drawable.as_any().downcast_ref::<BasicDrawable>() else {
+                    return Ok(false);
+                };
+                Ok(basic.receiving_template_matches_identity(&resolution.effective_identity()))
+            }
+            Self::Compatibility(template) => {
+                let guard = get_thing_factory().map_err(|_| "ThingFactory lock failed")?;
+                let Some(factory) = guard.as_ref() else {
+                    return Err("ThingFactory not initialized".into());
+                };
+                Ok(GameClient::drawable_matches_saved_template(
+                    drawable, template, factory,
+                ))
+            }
+        }
+    }
+}
+
 impl GameClient {
+    fn create_drawable_from_receiving_template(
+        &mut self,
+        admission: Arc<game_engine::common::thing::thing_template::AdmittedReceivingTemplate>,
+        content: &mut game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
+        policy: ReceivingDrawablePolicy,
+    ) -> GameClientResult<DrawableId> {
+        let id = self.drawables.alloc_drawable_id();
+        let mut drawable = BasicDrawable::new(id);
+        drawable.admit_receiving_time_of_day(policy.time_of_day);
+        drawable.initialize_native_constructor_template(
+            Some(admission.name().to_owned()),
+            Some(Arc::clone(&admission)),
+        );
+        // Drawable.cpp338-344 registers before authored module constructors.
+        self.drawables.admit_native_drawable(id, Box::new(drawable));
+        let initialized = (|| -> GameClientResult<()> {
+            let basic = self
+                .drawables
+                .drawable_map
+                .get_mut(&id)
+                .and_then(|draw| draw.as_any_mut().downcast_mut::<BasicDrawable>())
+                .expect("receiving constructor registers BasicDrawable");
+            let keys = content
+                .module_factory_mut()
+                .receiving_name_keys_mut()
+                .ok_or_else(|| {
+                    GameClientError::InvalidOperation(
+                        "authored Drawable requires its receiving name-key owner".into(),
+                    )
+                })?;
+            Self::initialize_receiving_drawable_modules_unbound(
+                basic, &admission, keys, policy, self.frame,
+            )?;
+            // C++ suppresses constructor ambient audio during Xfer load.
+            Ok(())
+        })();
+        if let Err(error) = initialized {
+            self.destroy_drawable(id)
+                .map_err(|cleanup| GameClientError::InvalidOperation(cleanup.to_string()))?;
+            return Err(error);
+        }
+        let lasers = {
+            let drawable = self
+                .drawables
+                .drawable_map
+                .get_mut(&id)
+                .and_then(|draw| draw.as_any_mut().downcast_mut::<BasicDrawable>())
+                .expect("receiving Drawable remains registered");
+            Self::owned_laser_count(drawable)
+        };
+        if lasers > 1 {
+            self.destroy_drawable(id)
+                .map_err(|error| GameClientError::InvalidOperation(error.to_string()))?;
+            return Err(GameClientError::InvalidOperation(
+                "multiple actual LaserUpdate callbacks".into(),
+            ));
+        }
+        let drawable = self
+            .drawables
+            .drawable_map
+            .get_mut(&id)
+            .and_then(|draw| draw.as_any_mut().downcast_mut::<BasicDrawable>())
+            .expect("receiving Drawable remains registered");
+        Self::bind_owned_laser_module(drawable, id);
+        if lasers == 1 {
+            self.drawables.owned_laser_order.insert(0, id);
+        }
+        Ok(id)
+    }
+
     fn should_save_drawable(drawable: &dyn Drawable) -> bool {
         if drawable.get_status().has(DrawableStatus::NO_SAVE) {
             if drawable.get_object_id().is_none() {
@@ -41,9 +154,27 @@ impl GameClient {
         if name.is_empty() { None } else { Some(name) }
     }
 
-    fn collect_saveable_drawables_sorted(&self) -> Result<Vec<(DrawableId, String)>, String> {
-        let mut entries = Vec::new();
-        for (&id, drawable) in &self.drawables.drawable_map {
+    fn collect_saveable_drawables_in_list_order(
+        &self,
+    ) -> Result<Vec<(DrawableId, String)>, String> {
+        let order = &self.drawables.native_drawable_order;
+        if order.len() != self.drawables.drawable_map.len() {
+            return Err("native Drawable roster does not match the Drawable map".into());
+        }
+        let mut seen = std::collections::HashSet::with_capacity(order.len());
+        let mut entries = Vec::with_capacity(order.len());
+        for &id in order {
+            if !seen.insert(id) {
+                return Err(format!(
+                    "native Drawable roster contains duplicate ID {}",
+                    id.0
+                ));
+            }
+            let drawable = self
+                .drawables
+                .drawable_map
+                .get(&id)
+                .ok_or_else(|| format!("native Drawable roster ID {} is absent", id.0))?;
             if !Self::should_save_drawable(drawable.as_ref()) {
                 continue;
             }
@@ -53,8 +184,6 @@ impl GameClient {
             entries.push((id, template_name));
         }
 
-        // HashMap traversal order is nondeterministic; save/load parity expects stable ordering.
-        entries.sort_by_key(|(id, _)| id.0);
         Ok(entries)
     }
 
@@ -82,7 +211,7 @@ impl GameClient {
             }
         }
         Ok(self
-            .collect_saveable_drawables_sorted()?
+            .collect_saveable_drawables_in_list_order()?
             .into_iter()
             .filter(|(id, _)| !owned.iter().any(|receipt| receipt.drawable_id() == *id))
             .collect())
@@ -1269,6 +1398,27 @@ impl GameClient {
         self.drawables.alloc_drawable_id()
     }
 
+    /// Temporary constructor IDs used while decoding must not replace an
+    /// already restored Drawable whose saved ID differs from its admission ID.
+    /// Keep the engine's wrapping counter semantics while skipping occupied
+    /// slots in this receiving client.
+    fn advance_drawable_id_past_live_nodes(&mut self) -> Result<(), String> {
+        let start = self.drawables.next_drawable_id.0;
+        let mut candidate = start;
+        while self
+            .drawables
+            .drawable_map
+            .contains_key(&DrawableId(candidate))
+        {
+            candidate = candidate.wrapping_add(1);
+            if candidate == start {
+                return Err("no vacant Drawable ID available while restoring Xfer".into());
+            }
+        }
+        self.drawables.next_drawable_id = DrawableId(candidate);
+        Ok(())
+    }
+
     fn get_drawable_id_counter(&self) -> u32 {
         self.drawables.next_drawable_id.0
     }
@@ -1404,7 +1554,7 @@ impl Snapshotable for GameClient {
                 .map_err(|e| e.to_string())?;
         }
 
-        let save_entries = self.collect_saveable_drawables_sorted()?;
+        let save_entries = self.collect_saveable_drawables_in_list_order()?;
         let mut drawable_count: u16 = save_entries
             .len()
             .try_into()
@@ -1441,10 +1591,19 @@ impl Snapshotable for GameClient {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.xfer_with_owned_auxiliaries(xfer, &[])
+        self.xfer_with_owned_auxiliaries(xfer, &[], None, None, None)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
+        self.load_post_process_with_registry(true)
+    }
+}
+
+impl GameClient {
+    fn load_post_process_with_registry(
+        &mut self,
+        include_compatibility_registry: bool,
+    ) -> Result<(), String> {
         // Binding keys describe pre-load runtime Drawable instances and are
         // intentionally not serialized.  Recreated presentation drawables
         // receive fresh keys on the next host sync.
@@ -1466,7 +1625,7 @@ impl Snapshotable for GameClient {
         // C++ scans the global drawable list; include GameLogic-owned drawables as well
         // so the next ID counter cannot regress after load.
         // Host path: registry empty — drawable_map already drove next_drawable_id.
-        if OBJECT_REGISTRY.is_empty() {
+        if !include_compatibility_registry || OBJECT_REGISTRY.is_empty() {
             self.drawables.next_drawable_id = DrawableId(next_drawable_id.max(1));
             self.set_drawable_id_counter(self.drawables.next_drawable_id.0);
             return Ok(());
@@ -1597,9 +1756,27 @@ fn write_game_client_xfer_bytes(client: &mut GameClient) -> Result<Vec<u8>, Stri
 }
 
 fn read_game_client_xfer_bytes(client: &mut GameClient, bytes: &[u8]) -> Result<(), String> {
+    read_game_client_xfer_bytes_with_receiving_content(client, bytes, None, None, None)
+}
+
+fn read_game_client_xfer_bytes_with_receiving_content(
+    client: &mut GameClient,
+    bytes: &[u8],
+    receiving_content: Option<
+        &mut game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
+    >,
+    receiving_policy: Option<ReceivingDrawablePolicy>,
+    receiving_indicator_color: Option<&mut dyn FnMut(ObjectID) -> Result<(u8, u8, u8), String>>,
+) -> Result<(), String> {
     let cursor = Cursor::new(bytes.to_vec());
     let mut xfer = game_engine::common::system::xfer_load::XferLoad::new(cursor, 3);
-    client.xfer(&mut xfer)?;
+    client.xfer_with_owned_auxiliaries(
+        &mut xfer,
+        &[],
+        receiving_content,
+        receiving_policy,
+        receiving_indicator_color,
+    )?;
     client.export_objectless_to_logic_client();
     Ok(())
 }
@@ -1614,7 +1791,7 @@ impl GameClient {
         let mut bytes = Vec::new();
         let mut xfer =
             game_engine::common::system::xfer_save::XferSave::new(Cursor::new(&mut bytes), 3);
-        self.xfer_with_owned_auxiliaries(&mut xfer, owned)?;
+        self.xfer_with_owned_auxiliaries(&mut xfer, owned, None, None, None)?;
         drop(xfer);
         Ok(bytes)
     }
@@ -1632,6 +1809,47 @@ impl GameClient {
             return Ok(());
         }
         read_game_client_xfer_bytes(self, bytes)
+    }
+
+    pub fn restore_from_xfer_bytes_with_receiving_content(
+        &mut self,
+        bytes: &[u8],
+        content: &mut game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
+        policy: ReceivingDrawablePolicy,
+    ) -> Result<(), String> {
+        self.pending_drawable_post_process_order = None;
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        read_game_client_xfer_bytes_with_receiving_content(
+            self,
+            bytes,
+            Some(content),
+            Some(policy),
+            None,
+        )
+    }
+
+    /// Restore using the receiving world's color for each bound object.
+    /// The lookup runs in archive order before its Drawable modules xfer.
+    pub fn restore_from_xfer_bytes_with_receiving_content_and_indicator_colors(
+        &mut self,
+        bytes: &[u8],
+        content: &mut game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
+        policy: ReceivingDrawablePolicy,
+        mut indicator_color_for_object: impl FnMut(ObjectID) -> Result<(u8, u8, u8), String>,
+    ) -> Result<(), String> {
+        self.pending_drawable_post_process_order = None;
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        read_game_client_xfer_bytes_with_receiving_content(
+            self,
+            bytes,
+            Some(content),
+            Some(policy),
+            Some(&mut indicator_color_for_object),
+        )
     }
 
     /// Complete the C++ Drawable::loadPostProcess audio phase using the
@@ -1717,6 +1935,13 @@ impl GameClient {
         &mut self,
         xfer: &mut dyn Xfer,
         owned: &[NativeAuxiliaryReceipt],
+        mut receiving_content: Option<
+            &mut game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
+        >,
+        receiving_policy: Option<ReceivingDrawablePolicy>,
+        mut receiving_indicator_color: Option<
+            &mut dyn FnMut(ObjectID) -> Result<(u8, u8, u8), String>,
+        >,
     ) -> Result<(), String> {
         if xfer.get_xfer_mode() == CommonXferMode::Load {
             self.pending_drawable_post_process_order = None;
@@ -1763,6 +1988,7 @@ impl GameClient {
             .map_err(|e| e.to_string())?;
 
         let mut decoded_drawable_order = Vec::new();
+        let mut decoded_drawable_ids = std::collections::HashSet::new();
 
         if xfer.is_writing() {
             let toc_lookup: HashMap<String, u16> = self
@@ -1818,15 +2044,22 @@ impl GameClient {
 
                 let data_size = xfer.begin_block().map_err(|e| format!("{:?}", e))?;
 
-                // `find_template` returns an Arc. Release the factory lock
-                // before creating/binding a Drawable: binding may look up its
-                // ambient sound through the same factory.
-                let template = {
-                    let guard = get_thing_factory().map_err(|_| "ThingFactory lock failed")?;
-                    let factory = guard
-                        .as_ref()
-                        .ok_or_else(|| "ThingFactory not initialized".to_string())?;
-                    factory.find_template(&toc_name, false)
+                // Native restore resolves the authored TOC name in the
+                // receiving world's admitted catalog. The compatibility
+                // reader retains the standalone ThingFactory behavior.
+                let template = if let Some(content) = receiving_content.as_deref() {
+                    content
+                        .resolve_template(&toc_name)
+                        .map(XferDrawableTemplate::Receiving)
+                } else {
+                    let template = {
+                        let guard = get_thing_factory().map_err(|_| "ThingFactory lock failed")?;
+                        let factory = guard
+                            .as_ref()
+                            .ok_or_else(|| "ThingFactory not initialized".to_string())?;
+                        factory.find_template(&toc_name, false)
+                    };
+                    template.map(XferDrawableTemplate::Compatibility)
                 };
                 let Some(template) = template else {
                     xfer.skip(data_size).map_err(|e| format!("{:?}", e))?;
@@ -1836,6 +2069,19 @@ impl GameClient {
                 let mut object_id: ObjectID = INVALID_ID;
                 xfer.xfer_unsigned_int(&mut object_id)
                     .map_err(|e| e.to_string())?;
+
+                // The C++ loader requires attached objects to exist in its
+                // GameLogic before binding or loading their Drawable.
+                let receiving_color = if receiving_content.is_some() && object_id != INVALID_ID {
+                    let resolve = receiving_indicator_color.as_deref_mut().ok_or_else(|| {
+                        format!(
+                            "receiving object resolver is required for Drawable object {object_id}"
+                        )
+                    })?;
+                    Some(resolve(object_id)?)
+                } else {
+                    None
+                };
 
                 // Host/presentation path: allow drawable load without dual-world registry.
                 // object_id stays on the drawable; bind only when registry is populated.
@@ -1848,21 +2094,12 @@ impl GameClient {
                 }
 
                 let mut drawable = if let Some(existing_id) = reuse_id {
-                    let needs_replace = if let Some(existing) =
-                        self.drawables.drawable_map.get(&existing_id)
-                    {
-                        let guard = get_thing_factory().map_err(|_| "ThingFactory lock failed")?;
-                        let factory = guard
-                            .as_ref()
-                            .ok_or_else(|| "ThingFactory not initialized".to_string())?;
-                        !Self::drawable_matches_saved_template(
-                            existing.as_ref(),
-                            &template,
-                            factory,
-                        )
-                    } else {
-                        true
-                    };
+                    let needs_replace =
+                        if let Some(existing) = self.drawables.drawable_map.get(&existing_id) {
+                            !template.matches_existing(existing.as_ref())?
+                        } else {
+                            true
+                        };
                     if needs_replace {
                         self.destroy_drawable(existing_id)
                             .map_err(|e| e.to_string())?;
@@ -1875,15 +2112,29 @@ impl GameClient {
                 };
 
                 if drawable.is_none() {
-                    let created_id = self
-                        .create_drawable_from_template(template.as_ref())
-                        .map_err(|e| {
-                            format!(
-                                "GameClient::xfer - Unable to create drawable for '{}': {}",
-                                template.get_name(),
-                                e
-                            )
-                        })?;
+                    self.advance_drawable_id_past_live_nodes()?;
+                    let created_id = match template.receiving_admission() {
+                        Some(admission) => match receiving_content.as_deref_mut() {
+                            Some(content) => self.create_drawable_from_receiving_template(
+                                admission,
+                                content,
+                                receiving_policy.ok_or_else(|| {
+                                    "receiving template restore requires Drawable policy".to_owned()
+                                })?,
+                            ),
+                            None => Err(GameClientError::InvalidOperation(
+                                "receiving template resolution lost its ModuleFactory owner".into(),
+                            )),
+                        },
+                        None => self.create_drawable_from_template(template.template()),
+                    }
+                    .map_err(|e| {
+                        format!(
+                            "GameClient::xfer - Unable to create drawable for '{}': {}",
+                            template.template().get_name(),
+                            e
+                        )
+                    })?;
                     let (mut created, receiving_position) = self
                         .drawables
                         .take_native_drawable_for_load(created_id)
@@ -1896,20 +2147,64 @@ impl GameClient {
                     self.drawables
                         .owned_laser_order
                         .retain(|owner| *owner != created_id);
-                    if object_id != INVALID_ID {
+                    if object_id != INVALID_ID && receiving_content.is_none() {
                         created.set_object_id(Some(object_id));
                     }
                     drawable = Some((created, receiving_position));
                 }
 
                 let (mut drawable, receiving_position) = drawable.expect("drawable exists");
+                if let Some(color) = receiving_color
+                    && drawable.get_object_id() != Some(object_id)
+                {
+                    let Some(basic) = drawable.as_any_mut().downcast_mut::<BasicDrawable>() else {
+                        return Err(format!(
+                            "receiving drawable '{}' is not a BasicDrawable",
+                            toc_name
+                        ));
+                    };
+                    basic.friend_bind_to_object_with_receiving_color(object_id, color);
+                }
+                if let Some(admission) = template.receiving_admission() {
+                    let basic = drawable
+                        .as_any_mut()
+                        .downcast_mut::<BasicDrawable>()
+                        .ok_or_else(|| {
+                            format!("receiving drawable '{}' is not a BasicDrawable", toc_name)
+                        })?;
+                    basic.initialize_native_constructor_template(
+                        Some(toc_name.clone()),
+                        Some(admission),
+                    );
+                }
                 Self::xfer_drawable_snapshot(
                     drawable.as_mut(),
                     xfer,
                     self.native_audio_device.as_ref(),
                 )?;
 
+                if receiving_content.is_some() {
+                    let expected_object = (object_id != INVALID_ID).then_some(object_id);
+                    if drawable.get_object_id() != expected_object {
+                        return Err(format!(
+                            "Drawable '{}' snapshot object does not match its receiving binding",
+                            toc_name
+                        ));
+                    }
+                }
                 let id = drawable.get_id();
+                if !decoded_drawable_ids.insert(id) {
+                    return Err(format!(
+                        "duplicate Drawable ID {} in native Xfer stream",
+                        id.0
+                    ));
+                }
+                if self.drawables.drawable_map.contains_key(&id) {
+                    return Err(format!(
+                        "Drawable ID {} in native Xfer stream collides with a live receiver",
+                        id.0
+                    ));
+                }
                 if let Some(object_id) = drawable.get_object_id() {
                     self.drawables.drawable_object_map.insert(object_id, id);
                 }
@@ -1930,7 +2225,7 @@ impl GameClient {
                 xfer.end_block().map_err(|e| format!("{:?}", e))?;
                 decoded_drawable_order.push(id);
 
-                if object_id != INVALID_ID {
+                if receiving_content.is_none() && object_id != INVALID_ID {
                     // Dual-world residual bind only; host uses drawable_object_map.
                     if OBJECT_REGISTRY.get_object(object_id).is_some() {
                         let _ = self.bind_drawable_to_object(id, object_id);
@@ -1948,7 +2243,7 @@ impl GameClient {
         )?;
 
         if xfer.is_reading() {
-            self.load_post_process()?;
+            self.load_post_process_with_registry(receiving_content.is_none())?;
             self.pending_drawable_post_process_order = Some(decoded_drawable_order);
         }
 

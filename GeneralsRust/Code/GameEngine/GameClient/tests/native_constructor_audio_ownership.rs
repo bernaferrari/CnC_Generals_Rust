@@ -5,7 +5,9 @@ use game_client_rust::core::game_client::{
     PresentationDrawPhysics, PresentationDrawableSync, PresentationModuleAdmission,
     ReceivingDrawablePolicy,
 };
+use game_client_rust::drawable::drawable::Drawable;
 use game_engine::common::audio::audio_event_rts::{AC_LOOP, ST_GLOBAL};
+use game_engine::common::audio::dynamic_audio_event_info::DynamicAudioEventInfo;
 use game_engine::common::audio::game_audio::{AudioLocalityRelationship, AudioLocalityResolver};
 use game_engine::common::audio::{AudioEventInfo, AudioManager, SoundPlaybackHook};
 use game_engine::common::ini::INILoadType;
@@ -41,7 +43,7 @@ impl AudioLocalityResolver for Players {
 fn admitted() -> (ReceivingModuleContent, Arc<AdmittedReceivingTemplate>) {
     let mut factory = ModuleFactory::new_receiving(NameKeyNamespace::new());
     gamelogic::contain_module_overrides::register_native_module_overrides(&mut factory).unwrap();
-    let source = "Object OwnedAmbient\nSoundAmbient = OwnedPristine\nSoundAmbientDamaged = OwnedDamaged\nDraw = W3DModelDraw AmbientTag\nDefaultConditionState\nModel = NONE\nEnd\nEnd\nEnd";
+    let source = "Object OwnedAmbient\nSoundAmbient = OwnedPristine\nSoundAmbientDamaged = OwnedDamaged\nDraw = W3DModelDraw AmbientTag\nDefaultConditionState\nModel = NONE\nEnd\nEnd\nEnd\nObject OwnedOneShotAmbient\nSoundAmbient = OwnedOneShot\nDraw = W3DModelDraw OneShotTag\nDefaultConditionState\nModel = NONE\nEnd\nEnd\nEnd";
     let mut content = ReceivingModuleContent::new(factory);
     content
         .load_ini_text(source, INILoadType::Overwrite)
@@ -121,6 +123,35 @@ fn recording_audio_with_state(
     audio
 }
 
+fn register_one_shot(audio: &mut AudioManager) {
+    audio.register_audio_event_info(AudioEventInfo {
+        audio_name: "OwnedOneShot".into(),
+        sounds: vec!["owned_one_shot_sample".into()],
+        control: 0,
+        loop_count: 1,
+        ..Default::default()
+    });
+}
+
+fn shared_custom_audio(details: Arc<Mutex<Vec<(String, Option<f32>)>>>) -> AudioManager {
+    let mut audio = AudioManager::with_playback_hook(Box::new(PlayedDefinition(details)));
+    audio.init();
+    for (name, sample) in [
+        ("OwnedPristine", "owned_sample"),
+        ("OwnedDamaged", "owned_damaged_sample"),
+    ] {
+        audio.register_audio_event_info(AudioEventInfo {
+            audio_name: name.into(),
+            sounds: vec![sample.into()],
+            type_field: ST_GLOBAL,
+            control: AC_LOOP,
+            loop_count: 0,
+            ..Default::default()
+        });
+    }
+    audio
+}
+
 #[derive(Clone)]
 struct TodPlayback(Arc<Mutex<Vec<game_engine::common::audio::audio_event_rts::TimeOfDay>>>);
 impl SoundPlaybackHook for TodPlayback {
@@ -155,6 +186,364 @@ fn tod_recording_audio(
         });
     }
     audio
+}
+
+#[test]
+fn native_xfer_custom_ambient_isolated_for_same_id_clients_sharing_manager() {
+    let played = Arc::new(Mutex::new(Vec::new()));
+    let device = Arc::new(Mutex::new(shared_custom_audio(Arc::clone(&played))));
+    let mut a = client(Arc::clone(&device));
+    let mut b = client(Arc::clone(&device));
+    let (mut content_a, plan_a) = admitted();
+    let (mut content_b, plan_b) = admitted();
+    let policy = ReceivingDrawablePolicy {
+        time_of_day: Some(game_client_rust::system::TimeOfDay::Night),
+        use_draw_module_lod: true,
+        static_game_lod: StaticGameLodLevel::High,
+        use_tree_sway: true,
+    };
+    for (world, content, plan) in [
+        (&mut a, &mut content_a, plan_a),
+        (&mut b, &mut content_b, plan_b),
+    ] {
+        world
+            .sync_presentation_drawables_observed_with_content(
+                [entry(plan)],
+                0,
+                content.module_factory_mut(),
+                policy,
+                |_| {},
+            )
+            .unwrap();
+    }
+    let id_a = a.get_drawable_for_object(77).unwrap();
+    let id_b = b.get_drawable_for_object(77).unwrap();
+    assert_eq!(id_a, id_b);
+    played.lock().unwrap().clear();
+
+    let base = AudioEventInfo {
+        audio_name: "SharedAmbientBase".into(),
+        sounds: vec!["shared_ambient_sample".into()],
+        type_field: ST_GLOBAL,
+        control: AC_LOOP,
+        loop_count: 0,
+        ..Default::default()
+    };
+    let custom_name = format!(" CUSTOM {} {}", id_a.0 as i32, base.audio_name);
+    let bytes_a = custom_snapshot(
+        a.find_drawable_by_id_mut(id_a).unwrap().as_mut(),
+        &base,
+        0.25,
+    );
+    let bytes_b = custom_snapshot(
+        b.find_drawable_by_id_mut(id_b).unwrap().as_mut(),
+        &base,
+        0.75,
+    );
+
+    // A restores without an audio service. Its authored override must remain
+    // on the Drawable until native postprocess retries with the bound manager.
+    a.find_drawable_by_id_mut(id_a)
+        .unwrap()
+        .xfer_snapshot_for_native_load(&mut XferLoad::new(Cursor::new(bytes_a), 1), None)
+        .unwrap();
+    b.find_drawable_by_id_mut(id_b)
+        .unwrap()
+        .xfer_snapshot_for_native_load(&mut XferLoad::new(Cursor::new(bytes_b), 1), Some(&device))
+        .unwrap();
+
+    let locality = game_engine::common::audio::AudioSubmissionLocality::from_resolver(1, &Players);
+    let postprocess = |world: &mut GameClient, id| {
+        world
+            .load_drawable_post_process_with_native_audio_in_order(
+                &[id],
+                Some(game_client_rust::system::TimeOfDay::Night),
+                |_| locality,
+                |_| None,
+            )
+            .unwrap();
+    };
+    // Even B's available manager lacks the named base at this load point.
+    // Neither unresolved override can fabricate a playable event.
+    postprocess(&mut a, id_a);
+    postprocess(&mut b, id_b);
+    device.lock().unwrap().process_request_list();
+    assert!(
+        played
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|(name, _)| name != &custom_name)
+    );
+
+    // Once the receiving catalog admits the base, the ordinary native update
+    // retries each Drawable's retained override against that base.
+    device
+        .lock()
+        .unwrap()
+        .register_audio_event_info(base.clone());
+    let frames_a = game_client_rust::core::game_client::NativeParticleFrames {
+        logic_frame: 4,
+        client_frame: a.get_frame(),
+    };
+    let mut locality_for_a = |_| locality;
+    let mut update_a = game_client_rust::drawable::drawable::NativeAmbientUpdate::new(
+        Some(game_client_rust::system::TimeOfDay::Night),
+        &mut locality_for_a,
+    );
+    a.update_drawables_local_with_ambient(0.0, frames_a, &mut update_a)
+        .unwrap();
+
+    let frames_b = game_client_rust::core::game_client::NativeParticleFrames {
+        logic_frame: 4,
+        client_frame: b.get_frame(),
+    };
+    let mut locality_for_b = |_| locality;
+    let mut update_b = game_client_rust::drawable::drawable::NativeAmbientUpdate::new(
+        Some(game_client_rust::system::TimeOfDay::Night),
+        &mut locality_for_b,
+    );
+    b.update_drawables_local_with_ambient(0.0, frames_b, &mut update_b)
+        .unwrap();
+    device.lock().unwrap().process_request_list();
+
+    let custom_events: Vec<_> = played
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(name, _)| name == &custom_name)
+        .cloned()
+        .collect();
+    assert_eq!(custom_events.len(), 2, "both native updates play");
+    assert!(custom_events.contains(&(custom_name.clone(), Some(0.25))));
+    assert!(custom_events.contains(&(custom_name.clone(), Some(0.75))));
+    assert!(
+        device
+            .lock()
+            .unwrap()
+            .find_audio_event_info(&custom_name)
+            .is_none()
+    );
+}
+
+fn assert_native_custom_retry_respects_saved_ambient_flags(
+    ambient_enabled: bool,
+    ambient_enabled_from_script: bool,
+) {
+    let played = Arc::new(Mutex::new(Vec::new()));
+    let device = Arc::new(Mutex::new(shared_custom_audio(Arc::clone(&played))));
+    let mut world = client(Arc::clone(&device));
+    let (mut content, plan) = admitted();
+    world
+        .sync_presentation_drawables_observed_with_content(
+            [entry(plan)],
+            0,
+            content.module_factory_mut(),
+            ReceivingDrawablePolicy {
+                time_of_day: Some(game_client_rust::system::TimeOfDay::Night),
+                use_draw_module_lod: true,
+                static_game_lod: StaticGameLodLevel::High,
+                use_tree_sway: true,
+            },
+            |_| {},
+        )
+        .unwrap();
+    let id = world.get_drawable_for_object(77).unwrap();
+    played.lock().unwrap().clear();
+
+    let base = AudioEventInfo {
+        audio_name: "SharedAmbientBase".into(),
+        sounds: vec!["shared_ambient_sample".into()],
+        type_field: ST_GLOBAL,
+        control: AC_LOOP,
+        loop_count: 0,
+        ..Default::default()
+    };
+    let custom_name = format!(" CUSTOM {} {}", id.0 as i32, base.audio_name);
+    let bytes = custom_snapshot_with_ambient_flags(
+        world.find_drawable_by_id_mut(id).unwrap().as_mut(),
+        &base,
+        0.4,
+        ambient_enabled,
+        ambient_enabled_from_script,
+    );
+    world
+        .find_drawable_by_id_mut(id)
+        .unwrap()
+        .xfer_snapshot_for_native_load(&mut XferLoad::new(Cursor::new(bytes), 1), Some(&device))
+        .unwrap();
+    let locality = game_engine::common::audio::AudioSubmissionLocality::from_resolver(1, &Players);
+    world
+        .load_drawable_post_process_with_native_audio_in_order(
+            &[id],
+            Some(game_client_rust::system::TimeOfDay::Night),
+            |_| locality,
+            |_| None,
+        )
+        .unwrap();
+    device.lock().unwrap().register_audio_event_info(base);
+
+    let frames = game_client_rust::core::game_client::NativeParticleFrames {
+        logic_frame: 4,
+        client_frame: world.get_frame(),
+    };
+    let mut locality_for_update = |_| locality;
+    let mut update = game_client_rust::drawable::drawable::NativeAmbientUpdate::new(
+        Some(game_client_rust::system::TimeOfDay::Night),
+        &mut locality_for_update,
+    );
+    world
+        .update_drawables_local_with_ambient(0.0, frames, &mut update)
+        .unwrap();
+    device.lock().unwrap().process_request_list();
+    assert!(
+        played
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|(name, _)| name != &custom_name)
+    );
+}
+
+#[test]
+fn native_custom_retry_honors_both_saved_ambient_enable_flags() {
+    assert_native_custom_retry_respects_saved_ambient_flags(false, true);
+    assert_native_custom_retry_respects_saved_ambient_flags(true, false);
+}
+#[test]
+fn native_custom_retry_keeps_post_load_permanent_only_gate() {
+    let played = Arc::new(Mutex::new(Vec::new()));
+    let device = Arc::new(Mutex::new(shared_custom_audio(Arc::clone(&played))));
+    let mut world = client(Arc::clone(&device));
+    let (mut content, plan) = admitted();
+    world
+        .sync_presentation_drawables_observed_with_content(
+            [entry(plan)],
+            0,
+            content.module_factory_mut(),
+            ReceivingDrawablePolicy {
+                time_of_day: Some(game_client_rust::system::TimeOfDay::Night),
+                use_draw_module_lod: true,
+                static_game_lod: StaticGameLodLevel::High,
+                use_tree_sway: true,
+            },
+            |_| {},
+        )
+        .unwrap();
+    let id = world.get_drawable_for_object(77).unwrap();
+    played.lock().unwrap().clear();
+
+    let one_shot_base = AudioEventInfo {
+        audio_name: "SharedAmbientBase".into(),
+        sounds: vec!["shared_one_shot_sample".into()],
+        type_field: ST_GLOBAL,
+        control: 0,
+        loop_count: 1,
+        ..Default::default()
+    };
+    let custom_name = format!(" CUSTOM {} {}", id.0 as i32, one_shot_base.audio_name);
+    let bytes = custom_snapshot(
+        world.find_drawable_by_id_mut(id).unwrap().as_mut(),
+        &one_shot_base,
+        0.6,
+    );
+    world
+        .find_drawable_by_id_mut(id)
+        .unwrap()
+        .xfer_snapshot_for_native_load(&mut XferLoad::new(Cursor::new(bytes), 1), Some(&device))
+        .unwrap();
+    let locality = game_engine::common::audio::AudioSubmissionLocality::from_resolver(1, &Players);
+    world
+        .load_drawable_post_process_with_native_audio_in_order(
+            &[id],
+            Some(game_client_rust::system::TimeOfDay::Night),
+            |_| locality,
+            |_| None,
+        )
+        .unwrap();
+    device
+        .lock()
+        .unwrap()
+        .register_audio_event_info(one_shot_base);
+
+    let frames = game_client_rust::core::game_client::NativeParticleFrames {
+        logic_frame: 4,
+        client_frame: world.get_frame(),
+    };
+    let mut locality_for_update = |_| locality;
+    let mut update = game_client_rust::drawable::drawable::NativeAmbientUpdate::new(
+        Some(game_client_rust::system::TimeOfDay::Night),
+        &mut locality_for_update,
+    );
+    world
+        .update_drawables_local_with_ambient(0.0, frames, &mut update)
+        .unwrap();
+    device.lock().unwrap().process_request_list();
+    assert!(
+        played
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|(name, _)| name != &custom_name)
+    );
+}
+
+#[derive(Clone)]
+struct PlayedDefinition(Arc<Mutex<Vec<(String, Option<f32>)>>>);
+impl SoundPlaybackHook for PlayedDefinition {
+    fn play(&self, event: &game_engine::common::audio::AudioEventRts) -> Result<(), String> {
+        let volume = event.get_audio_event_info().map(|info| info.volume);
+        self.0
+            .lock()
+            .unwrap()
+            .push((event.get_event_name().to_string(), volume));
+        Ok(())
+    }
+    fn stop(&self, _: u32) {}
+    fn pause(&self, _: u32) {}
+    fn resume(&self, _: u32) {}
+    fn is_playing(&self, _: u32) -> bool {
+        true
+    }
+}
+
+fn custom_snapshot(drawable: &mut dyn Drawable, base: &AudioEventInfo, volume: f32) -> Vec<u8> {
+    custom_snapshot_with_ambient_flags(drawable, base, volume, true, true)
+}
+
+fn custom_snapshot_with_ambient_flags(
+    drawable: &mut dyn Drawable,
+    base: &AudioEventInfo,
+    volume: f32,
+    ambient_enabled: bool,
+    ambient_enabled_from_script: bool,
+) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    {
+        let mut save = XferSave::new(Cursor::new(&mut bytes), 1);
+        drawable.xfer_snapshot(&mut save).unwrap();
+    }
+    // Version 7 ends at the custom-ambient presence bit. Replace the false bit
+    // and append the existing C++-shaped name plus DynamicAudioEventInfo tail.
+    assert!(bytes.len() >= 3);
+    assert_eq!(&bytes[bytes.len() - 3..], &[1, 1, 0]);
+    let flags_at = bytes.len() - 3;
+    bytes[flags_at] = u8::from(ambient_enabled);
+    bytes[flags_at + 1] = u8::from(ambient_enabled_from_script);
+    assert_eq!(bytes.pop(), Some(0), "expected version-7 custom flag tail");
+    bytes.extend_from_slice(&[1, 0]); // customized=true, silence=false
+    bytes.push(base.audio_name.len() as u8);
+    bytes.extend_from_slice(base.audio_name.as_bytes());
+    let mut custom = DynamicAudioEventInfo::from_base_info(base);
+    custom.override_audio_name(" CUSTOM 77 SharedAmbientBase");
+    custom.override_volume(volume);
+    let mut override_bytes = Vec::new();
+    {
+        let mut save = XferSave::new(Cursor::new(&mut override_bytes), 1);
+        custom.xfer_no_name(&mut save).unwrap();
+    }
+    bytes.extend_from_slice(&override_bytes);
+    bytes
 }
 
 fn entry(plan: Arc<AdmittedReceivingTemplate>) -> PresentationDrawableSync {
@@ -892,4 +1281,121 @@ fn compatibility_visual_can_be_admitted_without_an_ambient_template() {
         .on_level_start_with_audio_at(game_client_rust::system::TimeOfDay::Night, |_| locality)
         .unwrap();
     assert_eq!(device.lock().unwrap().pending_play_request_count(), 0);
+}
+
+#[test]
+fn native_xfer_restore_defers_constructor_audio_and_restarts_only_permanent_ambient() {
+    let source_events = Arc::new(Mutex::new(Vec::new()));
+    let source_device = Arc::new(Mutex::new(recording_audio(Arc::clone(&source_events))));
+    register_one_shot(&mut source_device.lock().unwrap());
+    let mut source_client = client(Arc::clone(&source_device));
+    let (mut source_content, permanent_plan) = admitted();
+    let one_shot_plan = source_content
+        .admitted_template("OwnedOneShotAmbient")
+        .unwrap();
+    let mut permanent = entry(permanent_plan);
+    permanent.model_condition_bits = 0;
+    permanent.body_damage_state = 0;
+    let mut one_shot = entry(one_shot_plan);
+    one_shot.model_condition_bits = 0;
+    one_shot.body_damage_state = 0;
+    one_shot.object_id = 78;
+    one_shot.visual_template_name = "OwnedOneShotAmbient".into();
+    one_shot.template_name = "OwnedOneShotAmbient".into();
+    source_client
+        .sync_presentation_drawables_observed_with_content(
+            [permanent, one_shot],
+            0,
+            source_content.module_factory_mut(),
+            ReceivingDrawablePolicy {
+                time_of_day: Some(game_client_rust::system::TimeOfDay::Night),
+                use_draw_module_lod: true,
+                static_game_lod: StaticGameLodLevel::High,
+                use_tree_sway: true,
+            },
+            |_| {},
+        )
+        .unwrap();
+    let bytes = source_client.capture_xfer_bytes().unwrap();
+
+    let make_target = || {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let device = Arc::new(Mutex::new(recording_audio(Arc::clone(&events))));
+        register_one_shot(&mut device.lock().unwrap());
+        (client(Arc::clone(&device)), device, events)
+    };
+    let (mut current, current_device, current_events) = make_target();
+    let (mut candidate, candidate_device, candidate_events) = make_target();
+    let (mut current_content, _) = admitted();
+    let (mut candidate_content, _) = admitted();
+    let policy = ReceivingDrawablePolicy {
+        time_of_day: Some(game_client_rust::system::TimeOfDay::Night),
+        use_draw_module_lod: true,
+        static_game_lod: StaticGameLodLevel::High,
+        use_tree_sway: true,
+    };
+
+    current
+        .restore_from_xfer_bytes_with_receiving_content_and_indicator_colors(
+            &bytes,
+            &mut current_content,
+            policy,
+            |_| Ok((255, 255, 255)),
+        )
+        .unwrap();
+    candidate
+        .restore_from_xfer_bytes_with_receiving_content_and_indicator_colors(
+            &bytes,
+            &mut candidate_content,
+            policy,
+            |_| Ok((255, 255, 255)),
+        )
+        .unwrap();
+    for device in [&current_device, &candidate_device] {
+        let audio = device.lock().unwrap();
+        assert_eq!(audio.pending_play_request_count_for("OwnedPristine"), 0);
+        assert_eq!(audio.pending_play_request_count_for("OwnedOneShot"), 0);
+    }
+
+    let locality_for_object =
+        |_| game_engine::common::audio::AudioSubmissionLocality::from_resolver(1, &Players);
+    current
+        .load_drawable_post_process_with_native_audio(
+            policy.time_of_day,
+            locality_for_object,
+            |_| None,
+        )
+        .unwrap();
+    candidate
+        .load_drawable_post_process_with_native_audio(
+            policy.time_of_day,
+            locality_for_object,
+            |_| None,
+        )
+        .unwrap();
+    for device in [&current_device, &candidate_device] {
+        let audio = device.lock().unwrap();
+        assert_eq!(audio.pending_play_request_count_for("OwnedPristine"), 1);
+        assert_eq!(audio.pending_play_request_count_for("OwnedOneShot"), 0);
+    }
+    current_device.lock().unwrap().process_request_list();
+    candidate_device.lock().unwrap().process_request_list();
+    assert_eq!(
+        current_events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(kind, _)| *kind == 'P')
+            .count(),
+        1
+    );
+    assert_eq!(
+        candidate_events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(kind, _)| *kind == 'P')
+            .count(),
+        1
+    );
 }

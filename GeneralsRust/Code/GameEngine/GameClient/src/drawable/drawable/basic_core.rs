@@ -796,6 +796,15 @@ impl BasicDrawable {
         }
     }
 
+    pub(crate) fn receiving_template_matches_identity(
+        &self,
+        expected: &game_engine::common::thing::receiving_module_content::ReceivingTemplateIdentity,
+    ) -> bool {
+        self.receiving_template
+            .as_deref()
+            .is_some_and(|actual| expected.matches_admission(actual))
+    }
+
     /// Bind the driving immutable definition before the original synchronous
     /// ambient start. A same-name replacement is a different definition, while
     /// repeated observations of the same Arc do not restart its event.
@@ -1329,6 +1338,21 @@ impl BasicDrawable {
             dm.on_drawable_bound_to_object();
         }
         // C++ friend_bindToObject does not start/restart ambient audio.
+    }
+
+    /// Bind during native Xfer restore using color facts from the receiving
+    /// GameLogic. This preserves the synchronous draw-module callback while
+    /// avoiding the legacy process-global ObjectRegistry lookup.
+    pub(crate) fn friend_bind_to_object_with_receiving_color(
+        &mut self,
+        object_id: u32,
+        color: (u8, u8, u8),
+    ) {
+        self.object_id = Some(object_id);
+        self.set_indicator_color(Some(color));
+        for dm in &mut self.draw_modules {
+            dm.on_drawable_bound_to_object();
+        }
     }
 
     pub fn changed_team(&mut self) {
