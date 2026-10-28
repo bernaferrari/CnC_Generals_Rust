@@ -911,7 +911,7 @@ impl GameLogic {
     ) -> Option<ObjectId> {
         // C++ ThingFactory::newObject (ThingFactory.cpp:286-292) picks a
         // BuildVariations chassis before create.
-        let template_owned = resolve_production_build_variation(template);
+        let template_owned = resolve_production_build_variation(self, template);
         let template = template_owned.as_str();
         // Wave 615: host production spawn residual.
         // Wave 736: under sole-tick, bind host ObjectId to GW pre-spawned entity
@@ -1932,27 +1932,27 @@ impl GameLogic {
 }
 
 /// C++ ThingFactory.cpp:286-292 GameLogicRandomValue over BuildVariations.
-fn resolve_production_build_variation(template: &str) -> String {
-    let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() else {
+fn resolve_production_build_variation(logic: &GameLogic, template: &str) -> String {
+    // ThingFactory::newObject (ThingFactory.cpp:286-292) resolves the source
+    // template before drawing. HashMap lookup preserves ThingFactory's exact,
+    // case-sensitive name identity within this receiving session.
+    let Some(source) = logic.templates.get(template) else {
         return template.to_string();
     };
-    let Some(factory) = guard.as_ref() else {
-        return template.to_string();
-    };
-    let Some(tmpl) = factory.find_template(template, false) else {
-        return template.to_string();
-    };
-    let variations = tmpl.get_build_variations();
+    let variations = source.build_variations.as_slice();
     if variations.is_empty() {
         return template.to_string();
     }
+
+    // Retail draws exactly once before resolving the selected name. A missing
+    // selected template falls back to the source without retrying or redrawing.
     let max = variations.len().saturating_sub(1) as i32;
-    let index = gamelogic::helpers::get_game_logic_random_value(0, max) as usize;
+    let index = logic.logic_random.next_int(0, max) as usize;
     let Some(name) = variations.get(index) else {
         return template.to_string();
     };
-    if factory.find_template(name.as_str(), false).is_some() {
-        name.as_str().to_string()
+    if logic.templates.contains_key(name) {
+        name.clone()
     } else {
         template.to_string()
     }
@@ -1985,3 +1985,7 @@ impl GameLogic {
         )
     }
 }
+
+#[cfg(test)]
+#[path = "production_variation_owner_tests.rs"]
+mod production_variation_owner_tests;
