@@ -51,6 +51,7 @@ impl GameLogic {
             self.frame,
             &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
             &self.solo_weapon_bonus_set,
+            &self.logic_random,
         ) else {
             return false;
         };

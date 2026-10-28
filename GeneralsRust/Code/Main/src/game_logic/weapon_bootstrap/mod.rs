@@ -43,6 +43,7 @@ pub use honesty::*;
 mod pitch_range;
 pub use pitch_range::*;
 mod reload_aim;
+pub(crate) use reload_aim::host_delay_between_shots_secs_with_rof_and_random;
 pub use reload_aim::*;
 mod historic_speed;
 pub use historic_speed::*;

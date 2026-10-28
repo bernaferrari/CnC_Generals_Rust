@@ -518,11 +518,34 @@ impl WeaponTemplate {
     /// C++ Weapon.cpp line 475: WeaponTemplate::getDelayBetweenShots
     /// Uses GameLogicRandomValue for replay-deterministic randomization.
     pub fn get_delay_between_shots(&self, bonus: &WeaponBonus) -> i32 {
+        self.get_delay_between_shots_using(bonus, get_game_logic_random_value)
+    }
+
+    /// Draw the delay from the session that owns the firing weapon.
+    pub fn get_delay_between_shots_with_random(
+        &self,
+        bonus: &WeaponBonus,
+        random: &game_engine::common::random_value::SessionRandom,
+    ) -> i32 {
+        self.get_delay_between_shots_using(bonus, |min, max| {
+            if max < min {
+                max
+            } else {
+                random.next_int(min, max)
+            }
+        })
+    }
+
+    fn get_delay_between_shots_using(
+        &self,
+        bonus: &WeaponBonus,
+        random: impl FnOnce(i32, i32) -> i32,
+    ) -> i32 {
         // C++ Weapon.cpp line 480-483: Random number thing doesn't like min==max case
         let delay = if self.min_delay_between_shots == self.max_delay_between_shots {
             self.min_delay_between_shots
         } else {
-            get_game_logic_random_value(self.min_delay_between_shots, self.max_delay_between_shots)
+            random(self.min_delay_between_shots, self.max_delay_between_shots)
         };
 
         let bonus_rof = bonus.get_field(WeaponBonusField::RateOfFire);

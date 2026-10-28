@@ -163,6 +163,7 @@ impl Object {
             operation_frame,
             operation_effects,
             None,
+            None,
         )
     }
 
@@ -184,6 +185,7 @@ impl Object {
         operation_frame: u32,
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         solo_set: &gamelogic::weapon::WeaponBonusSet,
+        random: &game_engine::common::random_value::SessionRandom,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         self.prepare_weapon_shot_with_operation(
             WeaponShotRoute::Passive {
@@ -202,6 +204,7 @@ impl Object {
             operation_frame,
             operation_effects,
             Some(solo_set),
+            Some(random),
         )
     }
 
@@ -260,6 +263,7 @@ impl Object {
             operation_frame,
             operation_effects,
             None,
+            None,
         )
     }
 
@@ -280,6 +284,7 @@ impl Object {
         operation_frame: u32,
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         solo_set: &gamelogic::weapon::WeaponBonusSet,
+        random: &game_engine::common::random_value::SessionRandom,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         self.prepare_weapon_shot_with_operation(
             WeaponShotRoute::Autonomous,
@@ -295,6 +300,7 @@ impl Object {
             operation_frame,
             operation_effects,
             Some(solo_set),
+            Some(random),
         )
     }
     /// The receiving content catalogue cannot silently substitute a process
@@ -351,6 +357,7 @@ impl Object {
             0,
             &mut Default::default(),
             None,
+            None,
         )
     }
 
@@ -369,6 +376,7 @@ impl Object {
         operation_frame: u32,
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        random: Option<&game_engine::common::random_value::SessionRandom>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         let autonomous = matches!(route, WeaponShotRoute::Autonomous);
         // C++ Weapon::getMaxShotCount residual — AI burst / scatter limits.
@@ -870,13 +878,18 @@ impl Object {
                             gamelogic::weapon::WeaponBonusField::RateOfFire,
                             rof.max(0.01),
                         );
-                        rule.get_delay_between_shots(&bonus) as f32 / 30.0
+                        (match random {
+                            Some(random) => rule.get_delay_between_shots_with_random(&bonus, random),
+                            None => rule.get_delay_between_shots(&bonus),
+                        }) as f32 / 30.0
                     })
-                    .or_else(|| {
-                        crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_with_rof(
-                            weapon_name,
-                            rof,
-                        )
+                    .or_else(|| match random {
+                        Some(random) => crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_with_rof_and_random(
+                            weapon_name, rof, random,
+                        ),
+                        None => crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_with_rof(
+                            weapon_name, rof,
+                        ),
                     });
                 if let Some(rolled) = rolled {
                     let nominal = self

@@ -104,7 +104,15 @@ pub fn host_delay_between_shots_secs(name: &str) -> Option<f32> {
 
 /// Per-shot leftover `get_delay_between_shots` in host seconds, with RATE_OF_FIRE.
 pub fn host_delay_between_shots_secs_with_rof(name: &str, rof: f32) -> Option<f32> {
-    leftover_delay_between_shots_secs(name, rof, true)
+    leftover_delay_between_shots_secs_using(name, rof, true, None)
+}
+
+pub(crate) fn host_delay_between_shots_secs_with_rof_and_random(
+    name: &str,
+    rof: f32,
+    random: &game_engine::common::random_value::SessionRandom,
+) -> Option<f32> {
+    leftover_delay_between_shots_secs_using(name, rof, true, Some(random))
 }
 
 /// Ready-check leftover yardstick: min==max branch + RATE_OF_FIRE floor, no roll.
@@ -128,6 +136,15 @@ pub fn host_delay_between_shots_secs_rolled(name: &str) -> Option<f32> {
 }
 
 fn leftover_delay_between_shots_secs(name: &str, rof: f32, roll: bool) -> Option<f32> {
+    leftover_delay_between_shots_secs_using(name, rof, roll, None)
+}
+
+fn leftover_delay_between_shots_secs_using(
+    name: &str,
+    rof: f32,
+    roll: bool,
+    random: Option<&game_engine::common::random_value::SessionRandom>,
+) -> Option<f32> {
     use super::with_host_weapon_store as with_weapon_store;
     use gamelogic::weapon::{WeaponBonus, WeaponBonusField};
     with_weapon_store(|store| {
@@ -135,7 +152,10 @@ fn leftover_delay_between_shots_secs(name: &str, rof: f32, roll: bool) -> Option
             let mut bonus = WeaponBonus::new();
             bonus.set_field(WeaponBonusField::RateOfFire, rof.max(0.01));
             let frames = if roll || wt.min_delay_between_shots == wt.max_delay_between_shots {
-                wt.get_delay_between_shots(&bonus)
+                match random {
+                    Some(random) => wt.get_delay_between_shots_with_random(&bonus, random),
+                    None => wt.get_delay_between_shots(&bonus),
+                }
             } else {
                 let mut yardstick = WeaponTemplate::new(wt.name.clone());
                 yardstick.min_delay_between_shots = wt.min_delay_between_shots;
