@@ -82,7 +82,9 @@ fn public_xfer_restore_uses_each_receiving_map_override_and_module_factory() {
     let drawable_id = source
         .create_drawable_from_template(&source_template)
         .unwrap();
-    let bytes = source.capture_xfer_bytes().unwrap();
+    let bytes = source
+        .capture_xfer_bytes_with_owned_auxiliaries(&[])
+        .unwrap();
     *game_engine::common::thing::get_thing_factory().unwrap() = previous_factory;
 
     let mut world_a_content = override_build_cost(&base_a, 101);
@@ -154,7 +156,9 @@ fn public_native_restore_uses_receiving_color_and_does_not_import_same_id_regist
     source
         .bind_drawable_to_object(drawable_id, OBJECT_ID)
         .unwrap();
-    let bytes = source.capture_xfer_bytes().unwrap();
+    let bytes = source
+        .capture_xfer_bytes_with_owned_auxiliaries(&[])
+        .unwrap();
     *game_engine::common::thing::get_thing_factory().unwrap() = previous_factory;
 
     let foreign_template: std::sync::Arc<dyn gamelogic::thing_template::ThingTemplate> =
@@ -205,6 +209,21 @@ fn public_native_restore_uses_receiving_color_and_does_not_import_same_id_regist
         &still_bound_foreign_drawable,
         &foreign_drawable
     ));
+
+    let mut missing_template = GameClient::new().unwrap();
+    let mut unnamed = BasicDrawable::new(game_client_rust::drawable::DrawableId::INVALID);
+    unnamed.set_object_id(Some(OBJECT_ID));
+    missing_template
+        .register_drawable_with_template(Box::new(unnamed), Some(String::new()))
+        .unwrap();
+    // The standalone adapter can still discover the foreign registry name;
+    // native capture must not use that compatibility route.
+    assert!(missing_template.capture_xfer_bytes().is_ok());
+    let error = missing_template
+        .capture_xfer_bytes_with_owned_auxiliaries(&[])
+        .unwrap_err();
+    assert!(error.contains("missing its receiving template name"));
+
     gamelogic::object::registry::OBJECT_REGISTRY.unregister_object(OBJECT_ID);
 
     // The record and Drawable payload each encode the object ID. C++ rejects

@@ -1794,6 +1794,27 @@ impl GameClient {
         owned: &[NativeAuxiliaryReceipt],
     ) -> Result<Vec<u8>, String> {
         self.import_objectless_from_logic_client();
+        // A native Drawable must carry the template admitted by its own
+        // client. Do not resolve a missing name through another world's
+        // compatibility object registry while writing this session's save.
+        for &id in &self.drawables.native_drawable_order {
+            if owned.iter().any(|receipt| receipt.drawable_id() == id) {
+                continue;
+            }
+            let drawable = self
+                .drawables
+                .drawable_map
+                .get(&id)
+                .ok_or_else(|| format!("native Drawable roster ID {} is absent", id.0))?;
+            if Self::should_save_drawable(drawable.as_ref())
+                && drawable.get_template_name().is_none_or(str::is_empty)
+            {
+                return Err(format!(
+                    "native Drawable '{}' missing its receiving template name for save",
+                    id.0
+                ));
+            }
+        }
         let mut bytes = Vec::new();
         let mut xfer =
             game_engine::common::system::xfer_save::XferSave::new(Cursor::new(&mut bytes), 3);
