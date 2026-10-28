@@ -11,7 +11,7 @@
 //! dish snapped back to idle on load.
 //!
 //! Append a Rust-only tagged suffix after the contain/producer payload.
-//! OXFR v4 adds per-module RadarUpgrade executed state and preserves Object-owned retained death status and KeepObject runtime
+//! OXFR v5 adds per-module ObjectCreationUpgrade execution state. OXFR v4 adds per-module RadarUpgrade executed state and preserves Object-owned retained death status and KeepObject runtime
 //! separately from the existing functional onDie latch. C++ Object::xfer
 //! persists object/private status and ActiveBody::xfer persists BODY_RUBBLE;
 //! KeepObjectDie::xfer adds no custom retained fields. These are Rust runtime
@@ -27,7 +27,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const OXFR_MAGIC: &[u8; 4] = b"OXFR";
-const OXFR_VERSION: u32 = 4;
+const OXFR_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectModuleXferPersistPayload {
@@ -37,6 +37,32 @@ struct ObjectModuleXferPersistPayload {
     radar: Vec<RadarPersist>,
     death_start: Vec<DeathStartPersist>,
     retained_death: Vec<RetainedDeathStatePersist>,
+    object_creation_upgrade: Vec<ObjectCreationUpgradePersist>,
+}
+
+/// OXFR v4 payload layout. Keep its field order stable for existing saves.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectModuleXferPersistPayloadV4 {
+    stun: Vec<StunPersist>,
+    battle_bus: Vec<BattleBusPersist>,
+    slow_death: Vec<SlowDeathPersist>,
+    radar: Vec<RadarPersist>,
+    death_start: Vec<DeathStartPersist>,
+    retained_death: Vec<RetainedDeathStatePersist>,
+}
+
+impl From<ObjectModuleXferPersistPayloadV4> for ObjectModuleXferPersistPayload {
+    fn from(value: ObjectModuleXferPersistPayloadV4) -> Self {
+        Self {
+            stun: value.stun,
+            battle_bus: value.battle_bus,
+            slow_death: value.slow_death,
+            radar: value.radar,
+            death_start: value.death_start,
+            retained_death: value.retained_death,
+            object_creation_upgrade: Vec::new(),
+        }
+    }
 }
 
 /// Rust's functional onDie reentry latch, independent of health/death modules.
@@ -101,6 +127,12 @@ struct RadarPersist {
     radar_active: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ObjectCreationUpgradePersist {
+    object_id: u32,
+    executed: Vec<bool>,
+}
+
 impl ObjectModuleXferPersistPayload {
     fn is_empty(&self) -> bool {
         self.stun.is_empty()
@@ -109,6 +141,7 @@ impl ObjectModuleXferPersistPayload {
             && self.radar.is_empty()
             && self.death_start.is_empty()
             && self.retained_death.is_empty()
+            && self.object_creation_upgrade.is_empty()
     }
 }
 
@@ -132,7 +165,7 @@ fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<ObjectModuleXferPersist
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
-    if version != OXFR_VERSION {
+    if version != 4 && version != OXFR_VERSION {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown OXFR suffix version {version}"
         )));
@@ -143,8 +176,16 @@ fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<ObjectModuleXferPersist
             "OXFR payload truncated".to_string(),
         ));
     }
-    let payload: ObjectModuleXferPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("OXFR payload decode: {err}")))?;
+    let payload = if version == 4 {
+        let old: ObjectModuleXferPersistPayloadV4 =
+            bincode_legacy::deserialize(&rest[..payload_len]).map_err(|err| {
+                SaveLoadError::Corrupted(format!("OXFR v4 payload decode: {err}"))
+            })?;
+        old.into()
+    } else {
+        bincode_legacy::deserialize(&rest[..payload_len])
+            .map_err(|err| SaveLoadError::Corrupted(format!("OXFR payload decode: {err}")))?
+    };
     Ok(Some(payload))
 }
 
@@ -217,6 +258,7 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
     let mut radar = Vec::new();
     let mut death_start = Vec::with_capacity(ids.len());
     let mut retained_death = Vec::with_capacity(ids.len());
+    let mut object_creation_upgrade = Vec::new();
 
     for id in ids {
         let Some(object) = game_logic.host_object(id) else {
@@ -297,6 +339,13 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
                 radar_active: object.radar_active,
             });
         }
+
+        if !object.object_creation_upgrade_executed.is_empty() {
+            object_creation_upgrade.push(ObjectCreationUpgradePersist {
+                object_id: id.0,
+                executed: object.object_creation_upgrade_executed.clone(),
+            });
+        }
     }
 
     ObjectModuleXferPersistPayload {
@@ -306,6 +355,7 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
         radar,
         death_start,
         retained_death,
+        object_creation_upgrade,
     }
 }
 
@@ -313,6 +363,8 @@ fn apply_payload(
     game_logic: &mut GameLogic,
     payload: ObjectModuleXferPersistPayload,
 ) -> SaveLoadResult<()> {
+    validate_payload_before_apply(game_logic, &payload)?;
+
     for entry in payload.stun {
         if let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) {
             object.shock_stun_frames = entry.shock_stun_frames;
@@ -342,35 +394,18 @@ fn apply_payload(
     }
     for entry in payload.radar {
         if let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) {
-            if !entry.executed.is_empty()
-                && object
-                    .thing()
-                    .template
-                    .radar_upgrade_rules
-                    .as_ref()
-                    .is_none_or(|rules| rules.len() != entry.executed.len())
-            {
-                return Err(crate::save_load::SaveLoadError::Corrupted(
-                    "RadarUpgrade executed-state count disagrees with authored modules".into(),
-                ));
-            }
-            if entry.contributors.len() != entry.executed.len()
-                || entry
-                    .contributors
-                    .iter()
-                    .enumerate()
-                    .any(|(index, owner)| !owner.is_empty() && !entry.executed[index])
-            {
-                return Err(SaveLoadError::Corrupted(
-                    "RadarUpgrade contribution state disagrees with executed modules".into(),
-                ));
-            }
             object.radar_upgrade_executed = entry.executed;
             object.radar_upgrade_contributors = entry.contributors;
             object.radar_extend_done_frame = entry.radar_extend_done_frame;
             object.radar_extend_complete = entry.radar_extend_complete;
             object.radar_active = entry.radar_active;
             apply_radar_bits(object);
+        }
+    }
+    for entry in payload.object_creation_upgrade {
+        let object_id = ObjectId(entry.object_id);
+        if let Some(object) = game_logic.host_object_mut(object_id) {
+            object.object_creation_upgrade_executed = entry.executed;
         }
     }
     for entry in payload.death_start {
@@ -401,6 +436,94 @@ fn apply_payload(
     Ok(())
 }
 
+/// Check every fallible Radar/OCU restore condition before the first row in
+/// this extension mutates a live object. A save made against a different or
+/// missing authored module catalog is incompatible; silently dropping its
+/// module latch could replay the OCL on the next upgrade update.
+fn validate_payload_before_apply(
+    game_logic: &GameLogic,
+    payload: &ObjectModuleXferPersistPayload,
+) -> SaveLoadResult<()> {
+    let corrupted = |message: &str| SaveLoadError::Corrupted(message.to_owned());
+    let mut radar_ids = std::collections::HashSet::new();
+    for entry in &payload.radar {
+        if !radar_ids.insert(entry.object_id) {
+            return Err(corrupted("duplicate RadarUpgrade owner in OXFR payload"));
+        }
+        let Some(object) = game_logic.host_object(ObjectId(entry.object_id)) else {
+            // Preserve the existing Radar restore behavior for a row whose
+            // Object was not recreated; only validate rows that can be applied.
+            continue;
+        };
+        if !entry.executed.is_empty()
+            && object
+                .thing()
+                .template
+                .radar_upgrade_rules
+                .as_ref()
+                .is_none_or(|rules| rules.len() != entry.executed.len())
+        {
+            return Err(corrupted(
+                "RadarUpgrade executed-state count disagrees with authored modules",
+            ));
+        }
+        if entry.contributors.len() != entry.executed.len()
+            || entry
+                .contributors
+                .iter()
+                .enumerate()
+                .any(|(index, owner)| !owner.is_empty() && !entry.executed[index])
+        {
+            return Err(corrupted(
+                "RadarUpgrade contribution state disagrees with executed modules",
+            ));
+        }
+    }
+
+    let mut object_creation_ids = std::collections::HashSet::new();
+    for entry in &payload.object_creation_upgrade {
+        if !object_creation_ids.insert(entry.object_id) {
+            return Err(corrupted(
+                "duplicate ObjectCreationUpgrade owner in OXFR payload",
+            ));
+        }
+        let object_id = ObjectId(entry.object_id);
+        let object = game_logic.host_object(object_id).ok_or_else(|| {
+            corrupted("ObjectCreationUpgrade owner is absent during OXFR restore")
+        })?;
+        let content = game_logic
+            .receiving_module_content
+            .as_ref()
+            .ok_or_else(|| corrupted("ObjectCreationUpgrade receiving module catalog is absent"))?;
+        let template = content
+            .admitted_template(&object.template_name)
+            .ok_or_else(|| corrupted("ObjectCreationUpgrade receiving template is absent"))?;
+        use game_engine::common::thing::module::ModuleData;
+        let mut authored_count = 0usize;
+        for module in template.behavior_modules().iter().filter(|module| {
+            module
+                .name
+                .as_str()
+                .eq_ignore_ascii_case("ObjectCreationUpgrade")
+        }) {
+            if !module.data.as_any().is::<
+                gamelogic::upgrade::modules::object_creation::ObjectCreationUpgradeModuleData,
+            >() {
+                return Err(corrupted(
+                    "ObjectCreationUpgrade receiving module has an incompatible data type",
+                ));
+            }
+            authored_count += 1;
+        }
+        if authored_count != entry.executed.len() {
+            return Err(corrupted(
+                "ObjectCreationUpgrade executed-state count disagrees with authored modules",
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn apply_stun_bits(object: &mut crate::game_logic::Object) {
     use crate::game_logic::host_enum_table_residual::{
         stunned_flailing_model_bit, stunned_model_bit,
@@ -415,6 +538,132 @@ fn apply_stun_bits(object: &mut crate::game_logic::Object) {
         } else {
             object.model_condition_bits |= 1u128 << flailing;
         }
+    }
+}
+
+#[cfg(test)]
+mod object_creation_upgrade_state_tests {
+    use super::*;
+    use crate::game_logic::Team;
+    use glam::Vec3;
+
+    fn world_with_creation_modules() -> (GameLogic, ObjectId) {
+        let mut world = GameLogic::new();
+        world
+            .admit_object_ini_sources([(
+                "saved-creation-upgrade.ini".into(),
+                "Object SavedCreationUpgradeHost\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = ObjectCreationUpgrade FirstCreation\n  TriggeredBy = Upgrade_Veterancy_VETERAN\n  UpgradeObject = None\n End\n Behavior = ObjectCreationUpgrade SecondCreation\n  TriggeredBy = Upgrade_Veterancy_ELITE\n  UpgradeObject = None\n End\nEnd\n".into(),
+            )])
+            .expect("receiving OCU catalog should admit");
+        let id = world
+            .create_object("SavedCreationUpgradeHost", Team::USA, Vec3::ZERO)
+            .expect("catalog host should create");
+        (world, id)
+    }
+
+    #[test]
+    fn executed_module_latches_survive_the_lifecycle_suffix_restore() {
+        let (mut source, id) = world_with_creation_modules();
+        source
+            .host_object_mut(id)
+            .unwrap()
+            .object_creation_upgrade_executed = vec![true, false];
+
+        let mut bytes = Vec::new();
+        append_to_lifecycle_tail(&mut bytes, &source);
+        let decoded = decode_payload(&bytes).unwrap().unwrap();
+        assert_eq!(decoded.object_creation_upgrade.len(), 1);
+        assert_eq!(decoded.object_creation_upgrade[0].executed, [true, false]);
+
+        let (mut restored, restored_id) = world_with_creation_modules();
+        assert_eq!(restored_id, id);
+        apply_from_lifecycle_tail(&bytes, &mut restored).unwrap();
+        assert_eq!(
+            restored
+                .host_object(id)
+                .unwrap()
+                .object_creation_upgrade_executed,
+            [true, false]
+        );
+    }
+
+    #[test]
+    fn invalid_later_ocu_row_is_rejected_before_earlier_stun_mutation() {
+        let mut world = GameLogic::new();
+        world.templates.insert(
+            "OXFRPreflightOwner".into(),
+            crate::game_logic::ThingTemplate::new("OXFRPreflightOwner"),
+        );
+        let id = world
+            .create_object("OXFRPreflightOwner", Team::USA, Vec3::ZERO)
+            .unwrap();
+        world.host_object_mut(id).unwrap().shock_stun_frames = 3;
+
+        let mut payload = ObjectModuleXferPersistPayload::default();
+        payload.stun.push(StunPersist {
+            object_id: id.0,
+            shock_stun_frames: 99,
+            shock_yaw_rate: 1.0,
+            shock_pitch_rate: 0.0,
+            shock_roll_rate: 0.0,
+            shock_allow_bounce: false,
+            shock_was_airborne: false,
+            shock_grounded_once: false,
+            shock_up_z: 1.0,
+        });
+        payload
+            .object_creation_upgrade
+            .push(ObjectCreationUpgradePersist {
+                object_id: id.0 + 100,
+                executed: vec![true],
+            });
+
+        assert!(apply_payload(&mut world, payload).is_err());
+        assert_eq!(world.host_object(id).unwrap().shock_stun_frames, 3);
+    }
+
+    #[test]
+    fn duplicate_ocu_owner_rows_are_rejected_before_mutation() {
+        let (mut world, id) = world_with_creation_modules();
+        world.host_object_mut(id).unwrap().shock_stun_frames = 3;
+
+        let mut payload = ObjectModuleXferPersistPayload::default();
+        payload.stun.push(StunPersist {
+            object_id: id.0,
+            shock_stun_frames: 99,
+            shock_yaw_rate: 1.0,
+            shock_pitch_rate: 0.0,
+            shock_roll_rate: 0.0,
+            shock_allow_bounce: false,
+            shock_was_airborne: false,
+            shock_grounded_once: false,
+            shock_up_z: 1.0,
+        });
+        payload.object_creation_upgrade = vec![
+            ObjectCreationUpgradePersist {
+                object_id: id.0,
+                executed: vec![true, false],
+            },
+            ObjectCreationUpgradePersist {
+                object_id: id.0,
+                executed: vec![false, true],
+            },
+        ];
+
+        assert!(apply_payload(&mut world, payload).is_err());
+        assert_eq!(world.host_object(id).unwrap().shock_stun_frames, 3);
+    }
+
+    #[test]
+    fn oxfr_v4_payloads_still_decode_without_creation_upgrade_rows() {
+        let old = ObjectModuleXferPersistPayloadV4::default();
+        let encoded = bincode_legacy::serialize(&old).unwrap();
+        let mut bytes = OXFR_MAGIC.to_vec();
+        append_u32(&mut bytes, 4);
+        append_u32(&mut bytes, encoded.len() as u32);
+        bytes.extend_from_slice(&encoded);
+        let decoded = decode_payload(&bytes).unwrap().unwrap();
+        assert!(decoded.object_creation_upgrade.is_empty());
     }
 }
 

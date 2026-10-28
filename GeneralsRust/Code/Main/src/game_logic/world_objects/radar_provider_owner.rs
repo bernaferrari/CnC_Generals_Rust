@@ -119,10 +119,10 @@ impl GameLogic {
             if let Some(fx) = &rule.fx_list {
                 self.dispatch_fx_list_at_host_object_with_effects(fx, id, None, effects);
             }
-            let object = self.objects.get_mut(&id).unwrap();
             for upgrade in &rule.removes_upgrades {
-                object.remove_upgrade_tag(upgrade);
+                self.remove_object_upgrade_with_receiving_rules(id, upgrade);
             }
+            let object = self.objects.get_mut(&id).unwrap();
             object.radar_upgrade_executed[index] = true;
             // C++ upgradeImplementation adds radar even if disabled already;
             // a later real onDisabled callback is what removes this contribution.

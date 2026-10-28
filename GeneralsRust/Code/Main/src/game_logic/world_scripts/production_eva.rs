@@ -1159,6 +1159,7 @@ impl GameLogic {
         let Some(obj) = self.objects.get(&structure_id) else {
             return;
         };
+        let structure_birth = std::sync::Arc::downgrade(&obj.visual_draw_identity_token);
         if obj.status.under_construction {
             return;
         }
@@ -1184,6 +1185,9 @@ impl GameLogic {
             })
             .unwrap_or_default();
         for name in upgrades {
+            if !self.object_birth_matches(structure_id, &structure_birth) {
+                return;
+            }
             // C++ Object::updateUpgradeModules still walks Type=OBJECT
             // PowerPlantUpgrade (TriggeredBy Advanced Control Rods) so a plant
             // built after research gets EnergyBonus + extendRods.
@@ -1204,6 +1208,19 @@ impl GameLogic {
             )
             .expect("owned upgrade callback admission must complete");
         }
+        // C++ Object::updateUpgradeModules runs once more after construction
+        // clears UNDER_CONSTRUCTION. Replay the combined object/player mask so
+        // object upgrades granted while construction blocked module dispatch
+        // can activate their authored ObjectCreationUpgrade modules now.
+        if !self.object_birth_matches(structure_id, &structure_birth) {
+            return;
+        }
+        self.update_object_creation_upgrade_modules_with_interpreter_and_effects(
+            structure_id,
+            interpreter,
+            effects,
+        )
+        .expect("owned ObjectCreationUpgrade completion callback must complete");
     }
 
     pub fn notify_structure_construction_complete(

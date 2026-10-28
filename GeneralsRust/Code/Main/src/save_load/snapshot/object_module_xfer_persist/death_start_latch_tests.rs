@@ -112,7 +112,12 @@ fn oxfr_death_start_records_follow_existing_module_vectors_in_sorted_order_and_k
         encoded.starts_with(&prefix),
         "original four module vectors changed"
     );
-    let records: Vec<(u32, bool)> = bincode_legacy::deserialize(&encoded[prefix.len()..]).unwrap();
+    let decoded: ObjectModuleXferPersistPayload = bincode_legacy::deserialize(encoded).unwrap();
+    let records: Vec<_> = decoded
+        .death_start
+        .iter()
+        .map(|entry| (entry.object_id, entry.on_die_started))
+        .collect();
     assert_eq!(
         records,
         vec![(kept.0, true), (inactive.0, false), (phase_only.0, false)]

@@ -1468,6 +1468,10 @@ pub struct Object {
     /// C++ UpgradeMux executed state for each authored RadarUpgrade, source order.
     #[serde(default)]
     pub(crate) radar_upgrade_executed: Vec<bool>,
+    /// C++ UpgradeMux::m_upgradeExecuted for each authored ObjectCreationUpgrade,
+    /// in behavior-module order. Saved in the lifecycle Xfer suffix.
+    #[serde(default)]
+    pub(crate) object_creation_upgrade_executed: Vec<bool>,
     /// Exact outstanding Player contribution per authored module. Disabled grants
     /// and disabled capture cannot be inferred from the executed flag alone.
     #[serde(default)]

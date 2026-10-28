@@ -1135,11 +1135,11 @@ impl GameLogic {
             self.upgrade_die_reg.record_missing_producer();
             return;
         };
-        let Some(master) = self.objects.get_mut(&pid) else {
+        if !self.objects.contains_key(&pid) {
             self.upgrade_die_reg.record_missing_producer();
             return;
-        };
-        if master.remove_upgrade_tag(&upgrade) {
+        }
+        if self.remove_object_upgrade_with_receiving_rules(pid, &upgrade) {
             self.upgrade_die_reg.record_removal();
         } else {
             self.upgrade_die_reg.record_missing_upgrade();

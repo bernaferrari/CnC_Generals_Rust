@@ -4,8 +4,8 @@ use crate::game_logic::{KindOf, Team, ThingTemplate};
 use glam::Vec3;
 
 #[test]
-fn keepobject_oxfr_v4_appends_retained_rows_after_unchanged_latch_and_module_vectors() {
-    assert_eq!(OXFR_VERSION, 4);
+fn keepobject_oxfr_v5_appends_new_module_state_after_retained_rows() {
+    assert_eq!(OXFR_VERSION, 5);
     let mut source = GameLogic::new();
     let mut template = ThingTemplate::new("TechOilDerrick");
     template.add_kind_of(KindOf::Structure);
@@ -29,24 +29,29 @@ fn keepobject_oxfr_v4_appends_retained_rows_after_unchanged_latch_and_module_vec
     bytes.extend_from_slice(&sentinel);
     assert_eq!(&bytes[..16], b"preceding-domain");
     let mut suffix = find_oxfr_suffix(&bytes).unwrap();
-    assert_eq!(take_u32(&mut suffix).unwrap(), 4);
+    assert_eq!(take_u32(&mut suffix).unwrap(), 5);
     let len = take_u32(&mut suffix).unwrap() as usize;
     let encoded = &suffix[..len];
     assert!(
         encoded.starts_with(&prefix),
         "earlier vectors, including exact latch rows, changed"
     );
-    let rows: Vec<RetainedDeathStatePersist> =
-        bincode_legacy::deserialize(&encoded[prefix.len()..]).unwrap();
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].object_id, kept.0);
-    assert!(rows[0].effectively_dead && rows[0].keep_as_rubble);
-    assert!(rows[0].keep_object_die.as_ref().unwrap().is_rubble);
+    let decoded: ObjectModuleXferPersistPayload = bincode_legacy::deserialize(encoded).unwrap();
+    assert_eq!(decoded.retained_death.len(), 1);
+    assert_eq!(decoded.retained_death[0].object_id, kept.0);
+    assert!(decoded.retained_death[0].effectively_dead && decoded.retained_death[0].keep_as_rubble);
+    assert!(
+        decoded.retained_death[0]
+            .keep_object_die
+            .as_ref()
+            .unwrap()
+            .is_rubble
+    );
     assert_eq!(&suffix[len..], &sentinel);
 }
 
 #[test]
-fn keepobject_oxfr_v4_applies_explicit_false_rows_without_using_latch_or_dead_hp() {
+fn keepobject_oxfr_v5_applies_explicit_false_rows_without_using_latch_or_dead_hp() {
     let mut source = GameLogic::new();
     source
         .templates
