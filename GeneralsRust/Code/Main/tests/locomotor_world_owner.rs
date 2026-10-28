@@ -57,6 +57,70 @@ fn world_with_catalog(map: &std::path::Path, catalog: LocomotorStore) -> GameLog
 }
 
 #[test]
+fn ordinary_updates_stamp_locomotor_maintain_deadlines_from_each_world_frame() {
+    let mut map = DataChunkOutput::new();
+    map.open_data_chunk("HeightMapData", 3);
+    for value in [21, 21, 1, 441] {
+        map.write_int(value);
+    }
+    for _ in 0..441 {
+        map.write_byte(8);
+    }
+    map.close_data_chunk();
+    map.open_data_chunk("ObjectsList", 3);
+    map.close_data_chunk();
+    let root = tempfile::tempdir().unwrap();
+    let map_path = root.path().join("Maintain.map");
+    std::fs::write(&map_path, map.into_ckmp_bytes()).unwrap();
+
+    let mut owner = world(&map_path, 20, 3);
+    let mut peer = world(&map_path, 60, 7);
+    // Give each receiver a different live frame before the ordinary locomotor
+    // callback. The object IDs intentionally collide across the two worlds.
+    for _ in 0..7 {
+        owner.update_with_dt(1.0 / 30.0);
+    }
+    for _ in 0..19 {
+        peer.update_with_dt(1.0 / 30.0);
+    }
+    let owner_id = owner
+        .create_object_for_player("OwnerMover", 42, glam::Vec3::new(80.0, 0.0, 80.0))
+        .unwrap();
+    let peer_id = peer
+        .create_object_for_player("OwnerMover", 42, glam::Vec3::new(80.0, 0.0, 80.0))
+        .unwrap();
+    assert_eq!(owner_id, peer_id);
+
+    for (logic, id) in [(&mut owner, owner_id), (&mut peer, peer_id)] {
+        let unit = logic.host_object_mut(id).unwrap();
+        assert_eq!(unit.cur_locomotor_name.as_deref(), Some("SharedOwnerLoco"));
+        unit.donut_timer = 0;
+        unit.is_braking = true;
+        let position = unit.get_position();
+        // Public Object operation admits the coincident explicit position
+        // goal; the next Main update reaches maintainCurrentPosition through
+        // the ordinary admitted-locomotor movement pass.
+        unit.set_locomotor_goal_position_explicit(position);
+    }
+
+    let owner_frame = owner.get_frame();
+    let peer_frame = peer.get_frame();
+    assert_ne!(owner_frame, peer_frame);
+    assert_eq!(owner.update_with_dt(1.0 / 30.0).steps_run, 1);
+    assert_eq!(peer.update_with_dt(1.0 / 30.0).steps_run, 1);
+
+    for (logic, id, frame) in [
+        (&owner, owner_id, owner_frame),
+        (&peer, peer_id, peer_frame),
+    ] {
+        let unit = logic.host_object(id).unwrap();
+        assert_eq!(logic.get_frame(), frame.wrapping_add(1));
+        assert_eq!(unit.donut_timer, frame.wrapping_add(75));
+        assert!(!unit.is_braking);
+    }
+}
+
+#[test]
 fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
     use game_engine::common::name_key_generator::NameKeyGenerator;
     let before = NameKeyGenerator::name_to_key("LocomotorOwnerProbeBefore");

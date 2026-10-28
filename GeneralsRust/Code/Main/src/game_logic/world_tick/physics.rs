@@ -1615,7 +1615,7 @@ impl GameLogic {
             );
             return true;
         }
-        object.begin_loco_maintain_appearance();
+        object.begin_loco_maintain_appearance(frame);
         let Some(goal) = object.maintain_pos else {
             return true;
         };

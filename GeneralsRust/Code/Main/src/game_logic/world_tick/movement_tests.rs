@@ -2922,6 +2922,49 @@ fn start_move_resets_donut_so_short_order_does_not_instant_brake() {
 }
 
 #[test]
+fn owned_maintain_uses_receiving_frame_before_the_single_altitude_phase() {
+    let mut logic = GameLogic::new();
+    let id = ObjectId(98_130);
+    let mut template = ThingTemplate::new("Humvee");
+    template.add_kind_of(KindOf::Vehicle);
+    let mut unit = Object::new(template, id, Team::USA);
+    unit.set_position(Vec3::new(80.0, 100.0, 80.0));
+    bind_fixture_locomotor(&mut unit, "BasicHumanLocomotor");
+    unit.loco_appearance = LocomotorAppearance::Hover;
+    unit.loco_behavior_z = LocomotorBehaviorZ::FixedAbsoluteHeight;
+    unit.loco_preferred_height = 45.0;
+    unit.donut_timer = 0;
+    unit.is_braking = true;
+    logic.objects.insert(id, unit);
+
+    let frame = 321;
+    // This is the same owned appearance call made by the production
+    // locomotor pass; C++ stamps the donut deadline before appearance and
+    // runs handleBehaviorZ only after maintainCurrentPosition returns.
+    assert!(logic.maintain_owned_locomotor_appearance_with_effects(
+        id,
+        1.0 / 30.0,
+        frame,
+        0.0,
+        &mut Default::default(),
+    ));
+    let after_appearance = logic.objects.get(&id).expect("receiving unit");
+    assert_eq!(after_appearance.donut_timer, frame.wrapping_add(75));
+    assert!(!after_appearance.is_braking);
+    assert_eq!(after_appearance.get_position().y, 100.0);
+
+    // The production caller performs the one Z callback after appearance.
+    assert!(
+        logic
+            .apply_owned_locomotor_z_with_effects(id, Some(100.0), frame, &mut Default::default(),)
+            .unwrap()
+    );
+    let after_altitude = logic.objects.get(&id).expect("receiving unit");
+    assert_eq!(after_altitude.donut_timer, frame.wrapping_add(75));
+    assert_eq!(after_altitude.get_position().y, 45.0);
+}
+
+#[test]
 fn maintain_resets_donut_and_clears_braking() {
     let mut truck = {
         let mut tmpl = ThingTemplate::new("Humvee");

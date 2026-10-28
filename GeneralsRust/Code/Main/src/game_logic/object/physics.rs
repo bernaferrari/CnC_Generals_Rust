@@ -1,5 +1,9 @@
 use super::*;
 
+/// C++ Locomotor.cpp:2420/761 adds 2.5 seconds at 30 logic frames per second.
+const LOCOMOTOR_DONUT_DELAY_FRAMES: u32 =
+    (2.5_f32 * game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32) as u32;
+
 pub(in crate::game_logic) struct ZBehaviorStep {
     pub requires_constant_calling: bool,
     pub position: Option<glam::Vec3>,
@@ -904,14 +908,14 @@ impl Object {
             &mut Default::default(),
         )
     }
-    pub(in crate::game_logic) fn begin_loco_maintain_appearance(&mut self) {
+    pub(in crate::game_logic) fn begin_loco_maintain_appearance(&mut self, frame: u32) {
         if !self.maintain_pos_valid {
             self.maintain_pos = Some(self.get_position());
 
             self.maintain_pos_valid = true;
         }
         // C++ Locomotor.cpp:2420-2421 — reset donut window and clear IS_BRAKING.
-        self.start_move();
+        self.start_move_at_frame(frame);
         self.is_braking = false;
         self.physics_turning = PhysicsTurningType::TurnNone;
     }
@@ -922,7 +926,7 @@ impl Object {
         surface_y: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
-        self.begin_loco_maintain_appearance();
+        self.begin_loco_maintain_appearance(frame);
 
         // Appearance-specific maintain residual.
         match self.loco_appearance {
@@ -1658,6 +1662,12 @@ impl Object {
     /// C++ Locomotor::startMove (Locomotor.cpp:761-765) — reset donut timer only.
     pub fn start_move(&mut self) {
         self.donut_timer = u32::MAX;
+    }
+
+    /// C++ startMove/maintainCurrentPosition with its driving GameLogic frame.
+    /// Use wrapping integer arithmetic for the serialized u32 frame counter.
+    pub(in crate::game_logic) fn start_move_at_frame(&mut self, frame: u32) {
+        self.donut_timer = frame.wrapping_add(LOCOMOTOR_DONUT_DELAY_FRAMES);
     }
 
     /// True if effectively moving (C++ isMoving || isWaitingForPath).
