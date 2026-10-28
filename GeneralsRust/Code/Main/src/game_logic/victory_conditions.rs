@@ -3,15 +3,15 @@
 ** Mirrors GeneralsMD/Code/GameEngine/Source/GameLogic/ScriptEngine/VictoryConditions.cpp
 */
 
-use std::collections::{HashMap, HashSet};
 use bitflags::bitflags;
 use game_engine::common::rts::player_template::PlayerTemplateStore;
 use log::{debug, warn};
+use std::collections::{HashMap, HashSet};
 
 use crate::config::{ConfigValue, IniParser, LoadMode};
 
 use super::{
-    KindOf, ObjectId, Team,
+    GameLogic, KindOf, ObjectId, Team,
     game_logic::{GameMode, Player, PlayerTemplateIdentity},
     object::Object,
     victory::VictoryCondition,
@@ -67,16 +67,20 @@ struct PlayerArmyState {
 fn live_player_relationship(
     source: &Player,
     target: &Player,
-    _team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+    team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
 ) -> gamelogic::common::Relationship {
     use gamelogic::common::Relationship;
+    let target_team = target.default_team_id.or_else(|| {
+        let factory = team_factory?;
+        default_team_instance_names(target)
+            .into_iter()
+            .find_map(|name| GameLogic::team_id_for_relationship(factory, None, &name))
+    });
+    if let Some(rel) = target_team.and_then(|id| source.team_relationship_override(id)) {
+        return rel;
+    }
     if source.id == target.id {
         return Relationship::Allies;
-    }
-    for name in default_team_instance_names(target) {
-        if let Some(rel) = source.team_relationship_override(&name) {
-            return rel;
-        }
     }
     if let Some(rel) = source.map_relationship(target.id) {
         return rel;
@@ -785,6 +789,7 @@ mod tests {
 
     fn player(id: u32, team: Team, alliance: i32) -> Player {
         let mut p = Player::new(id, team, &format!("P{id}"), id == 0);
+        p.default_team_id = Some(id + 1);
         p.alliance_team = alliance;
         p.is_alive = true;
         p.resources.supplies = 5_000;
@@ -896,8 +901,8 @@ mod tests {
         let mut gla = player(1, Team::GLA, 2);
         usa.set_map_relationship(1, Relationship::Enemies);
         gla.set_map_relationship(0, Relationship::Enemies);
-        usa.set_team_relationship_override("teamP1", Relationship::Allies);
-        gla.set_team_relationship_override("teamP0", Relationship::Allies);
+        usa.set_team_relationship_override(2, Relationship::Allies);
+        gla.set_team_relationship_override(1, Relationship::Allies);
         allies.insert(0, usa);
         allies.insert(1, gla);
         let mut objects = crate::game_logic::HostObjectStore::new();
@@ -916,7 +921,7 @@ mod tests {
         let mut one_way = HashMap::new();
         let mut usa = player(0, Team::USA, 1);
         let gla = player(1, Team::GLA, 2);
-        usa.set_team_relationship_override("teamP1", Relationship::Allies);
+        usa.set_team_relationship_override(2, Relationship::Allies);
         one_way.insert(0, usa);
         one_way.insert(1, gla);
         let mut objs = crate::game_logic::HostObjectStore::new();
@@ -934,8 +939,8 @@ mod tests {
         let mut teamplayer = HashMap::new();
         let mut usa = player(0, Team::USA, 1);
         let mut gla = player(1, Team::GLA, 2);
-        usa.set_team_relationship_override("teamplayer1", Relationship::Allies);
-        gla.set_team_relationship_override("teamplayer0", Relationship::Allies);
+        usa.set_team_relationship_override(2, Relationship::Allies);
+        gla.set_team_relationship_override(1, Relationship::Allies);
         teamplayer.insert(0, usa);
         teamplayer.insert(1, gla);
         let mut objs = crate::game_logic::HostObjectStore::new();

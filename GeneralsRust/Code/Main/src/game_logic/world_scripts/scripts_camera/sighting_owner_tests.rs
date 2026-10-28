@@ -328,13 +328,14 @@ fn sighting_relationship_precedence_and_defection_use_owned_maps() {
         let (mut world, observer, target) = world();
         world.host_object_mut(observer).unwrap().team_instance_name = "LookerTeam".into();
         world.host_object_mut(target).unwrap().team_instance_name = "TargetTeam".into();
+        let target_team = world.host_object(target).unwrap().team_instance_id.unwrap();
         world.players.get_mut(&2).unwrap().is_alive = false;
         both(&mut world, true); // defeated player still has relationships
         world
             .players
             .get_mut(&1)
             .unwrap()
-            .set_team_relationship_override("TargetTeam", Relationship::Allies);
+            .set_team_relationship_override(target_team, Relationship::Allies);
         assert!(!observed(&mut world, enemy(OBSERVER, 0, "Opponent")));
         assert!(observed(&mut world, enemy(OBSERVER, 2, "Opponent")));
         assert!(
@@ -450,11 +451,12 @@ fn sighting_default_team_uses_authored_player_name() {
             .team_instance_name
             .clear();
         world.players.get_mut(&2).unwrap().map_side.map_player_name = "AuthoredOpponent".into();
+        let target_team = world.host_object(target).unwrap().team_instance_id.unwrap();
         world
             .players
             .get_mut(&1)
             .unwrap()
-            .set_team_relationship_override("teamAuthoredOpponent", Relationship::Allies);
+            .set_team_relationship_override(target_team, Relationship::Allies);
         assert!(observed(&mut world, enemy(OBSERVER, 2, "AuthoredOpponent")));
         assert!(!observed(
             &mut world,

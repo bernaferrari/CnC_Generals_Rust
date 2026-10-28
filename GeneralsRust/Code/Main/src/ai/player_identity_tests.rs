@@ -77,7 +77,7 @@ fn supply_source_queries_for_a_player_without_ai_match_cpp_defaults() {
 fn supply_source_queries_use_canonical_map_player_identity() {
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     use game_engine::common::name_key_generator::NameKeyGenerator;
-    use gamelogic::player::{player_list, Player as CorePlayer, PlayerList};
+    use gamelogic::player::{Player as CorePlayer, PlayerList, player_list};
     use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
     use gamelogic::scripting::executor::{
         ScriptConditionEvaluator, ScriptConditionResult, ScriptContext,
@@ -332,12 +332,11 @@ fn relationship_match() -> crate::game_logic::GameLogic {
         (2, Team::China, 500.0),
         (3, Team::USA, 900.0),
     ] {
-        logic.add_player(crate::game_logic::Player::new(
-            id,
-            team,
-            &format!("Rel{id}"),
-            false,
-        ));
+        let identity = format!("Rel{id}");
+        logic.add_player(
+            crate::game_logic::Player::new(id, team, &identity, false)
+                .with_script_identity(&identity),
+        );
         if id != 1 {
             logic
                 .create_object_for_player("RelCommandCenter", id, Vec3::new(x, 0.0, 0.0))
@@ -366,11 +365,13 @@ fn acquire_enemy_follows_relationships_not_factions() {
     assert_eq!(ai.enemy_player_id, Some(2));
 
     // A team override on the candidate's default team beats the player relation.
-    let default_team = logic.default_host_team_instance_name(Some(2), Team::China);
+    let default_team = logic
+        .host_default_team_id(2)
+        .expect("receiving default Team");
     logic
         .get_player_mut(1)
         .unwrap()
-        .set_team_relationship_override(&default_team, Relationship::Allies);
+        .set_team_relationship_override(default_team, Relationship::Allies);
     let mut ai = AIPlayer::new(1, Team::China, AIDifficulty::Medium);
     ai.base_center = Vec3::ZERO;
     ai.update_enemy_assessment(&mut logic, 10.0);

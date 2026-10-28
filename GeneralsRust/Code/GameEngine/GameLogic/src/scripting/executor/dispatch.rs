@@ -319,6 +319,37 @@ impl ScriptActionDispatcher<'_> {
 
         if matches!(
             action_type,
+            ScriptActionType::PlayerSetOverrideRelationToTeam
+                | ScriptActionType::PlayerRemoveOverrideRelationToTeam
+        ) {
+            use crate::scripting::engine::ScriptPlayerTeamRelationship as Request;
+            let player = self.get_string_param(action, 0)?;
+            let team = self.get_string_param(action, 1)?;
+            let request = if action_type == ScriptActionType::PlayerSetOverrideRelationToTeam {
+                Request::Set {
+                    player: &player,
+                    team: &team,
+                    relationship: self.relation_from_script_value(self.get_int_param(action, 2)?),
+                }
+            } else {
+                Request::Remove {
+                    player: &player,
+                    team: &team,
+                }
+            };
+            let engine = self.context.borrowed_engine();
+            if let Some(result) = driver.player_team_relationship_override(
+                request,
+                engine.get_calling_team_id(),
+                engine.get_condition_team_id(),
+            ) {
+                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                return Ok(ScriptActionResult::Success);
+            }
+        }
+
+        if matches!(
+            action_type,
             ScriptActionType::TeamSetOverrideRelationToTeam
                 | ScriptActionType::TeamRemoveOverrideRelationToTeam
                 | ScriptActionType::TeamSetOverrideRelationToPlayer

@@ -200,9 +200,8 @@ pub struct Player {
     pub resource_supply_warehouses: Vec<ObjectId>,
     /// C++ initFromDict / PlayerList relationship leftovers from the map SidesList.
     pub map_side: PlayerMapSideState,
-    /// C++ `Player::m_teamRelations` — script team-id overrides keyed by
-    /// team instance name (`PLAYER_SET_OVERRIDE_RELATION_TO_TEAM`).
-    pub team_relations: HashMap<String, gamelogic::common::Relationship>,
+    /// C++ `Player::m_teamRelations`, keyed by the receiving world's Team ID.
+    pub team_relations: std::collections::BTreeMap<u32, gamelogic::common::Relationship>,
     /// C++ `Team::m_teamRelations` drained from TEAM_SET_OVERRIDE_RELATION_TO_TEAM.
     /// Outer key: source team instance. Inner: target team instance.
     pub team_instance_team_relations:
@@ -582,7 +581,7 @@ impl Player {
             list_in_score_screen: true,
 
             shared_special_power_cooldowns: HashMap::new(),
-            team_relations: HashMap::new(),
+            team_relations: std::collections::BTreeMap::new(),
             team_instance_team_relations: HashMap::new(),
             team_instance_player_relations: HashMap::new(),
             sciences_disabled: HashSet::new(),
@@ -1593,35 +1592,23 @@ impl Player {
     /// C++ `Player::setTeamRelationship`.
     pub fn set_team_relationship_override(
         &mut self,
-        team_name: &str,
+        team_id: u32,
         relationship: gamelogic::common::Relationship,
     ) {
-        let key = Self::normalize_team_instance_name(team_name);
-        if key.is_empty() {
-            return;
-        }
-        self.team_relations.insert(key, relationship);
+        self.team_relations.insert(team_id, relationship);
     }
 
-    /// C++ `Player::removeTeamRelationship` for one named team.
-    pub fn remove_team_relationship_override(&mut self, team_name: &str) -> bool {
-        let key = Self::normalize_team_instance_name(team_name);
-        if key.is_empty() {
-            return false;
-        }
-        self.team_relations.remove(&key).is_some()
+    /// C++ `Player::removeTeamRelationship` for one Team instance.
+    pub fn remove_team_relationship_override(&mut self, team_id: u32) -> bool {
+        self.team_relations.remove(&team_id).is_some()
     }
 
     /// C++ `Player::getRelationship(const Team*)` team-id map lookup.
     pub fn team_relationship_override(
         &self,
-        team_name: &str,
+        team_id: u32,
     ) -> Option<gamelogic::common::Relationship> {
-        let key = Self::normalize_team_instance_name(team_name);
-        if key.is_empty() {
-            return None;
-        }
-        self.team_relations.get(&key).copied()
+        self.team_relations.get(&team_id).copied()
     }
 
     /// C++ `Team::setOverrideTeamRelationship` drained onto the host player.

@@ -10,14 +10,16 @@ fn fixture(allied: bool) -> (GameLogic, ObjectId, ObjectId) {
     world.frame = 8;
     world.get_player_mut(1).unwrap().alliance_team = 1;
     world.get_player_mut(2).unwrap().alliance_team = 2;
-    for (source, dest, name) in [(1, 2, "teamNamedVictim"), (2, 1, "teamNamedOwner")] {
+    let owner_team = world.host_default_team_id(1).expect("owner Team");
+    let victim_team = world.host_default_team_id(2).expect("victim Team");
+    for (source, dest, team_id) in [(1, 2, victim_team), (2, 1, owner_team)] {
         let player = world.get_player_mut(source).unwrap();
         player
             .map_side
             .relations
             .insert(dest, Relationship::Enemies);
         if allied {
-            player.set_team_relationship_override(name, Relationship::Allies);
+            player.set_team_relationship_override(team_id, Relationship::Allies);
         }
     }
     (world, unit, target)

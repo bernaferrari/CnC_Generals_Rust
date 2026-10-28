@@ -979,6 +979,17 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 .apply_owned_team_relationship_override(action, calling, condition),
         )
     }
+    fn player_team_relationship_override(
+        &mut self,
+        action: gamelogic::scripting::engine::ScriptPlayerTeamRelationship<'_>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(
+            self.world
+                .apply_owned_player_team_relationship_override(action, calling, condition),
+        )
+    }
     fn team_capture_nearest_unowned_faction_unit(
         &mut self,
         team: &str,
@@ -2127,7 +2138,13 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             } else {
                 object.team_instance_name.clone()
             };
-            let relationship = player.team_relationship_override(&team).unwrap_or_else(|| {
+            let relationship = GameLogic::team_id_for_relationship(
+                &self.world.team_factory,
+                object.team_instance_id,
+                &team,
+            )
+            .and_then(|id| player.team_relationship_override(id))
+            .unwrap_or_else(|| {
                 let Some(target) = object
                     .owner_player_id
                     .and_then(|id| self.world.players.get(&id))

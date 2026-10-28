@@ -115,6 +115,33 @@ fn execute(
             .add_parameter(Parameter::with_int(ParameterType::Int, value))
             .unwrap();
     }
+    run_action(world, action);
+}
+
+fn execute_player_override(
+    world: &mut GameLogic,
+    action_type: ScriptActionType,
+    value: Option<i32>,
+) {
+    let mut action = ScriptAction::new(action_type);
+    action
+        .add_parameter(Parameter::with_string(ParameterType::Side, "Owner".into()))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "TargetRoster".into(),
+        ))
+        .unwrap();
+    if let Some(value) = value {
+        action
+            .add_parameter(Parameter::with_int(ParameterType::Int, value))
+            .unwrap();
+    }
+    run_action(world, action);
+}
+
+fn run_action(world: &mut GameLogic, action: ScriptAction) {
     let mut branch = OrCondition::new();
     branch.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
     let mut script = Script::new();
@@ -131,6 +158,143 @@ fn execute(
     world
         .update_local_script_engine_with_owner(&engine)
         .unwrap();
+}
+
+#[test]
+fn player_team_overrides_keep_exact_team_identity_across_worlds_and_saves() {
+    use generals_main::save_load::snapshot::{
+        apply_pending_player_team_chunks, stamp_player_team_chunks,
+    };
+
+    fn sibling(world: &mut GameLogic) -> ObjectId {
+        let sibling = world
+            .create_object_for_player("RelationUnit", 2, Vec3::new(35.0, 0.0, 30.0))
+            .unwrap();
+        let mut chunks = stamp_player_team_chunks(world).unwrap();
+        let teams = chunks.teams.as_mut().unwrap();
+        let mut second = teams
+            .teams
+            .iter()
+            .find(|team| team.team_name == "TargetRoster")
+            .unwrap()
+            .clone();
+        for team in &mut teams.teams {
+            if let Some(members) = &mut team.members {
+                members.retain(|&id| id != sibling.0);
+            }
+        }
+        second.team_id = teams.unique_team_id;
+        teams.unique_team_id += 1;
+        second.members = Some(vec![sibling.0]);
+        second.team_relations.clear();
+        second.player_relations.clear();
+        teams.teams.push(second);
+        apply_pending_player_team_chunks(world, &chunks).unwrap();
+        sibling
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut owner, source, target) = world(&map);
+    let (mut peer, peer_source, peer_target) = world(&map);
+    let other_target = sibling(&mut owner);
+    let peer_other = sibling(&mut peer);
+    assert_eq!(
+        (source, target, other_target),
+        (peer_source, peer_target, peer_other)
+    );
+    // getTeamNamed returns the first instance in the receiving prototype's
+    // visitation order. Restoring the sibling may place it before the original.
+    let order = stamp_player_team_chunks(&owner).unwrap();
+    let first = order
+        .teams
+        .as_ref()
+        .unwrap()
+        .teams
+        .iter()
+        .find(|team| team.team_name == "TargetRoster")
+        .unwrap();
+    let selected = if first.members.as_ref().unwrap().contains(&target.0) {
+        target
+    } else {
+        assert!(first.members.as_ref().unwrap().contains(&other_target.0));
+        other_target
+    };
+    let unselected = if selected == target {
+        other_target
+    } else {
+        target
+    };
+    execute_player_override(
+        &mut owner,
+        ScriptActionType::PlayerSetOverrideRelationToTeam,
+        Some(2),
+    );
+    assert_eq!(
+        owner
+            .get_player(1)
+            .unwrap()
+            .team_relations
+            .get(&first.team_id),
+        Some(&Relationship::Allies)
+    );
+    assert_eq!(relation(&owner, source, selected), Relationship::Allies);
+    assert_eq!(relation(&owner, source, unselected), Relationship::Enemies);
+    assert_eq!(
+        relation(&peer, peer_source, peer_target),
+        Relationship::Enemies
+    );
+    assert_eq!(
+        relation(&peer, peer_source, peer_other),
+        Relationship::Enemies
+    );
+
+    let mut ambiguous = stamp_player_team_chunks(&owner).unwrap();
+    let saved_owner = ambiguous
+        .players
+        .as_mut()
+        .unwrap()
+        .players
+        .iter_mut()
+        .find(|player| player.player_id == 1)
+        .unwrap();
+    saved_owner.team_relations[0].team_id = 0;
+    assert!(apply_pending_player_team_chunks(&mut owner, &ambiguous).is_err());
+    assert_eq!(
+        relation(&owner, source, selected),
+        Relationship::Allies,
+        "a failed ambiguous name-only restore leaves the running owner intact"
+    );
+
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&owner).unwrap();
+    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+    let decoded: generals_main::save_load::snapshot::WorldSnapshot =
+        bincode_legacy::deserialize(&bytes).unwrap();
+    let (mut restored, restored_source, restored_target) = world(&map);
+    builder
+        .restore_from_snapshot(&decoded, &mut restored)
+        .unwrap();
+    assert_eq!(restored_target, target);
+    assert_eq!(
+        relation(&restored, restored_source, selected),
+        Relationship::Allies
+    );
+    assert_eq!(
+        relation(&restored, restored_source, unselected),
+        Relationship::Enemies
+    );
+
+    execute_player_override(
+        &mut owner,
+        ScriptActionType::PlayerRemoveOverrideRelationToTeam,
+        None,
+    );
+    assert_eq!(relation(&owner, source, selected), Relationship::Enemies);
+    assert_eq!(
+        relation(&restored, restored_source, selected),
+        Relationship::Allies
+    );
 }
 
 fn relation(world: &GameLogic, source: ObjectId, target: ObjectId) -> Relationship {

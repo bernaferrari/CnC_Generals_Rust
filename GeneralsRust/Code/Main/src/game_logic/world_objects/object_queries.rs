@@ -4,6 +4,33 @@
 use super::super::*;
 
 impl GameLogic {
+    /// Resolve a missing transitional name through this world's TeamFactory.
+    /// An existing identity always wins, even when its Team has since gone.
+    pub(crate) fn team_id_for_relationship(
+        factory: &gamelogic::team::TeamFactoryHandle,
+        identity: Option<u32>,
+        name: &str,
+    ) -> Option<u32> {
+        identity.or_else(|| {
+            if name.is_empty() {
+                return None;
+            }
+            factory
+                .with_read_without_flushing(|factory| {
+                    factory
+                        .find_team_instances(name)
+                        .into_iter()
+                        .next()
+                        .map(|team| {
+                            team.read()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                                .get_id()
+                        })
+                })
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+        })
+    }
+
     /// Build the immutable translator pick view from this world's canonical
     /// Object-list order. The snapshot carries only facts; HostObjectStore
     /// remains the sole mutable gameplay-object owner.
@@ -631,7 +658,14 @@ impl GameLogic {
             })
             .flatten();
         legacy_team_override
-            .or_else(|| player.team_relationship_override(&target_team))
+            .or_else(|| {
+                Self::team_id_for_relationship(
+                    &self.team_factory,
+                    target.team_instance_id,
+                    &target_team,
+                )
+                .and_then(|id| player.team_relationship_override(id))
+            })
             .or_else(|| {
                 target
                     .owner_player_id
@@ -710,16 +744,14 @@ impl GameLogic {
 
         use gamelogic::common::Relationship;
 
-        if let Some(source_player_id) = source_owner {
-            if !target_team_instance.is_empty() {
-                if let Some(source_player) = players.get(&source_player_id) {
-                    if let Some(rel) =
-                        source_player.team_relationship_override(target_team_instance)
-                    {
-                        return rel;
-                    }
-                }
-            }
+        if let Some(rel) = source_owner
+            .and_then(|id| players.get(&id))
+            .and_then(|player| {
+                Self::team_id_for_relationship(team_factory, target_team_id, target_team_instance)
+                    .and_then(|id| player.team_relationship_override(id))
+            })
+        {
+            return rel;
         }
 
         match (source_owner, target_owner) {
@@ -3051,7 +3083,7 @@ mod sides_relationship_tests {
         let mut usa = Player::new(0, Team::USA, "PlyrAmerica", true);
         let gla = Player::new(1, Team::GLA, "PlyrGLA", false);
         usa.set_map_relationship(1, Relationship::Enemies);
-        usa.set_team_relationship_override("CivilianConvoy", Relationship::Allies);
+        usa.set_team_relationship_override(42, Relationship::Allies);
         logic.add_player(usa);
         logic.add_player(gla);
 
@@ -3062,6 +3094,7 @@ mod sides_relationship_tests {
         let mut convoy = Object::new(tmpl.clone(), ObjectId(2), Team::GLA);
         convoy.owner_player_id = Some(1);
         convoy.team_instance_name = "CivilianConvoy".into();
+        convoy.team_instance_id = Some(42);
         let mut other = Object::new(tmpl, ObjectId(3), Team::GLA);
         other.owner_player_id = Some(1);
 
@@ -3895,13 +3928,18 @@ mod receiving_player_team_relationship_owner_tests {
         let mut world = GameLogic::new();
         let mut player = Player::new(0, Team::USA, "SameOwner", true);
         player.set_map_relationship(1, Relationship::Enemies);
-        player.set_team_relationship_override("SameTeam", relationship);
         world.add_player(player);
         world.add_player(Player::new(1, Team::GLA, "SameTarget", false));
         {
             let mut factory = world.team_factory.lock().unwrap();
             factory.replace_team_prototype(gamelogic::team::TeamPrototype::new("SameTeam".into()));
-            factory.create_team("SameTeam").unwrap();
+            let team = factory.create_team("SameTeam").unwrap();
+            let id = team.read().unwrap().get_id();
+            world
+                .players
+                .get_mut(&0)
+                .unwrap()
+                .set_team_relationship_override(id, relationship);
         }
         world
     }

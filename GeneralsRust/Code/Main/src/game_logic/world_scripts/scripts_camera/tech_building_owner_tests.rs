@@ -382,11 +382,12 @@ fn live_tech_search_preserves_center_distance_and_team_affiliation() {
                 "C++ tech filters do not reject dead objects"
             );
             world.host_object_mut(id).unwrap().status.effectively_dead = false;
+            let target_team = world.host_object(id).unwrap().team_instance_id.unwrap();
             world
                 .players
                 .get_mut(&1)
                 .unwrap()
-                .set_team_relationship_override("OtherTechTeam", Relationship::Allies);
+                .set_team_relationship_override(target_team, Relationship::Allies);
             assert_eq!(
                 observed(&mut world, 0.0),
                 0,
@@ -396,7 +397,7 @@ fn live_tech_search_preserves_center_distance_and_team_affiliation() {
                 .players
                 .get_mut(&1)
                 .unwrap()
-                .set_team_relationship_override("OtherTechTeam", Relationship::Neutral);
+                .set_team_relationship_override(target_team, Relationship::Neutral);
             assert_eq!(
                 observed(&mut world, 0.0),
                 1,

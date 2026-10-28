@@ -216,7 +216,7 @@ fn map_xfer<T>(result: std::io::Result<T>) -> SaveLoadResult<T> {
     result.map_err(|e| SaveLoadError::Serialization(e.to_string()))
 }
 
-fn relationship_from_i32(raw: i32) -> gamelogic::common::Relationship {
+pub(super) fn relationship_from_i32(raw: i32) -> gamelogic::common::Relationship {
     match raw {
         0 => gamelogic::common::Relationship::Enemies,
         2 => gamelogic::common::Relationship::Allies,
@@ -946,25 +946,19 @@ pub fn parse_team_factory_block(payload: &[u8]) -> SaveLoadResult<TeamFactoryChu
     })
 }
 
-fn leftover_team_id(
-    team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
-    team_name: &str,
-) -> u32 {
-    if team_name.trim().is_empty() {
-        return 0;
-    }
-    let Some(team_factory) = team_factory else {
-        return 0;
-    };
-    let Ok(factory) = team_factory.lock() else {
-        return 0;
-    };
-    factory
-        .find_team_instances(team_name)
-        .into_iter()
-        .next()
-        .and_then(|team| team.read().ok().map(|guard| guard.get_id()))
-        .unwrap_or(0)
+fn team_name_for_id(team_factory: &gamelogic::team::TeamFactoryHandle, team_id: u32) -> String {
+    team_factory
+        .with_read_without_flushing(|factory| {
+            factory.find_team_by_id(team_id).map(|team| {
+                team.read()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .get_name()
+                    .as_str()
+                    .to_owned()
+            })
+        })
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .unwrap_or_default()
 }
 
 pub(super) fn capture_players_chunk(game_logic: &GameLogic) -> PlayersChunkPersist {
@@ -1003,9 +997,9 @@ pub(super) fn capture_players_chunk(game_logic: &GameLogic) -> PlayersChunkPersi
         slot.team_relations = player
             .team_relations
             .iter()
-            .map(|(name, rel)| TeamRelPersist {
-                team_name: name.clone(),
-                team_id: leftover_team_id(Some(&game_logic.team_factory), name),
+            .map(|(id, rel)| TeamRelPersist {
+                team_name: team_name_for_id(&game_logic.team_factory, *id),
+                team_id: *id,
                 relationship: relationship_to_i32(*rel),
             })
             .collect();
@@ -1156,17 +1150,6 @@ pub(super) fn apply_player_to_live(game_logic: &mut GameLogic, persist: &PlayerR
     for name in &persist.sciences {
         player.unlocked_sciences.insert(name.clone());
     }
-    player.team_relations = persist
-        .team_relations
-        .iter()
-        .filter(|rel| !rel.team_name.trim().is_empty())
-        .map(|rel| {
-            (
-                rel.team_name.clone(),
-                relationship_from_i32(rel.relationship),
-            )
-        })
-        .collect();
     for rel in &persist.player_relations {
         if rel.player_index >= 0 {
             player.map_side.relations.insert(
@@ -1764,10 +1747,7 @@ mod tests {
         let mut logic = GameLogic::new();
         let mut usa = Player::new(1, Team::USA, "USA", true);
         usa.set_science_availability("SCIENCE_PaladinTank", "Hidden");
-        usa.set_team_relationship_override(
-            "CivilianConvoy",
-            gamelogic::common::Relationship::Allies,
-        );
+        usa.set_team_relationship_override(42, gamelogic::common::Relationship::Allies);
         usa.can_build_units = false;
         usa.radar_disabled = true;
         usa.set_attacked_by_at(3, 0);
@@ -1785,7 +1765,7 @@ mod tests {
         let player = loaded.get_player(1).expect("player");
         assert!(player.is_science_hidden("SCIENCE_PaladinTank"));
         assert_eq!(
-            player.team_relationship_override("CivilianConvoy"),
+            player.team_relationship_override(42),
             Some(gamelogic::common::Relationship::Allies)
         );
         assert!(!player.can_build_units);

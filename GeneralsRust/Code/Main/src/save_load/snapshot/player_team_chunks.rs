@@ -462,10 +462,75 @@ pub(super) fn validate_definitions(
     Ok(())
 }
 
+/// Resolve old name-only relations before modifying the running session.
+/// Complete saved rosters, rather than pre-load live Teams, supply identities.
+fn resolve_player_team_relations(
+    world: &GameLogic,
+    chunks: &PlayerTeamChunks,
+) -> SaveLoadResult<
+    std::collections::BTreeMap<
+        u32,
+        std::collections::BTreeMap<u32, gamelogic::common::Relationship>,
+    >,
+> {
+    let mut players = std::collections::BTreeMap::new();
+    for saved in chunks.players.iter().flat_map(|players| &players.players) {
+        let mut relations = std::collections::BTreeMap::new();
+        for relation in &saved.team_relations {
+            let id = if relation.team_id != 0 {
+                relation.team_id
+            } else {
+                let mut candidates = std::collections::BTreeSet::new();
+                if let Some(teams) = &chunks.teams {
+                    candidates.extend(
+                        teams
+                            .teams
+                            .iter()
+                            .filter(|team| {
+                                team.team_name == relation.team_name && team.team_id != 0
+                            })
+                            .map(|team| team.team_id),
+                    );
+                }
+                if chunks
+                    .teams
+                    .as_ref()
+                    .is_none_or(|teams| !teams.persist_roster)
+                {
+                    let instances = world
+                        .team_factory
+                        .with_read_without_flushing(|factory| {
+                            factory.find_team_instances(&relation.team_name)
+                        })
+                        .map_err(|error| SaveLoadError::Corrupted(error.to_string()))?;
+                    for team in instances {
+                        candidates.insert(
+                            team.read()
+                                .map_err(|error| SaveLoadError::Corrupted(error.to_string()))?
+                                .get_id(),
+                        );
+                    }
+                }
+                if candidates.len() != 1 {
+                    return Err(SaveLoadError::Corrupted(format!(
+                        "Player {} has ambiguous saved Team relationship {}",
+                        saved.player_id, relation.team_name
+                    )));
+                }
+                *candidates.first().expect("one candidate")
+            };
+            relations.insert(id, relationship_from_i32(relation.relationship));
+        }
+        players.insert(saved.player_id, relations);
+    }
+    Ok(players)
+}
+
 pub(super) fn apply_before_objects(
     world: &mut GameLogic,
     chunks: &PlayerTeamChunks,
 ) -> SaveLoadResult<()> {
+    let player_team_relations = resolve_player_team_relations(world, chunks)?;
     // Historical saves cannot recover this input from spent wallets. Choose
     // their documented fallback, never the receiving world's prior config.
     world.restore_session_starting_cash(
@@ -493,6 +558,11 @@ pub(super) fn apply_before_objects(
     }
     if let Some(teams) = &chunks.teams {
         apply_teams_to_leftover(&world.team_factory, teams)?;
+    }
+    for (player_id, relations) in player_team_relations {
+        if let Some(player) = world.get_player_mut(player_id) {
+            player.team_relations = relations;
+        }
     }
     // Pre-v8 host capsules lack the explicit ID. Recover only a unique
     // canonical, correctly owned default instance; ambiguity fails closed.

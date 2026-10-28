@@ -109,13 +109,12 @@ impl GameLogic {
         }
         let source_owner = source_team.get_controlling_player_id()?;
         let target_owner = target_team.get_controlling_player_id()?;
-        let target_name = target_team.get_name().as_str().to_owned();
         drop(target_team);
         drop(source_team);
         if let Some(relation) = self
             .players
             .get(&source_owner)?
-            .team_relationship_override(&target_name)
+            .team_relationship_override(target)
         {
             return Some(relation);
         }

@@ -203,6 +203,7 @@ impl GameLogic {
         let pos = obj.get_position();
         let team = obj.team;
         let team_instance_name = obj.team_instance_name.clone();
+        let team_instance_id = obj.team_instance_id;
         let owner_player_id = obj.owner_player_id;
         let is_infantry = obj.is_kind_of(KindOf::Infantry);
         let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
@@ -305,7 +306,14 @@ impl GameLogic {
                     self.local_player_id().is_some_and(|local_id| {
                         self.players
                             .get(&local_id)
-                            .and_then(|player| player.team_relationship_override(&team_instance_name))
+                            .and_then(|player| {
+                                Self::team_id_for_relationship(
+                                    &self.team_factory,
+                                    team_instance_id,
+                                    &team_instance_name,
+                                )
+                                .and_then(|id| player.team_relationship_override(id))
+                            })
                             .unwrap_or_else(|| self.player_relationship(local_id, oid))
                             == gamelogic::common::Relationship::Allies
                     })

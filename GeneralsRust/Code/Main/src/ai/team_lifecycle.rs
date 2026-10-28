@@ -77,7 +77,7 @@ impl GameLogic {
         // C++ teamAboutToBeDeleted removes relationship entries before dtor.
         let key = deletion.name().trim().to_ascii_lowercase();
         for player in self.get_players_mut().values_mut() {
-            player.remove_team_relationship_override(deletion.name());
+            player.remove_team_relationship_override(id);
             player.clear_team_instance_overrides(deletion.name());
             for relationships in player.team_instance_team_relations.values_mut() {
                 relationships.remove(&key);
@@ -94,10 +94,8 @@ impl GameLogic {
             if let Some((object, ownership_events, partition)) =
                 self.host_object_ownership_partition_mut(ObjectId(*member))
             {
-                if object
-                    .team_instance_name
-                    .eq_ignore_ascii_case(deletion.name())
-                {
+                if object.team_instance_id == Some(id) {
+                    object.team_instance_id = None;
                     object.team_instance_name.clear();
                     object.set_team_and_owner_with_partition_owner(
                         Team::Neutral,

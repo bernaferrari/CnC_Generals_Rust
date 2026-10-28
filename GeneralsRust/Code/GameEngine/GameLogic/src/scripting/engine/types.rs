@@ -342,6 +342,20 @@ pub enum ScriptTeamRelationship<'a> {
     },
 }
 
+/// An immediate Player-to-Team override in the executing session.
+#[derive(Debug, Clone, Copy)]
+pub enum ScriptPlayerTeamRelationship<'a> {
+    Set {
+        player: &'a str,
+        team: &'a str,
+        relationship: crate::common::Relationship,
+    },
+    Remove {
+        player: &'a str,
+        team: &'a str,
+    },
+}
+
 /// Synchronous effects and live queries of the actual execution owner.
 /// The driver is borrowed for execution only; it is never installed in the
 /// engine, dispatcher context, or a process-wide active slot.
@@ -868,6 +882,15 @@ pub trait ScriptExecutionDriver {
     fn team_relationship_override(
         &mut self,
         _action: ScriptTeamRelationship<'_>,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+    /// Apply the Player's override to the resolved Team in this session.
+    fn player_team_relationship_override(
+        &mut self,
+        _action: ScriptPlayerTeamRelationship<'_>,
         _calling: Option<TeamID>,
         _condition: Option<TeamID>,
     ) -> Option<GameLogicResult<()>> {

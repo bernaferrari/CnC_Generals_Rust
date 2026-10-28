@@ -2,6 +2,44 @@
 use super::*;
 
 impl GameLogic {
+    /// ScriptActions.cpp:4597-4616 changes this Player's relation to the
+    /// resolved Team immediately, before the interpreter's next action.
+    pub(super) fn apply_owned_player_team_relationship_override(
+        &mut self,
+        action: gamelogic::scripting::engine::ScriptPlayerTeamRelationship<'_>,
+        calling_team: Option<u32>,
+        condition_team: Option<u32>,
+    ) -> gamelogic::GameLogicResult<()> {
+        use gamelogic::scripting::engine::ScriptPlayerTeamRelationship as Action;
+        let (player_name, team_name) = match action {
+            Action::Set { player, team, .. } | Action::Remove { player, team } => (player, team),
+        };
+        // The original uses findPlayerWithNameKey rather than player aliases.
+        let Some(player_id) = self
+            .players
+            .values()
+            .find(|player| player.script_identity() == Some(player_name))
+            .map(|player| player.id)
+        else {
+            return Ok(());
+        };
+        let Some((team_id, _)) =
+            self.resolve_owned_script_team(team_name, calling_team, condition_team)?
+        else {
+            return Ok(());
+        };
+        let player = self.players.get_mut(&player_id).expect("resolved player");
+        match action {
+            Action::Set { relationship, .. } => {
+                player.set_team_relationship_override(team_id, relationship);
+            }
+            Action::Remove { .. } => {
+                player.remove_team_relationship_override(team_id);
+            }
+        }
+        Ok(())
+    }
+
     /// C++ ScriptActions.cpp1985 resolves an existing team, adds its members to
     /// an AIGroup, then issues groupHunt(CMD_FROM_SCRIPT). Missing names are a
     /// no-op; this read never asks TeamFactory to instantiate a prototype.
@@ -134,10 +172,11 @@ impl GameLogic {
             Action::SetPlayer { target, .. } | Action::RemovePlayer { target, .. } => {
                 // C++ here uses PlayerList::findPlayerWithNameKey directly,
                 // not ScriptEngine's local-player token resolution.
-                let Some(player) = self.players.values().find(|player| {
-                    !player.map_side.map_player_name.is_empty()
-                        && player.map_side.map_player_name == target
-                }) else {
+                let Some(player) = self
+                    .players
+                    .values()
+                    .find(|player| player.script_identity() == Some(target))
+                else {
                     return Ok(());
                 };
                 Some(player.id as i32)

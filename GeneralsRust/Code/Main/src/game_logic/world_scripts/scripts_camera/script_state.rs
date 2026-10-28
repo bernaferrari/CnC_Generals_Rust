@@ -1364,38 +1364,6 @@ impl GameLogic {
         }
     }
 
-    /// Remaining PLAYER_SET/REMOVE_OVERRIDE_RELATION_TO_TEAM live drain.
-    pub(super) fn apply_host_team_override_relation_script_requests(&mut self) {
-        use gamelogic::scripting::HostScriptTeamOverrideRelationRequest;
-        for req in gamelogic::scripting::take_host_team_override_relation_requests() {
-            match req {
-                HostScriptTeamOverrideRelationRequest::SetPlayerToTeam {
-                    source_player,
-                    dest_team,
-                    relationship,
-                } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&source_player) else {
-                        continue;
-                    };
-                    if let Some(player) = self.players.get_mut(&pid) {
-                        player.set_team_relationship_override(&dest_team, relationship);
-                    }
-                }
-                HostScriptTeamOverrideRelationRequest::RemovePlayerToTeam {
-                    source_player,
-                    dest_team,
-                } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&source_player) else {
-                        continue;
-                    };
-                    if let Some(player) = self.players.get_mut(&pid) {
-                        let _ = player.remove_team_relationship_override(&dest_team);
-                    }
-                }
-            }
-        }
-    }
-
     /// C++ `Player::transferAssetsFromThat` — non-beacon objects onto dest
     /// default team, then withdraw/deposit all cash.
     pub(super) fn host_script_transfer_assets_from(

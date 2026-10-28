@@ -40,7 +40,9 @@ fn owner_world(singleton: bool) -> (GameLogic, u32, ObjectId) {
     prototype.set_initial_idle_frames(1);
     factory.replace_team_prototype(prototype);
     drop(factory);
-    world.host_object_mut(unit).unwrap().team_instance_name = "DeleteTeam".into();
+    let member = world.host_object_mut(unit).unwrap();
+    member.team_instance_name = "DeleteTeam".into();
+    member.team_instance_id = Some(id);
     (world, id, unit)
 }
 
@@ -151,10 +153,7 @@ fn deletion_notifies_scripts_and_owned_players_before_members_and_metadata() {
             world
                 .get_player_mut(1)
                 .unwrap()
-                .set_team_relationship_override(
-                    "DeleteTeam",
-                    gamelogic::common::Relationship::Enemies,
-                );
+                .set_team_relationship_override(id, gamelogic::common::Relationship::Enemies);
             let mut called = false;
             let mut notify = |current: &mut AIPlayer,
                               owner: &mut GameLogic,
@@ -183,7 +182,7 @@ fn deletion_notifies_scripts_and_owned_players_before_members_and_metadata() {
                     owner
                         .get_player(1)
                         .unwrap()
-                        .team_relationship_override(name),
+                        .team_relationship_override(deleted),
                     None
                 );
                 super::team_lifecycle::notify_installed_team_destroy(current, owner, deleted, name);
