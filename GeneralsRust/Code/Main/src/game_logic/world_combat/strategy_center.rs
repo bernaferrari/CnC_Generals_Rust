@@ -1431,19 +1431,13 @@ impl GameLogic {
                 continue;
             }
             if disable {
-                if let Some(v) = self.objects.get_mut(&vid) {
-                    v.apply_disabled_emp(
-                        until,
-                        &mut self.health_events,
-                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                    );
+                if self.apply_owned_emp_disabled(vid, until) {
                     any = true;
                     spark_ids.push(vid);
                     if intended_target == Some(vid) {
                         intended_victim_processed = true;
                     }
                 }
-                self.admit_host_radar_disabled_edges(vid);
             }
         }
         // C++ EMPUpdate.cpp:321-339 leftover near-miss: intended aircraft
@@ -1465,17 +1459,9 @@ impl GameLogic {
                     )
                 });
                 if apply {
-                    if let Some(v) = self.objects.get_mut(&victim_id) {
-                        v.apply_disabled_emp(
-                            until,
-                            &mut self.health_events,
-                            &mut crate::game_logic::ObjectAudio::queue(
-                                &mut self.queued_audio_events,
-                            ),
-                        );
+                    if self.apply_owned_emp_disabled(victim_id, until) {
                         any = true;
                     }
-                    self.admit_host_radar_disabled_edges(victim_id);
                 }
             }
         }

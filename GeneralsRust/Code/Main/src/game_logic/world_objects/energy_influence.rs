@@ -2,6 +2,43 @@
 use super::super::*;
 
 impl GameLogic {
+    /// EMPUpdate calls Object::setDisabledUntil while the target remains in
+    /// the world. Its first disabled edge removes this object's production and
+    /// synchronously delivers the resulting brownout to its own Player.
+    pub(in crate::game_logic) fn apply_owned_emp_disabled(
+        &mut self,
+        id: ObjectId,
+        until: u32,
+    ) -> bool {
+        let Some(object) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        let was_disabled = object.has_disabled_type();
+        object.apply_disabled_emp(
+            until,
+            &mut self.health_events,
+            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+        );
+        let producer = (!was_disabled
+            && object.has_disabled_type()
+            && object.thing().template.energy_production.unwrap_or(0) > 0)
+            .then_some((object.owner_player_id, object.power_provided));
+
+        // C++ Object::onDisabledEdge delivers the radar callback before
+        // adjusting positive production. Release the Object loan first.
+        self.admit_host_radar_disabled_edges(id);
+        if let Some((Some(owner), power)) = producer {
+            let brownout = self
+                .players
+                .get_mut(&owner)
+                .and_then(|player| player.remove_template_energy(power, self.frame));
+            if let Some(brownout) = brownout {
+                self.admit_player_energy_brownout(owner, brownout);
+            }
+        }
+        true
+    }
+
     /// Original constructor setTeam -> becomingTeamMember, before onCreate.
     /// Only the explicit receiving Player owns this mutation; faction is not a
     /// fallback and loading has a separate inert roster-admission operation.

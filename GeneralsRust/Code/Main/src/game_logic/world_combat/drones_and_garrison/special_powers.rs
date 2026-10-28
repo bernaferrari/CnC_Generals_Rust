@@ -294,11 +294,7 @@ impl GameLogic {
                 let is_faction_structure = is_structure && obj.is_faction_structure();
                 let is_aircraft = obj.is_kind_of(KindOf::Aircraft);
                 let is_airborne = obj.status.airborne_target;
-                let is_spawns = obj
-                    .template_name
-                    .to_ascii_lowercase()
-                    .contains("spawnsaretheweapons")
-                    || obj.template_name.to_ascii_lowercase().contains("stinger");
+                let is_spawns = obj.is_spawns_are_the_weapons();
                 let under_construction =
                     obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
                 let emp_hardened = is_emp_hardened_name(&obj.template_name);
@@ -352,18 +348,14 @@ impl GameLogic {
                 continue;
             }
 
-            let Some(target) = self.objects.get_mut(&id) else {
-                continue;
-            };
-            if !target.is_alive() {
+            if !self
+                .objects
+                .get(&id)
+                .is_some_and(|target| target.is_alive())
+            {
                 continue;
             }
-            target.apply_disabled_emp(
-                until,
-                &mut self.health_events,
-                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-            );
-            self.admit_host_radar_disabled_edges(id);
+            self.apply_owned_emp_disabled(id, until);
             disables = disables.saturating_add(1);
             spark_ids.push(id);
         }
