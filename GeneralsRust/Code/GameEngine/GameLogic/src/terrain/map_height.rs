@@ -268,6 +268,17 @@ impl TerrainLogic {
         self.update_bridge_damage_states();
     }
 
+    /// Update an explicitly owned world's dynamic water against its receiving
+    /// pathfinder. Missing owner pathfinders never fall through to TheAI.
+    pub fn update_with_owner_pathfinder(
+        &mut self,
+        pathfinder: Option<&Arc<RwLock<crate::ai::Pathfinder>>>,
+        frame: u32,
+    ) {
+        self.update_dynamic_water_with_owner(pathfinder, frame);
+        self.update_bridge_damage_states();
+    }
+
     /// Load map from file
     pub fn load_map(&mut self, filename: AsciiString, _query: bool) -> bool {
         self.filename_string = filename.clone();

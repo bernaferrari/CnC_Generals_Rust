@@ -284,6 +284,9 @@ pub struct GameLogic {
     all_objects: Vec<ObjectID>,
     dead_objects: Vec<ObjectID>,
     objects: HashMap<ObjectID, Arc<RwLock<Object>>>,
+    /// Explicit Core owner used by synchronous Object destruction cleanup.
+    /// Constructors stay inert; runtime owners install their EngineStores.
+    pathfinding_owner: Option<Arc<crate::system::engine_stores::EngineStores>>,
 
     // Player/Team management (references only)
     // Actual player list is managed by player_list() singleton
@@ -391,6 +394,7 @@ impl Default for GameLogic {
             all_objects: Vec::new(),
             dead_objects: Vec::new(),
             objects: HashMap::new(),
+            pathfinding_owner: None,
             partition_manager: PartitionManager::new(),
             physics_world: PhysicsWorld::new(),
             event_queue: Vec::new(),

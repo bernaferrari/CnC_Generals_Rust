@@ -81,14 +81,7 @@ fn xfer_game_logic_objects_load(
         let _ = logic.register_object(arc);
         if walk_on_wall {
             if let Some(object_id) = wall_id {
-                let ai_store = the_ai();
-                if let Ok(ai) = ai_store.read() {
-                    if let Some(pathfinder) = ai.pathfinder() {
-                        if let Ok(mut pf) = pathfinder.write() {
-                            pf.add_wall_piece(object_id);
-                        }
-                    }
-                }
+                add_loaded_wall_piece(logic, object_id);
             }
         }
         let _ = xfer.end_block();
@@ -96,13 +89,41 @@ fn xfer_game_logic_objects_load(
     Ok(())
 }
 
-fn pathfinder_new_map_after_polygon_load() {
-    // C++ GameLogic.cpp:4880 `TheAI->pathfinder()->newMap()` after trigger restore.
-    let ai_store = the_ai();
+fn add_loaded_wall_piece(logic: &GameLogic, object_id: ObjectID) {
+    let ai_store = logic
+        .pathfinding_owner
+        .as_ref()
+        .map(|owner| Arc::clone(owner.ai()))
+        .unwrap_or_else(the_ai);
     if let Ok(ai) = ai_store.read() {
         if let Some(pathfinder) = ai.pathfinder() {
             if let Ok(mut pf) = pathfinder.write() {
-                if let Ok(terrain) = get_terrain_logic().read() {
+                pf.add_wall_piece(object_id);
+            }
+        }
+    }
+}
+
+fn pathfinder_new_map_after_polygon_load(logic: &GameLogic) {
+    // C++ GameLogic.cpp:4880 `TheAI->pathfinder()->newMap()` after trigger restore.
+    let owner_terrain = logic.pathfinding_owner.as_ref().map(|owner| {
+        (
+            Arc::clone(owner.ai()),
+            Arc::clone(owner.services().terrain()),
+        )
+    });
+    let ai_store = owner_terrain
+        .as_ref()
+        .map(|(ai, _)| Arc::clone(ai))
+        .unwrap_or_else(the_ai);
+    if let Ok(ai) = ai_store.read() {
+        if let Some(pathfinder) = ai.pathfinder() {
+            if let Ok(mut pf) = pathfinder.write() {
+                let terrain = owner_terrain
+                    .as_ref()
+                    .map(|(_, terrain)| Arc::clone(terrain))
+                    .unwrap_or_else(get_terrain_logic);
+                if let Ok(terrain) = terrain.read() {
                     pf.rebuild_from_terrain(&terrain);
                 }
             }

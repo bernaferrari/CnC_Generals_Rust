@@ -1627,6 +1627,11 @@ impl Pathfinder {
         self.inner = ClassicPathfindingSystem::new(width, height);
     }
 
+    #[cfg(test)]
+    pub(crate) fn mark_current_map_ready(&mut self) {
+        self.inner.new_map_from_classified_cells();
+    }
+
     pub fn rebuild_from_terrain(&mut self, terrain: &TerrainLogic) {
         let extent = terrain.get_maximum_pathfind_extent();
         let cell_size = self::pathfind_astar::PATHFIND_CELL_SIZE_F;
@@ -1768,6 +1773,11 @@ impl Pathfinder {
         self.inner.remove_wall_piece(wall_piece_id);
     }
 
+    #[cfg(test)]
+    pub(crate) fn wall_piece_count(&self) -> usize {
+        self.inner.wall_piece_count()
+    }
+
     /// C++ `Pathfinder::cleanOpenAndClosedLists`.
     pub fn clean_open_and_closed_lists(&mut self) {
         self.inner.clean_open_and_closed_lists();
@@ -1901,6 +1911,11 @@ impl Pathfinder {
     /// Queue a pathfinding request (matches C++ Pathfinder::queueForPath).
     pub fn queue_for_path_request(&mut self, request: ClassicPathRequest) -> Result<(), String> {
         self.inner.queue_path_request(request)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pending_path_request_count(&self) -> usize {
+        self.inner.pending_path_request_count()
     }
 
     /// C++ `Pathfinder::queueForPath(ObjectID)`.

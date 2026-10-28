@@ -57,6 +57,12 @@ pub struct EngineStores {
     ai_data: Arc<RwLock<AIDataStore>>,
 }
 impl EngineStores {
+    /// Receiving owner used by the legacy Core `GameLogic` singleton.
+    /// This is a stable process runtime, never the currently published world.
+    pub(crate) fn process_lifetime() -> Arc<Self> {
+        Arc::clone(&PROCESS_LIFETIME)
+    }
+
     fn engine_defaults() -> Self {
         Self {
             upgrade_center: common_upgrade::process_lifetime_upgrade_center(),

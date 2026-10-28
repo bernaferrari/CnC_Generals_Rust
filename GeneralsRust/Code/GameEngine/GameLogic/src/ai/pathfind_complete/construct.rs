@@ -109,6 +109,11 @@ impl PathfindingSystem {
         Ok(())
     }
 
+    #[cfg(test)]
+    pub(crate) fn pending_path_request_count(&self) -> usize {
+        self.request_queue.len()
+    }
+
     /// C++ `Pathfinder::queueForPath(ObjectID)` — ring buffer of object ids.
     pub fn queue_for_path(&mut self, object_id: ObjectID) -> bool {
         self.object_path_queue.queue(object_id)

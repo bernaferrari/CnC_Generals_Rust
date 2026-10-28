@@ -57,7 +57,6 @@ impl GameLogic {
             if let Some(child) = CLEANUP_CASCADE_CHILD.with(|c| c.take()) {
                 self.destroy_object(child);
             }
-            let mut object_position = None;
             let object_index = self.all_objects.iter().position(|&id| id == obj_id);
             let previous_object_id = object_index
                 .and_then(|index| index.checked_sub(1))
@@ -87,10 +86,6 @@ impl GameLogic {
                 // C++ removes this GameLogic's lookup before destruction. The
                 // temporary shared index must not evict another world's handle.
                 OBJECT_REGISTRY.unregister_object_if_same(obj_id, &obj_ref);
-                if let Ok(obj_read) = obj_ref.read() {
-                    object_position = Some(*obj_read.get_position());
-                }
-
                 if let Ok(mut obj_write) = obj_ref.write() {
                     obj_write.set_next_object_id(None);
                     obj_write.set_prev_object_id(None);
@@ -100,12 +95,10 @@ impl GameLogic {
                 }
             }
 
-            // Remove from objects map
-            if let Some(pos) = object_position {
-                let _ = with_ai_integration_mut(|manager| {
-                    let _ = manager.notify_object_destroyed(obj_id, &[pos]);
-                });
-            }
+            // The destructor tail above performs pathfinder removal through
+            // this GameLogic's explicit EngineStores owner. The former
+            // AiIntegrationManager notification reselected ambient TheAI and
+            // duplicated that destruction work.
 
             // Fire destruction event
             self.event_queue.push(GameEvent::ObjectDestroyed(obj_id));
@@ -166,6 +159,13 @@ impl GameLogic {
             return Err(GameLogicError::InvalidState(format!(
                 "Object id {object_id} already admitted"
             )));
+        }
+        if let Some(pathfinding_owner) = self.pathfinding_owner.as_ref() {
+            object
+                .write()
+                .map_err(|_| GameLogicError::Generic("Object lock poisoned".into()))?
+                .bind_pathfinding_owner(pathfinding_owner)
+                .map_err(GameLogicError::InvalidState)?;
         }
         self.observe_object_id(object_id);
         // C++ GameLogic::registerObject prepends (GameLogic.cpp:3866).
@@ -236,10 +236,22 @@ impl GameLogic {
                 || obj.is_kind_of(KindOf::Structure)
                 || obj.is_kind_of(KindOf::Bridge)
                 || obj.is_kind_of(KindOf::Barrier);
-            let _ = with_ai_integration_mut(|manager| {
-                let _ =
-                    manager.notify_object_created(object_id, *pos, is_ai_controlled, is_obstacle);
-            });
+            if let Some(owner) = self.pathfinding_owner.as_ref() {
+                let _ = crate::ai::integration::notify_object_created_for_owner(
+                    owner,
+                    &obj,
+                    is_obstacle,
+                );
+            } else {
+                let _ = with_ai_integration_mut(|manager| {
+                    let _ = manager.notify_object_created(
+                        object_id,
+                        *pos,
+                        is_ai_controlled,
+                        is_obstacle,
+                    );
+                });
+            }
         }
 
         // Fire creation event
@@ -464,11 +476,24 @@ impl GameLogic {
         };
 
         if is_wall {
-            let ai_store = the_ai();
-            if let Ok(ai) = ai_store.read() {
-                if let Some(pf) = ai.pathfinder() {
-                    if let Ok(mut pf) = pf.write() {
-                        pf.remove_wall_piece(object_id);
+            if let Some(owner) = self.pathfinding_owner.as_ref() {
+                if let Ok(ai) = owner.ai().read() {
+                    if let Some(pathfinder) = ai.pathfinder() {
+                        if let Ok(mut pathfinder) = pathfinder.write() {
+                            pathfinder.remove_wall_piece(object_id);
+                        }
+                    }
+                }
+            } else {
+                // Keep the process-singleton compatibility path paired with
+                // its legacy wall-piece registration until that route has an
+                // explicit EngineStores owner too.
+                let ai_store = crate::ai::the_ai();
+                if let Ok(ai) = ai_store.read() {
+                    if let Some(pathfinder) = ai.pathfinder() {
+                        if let Ok(mut pathfinder) = pathfinder.write() {
+                            pathfinder.remove_wall_piece(object_id);
+                        }
                     }
                 }
             }

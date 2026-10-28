@@ -320,7 +320,7 @@ fn xfer_game_logic_state_with_campaign(
     }
 
     if version >= 3 {
-        xfer_polygon_triggers(xfer)?;
+        xfer_polygon_triggers(logic, xfer)?;
     }
 
     if version >= 5 {
@@ -375,8 +375,12 @@ fn xfer_cave_system_snapshot(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
     guard.xfer_game_logic(xfer)
 }
 
-fn xfer_polygon_triggers(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-    let terrain = get_terrain_logic();
+fn xfer_polygon_triggers(logic: &GameLogic, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    let terrain = logic
+        .pathfinding_owner
+        .as_ref()
+        .map(|owner| Arc::clone(owner.services().terrain()))
+        .unwrap_or_else(get_terrain_logic);
     // Scoped: the write guard MUST drop before pathfinder_new_map_after_
     // polygon_load below — it re-acquires get_terrain_logic().read() and std
     // RwLock read-under-write on the same thread self-deadlocks (C++ had no
@@ -417,7 +421,7 @@ fn xfer_polygon_triggers(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
         }
     }
     if is_load {
-        pathfinder_new_map_after_polygon_load();
+        pathfinder_new_map_after_polygon_load(logic);
     }
     Ok(())
 }

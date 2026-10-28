@@ -34,6 +34,28 @@ pub enum IntegratedAiPlayer {
     Skirmish(AISkirmishPlayer),
 }
 
+/// Register an obstacle through the receiving world's AI runtime. Unlike the
+/// compatibility manager method below, this never resolves `the_ai()` or an
+/// active EngineStores scope.
+pub(crate) fn notify_object_created_for_owner(
+    owner: &crate::system::engine_stores::EngineStores,
+    object: &crate::object::Object,
+    is_obstacle: bool,
+) -> Result<(), AiError> {
+    // The receiving GameLogic has already admitted this exact object. Do not
+    // validate it by ID through the process-wide compatibility registry: a
+    // peer world may own another object with the same ID there.
+    if !is_obstacle {
+        return Ok(());
+    }
+
+    let ai = owner.ai().read().map_err(|_| AiError::NoPathfinder)?;
+    let pathfinder = ai.pathfinder().ok_or(AiError::NoPathfinder)?;
+    let mut pathfinder = pathfinder.write().map_err(|_| AiError::NoPathfinder)?;
+    pathfinder.create_wall_from_object(object);
+    Ok(())
+}
+
 impl IntegratedAiPlayer {
     pub fn update(&mut self) -> Result<(), AiError> {
         match self {

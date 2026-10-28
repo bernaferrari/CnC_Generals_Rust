@@ -467,6 +467,7 @@ impl Object {
             single_use_command_used: false,
             is_receiving_difficulty_bonus: false,
             lifecycle: ObjectLifecycle::Alive,
+            pathfinding_owner: None,
             ambient_lifecycle_admitted: true,
 
             #[cfg(any(debug_assertions, feature = "internal"))]
@@ -625,7 +626,22 @@ impl Object {
         owner.with_mut(|object| object.handle_partition_cell_maintenance());
     }
 
-    /// Standalone deletion adapter; a GameLogic owner uses the borrowed
+    /// Bind this object's admitted world before lifecycle callbacks can run.
+    pub(crate) fn bind_pathfinding_owner(
+        &mut self,
+        owner: &Arc<crate::system::engine_stores::EngineStores>,
+    ) -> Result<(), String> {
+        if let Some(existing) = self.pathfinding_owner.as_ref() {
+            if !Arc::ptr_eq(existing, owner) {
+                return Err("object already belongs to another pathfinding owner".into());
+            }
+            return Ok(());
+        }
+        self.pathfinding_owner = Some(Arc::clone(owner));
+        Ok(())
+    }
+
+    /// Standalone deletion adapter; a GameLogic owner uses the bound world
     /// services below rather than discovering another world during cleanup.
     pub(crate) fn run_destructor_tail(&mut self) {
         self.finish_destroy_with_game_logic_services(|object_id, action| match action {
@@ -675,15 +691,33 @@ impl Object {
         service: &mut impl FnMut(ObjectID, ObjectDestroyServiceAction),
     ) {
         let pos = *self.get_position();
-        let footprint = crate::ai::object_footprint_positions(self).unwrap_or_else(|| vec![pos]);
-        // Pathfinder/radar/script adapters remain separate ownership work.
-        // GameLogic services always use the driving owner's borrow.
-        let ai_store = crate::ai::the_ai();
-        if let Ok(ai) = ai_store.read() {
-            if let Some(pf) = ai.pathfinder() {
-                if let Ok(mut pf) = pf.write() {
-                    pf.remove_object_from_map_at_positions(&footprint);
-                    pf.remove_wall_from_object(self);
+        // Explicit Core owners stay pinned to this object. Unbound legacy
+        // objects retain the old TheAI/TheTerrainLogic fallback until their
+        // admission path is migrated as a complete pair.
+        let (terrain_owner, ai_owner) = match self.pathfinding_owner.as_ref() {
+            Some(owner) => (
+                Arc::clone(owner.services().terrain()),
+                Arc::clone(owner.ai()),
+            ),
+            None => (crate::terrain::get_terrain_logic(), crate::ai::the_ai()),
+        };
+        if let Ok(terrain) = terrain_owner.read() {
+            let footprint = crate::ai::object_footprint_positions_with_height(self, |x, y| {
+                terrain.get_layer_height(
+                    x,
+                    y,
+                    crate::path::PathfindLayerEnum::Ground,
+                    None,
+                    false,
+                )
+            })
+            .unwrap_or_else(|| vec![pos]);
+            if let Ok(ai) = ai_owner.read() {
+                if let Some(pathfinder) = ai.pathfinder() {
+                    if let Ok(mut pathfinder) = pathfinder.write() {
+                        pathfinder.remove_object_from_map_at_positions(&footprint);
+                        pathfinder.remove_wall_from_object(self);
+                    }
                 }
             }
         }
@@ -737,6 +771,9 @@ impl Object {
         }
 
         crate::control_bar::mark_ui_dirty();
+        // Once the pathfinding callback has run, a query Arc may retain this
+        // finalized Object but no longer needs to keep the whole world alive.
+        self.pathfinding_owner = None;
     }
 
     /// Internal destroy routine that performs per-object module cleanup

@@ -266,11 +266,14 @@ impl TerrainLogic {
 
     fn request_pathfind_recalculation(&self) {
         let ai_store = the_ai();
-        let pathfinder = if let Ok(ai_guard) = ai_store.read() {
-            ai_guard.pathfinder()
-        } else {
-            None
-        };
+        let pathfinder = ai_store.read().ok().and_then(|ai_guard| ai_guard.pathfinder());
+        self.rebuild_pathfinder(pathfinder.as_ref());
+    }
+
+    fn rebuild_pathfinder(
+        &self,
+        pathfinder: Option<&Arc<RwLock<crate::ai::Pathfinder>>>,
+    ) {
         let Some(pathfinder) = pathfinder else {
             return;
         };
@@ -346,8 +349,21 @@ impl TerrainLogic {
     }
 
     fn apply_standalone_water_change(&self, change: WaterHeightChange) {
+        self.apply_standalone_water_change_with_owner(change, None, true);
+    }
+
+    fn apply_standalone_water_change_with_owner(
+        &self,
+        change: WaterHeightChange,
+        owner_pathfinder: Option<&Arc<RwLock<crate::ai::Pathfinder>>>,
+        allow_legacy_owner: bool,
+    ) {
         if change.reclassify {
-            self.request_pathfind_recalculation();
+            if allow_legacy_owner {
+                self.request_pathfind_recalculation();
+            } else {
+                self.rebuild_pathfinder(owner_pathfinder);
+            }
         }
         self.apply_water_rise_damage(&change.affected_region, change.damage_amount);
         self.water_grid.publish_visual();
@@ -600,9 +616,30 @@ impl TerrainLogic {
 
     pub(super) fn update_dynamic_water(&mut self) {
         let frame = crate::helpers::TheGameLogic::get_frame();
+        self.update_dynamic_water_with_owner_and_legacy(None, true, frame);
+    }
+
+    pub(super) fn update_dynamic_water_with_owner(
+        &mut self,
+        owner_pathfinder: Option<&Arc<RwLock<crate::ai::Pathfinder>>>,
+        frame: u32,
+    ) {
+        self.update_dynamic_water_with_owner_and_legacy(owner_pathfinder, false, frame);
+    }
+
+    fn update_dynamic_water_with_owner_and_legacy(
+        &mut self,
+        owner_pathfinder: Option<&Arc<RwLock<crate::ai::Pathfinder>>>,
+        allow_legacy_owner: bool,
+        frame: u32,
+    ) {
         for index in (0..self.dynamic_water_count()).rev() {
             if let Some((change, terminal)) = self.advance_dynamic_water(index, frame) {
-                self.apply_standalone_water_change(change);
+                self.apply_standalone_water_change_with_owner(
+                    change,
+                    owner_pathfinder,
+                    allow_legacy_owner,
+                );
                 self.finish_dynamic_water(index, terminal);
             }
         }

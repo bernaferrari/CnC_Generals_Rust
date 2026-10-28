@@ -281,7 +281,11 @@ fn game_logic_mutex() -> &'static Mutex<GameLogic> {
     SAVE_GAME_COUNTER_HOOKS.get_or_init(|| {
         install_save_game_counter_integration();
     });
-    GAME_LOGIC.get_or_init(|| Mutex::new(GameLogic::default()))
+    GAME_LOGIC.get_or_init(|| {
+        Mutex::new(GameLogic::new_with_engine_stores(
+            crate::system::engine_stores::EngineStores::process_lifetime(),
+        ))
+    })
 }
 
 /// Get the global GameLogic singleton

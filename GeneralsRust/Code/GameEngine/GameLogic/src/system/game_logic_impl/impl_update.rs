@@ -636,8 +636,13 @@ impl GameLogic {
     pub fn update_ai_players(&mut self, frame: UnsignedInt) -> Result<(), GameLogicError> {
         trace!("GameLogic::update_ai_players(frame={})", frame);
 
-        // Access the global AI system
-        let ai_store = the_ai();
+        // Core instances with an explicit owner drive that world's AI and
+        // pathfinder. The process singleton remains on the legacy fallback.
+        let ai_store = self
+            .pathfinding_owner
+            .as_ref()
+            .map(|owner| Arc::clone(owner.ai()))
+            .unwrap_or_else(the_ai);
         if let Ok(mut ai) = ai_store.write() {
             if let Err(e) = ai.update(frame) {
                 return Err(GameLogicError::AIError(format!("AI update failed: {}", e)));
@@ -1429,10 +1434,24 @@ impl GameLogic {
     fn update_terrain(&self) -> Result<(), GameLogicError> {
         trace!("GameLogic::update_terrain()");
 
-        // The terrain logic singleton lives in the terrain module.
-        // It manages bridges, dynamic water, and trigger areas.
-        if let Ok(mut terrain) = crate::terrain::get_terrain_logic().write() {
-            terrain.update();
+        // The process singleton remains on the compatibility terrain. Explicit
+        // worlds advance only their own terrain services.
+        let terrain = self
+            .pathfinding_owner
+            .as_ref()
+            .map(|owner| Arc::clone(owner.services().terrain()))
+            .unwrap_or_else(crate::terrain::get_terrain_logic);
+        if let Ok(mut terrain) = terrain.write() {
+            if let Some(owner) = self.pathfinding_owner.as_ref() {
+                let pathfinder = owner
+                    .ai()
+                    .read()
+                    .ok()
+                    .and_then(|ai| ai.pathfinder());
+                terrain.update_with_owner_pathfinder(pathfinder.as_ref(), self.frame);
+            } else {
+                terrain.update();
+            }
         }
 
         Ok(())

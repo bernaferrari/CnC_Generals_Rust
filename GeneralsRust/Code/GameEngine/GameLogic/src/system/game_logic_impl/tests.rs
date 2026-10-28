@@ -549,8 +549,8 @@ mod tests {
     #[test]
     fn test_object_list_links_relink_on_cleanup() {
         let _guard = test_state_lock();
-        use crate::object::Object;
         use crate::object::registry::OBJECT_REGISTRY;
+        use crate::object::Object;
         use std::sync::{Arc, RwLock};
 
         OBJECT_REGISTRY.clear();
@@ -629,8 +629,8 @@ mod tests {
     fn load_post_process_rebuilds_sleepy_queue_from_object_modules() {
         let _guard = test_state_lock();
         use crate::modules::{UpdateModuleDummy, UpdateModulePtr};
-        use crate::object::Object;
         use crate::object::registry::OBJECT_REGISTRY;
+        use crate::object::Object;
         use std::sync::{Arc, RwLock};
 
         OBJECT_REGISTRY.clear();
@@ -660,8 +660,8 @@ mod tests {
     #[test]
     fn game_state_post_process_load_updates_partition_after_snapshots() {
         let _guard = test_state_lock();
-        use crate::object::Object;
         use crate::object::registry::OBJECT_REGISTRY;
+        use crate::object::Object;
 
         OBJECT_REGISTRY.clear();
         let _ = get_game_logic();
@@ -715,8 +715,8 @@ mod tests {
     #[test]
     fn empty_registry_falls_back_to_game_logic_objects_like_cpp() {
         let _guard = test_state_lock();
-        use crate::object::Object;
         use crate::object::registry::OBJECT_REGISTRY;
+        use crate::object::Object;
         use std::sync::{Arc, RwLock};
 
         OBJECT_REGISTRY.clear();
@@ -744,8 +744,8 @@ mod tests {
     #[test]
     fn test_register_object_sets_link_ids() {
         let _guard = test_state_lock();
-        use crate::object::Object;
         use crate::object::registry::OBJECT_REGISTRY;
+        use crate::object::Object;
         use std::sync::{Arc, RwLock};
 
         OBJECT_REGISTRY.clear();
@@ -1107,7 +1107,7 @@ mod tests {
         // C++ GameLogic.cpp:3969-3980 — WALK_ON_TOP_OF_WALL pathfinder removal
         // and ControlBar::markUIDirty for local special-power objects.
         use crate::common::{DefaultThingTemplate, KindOf};
-        use crate::control_bar::{ControlBarUiHooks, register_control_bar_ui_hooks};
+        use crate::control_bar::{register_control_bar_ui_hooks, ControlBarUiHooks};
         use crate::object::special_power_types::SpecialPowerType;
         use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -2230,6 +2230,331 @@ mod tests {
         assert!(
             foreign_owner_map_survived,
             "the foreign owner's local map must remain intact"
+        );
+    }
+
+    #[test]
+    fn destruction_uses_receiving_engine_stores_pathfinder_for_same_id_worlds() {
+        let _fixture = test_state_lock();
+        const ID: ObjectID = 0xD1F1;
+        let driving_owner = crate::system::engine_stores::new_for_world();
+        let foreign_owner = crate::system::engine_stores::new_for_world();
+        let driving_pathfinder = driving_owner.ai().read().unwrap().pathfinder().unwrap();
+        let foreign_pathfinder = foreign_owner.ai().read().unwrap().pathfinder().unwrap();
+        for pathfinder in [&driving_pathfinder, &foreign_pathfinder] {
+            let mut pathfinder = pathfinder.write().unwrap();
+            pathfinder.reset_with_size(8, 8);
+            for x in 0..8 {
+                for y in 0..8 {
+                    pathfinder.set_cell_type_at(
+                        &Coord3D::new(x as f32 * 10.0 + 5.0, y as f32 * 10.0 + 5.0, 0.0),
+                        crate::ai::pathfind_astar::PathfindCellType::Clear,
+                    );
+                }
+            }
+            pathfinder.mark_current_map_ready();
+        }
+
+        let mut driving = GameLogic::new_with_engine_stores(Arc::clone(&driving_owner));
+        let mut foreign = GameLogic::new_with_engine_stores(Arc::clone(&foreign_owner));
+        let driving_position = Coord3D::new(25.0, 25.0, 0.0);
+        // Same ObjectID in a foreign global registry entry must not cause the
+        // receiving owner's obstacle geometry to be borrowed from that peer.
+        let foreign_position = Coord3D::new(55.0, 55.0, 0.0);
+        let make_structure = |health, position: &Coord3D| {
+            let mut object = Object::new_test(ID, health);
+            let mut template = crate::common::DefaultThingTemplate::new("OwnerPathTest".into());
+            template.add_kind_of(KindOf::Structure);
+            object.set_template_for_test(Arc::new(template));
+            object.set_position(position).unwrap();
+            let mut geometry = *object.get_geometry_info();
+            geometry.shape.set(
+                game_engine::common::system::geometry::GeometryType::Sphere,
+                false,
+                0.0,
+                4.0,
+                4.0,
+            );
+            object.set_geometry_info(geometry);
+            Arc::new(RwLock::new(object))
+        };
+        let driving_object = make_structure(101.0, &driving_position);
+        let foreign_object = make_structure(202.0, &foreign_position);
+        driving
+            .register_object(Arc::clone(&driving_object))
+            .unwrap();
+        foreign
+            .register_object(Arc::clone(&foreign_object))
+            .unwrap();
+
+        assert_eq!(
+            driving_pathfinder
+                .read()
+                .unwrap()
+                .get_cell_type_at(&driving_position),
+            Some(crate::ai::pathfind_astar::PathfindCellType::Obstacle)
+        );
+        assert_eq!(
+            foreign_pathfinder
+                .read()
+                .unwrap()
+                .get_cell_type_at(&foreign_position),
+            Some(crate::ai::pathfind_astar::PathfindCellType::Obstacle)
+        );
+        assert_eq!(
+            driving_pathfinder
+                .read()
+                .unwrap()
+                .get_cell_type_at(&foreign_position),
+            Some(crate::ai::pathfind_astar::PathfindCellType::Clear),
+            "same-ID peer registration must not bleed its obstacle location into the receiving owner"
+        );
+        assert_eq!(
+            foreign_pathfinder
+                .read()
+                .unwrap()
+                .get_cell_type_at(&driving_position),
+            Some(crate::ai::pathfind_astar::PathfindCellType::Clear),
+            "same-ID peer registration must not bleed its obstacle location into the receiving owner"
+        );
+
+        // A foreign active stores scope must not redirect Core Object's
+        // destructor pathfinding callback away from the receiving GameLogic.
+        crate::system::engine_stores::with_active_stores(&foreign_owner, || {
+            driving.destroy_object(ID);
+            driving.cleanup_dead_objects().unwrap();
+        });
+        assert_eq!(
+            driving_pathfinder
+                .read()
+                .unwrap()
+                .get_cell_type_at(&driving_position),
+            Some(crate::ai::pathfind_astar::PathfindCellType::Clear)
+        );
+        assert_eq!(
+            foreign_pathfinder
+                .read()
+                .unwrap()
+                .get_cell_type_at(&foreign_position),
+            Some(crate::ai::pathfind_astar::PathfindCellType::Obstacle)
+        );
+        assert!(foreign.find_object_by_id(ID).is_some());
+
+        crate::system::engine_stores::with_active_stores(&driving_owner, || {
+            foreign.destroy_object(ID);
+            foreign.cleanup_dead_objects().unwrap();
+        });
+        assert_eq!(
+            foreign_pathfinder
+                .read()
+                .unwrap()
+                .get_cell_type_at(&foreign_position),
+            Some(crate::ai::pathfind_astar::PathfindCellType::Clear)
+        );
+
+        // Restored walk-on-wall IDs and map rebuilds use the same receiving
+        // AI/terrain pair, even while the peer stores are active.
+        crate::system::engine_stores::with_active_stores(&foreign_owner, || {
+            add_loaded_wall_piece(&driving, ID);
+            add_loaded_wall_piece(&foreign, ID);
+        });
+        assert_eq!(driving_pathfinder.read().unwrap().wall_piece_count(), 1);
+        assert_eq!(foreign_pathfinder.read().unwrap().wall_piece_count(), 1);
+
+        // Distinct pending requests let update_ai_players prove that its core
+        // Pathfinder::processPathfindQueue follows the logic owner.
+        let request = || crate::ai::pathfind_complete::PathRequest {
+            object_id: ID,
+            from: Coord3D::new(5.0, 5.0, 0.0),
+            to: Coord3D::new(65.0, 65.0, 0.0),
+            surfaces: crate::path::SURFACE_GROUND,
+            is_crusher: false,
+            unit_radius: 0.0,
+            allow_partial: false,
+            move_allies: false,
+            ignore_obstacle_id: None,
+            is_human: false,
+        };
+        driving_pathfinder
+            .write()
+            .unwrap()
+            .queue_for_path_request(request())
+            .unwrap();
+        foreign_pathfinder
+            .write()
+            .unwrap()
+            .queue_for_path_request(request())
+            .unwrap();
+        assert_eq!(driving_pathfinder.read().unwrap().pending_path_request_count(), 1);
+        assert_eq!(foreign_pathfinder.read().unwrap().pending_path_request_count(), 1);
+        crate::system::engine_stores::with_active_stores(&foreign_owner, || {
+            driving.update_ai_players(0).unwrap();
+            driving.update_ai_players(0).unwrap();
+        });
+        assert_eq!(driving_pathfinder.read().unwrap().pending_path_request_count(), 0);
+        assert_eq!(foreign_pathfinder.read().unwrap().pending_path_request_count(), 1);
+        crate::system::engine_stores::with_active_stores(&driving_owner, || {
+            foreign.update_ai_players(0).unwrap();
+            foreign.update_ai_players(0).unwrap();
+        });
+        assert_eq!(foreign_pathfinder.read().unwrap().pending_path_request_count(), 0);
+
+        // Terrain's dynamic-water phase is also owner-bound.
+        let water_name = crate::common::AsciiString::from("Water Grid");
+        for owner in [&driving_owner, &foreign_owner] {
+            owner
+                .services()
+                .terrain()
+                .write()
+                .unwrap()
+                .change_water_height_over_time(&water_name, 30.0, 1.0, 0.0);
+        }
+        let water_height = |owner: &crate::system::engine_stores::EngineStores| {
+            owner
+                .services()
+                .terrain()
+                .read()
+                .unwrap()
+                .get_water_handle_by_name(&water_name)
+                .unwrap()
+                .get_current_height()
+        };
+        let driving_water_before = water_height(&driving_owner);
+        let foreign_water_before = water_height(&foreign_owner);
+        crate::system::engine_stores::with_active_stores(&foreign_owner, || {
+            driving.update_terrain().unwrap();
+        });
+        assert!(water_height(&driving_owner) > driving_water_before);
+        assert_eq!(water_height(&foreign_owner), foreign_water_before);
+        crate::system::engine_stores::with_active_stores(&driving_owner, || {
+            foreign.update_terrain().unwrap();
+        });
+        assert!(water_height(&foreign_owner) > foreign_water_before);
+
+        // Polygon-load post-processing rebuilds from the receiving terrain
+        // and AI even if the peer owner is active.
+        let install_map_bounds = |owner: &crate::system::engine_stores::EngineStores, size: u32| {
+            let mut map = crate::system::map_loader::MapData::new();
+            map.width = size;
+            map.height = size;
+            map.heightmap = vec![0; (size * size) as usize];
+            map.boundaries = vec![crate::common::ICoord2D::new(size as i32, size as i32)];
+            owner.services().terrain().write().unwrap().load_map_data(map);
+        };
+        install_map_bounds(&driving_owner, 4);
+        install_map_bounds(&foreign_owner, 8);
+        crate::system::engine_stores::with_active_stores(&foreign_owner, || {
+            pathfinder_new_map_after_polygon_load(&driving);
+        });
+        assert!(driving_pathfinder
+            .read()
+            .unwrap()
+            .get_cell_type_at_cell(crate::ai::pathfind_astar::PathfindLayerEnum::Ground, 3, 3)
+            .is_some());
+        assert!(foreign_pathfinder
+            .read()
+            .unwrap()
+            .get_cell_type_at_cell(crate::ai::pathfind_astar::PathfindLayerEnum::Ground, 3, 3)
+            .is_none());
+        crate::system::engine_stores::with_active_stores(&driving_owner, || {
+            pathfinder_new_map_after_polygon_load(&foreign);
+        });
+        assert!(foreign_pathfinder
+            .read()
+            .unwrap()
+            .get_cell_type_at_cell(crate::ai::pathfind_astar::PathfindLayerEnum::Ground, 7, 7)
+            .is_some());
+        assert!(driving_pathfinder
+            .read()
+            .unwrap()
+            .get_cell_type_at_cell(crate::ai::pathfind_astar::PathfindLayerEnum::Ground, 7, 7)
+            .is_none());
+
+    }
+
+    #[test]
+    fn unbound_game_logic_keeps_legacy_obstacle_create_destroy_pair() {
+        let _fixture = test_state_lock();
+        const ID: ObjectID = 0xD1F2;
+        let stores = crate::system::engine_stores::new_for_world();
+        let pathfinder = stores.ai().read().unwrap().pathfinder().unwrap();
+        {
+            let mut pathfinder = pathfinder.write().unwrap();
+            pathfinder.reset_with_size(8, 8);
+            for x in 0..8 {
+                for y in 0..8 {
+                    pathfinder.set_cell_type_at(
+                        &Coord3D::new(x as f32 * 10.0 + 5.0, y as f32 * 10.0 + 5.0, 0.0),
+                        crate::ai::pathfind_astar::PathfindCellType::Clear,
+                    );
+                }
+            }
+            pathfinder.mark_current_map_ready();
+        }
+        let position = Coord3D::new(25.0, 25.0, 0.0);
+        let mut object = Object::new_test(ID, 101.0);
+        let mut template = crate::common::DefaultThingTemplate::new("LegacyOwnerPathTest".into());
+        template.add_kind_of(KindOf::Structure);
+        object.set_template_for_test(Arc::new(template));
+        object.set_position(&position).unwrap();
+        let mut geometry = *object.get_geometry_info();
+        geometry.shape.set(
+            game_engine::common::system::geometry::GeometryType::Sphere,
+            false,
+            0.0,
+            4.0,
+            4.0,
+        );
+        object.set_geometry_info(geometry);
+        let object = Arc::new(RwLock::new(object));
+        let mut logic = GameLogic::new();
+
+        crate::system::engine_stores::with_active_stores(&stores, || {
+            logic.register_object(Arc::clone(&object)).unwrap();
+        });
+        assert_eq!(
+            pathfinder.read().unwrap().get_cell_type_at(&position),
+            Some(crate::ai::pathfind_astar::PathfindCellType::Obstacle)
+        );
+
+        crate::system::engine_stores::with_active_stores(&stores, || {
+            logic.destroy_object(ID);
+            logic.cleanup_dead_objects().unwrap();
+        });
+        assert_eq!(
+            pathfinder.read().unwrap().get_cell_type_at(&position),
+            Some(crate::ai::pathfind_astar::PathfindCellType::Clear)
+        );
+    }
+
+    #[test]
+    fn unbound_game_logic_removes_wall_piece_at_mark_time() {
+        let _fixture = test_state_lock();
+        const ID: ObjectID = 0xD1F3;
+        let stores = crate::system::engine_stores::new_for_world();
+        let pathfinder = stores.ai().read().unwrap().pathfinder().unwrap();
+        pathfinder.write().unwrap().add_wall_piece(ID);
+        assert_eq!(pathfinder.read().unwrap().wall_piece_count(), 1);
+
+        let mut template = crate::common::DefaultThingTemplate::new("LegacyWallMarkTest".into());
+        template.add_kind_of(KindOf::WalkOnTopOfWall);
+        let object = Arc::new(RwLock::new(Object::new_test_from_template(
+            ID,
+            101.0,
+            Arc::new(template),
+        )));
+        let mut logic = GameLogic::new();
+        logic.objects.insert(ID, Arc::clone(&object));
+        logic.all_objects = vec![ID];
+
+        crate::system::engine_stores::with_active_stores(&stores, || {
+            logic.destroy_object(ID);
+        });
+
+        assert_eq!(
+            pathfinder.read().unwrap().wall_piece_count(),
+            0,
+            "C++ removes wall occupancy in destroyObject before deferred cleanup"
         );
     }
 }

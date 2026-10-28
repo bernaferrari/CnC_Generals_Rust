@@ -31,6 +31,17 @@ impl GameLogic {
         Self::default()
     }
 
+    /// Create Core GameLogic with its receiving EngineStores for lifecycle
+    /// callbacks that need the world's AI/pathfinder during object cleanup.
+    /// This only retains the supplied owner; it never publishes active state.
+    pub fn new_with_engine_stores(
+        engine_stores: Arc<crate::system::engine_stores::EngineStores>,
+    ) -> Self {
+        let mut logic = Self::new();
+        logic.pathfinding_owner = Some(engine_stores);
+        logic
+    }
+
     /// Get whether draw icon UI indicators are enabled.
     pub fn get_draw_icon_ui(&self) -> Bool {
         self.draw_icon_ui
