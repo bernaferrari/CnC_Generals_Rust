@@ -1629,6 +1629,7 @@ End
                         None,
                         "terminal-owned-services",
                         GameMode::Skirmish,
+                        crate::save_load::CampaignMapContext::default(),
                         RestoreTemplateCatalog::from_world(&source),
                         &source.weapon_definition_base,
                         &source.projectile_definitions,
@@ -1760,6 +1761,7 @@ End
                     None, // no paired TerrainVisual in this direct staging fixture
                     "owned_services",
                     GameMode::Skirmish,
+                    crate::save_load::CampaignMapContext::default(),
                     RestoreTemplateCatalog {
                         templates: &catalog,
                         modules: &source.receiving_module_content,
@@ -1885,6 +1887,7 @@ End
                     &mut saves,
                     "owned_services",
                     GameMode::Skirmish,
+                    crate::save_load::CampaignMapContext::default(),
                     RestoreTemplateCatalog {
                         templates: &catalog,
                         modules: &source.receiving_module_content,
@@ -2180,6 +2183,7 @@ End
                     None,
                     "containment-audio-stage",
                     GameMode::Skirmish,
+                    crate::save_load::CampaignMapContext::default(),
                     RestoreTemplateCatalog::from_world(&source),
                     &source.weapon_definition_base,
                     &source.projectile_definitions,

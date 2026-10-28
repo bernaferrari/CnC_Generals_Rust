@@ -34,7 +34,6 @@ use crate::save_load::campaign::{
     CampaignId, CampaignManager, MissionCompletionData, MissionDifficulty, MissionInfo,
     MissionObjective, MissionStatus, ObjectiveReward, ObjectiveTarget, ObjectiveType,
 };
-use crate::save_load::game_state::with_global_campaign_manager;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -240,12 +239,10 @@ fn sample_mission(map_name: &str) -> MissionInfo {
     }
 }
 
-fn register_global_mission(map_name: &str) -> bool {
-    with_global_campaign_manager(|mgr| {
-        mgr.mission_definitions
-            .insert(MISSION_ID.into(), sample_mission(map_name));
-    })
-    .is_ok()
+fn register_mission(manager: &mut CampaignManager, map_name: &str) {
+    manager
+        .mission_definitions
+        .insert(MISSION_ID.into(), sample_mission(map_name));
 }
 
 fn count_scripts_in_map(path: &Path) -> (bool, usize) {
@@ -351,51 +348,38 @@ pub fn run_golden_campaign_ex(
             let mut m3 = sample_mission(stem);
             m3.id = format!("{MISSION_ID}_STEM");
             progression.mission_definitions.insert(m3.id.clone(), m3);
-            register_global_mission(stem);
         }
     }
-    register_global_mission(&victory_map_key);
-    if let Some((id, path)) = &campaign_resolved {
-        register_global_mission(id);
-        register_global_mission(path.to_str().unwrap_or(id));
-    }
-
-    // Ensure Campaign.ini residual table (usa_01 / MD_USA01 + objectives) is
-    // present on the global manager when available.
-    let _ = with_global_campaign_manager(|mgr| {
-        let _ = mgr.init();
-        // Re-apply residual mission keys after init (init may load table).
-        mgr.mission_definitions
-            .insert(MISSION_ID.into(), sample_mission(&victory_map_key));
-        if let Some((id, path)) = &campaign_resolved {
-            mgr.mission_definitions
-                .insert(format!("{MISSION_ID}_ID"), sample_mission(id));
-            mgr.mission_definitions.insert(
-                format!("{MISSION_ID}_PATH"),
-                sample_mission(path.to_str().unwrap_or(id)),
-            );
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                mgr.mission_definitions
-                    .insert(format!("{MISSION_ID}_STEM"), sample_mission(stem));
-            }
-        }
-    });
 
     let campaign_started = progression
         .start_campaign(CampaignId::USACampaign, "golden_campaign")
         .is_ok();
 
     // Victory rule must be visible before map configure.
-    let victory_rule_applied = victory_rules_for_map(&victory_map_key) == VictoryType::NO_UNITS
+    let victory_rule_applied = victory_rules_for_map(
+        &victory_map_key,
+        Some(&progression.map_context_for(&victory_map_key)),
+    ) == VictoryType::NO_UNITS
         || campaign_resolved
             .as_ref()
             .map(|(id, path)| {
-                victory_rules_for_map(id) == VictoryType::NO_UNITS
-                    || victory_rules_for_map(path.to_str().unwrap_or(id)) == VictoryType::NO_UNITS
+                victory_rules_for_map(
+                    id,
+                    Some(&progression.map_context_for(id)),
+                ) == VictoryType::NO_UNITS
+                    || victory_rules_for_map(
+                        path.to_str().unwrap_or(id),
+                        Some(&progression.map_context_for(path.to_str().unwrap_or(id))),
+                    ) == VictoryType::NO_UNITS
                     || path
                         .file_stem()
                         .and_then(|s| s.to_str())
-                        .map(|stem| victory_rules_for_map(stem) == VictoryType::NO_UNITS)
+                        .map(|stem| {
+                            victory_rules_for_map(
+                                stem,
+                                Some(&progression.map_context_for(stem)),
+                            ) == VictoryType::NO_UNITS
+                        })
                         .unwrap_or(false)
             })
             .unwrap_or(false);
@@ -408,7 +392,22 @@ pub fn run_golden_campaign_ex(
     let (host_map_identity, host_map_loaded) = match &host_resolved {
         Some((id, path)) => {
             let path_str = path.to_str().unwrap_or(id.as_str());
-            let loaded = logic.load_map(path_str) || logic.load_map(id);
+            let loaded = logic
+                .load_map_with_campaign_context_and_progress_and_native_checked(
+                    path_str,
+                    progression.map_context_for(path_str),
+                    |_, _, _, _| Ok(()),
+                    None,
+                )
+                .unwrap_or(false)
+                || logic
+                    .load_map_with_campaign_context_and_progress_and_native_checked(
+                        id,
+                        progression.map_context_for(id),
+                        |_, _, _, _| Ok(()),
+                        None,
+                    )
+                    .unwrap_or(false);
             (id.clone(), loaded)
         }
         None => ("<none>".into(), false),
@@ -841,8 +840,10 @@ mod tests {
     #[test]
     fn campaign_victory_override_is_nounits() {
         let _ = std::fs::create_dir_all(SaveLoadManager::default_save_directory().join("Campaign"));
-        assert!(register_global_mission("UnitTestCampaignMap"));
-        let rules = victory_rules_for_map("UnitTestCampaignMap");
+        let mut manager = CampaignManager::new();
+        register_mission(&mut manager, "UnitTestCampaignMap");
+        let context = manager.map_context_for("UnitTestCampaignMap");
+        let rules = victory_rules_for_map("UnitTestCampaignMap", Some(&context));
         assert_eq!(
             rules,
             VictoryType::NO_UNITS,

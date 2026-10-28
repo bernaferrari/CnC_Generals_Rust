@@ -40,14 +40,6 @@ impl GameLogic {
         use gamelogic::scripting::HostScriptMoveAttackRequest;
         for req in gamelogic::scripting::take_host_script_move_attack_requests() {
             match req {
-                HostScriptMoveAttackRequest::TeamMove { team, waypoint } => {
-                    let Some(dest) = self.host_script_waypoint_position(&waypoint) else {
-                        continue;
-                    };
-                    for id in self.host_script_team_member_ids(&team) {
-                        self.unit_command_move_to(id, dest);
-                    }
-                }
                 HostScriptMoveAttackRequest::NamedMove { unit, waypoint } => {
                     let Some(dest) = self.host_script_waypoint_position(&waypoint) else {
                         continue;

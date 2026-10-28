@@ -262,6 +262,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                     None, // no paired TerrainVisual in this direct staging fixture
                     "ocl",
                     GameMode::Skirmish,
+                    crate::save_load::CampaignMapContext::default(),
                     RestoreTemplateCatalog {
                         templates: &source.templates,
                         modules: &source.receiving_module_content,
@@ -334,6 +335,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                         None, // no paired TerrainVisual in this direct staging fixture
                         "ocl",
                         GameMode::Skirmish,
+                        crate::save_load::CampaignMapContext::default(),
                         RestoreTemplateCatalog {
                             templates: &source.templates,
                             modules: &source.receiving_module_content,
@@ -412,6 +414,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                         &mut saves,
                         "mapped_armor",
                         GameMode::Skirmish,
+                        crate::save_load::CampaignMapContext::default(),
                         RestoreTemplateCatalog {
                             templates: &source.templates,
                             modules: &source.receiving_module_content,

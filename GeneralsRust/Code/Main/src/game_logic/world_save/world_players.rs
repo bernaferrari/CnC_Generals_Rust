@@ -1014,6 +1014,11 @@ impl GameLogic {
             };
             factory.reset();
         }
+        // TeamFactory reset retires every Team identity. Clear only this
+        // receiving world's Player bindings before definitions are rebuilt.
+        for player in self.players.values_mut() {
+            player.default_team_id = None;
+        }
         for dict in team_dicts {
             let name = dict.get_ascii_string(game_engine::common::well_known_keys::key_team_name());
             if name.is_empty() {
@@ -1040,9 +1045,22 @@ impl GameLogic {
                         .find(|player| player.is_reserved_neutral())
                 })
                 .map(|player| player.id);
-            let on_create_scripts = {
+            let default_player_id = self.players.values().find_map(|player| {
+                (self.default_host_team_instance_name(Some(player.id), player.team) == name)
+                    .then_some(player.id)
+            });
+            let (on_create_scripts, admitted_default_id) = {
                 let Ok(mut factory) = self.team_factory.try_lock() else {
                     return false;
+                };
+                let previous_ids = if default_player_id.is_some() {
+                    factory
+                        .find_team_instances(&name)
+                        .iter()
+                        .filter_map(|team| team.read().ok().map(|team| team.get_id()))
+                        .collect::<std::collections::HashSet<_>>()
+                } else {
+                    std::collections::HashSet::new()
                 };
                 let Some((_, effects)) = factory.init_team_owned_with_effects(
                     name.clone().into(),
@@ -1053,8 +1071,39 @@ impl GameLogic {
                 ) else {
                     return false;
                 };
-                effects
+                let admitted_default_id = if singleton {
+                    default_player_id.and_then(|player_id| {
+                        let candidates = factory
+                            .find_team_instances(&name)
+                            .into_iter()
+                            .filter_map(|team| {
+                                let team = team.read().ok()?;
+                                (team.get_controlling_player_id() == Some(player_id)).then_some((
+                                    team.get_id(),
+                                    !previous_ids.contains(&team.get_id()),
+                                ))
+                            })
+                            .collect::<Vec<_>>();
+                        let newly_admitted = candidates
+                            .iter()
+                            .filter_map(|(id, is_new)| is_new.then_some(*id))
+                            .collect::<Vec<_>>();
+                        match newly_admitted.as_slice() {
+                            [identity] => Some(*identity),
+                            [] if candidates.len() == 1 => Some(candidates[0].0),
+                            _ => None,
+                        }
+                    })
+                } else {
+                    None
+                };
+                (effects, admitted_default_id)
             };
+            if let (Some(player_id), Some(identity)) = (default_player_id, admitted_default_id) {
+                if let Some(player) = self.players.get_mut(&player_id) {
+                    player.default_team_id = Some(identity);
+                }
+            }
             // createInactiveTeam executes with NULL team before initFromSides
             // advances to the next definition. The factory is available again
             // for recursive actions and all session owners remain installed.
@@ -1070,6 +1119,11 @@ impl GameLogic {
             {
                 return false;
             }
+        }
+        let mut player_ids = self.players.keys().copied().collect::<Vec<_>>();
+        player_ids.sort_unstable();
+        for player_id in player_ids {
+            self.ensure_host_default_team(player_id);
         }
         true
     }
@@ -1150,6 +1204,28 @@ mod map_singleton_owner_tests {
             .set_script_list_for_player(0, Some(Box::new(list)))
             .unwrap();
         engine
+    }
+
+    #[test]
+    fn team_factory_reload_rebinds_each_players_exact_default_identity() {
+        let mut world = GameLogic::new();
+        world.install_owned_script_engine(interpreter());
+        let mut player = Player::new(1, Team::USA, "MapOwner", true);
+        player.map_side.map_player_name = "MapOwner".into();
+        world.add_player(player);
+        let first = world.host_default_team_id(1).expect("first default Team");
+        let mut inserted = Dict::new();
+        inserted.set_ascii_string(key_team_name(), "BeforeDefault");
+        inserted.set_ascii_string(key_team_owner(), "MapOwner");
+        inserted.set_bool(key_team_is_singleton(), false);
+        assert!(world.sync_legacy_team_factory_from_team_dicts(&[inserted]));
+        let second = world.host_default_team_id(1).expect("rebound default Team");
+        assert_ne!(first, second, "new factory admission order changes Team ID");
+        let factory = world.team_factory.lock().unwrap();
+        let exact = factory.find_team_by_id(second).expect("bound Team exists");
+        let exact = exact.read().unwrap();
+        assert_eq!(exact.get_name().as_str(), "teamMapOwner");
+        assert_eq!(exact.get_controlling_player_id(), Some(1));
     }
     fn world() -> GameLogic {
         let mut world = GameLogic::new();

@@ -10,7 +10,7 @@ mod wander_owner_tests;
 use super::super::*;
 
 /// Canonical CPP playerName, never the separately editable display label.
-pub(super) fn default_team_owner_name(player: &Player) -> Option<&str> {
+pub(in crate::game_logic) fn default_team_owner_name(player: &Player) -> Option<&str> {
     player.script_identity()
 }
 
@@ -1112,7 +1112,7 @@ impl GameLogic {
         self.apply_unit_locomotor_set(id, "panic")
     }
 
-    /// Apply the remaining script-side team operations and advance wandering.
+    /// Apply the remaining script-side team operations.
     /// TEAM_PANIC and TEAM_WANDER execute synchronously on the borrowed driver.
     pub fn apply_host_loco_set_script_requests(&mut self) {
         self.apply_host_loco_set_script_requests_with_effects(&mut Default::default())
@@ -1128,7 +1128,6 @@ impl GameLogic {
         self.apply_host_capture_nearest_unowned_script_requests()?;
         self.apply_host_load_transports_script_requests()?;
         self.apply_host_named_fire_weapon_path_script_requests_with_effects(effects);
-        self.tick_host_wander_in_place();
         Ok(())
     }
 
@@ -1330,7 +1329,7 @@ impl GameLogic {
     }
 
     /// C++ `AIWanderInPlaceState::update` + wander/panic leftover-bail on repulsors.
-    fn tick_host_wander_in_place(&mut self) {
+    pub(super) fn tick_host_wander_in_place(&mut self) {
         let mut flee = Vec::new();
 
         let path_sessions: Vec<(u32, i32, i32)> = self

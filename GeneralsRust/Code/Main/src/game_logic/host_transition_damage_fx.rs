@@ -1144,7 +1144,21 @@ pub fn set_test_voice_fear_roll(roll: Option<i32>) {
     VOICE_FEAR_ROLL.set(roll);
 }
 
-pub fn take_voice_fear_roll() -> i32 {
+/// Draw the ActiveBody fear chance from the session that owns the damage
+/// continuation. The test override keeps the boundary cases deterministic.
+pub fn take_voice_fear_roll_from_session(
+    random: &game_engine::common::random_value::SessionRandom,
+) -> i32 {
+    #[cfg(test)]
+    if let Some(roll) = VOICE_FEAR_ROLL.get() {
+        return roll;
+    }
+    random.next_int(0, 99)
+}
+
+/// Detached Object adapters have no session owner; retain their compatibility
+/// draw separately from the receiving GameLogic path.
+pub(crate) fn take_detached_voice_fear_roll() -> i32 {
     #[cfg(test)]
     if let Some(roll) = VOICE_FEAR_ROLL.get() {
         return roll;

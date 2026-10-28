@@ -8,13 +8,12 @@ use std::time::SystemTime;
 
 /// Central game state manager.
 ///
-/// Single-owner: the manager owns every sub-system it snapshots, and callers
-/// reach it through the [`GAME_STATE_MANAGER`] global (see `// THREAD:` below).
+/// Application compatibility manager for save/replay operations. Campaign
+/// metadata is owned by the receiving CnCGameEngine, not this legacy facade.
 pub struct GameStateManager {
     // Core components
     save_file_manager: SaveFileManager,
     replay_manager: ReplayManager,
-    campaign_manager: CampaignManager,
 
     // Game systems to snapshot
     game_logic: Option<GameLogic>,
@@ -44,10 +43,6 @@ impl GameStateManager {
             replay_manager: root
                 .map(|root| ReplayManager::with_replay_directory(root.join("Save/Replays")))
                 .unwrap_or_else(ReplayManager::new),
-            campaign_manager: root
-                .map(|root| CampaignManager::with_campaign_directory(root.join("Save/Campaign")))
-                .unwrap_or_else(CampaignManager::new),
-
             game_logic: None,
             command_system: None,
             ai_system: None,
@@ -66,7 +61,6 @@ impl GameStateManager {
         // Initialize sub-managers
         self.save_file_manager.init()?;
         self.replay_manager.init()?;
-        self.campaign_manager.init()?;
 
         log::info!("Game state manager initialized");
         Ok(())
@@ -294,42 +288,6 @@ impl GameStateManager {
         self.replay_manager.record_command(command)
     }
 
-    /// Get campaign manager
-    pub fn get_campaign_manager(&mut self) -> &mut CampaignManager {
-        &mut self.campaign_manager
-    }
-
-    /// Start new campaign
-    pub fn start_campaign(
-        &mut self,
-        campaign_id: CampaignId,
-        player_name: &str,
-    ) -> SaveLoadResult<()> {
-        self.campaign_manager
-            .start_campaign(campaign_id, player_name)
-    }
-
-    /// Complete current mission
-    pub fn complete_mission(
-        &mut self,
-        mission_id: &str,
-        difficulty: MissionDifficulty,
-        completion_data: MissionCompletionData,
-    ) -> SaveLoadResult<()> {
-        self.campaign_manager
-            .complete_mission(mission_id, difficulty, completion_data)
-    }
-
-    /// Save mission state for campaign
-    pub fn save_mission_state(&mut self, save_state: MissionSaveState) -> SaveLoadResult<()> {
-        self.campaign_manager.save_mission_state(save_state)
-    }
-
-    /// Load mission state for campaign
-    pub fn load_mission_state(&mut self) -> SaveLoadResult<Option<MissionSaveState>> {
-        self.campaign_manager.load_mission_state()
-    }
-
     /// Check if currently in load operation
     pub fn is_in_load_operation(&self) -> bool {
         self.in_load_operation
@@ -495,16 +453,6 @@ impl Default for GameStateManager {
 lazy_static::lazy_static! {
     pub static ref GAME_STATE_MANAGER: Mutex<GameStateManager> =
         Mutex::new(GameStateManager::new());
-}
-
-/// Run `f` against the process-wide campaign manager.
-pub fn with_global_campaign_manager<R>(
-    f: impl FnOnce(&mut CampaignManager) -> R,
-) -> Result<R, &'static str> {
-    let mut manager = GAME_STATE_MANAGER
-        .try_lock()
-        .map_err(|_| "Campaign manager unavailable")?;
-    Ok(f(manager.get_campaign_manager()))
 }
 
 /// Initialize the global game state system

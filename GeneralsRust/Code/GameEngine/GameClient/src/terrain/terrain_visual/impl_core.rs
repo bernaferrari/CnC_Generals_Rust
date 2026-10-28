@@ -840,12 +840,38 @@ impl TerrainVisualImpl {
         &mut self,
         classes: &[TerrainSourceTileClass],
     ) -> TerrainResult<usize> {
+        self.load_source_tiles_with_image_source(classes, |visual, class| {
+            visual
+                .resolve_source_tile_texture_path(&class.name)
+                .and_then(|path| Self::open_source_tile_image(&path))
+        })
+    }
+
+    /// Load source tiles through the receiving content owner's mounted file
+    /// reader. Candidate selection and archive precedence stay in the caller's
+    /// mount; this method never selects the process-global game filesystem.
+    pub fn load_source_tiles_from_texture_classes_with_reader(
+        &mut self,
+        classes: &[TerrainSourceTileClass],
+        mut read_virtual_file: impl FnMut(&str) -> Option<Vec<u8>>,
+    ) -> TerrainResult<usize> {
+        self.load_source_tiles_with_image_source(classes, |visual, class| {
+            visual.resolve_source_tile_image_with_reader(&class.name, &mut read_virtual_file)
+        })
+    }
+
+    fn load_source_tiles_with_image_source(
+        &mut self,
+        classes: &[TerrainSourceTileClass],
+        mut resolve_image: impl FnMut(&Self, &TerrainSourceTileClass) -> Option<image::DynamicImage>,
+    ) -> TerrainResult<usize> {
         self.source_tile_classes = classes.to_vec();
         self.ranked_source_tile_classes = None;
 
         let mut loaded = 0usize;
         for class in classes {
-            loaded += self.load_source_tiles_for_class(class)?;
+            let image = resolve_image(self, class).map(|image| image.to_rgba8());
+            loaded += self.load_source_tiles_for_class_with_image(class, image)?;
         }
         self.bind_source_tile_classes_as_slots();
         Ok(loaded)
@@ -888,9 +914,10 @@ impl TerrainVisualImpl {
         self.source_tiles[index] = Some(tile);
     }
 
-    fn load_source_tiles_for_class(
+    fn load_source_tiles_for_class_with_image(
         &mut self,
         class: &TerrainSourceTileClass,
+        resolved_image: Option<image::RgbaImage>,
     ) -> TerrainResult<usize> {
         let first_tile = match usize::try_from(class.first_tile) {
             Ok(value) => value,
@@ -905,10 +932,6 @@ impl TerrainVisualImpl {
         // synthesize a deterministic stand-in tile per class name so the radar
         // band shows the same terrain coloring as the world view instead of
         // black / unresolved samples.
-        let resolved_image = self
-            .resolve_source_tile_texture_path(&class.name)
-            .and_then(|path| Self::open_source_tile_image(&path))
-            .map(|img| img.to_rgba8());
         let (image_width, image_height, available_tiles) = match resolved_image.as_ref() {
             Some(image) => {
                 let w = image.width() as usize;
@@ -940,6 +963,8 @@ impl TerrainVisualImpl {
             for tile_col in 0..rows {
                 let mut tile = TileData::new();
                 if let Some(image) = resolved_image.as_ref() {
+                    // A retry can replace this owner's earlier stand-in tile.
+                    self.stand_in_source_tiles[first_tile + count] = false;
                     for y in 0..64usize {
                         for x in 0..64usize {
                             let src_x = tile_col * 64 + x;
@@ -987,7 +1012,7 @@ impl TerrainVisualImpl {
         0
     }
 
-    fn resolve_source_tile_texture_path(&self, class_name: &str) -> Option<PathBuf> {
+    fn source_tile_texture_candidates(&self, class_name: &str) -> Vec<String> {
         // Map tile-texture class names are extension-less (e.g.
         // "GrassMediumType22"); the on-disk / BIG-archive assets are
         // `Art/Terrain/<name>.tga`. C++ WorldHeightMap loads tile textures
@@ -1019,8 +1044,11 @@ impl TerrainVisualImpl {
             }
         }
         candidates.push(with_ext(class_name));
+        candidates
+    }
 
-        for candidate in candidates {
+    fn resolve_source_tile_texture_path(&self, class_name: &str) -> Option<PathBuf> {
+        for candidate in self.source_tile_texture_candidates(class_name) {
             let path = Path::new(&candidate);
             if path.is_file() {
                 return Some(path.to_path_buf());
@@ -1029,7 +1057,26 @@ impl TerrainVisualImpl {
                 return Some(path);
             }
         }
+        None
+    }
 
+    fn resolve_source_tile_image_with_reader(
+        &self,
+        class_name: &str,
+        read_virtual_file: &mut impl FnMut(&str) -> Option<Vec<u8>>,
+    ) -> Option<image::DynamicImage> {
+        for candidate in self.source_tile_texture_candidates(class_name) {
+            if let Some(bytes) = read_virtual_file(&candidate) {
+                // TGA has no reliable signature for content-based detection.
+                // Use the selected mounted filename first, as `image::open`
+                // does for a loose source tile, and fall back to sniffing for
+                // any other supported format.
+                return image::ImageFormat::from_path(&candidate)
+                    .ok()
+                    .and_then(|format| image::load_from_memory_with_format(&bytes, format).ok())
+                    .or_else(|| image::load_from_memory(&bytes).ok());
+            }
+        }
         None
     }
 

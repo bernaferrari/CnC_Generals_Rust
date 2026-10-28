@@ -139,6 +139,42 @@ impl DamageApplication {
         source: Option<&HostDamageFxVictim>,
         body_fx: &mut BodyStateFxReceiver<'_>,
     ) {
+        self.complete_body_state_callbacks_with_voice_roll(
+            victim,
+            source,
+            crate::game_logic::host_transition_damage_fx::take_detached_voice_fear_roll,
+            body_fx,
+        );
+    }
+
+    /// Receiving GameLogic continuation: keep the fear chance draw on the
+    /// same session stream as the damage operation.
+    pub(in crate::game_logic) fn complete_body_state_callbacks_with_body_fx_and_random(
+        &mut self,
+        victim: &mut Object,
+        source: Option<&HostDamageFxVictim>,
+        random: &game_engine::common::random_value::SessionRandom,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+    ) {
+        self.complete_body_state_callbacks_with_voice_roll(
+            victim,
+            source,
+            || {
+                crate::game_logic::host_transition_damage_fx::take_voice_fear_roll_from_session(
+                    random,
+                )
+            },
+            body_fx,
+        );
+    }
+
+    fn complete_body_state_callbacks_with_voice_roll(
+        &mut self,
+        victim: &mut Object,
+        source: Option<&HostDamageFxVictim>,
+        take_fear_roll: impl FnOnce() -> i32,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+    ) {
         let (victim_id, old_body_state, frame, fear) = match self {
             Self::Active(tail) => (tail.victim_id, tail.old_body_state.take(), tail.frame, true),
             Self::Healing(tail) => (
@@ -163,9 +199,7 @@ impl DamageApplication {
             body_fx,
         );
         if fear {
-            if let Some(request) = victim.voice_fear_request(
-                crate::game_logic::host_transition_damage_fx::take_voice_fear_roll,
-            ) {
+            if let Some(request) = victim.voice_fear_request(take_fear_roll) {
                 body_fx(victim, BodyStateFx::VoiceFear(request), source);
             }
         }

@@ -135,7 +135,7 @@ fn continuation(world: &mut GameLogic, attacker: ObjectId, target: ObjectId) -> 
         trace.push(json!({"processed_frame":processed_frame,"frame":world.get_frame(),"sequence":marker.sequence,
             "marker_frame":marker.logic_frame,"slot":marker.weapon_slot,"intents":a.fire_intent_count,
             "last_fire_target":a.last_fire_victim_host,"last_fire_damage":a.last_fire_damage,"last_fire_frame":a.last_fire_frame,
-            "target":format!("{:?}",a.target),"ai":format!("{:?}",a.ai_state),"health":t.health.current,
+            "target":format!("{:?}",a.target),"ai":format!("{:?}",a.ai_state()),"health":t.health.current,
             "damage_type":format!("{:?}",t.last_damage_info_type)}));
     }
     trace
@@ -158,8 +158,8 @@ fn pause_observation(world: &GameLogic, attacker: ObjectId, target: ObjectId) ->
         "factions":[format!("{:?}",a.team),format!("{:?}",t.team)],
         "team_instances":[a.team_instance_name,t.team_instance_name],"players":players,
         "ai_count":world.host_ai_player_count(),"paused":world.skirmish_ai_auto_engage_paused(attacker),
-        "target":format!("{:?}",a.target),"ai":format!("{:?}",a.ai_state),
-        "attack_substate":format!("{:?}",a.attack_substate),
+        "target":format!("{:?}",a.target),"ai":format!("{:?}",a.ai_state()),
+        "attack_substate":format!("{:?}",a.attack_substate()),
         "sequence":a.weapon_discharge_marker().sequence,"target_health":t.health.current})
 }
 
@@ -207,7 +207,7 @@ fn same_faction_command_phase_preserves_human_attack() {
         );
         assert_eq!(source.host_object(attacker).unwrap().target, Some(target));
         assert_eq!(
-            source.host_object(attacker).unwrap().ai_state,
+            source.host_object(attacker).unwrap().ai_state(),
             generals_main::game_logic::AIState::Attacking
         );
         let mut trace = Vec::new();
@@ -216,7 +216,7 @@ fn same_faction_command_phase_preserves_human_attack() {
             let observation = pause_observation(&source, attacker, target);
             println!("phase {label} tick={observation}");
             let a = source.host_object(attacker).unwrap();
-            trace.push(json!({"target":format!("{:?}",a.target),"ai":format!("{:?}",a.ai_state),
+            trace.push(json!({"target":format!("{:?}",a.target),"ai":format!("{:?}",a.ai_state()),
                 "sequence":a.weapon_discharge_marker().sequence,"health":source.host_object(target).unwrap().health.current}));
         }
         traces.push(trace);

@@ -9,6 +9,7 @@ impl GameLogic {
         map_script_difficulty: Option<gamelogic::player::GameDifficulty>,
         water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
         mut native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
+        campaign_context: crate::save_load::CampaignMapContext,
         mut report_progress: F,
     ) -> bool
     where
@@ -20,6 +21,7 @@ impl GameLogic {
             map_script_difficulty,
             water_delivery,
             native,
+            campaign_context,
             |_, _audio_policy, value, phase| {
                 report_progress(value, phase);
                 Ok(())
@@ -38,6 +40,7 @@ impl GameLogic {
         map_script_difficulty: Option<gamelogic::player::GameDifficulty>,
         water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
         mut native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
+        campaign_context: crate::save_load::CampaignMapContext,
         mut report_progress: F,
     ) -> Result<bool, String>
     where
@@ -65,6 +68,7 @@ impl GameLogic {
                 native
                     .as_mut()
                     .map(|native| &mut **native as &mut dyn crate::game_logic::NativeMapAdmission),
+                campaign_context,
                 &mut report_progress,
             )?;
             if accepted && kind.is_new() {
@@ -199,6 +203,7 @@ mod loading_gate_failure_tests {
                 None,
                 None,
                 Some(&mut native),
+                crate::save_load::CampaignMapContext::default(),
                 |_, _, _, _| Ok(()),
             );
             assert!(
@@ -245,6 +250,7 @@ mod loading_gate_failure_tests {
                 None,
                 None,
                 Some(&mut native),
+                crate::save_load::CampaignMapContext::default(),
                 |_, _, _, _| Ok(()),
             )
             .unwrap_err();
@@ -293,6 +299,7 @@ mod loading_gate_failure_tests {
                 None,
                 None,
                 Some(&mut native),
+                crate::save_load::CampaignMapContext::default(),
                 |_, _, _, _| Ok(()),
             )
             .unwrap_err();

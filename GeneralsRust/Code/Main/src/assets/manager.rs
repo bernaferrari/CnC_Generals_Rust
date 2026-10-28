@@ -1752,6 +1752,13 @@ impl AssetManager {
         self.archive_system.open_reader(filename).is_ok()
     }
 
+    /// Borrow the exact local/BIG filesystem mounted by this asset manager.
+    /// Receiving terrain passes this borrow through source-tile hydration so a
+    /// virtual filename is resolved by the active application's mount owner.
+    pub(crate) fn archive_file_system_mut(&mut self) -> &mut ArchiveFileSystem {
+        &mut self.archive_system
+    }
+
     /// Resolve an extracted W3D file through this owner's configured language,
     /// mod, install, and repository roots. The owned miss cache follows this
     /// AssetManager's lifetime and cannot suppress another manager's lookup.

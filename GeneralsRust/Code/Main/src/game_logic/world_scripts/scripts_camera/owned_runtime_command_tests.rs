@@ -1,7 +1,10 @@
 //! Actual ScriptActions effects against distinct driving owners with colliding IDs.
 use super::named_command_test_support::{execute, world};
 use super::*;
-use gamelogic::scripting::core::ScriptActionType;
+use gamelogic::scripting::core::{
+    Parameter, ParameterType, ScriptAction, ScriptActionType, THIS_TEAM,
+};
+use gamelogic::scripting::engine::ScriptEngine;
 
 fn roster(owner: &GameLogic, name: &str, unit: ObjectId, player: u32) -> u32 {
     let mut factory = owner.team_factory.lock().unwrap();
@@ -118,6 +121,205 @@ fn named_waypoint_orders_read_owned_map_clear_group_and_use_script_source() {
     assert_eq!(peer.host_object(peer_unit).unwrap().formation_id, 19);
     assert_eq!(
         peer.host_object(peer_unit).unwrap().requested_destination,
+        None
+    );
+}
+
+#[test]
+fn team_move_uses_the_receiving_world_for_colliding_object_ids() {
+    let (mut owner, unit, _) = world();
+    let (peer, peer_unit, _) = world();
+    assert_eq!(unit, peer_unit);
+    roster(&owner, "MoveTeam", unit, 1);
+    roster(&peer, "MoveTeam", peer_unit, 1);
+
+    let mut map = gamelogic::system::map_loader::MapData::new();
+    map.width = 64;
+    map.height = 64;
+    map.heightmap = vec![0; 64 * 64];
+    map.boundaries = vec![gamelogic::common::ICoord2D::new(64, 64)];
+    map.waypoints
+        .push(gamelogic::system::map_loader::MapWaypoint {
+            id: 9201,
+            name: "MoveOwnerWaypoint".into(),
+            location: gamelogic::common::Coord3D::new(180.0, 210.0, 0.0),
+            path_label1: String::new(),
+            path_label2: String::new(),
+            path_label3: String::new(),
+            bi_directional: false,
+        });
+    owner
+        .world_services
+        .terrain()
+        .write()
+        .unwrap()
+        .load_map_data(map);
+
+    assert_eq!(
+        execute(
+            &mut owner,
+            &[(
+                ScriptActionType::MoveTeamTo,
+                "MoveTeam",
+                "MoveOwnerWaypoint"
+            )]
+        ),
+        1
+    );
+    assert_eq!(
+        owner.host_object(unit).unwrap().requested_destination,
+        Some(Vec3::new(180.0, 0.0, 210.0))
+    );
+    assert_eq!(
+        peer.host_object(peer_unit).unwrap().requested_destination,
+        None
+    );
+}
+
+#[test]
+fn team_move_this_team_uses_calling_team_identity() {
+    let (mut owner, calling_unit, _) = world();
+    let condition_unit = owner
+        .create_object_for_player("OwnedNamedInfantry", 2, Vec3::new(110.0, 0.0, 110.0))
+        .unwrap();
+    let mut factory = owner.team_factory.lock().unwrap();
+    factory
+        .init_team("SameNameMoveTeam".into(), "NamedOwner".into(), false, None)
+        .unwrap();
+    let calling = factory.create_inactive_team("SameNameMoveTeam").unwrap();
+    calling.write().unwrap().add_member(calling_unit.0);
+    let calling_id = calling.read().unwrap().get_id();
+    let condition = factory.create_inactive_team("SameNameMoveTeam").unwrap();
+    condition.write().unwrap().add_member(condition_unit.0);
+    let condition_id = condition.read().unwrap().get_id();
+    drop(factory);
+
+    let mut map = gamelogic::system::map_loader::MapData::new();
+    map.waypoints
+        .push(gamelogic::system::map_loader::MapWaypoint {
+            id: 9202,
+            name: "ContextMoveWaypoint".into(),
+            location: gamelogic::common::Coord3D::new(210.0, 230.0, 0.0),
+            path_label1: String::new(),
+            path_label2: String::new(),
+            path_label3: String::new(),
+            bi_directional: false,
+        });
+    owner
+        .world_services
+        .terrain()
+        .write()
+        .unwrap()
+        .load_map_data(map);
+
+    let mut action = ScriptAction::new(ScriptActionType::MoveTeamTo);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            THIS_TEAM.into(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Waypoint,
+            "ContextMoveWaypoint".into(),
+        ))
+        .unwrap();
+    let mut engine = ScriptEngine::new().unwrap();
+    engine.set_external_eval_context(None, Some(condition_id));
+    engine.friend_execute_action_with_driver(
+        &action,
+        Some(calling_id),
+        gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame),
+        &mut super::script_execution_driver::HostScriptExecutionDriver::new(&mut owner),
+    );
+
+    assert_eq!(
+        owner
+            .host_object(calling_unit)
+            .unwrap()
+            .requested_destination,
+        Some(Vec3::new(210.0, 0.0, 230.0))
+    );
+    assert_eq!(
+        owner
+            .host_object(condition_unit)
+            .unwrap()
+            .requested_destination,
+        None
+    );
+}
+
+#[test]
+fn team_move_this_team_prefers_calling_team_identity_over_condition_team() {
+    let (mut owner, calling_unit, _) = world();
+    let condition_unit = owner
+        .create_object_for_player("OwnedNamedInfantry", 2, Vec3::new(100.0, 0.0, 100.0))
+        .unwrap();
+    let mut factory = owner.team_factory.lock().unwrap();
+    factory
+        .init_team("SameNameMoveTeam".into(), "NamedOwner".into(), false, None)
+        .unwrap();
+    let calling = factory.create_inactive_team("SameNameMoveTeam").unwrap();
+    calling.write().unwrap().add_member(calling_unit.0);
+    let calling_id = calling.read().unwrap().get_id();
+    let condition = factory.create_inactive_team("SameNameMoveTeam").unwrap();
+    condition.write().unwrap().add_member(condition_unit.0);
+    let condition_id = condition.read().unwrap().get_id();
+    drop(factory);
+
+    let mut map = gamelogic::system::map_loader::MapData::new();
+    map.waypoints
+        .push(gamelogic::system::map_loader::MapWaypoint {
+            id: 9202,
+            name: "ContextMoveWaypoint".into(),
+            location: gamelogic::common::Coord3D::new(210.0, 230.0, 0.0),
+            path_label1: String::new(),
+            path_label2: String::new(),
+            path_label3: String::new(),
+            bi_directional: false,
+        });
+    owner
+        .world_services
+        .terrain()
+        .write()
+        .unwrap()
+        .load_map_data(map);
+
+    let mut action = ScriptAction::new(ScriptActionType::MoveTeamTo);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            THIS_TEAM.into(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Waypoint,
+            "ContextMoveWaypoint".into(),
+        ))
+        .unwrap();
+    let mut engine = ScriptEngine::new().unwrap();
+    engine.set_external_eval_context(None, Some(condition_id));
+    engine.friend_execute_action_with_driver(
+        &action,
+        Some(calling_id),
+        gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame),
+        &mut super::script_execution_driver::HostScriptExecutionDriver::new(&mut owner),
+    );
+
+    assert_eq!(
+        owner
+            .host_object(calling_unit)
+            .unwrap()
+            .requested_destination,
+        Some(Vec3::new(210.0, 0.0, 230.0))
+    );
+    assert_eq!(
+        owner
+            .host_object(condition_unit)
+            .unwrap()
+            .requested_destination,
         None
     );
 }

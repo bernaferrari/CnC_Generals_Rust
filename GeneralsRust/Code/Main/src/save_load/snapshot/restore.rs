@@ -1140,6 +1140,7 @@ impl SnapshotBuilder {
                 snap.id,
                 Player {
                     id: snap.id,
+                    default_team_id: initialized.as_ref().and_then(|p| p.default_team_id),
                     team: snap.team,
                     name: snap.name.clone(),
                     resources: snap.resources,

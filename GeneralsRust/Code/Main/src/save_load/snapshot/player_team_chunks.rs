@@ -494,6 +494,112 @@ pub(super) fn apply_before_objects(
     if let Some(teams) = &chunks.teams {
         apply_teams_to_leftover(&world.team_factory, teams)?;
     }
+    // Pre-v8 host capsules lack the explicit ID. Recover only a unique
+    // canonical, correctly owned default instance; ambiguity fails closed.
+    let legacy_player_ids = chunks
+        .players
+        .as_ref()
+        .into_iter()
+        .flat_map(|players| &players.players)
+        .filter(|saved| saved.source_version < 8 && saved.host_default_team_id.is_none())
+        .map(|saved| saved.player_id)
+        .collect::<Vec<_>>();
+    for player_id in legacy_player_ids {
+        let Some(player) = world.get_player(player_id) else {
+            continue;
+        };
+        let name = world.default_host_team_instance_name(Some(player_id), player.team);
+        let owner = player
+            .script_identity()
+            .ok_or_else(|| SaveLoadError::Corrupted("Missing Player Team owner identity".into()))?;
+        let factory = world
+            .team_factory
+            .lock()
+            .map_err(|error| SaveLoadError::Corrupted(error.to_string()))?;
+        let prototype = factory.find_team_prototype(&name);
+        let candidates = factory
+            .find_team_instances(&name)
+            .into_iter()
+            .filter(|team| {
+                team.read().is_ok_and(|team| {
+                    team.get_name().as_str() == name
+                        && team.get_controlling_player_id() == Some(player_id)
+                })
+            })
+            .collect::<Vec<_>>();
+        let Some(prototype) = prototype.filter(|prototype| {
+            prototype.get_owner_name().as_str() == owner
+                && factory
+                    .owned_team_prototypes_for_controller(player_id)
+                    .iter()
+                    .any(|owned| std::sync::Arc::ptr_eq(owned, prototype))
+        }) else {
+            return Err(SaveLoadError::Corrupted(format!(
+                "Legacy Player {player_id} has no owned default Team prototype"
+            )));
+        };
+        let _ = prototype;
+        if candidates.len() != 1 {
+            return Err(SaveLoadError::Corrupted(format!(
+                "Legacy Player {player_id} has ambiguous default Team identity"
+            )));
+        }
+        let identity = candidates[0]
+            .read()
+            .map_err(|error| SaveLoadError::Corrupted(error.to_string()))?
+            .get_id();
+        drop(factory);
+        world
+            .get_player_mut(player_id)
+            .expect("player was validated above")
+            .default_team_id = Some(identity);
+    }
+    // The saved instance ID is the binding. Validate it against its receiving
+    // Player after the TeamFactory has restored exact Team identities.
+    let bindings = world
+        .get_players()
+        .values()
+        .map(|player| (player.id, player.default_team_id))
+        .collect::<Vec<_>>();
+    for (player_id, identity) in bindings {
+        let Some(identity) = identity else {
+            continue;
+        };
+        let factory = world.team_factory.lock().map_err(|error| {
+            SaveLoadError::Corrupted(format!("TeamFactory lock poisoned: {error}"))
+        })?;
+        let player = world
+            .get_player(player_id)
+            .ok_or_else(|| SaveLoadError::Corrupted("Missing restored Player".into()))?;
+        let expected_name = world.default_host_team_instance_name(Some(player_id), player.team);
+        let expected_owner = player
+            .script_identity()
+            .ok_or_else(|| SaveLoadError::Corrupted("Missing Player Team owner identity".into()))?;
+        let Some(team) = factory.find_team_by_id(identity) else {
+            return Err(SaveLoadError::Corrupted(format!(
+                "Missing default Team {identity} for Player {player_id}"
+            )));
+        };
+        let team = team
+            .read()
+            .map_err(|error| SaveLoadError::Corrupted(format!("Team lock poisoned: {error}")))?;
+        let prototype = factory.find_team_prototype(&expected_name);
+        let prototype_owned = prototype.is_some_and(|prototype| {
+            prototype.get_owner_name().as_str() == expected_owner
+                && factory
+                    .owned_team_prototypes_for_controller(player_id)
+                    .iter()
+                    .any(|owned| std::sync::Arc::ptr_eq(owned, &prototype))
+        });
+        if team.get_name().as_str() != expected_name
+            || team.get_controlling_player_id() != Some(player_id)
+            || !prototype_owned
+        {
+            return Err(SaveLoadError::Corrupted(format!(
+                "Default Team {identity} is not Player {player_id}'s canonical default"
+            )));
+        }
+    }
     Ok(())
 }
 

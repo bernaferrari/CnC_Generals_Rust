@@ -67,11 +67,24 @@ impl GameLogic {
     }
     pub(in crate::game_logic) fn host_default_team_id(&self, player_id: u32) -> Option<u32> {
         let player = self.players.get(&player_id)?;
-        let name = self.default_host_team_instance_name(Some(player_id), player.team);
+        let identity = player.default_team_id?;
+        let expected_name = self.default_host_team_instance_name(Some(player_id), player.team);
+        let expected_owner = player.script_identity()?;
         let factory = self.team_factory.lock().unwrap_or_else(|e| e.into_inner());
-        let instance = factory.find_team_instances(&name).into_iter().next()?;
-        let identity = instance.read().unwrap_or_else(|e| e.into_inner()).get_id();
-        Some(identity)
+        let instance = factory.find_team_by_id(identity)?;
+        let instance = instance.read().unwrap_or_else(|e| e.into_inner());
+        if instance.get_name().as_str() != expected_name
+            || instance.get_controlling_player_id() != Some(player_id)
+        {
+            return None;
+        }
+        let prototype = factory.find_team_prototype(&expected_name)?;
+        let belongs_to_player = prototype.get_owner_name().as_str() == expected_owner
+            && factory
+                .owned_team_prototypes_for_controller(player_id)
+                .iter()
+                .any(|owned| std::sync::Arc::ptr_eq(owned, &prototype));
+        belongs_to_player.then_some(identity)
     }
 
     /// Team.cpp:1447: exact self, team override, player override, receiving

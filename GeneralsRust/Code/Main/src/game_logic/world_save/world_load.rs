@@ -89,6 +89,7 @@ impl GameLogic {
                 difficulty,
                 None,
                 None,
+                crate::save_load::CampaignMapContext::default(),
                 report_progress,
             )
         })
@@ -131,12 +132,35 @@ impl GameLogic {
             &str,
         ) -> Result<(), String>,
     {
+        self.load_map_with_campaign_context_and_progress_and_native_checked(
+            map_name,
+            crate::save_load::CampaignMapContext::default(),
+            progress,
+            native,
+        )
+    }
+
+    pub(crate) fn load_map_with_campaign_context_and_progress_and_native_checked<F>(
+        &mut self,
+        map_name: &str,
+        campaign_context: crate::save_load::CampaignMapContext,
+        progress: F,
+        native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
+    ) -> Result<bool, String>
+    where
+        F: FnMut(
+            &mut game_engine::common::random_value::RandomState,
+            &game_engine::common::audio::script_policy::ScriptAudioPolicy,
+            f32,
+            &str,
+        ) -> Result<(), String>,
+    {
         let difficulty = self
             .owned_script_engine
             .as_ref()
             .map(|engine| engine.get_global_difficulty());
         self.load_map_with_script_difficulty_and_native_checked(
-            map_name, difficulty, progress, native,
+            map_name, difficulty, campaign_context, progress, native,
         )
     }
 
@@ -153,6 +177,7 @@ impl GameLogic {
         self.load_map_with_script_difficulty_and_native_checked(
             map_name,
             difficulty,
+            crate::save_load::CampaignMapContext::default(),
             |_, _audio_policy, value, phase| {
                 progress(value, phase);
                 Ok(())
@@ -169,6 +194,7 @@ impl GameLogic {
         &mut self,
         map_name: &str,
         difficulty: Option<gamelogic::player::GameDifficulty>,
+        campaign_context: crate::save_load::CampaignMapContext,
         progress: F,
         native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
     ) -> Result<bool, String>
@@ -183,7 +209,7 @@ impl GameLogic {
         let services = Arc::clone(&self.world_services);
         gamelogic::system::engine_stores::with_world_services(&services, || {
             self.load_map_with_definition_source_and_progress_checked(
-                map_name, None, difficulty, None, native, progress,
+                map_name, None, difficulty, None, native, campaign_context, progress,
             )
         })
     }
@@ -234,6 +260,23 @@ impl GameLogic {
         water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
         native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
     ) -> Result<bool, String> {
+        self.load_map_with_campaign_context_and_definition_source_and_water_delivery_and_native_checked(
+            map_name,
+            source,
+            crate::save_load::CampaignMapContext::default(),
+            water_delivery,
+            native,
+        )
+    }
+
+    pub(crate) fn load_map_with_campaign_context_and_definition_source_and_water_delivery_and_native_checked(
+        &mut self,
+        map_name: &str,
+        source: &str,
+        campaign_context: crate::save_load::CampaignMapContext,
+        water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
+        native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
+    ) -> Result<bool, String> {
         let difficulty = self
             .owned_script_engine
             .as_ref()
@@ -246,6 +289,7 @@ impl GameLogic {
                 difficulty,
                 water_delivery,
                 native,
+                campaign_context,
                 |_, _, _, _| Ok(()),
             )
         })
@@ -258,6 +302,7 @@ impl GameLogic {
         map_script_difficulty: Option<gamelogic::player::GameDifficulty>,
         water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
         mut native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
+        campaign_context: crate::save_load::CampaignMapContext,
         mut report_progress: F,
     ) -> Result<bool, String>
     where
@@ -352,7 +397,7 @@ impl GameLogic {
         // A new map must not inherit the preceding map's raw flight surface.
         self.terrain = None;
         self.runtime_terrain_texture_classes.clear();
-        self.configure_victory_rules_for_map(map_name);
+        self.configure_victory_rules_for_map(map_name, &campaign_context);
         self.scripts_loaded = false;
         self.script_event_pump_in_flight
             .store(false, Ordering::Release);
@@ -380,7 +425,7 @@ impl GameLogic {
         self.script_superweapon_display_enabled = true;
         self.script_superweapon_hidden_objects.clear();
         self.eva_superweapon_science_hidden.clear();
-        self.mission_objectives = self.load_campaign_objectives(map_name);
+        self.mission_objectives = self.load_campaign_objectives(map_name, &campaign_context);
         self.rebuild_objective_lookup();
 
         // Try to locate the real map file so scripts and future terrain loaders have a source.
@@ -1335,6 +1380,26 @@ impl GameLogic {
         self.load_map_with_progress(map_name, |_progress, _phase| {})
     }
 
+    /// Admit a map using campaign metadata selected by the receiving session.
+    /// This keeps mission objectives and victory rules tied to that session
+    /// without consulting ambient campaign state.
+    pub fn load_map_with_campaign_context(
+        &mut self,
+        map_name: &str,
+        campaign_context: crate::save_load::CampaignMapContext,
+    ) -> bool {
+        self.load_map_with_campaign_context_and_progress_and_native_checked(
+            map_name,
+            campaign_context,
+            |_, _, _, _| Ok(()),
+            None,
+        )
+        .unwrap_or_else(|error| {
+            log::error!("Map admission failed: {error}");
+            false
+        })
+    }
+
     /// Load a requested map, then an explicit fallback, returning the identity
     /// that actually loaded. `None` means neither attempt produced a playable
     /// map; it is deliberately not an alias for the fallback name.
@@ -1393,6 +1458,33 @@ impl GameLogic {
         &mut self,
         map_name: &str,
         fallback: &str,
+        report_progress: F,
+        native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
+    ) -> Result<Option<String>, String>
+    where
+        F: FnMut(
+            &mut game_engine::common::random_value::RandomState,
+            &game_engine::common::audio::script_policy::ScriptAudioPolicy,
+            f32,
+            &str,
+        ) -> Result<(), String>,
+    {
+        self.load_map_or_fallback_with_campaign_contexts_and_progress_and_native_checked(
+            map_name,
+            fallback,
+            crate::save_load::CampaignMapContext::default(),
+            crate::save_load::CampaignMapContext::default(),
+            report_progress,
+            native,
+        )
+    }
+
+    pub(crate) fn load_map_or_fallback_with_campaign_contexts_and_progress_and_native_checked<F>(
+        &mut self,
+        map_name: &str,
+        fallback: &str,
+        requested_campaign_context: crate::save_load::CampaignMapContext,
+        fallback_campaign_context: crate::save_load::CampaignMapContext,
         mut report_progress: F,
         mut native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
     ) -> Result<Option<String>, String>
@@ -1413,6 +1505,7 @@ impl GameLogic {
         if self.load_map_with_script_difficulty_and_native_checked(
             map_name,
             difficulty,
+            requested_campaign_context,
             |random, audio_policy, progress, phase| {
                 report_progress(random, audio_policy, progress, phase)
             },
@@ -1431,6 +1524,7 @@ impl GameLogic {
             && self.load_map_with_script_difficulty_and_native_checked(
                 fallback,
                 difficulty,
+                fallback_campaign_context,
                 |random, audio_policy, progress, phase| {
                     report_progress(random, audio_policy, progress, phase)
                 },

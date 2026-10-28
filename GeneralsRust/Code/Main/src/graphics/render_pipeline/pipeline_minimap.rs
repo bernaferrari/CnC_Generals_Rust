@@ -272,6 +272,24 @@ impl RenderPipeline {
         device: &Arc<wgpu::Device>,
         queue: &Arc<wgpu::Queue>,
     ) -> Result<bool> {
+        self.load_heightmap_from_runtime_terrain_inner(device, queue, None)
+    }
+
+    pub(crate) fn load_heightmap_from_runtime_terrain_with_source_reader(
+        &mut self,
+        device: &Arc<wgpu::Device>,
+        queue: &Arc<wgpu::Queue>,
+        read_virtual_file: &mut dyn FnMut(&str) -> Option<Vec<u8>>,
+    ) -> Result<bool> {
+        self.load_heightmap_from_runtime_terrain_inner(device, queue, Some(read_virtual_file))
+    }
+
+    fn load_heightmap_from_runtime_terrain_inner(
+        &mut self,
+        device: &Arc<wgpu::Device>,
+        queue: &Arc<wgpu::Queue>,
+        read_virtual_file: Option<&mut dyn FnMut(&str) -> Option<Vec<u8>>>,
+    ) -> Result<bool> {
         #[cfg(feature = "game_client")]
         {
             if self.native_terrain.is_none() {
@@ -281,11 +299,15 @@ impl RenderPipeline {
                 let candidate = Self::prepare_native_terrain_cpu(&frame.world_env)?;
                 self.install_native_terrain_cpu(candidate);
             }
-            self.hydrate_native_terrain_gpu(device, queue)
+            if let Some(read_virtual_file) = read_virtual_file {
+                self.hydrate_native_terrain_gpu_with_source_reader(device, queue, read_virtual_file)
+            } else {
+                self.hydrate_native_terrain_gpu(device, queue)
+            }
         }
         #[cfg(not(feature = "game_client"))]
         {
-            let _ = (device, queue);
+            let _ = (device, queue, read_virtual_file);
             Ok(false)
         }
     }

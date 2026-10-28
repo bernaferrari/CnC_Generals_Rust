@@ -90,10 +90,7 @@ impl CnCGameEngine {
             .to_owned();
         let saves = self.save_file_manager.save_directory().to_owned();
         let replays = self.receiving_replay_menu_inputs().replay_directory;
-        let campaign = crate::save_load::game_state::with_global_campaign_manager(|manager| {
-            manager.campaign_directory().to_owned()
-        })
-        .map_err(str::to_owned)?;
+        let campaign = self.campaign_manager.campaign_directory().to_owned();
         for path in [&options, &saves, &replays, &campaign] {
             require(
                 path.is_absolute()

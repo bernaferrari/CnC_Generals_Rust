@@ -1103,6 +1103,9 @@ pub struct CnCGameEngine {
 
     // Game state
     pub(crate) game_logic: GameLogic,
+    /// Main campaign metadata/progression owner admitted from this engine's
+    /// accepted user-data root. GameLogic receives immutable map contexts only.
+    pub(crate) campaign_manager: crate::save_load::CampaignManager,
     /// Immutable engine definition input captured before startup map overrides.
     pub(crate) default_starting_cash: u32,
     /// Map-lifetime immutable terrain payload shared by presentation frames.

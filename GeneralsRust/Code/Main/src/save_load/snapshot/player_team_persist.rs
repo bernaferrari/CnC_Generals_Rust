@@ -21,7 +21,7 @@ use std::io::{Cursor, Read, Seek, Write};
 pub const CHUNK_PLAYERS: &str = "CHUNK_Players";
 pub const CHUNK_TEAM_FACTORY: &str = "CHUNK_TeamFactory";
 
-const PLAYERS_CHUNK_VERSION: u8 = 7;
+const PLAYERS_CHUNK_VERSION: u8 = 8;
 const TEAM_FACTORY_CHUNK_VERSION: u8 = 5;
 const MAX_ATTACKED_BY: usize = 16;
 const MAX_GENERIC_SCRIPTS: usize = 16;
@@ -57,6 +57,7 @@ pub(crate) struct HostSideIdentityPersist {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlayerRuntimePersist {
+    pub(crate) source_version: u8,
     pub player_id: u32,
     pub sciences: Vec<String>,
     pub sciences_disabled: Vec<String>,
@@ -81,11 +82,13 @@ pub struct PlayerRuntimePersist {
     /// None for legacy/native-only rows; Some(-1) is explicit host authoring.
     pub host_alliance_team: Option<i32>,
     pub(crate) host_side_identity: Option<HostSideIdentityPersist>,
+    pub host_default_team_id: Option<u32>,
 }
 
 impl Default for PlayerRuntimePersist {
     fn default() -> Self {
         Self {
+            source_version: PLAYERS_CHUNK_VERSION,
             player_id: 0,
             sciences: Vec::new(),
             sciences_disabled: Vec::new(),
@@ -109,6 +112,7 @@ impl Default for PlayerRuntimePersist {
             did_preorder: false,
             host_alliance_team: None,
             host_side_identity: None,
+            host_default_team_id: None,
         }
     }
 }
@@ -362,6 +366,11 @@ fn write_player_entry<W: Write + Seek>(
         map_xfer(xfer.xfer_ascii_string(&mut name))?;
         map_xfer(xfer.xfer_int(&mut start))?;
     }
+    let mut has_default_team = u8::from(player.host_default_team_id.is_some());
+    map_xfer(xfer.xfer_unsigned_byte(&mut has_default_team))?;
+    if let Some(mut team_id) = player.host_default_team_id {
+        map_xfer(xfer.xfer_unsigned_int(&mut team_id))?;
+    }
     Ok(())
 }
 
@@ -370,6 +379,7 @@ fn parse_player_entry<R: Read>(
     version: u8,
 ) -> SaveLoadResult<PlayerRuntimePersist> {
     let mut player = PlayerRuntimePersist::default();
+    player.source_version = version;
     map_xfer(xfer.xfer_unsigned_int(&mut player.player_id))?;
     player.sciences = parse_string_list(xfer)?;
     player.sciences_disabled = parse_string_list(xfer)?;
@@ -493,6 +503,23 @@ fn parse_player_entry<R: Read>(
             _ => {
                 return Err(SaveLoadError::Corrupted(
                     "Invalid player side identity tag".into(),
+                ));
+            }
+        };
+    }
+    if version >= 8 {
+        let mut present = 0u8;
+        map_xfer(xfer.xfer_unsigned_byte(&mut present))?;
+        player.host_default_team_id = match present {
+            0 => None,
+            1 => {
+                let mut id = 0u32;
+                map_xfer(xfer.xfer_unsigned_int(&mut id))?;
+                Some(id)
+            }
+            _ => {
+                return Err(SaveLoadError::Corrupted(
+                    "Invalid default Team identity tag".into(),
                 ));
             }
         };
@@ -891,6 +918,7 @@ pub(super) fn capture_players_chunk(game_logic: &GameLogic) -> PlayersChunkPersi
             authored_name: player.map_side.map_player_name.clone(),
             start_position: player.start_position,
         });
+        slot.host_default_team_id = player.default_team_id;
         slot.sciences = player.unlocked_sciences.iter().cloned().collect();
         slot.sciences_disabled = player.sciences_disabled.iter().cloned().collect();
         slot.sciences_hidden = player.sciences_hidden.iter().cloned().collect();
@@ -1027,6 +1055,7 @@ pub(super) fn apply_player_to_live(game_logic: &mut GameLogic, persist: &PlayerR
         player.map_side.map_player_name = identity.authored_name.clone();
         player.start_position = identity.start_position;
     }
+    player.default_team_id = persist.host_default_team_id;
     player.sciences_disabled = persist.sciences_disabled.iter().cloned().collect();
     player.sciences_hidden = persist.sciences_hidden.iter().cloned().collect();
     for name in &persist.sciences {

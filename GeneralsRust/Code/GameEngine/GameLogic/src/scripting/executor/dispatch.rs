@@ -733,7 +733,7 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::Localdefeat => self.do_local_defeat(driver),
 
             // Team actions
-            ScriptActionType::MoveTeamTo => self.do_move_team_to(action),
+            ScriptActionType::MoveTeamTo => self.do_move_team_to(action, driver),
             ScriptActionType::TeamAttackTeam => {
                 let source = self.get_string_param(action, 0)?;
                 let target = self.get_string_param(action, 1)?;

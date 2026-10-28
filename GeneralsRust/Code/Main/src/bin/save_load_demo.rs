@@ -11,7 +11,7 @@ use generals_main::command_system::{CommandSystem, CommandType, GameCommand, Mod
 use generals_main::game_logic::{GameLogic, GameMode, ObjectId, Team};
 #[cfg(feature = "dev-tools")]
 use generals_main::save_load::{
-    CampaignId, GAME_STATE_MANAGER, GameDifficulty, MissionCompletionData, MissionDifficulty,
+    CampaignId, CampaignManager, GAME_STATE_MANAGER, GameDifficulty, MissionCompletionData, MissionDifficulty,
     ReplayPlayerInfo, ReplayTeamInfo, SaveFileType, init_game_state_system, init_save_load_system,
     list_available_saves, load_game, quick_save, record_replay_command, register_game_systems,
     save_game, try_auto_save, update_replay_system,
@@ -130,11 +130,11 @@ fn demo_replay() -> anyhow::Result<()> {
 
 #[cfg(feature = "dev-tools")]
 fn demo_campaign() -> anyhow::Result<()> {
-    {
-        let mut manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
-        manager.start_campaign(CampaignId::USACampaign, "Demo Player")?;
+    let mut manager = CampaignManager::new();
+    manager.init()?;
+    manager.start_campaign(CampaignId::USACampaign, "Demo Player")?;
 
-        let completion = MissionCompletionData {
+    let completion = MissionCompletionData {
             play_duration: Duration::from_secs(900),
             score: 10_000,
             completed_primary: vec!["destroy_gla_base".to_string()],
@@ -150,11 +150,10 @@ fn demo_campaign() -> anyhow::Result<()> {
             under_time_limit: true,
             no_losses: false,
             stealth_completion: false,
-        };
+    };
 
-        // Keep behavior non-fatal if mission id differs in local data.
-        let _ = manager.complete_mission("usa_01", MissionDifficulty::Normal, completion);
-    }
+    // Keep behavior non-fatal if mission id differs in local data.
+    let _ = manager.complete_mission("usa_01", MissionDifficulty::Normal, completion);
 
     println!("Campaign start/complete path exercised");
     Ok(())

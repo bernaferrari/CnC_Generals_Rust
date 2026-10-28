@@ -1,6 +1,50 @@
 //! Concrete ScriptActions effect delivery through one borrowed Main owner.
 use super::*;
 impl GameLogic {
+    pub(super) fn resolve_owned_player_default_team(
+        &self,
+        player_id: u32,
+    ) -> gamelogic::GameLogicResult<Option<(u32, Vec<u32>)>> {
+        let Some(identity) = self.host_default_team_id(player_id) else {
+            return Ok(None);
+        };
+        let factory = self
+            .team_factory
+            .lock()
+            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+        let Some(team) = factory.find_team_by_id(identity) else {
+            return Ok(None);
+        };
+        let team = team
+            .read()
+            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+        if let Some(reason) = team.creation_failure() {
+            return Err(gamelogic::GameLogicError::TeamCreationFailed(reason.into()));
+        }
+        Ok(Some((identity, team.get_members().to_vec())))
+    }
+
+    /// Apply the current live TeamMove behavior through the receiving world.
+    /// Full C++ AIGroup formation/path parity remains separate work.
+    pub(super) fn apply_owned_team_move_to_waypoint(
+        &mut self,
+        team: &str,
+        waypoint: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
+            return Ok(());
+        };
+        let Some(destination) = self.host_script_waypoint_position(waypoint) else {
+            return Ok(());
+        };
+        for member in members {
+            self.unit_command_move_to(ObjectId(member), destination);
+        }
+        Ok(())
+    }
+
     pub(super) fn apply_owned_team_guard_object(
         &mut self,
         team: &str,

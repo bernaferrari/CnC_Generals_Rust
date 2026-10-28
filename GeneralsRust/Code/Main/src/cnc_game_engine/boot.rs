@@ -307,6 +307,17 @@ impl CnCGameEngine {
             .map_err(|err| warn!("Game state system init failed: {err}"))
             .ok();
 
+        // Main's campaign metadata/progress manager follows this receiving
+        // engine and its accepted user-data root. It is no longer stored in
+        // GAME_STATE_MANAGER or selected through a process-global accessor.
+        let mut campaign_manager = crate::save_load::CampaignManager::with_campaign_directory(
+            application_paths.root().join("Save/Campaign"),
+        );
+        campaign_manager
+            .init()
+            .map_err(|error| warn!("Campaign manager initialization failed: {error}"))
+            .ok();
+
         // Subsystems are initialized on this engine-owned manager, in source order.
         if subsystem_manager.is_initialized() {
             info!("✅ Core subsystems initialized");
@@ -868,6 +879,7 @@ impl CnCGameEngine {
             control_bar: game_client::gui::control_bar::ControlBar::new(),
 
             game_logic,
+            campaign_manager,
             camera_rule_base,
             default_starting_cash: crate::game_logic::Player::DEFAULT_STARTING_MONEY,
             presentation_terrain_cache: PresentationTerrainCache::default(),

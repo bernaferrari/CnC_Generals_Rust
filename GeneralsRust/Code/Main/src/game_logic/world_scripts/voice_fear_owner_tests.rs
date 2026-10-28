@@ -55,6 +55,18 @@ fn hit(world: &mut GameLogic, id: ObjectId, amount: f32) {
         )
         .unwrap();
 }
+
+fn seed_with_successful_fear_roll() -> (u32, i32, [u32; 6]) {
+    for seed in 1..=1000 {
+        let random = game_engine::common::random_value::SessionRandom::default();
+        random.seed_random(seed);
+        let roll = random.next_int(0, 99);
+        if roll < 25 {
+            return (seed, roll, random.seed_words());
+        }
+    }
+    unreachable!("a successful fear roll exists in the seed space")
+}
 fn assert_fear(requests: &[AudioEventRequest], name: &str, position: Vec3, owner: u32) {
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].event_type, name);
@@ -140,6 +152,60 @@ fn receiving_damage_emits_once_with_owned_definition_position_and_player() {
             assert!(
                 a.queued_audio_events.is_empty(),
                 "outgoing match audio cannot survive reset"
+            );
+        },
+    );
+}
+
+#[test]
+fn receiving_voice_fear_draw_uses_the_interleaved_world_rng() {
+    isolated(
+        "receiving_voice_fear_draw_uses_the_interleaved_world_rng",
+        || {
+            let (seed_a, expected_roll, expected_words) = seed_with_successful_fear_roll();
+            let (mut control_a, control_id) = receiving("OwnerAFear", 1);
+            let (mut a, a_id) = receiving("OwnerAFear", 1);
+            let (mut b, b_id) = receiving("OwnerBFear", 2);
+            assert_eq!(control_id, a_id);
+            assert_eq!(a_id, b_id, "test worlds reuse the same object id");
+            for world in [&mut control_a, &mut a] {
+                world.set_logic_random_seed(seed_a);
+            }
+            b.set_logic_random_seed(0xB22D_F002);
+
+            hit(&mut control_a, control_id, 20.);
+            assert_fear(
+                &control_a.queued_audio_events,
+                "OwnerAFear",
+                Vec3::new(120., 4., 80.),
+                1,
+            );
+            assert_eq!(
+                control_a.logic_random.seed_words(),
+                expected_words,
+                "eligible fear crossing consumes exactly one receiving draw"
+            );
+
+            // Exercise the same production damage boundary in a peer first, with
+            // additional peer-only draws around it. A's chance and continuation
+            // must still match its isolated control stream.
+            for _ in 0..17 {
+                b.logic_random.next_int(0, 999);
+            }
+            hit(&mut b, b_id, 20.);
+            b.logic_random.next_int(0, 999);
+            hit(&mut a, a_id, 20.);
+            assert!(expected_roll < 25);
+            assert_fear(
+                &a.queued_audio_events,
+                "OwnerAFear",
+                Vec3::new(120., 4., 80.),
+                1,
+            );
+            assert_eq!(a.logic_random.seed_words(), expected_words);
+            assert_eq!(
+                a.logic_random.seed_words(),
+                control_a.logic_random.seed_words()
             );
         },
     );

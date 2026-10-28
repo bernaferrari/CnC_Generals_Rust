@@ -153,12 +153,12 @@ impl GameLogic {
 }
 
 impl GameLogic {
-    pub(super) fn load_campaign_objectives(&self, map_name: &str) -> Vec<ObjectiveDisplay> {
-        let Some(mission) = crate::save_load::game_state::with_global_campaign_manager(|manager| {
-            manager.find_mission_for_map(map_name).cloned()
-        })
-        .ok()
-        .flatten() else {
+    pub(super) fn load_campaign_objectives(
+        &self,
+        map_name: &str,
+        campaign_context: &crate::save_load::CampaignMapContext,
+    ) -> Vec<ObjectiveDisplay> {
+        let Some(mission) = campaign_context.mission.as_ref() else {
             log::info!(
                 "No campaign mission metadata found for map '{}'; using sample objectives",
                 map_name

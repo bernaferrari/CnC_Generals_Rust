@@ -973,6 +973,7 @@ impl CnCGameEngine {
             &mut self.game_logic,
             &mut self.render_pipeline,
             &self.graphics_system,
+            &self.application_assets,
             loaded_map_name.as_str(),
         );
         if let Err(err) = self.reinitialize_minimap_renderer() {
@@ -1235,6 +1236,7 @@ impl CnCGameEngine {
         game_logic: &mut crate::game_logic::GameLogic,
         render_pipeline: &mut RenderPipeline,
         graphics_system: &GraphicsSystem,
+        application_assets: &Arc<std::sync::Mutex<crate::assets::manager::AssetManager>>,
         map_name: &str,
     ) {
         // Wave 459: presentation-only terrain visual sync (no live GameLogic dual-read).
@@ -1272,9 +1274,16 @@ impl CnCGameEngine {
         if !hint_loaded {
             // Presentation frame is seeded by caller with runtime_heightmap freeze.
             // Pass None so terrain visual bake cannot dual-read live GameLogic.
-            match render_pipeline.load_heightmap_from_runtime_terrain(
+            let mut read_virtual_file = |path: &str| {
+                let mut assets = application_assets
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                assets.archive_file_system_mut().open_file_sync(path).ok()
+            };
+            match render_pipeline.load_heightmap_from_runtime_terrain_with_source_reader(
                 &graphics_system.device_arc(),
                 &graphics_system.queue_arc(),
+                &mut read_virtual_file,
             ) {
                 Ok(true) => {}
                 Ok(false) => {

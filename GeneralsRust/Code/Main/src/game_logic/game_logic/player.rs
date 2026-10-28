@@ -103,6 +103,8 @@ impl PlayerMapSideState {
 #[derive(Debug, Clone)]
 pub struct Player {
     pub id: u32,
+    /// Exact receiving-session default Team instance admitted for this Player.
+    pub(crate) default_team_id: Option<u32>,
     pub team: Team,
     pub name: String,
     pub resources: Resources,
@@ -465,6 +467,7 @@ impl Player {
     pub fn new(id: u32, team: Team, name: &str, is_human: bool) -> Self {
         Self {
             id,
+            default_team_id: None,
             team,
             name: name.to_string(),
             resources: Resources {

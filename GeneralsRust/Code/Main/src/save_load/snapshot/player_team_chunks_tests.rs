@@ -106,6 +106,75 @@ fn snapshot_without_capsule_has_no_implicit_players_or_teams() {
 }
 
 #[test]
+fn exact_default_team_identity_survives_encoded_restore_and_bad_ids_fail_closed() {
+    let mut source = GameLogic::new();
+    source.add_player(crate::game_logic::Player::new(
+        1,
+        crate::game_logic::Team::USA,
+        "Local",
+        true,
+    ));
+    let exact = source.host_default_team_id(1).expect("admitted Team");
+    let chunks = stamp_from_live(&source).expect("capture owner state");
+    let mut capsule = snapshot();
+    bind_chunks_to_world(&mut capsule, &chunks).expect("encode capsule");
+    let decoded = chunks_from_world(&capsule).expect("decode capsule");
+    assert_eq!(
+        decoded.players.as_ref().unwrap().players[0].host_default_team_id,
+        Some(exact)
+    );
+
+    let mut receiving = GameLogic::new();
+    receiving.add_player(crate::game_logic::Player::new(
+        1,
+        crate::game_logic::Team::USA,
+        "Local",
+        true,
+    ));
+    apply_pending(&mut receiving, &decoded).expect("restore exact Team binding");
+    assert_eq!(receiving.host_default_team_id(1), Some(exact));
+
+    let mut invalid = decoded.clone();
+    invalid.players.as_mut().unwrap().players[0].host_default_team_id = Some(u32::MAX);
+    let mut receiving = GameLogic::new();
+    receiving.add_player(crate::game_logic::Player::new(
+        1,
+        crate::game_logic::Team::USA,
+        "Local",
+        true,
+    ));
+    assert!(apply_pending(&mut receiving, &invalid).is_err());
+
+    let mut legacy = decoded.clone();
+    let legacy_row = &mut legacy.players.as_mut().unwrap().players[0];
+    legacy_row.source_version = 7;
+    legacy_row.host_default_team_id = None;
+    let mut receiving = GameLogic::new();
+    receiving.add_player(crate::game_logic::Player::new(
+        1,
+        crate::game_logic::Team::USA,
+        "Local",
+        true,
+    ));
+    apply_pending(&mut receiving, &legacy).expect("unique legacy candidate binds");
+    assert_eq!(receiving.host_default_team_id(1), Some(exact));
+
+    let mut ambiguous = legacy;
+    let duplicate = ambiguous.teams.as_mut().unwrap().teams[0].clone();
+    let mut duplicate = duplicate;
+    duplicate.team_id = u32::MAX - 1;
+    ambiguous.teams.as_mut().unwrap().teams.push(duplicate);
+    let mut receiving = GameLogic::new();
+    receiving.add_player(crate::game_logic::Player::new(
+        1,
+        crate::game_logic::Team::USA,
+        "Local",
+        true,
+    ));
+    assert!(apply_pending(&mut receiving, &ambiguous).is_err());
+}
+
+#[test]
 fn complete_roster_requires_exact_unique_map_definitions() {
     let world = GameLogic::new();
     world

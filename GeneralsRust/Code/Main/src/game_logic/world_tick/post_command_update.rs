@@ -41,6 +41,10 @@ impl GameLogic {
                     // AIUpdate::doLocomotor. Panic continuation must therefore
                     // inspect the path completed by the preceding locomotor
                     // pass, then install the next waypoint before this pass.
+                    // Wander state entry happens in the script action itself;
+                    // its periodic work belongs to the simulation, after the
+                    // freeze gate, not to each unrelated script action.
+                    self.tick_host_wander_in_place();
                     self.begin_host_waypoint_ai_observations(&object_ids);
                     if let Err(error) =
                         self.tick_host_panic_states_with_effects(&object_ids, &mut ui)

@@ -1337,14 +1337,24 @@ impl CnCGameEngine {
             game_client::gui::load_screen::LoadScreenPresentationPump::for_native(
                 &mut present_load,
             );
+        let requested_campaign_context = self.campaign_manager.map_context_for(map_name);
+        let fallback_campaign_context = self
+            .campaign_manager
+            .map_context_for(DEFAULT_SKIRMISH_MAP);
         let loaded = if self.game_logic.game_mode() == GameMode::Shell {
             self.game_logic
-                .load_map_with_progress_and_native_checked(map_name, |_, _, _, _| Ok(()), native)
+                .load_map_with_campaign_context_and_progress_and_native_checked(
+                    map_name,
+                    requested_campaign_context,
+                    |_, _, _, _| Ok(()),
+                    native,
+                )
                 .map(|accepted| accepted.then(|| map_name.to_owned()))
         } else if self.game_logic.game_mode() == GameMode::Replay {
             self.game_logic
-                .load_map_with_progress_and_native_checked(
+                .load_map_with_campaign_context_and_progress_and_native_checked(
                     map_name,
+                    requested_campaign_context,
                     |audio_random, audio_policy, progress, phase| {
                         #[cfg(feature = "game_client")]
                         if let Some(kind) = active_load_screen {
@@ -1376,10 +1386,12 @@ impl CnCGameEngine {
             #[cfg(feature = "game_client")]
             {
                 if let Some(kind) = active_load_screen {
-                    self.game_logic
-                        .load_map_or_fallback_with_progress_and_native_checked(
+                        self.game_logic
+                        .load_map_or_fallback_with_campaign_contexts_and_progress_and_native_checked(
                             map_name,
                             DEFAULT_SKIRMISH_MAP,
+                            requested_campaign_context,
+                            fallback_campaign_context,
                             |audio_random, audio_policy, progress, phase| {
                                 let progress = progress.clamp(0.0, 1.0);
                                 let mut audio = menu_audio.lend(
@@ -1402,10 +1414,12 @@ impl CnCGameEngine {
                             native,
                         )
                 } else {
-                    self.game_logic
-                        .load_map_or_fallback_with_progress_and_native_checked(
+                        self.game_logic
+                        .load_map_or_fallback_with_campaign_contexts_and_progress_and_native_checked(
                             map_name,
                             DEFAULT_SKIRMISH_MAP,
+                            requested_campaign_context,
+                            fallback_campaign_context,
                             |_, _, _, _| Ok(()),
                             native,
                         )
@@ -1414,9 +1428,11 @@ impl CnCGameEngine {
             #[cfg(not(feature = "game_client"))]
             {
                 self.game_logic
-                    .load_map_or_fallback_with_progress_and_native_checked(
+                    .load_map_or_fallback_with_campaign_contexts_and_progress_and_native_checked(
                         map_name,
                         DEFAULT_SKIRMISH_MAP,
+                        requested_campaign_context,
+                        fallback_campaign_context,
                         |_, _, _, _| Ok(()),
                         native,
                     )

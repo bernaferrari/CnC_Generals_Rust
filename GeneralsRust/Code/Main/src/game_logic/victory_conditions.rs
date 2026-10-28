@@ -616,7 +616,10 @@ impl VictoryConditions {
     }
 }
 
-pub fn victory_rules_for_map(map_name: &str) -> VictoryType {
+pub fn victory_rules_for_map(
+    map_name: &str,
+    campaign_context: Option<&crate::save_load::CampaignMapContext>,
+) -> VictoryType {
     let rules = MAP_VICTORY_RULES
         .get_or_init(MapVictoryRules::load)
         .victory_for(map_name);
@@ -625,7 +628,7 @@ pub fn victory_rules_for_map(map_name: &str) -> VictoryType {
         return rules;
     }
 
-    campaign_victory_override(map_name).unwrap_or(rules)
+    campaign_victory_override(map_name, campaign_context).unwrap_or(rules)
 }
 
 struct MapVictoryRules {
@@ -761,38 +764,17 @@ fn parse_victory_string(value: &ConfigValue) -> Option<VictoryType> {
 
 static MAP_VICTORY_RULES: OnceLock<MapVictoryRules> = OnceLock::new();
 
-fn campaign_victory_override(map_name: &str) -> Option<VictoryType> {
+fn campaign_victory_override(
+    map_name: &str,
+    campaign_context: Option<&crate::save_load::CampaignMapContext>,
+) -> Option<VictoryType> {
     if map_name.is_empty() {
         return None;
     }
-
-    // Prefer stem/path-aware mission match so full map paths resolve Campaign.ini
-    // residual table entries (MD_USA01, GC_*, etc.).
-    crate::save_load::game_state::with_global_campaign_manager(|manager| {
-        if let Some(mission) = manager.find_mission_for_map(map_name) {
-            if let Some(rule) = mission
-                .victory_rule
-                .as_deref()
-                .and_then(parse_victory_keyword)
-            {
-                return Some(rule);
-            }
-        }
-        for mission in manager.iter_missions() {
-            if crate::save_load::campaign::map_name_matches_mission(map_name, &mission.map_name) {
-                if let Some(rule) = mission
-                    .victory_rule
-                    .as_deref()
-                    .and_then(parse_victory_keyword)
-                {
-                    return Some(rule);
-                }
-            }
-        }
-        None
-    })
-    .ok()
-    .flatten()
+    campaign_context?
+        .victory_rule_candidates
+        .iter()
+        .find_map(|rule| parse_victory_keyword(rule))
 }
 
 fn parse_victory_keyword(keyword: &str) -> Option<VictoryType> {

@@ -39,6 +39,10 @@ fn world(map: &std::path::Path, radius: u32) -> (GameLogic, generals_main::game_
 }
 
 fn wander_script() -> ScriptEngine {
+    wander_script_with_followup_actions(0)
+}
+
+fn wander_script_with_followup_actions(count: usize) -> ScriptEngine {
     let mut condition = OrCondition::new();
     condition.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
     let mut action = ScriptAction::new(ScriptActionType::TeamWanderInPlace);
@@ -54,6 +58,19 @@ fn wander_script() -> ScriptEngine {
     script.delay_evaluation_seconds = 0;
     script.condition = Some(Box::new(condition));
     script.action = Some(Box::new(action));
+    for index in 0..count {
+        let mut action = ScriptAction::new(ScriptActionType::SetFlag);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Flag,
+                format!("UnrelatedFlag{index}"),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
+            .unwrap();
+        script.append_action(Box::new(action));
+    }
     let mut scripts = ScriptList::new();
     scripts.append_script(Box::new(script));
     let engine = ScriptEngine::new().unwrap();
@@ -61,6 +78,99 @@ fn wander_script() -> ScriptEngine {
         .set_script_list_for_player(0, Some(Box::new(scripts)))
         .unwrap();
     engine
+}
+
+#[test]
+fn unrelated_script_actions_do_not_advance_wander_before_the_simulation_step() {
+    let mut map = DataChunkOutput::new();
+    map.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        map.write_int(value);
+    }
+    for _ in 0..1681 {
+        map.write_byte(8);
+    }
+    map.close_data_chunk();
+    map.open_data_chunk("ObjectsList", 3);
+    map.close_data_chunk();
+    let root = tempfile::tempdir().unwrap();
+    let map_path = root.path().join("Wander.map");
+    std::fs::write(&map_path, map.into_ckmp_bytes()).unwrap();
+
+    let (mut control, control_id) = world(&map_path, 0);
+    let (mut with_extra_actions, extra_id) = world(&map_path, 0);
+    assert_eq!(control_id, extra_id);
+    let snapshot = SnapshotBuilder::new();
+    assert_eq!(
+        snapshot
+            .create_world_snapshot(&control)
+            .unwrap()
+            .logic_rng_seed_words,
+        snapshot
+            .create_world_snapshot(&with_extra_actions)
+            .unwrap()
+            .logic_rng_seed_words
+    );
+    control
+        .update_local_script_engine_with_owner(&wander_script())
+        .unwrap();
+    with_extra_actions
+        .update_local_script_engine_with_owner(&wander_script_with_followup_actions(5))
+        .unwrap();
+    let after_entry = snapshot
+        .create_world_snapshot(&control)
+        .unwrap()
+        .logic_rng_seed_words;
+    assert_eq!(
+        snapshot
+            .create_world_snapshot(&with_extra_actions)
+            .unwrap()
+            .logic_rng_seed_words,
+        after_entry,
+        "unrelated script actions must not tick an already-entered AI state"
+    );
+
+    // The live loop deliberately advances at most one logic frame per call.
+    control.update_with_dt(1.0 / 30.0);
+    control.update_with_dt(1.0 / 30.0);
+    assert_ne!(
+        snapshot
+            .create_world_snapshot(&control)
+            .unwrap()
+            .logic_rng_seed_words,
+        after_entry,
+        "the receiving simulation must still advance the wander state"
+    );
+    assert_eq!(
+        snapshot
+            .create_world_snapshot(&with_extra_actions)
+            .unwrap()
+            .logic_rng_seed_words,
+        after_entry,
+        "advancing one world must not tick the other world's AI"
+    );
+    with_extra_actions.set_script_time_frozen_for_test(true);
+    with_extra_actions.update_with_dt(1.0 / 30.0);
+    with_extra_actions.update_with_dt(1.0 / 30.0);
+    assert_eq!(
+        snapshot
+            .create_world_snapshot(&with_extra_actions)
+            .unwrap()
+            .logic_rng_seed_words,
+        after_entry,
+        "a frozen match must not run the periodic wander update"
+    );
+    with_extra_actions.set_script_time_frozen_for_test(false);
+    with_extra_actions.update_with_dt(1.0 / 30.0);
+    with_extra_actions.update_with_dt(1.0 / 30.0);
+    assert_ne!(
+        snapshot
+            .create_world_snapshot(&with_extra_actions)
+            .unwrap()
+            .logic_rng_seed_words,
+        after_entry,
+        "wander must resume when the receiving match unfreezes"
+    );
 }
 
 #[test]

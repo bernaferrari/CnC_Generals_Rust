@@ -801,6 +801,18 @@ pub trait ScriptExecutionDriver {
         None
     }
 
+    /// C++ `ScriptActions::doMoveToWaypoint`: the receiving session resolves
+    /// its team and waypoint, then applies the script move synchronously.
+    fn team_move_to_waypoint(
+        &mut self,
+        _team: &str,
+        _waypoint: &str,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     fn named_attack_area(
         &mut self,
         _unit: &str,

@@ -96,6 +96,27 @@ impl RenderPipeline {
         device: &Arc<wgpu::Device>,
         queue: &Arc<wgpu::Queue>,
     ) -> Result<bool> {
+        self.hydrate_native_terrain_gpu_inner(device, queue, None)
+    }
+
+    /// Hydrate source tile bytes through the receiving application's mounted
+    /// archive filesystem. The caller's borrow is used synchronously and is
+    /// never retained by the render pipeline or terrain visual.
+    pub(crate) fn hydrate_native_terrain_gpu_with_source_reader(
+        &mut self,
+        device: &Arc<wgpu::Device>,
+        queue: &Arc<wgpu::Queue>,
+        read_virtual_file: &mut dyn FnMut(&str) -> Option<Vec<u8>>,
+    ) -> Result<bool> {
+        self.hydrate_native_terrain_gpu_inner(device, queue, Some(read_virtual_file))
+    }
+
+    fn hydrate_native_terrain_gpu_inner(
+        &mut self,
+        device: &Arc<wgpu::Device>,
+        queue: &Arc<wgpu::Queue>,
+        mut read_virtual_file: Option<&mut dyn FnMut(&str) -> Option<Vec<u8>>>,
+    ) -> Result<bool> {
         // Read immutable presentation inputs before taking the disjoint owner loan.
         let source_tile_classes: Vec<game_client::terrain::terrain_visual::TerrainSourceTileClass> =
             self.presentation_frame
@@ -126,7 +147,15 @@ impl RenderPipeline {
             .init_gpu_resources(device.clone(), queue.clone())
             .map_err(|error| anyhow::anyhow!("Terrain GPU hydration failed: {error}"))?;
         if !source_tile_classes.is_empty() {
-            match visual.load_source_tiles_from_texture_classes(&source_tile_classes) {
+            let source_load = if let Some(read_virtual_file) = read_virtual_file.as_deref_mut() {
+                visual.load_source_tiles_from_texture_classes_with_reader(
+                    &source_tile_classes,
+                    read_virtual_file,
+                )
+            } else {
+                visual.load_source_tiles_from_texture_classes(&source_tile_classes)
+            };
+            match source_load {
                 Ok(loaded) => debug!("Loaded {loaded} source tiles for receiving terrain"),
                 Err(error) => warn!("Terrain source tile load failed: {error}"),
             }

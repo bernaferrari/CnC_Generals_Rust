@@ -110,6 +110,15 @@ pub struct MissionInfo {
     pub bonus_objectives: Vec<MissionObjective>,
 }
 
+/// Read-only campaign metadata selected for one receiving map admission.
+/// The manager remains the writable owner; the map loader carries this frozen
+/// view through victory setup and objective initialization as one operation.
+#[derive(Debug, Clone, Default)]
+pub struct CampaignMapContext {
+    pub mission: Option<MissionInfo>,
+    pub victory_rule_candidates: Vec<String>,
+}
+
 /// Mission objective
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MissionObjective {
@@ -351,7 +360,7 @@ impl CampaignManager {
         Self::with_campaign_directory(SaveLoadManager::default_save_directory().join("Campaign"))
     }
 
-    pub(crate) fn with_campaign_directory(campaign_dir: std::path::PathBuf) -> Self {
+    pub fn with_campaign_directory(campaign_dir: std::path::PathBuf) -> Self {
         Self {
             campaign_directory: campaign_dir,
             mission_definitions: HashMap::new(),
@@ -421,6 +430,29 @@ impl CampaignManager {
             }
         }
         exact_with_obj.or(exact).or(stem_with_obj).or(stem)
+    }
+
+    /// Freeze campaign metadata for the exact receiving map identity. The
+    /// objective lookup retains `find_mission_for_map` precedence; victory
+    /// candidates retain its selected rule first, followed by matching aliases
+    /// so an alias with a usable rule can still supply the legacy override.
+    pub fn map_context_for(&self, map_name: &str) -> CampaignMapContext {
+        let mission = self.find_mission_for_map(map_name).cloned();
+        let mut victory_rule_candidates = Vec::new();
+        if let Some(rule) = mission.as_ref().and_then(|mission| mission.victory_rule.clone()) {
+            victory_rule_candidates.push(rule);
+        }
+        for candidate in self.iter_missions() {
+            if map_name_matches_mission(map_name, &candidate.map_name) {
+                if let Some(rule) = candidate.victory_rule.as_ref() {
+                    victory_rule_candidates.push(rule.clone());
+                }
+            }
+        }
+        CampaignMapContext {
+            mission,
+            victory_rule_candidates,
+        }
     }
 
     /// Start a new campaign

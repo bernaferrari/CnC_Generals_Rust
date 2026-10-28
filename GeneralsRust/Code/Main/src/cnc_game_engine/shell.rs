@@ -2273,6 +2273,7 @@ impl CnCGameEngine {
                 &mut self.game_logic,
                 &mut self.render_pipeline,
                 &self.graphics_system,
+                &self.application_assets,
                 active_map_name.as_str(),
             );
             if let Err(err) = self.reinitialize_minimap_renderer() {

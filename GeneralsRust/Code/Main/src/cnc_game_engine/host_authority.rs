@@ -2151,6 +2151,7 @@ impl CnCGameEngine {
             save_file_manager,
             slot,
             active_mode,
+            crate::save_load::CampaignMapContext::default(),
             template_catalog,
             weapon_catalog,
             projectile_definitions,
@@ -2175,6 +2176,7 @@ impl CnCGameEngine {
         save_file_manager: &mut SaveFileManager,
         slot: &str,
         active_mode: crate::game_logic::GameMode,
+        campaign_context: crate::save_load::CampaignMapContext,
         template_catalog: RestoreTemplateCatalog<'_>,
         weapon_catalog: &Option<
             std::collections::HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>,
@@ -2217,6 +2219,7 @@ impl CnCGameEngine {
             terrain_visual_xfer,
             slot,
             active_mode,
+            campaign_context,
             template_catalog,
             weapon_catalog,
             projectile_definitions,
@@ -2598,6 +2601,7 @@ impl CnCGameEngine {
             terrain_visual_xfer_bytes,
             slot,
             active_mode,
+            crate::save_load::CampaignMapContext::default(),
             template_catalog,
             weapon_catalog,
             projectile_definitions,
@@ -2628,6 +2632,7 @@ impl CnCGameEngine {
         terrain_visual_xfer_bytes: Option<Vec<u8>>,
         slot: &str,
         active_mode: crate::game_logic::GameMode,
+        campaign_context: crate::save_load::CampaignMapContext,
         template_catalog: RestoreTemplateCatalog<'_>,
         weapon_catalog: &Option<
             std::collections::HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>,
@@ -2789,9 +2794,10 @@ impl CnCGameEngine {
             let mut capture_map_water = |state: &gamelogic::terrain_water::WaterGridState| {
                 map_water_configuration = Some(state.clone());
             };
-            if !staged.load_map_with_definition_source_and_water_delivery_and_native_checked(
+            if !staged.load_map_with_campaign_context_and_definition_source_and_water_delivery_and_native_checked(
                 saved_map,
                 definition_source,
+                campaign_context.clone(),
                 Some(&mut capture_map_water),
                 native
                     .as_mut()
@@ -2958,6 +2964,7 @@ impl CnCGameEngine {
                 .host_restart_mission_from_save(slot, save_info)
                 .map_err(HostLoadFailure::Staging);
         }
+        let campaign_context = self.campaign_manager.map_context_for(&save_info.map_name);
 
         // Keep the current world untouched until the save metadata, exact map,
         // and snapshot all restore successfully in a staging world.
@@ -2995,6 +3002,7 @@ impl CnCGameEngine {
                 &mut self.save_file_manager,
                 slot,
                 active_mode,
+                campaign_context.clone(),
                 RestoreTemplateCatalog {
                     templates: &template_catalog,
                     modules: &self.game_logic.receiving_module_content,
@@ -3041,6 +3049,7 @@ impl CnCGameEngine {
             &mut self.save_file_manager,
             slot,
             active_mode,
+            campaign_context,
             RestoreTemplateCatalog {
                 templates: &template_catalog,
                 modules: &self.game_logic.receiving_module_content,
@@ -3581,6 +3590,7 @@ impl CnCGameEngine {
                         &mut self.game_logic,
                         &mut self.render_pipeline,
                         &self.graphics_system,
+                        &self.application_assets,
                         loaded_map_name.as_str(),
                     );
                     if let Err(err) = self.reinitialize_minimap_renderer() {

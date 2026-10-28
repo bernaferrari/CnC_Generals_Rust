@@ -220,21 +220,32 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_move_team_to(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let raw_team = self.get_string_param(action, 0)?;
         let waypoint_name = self.get_string_param(action, 1)?;
 
+        let engine = self.context.borrowed_engine();
+        if let Some(result) = driver.team_move_to_waypoint(
+            &raw_team,
+            &waypoint_name,
+            engine.get_calling_team_id(),
+            engine.get_condition_team_id(),
+        ) {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+            return Ok(ScriptActionResult::Success);
+        }
+
+        let team_name = self.resolve_team_name_token(&raw_team);
         log::info!(
             "Moving team '{}' to waypoint '{}'",
             team_name,
             waypoint_name
         );
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_move_attack(super::HostScriptMoveAttackRequest::TeamMove {
-                team: team_name,
-                waypoint: waypoint_name,
-            });
-            return Ok(ScriptActionResult::Success);
+            return Err(ScriptError::ExecutionFailed(
+                "Team move requires its receiving world".into(),
+            ));
         }
 
         let destination = self.get_waypoint_position(&waypoint_name)?;

@@ -744,9 +744,10 @@ impl GameLogic {
             &self.logic_random,
             |view| {
                 if let Some(victim) = self.objects.get_mut(&victim_id) {
-                    application.complete_body_state_callbacks_with_body_fx(
+                    application.complete_body_state_callbacks_with_body_fx_and_random(
                         victim,
                         callback_source.as_ref(),
+                        &self.logic_random,
                         &mut |object, effect, source| {
                             Self::execute_body_state_fx_with_view(
                                 object,
@@ -769,9 +770,10 @@ impl GameLogic {
         let fx_operation_environment = self.observe_object_fx_environment();
         #[cfg(not(feature = "game_client"))]
         if let Some(victim) = self.objects.get_mut(&victim_id) {
-            application.complete_body_state_callbacks_with_body_fx(
+            application.complete_body_state_callbacks_with_body_fx_and_random(
                 victim,
                 callback_source.as_ref(),
+                &self.logic_random,
                 &mut |object, effect, source| {
                     Self::execute_body_state_fx_without_view(
                         object,

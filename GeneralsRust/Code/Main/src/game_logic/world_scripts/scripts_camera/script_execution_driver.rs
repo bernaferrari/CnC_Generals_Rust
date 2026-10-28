@@ -958,6 +958,54 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         )
     }
 
+    fn team_move_to_waypoint(
+        &mut self,
+        team: &str,
+        waypoint: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        if team == gamelogic::scripting::core::TEAM_THE_PLAYER && self.world.is_challenge_session()
+        {
+            let mut local_players = self
+                .world
+                .get_players()
+                .values()
+                .filter(|player| player.is_local);
+            let Some(player_id) = local_players.next().map(|player| player.id) else {
+                return Some(Err(gamelogic::GameLogicError::Configuration(
+                    "challenge TeamMove has no receiving local Player".into(),
+                )));
+            };
+            if local_players.next().is_some() {
+                return Some(Err(gamelogic::GameLogicError::Configuration(
+                    "challenge TeamMove has ambiguous receiving local Players".into(),
+                )));
+            }
+            let members = match self.world.resolve_owned_player_default_team(player_id) {
+                Ok(Some((_, members))) => members,
+                Ok(None) => {
+                    return Some(Err(gamelogic::GameLogicError::Configuration(
+                        "challenge TeamMove has no admitted local default Team".into(),
+                    )));
+                }
+                Err(error) => return Some(Err(error)),
+            };
+            let Some(destination) = self.world.host_script_waypoint_position(waypoint) else {
+                return Some(Ok(()));
+            };
+            for member in members {
+                self.world
+                    .unit_command_move_to(ObjectId(member), destination);
+            }
+            return Some(Ok(()));
+        }
+        Some(
+            self.world
+                .apply_owned_team_move_to_waypoint(team, waypoint, calling, condition),
+        )
+    }
+
     fn named_attack_area(
         &mut self,
         unit: &str,
