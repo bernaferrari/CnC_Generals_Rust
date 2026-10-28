@@ -849,11 +849,9 @@ impl ScriptActionDispatcher<'_> {
             waypoint_name
         );
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_move_attack(super::HostScriptMoveAttackRequest::NamedMove {
-                unit: unit_name,
-                waypoint: waypoint_name,
-            });
-            return Ok(ScriptActionResult::Success);
+            return Err(ScriptError::ExecutionFailed(
+                "NamedMove requires its receiving world".into(),
+            ));
         }
 
         let tracker = get_named_object_tracker();

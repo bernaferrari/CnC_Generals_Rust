@@ -153,20 +153,18 @@ impl GameLogic {
         let Some(id) = self.owned_named_script_object(name, this_object) else {
             return;
         };
-        let Some(object) = self
-            .host_object(id)
-            .filter(|object| object.has_ai_update_interface())
-        else {
-            return;
-        };
-        let position = object.get_position();
         if let Some(exact) = follow {
+            let Some(object) = self
+                .host_object(id)
+                .filter(|object| object.has_ai_update_interface())
+            else {
+                return;
+            };
+            let position = object.get_position();
             let Some(path) = self.host_script_waypoint_route_from(waypoint, position) else {
                 return;
             };
-            self.host_object_mut(id)
-                .unwrap()
-                .set_formation(0, glam::Vec2::ZERO);
+            self.host_object_leave_group(id);
             self.apply_unit_locomotor_set(id, "normal");
             self.host_object_mut(id).unwrap().last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
@@ -178,14 +176,23 @@ impl GameLogic {
                 path.completion(exact),
             );
         } else {
+            // CPP ScriptActions::doNamedMoveToWaypoint resolves the named
+            // Object and waypoint before testing its AIUpdate interface.
             let Some(destination) = self.host_script_waypoint_position(waypoint) else {
                 return;
             };
-            // CPP433 clears the queue before Normal and aiMoveToPosition.
-            let object = self.host_object_mut(id).unwrap();
-            object.set_formation(0, glam::Vec2::ZERO);
-            object.clear_pending_waypoint_labels();
-            self.clear_unit_movement_path(id);
+            if !self
+                .host_object(id)
+                .is_some_and(|object| object.has_ai_update_interface())
+            {
+                return;
+            }
+            // CPP433 clears the waypoint queue before leaveGroup, Normal and
+            // aiMoveToPosition.
+            self.host_object_mut(id)
+                .unwrap()
+                .clear_pending_waypoint_labels();
+            self.host_object_leave_group(id);
             self.apply_unit_locomotor_set(id, "normal");
             self.unit_command_script_move_to(id, destination);
         }

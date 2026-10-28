@@ -56,17 +56,13 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-/// Live host drain: named moves and team/named attacks when leftover
-/// `OBJECT_REGISTRY` is empty. TeamMove is synchronously admitted by its driver.
-/// C++ `ScriptActions::doNamedMoveToWaypoint` / `doAttack` /
-/// `doNamedAttack` / `doNamedAttackArea` / `doNamedAttackTeam` / `doTeamAttackArea` /
+/// Live host drain: team/named attacks when leftover `OBJECT_REGISTRY` is empty.
+/// NamedMove and TeamMove are synchronously admitted by their receiving driver.
+/// C++ `ScriptActions::doAttack` / `doNamedAttack` / `doNamedAttackArea` /
+/// `doNamedAttackTeam` / `doTeamAttackArea` /
 /// `doTeamAttackNamed`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostScriptMoveAttackRequest {
-    NamedMove {
-        unit: String,
-        waypoint: String,
-    },
     TeamAttackTeam {
         attacker: String,
         victim: String,

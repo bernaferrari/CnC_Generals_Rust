@@ -10,9 +10,9 @@ impl GameLogic {
         }
     }
 
-    /// C++ ScriptActions TEAM/NAMED move and attack live drain.
-    /// Leftover `OBJECT_REGISTRY` is empty on the host path; leftover actions
-    /// queue [`gamelogic::scripting::HostScriptMoveAttackRequest`].
+    /// C++ ScriptActions TEAM/NAMED attack live drain.
+    /// Leftover `OBJECT_REGISTRY` is empty on the host path; unsupported legacy
+    /// attack actions queue [`gamelogic::scripting::HostScriptMoveAttackRequest`].
     pub(super) fn apply_host_move_attack_script_requests(&mut self) {
         self.apply_host_move_attack_script_requests_with_effects(&mut Default::default())
             .expect("move/attack script requests failed");
@@ -40,16 +40,6 @@ impl GameLogic {
         use gamelogic::scripting::HostScriptMoveAttackRequest;
         for req in gamelogic::scripting::take_host_script_move_attack_requests() {
             match req {
-                HostScriptMoveAttackRequest::NamedMove { unit, waypoint } => {
-                    let Some(dest) = self.host_script_waypoint_position(&waypoint) else {
-                        continue;
-                    };
-                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
-                        continue;
-                    };
-                    let _ = self.apply_unit_locomotor_set(id, "normal");
-                    self.unit_command_move_to(id, dest);
-                }
                 HostScriptMoveAttackRequest::TeamAttackTeam { attacker, victim } => {
                     let members = self.host_script_team_member_ids(&attacker);
                     for id in members {
