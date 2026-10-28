@@ -726,10 +726,11 @@ impl GameLogic {
                 unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
-                unit.set_position_with_effects(
+                unit.set_position_with_effects_and_team_factory(
                     pos + offset,
                     tree_move_frame,
                     &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.team_factory,
                 );
                 {}
                 unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(
@@ -813,10 +814,11 @@ impl GameLogic {
                 unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
-                unit.set_position_with_effects(
+                unit.set_position_with_effects_and_team_factory(
                     pos + offset,
                     tree_move_frame,
                     &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    &self.team_factory,
                 );
                 {}
                 unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(
@@ -898,10 +900,11 @@ impl GameLogic {
                             unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
-                            unit.set_position_with_effects(
+                            unit.set_position_with_effects_and_team_factory(
                                 pos + offset,
                                 tree_move_frame,
                                 &mut effects.reborrow_for_object(&mut self.partition_manager),
+                                &self.team_factory,
                             );
                             {}
                             unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(

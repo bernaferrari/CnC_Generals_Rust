@@ -75,7 +75,7 @@ fn world(map: &Path, position: [f32; 3]) -> (GameLogic, generals_main::game_logi
         .admit_object_ini_sources([(
             "TeamAreaTransition.ini".into(),
             "Object OwnedTeamEdgeUnit\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL TeamEdgeLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n\
-             Object BorrowedEdgeGarrison\n KindOf = STRUCTURE SELECTABLE\n Geometry = BOX\n GeometryMajorRadius = 20\n GeometryMinorRadius = 10\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n End\n Behavior = GarrisonContain GarrisonTag\n ContainMax = 5\n End\nEnd\n".into(),
+             Object BorrowedEdgeGarrison\n KindOf = STRUCTURE SELECTABLE\n Geometry = BOX\n GeometryMajorRadius = 20\n GeometryMinorRadius = 10\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = GarrisonContain GarrisonTag\n ContainMax = 5\n End\nEnd\n".into(),
         )])
         .unwrap();
     world.start_new_game(GameMode::SinglePlayer);
@@ -390,4 +390,110 @@ fn public_registered_pose_write_marks_only_the_receiving_team_synchronously() {
     };
     assert_eq!(observe(&mut owner, "DirectOwnerEdge", cases()), [1, 1]);
     assert_eq!(observe(&mut peer, "DirectPeerControl", cases()), [0, 0]);
+}
+
+#[test]
+fn public_unit_exit_drop_marks_only_the_receiving_team_synchronously() {
+    let owner_root = tempfile::tempdir().unwrap();
+    let peer_root = tempfile::tempdir().unwrap();
+    let owner_map = map_file(owner_root.path(), &[]);
+    let peer_map = map_file(peer_root.path(), &[]);
+    let (mut owner, owner_unit) = world(&owner_map, [80.0, 0.0, 80.0]);
+    let (mut peer, peer_unit) = world(&peer_map, [80.0, 0.0, 80.0]);
+    assert_eq!(owner_unit, peer_unit);
+    owner.inject_host_script_query_snapshot();
+    peer.inject_host_script_query_snapshot();
+
+    assert!(
+        owner
+            .unit_command_exit_drop(owner_unit, glam::Vec3::new(20.0, 0.0, 20.0))
+            .unwrap()
+    );
+
+    // The production exit-drop pose callback has already marked its receiving
+    // Team before this host projection; the same-ID peer remains outside.
+    owner.inject_host_script_query_snapshot();
+    peer.inject_host_script_query_snapshot();
+    let cases = || {
+        vec![
+            (
+                transition_condition(
+                    ConditionType::TeamEnteredAreaPartially,
+                    "teamOwner",
+                    "OwnerTransitionArea",
+                ),
+                "direct_partial_enter".into(),
+            ),
+            (
+                transition_condition(
+                    ConditionType::TeamEnteredAreaEntirely,
+                    "teamOwner",
+                    "OwnerTransitionArea",
+                ),
+                "direct_all_enter".into(),
+            ),
+        ]
+    };
+    assert_eq!(observe(&mut owner, "DirectOwnerEdge", cases()), [1, 1]);
+    assert_eq!(observe(&mut peer, "DirectPeerControl", cases()), [0, 0]);
+}
+
+#[test]
+fn public_capture_ejection_marks_only_the_receiving_team_synchronously() {
+    let owner_root = tempfile::tempdir().unwrap();
+    let peer_root = tempfile::tempdir().unwrap();
+    let owner_map = map_file(owner_root.path(), &[]);
+    let peer_map = map_file(peer_root.path(), &[]);
+    let (mut owner, owner_unit) = world(&owner_map, [80.0, 0.0, 80.0]);
+    let (mut peer, peer_unit) = world(&peer_map, [80.0, 0.0, 80.0]);
+    assert_eq!(owner_unit, peer_unit);
+    for world in [&mut owner, &mut peer] {
+        world.add_player(
+            Player::new(2, Team::China, "ContainerOwner", false)
+                .with_script_identity("ContainerOwner"),
+        );
+    }
+    let owner_bunker = owner
+        .create_object_for_player("BorrowedEdgeGarrison", 2, glam::Vec3::new(20.0, 0.0, 20.0))
+        .unwrap();
+    let peer_bunker = peer
+        .create_object_for_player("BorrowedEdgeGarrison", 2, glam::Vec3::new(20.0, 0.0, 20.0))
+        .unwrap();
+    assert_eq!(owner_bunker, peer_bunker);
+    for (world, bunker, unit) in [
+        (&mut owner, owner_bunker, owner_unit),
+        (&mut peer, peer_bunker, peer_unit),
+    ] {
+        assert!(world.host_object_mut(bunker).unwrap().add_occupant(unit));
+        world.host_object_mut(unit).unwrap().contained_by = Some(bunker);
+        world.inject_host_script_query_snapshot();
+    }
+
+    // This public capture path ejects the owner passenger horizontally from
+    // outside into the trigger. The peer's same-ID passenger stays contained.
+    owner.on_capture_kick_passengers(owner_bunker, Team::China, Team::USA);
+    owner.inject_host_script_query_snapshot();
+    peer.inject_host_script_query_snapshot();
+    let cases = || {
+        vec![
+            (
+                transition_condition(
+                    ConditionType::TeamEnteredAreaPartially,
+                    "teamOwner",
+                    "OwnerTransitionArea",
+                ),
+                "capture_partial_enter".into(),
+            ),
+            (
+                transition_condition(
+                    ConditionType::TeamEnteredAreaEntirely,
+                    "teamOwner",
+                    "OwnerTransitionArea",
+                ),
+                "capture_all_enter".into(),
+            ),
+        ]
+    };
+    assert_eq!(observe(&mut owner, "CaptureOwnerEdge", cases()), [1, 1]);
+    assert_eq!(observe(&mut peer, "CapturePeerControl", cases()), [0, 0]);
 }
