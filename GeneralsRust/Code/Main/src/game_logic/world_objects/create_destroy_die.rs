@@ -526,6 +526,42 @@ impl GameLogic {
             .map(|spec| spec.spawn_template))
     }
 
+    /// Receiving Stinger spawn-point capacity used to validate persisted slot
+    /// identities before restore. Use the admitted behavior's authored bound;
+    /// detached restore validation must not consult an ambient model/bone
+    /// registry through a temporary Object.
+    pub(crate) fn supported_stinger_spawn_slot_limit(
+        &self,
+        parent_template_name: &str,
+    ) -> Result<Option<u32>, ()> {
+        use crate::game_logic::host_base_defense::is_stinger_site_structure;
+        if !is_stinger_site_structure(parent_template_name) {
+            return Ok(None);
+        }
+        let (name, template) = if let Some((name, template)) =
+            self.templates.get_key_value(parent_template_name)
+        {
+            (name, template)
+        } else {
+            let mut matches = self
+                .templates
+                .iter()
+                .filter(|(name, _)| name.eq_ignore_ascii_case(parent_template_name));
+            let Some(first) = matches.next() else {
+                return Ok(None);
+            };
+            if matches.next().is_some() {
+                return Err(());
+            }
+            first
+        };
+        let Some(spec) = Self::resolve_host_spawn_behavior_template(template, name) else {
+            return Ok(None);
+        };
+        let limit = spec.spawn_number.min(HOST_MAX_SPAWN_POINTS as u32);
+        Ok(Some(limit))
+    }
+
     pub(crate) fn is_supported_spawn_behavior_child_template_pair(
         &self,
         parent_template_name: &str,
@@ -667,37 +703,13 @@ impl GameLogic {
         true
     }
 
-    fn create_spawn_behavior_child(
-        &mut self,
-        parent_id: ObjectId,
-        spawn_template: &str,
-        position: Vec3,
-        orientation: f32,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<ObjectId> {
-        // Independent callers retain the existing nonfallible surface until their
-        // operation boundary is migrated; the selected factory never uses this adapter.
-        self.create_spawn_behavior_child_checked(
-            parent_id,
-            spawn_template,
-            position,
-            orientation,
-            interpreter,
-            ui,
-        )
-        .unwrap_or_else(|error| {
-            log::error!("{error}");
-            None
-        })
-    }
-
     fn create_spawn_behavior_child_checked(
         &mut self,
         parent_id: ObjectId,
         spawn_template: &str,
         position: Vec3,
         orientation: f32,
+        slot: Option<u8>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
@@ -736,7 +748,7 @@ impl GameLogic {
         let admitted = child_identity
             .zip(self.host_object_mut(parent_id))
             .is_some_and(|((child_id, birth), parent)| {
-                parent.remember_spawn_behavior_child(child_id, birth)
+                parent.remember_spawn_behavior_child(child_id, birth, slot)
             });
         if !admitted {
             // Never leave an admitted child whose producer cannot own its
@@ -807,7 +819,7 @@ impl GameLogic {
     /// Resolve only admitted SpawnBehavior roster entries. A producer link by
     /// itself also represents ordinary production/OCL objects and is not
     /// evidence of C++ m_spawnIDs membership.
-    fn spawn_behavior_child_objects(
+    pub(crate) fn spawn_behavior_child_objects(
         &self,
         parent_id: ObjectId,
         spawn_template: &str,
@@ -895,12 +907,32 @@ impl GameLogic {
         if spec.one_shot {
             self.spawn_oneshot_spawn_behavior_checked(object_id, &spec, interpreter, ui)?;
         } else {
-            self.spawn_missing_hive_world_soldiers_with_effects_checked(
+            let _created = self.spawn_missing_hive_world_soldiers_with_effects_checked(
                 object_id,
                 &spec,
                 interpreter,
                 ui,
+                None,
             )?;
+            if self.host_object(object_id).is_some_and(|object| {
+                crate::game_logic::host_base_defense::is_stinger_site_structure(
+                    &object.template_name,
+                )
+            }) {
+                let live = self.count_spawn_behavior_children(object_id, &spec.spawn_template, true);
+                if live < spec.spawn_number
+                    && self
+                        .host_object(object_id)
+                        .is_some_and(|object| object.spawn_behavior_replacement_times().is_empty())
+                {
+                    let due = self.frame.saturating_sub(1);
+                    if let Some(object) = self.host_object_mut(object_id) {
+                        for _ in 0..spec.spawn_number.saturating_sub(live) {
+                            object.enqueue_spawn_behavior_replacement(due);
+                        }
+                    }
+                }
+            }
         }
 
         Ok(())
@@ -976,6 +1008,7 @@ impl GameLogic {
                     &spec.spawn_template,
                     spawn_pos,
                     orientation,
+                    None,
                     interpreter,
                     ui,
                 )?
@@ -998,30 +1031,15 @@ impl GameLogic {
         parent_id: ObjectId,
         spec: &HostSpawnBehaviorSpec,
     ) {
-        self.spawn_missing_hive_world_soldiers_with_effects(
+        match self.spawn_missing_hive_world_soldiers_with_effects_checked(
             parent_id,
             spec,
             None,
             &mut Default::default(),
-        );
-    }
-
-    fn spawn_missing_hive_world_soldiers_with_effects(
-        &mut self,
-        parent_id: ObjectId,
-        spec: &HostSpawnBehaviorSpec,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        // Independent callers retain the existing nonfallible surface until their
-        // operation boundary is migrated; the selected factory never uses this adapter.
-        if let Err(error) = self.spawn_missing_hive_world_soldiers_with_effects_checked(
-            parent_id,
-            spec,
-            interpreter,
-            ui,
+            None,
         ) {
-            log::error!("{error}");
+            Ok(_) => {}
+            Err(error) => log::error!("{error}"),
         }
     }
 
@@ -1031,24 +1049,41 @@ impl GameLogic {
         spec: &HostSpawnBehaviorSpec,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+        maximum_new_children: Option<usize>,
+    ) -> gamelogic::GameLogicResult<u32> {
         let have = self.count_spawn_behavior_children(parent_id, &spec.spawn_template, true);
         if have >= spec.spawn_number {
-            return Ok(());
+            return Ok(0);
         }
-        let (parent_pos, parent_ori, residual_alive, bones) = {
+        let (parent_pos, parent_ori, is_stinger, bones, used_slots) = {
             let Some(parent) = self.host_object(parent_id) else {
-                return Ok(());
+                return Ok(0);
             };
+            let used_slots = parent
+                .spawn_behavior_children_with_slots()
+                .into_iter()
+                .filter_map(|(child_id, birth, slot)| {
+                    let child = self.host_object(child_id)?;
+                    (parent.spawn_behavior_child_birth_matches(child_id, &birth, child)
+                        && child.is_alive()
+                        && !child.status.destroyed
+                        && !child.status.effectively_dead)
+                    .then_some(slot)
+                    .flatten()
+                })
+                .collect::<std::collections::HashSet<_>>();
             (
                 parent.get_position(),
                 parent.get_orientation(),
-                parent.hive_slaves.map(|slot| slot.alive),
+                crate::game_logic::host_base_defense::is_stinger_site_structure(
+                    &parent.template_name,
+                ),
                 collect_world_spawn_point_bones(parent),
+                used_slots,
             )
         };
         if !bones.is_empty() && have >= bones.len() as u32 {
-            return Ok(());
+            return Ok(0);
         }
         let existing: Vec<Vec3> = self
             .spawn_behavior_child_objects(parent_id, &spec.spawn_template)
@@ -1059,13 +1094,18 @@ impl GameLogic {
             .map(|object| object.get_position())
             .collect();
         let mut occupied = existing;
+        let mut created = 0u32;
+        let limit = maximum_new_children.unwrap_or(usize::MAX);
         if bones.is_empty() {
             let slots = spec.spawn_number.min(3) as usize;
             for slot in 0..slots {
-                if !residual_alive.get(slot).copied().unwrap_or(true) {
+                if created as usize >= limit {
+                    break;
+                }
+                if is_stinger && used_slots.contains(&(slot as u8)) {
                     continue;
                 }
-                if occupied.len() >= spec.spawn_number as usize {
+                if have + created >= spec.spawn_number {
                     break;
                 }
                 let spawn_pos = self.snap_spawn_point_to_terrain(parent_pos, parent_pos.y);
@@ -1075,19 +1115,24 @@ impl GameLogic {
                         &spec.spawn_template,
                         spawn_pos,
                         parent_ori,
+                        is_stinger.then_some(slot as u8),
                         interpreter,
                         ui,
                     )?
                     .is_some()
                 {
                     occupied.push(spawn_pos);
+                    created = created.saturating_add(1);
                 }
             }
-            return Ok(());
+            return Ok(created);
         }
         let slots = spec.spawn_number.min(bones.len() as u32) as usize;
         for slot in 0..slots {
-            if !residual_alive.get(slot).copied().unwrap_or(true) {
+            if created as usize >= limit || have + created >= spec.spawn_number {
+                break;
+            }
+            if is_stinger && used_slots.contains(&(slot as u8)) {
                 continue;
             }
             let (bone_pos, bone_yaw) = bones[slot];
@@ -1101,19 +1146,21 @@ impl GameLogic {
                     &spec.spawn_template,
                     spawn_pos,
                     bone_yaw,
+                    is_stinger.then_some(slot as u8),
                     interpreter,
                     ui,
                 )?
                 .is_some()
             {
                 occupied.push(spawn_pos);
+                created = created.saturating_add(1);
             }
         }
 
-        Ok(())
+        Ok(created)
     }
 
-    /// Sync Stinger residual roster with world soldiers and fill due replacements.
+    /// Advance each Stinger's ordered SpawnBehavior replacement deadlines.
     pub(crate) fn update_stinger_hive_world_soldiers(&mut self) {
         self.update_stinger_hive_world_soldiers_with_effects(&mut Default::default())
     }
@@ -1122,10 +1169,7 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        use crate::game_logic::host_base_defense::{
-            STINGER_SPAWN_NUMBER, count_alive_hive_slaves, is_stinger_site_structure,
-            next_stinger_slave_respawn_frame, sync_hive_slave_mirrors,
-        };
+        use crate::game_logic::host_base_defense::is_stinger_site_structure;
         let frame = self.frame;
         let sites: Vec<ObjectId> = self
             .objects
@@ -1148,66 +1192,38 @@ impl GameLogic {
             if spec.one_shot {
                 continue;
             }
-            let soldiers: Vec<(ObjectId, Vec3, bool)> = self
-                .spawn_behavior_child_objects(site_id, &spec.spawn_template)
-                .into_iter()
-                .map(|object| {
-                    (
-                        object.id,
-                        object.get_position(),
-                        object.is_alive()
-                            && !object.status.destroyed
-                            && !object.status.effectively_dead,
-                    )
-                })
-                .collect();
-            let (site_pos, mut slaves) = {
-                let Some(site) = self.host_object(site_id) else {
-                    continue;
-                };
-                (site.get_position(), site.hive_slaves)
-            };
-            let mut residual_changed = false;
-            for (slot, slave) in slaves.iter_mut().enumerate() {
-                let (sx, sz) = slave.world_xz(site_pos.x, site_pos.z);
-                let matching = soldiers.iter().find(|(_, pos, _)| {
-                    let dx = pos.x - sx;
-                    let dz = pos.z - sz;
-                    dx * dx + dz * dz < 36.0
-                });
-                match matching {
-                    Some((sid, _, false)) if slave.alive => {
-                        slave.alive = false;
-                        slave.hp = 0.0;
-                        residual_changed = true;
-                        let _ = sid;
-                    }
-                    None if slave.alive && soldiers.iter().all(|(_, _, live)| !live) => {}
-                    Some((_, _, true)) if !slave.alive => {}
-                    None if slave.alive => {
-                        // Residual slot is alive but no world soldier occupies it —
-                        // spawn below. Keep residual.
-                    }
-                    _ => {}
-                }
-            }
-            if residual_changed {
-                if let Some(site) = self.host_object_mut(site_id) {
-                    site.hive_slaves = slaves;
-                    let (count, hp) = sync_hive_slave_mirrors(&site.hive_slaves);
-                    site.hive_slave_count = count;
-                    site.hive_slave_hp = hp;
-                    if count < STINGER_SPAWN_NUMBER as u8 && site.hive_slave_respawn_frame == 0 {
-                        site.hive_slave_respawn_frame = next_stinger_slave_respawn_frame(frame, 0);
-                    }
-                }
-            }
-            let _ = count_alive_hive_slaves;
-            if self
+            let should_try = self
                 .host_object(site_id)
-                .is_some_and(|site| Self::spawn_behavior_should_try(site, false))
-            {
-                self.spawn_missing_hive_world_soldiers_with_effects(site_id, &spec, None, effects);
+                .is_some_and(|site| Self::spawn_behavior_should_try(site, false));
+            if !should_try {
+                continue;
+            }
+            // C++ uses currentTime > replacementTime and retains each failed
+            // createSpawn deadline while continuing later due entries.
+            let deadlines = self
+                .host_object(site_id)
+                .map(|site| site.spawn_behavior_replacement_times().to_vec())
+                .unwrap_or_default();
+            for due_frame in deadlines {
+                if frame <= due_frame {
+                    continue;
+                }
+                let created = self.spawn_missing_hive_world_soldiers_with_effects_checked(
+                    site_id,
+                    &spec,
+                    None,
+                    effects,
+                    Some(1),
+                );
+                match created {
+                    Ok(created) if created > 0 => {
+                        if let Some(site) = self.host_object_mut(site_id) {
+                            site.consume_spawn_behavior_replacement_time(due_frame);
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(error) => log::error!("{error}"),
+                }
             }
             self.sync_spawn_behavior_veterancy(site_id, &spec.spawn_template);
         }
@@ -2824,18 +2840,12 @@ impl GameLogic {
             }
 
             // Host residual: GLA Stinger Site SPAWNS_ARE_THE_WEAPONS dual ground/AA +
-            // HiveStructureBody / SpawnBehavior residual (3 soldiers) + physical roster.
+            // HiveStructureBody / SpawnBehavior. The admitted child roster is
+            // the only live source for slave identity and occupancy.
             if crate::game_logic::host_base_defense::is_stinger_site_structure(template_name) {
                 use crate::game_logic::host_base_defense::{
-                    init_stinger_hive_slave_roster, stinger_air_weapon, stinger_ground_weapon,
-                    stinger_has_ap_rockets, sync_hive_slave_mirrors,
+                    stinger_air_weapon, stinger_ground_weapon, stinger_has_ap_rockets,
                 };
-                let roster = init_stinger_hive_slave_roster();
-                object.hive_slaves = roster;
-                let (slaves, slave_hp) = sync_hive_slave_mirrors(&roster);
-                object.hive_slave_count = slaves;
-                object.hive_slave_hp = slave_hp;
-                object.hive_slave_respawn_frame = 0;
                 if crate::game_logic::host_base_defense::stinger_site_spawn_is_detector(
                     template_name,
                 ) {

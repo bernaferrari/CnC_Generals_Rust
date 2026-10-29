@@ -279,12 +279,6 @@ pub(crate) fn collect_module_states(
     )?;
     push_opt(&mut out, TAG_JET_SLOW_DEATH, &object.jet_slow_death)?;
     push_opt(&mut out, TAG_MINE, &object.mine_data)?;
-    push_present(
-        &mut out,
-        TAG_SPAWN_BEHAVIOR,
-        SpawnBehaviorHiveResidual::present(object),
-        &SpawnBehaviorHiveResidual::from_object(object),
-    )?;
     if FiringTrackerPersist::present(object) {
         out.push(EntityModuleState {
             tag: TAG_FIRING_TRACKER.to_owned(),

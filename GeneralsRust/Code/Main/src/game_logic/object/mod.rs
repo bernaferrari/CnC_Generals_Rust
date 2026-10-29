@@ -424,6 +424,9 @@ pub struct Object {
     /// tokens make callbacks safe when numeric ObjectIds are reused.
     #[serde(skip, default)]
     pub(crate) spawn_behavior_children: Vec<SpawnBehaviorChildIdentity>,
+    /// C++ SpawnBehavior::m_replacementTimes in insertion order. Main drains
+    /// only entries whose due frame is strictly before the current frame.
+    pub(crate) spawn_behavior_replacement_times: Vec<u32>,
 
     /// Controlling player.  `team` is faction/template identity and is not a
     /// unique owner in same-faction skirmishes.
@@ -3382,6 +3385,9 @@ pub use unit_ai_runtime::{BaseAiContinuation, GuardTargetType, TemporaryAiMove};
 pub(crate) struct SpawnBehaviorChildIdentity {
     pub(crate) id: ObjectId,
     birth: std::sync::Weak<()>,
+    /// Stinger's authored SpawnPoint bone occupied by this exact child birth.
+    /// Other SpawnBehavior templates do not have a fixed slot.
+    pub(crate) slot: Option<u8>,
 }
 
 impl Object {
@@ -3389,6 +3395,7 @@ impl Object {
         &mut self,
         child_id: ObjectId,
         birth: std::sync::Weak<()>,
+        slot: Option<u8>,
     ) -> bool {
         if self
             .spawn_behavior_children
@@ -3401,6 +3408,7 @@ impl Object {
             .push(SpawnBehaviorChildIdentity {
                 id: child_id,
                 birth,
+                slot,
             });
         true
     }
@@ -3421,10 +3429,40 @@ impl Object {
         true
     }
 
+    pub(crate) fn contains_spawn_behavior_child(
+        &self,
+        id: ObjectId,
+        birth: &std::sync::Weak<()>,
+    ) -> bool {
+        self.spawn_behavior_children
+            .iter()
+            .any(|entry| entry.id == id && entry.birth.ptr_eq(birth))
+    }
+
     pub(crate) fn spawn_behavior_children(&self) -> Vec<(ObjectId, std::sync::Weak<()>)> {
         self.spawn_behavior_children
             .iter()
             .map(|entry| (entry.id, entry.birth.clone()))
+            .collect()
+    }
+
+    pub(crate) fn spawn_behavior_child_slot(
+        &self,
+        child_id: ObjectId,
+        birth: &std::sync::Weak<()>,
+    ) -> Option<Option<u8>> {
+        self.spawn_behavior_children
+            .iter()
+            .find(|entry| entry.id == child_id && entry.birth.ptr_eq(birth))
+            .map(|entry| entry.slot)
+    }
+
+    pub(crate) fn spawn_behavior_children_with_slots(
+        &self,
+    ) -> Vec<(ObjectId, std::sync::Weak<()>, Option<u8>)> {
+        self.spawn_behavior_children
+            .iter()
+            .map(|entry| (entry.id, entry.birth.clone(), entry.slot))
             .collect()
     }
 
@@ -3442,15 +3480,40 @@ impl Object {
 
     pub(crate) fn restore_spawn_behavior_children(
         &mut self,
-        children: Vec<(ObjectId, Option<std::sync::Weak<()>>)>,
+        children: Vec<(ObjectId, Option<std::sync::Weak<()>>, Option<u8>)>,
     ) {
         self.spawn_behavior_children = children
             .into_iter()
-            .map(|(id, birth)| SpawnBehaviorChildIdentity {
+            .map(|(id, birth, slot)| SpawnBehaviorChildIdentity {
                 id,
                 birth: birth.unwrap_or_default(),
+                slot,
             })
             .collect();
+    }
+
+    pub(crate) fn enqueue_spawn_behavior_replacement(&mut self, due_frame: u32) {
+        self.spawn_behavior_replacement_times.push(due_frame);
+    }
+
+    pub(crate) fn spawn_behavior_replacement_times(&self) -> &[u32] {
+        &self.spawn_behavior_replacement_times
+    }
+
+    pub(crate) fn restore_spawn_behavior_replacement_times(&mut self, times: Vec<u32>) {
+        self.spawn_behavior_replacement_times = times;
+    }
+
+    pub(crate) fn consume_spawn_behavior_replacement_time(&mut self, due_frame: u32) -> bool {
+        let Some(index) = self
+            .spawn_behavior_replacement_times
+            .iter()
+            .position(|&queued| queued == due_frame)
+        else {
+            return false;
+        };
+        self.spawn_behavior_replacement_times.remove(index);
+        true
     }
 }
 

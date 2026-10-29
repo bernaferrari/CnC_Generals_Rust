@@ -389,12 +389,20 @@ impl GameLogic {
         let is_patriot = is_patriot_battery_structure(&template_name);
         let dual_slot = is_dual_slot_base_defense(&template_name);
         // SPAWNS_ARE_THE_WEAPONS residual: Stinger Site cannot fire with 0 soldiers.
-        if is_stinger
-            && !crate::game_logic::host_base_defense::stinger_can_fire_with_slaves(
-                attacker.hive_slave_count,
-            )
-        {
-            return Ok(());
+        if is_stinger {
+            let has_live_spawn = attacker.spawn_behavior_children().into_iter().any(
+                |(child_id, birth)| {
+                    self.objects.get(&child_id).is_some_and(|child| {
+                        attacker.spawn_behavior_child_birth_matches(child_id, &birth, child)
+                            && child.is_alive()
+                            && !child.status.destroyed
+                            && !child.status.effectively_dead
+                    })
+                },
+            );
+            if !has_live_spawn {
+                return Ok(());
+            }
         }
         let team = attacker.team;
         let fire_pos = attacker.get_position();
@@ -821,14 +829,29 @@ impl GameLogic {
                 self.stinger_site_residual_ground_fires =
                     self.stinger_site_residual_ground_fires.saturating_add(1);
             }
-            // Physical soldier attach residual: orderSlavesToAttackTarget.
-            // Fail-closed: not full GLAInfantryStingerSoldier AI module.
-            use crate::game_logic::host_base_defense::order_hive_slaves_to_attack_target;
-            if let Some(site) = self.objects.get_mut(&defense_id) {
-                let n = order_hive_slaves_to_attack_target(&mut site.hive_slaves, target_id.0);
-                if n > 0 {
+            // SpawnBehavior::orderSlavesToAttackTarget follows the exact
+            // admitted child order, revalidating each birth after callbacks.
+            let children = self
+                .host_object(defense_id)
+                .map(|site| site.spawn_behavior_children())
+                .unwrap_or_default();
+            for (child_id, birth) in children {
+                let admitted = self
+                    .host_object(defense_id)
+                    .zip(self.host_object(child_id))
+                    .is_some_and(|(site, child)| {
+                        site.spawn_behavior_child_birth_matches(child_id, &birth, child)
+                            && child.has_ai_update_interface()
+                    });
+                if admitted
+                    && self.unit_command_force_attack_with_effects(
+                        child_id,
+                        target_id,
+                        presentation_effects,
+                    )?
+                {
                     self.stinger_slave_order_attack_count =
-                        self.stinger_slave_order_attack_count.saturating_add(n);
+                        self.stinger_slave_order_attack_count.saturating_add(1);
                 }
             }
         }

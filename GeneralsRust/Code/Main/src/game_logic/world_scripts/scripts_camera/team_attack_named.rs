@@ -63,14 +63,27 @@ impl GameLogic {
                     self.unit_command_script_attack_with_effects(passenger, target, effects)?;
                 }
             }
-            // Main's physical Stinger roster is the locked SpawnBehavior
-            // domain. Free-will AngryMob members receive independent orders.
-            if let Some(owner) = self.host_object_mut(id) {
-                if owner.hive_slave_count > 0 || owner.hive_slaves.iter().any(|slave| slave.alive) {
-                    crate::game_logic::host_base_defense::order_hive_slaves_to_attack_target(
-                        &mut owner.hive_slaves,
-                        target.0,
-                    );
+            // C++ SpawnBehavior::orderSlavesToAttackTarget walks m_spawnIDs
+            // in admission order and calls aiForceAttackObject synchronously.
+            let slaves = self
+                .host_object(id)
+                .map(|owner| owner.spawn_behavior_children())
+                .unwrap_or_default();
+            for (slave_id, birth) in slaves {
+                let admitted_birth = self
+                    .host_object(id)
+                    .zip(self.host_object(slave_id))
+                    .is_some_and(|(owner, slave)| {
+                        owner.spawn_behavior_child_birth_matches(slave_id, &birth, slave)
+                            && slave.has_ai_update_interface()
+                    });
+                if admitted_birth && self.unit_command_force_attack_with_effects(
+                    slave_id,
+                    target,
+                    effects,
+                )? {
+                    self.stinger_slave_order_attack_count =
+                        self.stinger_slave_order_attack_count.saturating_add(1);
                 }
             }
             if id != target

@@ -221,11 +221,15 @@ pub(super) fn historical_prefix_len(bytes: &[u8]) -> SaveLoadResult<usize> {
     // boundary and consume only a fully present roster frame when tagged.
     let suffix = bytes.get(offset..).unwrap_or(&[]);
     const SPAWN_ROSTER_MAGIC: &[u8; 4] = b"SBRO";
-    if suffix.starts_with(SPAWN_ROSTER_MAGIC) {
-        offset += SPAWN_ROSTER_MAGIC.len();
+    const SPAWN_ROSTER_V2_MAGIC: &[u8; 4] = b"SBR2";
+    if suffix.starts_with(SPAWN_ROSTER_MAGIC) || suffix.starts_with(SPAWN_ROSTER_V2_MAGIC) {
+        offset += 4;
         let payload_len = word(bytes, &mut offset)? as usize;
         advance(bytes, &mut offset, payload_len)?;
-    } else if !suffix.is_empty() && SPAWN_ROSTER_MAGIC.starts_with(suffix) {
+    } else if !suffix.is_empty()
+        && (SPAWN_ROSTER_MAGIC.starts_with(suffix)
+            || SPAWN_ROSTER_V2_MAGIC.starts_with(suffix))
+    {
         return Err(corrupted("lifecycle spawn behavior frame truncated"));
     }
     Ok(offset)
@@ -442,9 +446,12 @@ mod tests {
         tail.spawn_behavior_rosters =
             Some(vec![super::super::lifecycle_tail::SpawnBehaviorRoster {
                 producer_id: 7,
+                replacement_times: vec![12, 48],
+                legacy_without_deadlines: false,
                 children: vec![super::super::lifecycle_tail::SpawnBehaviorRosterChild {
                     child_id: u32::from_le_bytes(*b"WSFL"),
                     tombstone: true,
+                    slot: Some(2),
                 }],
             }]);
         let framed = super::super::lifecycle_tail::encode_lifecycle_tail(&tail);

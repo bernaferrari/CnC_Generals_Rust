@@ -1,6 +1,7 @@
 //! Immediate receiving Energy entry and synchronous brownout callbacks.
 use super::super::*;
 
+#[derive(Clone, Copy)]
 enum InitialDisabledEffect {
     Emp,
     Hacked,
@@ -41,26 +42,45 @@ impl GameLogic {
         until: u32,
         effect: InitialDisabledEffect,
     ) -> bool {
-        let Some(object) = self.objects.get_mut(&id) else {
-            return false;
+        let (producer, disabled_deadline_changed) = {
+            let Some(object) = self.objects.get_mut(&id) else {
+                return false;
+            };
+            let prior_until = match effect {
+                InitialDisabledEffect::Emp => object.status.disabled_emp_until_frame,
+                InitialDisabledEffect::Hacked => object.status.disabled_hacked_until_frame,
+                InitialDisabledEffect::Paralyzed => {
+                    object.status.disabled_paralyzed_until_frame
+                }
+            };
+            let was_disabled = object.has_disabled_type();
+            let mut audio = crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events);
+            match effect {
+                InitialDisabledEffect::Emp => {
+                    object.apply_disabled_emp(until, &mut self.health_events, &mut audio);
+                }
+                InitialDisabledEffect::Hacked => {
+                    object.apply_disabled_hacked_owned(
+                        until,
+                        &mut self.health_events,
+                        &mut audio,
+                    );
+                }
+                InitialDisabledEffect::Paralyzed => {
+                    object.apply_disabled_paralyzed(until, &mut audio);
+                }
+            }
+            (
+                (!was_disabled
+                    && object.has_disabled_type()
+                    && object.thing().template.energy_production.unwrap_or(0) > 0)
+                    .then_some((object.owner_player_id, object.power_provided)),
+                prior_until != until,
+            )
         };
-        let was_disabled = object.has_disabled_type();
-        let mut audio = crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events);
-        match effect {
-            InitialDisabledEffect::Emp => {
-                object.apply_disabled_emp(until, &mut self.health_events, &mut audio);
-            }
-            InitialDisabledEffect::Hacked => {
-                object.apply_disabled_hacked(until, &mut self.health_events, &mut audio);
-            }
-            InitialDisabledEffect::Paralyzed => {
-                object.apply_disabled_paralyzed(until, &mut audio);
-            }
+        if disabled_deadline_changed {
+            self.apply_owned_spawn_children_disabled_until(id, until, effect);
         }
-        let producer = (!was_disabled
-            && object.has_disabled_type()
-            && object.thing().template.energy_production.unwrap_or(0) > 0)
-            .then_some((object.owner_player_id, object.power_provided));
 
         // C++ Object::onDisabledEdge delivers the radar callback before
         // adjusting positive production. Release the Object loan first.
@@ -75,6 +95,79 @@ impl GameLogic {
             }
         }
         true
+    }
+
+    /// C++ `SpawnBehavior::orderSlavesDisabledUntil`: visit the receiving
+    /// parent's ordered child IDs, idle each child's AI first, then apply the
+    /// same disable deadline to that child before advancing to the next one.
+    fn apply_owned_spawn_children_disabled_until(
+        &mut self,
+        parent_id: ObjectId,
+        until: u32,
+        effect: InitialDisabledEffect,
+    ) {
+        let Some(parent) = self.host_object(parent_id) else {
+            return;
+        };
+        if !parent.is_spawns_are_the_weapons() {
+            return;
+        }
+        let children = parent.spawn_behavior_children();
+        for (child_id, birth) in children {
+            let still_member = self.host_object(parent_id).is_some_and(|parent| {
+                parent.contains_spawn_behavior_child(child_id, &birth)
+            });
+            let exact_child = self.host_object(child_id).is_some_and(|child| {
+                still_member
+                    && self.host_object(parent_id).is_some_and(|parent| {
+                        parent.spawn_behavior_child_birth_matches(child_id, &birth, child)
+                    })
+            });
+            if !exact_child {
+                continue;
+            }
+
+            // `aiIdle(CMD_FROM_AI)` can re-enter Main; do not retain a borrow
+            // or let an ID-reused child receive the subsequent setDisabled.
+            let has_ai = self
+                .host_object(child_id)
+                .is_some_and(|child| child.has_ai_update_interface());
+            if has_ai {
+                let _ = self.set_ai_state_decision_aware_with_effects(
+                    child_id,
+                    crate::game_logic::AIState::Idle,
+                    &mut crate::game_logic::ScriptPresentationEffects::default(),
+                );
+            }
+            let still_exact = self.host_object(parent_id).is_some_and(|parent| {
+                parent.contains_spawn_behavior_child(child_id, &birth)
+                    && self.host_object(child_id).is_some_and(|child| {
+                        parent.spawn_behavior_child_birth_matches(child_id, &birth, child)
+                    })
+            });
+            if !still_exact {
+                continue;
+            }
+            if let Some(child) = self.objects.get_mut(&child_id) {
+                let mut child_audio =
+                    crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events);
+                match effect {
+                    InitialDisabledEffect::Emp => child.apply_disabled_emp(
+                        until,
+                        &mut self.health_events,
+                        &mut child_audio,
+                    ),
+                    InitialDisabledEffect::Hacked => child.apply_disabled_hacked_owned(
+                        until,
+                        &mut self.health_events,
+                        &mut child_audio,
+                    ),
+                    InitialDisabledEffect::Paralyzed => {
+                        child.apply_disabled_paralyzed(until, &mut child_audio)
+                    }
+                }
+            }
+        }
     }
 
     /// Original constructor setTeam -> becomingTeamMember, before onCreate.

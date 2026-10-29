@@ -1242,6 +1242,9 @@ impl Object {
         frame: u32,
         context: &DamageHitContext,
     ) -> bool {
+        if context.owned_hive_body() {
+            return false;
+        }
         use crate::game_logic::host_base_defense::{
             HostHiveDamageClass, hive_damage_class_for_type, is_stinger_site_structure,
             resolve_hive_structure_damage_roster, sync_hive_slave_mirrors,

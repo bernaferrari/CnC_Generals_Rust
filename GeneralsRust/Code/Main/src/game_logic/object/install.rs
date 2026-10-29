@@ -852,6 +852,38 @@ impl Object {
         health_events: &mut crate::game_logic::HostHealthEvents,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
+        self.apply_disabled_hacked_with_spawn_residual(
+            until_frame,
+            health_events,
+            audio,
+            true,
+        );
+    }
+
+    /// Main's receiving GameLogic applies the C++ SpawnBehavior child callback
+    /// through its own ordered roster immediately after this Object phase.
+    /// Keep the old direct-Object adapter for standalone callers only.
+    pub(crate) fn apply_disabled_hacked_owned(
+        &mut self,
+        until_frame: u32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+    ) {
+        self.apply_disabled_hacked_with_spawn_residual(
+            until_frame,
+            health_events,
+            audio,
+            false,
+        );
+    }
+
+    fn apply_disabled_hacked_with_spawn_residual(
+        &mut self,
+        until_frame: u32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        use_spawn_residual: bool,
+    ) {
         let becoming = !self.is_disabled();
         let already_power = self.is_power_style_disabled();
         if !already_power {
@@ -866,7 +898,7 @@ impl Object {
         self.target_location = None;
         self.set_status_force_attack(false);
         // C++ setDisabledUntil: KINDOF_SPAWNS_ARE_THE_WEAPONS orderSlavesDisabledUntil.
-        if self.is_spawns_are_the_weapons() {
+        if use_spawn_residual && self.is_spawns_are_the_weapons() {
             let _ = crate::game_logic::host_base_defense::order_hive_slaves_to_go_idle(
                 &mut self.hive_slaves,
             );

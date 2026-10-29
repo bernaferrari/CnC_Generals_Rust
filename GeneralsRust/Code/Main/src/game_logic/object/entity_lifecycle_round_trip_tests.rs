@@ -134,10 +134,6 @@ fn present_groups(
         (TAG_JET_SLOW_DEATH, object.jet_slow_death.is_some()),
         (TAG_MINE, object.mine_data.is_some()),
         (
-            TAG_SPAWN_BEHAVIOR,
-            super::entity_lifecycle_inventory::SpawnBehaviorHiveResidual::present(object),
-        ),
-        (
             TAG_FIRING_TRACKER,
             super::entity_lifecycle_inventory::FiringTrackerPersist::present(object),
         ),

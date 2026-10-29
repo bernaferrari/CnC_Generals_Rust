@@ -39,6 +39,11 @@ pub struct ProducerLink {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpawnBehaviorRoster {
     pub producer_id: u32,
+    /// Ordered C++ SpawnBehavior replacement deadlines.
+    pub replacement_times: Vec<u32>,
+    /// Decoding an old SBRO frame (which had no deadline section) is distinct
+    /// from a modern SBR2 frame with an intentionally empty queue.
+    pub legacy_without_deadlines: bool,
     pub children: Vec<SpawnBehaviorRosterChild>,
 }
 
@@ -47,9 +52,13 @@ pub struct SpawnBehaviorRosterChild {
     pub child_id: u32,
     /// A stale C++ m_spawnIDs entry must not bind to a later reused ID.
     pub tombstone: bool,
+    /// Exact authored spawn-point slot for Stinger children; None for
+    /// ordinary SpawnBehavior children and legacy roster entries.
+    pub slot: Option<u8>,
 }
 
 const SPAWN_ROSTER_MAGIC: &[u8; 4] = b"SBRO";
+const SPAWN_ROSTER_V2_MAGIC: &[u8; 4] = b"SBR2";
 
 pub fn encode_lifecycle_tail(tail: &LifecycleTail) -> Vec<u8> {
     let mut out = encode_lifecycle_snapshot_block(&tail.envelopes);
@@ -72,10 +81,18 @@ pub fn encode_lifecycle_tail(tail: &LifecycleTail) -> Vec<u8> {
         append_u32(&mut binary_payload, rosters.len() as u32);
         for roster in rosters {
             append_u32(&mut binary_payload, roster.producer_id);
+            append_u32(&mut binary_payload, roster.replacement_times.len() as u32);
+            for due_frame in &roster.replacement_times {
+                append_u32(&mut binary_payload, *due_frame);
+            }
             append_u32(&mut binary_payload, roster.children.len() as u32);
             for child in &roster.children {
                 append_u32(&mut binary_payload, child.child_id);
                 append_u32(&mut binary_payload, u32::from(child.tombstone));
+                append_u32(
+                    &mut binary_payload,
+                    child.slot.map_or(0, |slot| u32::from(slot) + 1),
+                );
             }
         }
         const HEX: &[u8; 16] = b"0123456789abcdef";
@@ -84,7 +101,7 @@ pub fn encode_lifecycle_tail(tail: &LifecycleTail) -> Vec<u8> {
             payload.push(HEX[(byte >> 4) as usize]);
             payload.push(HEX[(byte & 0x0f) as usize]);
         }
-        out.extend_from_slice(SPAWN_ROSTER_MAGIC);
+        out.extend_from_slice(SPAWN_ROSTER_V2_MAGIC);
         append_u32(&mut out, payload.len() as u32);
         out.extend_from_slice(&payload);
     }
@@ -146,8 +163,11 @@ pub fn decode_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<LifecycleTail> {
     // Snapshot continuations are appended after this core tail. Recognize
     // only our framed additive section; legacy tails and unrelated suffixes
     // remain opaque to this decoder.
-    let spawn_behavior_rosters = if rest.starts_with(SPAWN_ROSTER_MAGIC) {
-        rest = &rest[SPAWN_ROSTER_MAGIC.len()..];
+    let spawn_behavior_rosters = if rest.starts_with(SPAWN_ROSTER_MAGIC)
+        || rest.starts_with(SPAWN_ROSTER_V2_MAGIC)
+    {
+        let version_two = rest.starts_with(SPAWN_ROSTER_V2_MAGIC);
+        rest = &rest[4..];
         let payload_len = take_u32(&mut rest)? as usize;
         if rest.len() < payload_len {
             return Err(SaveLoadError::Corrupted(
@@ -181,8 +201,21 @@ pub fn decode_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<LifecycleTail> {
         let mut rosters = Vec::with_capacity(roster_count);
         for _ in 0..roster_count {
             let producer_id = take_u32(&mut payload)?;
+            let replacement_times = if version_two {
+                let due_count = take_u32(&mut payload)? as usize;
+                if due_count > payload.len() / 4 {
+                    return Err(SaveLoadError::Corrupted(
+                        "lifecycle SpawnBehavior deadlines truncated".into(),
+                    ));
+                }
+                (0..due_count)
+                    .map(|_| take_u32(&mut payload))
+                    .collect::<SaveLoadResult<Vec<_>>>()?
+            } else {
+                Vec::new()
+            };
             let child_count = take_u32(&mut payload)? as usize;
-            if child_count > payload.len() / 8 {
+            if child_count > payload.len() / if version_two { 12 } else { 8 } {
                 return Err(SaveLoadError::Corrupted(
                     "lifecycle spawn behavior children truncated".into(),
                 ));
@@ -199,13 +232,26 @@ pub fn decode_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<LifecycleTail> {
                         ));
                     }
                 };
+                let slot = if version_two {
+                    match take_u32(&mut payload)? {
+                        0 => None,
+                        encoded => Some((encoded - 1).try_into().map_err(|_| {
+                            SaveLoadError::Corrupted("SpawnBehavior slot out of range".into())
+                        })?),
+                    }
+                } else {
+                    None
+                };
                 children.push(SpawnBehaviorRosterChild {
                     child_id,
                     tombstone,
+                    slot,
                 });
             }
             rosters.push(SpawnBehaviorRoster {
                 producer_id,
+                replacement_times,
+                legacy_without_deadlines: !version_two,
                 children,
             });
         }
@@ -261,20 +307,21 @@ pub fn capture_lifecycle_tail(game_logic: &GameLogic) -> SaveLoadResult<Lifecycl
                 producer_generation: generation_for(producer),
             });
         }
-        let child_entries = object.spawn_behavior_children();
+        let child_entries = object.spawn_behavior_children_with_slots();
         if !child_entries.is_empty() || GameLogic::supports_spawn_behavior_child_roster(object) {
             // C++ can retain an ID in m_spawnIDs after a removal path that
             // does not call onSpawnDeath. Preserve the ordered entry as an
             // explicit tombstone rather than binding an ID-reused birth.
             let children = child_entries
                 .iter()
-                .map(|(child_id, birth)| {
+                .map(|(child_id, birth, slot)| {
                     let live_birth = game_logic.host_object(*child_id).is_some_and(|child| {
                         object.spawn_behavior_child_birth_matches(*child_id, birth, child)
                     });
                     SpawnBehaviorRosterChild {
                         child_id: child_id.0,
                         tombstone: !live_birth,
+                        slot: *slot,
                     }
                 })
                 .collect();
@@ -283,6 +330,8 @@ pub fn capture_lifecycle_tail(game_logic: &GameLogic) -> SaveLoadResult<Lifecycl
                 .expect("capture enables the roster section")
                 .push(SpawnBehaviorRoster {
                     producer_id: object.id.0,
+                    replacement_times: object.spawn_behavior_replacement_times().to_vec(),
+                    legacy_without_deadlines: false,
                     children,
                 });
         }
@@ -338,10 +387,54 @@ pub(super) fn preflight_spawn_behavior_rosters(
                 parent_id.0
             )));
         }
+        let is_stinger = crate::game_logic::host_base_defense::is_stinger_site_structure(
+            &parent.template_name,
+        );
+        let stinger_slot_limit = if is_stinger {
+            receiving
+                .supported_stinger_spawn_slot_limit(&parent.template_name)
+                .map_err(|()| {
+                    SaveLoadError::Corrupted(format!(
+                        "Stinger template {} is ambiguous in the receiving catalog",
+                        parent.template_name
+                    ))
+                })?
+                .ok_or_else(|| {
+                    SaveLoadError::Corrupted(format!(
+                        "Stinger template {} has no receiving spawn-slot definition",
+                        parent.template_name
+                    ))
+                })?
+        } else {
+            0
+        };
+        let mut live_stinger_slots = std::collections::HashSet::new();
+        if roster.legacy_without_deadlines && is_stinger {
+            return Err(SaveLoadError::Corrupted(format!(
+                "legacy Stinger roster {} lacks saved spawn-point slots and replacement deadlines",
+                parent_id.0
+            )));
+        }
         for child_entry in &roster.children {
             let child_id = ObjectId(child_entry.child_id);
             if child_entry.tombstone {
                 continue;
+            }
+            if is_stinger {
+                let Some(slot) = child_entry.slot else {
+                    return Err(SaveLoadError::Corrupted(format!(
+                        "Stinger roster {} child {} has no spawn-point slot identity",
+                        parent_id.0, child_id.0
+                    )));
+                };
+                if slot as u32 >= stinger_slot_limit
+                    || !live_stinger_slots.insert(slot)
+                {
+                    return Err(SaveLoadError::Corrupted(format!(
+                        "Stinger roster {} has an invalid or duplicate live spawn-point slot {}",
+                        parent_id.0, slot
+                    )));
+                }
             }
             if child_id == parent_id
                 || !roster_children
@@ -502,7 +595,7 @@ fn validate_spawn_behavior_rosters(
         for child_entry in &roster.children {
             let child_id = ObjectId(child_entry.child_id);
             if child_entry.tombstone {
-                children.push((child_id, None));
+                children.push((child_id, None, child_entry.slot));
                 continue;
             }
             if child_id == producer_id || !local_live_ids.insert(child_id) {
@@ -526,6 +619,7 @@ fn validate_spawn_behavior_rosters(
             children.push((
                 child_id,
                 Some(std::sync::Arc::downgrade(&child.visual_draw_identity_token)),
+                child_entry.slot,
             ));
         }
         if !candidates
@@ -537,7 +631,18 @@ fn validate_spawn_behavior_rosters(
                 producer_id.0
             )));
         }
-        resolved.push((producer_id, children));
+        let replacement_times = if roster.legacy_without_deadlines {
+            owner(producer_id)
+                .and_then(|producer| {
+                    (producer.hive_slave_respawn_frame > 0)
+                        .then_some(producer.hive_slave_respawn_frame)
+                })
+                .into_iter()
+                .collect()
+        } else {
+            roster.replacement_times.clone()
+        };
+        resolved.push((producer_id, children, replacement_times));
     }
 
     for (producer_id, candidate) in candidates.iter() {
@@ -550,7 +655,7 @@ fn validate_spawn_behavior_rosters(
             )));
         }
     }
-    for (producer_id, children) in resolved {
+    for (producer_id, children, replacement_times) in resolved {
         let candidate = candidates
             .iter_mut()
             .rev()
@@ -558,6 +663,12 @@ fn validate_spawn_behavior_rosters(
             .map(|(_, candidate)| candidate)
             .expect("candidate producer was validated");
         candidate.restore_spawn_behavior_children(children);
+        candidate.restore_spawn_behavior_replacement_times(replacement_times);
+        candidate.hive_slaves =
+            [crate::game_logic::host_base_defense::ResidualHiveSlave::default(); 3];
+        candidate.hive_slave_count = 0;
+        candidate.hive_slave_hp = 0.0;
+        candidate.hive_slave_respawn_frame = 0;
     }
     Ok(())
 }
@@ -855,18 +966,23 @@ mod tests {
             }],
             spawn_behavior_rosters: Some(vec![SpawnBehaviorRoster {
                 producer_id: 4,
+                replacement_times: vec![5, 8, 21],
+                legacy_without_deadlines: false,
                 children: vec![
                     SpawnBehaviorRosterChild {
                         child_id: 12,
                         tombstone: false,
+                        slot: Some(0),
                     },
                     SpawnBehaviorRosterChild {
                         child_id: 8,
                         tombstone: true,
+                        slot: Some(1),
                     },
                     SpawnBehaviorRosterChild {
                         child_id: 33,
                         tombstone: false,
+                        slot: None,
                     },
                 ],
             }]),

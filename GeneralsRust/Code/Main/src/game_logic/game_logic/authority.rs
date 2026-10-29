@@ -502,15 +502,6 @@ pub enum HostResidualMutationOp {
         was_horde: bool,
         grant: HordeGrantCounter,
     },
-    /// Stinger hive slave residual snapshot.
-    ApplyStingerHiveState {
-        id: ObjectId,
-        hive_slave_count: u8,
-        hive_slave_hp: f32,
-        hive_slave_respawn_frame: u32,
-        slaves_alive: [bool; 3],
-        slaves_hp: [f32; 3],
-    },
     /// Sticky/booby follow position residual.
     SetPosition {
         id: ObjectId,

@@ -1206,188 +1206,38 @@ impl GameLogic {
         source_id: Option<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (bool, bool) {
-        use crate::game_logic::host_base_defense::{
-            STINGER_SOLDIER_DIE_AUDIO, is_stinger_site_structure, next_stinger_slave_respawn_frame,
-            resolve_hive_structure_damage_roster, sync_hive_slave_mirrors,
+        use crate::game_logic::host_base_defense::HostHiveDamageClass;
+        use crate::game_logic::combat::DamageType;
+
+        // This legacy helper accepts only the old damage class, so map it to a
+        // representative native type and route through the same receiving
+        // GameLogic damage owner. A position without a resolving source Object
+        // intentionally cannot trigger HiveStructureBody forwarding in C++.
+        let damage_type = match class {
+            HostHiveDamageClass::PropagateToSlaves => DamageType::Bullet,
+            HostHiveDamageClass::SwallowIfNoSlaves => DamageType::Sniper,
+            HostHiveDamageClass::HitStructure => DamageType::Explosive,
         };
-
-        // Snapshot flags before mutating so we can update honesty counters after
-        // releasing the object borrow.
-        let (is_stinger, was_stealthed_on_damage, invuln, struct_hp, pos, respawn_frame, site_xz) = {
-            let Some(obj) = self.objects.get(&id) else {
-                return (false, false);
-            };
-            let p = obj.get_position();
-            (
-                is_stinger_site_structure(&obj.template_name),
-                obj.stealth_breaks_on_damage && obj.status.stealthed,
-                obj.is_eject_invulnerable(),
-                obj.health.current,
-                p,
-                obj.hive_slave_respawn_frame,
-                (p.x, p.z),
-            )
+        let context = DamageHitContext::new(
+            source_id.and_then(|source| self.objects.get(&source)),
+            None,
+            damage_type,
+        );
+        let _ = shooter_xz;
+        let result = self.apply_owned_damage_with_effects(
+            id,
+            damage,
+            source_id,
+            damage_type,
+            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(damage_type),
+            None,
+            &context,
+            effects,
+        );
+        let Some(result) = result else {
+            return (false, false);
         };
-
-        if invuln {
-            self.usa_pilot.record_invulnerable_block();
-            return (false, true);
-        }
-
-        if is_stinger {
-            let frame = self.frame;
-            let shooter_arg = shooter_xz.map(|(qx, qz)| (site_xz.0, site_xz.1, qx, qz));
-
-            let mut camo_reveal = false;
-            let mut destroyed = false;
-            let (result_slave_dmg, result_killed, result_swallowed, closest_idx) = {
-                let Some(obj) = self.objects.get_mut(&id) else {
-                    return (false, false);
-                };
-                // Roster is source of truth. Align alive count to mirror only when
-                // an external residual path wrote count alone (preserve per-slot HP).
-                {
-                    use crate::game_logic::host_base_defense::{
-                        align_hive_roster_to_count, count_alive_hive_slaves,
-                    };
-                    let roster_alive = count_alive_hive_slaves(&obj.hive_slaves);
-                    if roster_alive != obj.hive_slave_count {
-                        align_hive_roster_to_count(&mut obj.hive_slaves, obj.hive_slave_count);
-                        // If mirror said one active partial HP and we just revived
-                        // first slot from empty, apply mirror HP to first alive.
-                        if roster_alive == 0 && obj.hive_slave_count > 0 && obj.hive_slave_hp > 0.0
-                        {
-                            if let Some(slot) = obj.hive_slaves.iter_mut().find(|s| s.alive) {
-                                slot.hp = obj.hive_slave_hp;
-                            }
-                        }
-                    }
-                }
-                let (_, new_struct_hp, result) = resolve_hive_structure_damage_roster(
-                    &mut obj.hive_slaves,
-                    struct_hp,
-                    damage,
-                    class,
-                    shooter_arg,
-                );
-                let (new_count, new_hp) = sync_hive_slave_mirrors(&obj.hive_slaves);
-                obj.hive_slave_count = new_count;
-                obj.hive_slave_hp = new_hp;
-                if result.slaves_killed > 0 {
-                    obj.hive_slave_respawn_frame =
-                        next_stinger_slave_respawn_frame(frame, respawn_frame);
-                }
-                // TAKING_DAMAGE residual: any damage attempt uncloaks CamoNetting structures.
-                if obj.stealth_breaks_on_damage && obj.status.stealthed {
-                    obj.break_stealth();
-                    camo_reveal = true;
-                }
-                if result.structure_damage_applied > 0.0 {
-                    // Hive allocation already computed actual structure damage;
-                    // commit once, then run the receiving-frame Body reaction.
-                    {
-                        obj.previous_health = obj.health.current;
-                        obj.health.current = new_struct_hp.max(0.0);
-                        obj.refresh_model_condition_bits_with_source(None, frame);
-                        self.health_events.record_applied_damage(
-                            obj.id,
-                            result.structure_damage_applied,
-                            None,
-                            new_struct_hp <= 0.0,
-                            0,
-                            crate::game_logic::host_damage_log::BodyHealthObservation {
-                                current: obj.health.current,
-                                maximum: obj.health.maximum,
-                            },
-                        );
-                    }
-                    if new_struct_hp <= 0.0 {
-                        obj.status.destroyed = true;
-                        let hid = obj.id;
-                        obj.set_ai_state(
-                            AIState::Idle,
-                            &mut crate::game_logic::ObjectAudio::queue(
-                                &mut self.queued_audio_events,
-                            ),
-                        );
-                        {}
-                        obj.target = None;
-                        destroyed = true;
-                    }
-                }
-                (
-                    result.slave_damage_applied,
-                    result.slaves_killed,
-                    result.swallowed,
-                    result.closest_slave_index,
-                )
-            };
-
-            if camo_reveal || was_stealthed_on_damage {
-                self.camo_netting_structure_residual_reveals = self
-                    .camo_netting_structure_residual_reveals
-                    .saturating_add(1);
-            }
-            if result_slave_dmg > 0.0 {
-                self.stinger_hive_residual_slave_hits =
-                    self.stinger_hive_residual_slave_hits.saturating_add(1);
-                if closest_idx.is_some() && shooter_xz.is_some() {
-                    self.stinger_hive_residual_closest_slave_hits = self
-                        .stinger_hive_residual_closest_slave_hits
-                        .saturating_add(1);
-                }
-            }
-            if result_killed > 0 {
-                self.stinger_hive_residual_slave_kills = self
-                    .stinger_hive_residual_slave_kills
-                    .saturating_add(result_killed);
-                self.queue_audio_event(
-                    AudioEventRequest::new(STINGER_SOLDIER_DIE_AUDIO)
-                        .with_object(id)
-                        .with_position(pos)
-                        .with_priority(140),
-                );
-            }
-            if result_swallowed {
-                self.stinger_hive_residual_swallows =
-                    self.stinger_hive_residual_swallows.saturating_add(1);
-            }
-            return (destroyed, false);
-        }
-
-        let (destroyed, camo_reveal) = {
-            let Some(obj) = self.objects.get_mut(&id) else {
-                return (false, false);
-            };
-            let before = obj.status.stealthed && obj.stealth_breaks_on_damage;
-            let destroyed = {
-                let owned_victim_id = obj.id;
-                let owned_damage_type = crate::game_logic::combat::DamageType::Unresistable;
-                self.apply_residual_damage_owned_with_effects(
-                    owned_victim_id,
-                    damage,
-                    source_id,
-                    owned_damage_type,
-                    crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
-                        owned_damage_type,
-                    ),
-                    None,
-                    effects,
-                )
-            };
-            let Some(obj) = self.objects.get(&id) else {
-                return (destroyed, false);
-            };
-            let revealed = before && (!obj.status.stealthed || obj.stealth_delay_pending);
-            (destroyed, revealed)
-        };
-        self.flush_pending_garrison_really_damaged_ejects_with_effects(effects);
-        if camo_reveal {
-            self.camo_netting_structure_residual_reveals = self
-                .camo_netting_structure_residual_reveals
-                .saturating_add(1);
-        }
-        (destroyed, false)
+        (result.destroyed, result.hp_lost == 0.0 && !result.destroyed)
     }
 
     /// Advance Stinger SpawnBehavior residual slave respawns (SpawnReplaceDelay).
@@ -1399,70 +1249,6 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        use crate::game_logic::host_base_defense::{
-            STINGER_SOLDIER_MAX_HEALTH, STINGER_SPAWN_NUMBER, count_alive_hive_slaves,
-            is_stinger_site_structure, next_stinger_slave_respawn_frame, respawn_one_hive_slave,
-            should_respawn_stinger_slave, sync_hive_slave_mirrors,
-        };
-
-        let frame = self.frame;
-        let mut respawned = 0u32;
-        for obj in self.objects.registered_values_mut() {
-            if !is_stinger_site_structure(&obj.template_name) || !obj.is_alive() {
-                continue;
-            }
-            // Roster is source of truth; align only when mirror count diverges
-            // (tests / legacy paths). Does not clobber HP of already-alive slots.
-            {
-                use crate::game_logic::host_base_defense::align_hive_roster_to_count;
-                let roster_alive = count_alive_hive_slaves(&obj.hive_slaves);
-                if roster_alive != obj.hive_slave_count {
-                    align_hive_roster_to_count(&mut obj.hive_slaves, obj.hive_slave_count);
-                    if roster_alive == 0 && obj.hive_slave_count > 0 && obj.hive_slave_hp > 0.0 {
-                        if let Some(slot) = obj.hive_slaves.iter_mut().find(|s| s.alive) {
-                            slot.hp = obj.hive_slave_hp;
-                        }
-                    }
-                }
-            }
-            if !should_respawn_stinger_slave(
-                obj.hive_slave_count,
-                frame,
-                obj.hive_slave_respawn_frame,
-            ) {
-                // Ensure a respawn is scheduled when below capacity.
-                if obj.hive_slave_count < STINGER_SPAWN_NUMBER as u8
-                    && obj.hive_slave_respawn_frame == 0
-                {
-                    obj.hive_slave_respawn_frame = next_stinger_slave_respawn_frame(frame, 0);
-                }
-                continue;
-            }
-            // Physical roster residual: revive first dead SpawnPoint slot.
-            if respawn_one_hive_slave(&mut obj.hive_slaves) {
-                let (c, h) = sync_hive_slave_mirrors(&obj.hive_slaves);
-                obj.hive_slave_count = c;
-                obj.hive_slave_hp = h;
-            } else {
-                // Count-only fallback residual.
-                obj.hive_slave_count = obj
-                    .hive_slave_count
-                    .saturating_add(1)
-                    .min(STINGER_SPAWN_NUMBER as u8);
-                if obj.hive_slave_count == 1 {
-                    obj.hive_slave_hp = STINGER_SOLDIER_MAX_HEALTH;
-                }
-            }
-            respawned = respawned.saturating_add(1);
-            if obj.hive_slave_count < STINGER_SPAWN_NUMBER as u8 {
-                obj.hive_slave_respawn_frame = next_stinger_slave_respawn_frame(frame, 0);
-            } else {
-                obj.hive_slave_respawn_frame = 0;
-            }
-        }
-        self.stinger_hive_residual_respawns = self
-            .stinger_hive_residual_respawns
-            .saturating_add(respawned);
         self.update_stinger_hive_world_soldiers_with_effects(effects);
     }
 

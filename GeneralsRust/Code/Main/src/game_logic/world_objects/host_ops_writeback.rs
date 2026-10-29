@@ -776,26 +776,6 @@ impl GameLogic {
                     self.evaluate_horde_morale_bonus(id);
                 }
             }
-            HostResidualMutationOp::ApplyStingerHiveState {
-                id,
-                hive_slave_count,
-                hive_slave_hp,
-                hive_slave_respawn_frame,
-                slaves_alive,
-                slaves_hp,
-            } => {
-                if let Some(obj) = self.host_objects_mut().get_mut(&id) {
-                    obj.hive_slave_count = hive_slave_count;
-                    obj.hive_slave_hp = hive_slave_hp;
-                    obj.hive_slave_respawn_frame = hive_slave_respawn_frame;
-                    for i in 0..3 {
-                        obj.hive_slaves[i].alive = slaves_alive[i];
-                        obj.hive_slaves[i].hp = slaves_hp[i];
-                    }
-                }
-                self.stinger_hive_residual_respawns =
-                    self.stinger_hive_residual_respawns.saturating_add(1);
-            }
             HostResidualMutationOp::SetPosition {
                 id,
                 position,

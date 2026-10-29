@@ -1430,23 +1430,28 @@ impl GameLogic {
         if !source.is_spawns_are_the_weapons() {
             return false;
         }
-        let hive_alive = source.hive_slaves.iter().any(|s| s.alive);
-        let slave_ids: Vec<ObjectId> = self
-            .objects
-            .registered_values()
-            .filter(|o| o.producer_id == Some(source_id) && o.id != source_id && o.can_attack())
-            .map(|o| o.id)
-            .collect();
-        for sid in slave_ids {
+        let slaves = source.spawn_behavior_children();
+        for (sid, birth) in slaves {
+            let still_same_child = self
+                .objects
+                .get(&source_id)
+                .zip(self.objects.get(&sid))
+                .is_some_and(|(source, child)| {
+                    source.spawn_behavior_child_birth_matches(sid, &birth, child)
+                });
+            if !still_same_child {
+                continue;
+            }
+            if !self.objects.get(&sid).is_some_and(Object::can_attack) {
+                continue;
+            }
             if self.get_able_to_use_weapon_against_target(sid, victim_id, pos, attack_type)
                 == CanAttackResult::Possible
             {
                 return true;
             }
         }
-        // Residual Stinger hive soldiers are not full Objects; an alive slot
-        // is C++ getCanAnySlavesUseWeaponAgainstTarget POSSIBLE.
-        hive_alive
+        false
     }
 }
 

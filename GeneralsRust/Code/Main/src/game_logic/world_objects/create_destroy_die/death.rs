@@ -748,8 +748,20 @@ impl GameLogic {
                 });
                 if let Some(producer_id) = producer_id
                     && let Some(producer) = self.objects.get_mut(&producer_id)
+                    && producer.contains_spawn_behavior_child(id, child_birth)
                 {
-                    producer.forget_spawn_behavior_child(id, child_birth);
+                    if crate::game_logic::host_base_defense::is_stinger_site_structure(
+                        &producer.template_name,
+                    ) {
+                        // C++ SpawnBehavior::onSpawnDeath appends one absolute
+                        // replacement time before erasing the exact ID.
+                        producer.enqueue_spawn_behavior_replacement(
+                            self.frame.saturating_add(
+                                crate::game_logic::host_base_defense::STINGER_SPAWN_REPLACE_DELAY_FRAMES,
+                            ),
+                        );
+                    }
+                    let _ = producer.forget_spawn_behavior_child(id, child_birth);
                 }
             }
         }

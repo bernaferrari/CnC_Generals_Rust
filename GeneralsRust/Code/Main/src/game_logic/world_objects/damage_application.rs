@@ -493,7 +493,28 @@ impl GameLogic {
                     .iter()
                     .filter_map(|(id, player)| player.is_reserved_neutral().then_some(*id))
                     .min(),
-            );
+            )
+            .with_owned_hive_body();
+        // C++ HiveStructureBody forwards the same DamageInfo synchronously to
+        // the closest Object in SpawnBehavior::m_spawnIDs. Main owns that
+        // relationship on the receiving parent; do the forwarding before the
+        // parent enters ActiveBody so no virtual slot mirror can become a
+        // second damage authority.
+        let mut after_damage_fx = Some(after_damage_fx);
+        if let Some(result) = self.try_owned_hive_structure_damage(
+            victim_id,
+            damage,
+            source_id,
+            damage_type,
+            death_type,
+            fx_override,
+            killer_team_override,
+            &mut after_damage_fx,
+            &context,
+            effects,
+        ) {
+            return Some(result);
+        }
         let frame = self.frame;
         let before_hp = self.objects.get(&victim_id)?.health.current;
         let callback_player = self.local_player_id();
@@ -1242,7 +1263,9 @@ impl GameLogic {
         self.admit_object_drawable_deselection(victim_id);
         self.admit_host_radar_disabled_edges(victim_id);
         if after_fx.had_active_body() {
-            after_damage_fx(self, victim_id);
+            after_damage_fx
+                .take()
+                .expect("non-forwarded damage retains its FX continuation")(self, victim_id);
         }
         let enable_repulsors = self.enable_repulsors;
         #[cfg(feature = "game_client")]
@@ -1336,6 +1359,178 @@ impl GameLogic {
             victim_position,
             victim_team,
         })
+    }
+
+    fn try_owned_hive_structure_damage(
+        &mut self,
+        victim_id: ObjectId,
+        damage: f32,
+        source_id: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        fx_override: Option<crate::game_logic::combat::DamageType>,
+        killer_team_override: Option<Team>,
+        after_damage_fx: &mut Option<impl FnOnce(&mut Self, ObjectId)>,
+        context: &DamageHitContext,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<OwnedDamageResult> {
+        use crate::game_logic::host_base_defense::{
+            HostHiveDamageClass, hive_damage_class_for_type, is_stinger_site_structure,
+        };
+
+        let (template_name, position, team) = {
+            let parent = self.objects.get(&victim_id)?;
+            (
+                parent.template_name.clone(),
+                parent.get_position(),
+                parent.team,
+            )
+        };
+        if !is_stinger_site_structure(&template_name) {
+            return None;
+        }
+        // HiveStructureBody delegates to SpawnBehavior only when the receiving
+        // object actually has that interface. Name similarity alone is not
+        // enough: otherwise this path would swallow damage C++ sends to the
+        // ordinary structure body.
+        let Some(parent) = self.objects.get(&victim_id) else {
+            return None;
+        };
+        let authored_hive_body = parent
+            .thing()
+            .template
+            .receiving_object_definition
+            .as_ref()
+            .map(|definition| {
+                definition
+                    .behavior_modules
+                    .iter()
+                    .find(|module| {
+                        crate::game_logic::thing::BodyKind::from_module_class(&module.class_name)
+                            .is_some()
+                    })
+                    .is_some_and(|module| {
+                        module.class_name.eq_ignore_ascii_case("HiveStructureBody")
+                    })
+            })
+            // Existing synthetic/programmatic host templates have no admitted
+            // object definition. Preserve their legacy name-based fallback;
+            // once a receiving definition exists, its effective Body class is
+            // authoritative and an ActiveBody Stinger is not a HiveBody.
+            .unwrap_or(true);
+        if !authored_hive_body || !GameLogic::supports_spawn_behavior_child_roster(parent) {
+            return None;
+        }
+        let class = hive_damage_class_for_type(damage_type);
+        if class == HostHiveDamageClass::HitStructure {
+            return None;
+        }
+        let Some(source) = source_id.and_then(|id| self.objects.get(&id)) else {
+            // HiveStructureBody only searches/forwards/swallow when its source
+            // Object resolves. Missing source falls through to the structure.
+            return None;
+        };
+        let source_position = source.get_position();
+        let children = self
+            .objects
+            .get(&victim_id)
+            .map(|parent| parent.spawn_behavior_children())
+            .unwrap_or_default();
+        let mut closest: Option<(ObjectId, f32)> = None;
+        for (child_id, birth) in &children {
+            let Some(child) = self.objects.get(child_id) else {
+                continue;
+            };
+            let Some(parent) = self.objects.get(&victim_id) else {
+                break;
+            };
+            if !parent.spawn_behavior_child_birth_matches(*child_id, birth, child) {
+                continue;
+            }
+            let p = child.get_position();
+            let dx = p.x - source_position.x;
+            let dz = p.z - source_position.z;
+            let distance = dx * dx + dz * dz;
+            if closest.is_none_or(|(_, best)| distance < best) {
+                // Strictly less preserves C++'s first roster entry on ties.
+                closest = Some((*child_id, distance));
+            }
+        }
+        let closest = closest.map(|(child_id, _)| child_id);
+
+        if let Some(child_id) = closest {
+            let child_before = self.objects.get(&child_id)?.health.current;
+            let child_after_fx = after_damage_fx.take()?;
+            let child_context = context.clone();
+            let child_result = self.apply_owned_damage_with_killer_team_and_after_fx_with_effects(
+                child_id,
+                damage,
+                source_id,
+                damage_type,
+                death_type,
+                fx_override,
+                &child_context,
+                killer_team_override,
+                child_after_fx,
+                effects,
+            );
+            let Some(child_result) = child_result else {
+                // The synchronous Body callback re-entered and retired the
+                // selected birth. C++ still returns from HiveStructureBody;
+                // do not fall through and damage the parent hull.
+                return Some(OwnedDamageResult {
+                    destroyed: false,
+                    hp_lost: 0.0,
+                    victim_position: position,
+                    victim_team: team,
+                });
+            };
+            let child_alive = self
+                .objects
+                .get(&child_id)
+                .is_some_and(|child| child.health.is_alive());
+            let child_on_die_started = self
+                .objects
+                .get(&child_id)
+                .is_some_and(|child| child.status.on_die_started);
+            self.combat_system.note_kill_for_on_die(
+                child_id,
+                child_before,
+                child_result.destroyed,
+                child_alive,
+                child_on_die_started,
+            );
+            if let Some(force) = context.shock_wave_force()
+                && let Some(child) = self.objects.get_mut(&child_id)
+            {
+                let _ = child.apply_shock_wave_impulse_with_operation(
+                    force,
+                    self.frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                );
+            }
+            self.combat_system.queue_under_attack_if_dealt(
+                child_id,
+                damage_type,
+                child_result.hp_lost,
+            );
+            return Some(OwnedDamageResult {
+                destroyed: false,
+                hp_lost: child_result.hp_lost,
+                victim_position: position,
+                victim_team: team,
+            });
+        }
+        if class == HostHiveDamageClass::SwallowIfNoSlaves {
+            let _ = (damage, context);
+            return Some(OwnedDamageResult {
+                destroyed: false,
+                hp_lost: 0.0,
+                victim_position: position,
+                victim_team: team,
+            });
+        }
+        None
     }
 }
 
@@ -1650,8 +1845,12 @@ impl GameLogic {
             };
             let before = victim.health.current;
             let result = if damage > 0.0 {
-                let context =
-                    DamageHitContext::new(self.objects.get(shooter_id), None, *damage_type);
+                let context = DamageHitContext::new(
+                    self.objects.get(shooter_id),
+                    None,
+                    *damage_type,
+                )
+                .with_shock_wave_force(shock);
                 self.apply_owned_damage_with_effects(
                     victim_id,
                     damage,

@@ -208,6 +208,177 @@ fn no_spawner_world() -> GameLogic {
 }
 
 #[test]
+fn stinger_hive_damage_uses_receiving_roster_order_and_death_deadlines() {
+    use generals_main::game_logic::host_base_defense::HostHiveDamageClass;
+
+    fn stinger_world(site_body: &str) -> GameLogic {
+        let body_fields = if site_body.eq_ignore_ascii_case("HiveStructureBody") {
+            " PropagateDamageTypesToSlavesWhenExisting = SMALL_ARMS SNIPER POISON RADIATION SURRENDER MICROWAVE\n SwallowDamageTypesIfSlavesNotExisting = SNIPER POISON SURRENDER\n"
+        } else {
+            ""
+        };
+        let mut world = GameLogic::new();
+        world
+            .admit_object_ini_sources([(
+                "StingerHiveOwner.ini".into(),
+                format!("Object GLAStingerSite\n KindOf = STRUCTURE SELECTABLE\n Body = {site_body} SiteBody\n{body_fields} MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SpawnBehavior SiteSpawn\n OneShot = No\n SpawnNumber = 3\n SpawnReplaceDelay = 30000\n SpawnTemplateName = GLAInfantryStingerSoldier\n End\nEnd\nObject GLAInfantryStingerSoldier\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody SoldierBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject HiveShooter\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody ShooterBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n").into(),
+            )])
+            .expect("receiving Stinger and source definitions are valid");
+        world.add_player(Player::new(1, Team::GLA, "HiveOwner", true));
+        world
+    }
+
+    let mut first = stinger_world("HiveStructureBody");
+    let mut peer = stinger_world("HiveStructureBody");
+    let site = first
+        .create_object_for_player("GLAStingerSite", 1, Vec3::ZERO)
+        .expect("Stinger SpawnBehavior admitted");
+    let peer_site = peer
+        .create_object_for_player("GLAStingerSite", 1, Vec3::ZERO)
+        .expect("peer Stinger admitted");
+    assert_eq!(site, peer_site, "worlds deliberately reuse object IDs");
+    let first_roster = roster(&first, site);
+    let peer_roster = roster(&peer, peer_site);
+    assert_eq!(first_roster.len(), 3);
+    assert_eq!(peer_roster, first_roster);
+
+    let shooter = first
+        .create_object_for_player("HiveShooter", 1, Vec3::ZERO)
+        .expect("source admitted");
+    let peer_shooter = peer
+        .create_object_for_player("HiveShooter", 1, Vec3::ZERO)
+        .expect("peer source admitted");
+    assert_eq!(shooter, peer_shooter);
+    // This headless definition has no SpawnPoint bones, so every child is
+    // admitted at the same site position. C++ keeps the first resolvable
+    // m_spawnIDs entry on equal 2D distance.
+    let first_health = first
+        .host_object(ObjectId(first_roster[0]))
+        .unwrap()
+        .health
+        .current;
+    let second_health = first
+        .host_object(ObjectId(first_roster[1]))
+        .unwrap()
+        .health
+        .current;
+    first.apply_host_hive_damage_from(
+        site,
+        12.0,
+        HostHiveDamageClass::PropagateToSlaves,
+        Some((999.0, 999.0)), // position is resolved from the actual source Object
+        Some(shooter),
+    );
+    assert_eq!(
+        first
+            .host_object(ObjectId(first_roster[0]))
+            .unwrap()
+            .health
+            .current,
+        first_health - 12.0
+    );
+    assert_eq!(
+        first
+            .host_object(ObjectId(first_roster[1]))
+            .unwrap()
+            .health
+            .current,
+        second_health
+    );
+    assert_eq!(
+        peer.host_object(ObjectId(first_roster[0]))
+            .unwrap()
+            .health
+            .current,
+        100.0,
+        "the same-ID peer roster is isolated"
+    );
+
+    // C++ HiveStructureBody does not run its source/propagate/swallow branch
+    // if the source Object no longer resolves; the hit falls through to the
+    // structure body even when the roster has live children.
+    let site_health = first.host_object(site).unwrap().health.current;
+    first.apply_host_hive_damage_from(
+        site,
+        7.0,
+        HostHiveDamageClass::PropagateToSlaves,
+        None,
+        None,
+    );
+    assert_eq!(
+        first.host_object(site).unwrap().health.current,
+        site_health - 7.0
+    );
+
+    first.apply_host_hive_damage_from(
+        site,
+        1_000.0,
+        HostHiveDamageClass::PropagateToSlaves,
+        None,
+        Some(shooter),
+    );
+    assert_eq!(roster(&first, site), first_roster[1..]);
+    let tail = capture_lifecycle_tail(&first).expect("capture ordered replacement deadline");
+    let record = tail
+        .spawn_behavior_rosters
+        .unwrap()
+        .into_iter()
+        .find(|record| record.producer_id == site.0)
+        .unwrap();
+    assert_eq!(record.replacement_times, vec![900]);
+    assert_eq!(roster(&peer, peer_site), peer_roster);
+
+    // A matching Stinger name and SpawnBehavior do not change an ActiveBody
+    // into HiveStructureBody. C++ virtual dispatch therefore damages the
+    // structure directly instead of redirecting the hit to a child.
+    let mut active_body = stinger_world("ActiveBody");
+    let active_site = active_body
+        .create_object_for_player("GLAStingerSite", 1, Vec3::ZERO)
+        .expect("ActiveBody Stinger-like object admitted");
+    let active_source = active_body
+        .create_object_for_player("HiveShooter", 1, Vec3::ZERO)
+        .expect("ActiveBody test source admitted");
+    let active_children = roster(&active_body, active_site);
+    let active_child_health = active_body
+        .host_object(ObjectId(active_children[0]))
+        .unwrap()
+        .health
+        .current;
+    let active_site_health = active_body.host_object(active_site).unwrap().health.current;
+    active_body.apply_host_hive_damage_from(
+        active_site,
+        5.0,
+        HostHiveDamageClass::PropagateToSlaves,
+        None,
+        Some(active_source),
+    );
+    assert_eq!(
+        active_body.host_object(ObjectId(active_children[0])).unwrap().health.current,
+        active_child_health,
+        "ActiveBody must not enter the HiveStructureBody redirection path"
+    );
+    assert_eq!(
+        active_body.host_object(active_site).unwrap().health.current,
+        active_site_health - 5.0
+    );
+
+    let snapshot = SnapshotBuilder::new()
+        .create_world_snapshot(&first)
+        .expect("capture complete Stinger child/deadline continuation");
+    let mut restored = stinger_world("HiveStructureBody");
+    SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore ordered child identities and replacement deadline");
+    assert_eq!(roster(&restored, site), first_roster[1..]);
+    let restored_tail = capture_lifecycle_tail(&restored).expect("capture restored state");
+    assert_eq!(
+        restored_tail.spawn_behavior_rosters.unwrap()[0].replacement_times,
+        vec![900],
+        "replacement timing remains part of the receiving object's continuation"
+    );
+}
+
+#[test]
 fn no_spawner_snapshot_and_legacy_no_roster_restore_remain_supported() {
     let source = no_spawner_world();
     let builder = SnapshotBuilder::new();
