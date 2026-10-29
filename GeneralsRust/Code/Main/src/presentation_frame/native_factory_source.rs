@@ -191,11 +191,7 @@ impl GameLogic {
             emoticon_name: object.emoticon_name.clone(),
             emoticon_frames_left: object.emoticon_frames_left,
             formation_id: object.formation_id,
-            caption: if object.name.trim().is_empty() || object.name.trim() == template.name {
-                String::new()
-            } else {
-                object.name.trim().to_owned()
-            },
+            caption: crate::command_executor::host_beacon_caption(self, id).unwrap_or_default(),
             draw_module_names: models.module_class_names(),
             health_box_width: object.get_health_box_dimensions().1,
             health_box_z_offset: object.health_box_world_z_offset(),

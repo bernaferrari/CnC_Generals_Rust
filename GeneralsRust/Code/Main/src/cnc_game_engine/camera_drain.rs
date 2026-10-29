@@ -2055,15 +2055,13 @@ impl CnCGameEngine {
                     emoticon_frames_left: o.emoticon_frames_left,
                     // Wave 1058: formation residual for dual formation letter.
                     formation_id: o.formation_id,
-                    // Wave 1059: caption residual (display_name when distinct from template).
-                    caption: {
-                        let dn = o.display_name.trim();
-                        if !dn.is_empty() && dn != o.template_name {
-                            dn.to_string()
-                        } else {
-                            String::new()
-                        }
-                    },
+                    // C++ Drawable captions are explicit beacon text; authored
+                    // Object names are not captions.
+                    caption: crate::command_executor::host_beacon_caption(
+                        &self.game_logic,
+                        crate::game_logic::ObjectId(o.id.0),
+                    )
+                    .unwrap_or_default(),
                     module_admission: direct
                         .receiving_client_template
                         .as_ref()
@@ -2965,14 +2963,6 @@ impl CnCGameEngine {
                                 &self.game_logic,
                                 crate::game_logic::ObjectId(o.id.0),
                             )
-                            .or_else(|| {
-                                let dn = o.display_name.trim();
-                                if !dn.is_empty() && dn != o.template_name {
-                                    Some(dn.to_string())
-                                } else {
-                                    None
-                                }
-                            })
                             .unwrap_or_default(),
                             supply_boxes: if o.dock_kind
                                 == crate::game_logic::DockKind::SupplyWarehouse
