@@ -115,6 +115,7 @@ impl CnCGameEngine {
             Arc::clone(&self.map_victory_rules),
             RestoreTemplateCatalog {
                 templates: &catalog,
+                upgrade_definition_base: &self.game_logic.upgrade_definition_base,
                 modules: &self.game_logic.receiving_module_content,
                 player_templates: &self.game_logic.player_template_definitions,
                 object_definitions: &self.game_logic.receiving_object_definitions,

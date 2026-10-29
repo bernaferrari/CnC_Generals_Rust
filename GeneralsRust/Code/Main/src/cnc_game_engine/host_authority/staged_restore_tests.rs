@@ -136,6 +136,7 @@ fn staged_restore_rejects_unavailable_map_before_snapshot_restore() {
                 std::sync::Arc::new(crate::game_logic::victory_conditions::MapVictoryRules::default()),
                 RestoreTemplateCatalog {
                     templates: &catalog,
+                    upgrade_definition_base: &source.upgrade_definition_base,
                     modules: &source.receiving_module_content,
                     player_templates: &source.player_template_definitions,
                     object_definitions: &source.receiving_object_definitions,
@@ -201,6 +202,7 @@ fn malformed_client_chunk_rejects_candidate_before_touching_live_client() {
                 GameMode::SinglePlayer,
                 RestoreTemplateCatalog {
                     templates: &catalog,
+                    upgrade_definition_base: &logic.upgrade_definition_base,
                     modules: &logic.receiving_module_content,
                     player_templates: &logic.player_template_definitions,
                     object_definitions: &logic.receiving_object_definitions,
@@ -253,6 +255,14 @@ fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
             saves.init().expect("initialize temporary save directory");
 
             let mut source = GameLogic::new();
+            const CATALOG_PROBE: &str = "Upgrade_HostRestoreCatalogProbe";
+            crate::game_logic::host_upgrade_rules::register_test_upgrade(
+                &mut source,
+                CATALOG_PROBE,
+                "PLAYER",
+                321,
+                7,
+            );
             let mut ai_base = source.ai_definitions.baseline().clone();
             ai_base.resources_poor = 3217;
             source.set_ai_definition_base(ai_base);
@@ -315,6 +325,18 @@ fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
             );
             save_result.expect("write valid staged restore save");
 
+            // A host restore receives this application's loaded catalog, not
+            // the source save's catalog. Same-name definitions make accidental
+            // Core/peer selection visible without adding upgrade data to saves.
+            let mut receiving_rules = GameLogic::new();
+            crate::game_logic::host_upgrade_rules::register_test_upgrade(
+                &mut receiving_rules,
+                CATALOG_PROBE,
+                "OBJECT",
+                654,
+                19,
+            );
+
             let restored = CnCGameEngine::stage_saved_world_for_restore(
                 &mut saves,
                 "valid_map",
@@ -322,6 +344,7 @@ fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
                 std::sync::Arc::new(crate::game_logic::victory_conditions::MapVictoryRules::default()),
                 RestoreTemplateCatalog {
                     templates: &catalog,
+                    upgrade_definition_base: &receiving_rules.upgrade_definition_base,
                     modules: &source.receiving_module_content,
                     player_templates: &source.player_template_definitions,
                     object_definitions: &source.receiving_object_definitions,
@@ -351,6 +374,31 @@ fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
                 &source.world_services,
             )
             .expect("saved map should load before restore");
+            let restored_probe = restored
+                .logic
+                .upgrade_definitions
+                .find_upgrade(CATALOG_PROBE)
+                .expect("staged map retains the receiving application's upgrade");
+            assert_eq!(restored_probe.get_cost(), 654);
+            assert_eq!(restored_probe.get_build_time(), 19.0);
+            assert_eq!(
+                restored
+                    .logic
+                    .upgrade_definition_base
+                    .find_upgrade(CATALOG_PROBE)
+                    .unwrap()
+                    .get_cost(),
+                654
+            );
+            assert_eq!(
+                source
+                    .upgrade_definitions
+                    .find_upgrade(CATALOG_PROBE)
+                    .unwrap()
+                    .get_cost(),
+                321,
+                "restore map overrides must not mutate the source session catalog"
+            );
             let extracted_map = std::path::Path::new(&restored.info.map_name);
             assert_eq!(
                 extracted_map.file_name().and_then(|name| name.to_str()),
@@ -610,6 +658,7 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
                 GameMode::Skirmish,
                 RestoreTemplateCatalog {
                     templates: &catalog,
+                    upgrade_definition_base: &source.upgrade_definition_base,
                     modules: &source.receiving_module_content,
                     player_templates: &source.player_template_definitions,
                     object_definitions: &source.receiving_object_definitions,
@@ -951,6 +1000,7 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
                         GameMode::Skirmish,
                         RestoreTemplateCatalog {
                             templates: &catalog,
+                            upgrade_definition_base: &source.upgrade_definition_base,
                             modules: &source.receiving_module_content,
                             player_templates: &source.player_template_definitions,
                             object_definitions: &source.receiving_object_definitions,
@@ -1180,6 +1230,7 @@ fn staged_restore_continues_logic_rng_stream_from_save_point() {
                 std::sync::Arc::new(crate::game_logic::victory_conditions::MapVictoryRules::default()),
                 RestoreTemplateCatalog {
                     templates: &catalog,
+                    upgrade_definition_base: &source.upgrade_definition_base,
                     modules: &source.receiving_module_content,
                     player_templates: &source.player_template_definitions,
                     object_definitions: &source.receiving_object_definitions,
@@ -1779,6 +1830,7 @@ End
                     crate::save_load::CampaignMapContext::default(),
                     RestoreTemplateCatalog {
                         templates: &catalog,
+                        upgrade_definition_base: &source.upgrade_definition_base,
                         modules: &source.receiving_module_content,
                         player_templates: &source.player_template_definitions,
                         object_definitions: &source.receiving_object_definitions,
@@ -1907,6 +1959,7 @@ End
                     crate::save_load::CampaignMapContext::default(),
                     RestoreTemplateCatalog {
                         templates: &catalog,
+                        upgrade_definition_base: &source.upgrade_definition_base,
                         modules: &source.receiving_module_content,
                         player_templates: &source.player_template_definitions,
                         object_definitions: &source.receiving_object_definitions,

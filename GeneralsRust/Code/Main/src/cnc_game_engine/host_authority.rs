@@ -144,6 +144,9 @@ pub(super) struct RestoreTemplateCatalog<'a> {
     body_auto_particle_baseline: &'a game_engine::common::ini::ini_game_data::BodyAutoParticleRules,
     session_sell_percentage: f32,
     max_beacons_per_player: i32,
+    /// Receiving application's pristine Upgrade.ini catalog. Map parsing starts
+    /// from this ordered namespace and reapplies the saved map's overrides.
+    upgrade_definition_base: &'a game_engine::common::system::upgrade::UpgradeCenter,
     lighting_baseline: &'a crate::game_logic::lighting_rules::LightingContentRules,
     static_lod_level: Option<game_engine::common::ini::ini_game_lod::StaticGameLODLevel>,
     dynamic_debris_skip_mask: u32,
@@ -177,6 +180,7 @@ impl<'a> RestoreTemplateCatalog<'a> {
             body_auto_particle_baseline: world.body_auto_particle_baseline(),
             session_sell_percentage: world.session_sell_percentage,
             max_beacons_per_player: world.max_beacons_per_player,
+            upgrade_definition_base: &world.upgrade_definition_base,
         }
     }
 }
@@ -2332,6 +2336,7 @@ impl CnCGameEngine {
             live.game_mode(),
             RestoreTemplateCatalog {
                 templates: &live.templates,
+                upgrade_definition_base: &live.upgrade_definition_base,
                 modules: &live.receiving_module_content,
                 player_templates: &live.player_template_definitions,
                 object_definitions: &live.receiving_object_definitions,
@@ -2780,6 +2785,11 @@ impl CnCGameEngine {
         let runtime_stage =
             gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(live_services);
         let mut staged = crate::game_logic::GameLogic::new();
+        // Match the receiving application's pristine Upgrade.ini catalog before
+        // GameLogic startup/reset and saved-map INI parsing. Current is reset to
+        // this base, then map-owned definitions are reapplied in original order.
+        staged.upgrade_definition_base = template_catalog.upgrade_definition_base.clone();
+        staged.upgrade_definitions = staged.upgrade_definition_base.clone();
         if let Some(definitions) = template_catalog.locomotors {
             staged.admit_locomotor_definitions(definitions.clone())?;
         }
@@ -3058,6 +3068,7 @@ impl CnCGameEngine {
                 campaign_context.clone(),
                 RestoreTemplateCatalog {
                     templates: &template_catalog,
+                    upgrade_definition_base: &self.game_logic.upgrade_definition_base,
                     modules: &self.game_logic.receiving_module_content,
                     player_templates: &self.game_logic.player_template_definitions,
                     object_definitions: &self.game_logic.receiving_object_definitions,
@@ -3109,6 +3120,7 @@ impl CnCGameEngine {
             campaign_context,
             RestoreTemplateCatalog {
                 templates: &template_catalog,
+                upgrade_definition_base: &self.game_logic.upgrade_definition_base,
                 modules: &self.game_logic.receiving_module_content,
                 player_templates: &self.game_logic.player_template_definitions,
                 object_definitions: &self.game_logic.receiving_object_definitions,

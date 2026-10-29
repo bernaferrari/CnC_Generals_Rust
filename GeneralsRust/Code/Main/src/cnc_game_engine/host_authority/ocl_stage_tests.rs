@@ -265,6 +265,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                     crate::save_load::CampaignMapContext::default(),
                     RestoreTemplateCatalog {
                         templates: &source.templates,
+                        upgrade_definition_base: &source.upgrade_definition_base,
                         modules: &source.receiving_module_content,
                         player_templates: &source.player_template_definitions,
                         object_definitions: &source.receiving_object_definitions,
@@ -340,6 +341,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                         crate::save_load::CampaignMapContext::default(),
                         RestoreTemplateCatalog {
                             templates: &source.templates,
+                            upgrade_definition_base: &source.upgrade_definition_base,
                             modules: &source.receiving_module_content,
                             player_templates: &source.player_template_definitions,
                             object_definitions: &source.receiving_object_definitions,
@@ -421,6 +423,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                         crate::save_load::CampaignMapContext::default(),
                         RestoreTemplateCatalog {
                             templates: &source.templates,
+                            upgrade_definition_base: &source.upgrade_definition_base,
                             modules: &source.receiving_module_content,
                             player_templates: &source.player_template_definitions,
                             object_definitions: &source.receiving_object_definitions,

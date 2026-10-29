@@ -26,6 +26,7 @@ fn stage_decoded(
         GameMode::Shell,
         RestoreTemplateCatalog {
             templates: &catalog,
+            upgrade_definition_base: &source.upgrade_definition_base,
             modules: &source.receiving_module_content,
             player_templates: &source.player_template_definitions,
             object_definitions: &source.receiving_object_definitions,
