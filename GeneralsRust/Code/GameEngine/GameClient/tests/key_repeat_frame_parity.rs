@@ -4,6 +4,9 @@ use game_client_rust::input::keyboard::{KeyCode, Keyboard};
 fn key_repeat_uses_cpp_frame_delay_order_and_receiving_clock() {
     let mut first = Keyboard::new();
     let mut second = Keyboard::new();
+    // InputManager supplies these defaults, which map to 10/2 input frames.
+    first.set_key_repeat(333, 67);
+    second.set_key_repeat(333, 67);
     assert!(first.handle_key_simple(KeyCode::A, true));
     assert!(first.handle_key_simple(KeyCode::Q, true));
     assert!(second.handle_key_simple(KeyCode::B, true));
