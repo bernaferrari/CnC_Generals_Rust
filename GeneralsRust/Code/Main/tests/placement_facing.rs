@@ -4,8 +4,8 @@ use generals_main::ui::hud::ConstructionPanel;
 fn placement_drag_replaces_facing_and_finish_preserves_it() {
     let mut panel = ConstructionPanel::new(0, 0);
     let mut peer = ConstructionPanel::new(0, 0);
-    panel.arm_structure_placement("PlacementFixture".into());
-    peer.arm_structure_placement("PlacementFixture".into());
+    panel.arm_structure_placement_with_facts("PlacementFixture".into(), 0.0, (30.0, 30.0));
+    peer.arm_structure_placement_with_facts("PlacementFixture".into(), 0.0, (30.0, 30.0));
 
     let first_drag = game_engine::common::system::geometry::coord2d_to_angle(3.0, 4.0);
     let final_drag = game_engine::common::system::geometry::coord2d_to_angle(3.0, -4.0);

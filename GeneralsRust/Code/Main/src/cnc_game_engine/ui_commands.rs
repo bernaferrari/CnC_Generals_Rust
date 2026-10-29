@@ -893,9 +893,10 @@ impl CnCGameEngine {
             );
         } else {
             self.pending_structure_placement = Some(template_name.to_string());
+            let (angle, footprint) = self.game_logic.placement_preview_facts(template_name);
             self.game_hud_mut()
                 .construction_panel
-                .arm_structure_placement(template_name.to_string());
+                .arm_structure_placement_with_facts(template_name.to_string(), angle, footprint);
             self.game_client
                 .in_game_ui_subsystem_mut()
                 .expect("receiving InGameUI initialized")
@@ -926,9 +927,10 @@ impl CnCGameEngine {
                 .clear_special_power_construction(crate::game_logic::ObjectId(old_source));
         }
         self.pending_structure_placement = Some(template_name.to_string());
+        let (angle, footprint) = self.game_logic.placement_preview_facts(template_name);
         self.game_hud_mut()
             .construction_panel
-            .arm_structure_placement(template_name.to_string());
+            .arm_structure_placement_with_facts(template_name.to_string(), angle, footprint);
         self.game_client
             .in_game_ui_subsystem_mut()
             .expect("receiving InGameUI initialized")
@@ -2327,9 +2329,10 @@ impl CnCGameEngine {
 
         if lbc != LBC_OK {
             self.pending_structure_placement = Some(template_name.to_string());
+            let (angle, footprint) = self.game_logic.placement_preview_facts(template_name);
             self.game_hud_mut()
                 .construction_panel
-                .arm_structure_placement(template_name.to_string());
+                .arm_structure_placement_with_facts(template_name.to_string(), angle, footprint);
             // C++ InGameUI::displayCantBuildMessage — leftover map_cant_build_message.
             let cpp_key = match lbc {
                 LBC_RESTRICTED_TERRAIN => "GUI:CantBuildRestrictedTerrain",

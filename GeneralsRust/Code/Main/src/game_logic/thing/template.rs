@@ -104,6 +104,24 @@ impl PartialEq for ReceivingClientTemplate {
 }
 
 impl ReceivingClientTemplate {
+    /// C++ ThingTemplate placement data from this session's admitted definition.
+    pub(crate) fn placement_preview_facts(&self) -> (f32, (f32, f32, bool)) {
+        let template = self.0.template();
+        let angle = template.get_placement_view_angle();
+        let geometry = template.get_template_geometry_info();
+        let major = geometry.major_radius().max(1.0);
+        let is_box = matches!(
+            geometry.geometry_type,
+            game_engine::common::system::geometry::GeometryType::Box
+        );
+        let minor = if is_box {
+            geometry.minor_radius().max(1.0)
+        } else {
+            major
+        };
+        (angle, (major, minor, is_box))
+    }
+
     pub(crate) fn is_bridge(&self) -> bool {
         self.0.is_bridge()
     }
@@ -120,28 +138,31 @@ impl ReceivingClientTemplate {
 
     pub(crate) fn particle_manual_drive_settings(
         &self,
-    ) -> Result<Option<crate::game_logic::special_power_strikes::ParticleManualDriveSettings>, ()> {
-        let Some(entry) = self
-            .0
-            .behavior_modules()
-            .iter()
-            .find(|entry| entry.name.as_str().eq_ignore_ascii_case("ParticleUplinkCannonUpdate"))
-        else {
+    ) -> Result<Option<crate::game_logic::special_power_strikes::ParticleManualDriveSettings>, ()>
+    {
+        let Some(entry) = self.0.behavior_modules().iter().find(|entry| {
+            entry
+                .name
+                .as_str()
+                .eq_ignore_ascii_case("ParticleUplinkCannonUpdate")
+        }) else {
             return Ok(None);
         };
         let Some(data) = entry
             .data
-            .downcast_ref::<gamelogic::object::behavior::ParticleUplinkCannonUpdateModuleData>()
-        else {
+            .downcast_ref::<gamelogic::object::behavior::ParticleUplinkCannonUpdateModuleData>(
+        ) else {
             // An admitted authored module must retain its parsed typed data.
             // Do not reinterpret a broken admission as a synthetic cannon.
             return Err(());
         };
-        Ok(Some(crate::game_logic::special_power_strikes::ParticleManualDriveSettings {
-            manual_driving_speed: data.manual_driving_speed,
-            manual_fast_driving_speed: data.manual_fast_driving_speed,
-            double_click_to_fast_drive_delay: data.double_click_to_fast_drive_delay,
-        }))
+        Ok(Some(
+            crate::game_logic::special_power_strikes::ParticleManualDriveSettings {
+                manual_driving_speed: data.manual_driving_speed,
+                manual_fast_driving_speed: data.manual_fast_driving_speed,
+                double_click_to_fast_drive_delay: data.double_click_to_fast_drive_delay,
+            },
+        ))
     }
 
     pub(crate) fn has_behavior_module(&self, name: &str) -> bool {
@@ -931,9 +952,16 @@ pub struct ThingTemplate {
 }
 
 impl ThingTemplate {
+    pub(crate) fn placement_preview_facts(&self) -> Option<(f32, (f32, f32, bool))> {
+        self.receiving_client_template
+            .as_ref()
+            .map(ReceivingClientTemplate::placement_preview_facts)
+    }
+
     pub(crate) fn particle_manual_drive_settings(
         &self,
-    ) -> Result<Option<crate::game_logic::special_power_strikes::ParticleManualDriveSettings>, ()> {
+    ) -> Result<Option<crate::game_logic::special_power_strikes::ParticleManualDriveSettings>, ()>
+    {
         self.receiving_client_template.as_ref().map_or(
             Ok(None),
             ReceivingClientTemplate::particle_manual_drive_settings,
@@ -960,8 +988,8 @@ impl ThingTemplate {
                     return RallyPointExitOwner::Parking;
                 }
                 if ["SpawnPointProductionExitUpdate", "FlightDeckBehavior"]
-                .iter()
-                .any(|name| class.eq_ignore_ascii_case(name))
+                    .iter()
+                    .any(|name| class.eq_ignore_ascii_case(name))
                 {
                     return RallyPointExitOwner::OtherBehavior;
                 }

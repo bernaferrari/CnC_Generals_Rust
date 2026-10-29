@@ -1026,7 +1026,7 @@ mod tests {
         ui.game_hud_mut().initialize().expect("initialize HUD");
         ui.game_hud_mut()
             .construction_panel
-            .arm_structure_placement("AmericaBarracks".into());
+            .arm_structure_placement_with_facts("AmericaBarracks".into(), 0.0, (30.0, 30.0));
 
         // Keyboard Escape cancels the active command on the sole HUD.
         assert!(ui.handle_key_press_with_hud_input(KeyCode::Escape, true));
@@ -1051,7 +1051,7 @@ mod tests {
         // Right mouse cancellation uses the same HUD and emits one command.
         ui.game_hud_mut()
             .construction_panel
-            .arm_structure_placement("AmericaBarracks".into());
+            .arm_structure_placement_with_facts("AmericaBarracks".into(), 0.0, (30.0, 30.0));
         assert!(ui.handle_mouse_click(20, 20, MouseButton::Right));
         assert!(matches!(
             ui.pop_event(),
@@ -1082,7 +1082,7 @@ mod tests {
         assert!(ui.pop_event().is_none());
         ui.game_hud_mut()
             .construction_panel
-            .arm_structure_placement("AmericaBarracks".into());
+            .arm_structure_placement_with_facts("AmericaBarracks".into(), 0.0, (30.0, 30.0));
         let mut chat = crate::ui::ChatPanel::new();
         assert!(chat.open());
 

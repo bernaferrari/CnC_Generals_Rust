@@ -279,14 +279,21 @@ impl PlacementPreview {
         !self.template_name.is_empty()
     }
 
-    pub fn start(&mut self, template_name: &str, display_name: &str, cost: i32) {
+    pub fn start(
+        &mut self,
+        template_name: &str,
+        display_name: &str,
+        cost: i32,
+        facing_radians: f32,
+        footprint_half_extents: (f32, f32),
+    ) {
         self.template_name = template_name.to_string();
         self.display_name = display_name.to_string();
         self.cost = cost;
         self.is_legal = false;
-        // C++ InGameUI.cpp:3032 placeBuildAvailable uses getPlacementViewAngle().
-        self.facing_radians = leftover_placement_view_angle(template_name);
-        self.footprint_half_extents = leftover_footprint_half_extents(template_name);
+        // These immutable facts came from the driving session's admitted template.
+        self.facing_radians = facing_radians;
+        self.footprint_half_extents = footprint_half_extents;
     }
 
     pub fn cancel(&mut self) {
@@ -722,8 +729,19 @@ impl ConstructionPanel {
         self.placement.cancel();
     }
 
-    pub fn arm_structure_placement(&mut self, template_name: String) {
-        self.placement.start(&template_name, &template_name, 0);
+    pub fn arm_structure_placement_with_facts(
+        &mut self,
+        template_name: String,
+        facing_radians: f32,
+        footprint_half_extents: (f32, f32),
+    ) {
+        self.placement.start(
+            &template_name,
+            &template_name,
+            0,
+            facing_radians,
+            footprint_half_extents,
+        );
     }
 
     pub fn cancel_placement(&mut self) {
@@ -731,9 +749,19 @@ impl ConstructionPanel {
     }
 
     /// Begin placement mode for the given item.
-    pub fn begin_placement(&mut self, item: &BuildableItem) {
-        self.placement
-            .start(&item.template_name, &item.display_name, item.cost);
+    pub fn begin_placement(
+        &mut self,
+        item: &BuildableItem,
+        facing_radians: f32,
+        footprint_half_extents: (f32, f32),
+    ) {
+        self.placement.start(
+            &item.template_name,
+            &item.display_name,
+            item.cost,
+            facing_radians,
+            footprint_half_extents,
+        );
     }
 
     // ---- radius cursor overlay --------------------------------------------
@@ -1273,27 +1301,4 @@ mod tests {
         assert_eq!(ConstructionTab::NavalUnits.label(), "Naval");
         assert_eq!(ConstructionTab::SuperWeapons.label(), "SuperWpn");
     }
-}
-
-fn leftover_thing_template(
-    name: &str,
-) -> Option<std::sync::Arc<game_engine::common::thing::thing_template::ThingTemplate>> {
-    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
-    let factory = guard.as_ref()?;
-    factory.find_template(name, false)
-}
-
-fn leftover_placement_view_angle(template_name: &str) -> f32 {
-    leftover_thing_template(template_name)
-        .map(|tmpl| tmpl.get_placement_view_angle())
-        .unwrap_or(0.0)
-}
-
-fn leftover_footprint_half_extents(template_name: &str) -> (f32, f32) {
-    leftover_thing_template(template_name)
-        .map(|tmpl| {
-            let g = tmpl.get_template_geometry_info();
-            (g.major_radius().max(1.0), g.minor_radius().max(1.0))
-        })
-        .unwrap_or((30.0, 30.0))
 }

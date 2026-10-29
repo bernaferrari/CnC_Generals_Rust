@@ -2853,7 +2853,11 @@ mod tests {
             if placement_pending {
                 ui.game_hud_mut()
                     .construction_panel
-                    .arm_structure_placement("AmericaBarracks".into());
+                    .arm_structure_placement_with_facts(
+                        "AmericaBarracks".into(),
+                        0.0,
+                        (30.0, 30.0),
+                    );
             }
             let mut chat = ChatPanel::new();
             chat.open();
@@ -2903,7 +2907,7 @@ mod tests {
         while ui.pop_event().is_some() {}
         ui.game_hud_mut()
             .construction_panel
-            .arm_structure_placement("AmericaBarracks".into());
+            .arm_structure_placement_with_facts("AmericaBarracks".into(), 0.0, (30.0, 30.0));
         assert!(super::route_host_ui_key(
             &mut ui,
             UiKey::Escape,

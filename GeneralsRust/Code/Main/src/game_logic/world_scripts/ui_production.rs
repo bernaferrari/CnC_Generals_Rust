@@ -778,6 +778,8 @@ impl GameLogic {
     /// Returns (major, minor, is_box).
     pub(crate) fn structure_place_footprint(&self, template_name: &str) -> (f32, f32, bool) {
         if let Some(tmpl) = self.templates.get(template_name) {
+            // Programmatic templates have no typed admitted definition; retain
+            // their own authored geometry before consulting the admitted facts.
             if tmpl.geometry_info.authored {
                 let g = &tmpl.geometry_info;
                 let is_box = matches!(g.geom_type, crate::game_logic::HostGeometryType::Box);
@@ -789,13 +791,35 @@ impl GameLogic {
                 };
                 return (major, minor, is_box);
             }
+            if let Some((_, footprint)) = tmpl.placement_preview_facts() {
+                return footprint;
+            }
         }
-        if let Some(footprint) = leftover_structure_place_footprint(template_name) {
-            return footprint;
-        }
-        let r = crate::game_logic::host_production_buildable_command_residual::STRUCTURE_PLACE_CLEARANCE_RESIDUAL
-            * 0.5;
+        let r = crate::game_logic::host_production_buildable_command_residual::STRUCTURE_PLACE_CLEARANCE_RESIDUAL * 0.5;
         (r, r, false)
+    }
+
+    pub(crate) fn placement_preview_facts(&self, template_name: &str) -> (f32, (f32, f32)) {
+        let Some(template) = self.templates.get(template_name) else {
+            return (0.0, (30.0, 30.0));
+        };
+
+        let typed_facts = template.placement_preview_facts();
+        let angle = typed_facts.map(|(angle, _)| angle).unwrap_or(0.0);
+        if template.geometry_info.authored {
+            let geometry = &template.geometry_info;
+            let major = geometry.major_radius.max(1.0);
+            let minor = if matches!(geometry.geom_type, crate::game_logic::HostGeometryType::Box) {
+                geometry.minor_radius.max(1.0)
+            } else {
+                major
+            };
+            return (angle, (major, minor));
+        }
+
+        typed_facts
+            .map(|(_, (major, minor, _))| (angle, (major, minor)))
+            .unwrap_or((angle, (30.0, 30.0)))
     }
 
     pub(crate) fn structure_place_radius_for_template(&self, template_name: &str) -> f32 {
@@ -938,7 +962,12 @@ impl GameLogic {
     ) -> u32 {
         // Existing angleless callers retain their authored view-angle policy.
         // Resolve it once; explicit commands bypass this compatibility route.
-        let orientation = leftover_placement_view_angle(template_name);
+        let orientation = self
+            .templates
+            .get(template_name)
+            .and_then(ThingTemplate::placement_preview_facts)
+            .map(|(angle, _)| angle)
+            .unwrap_or(0.0);
         self.legal_build_code_at_angle_for_builder_ex_with_effects(
             team,
             position,
@@ -3135,12 +3164,6 @@ fn leftover_factory_exit_widths(name: &str) -> (f32, f32) {
             )
         })
         .unwrap_or((0.0, 0.0))
-}
-
-fn leftover_placement_view_angle(name: &str) -> f32 {
-    leftover_thing_template(name)
-        .map(|tmpl| tmpl.get_placement_view_angle())
-        .unwrap_or(0.0)
 }
 
 /// C++ BuildAssistant.cpp:786-794 factory exit rectangle as a circle residual.

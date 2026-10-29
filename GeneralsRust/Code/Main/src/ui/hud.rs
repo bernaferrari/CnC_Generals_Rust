@@ -432,9 +432,20 @@ impl ConstructionPanel {
         angle
     }
 
-    pub fn arm_structure_placement(&mut self, template_name: String) {
+    pub fn arm_structure_placement_with_facts(
+        &mut self,
+        template_name: String,
+        facing_radians: f32,
+        footprint_half_extents: (f32, f32),
+    ) {
         self.pending_structure_placement = Some(template_name.clone());
-        self.placement.start(&template_name, &template_name, 0);
+        self.placement.start(
+            &template_name,
+            &template_name,
+            0,
+            facing_radians,
+            footprint_half_extents,
+        );
     }
 
     /// Update placement ghost world cursor + legality residual.
@@ -1900,8 +1911,11 @@ mod tests {
     fn right_click_cancels_structure_placement_residual() {
         let mut hud = GameHUD::new();
         hud.initialize().expect("init");
-        hud.construction_panel
-            .arm_structure_placement("AmericaBarracks".into());
+        hud.construction_panel.arm_structure_placement_with_facts(
+            "AmericaBarracks".into(),
+            0.0,
+            (30.0, 30.0),
+        );
         let ev = hud
             .handle_mouse_click(100, 100, MouseButton::Right)
             .expect("cancel event");
@@ -1917,8 +1931,11 @@ mod tests {
     fn escape_cancels_structure_placement_residual() {
         let mut hud = GameHUD::new();
         hud.initialize().expect("init");
-        hud.construction_panel
-            .arm_structure_placement("AmericaPowerPlant".into());
+        hud.construction_panel.arm_structure_placement_with_facts(
+            "AmericaPowerPlant".into(),
+            0.0,
+            (30.0, 30.0),
+        );
         assert!(hud.handle_key_press(KeyCode::Escape));
         let pending = hud.drain_pending_ui_events();
         assert!(matches!(
