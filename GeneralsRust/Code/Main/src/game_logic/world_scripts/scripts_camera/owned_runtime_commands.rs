@@ -59,9 +59,11 @@ impl GameLogic {
         let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };
-        for member in members {
-            let id = ObjectId(member);
-            if self.host_script_unit_can_guard(id) {
+        // ScriptActions::doTeamGuardObject builds the group only after both
+        // target and Team resolution; groupGuardObject then visits that group.
+        let group = self.create_team_ai_group(&members);
+        for id in self.ai_group_members(group) {
+            if self.ai_group_id_of(id) == Some(group) && self.host_script_unit_can_guard(id) {
                 self.unit_command_script_guard_object(id, target);
             }
         }

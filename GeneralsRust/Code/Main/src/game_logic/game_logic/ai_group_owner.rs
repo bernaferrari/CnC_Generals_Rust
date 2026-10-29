@@ -1,4 +1,4 @@
-//! Session-owned AIGroup membership for the migrated team-hunt route.
+//! Session-owned AIGroup membership for the migrated team script routes.
 //!
 //! Group speed and other group-producing commands are separate migration work.
 //! Object.cpp omits its group pointer from saves; groups are created as needed.

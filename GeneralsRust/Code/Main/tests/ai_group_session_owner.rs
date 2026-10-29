@@ -93,8 +93,18 @@ fn world(path: &std::path::Path) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
 }
 
 fn run_action(world: &mut GameLogic, kind: ScriptActionType, parameter: Parameter) {
+    run_action_with_parameters(world, kind, [parameter]);
+}
+
+fn run_action_with_parameters(
+    world: &mut GameLogic,
+    kind: ScriptActionType,
+    parameters: impl IntoIterator<Item = Parameter>,
+) {
     let mut action = ScriptAction::new(kind);
-    action.add_parameter(parameter).unwrap();
+    for parameter in parameters {
+        action.add_parameter(parameter).unwrap();
+    }
     let mut branch = OrCondition::new();
     branch.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
     let mut script = Script::new();
@@ -252,4 +262,71 @@ fn current_hunt_and_named_guard_continue_after_save_load() {
         assert_eq!(a.formation_id, b.formation_id);
         assert_eq!(a.formation_offset, b.formation_offset);
     }
+}
+
+fn guard_object(world: &mut GameLogic, team: &str, target: &str) {
+    run_action_with_parameters(
+        world,
+        ScriptActionType::TeamGuardObject,
+        [
+            Parameter::with_string(ParameterType::Team, team.into()),
+            Parameter::with_string(ParameterType::Unit, target.into()),
+        ],
+    );
+}
+
+#[test]
+fn team_guard_object_creates_a_receiving_group_only_after_target_and_team_resolve() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut owner, first, second, target) = world(&map);
+    let (mut peer, peer_first, peer_second, peer_target) = world(&map);
+    assert_eq!(
+        (first, second, target),
+        (peer_first, peer_second, peer_target)
+    );
+    hunt(&mut owner);
+    hunt(&mut peer);
+    let original_group = owner.ai_group_id_of(first).unwrap();
+
+    guard_object(&mut owner, "HuntTeam", "MissingTarget");
+    guard_object(&mut owner, "MissingTeam", "Inert");
+    assert_eq!(owner.ai_group_id_of(first), Some(original_group));
+    assert_eq!(
+        owner.ai_group_members_of(first).as_deref(),
+        Some(&[second, first][..])
+    );
+
+    guard_object(&mut owner, "HuntTeam", "Inert");
+    assert_ne!(owner.ai_group_id_of(first), Some(original_group));
+    assert_eq!(
+        owner.ai_group_members_of(first).as_deref(),
+        Some(&[second, first][..])
+    );
+    assert_eq!(owner.ai_group_id_of(target), None);
+    for id in [first, second] {
+        assert_eq!(owner.host_object(id).unwrap().guard_target(), Some(target));
+        assert!(peer.host_object(id).unwrap().is_hunting());
+    }
+    assert_eq!(peer.ai_group_id_of(first), Some(original_group));
+    assert_eq!(owner.host_object(first).unwrap().formation_id, 17);
+    assert_eq!(
+        owner.host_object(first).unwrap().formation_offset,
+        glam::Vec2::new(5.0, -7.0)
+    );
+
+    run_action(
+        &mut owner,
+        ScriptActionType::NamedGuard,
+        Parameter::with_string(ParameterType::Unit, "First".into()),
+    );
+    assert_eq!(owner.ai_group_id_of(first), None);
+    assert_eq!(
+        owner.ai_group_members_of(second).as_deref(),
+        Some(&[second][..])
+    );
+    assert_eq!(
+        peer.ai_group_members_of(first).as_deref(),
+        Some(&[second, first][..])
+    );
 }
