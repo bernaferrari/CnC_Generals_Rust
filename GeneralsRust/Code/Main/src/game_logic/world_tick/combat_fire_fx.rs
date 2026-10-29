@@ -87,9 +87,9 @@ impl GameLogic {
             None,
             effects,
         );
-        // A failed or partially committed OCL is not an empty successful OCL:
-        // do not create a second fallback after its callbacks already ran.
-        let fallback = outcome.error.is_none() && outcome.created.is_empty();
+        // C++ ObjectCreationList::create is a no-op when the receiving OCL is
+        // absent or creates no Objects. Do not synthesize a BurningEmbers
+        // Object: that changes gameplay and bypasses the authored OCL.
         if let Some(error) = outcome.error {
             log::error!("{error}");
         }
@@ -101,29 +101,6 @@ impl GameLogic {
         let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
             pos, None, self.frame, source_id, None, "", "", ocl, "", 0.0, 0.0,
         );
-        if fallback {
-            const EMBER_TEMPLATE: &str = "BurningEmbers";
-            if !self.templates.contains_key(EMBER_TEMPLATE) {
-                let mut tpl = crate::game_logic::ThingTemplate::new(EMBER_TEMPLATE);
-                tpl.set_health(1.0);
-                self.templates.insert(EMBER_TEMPLATE.to_string(), tpl);
-            }
-            if let Some(id) =
-                self.create_object_with_script_effects(EMBER_TEMPLATE, team, pos, None, effects)
-            {
-                if let Some(obj) = self.objects.get_mut(&id) {
-                    obj.producer_id = Some(source_id);
-                    if obj.native_lifecycle.is_none() {
-                        obj.lifetime_update = Some(
-                        crate::game_logic::host_lifetime_update::HostLifetimeUpdateData::from_delay_frames(
-                            self.frame, 30,
-                        ),
-                    );
-                    }
-                }
-                return vec![id];
-            }
-        }
         created
     }
 
