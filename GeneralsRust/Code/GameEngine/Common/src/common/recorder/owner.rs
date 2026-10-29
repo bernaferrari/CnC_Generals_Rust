@@ -14,6 +14,16 @@ pub struct RecorderOwnerInputs {
     pub stats_directory: PathBuf,
 }
 
+/// Interpret the original Windows current-directory default on every host.
+pub fn stats_directory_from_config(configured: &str) -> PathBuf {
+    let configured = configured.trim();
+    if configured == ".\\" {
+        PathBuf::from(".")
+    } else {
+        PathBuf::from(configured)
+    }
+}
+
 /// Effects of a completed Recorder operation. The receiver admits these at
 /// the original lifecycle boundary; the explicit path never publishes them.
 #[derive(Debug, Default)]

@@ -40,7 +40,10 @@ mod header;
 pub use header::inspect_replay_header;
 
 mod owner;
-pub use owner::{RecorderOwnerEffects, RecorderOwnerInputs, RecorderPlaybackAdmission};
+pub use owner::{
+    RecorderOwnerEffects, RecorderOwnerInputs, RecorderPlaybackAdmission,
+    stats_directory_from_config,
+};
 
 /// Recorder class - main replay recording/playback system
 /// Matches C++ RecorderClass from Recorder.h:31-131 and Recorder.cpp
@@ -2182,7 +2185,10 @@ impl Recorder {
                     return;
                 };
                 let data = global.read();
-                (data.save_stats, PathBuf::from(data.base_stats_dir.trim()))
+                (
+                    data.save_stats,
+                    stats_directory_from_config(&data.base_stats_dir),
+                )
             };
             if !save_stats || stats_directory.as_os_str().is_empty() {
                 return;
@@ -2480,6 +2486,16 @@ mod tests {
     use super::*;
     use crate::common::ini::ini_game_data::ensure_global_data;
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn cpp_default_stats_directory_uses_native_current_directory() {
+        assert_eq!(stats_directory_from_config(".\\"), PathBuf::from("."));
+        assert_eq!(
+            stats_directory_from_config("  Other/Stats  "),
+            PathBuf::from("Other/Stats")
+        );
+        assert!(stats_directory_from_config("").as_os_str().is_empty());
+    }
 
     fn read_utf16_z_end(bytes: &[u8], mut offset: usize) -> usize {
         loop {

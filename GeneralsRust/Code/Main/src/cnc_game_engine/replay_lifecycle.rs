@@ -18,7 +18,9 @@ impl CnCGameEngine {
             exe_crc: data.exe_crc,
             ini_crc: data.ini_crc,
             save_stats: data.save_stats,
-            stats_directory: std::path::PathBuf::from(data.base_stats_dir.trim()),
+            stats_directory: game_engine::common::recorder::stats_directory_from_config(
+                &data.base_stats_dir,
+            ),
         }
     }
 
