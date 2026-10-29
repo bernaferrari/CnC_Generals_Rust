@@ -1119,22 +1119,20 @@ impl CnCGameEngine {
     /// C++ execute limiter + W3DDisplay 30ms draw limiter.
     /// `None` = unlocked (m_useFpsLimit false) or time-fast / TiVO replay.
     pub(super) fn live_present_interval(&self) -> Option<Duration> {
-        let global = game_engine::common::global_data::read_safe().ok()?;
-        if !global.writable.use_fps_limit {
-            return None;
-        }
         let visual_speed = self.presentation_or_boot_visual_speed();
-        if visual_speed > 1.0 || self.script_time_fast() {
+        let max_fps = Self::effective_fps_limit_for_frame(
+            self.fps_limiter.enabled(),
+            self.fps_limiter.rate(),
+            visual_speed,
+            self.script_time_fast(),
+            self.replay_fast_forward,
+            self.presentation_or_boot_in_replay_game(),
+        )?;
+        if max_fps <= 0 {
+            // Non-positive float-to-DWORD behavior is target-specific in C++;
+            // never substitute a peer/global/default rate here.
             return None;
         }
-        if self.replay_fast_forward && self.presentation_or_boot_in_replay_game() {
-            return None;
-        }
-        let max_fps = if global.writable.frames_per_second_limit > 0 {
-            global.writable.frames_per_second_limit as u32
-        } else {
-            DEFAULT_MAX_FPS
-        };
         let exec_ms = (1000.0 / max_fps as f32 - 1.0).max(0.0);
         let draw_ms = (W3D_DRAW_MIN_TIME_MS as f32 - 1.0).max(0.0);
         let ms = exec_ms.max(draw_ms);

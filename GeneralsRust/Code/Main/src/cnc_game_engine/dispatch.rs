@@ -146,16 +146,7 @@ impl CnCGameEngine {
         };
 
         let max_fps = match message.get_argument(3) {
-            Some(GameMessageArgumentType::Integer(value)) => {
-                let resolved = if (1..=1000).contains(value) {
-                    *value
-                } else {
-                    game_engine::common::global_data::read()
-                        .writable
-                        .frames_per_second_limit
-                };
-                Some(resolved)
-            }
+            Some(GameMessageArgumentType::Integer(value)) => Some(*value),
             _ => None,
         };
 
@@ -194,16 +185,7 @@ impl CnCGameEngine {
     pub(super) fn apply_application_new_game_dispatch(
         dispatch: StartupNewGameDispatch,
     ) -> Option<String> {
-        Self::apply_application_new_game_fps(dispatch);
         Self::take_application_new_game_map()
-    }
-
-    pub(super) fn apply_application_new_game_fps(dispatch: StartupNewGameDispatch) {
-        if let Some(max_fps) = dispatch.max_fps {
-            let mut global = game_engine::common::global_data::write();
-            global.writable.use_fps_limit = true;
-            global.writable.frames_per_second_limit = max_fps;
-        }
     }
 
     pub(super) fn prepare_application_new_game_map(
@@ -214,12 +196,6 @@ impl CnCGameEngine {
         if owned_map.map(str::trim).is_some_and(|map| !map.is_empty()) {
             // The request already owns its map. Do not inspect, consume, or
             // mirror the process pending-file slot for this request.
-            if !receiving {
-                // The dispatch path historically applies its FPS setting
-                // before consuming the pending map. Keep that side effect
-                // even when the caller already supplied the map.
-                Self::apply_application_new_game_fps(dispatch);
-            }
             return None;
         }
         if receiving {
@@ -289,7 +265,6 @@ impl CnCGameEngine {
             // Configured shell maps stay on the menu branch above. Do not
             // consume the process pending-file slot here: it may belong to a
             // different receiving session.
-            Self::apply_application_new_game_fps(dispatch);
             return dispatch.game_mode;
         }
 
@@ -602,6 +577,9 @@ impl CnCGameEngine {
         self.require_native_world_boundary("restart mission dispatch")
             .map_err(|error| error.to_string())?;
         self.update_last_new_game_dispatch(dispatch);
+        if let Some(max_fps) = dispatch.max_fps {
+            self.fps_limiter.apply_new_game(max_fps);
+        }
         let prepared_map = Self::apply_application_new_game_dispatch(dispatch);
         let identity = self.last_new_game_identity();
         let map = prepared_map
@@ -749,6 +727,13 @@ impl CnCGameEngine {
             is_campaign_session,
             is_challenge_session,
         } = campaign_launch_overrides;
+
+        // Source NewGame dispatch writes the receiving engine limit before
+        // pending-map consumption / request preparation. Invalid values use
+        // the immutable baseline captured by this engine at construction.
+        if let Some(max_fps) = dispatch.max_fps {
+            self.fps_limiter.apply_new_game(max_fps);
+        }
 
         // Do not consume pending globals until a typed Challenge selection is
         // known to be valid.  That keeps a rejected/stale descriptor from

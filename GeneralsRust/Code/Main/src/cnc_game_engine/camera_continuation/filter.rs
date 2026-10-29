@@ -60,6 +60,14 @@ struct RegisteredCameraState {
     rotation_registers: crate::presentation_frame::camera::registers::RotationRegistersState,
 }
 
+#[derive(Serialize, Deserialize)]
+struct FpsCameraState {
+    version: u32,
+    camera: Vec<u8>,
+    limiter_enabled: bool,
+    limiter_rate: i32,
+}
+
 pub(super) fn encode_native_camera(
     engine: &CnCGameEngine,
     state: &CameraState,
@@ -112,7 +120,7 @@ pub(super) fn encode_native_camera(
         engine.game_logic.session_view.camera.shake_policy,
     )?;
     base.base.base.base.base.version = 8;
-    tagged(
+    let camera = tagged(
         codec().serialize(&RegisteredCameraState {
             base: ScalarCameraState {
                 base,
@@ -125,7 +133,13 @@ pub(super) fn encode_native_camera(
                 .rotation_registers
                 .capture(),
         })?,
-    )
+    )?;
+    tagged(codec().serialize(&FpsCameraState {
+        version: 9,
+        camera,
+        limiter_enabled: engine.fps_limiter.enabled(),
+        limiter_rate: engine.fps_limiter.rate(),
+    })?)
 }
 
 fn validate_filter(filter: Option<(glam::Vec2, Vec3)>) -> Result<(), String> {
@@ -323,6 +337,34 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
             .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
             .ok_or_else(|| "truncated native camera phase version".to_owned())?;
         let (camera_bytes, extras) = match version {
+            9 => {
+                let saved: FpsCameraState = codec().deserialize(payload)?;
+                if saved.version != 9 {
+                    return Err("native FPS camera version discriminator mismatch".into());
+                }
+                let nested = saved
+                    .camera
+                    .strip_prefix(TAG)
+                    .ok_or("native FPS camera wrapper must contain a tagged V8 payload")?;
+                let nested_version = nested
+                    .get(..4)
+                    .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
+                    .ok_or("truncated nested native camera version")?;
+                if nested_version != 8 {
+                    return Err("native FPS camera wrapper must contain exactly V8".into());
+                }
+                let NativeCameraContinuation(camera, mut extras) =
+                    decode_native_camera(&saved.camera)?;
+                let legacy_fps_projection = (saved.limiter_enabled && saved.limiter_rate > 0)
+                    .then_some(saved.limiter_rate as u32);
+                if camera.script_fps_limit != legacy_fps_projection {
+                    return Err(
+                        "native FPS camera legacy projection disagrees with limiter owner".into(),
+                    );
+                }
+                extras.fps_limiter = Some((saved.limiter_enabled, saved.limiter_rate));
+                return Ok(NativeCameraContinuation(camera, extras));
+            }
             1 => {
                 let saved: FilterCameraState = codec().deserialize(payload)?;
                 let filter = Some((saved.scroll, saved.previous_target));
@@ -330,6 +372,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                 (
                     saved.camera,
                     NativeCameraExtras {
+                        fps_limiter: None,
                         rotation_timing: None,
                         rotation_registers: None,
                         clip_policy: None,
@@ -348,6 +391,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                 (
                     saved.camera,
                     NativeCameraExtras {
+                        fps_limiter: None,
                         rotation_timing: None,
                         rotation_registers: None,
                         clip_policy: None,
@@ -366,6 +410,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                 (
                     saved.base.camera,
                     NativeCameraExtras {
+                        fps_limiter: None,
                         rotation_timing: None,
                         rotation_registers: None,
                         clip_policy: None,
@@ -385,6 +430,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                 (
                     saved.base.base.camera,
                     NativeCameraExtras {
+                        fps_limiter: None,
                         rotation_timing: None,
                         rotation_registers: None,
                         clip_policy: None,
@@ -405,6 +451,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                 (
                     saved.base.base.base.camera,
                     NativeCameraExtras {
+                        fps_limiter: None,
                         rotation_timing: None,
                         rotation_registers: None,
                         clip_policy: None,
@@ -426,6 +473,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                 (
                     saved.base.base.base.base.camera,
                     NativeCameraExtras {
+                        fps_limiter: None,
                         rotation_timing: None,
                         rotation_registers: None,
                         clip_policy: Some(saved.clip_policy),

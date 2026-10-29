@@ -568,6 +568,12 @@ impl CnCGameEngine {
         // A still-running boot worker must not overwrite this match start (or
         // keep finalize_startup_map_load pointed at Menu) after we leave Loading.
         self.abandon_startup_load_worker();
+        if let Some(max_fps) = recorder_dispatch.and_then(|dispatch| dispatch.max_fps) {
+            // The request may have set its limit before reaching this point.
+            // Abandoning a competing boot worker restores that worker's
+            // pending mutation, then this accepted NewGame re-applies its own.
+            self.fps_limiter.apply_new_game(max_fps);
+        }
         info!("host_start_game_from_ui: abandoned boot worker");
         // Mark MainMenu as starting a match so shutdown skips reverse-animate
         // (windowed host start was SIGSEGV'ing mid MainMenuShutdown / hide_shell).
@@ -1631,44 +1637,23 @@ impl CnCGameEngine {
     }
 
     pub(super) fn apply_script_fps_limit_request(&mut self, fps: i32) {
-        let global_default = {
-            let mut global = game_engine::common::global_data::write();
-            global.writable.use_fps_limit = true;
-            Some(global.writable.frames_per_second_limit)
-        };
-
-        let resolved_fps = if fps <= 0 {
-            global_default.unwrap_or_else(|| {
-                game_engine::common::global_data::read()
-                    .writable
-                    .frames_per_second_limit
-            })
-        } else {
-            fps
-        };
-
-        self.script_fps_limit = u32::try_from(resolved_fps).ok().filter(|fps| *fps > 0);
-        self.script_fps_limit_last_tick = None;
+        self.fps_limiter.apply_script(fps);
     }
 
     pub(super) fn effective_fps_limit_for_frame(
-        script_fps_limit: Option<u32>,
-        global_use_fps_limit: bool,
-        global_frames_per_second_limit: i32,
+        fps_limiter_enabled: bool,
+        fps_limiter_rate: i32,
         visual_speed_multiplier: f32,
+        script_time_fast: bool,
         tivo_fast_mode: bool,
         in_replay_game: bool,
-    ) -> Option<u32> {
-        if let Some(script_fps) = script_fps_limit.filter(|fps| *fps > 0) {
-            return Some(script_fps);
-        }
-
+    ) -> Option<i32> {
         // C++ parity: skip frame limiting when tactical time multiplier is above normal.
-        if visual_speed_multiplier > 1.0 {
+        if visual_speed_multiplier > 1.0 || script_time_fast {
             return None;
         }
 
-        if !global_use_fps_limit {
+        if !fps_limiter_enabled {
             return None;
         }
 
@@ -1677,13 +1662,10 @@ impl CnCGameEngine {
             return None;
         }
 
-        u32::try_from(global_frames_per_second_limit)
-            .ok()
-            .filter(|fps| *fps > 0)
+        Some(fps_limiter_rate)
     }
 
     pub(super) fn apply_script_frame_limit(&mut self) {
-        let global_data = game_engine::common::global_data::read();
         // Wave 550: presentation freeze owns FPS-limit visual_speed residual when
         // installed (no host visual_speed_multiplier dual-read).
         // Wave 557: presentation freeze owns replay-mode residual when installed.
@@ -1691,29 +1673,35 @@ impl CnCGameEngine {
         let in_replay = self.presentation_or_boot_in_replay_game();
 
         let max_fps = Self::effective_fps_limit_for_frame(
-            self.script_fps_limit,
-            global_data.writable.use_fps_limit,
-            global_data.writable.frames_per_second_limit,
+            self.fps_limiter.enabled(),
+            self.fps_limiter.rate(),
             visual_speed,
+            self.script_time_fast(),
             self.replay_fast_forward,
             in_replay,
         );
-        drop(global_data);
-
         let Some(max_fps) = max_fps else {
-            self.script_fps_limit_last_tick = None;
+            self.fps_limiter_last_tick = None;
             return;
         };
+
+        // Win32's float-to-DWORD conversion for negative and out-of-range
+        // rates is compiler/target-specific. Keep the signed authored value in
+        // owner state; only positive rates have a portable Rust duration.
+        if max_fps <= 0 {
+            self.fps_limiter_last_tick = None;
+            return;
+        }
 
         // Mirrors C++ GameEngine::execute frame pacing: (1000 / fps) - 1, Sleep(0) loop.
         let limit_ms = (1000.0 / max_fps as f32 - 1.0).max(0.0);
         if limit_ms <= 0.0 {
-            self.script_fps_limit_last_tick = Some(Instant::now());
+            self.fps_limiter_last_tick = Some(Instant::now());
             return;
         }
 
         let limit = Duration::from_millis(limit_ms as u64);
-        if let Some(previous) = self.script_fps_limit_last_tick {
+        if let Some(previous) = self.fps_limiter_last_tick {
             let now = Instant::now();
             if now.duration_since(previous) < limit {
                 // C++ GameEngine::execute Sleep(0) spin until (1000/fps)-1.
@@ -1722,9 +1710,9 @@ impl CnCGameEngine {
                     std::thread::sleep(remaining);
                 }
             }
-            self.script_fps_limit_last_tick = Some(Instant::now());
+            self.fps_limiter_last_tick = Some(Instant::now());
         } else {
-            self.script_fps_limit_last_tick = Some(Instant::now());
+            self.fps_limiter_last_tick = Some(Instant::now());
         }
     }
 
@@ -2410,8 +2398,9 @@ impl CnCGameEngine {
             .camera
             .script_camera_shakers
             .clear();
-        self.script_fps_limit = None;
-        self.script_fps_limit_last_tick = None;
+        self.fps_limiter.reset_game();
+        self.fps_limiter_last_tick = None;
+        self.startup_fps_rollback = None;
         self.game_logic.session_view.camera.camera_slave_mode = None;
         let defaults = Self::startup_camera_defaults_for(&self.game_logic);
         self.game_logic.session_view.camera.native_camera = super::camera_height::CameraHeight::new(

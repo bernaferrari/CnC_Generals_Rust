@@ -203,20 +203,20 @@ fn configured_startup_shell_map_remaps_stale_shellmap1_to_shellmapmd() {
 }
 
 #[test]
-fn effective_fps_limit_prefers_script_override() {
-    let limit = CnCGameEngine::effective_fps_limit_for_frame(Some(45), false, 30, 2.0, true, true);
-    assert_eq!(limit, Some(45));
+fn effective_fps_limit_applies_cpp_fast_and_replay_gates_before_rate() {
+    let limit = CnCGameEngine::effective_fps_limit_for_frame(false, 45, 2.0, false, true, true);
+    assert_eq!(limit, None);
 }
 
 #[test]
 fn effective_fps_limit_honors_cpp_tivo_replay_rule_for_global_limit() {
-    let limit = CnCGameEngine::effective_fps_limit_for_frame(None, true, 30, 1.0, true, true);
+    let limit = CnCGameEngine::effective_fps_limit_for_frame(true, 30, 1.0, false, true, true);
     assert_eq!(limit, None);
 }
 
 #[test]
 fn effective_fps_limit_disables_global_limit_for_fast_visual_multiplier() {
-    let limit = CnCGameEngine::effective_fps_limit_for_frame(None, true, 30, 1.5, false, false);
+    let limit = CnCGameEngine::effective_fps_limit_for_frame(true, 30, 1.5, false, false, false);
     assert_eq!(limit, None);
 }
 
@@ -332,6 +332,13 @@ fn startup_new_game_dispatch_requires_pending_file_for_startup_map_preparation()
 #[test]
 fn owned_new_game_map_preserves_peer_pending_file_and_precedes_fallback() {
     with_global_and_startup_state_snapshot_restored(|| {
+        let fps_before = {
+            let global = game_engine::common::global_data::read();
+            (
+                global.writable.use_fps_limit,
+                global.writable.frames_per_second_limit,
+            )
+        };
         let peer_pending = "Maps/Peer/StillPending.map";
         game_engine::common::global_data::write().pending_file = peer_pending.into();
         let dispatch = StartupNewGameDispatch {
@@ -356,8 +363,14 @@ fn owned_new_game_map_preserves_peer_pending_file_and_precedes_fallback() {
         );
         {
             let global = game_engine::common::global_data::read();
-            assert!(global.writable.use_fps_limit);
-            assert_eq!(global.writable.frames_per_second_limit, 73);
+            assert_eq!(
+                (
+                    global.writable.use_fps_limit,
+                    global.writable.frames_per_second_limit
+                ),
+                fps_before,
+                "dispatch parsing/map selection must not publish a limiter through Common"
+            );
         }
         let selected = CnCGameEngine::resolve_application_new_game_map(
             GameMode::Skirmish,

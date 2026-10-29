@@ -54,6 +54,91 @@ fn standalone_native_v8_codec_roundtrip_retains_complete_register_state() {
 }
 
 #[test]
+fn v9_fps_continuation_wraps_v8_and_preserves_signed_enabled_state() {
+    let v8 = bytes(&fixture());
+    let encoded = tagged(
+        codec()
+            .serialize(&FpsCameraState {
+                version: 9,
+                camera: v8,
+                limiter_enabled: true,
+                limiter_rate: -17,
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    let decoded = decode_native_camera(&encoded).unwrap();
+    assert_eq!(decoded.1.fps_limiter, Some((true, -17)));
+    let mut malformed: FpsCameraState = codec().deserialize(&encoded[TAG.len()..]).unwrap();
+    malformed.version = 8;
+    assert!(
+        decode_native_camera(&tagged(codec().serialize(&malformed).unwrap()).unwrap()).is_err()
+    );
+    let nested_v9 = tagged(
+        codec()
+            .serialize(&FpsCameraState {
+                version: 9,
+                camera: bytes(&fixture()),
+                limiter_enabled: false,
+                limiter_rate: 1,
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    let recursive = tagged(
+        codec()
+            .serialize(&FpsCameraState {
+                version: 9,
+                camera: nested_v9,
+                limiter_enabled: true,
+                limiter_rate: 2,
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(decode_native_camera(&recursive).is_err());
+}
+
+#[test]
+fn v9_limiter_owner_rejects_mismatched_legacy_v8_rate_projection() {
+    let mut wire = fixture();
+    let legacy_camera: &mut Vec<u8> = &mut wire.base.base.base.base.base.camera;
+    let mut projection: super::super::CameraState = codec().deserialize(legacy_camera).unwrap();
+    projection.script_fps_limit = Some(27);
+    *legacy_camera = codec().serialize(&projection).unwrap();
+    let v8 = bytes(&wire);
+
+    let matching = tagged(
+        codec()
+            .serialize(&FpsCameraState {
+                version: 9,
+                camera: v8.clone(),
+                limiter_enabled: true,
+                limiter_rate: 27,
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        decode_native_camera(&matching).unwrap().1.fps_limiter,
+        Some((true, 27))
+    );
+
+    let mismatched = tagged(
+        codec()
+            .serialize(&FpsCameraState {
+                version: 9,
+                camera: v8,
+                limiter_enabled: true,
+                limiter_rate: 45,
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(decode_native_camera(&mismatched).is_err());
+}
+
+#[test]
 fn native_v8_mismatched_projection_or_timing_rejects_without_touching_receiving_owner() {
     let receiver = crate::game_logic::GameLogic::new();
     let before = receiver.capture_camera_continuation().unwrap();

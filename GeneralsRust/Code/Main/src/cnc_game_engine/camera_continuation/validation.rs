@@ -10,6 +10,12 @@ impl CameraState {
         &self,
         completed_view: Option<glam::Mat4>,
     ) -> Result<(), String> {
+        if self
+            .script_fps_limit
+            .is_some_and(|rate| rate > i32::MAX as u32)
+        {
+            return Err("legacy camera FPS exceeds signed engine range".into());
+        }
         if let Some(matrix) = completed_view {
             let inverse =
                 crate::presentation_frame::camera::pose::inverse_camera_transform(matrix)?;

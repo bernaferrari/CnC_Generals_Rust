@@ -9,8 +9,8 @@ struct SourcePreparationBefore {
     mode: GameMode,
     session_difficulty: Option<crate::ai::AIDifficulty>,
     script_difficulty: gamelogic::player::GameDifficulty,
-    use_fps_limit: bool,
-    fps: i32,
+    fps_limiter: super::fps_limiter::FpsLimiterState,
+    fps_limiter_last_tick: Option<std::time::Instant>,
     pending_file: String,
     map_name: String,
     identity: Option<LastNewGameIdentity>,
@@ -298,8 +298,8 @@ impl CnCGameEngine {
                 .as_ref()
                 .expect("receiving interpreter")
                 .get_global_difficulty(),
-            use_fps_limit: global.writable.use_fps_limit,
-            fps: global.writable.frames_per_second_limit,
+            fps_limiter: self.fps_limiter,
+            fps_limiter_last_tick: self.fps_limiter_last_tick,
             pending_file: global.pending_file.clone(),
             map_name: global.writable.map_name.clone(),
             identity: self.last_new_game_identity(),
@@ -327,9 +327,9 @@ impl CnCGameEngine {
             .expect("receiving interpreter")
             .set_global_difficulty(before.script_difficulty);
         {
+            self.fps_limiter = before.fps_limiter;
+            self.fps_limiter_last_tick = before.fps_limiter_last_tick;
             let mut global = game_engine::common::global_data::write();
-            global.writable.use_fps_limit = before.use_fps_limit;
-            global.writable.frames_per_second_limit = before.fps;
             global.pending_file = before.pending_file;
             global.writable.map_name = before.map_name;
         }
@@ -387,7 +387,9 @@ impl CnCGameEngine {
                 .set_logic_random_seed(descriptor.game_info.seed as u32);
         }
         // Dispatch.cpp407–419 applies optional FPS before prepareNewGame.
-        Self::apply_application_new_game_fps(dispatch);
+        if let Some(max_fps) = dispatch.max_fps {
+            self.fps_limiter.apply_new_game(max_fps);
+        }
         // prepareNewGame: interpreter difficulty, background, mode, pending map,
         // rank, hideShell. startNewGame(FALSE) then parks actual map loading.
         self.game_logic
@@ -446,9 +448,21 @@ impl CnCGameEngine {
         let request = if let Some(descriptor) = message.shell_map_launch() {
             // The descriptor belongs to this exact command and survives a prior clear.
             self.game_logic.set_logic_random_seed(descriptor.seed);
-            Some(self.source_shell_map_start_request(dispatch, descriptor)?)
+            match self.source_shell_map_start_request(dispatch, descriptor) {
+                Ok(request) => Some(request),
+                Err(error) => {
+                    self.reject_source_preparation(before);
+                    return Err(error);
+                }
+            }
         } else if let Some(descriptor) = message.skirmish_launch() {
-            Some(self.source_skirmish_start_request(dispatch, descriptor)?)
+            match self.source_skirmish_start_request(dispatch, descriptor) {
+                Ok(request) => Some(request),
+                Err(error) => {
+                    self.reject_source_preparation(before);
+                    return Err(error);
+                }
+            }
         } else if dispatch.game_mode == GameMode::Replay {
             // Header/map/slots belong to this same live receiving Recorder.
             // Keep legacy pending-file intake only for messages without an
@@ -467,9 +481,16 @@ impl CnCGameEngine {
             self.reject_source_preparation(before);
             return Ok(false);
         };
-        if !self.host_start_game_from_command_phase(request)? {
-            self.reject_source_preparation(before);
-            return Ok(false);
+        match self.host_start_game_from_command_phase(request) {
+            Ok(true) => {}
+            Ok(false) => {
+                self.reject_source_preparation(before);
+                return Ok(false);
+            }
+            Err(error) => {
+                self.reject_source_preparation(before);
+                return Err(error);
+            }
         }
         self.update_last_new_game_dispatch(dispatch);
         Ok(true)

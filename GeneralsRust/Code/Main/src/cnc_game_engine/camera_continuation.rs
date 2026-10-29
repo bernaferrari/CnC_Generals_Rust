@@ -19,6 +19,7 @@ pub(crate) struct NativeCameraContinuation(CameraState, NativeCameraExtras);
 /// Neither this value nor the historical Native85 record is a runtime owner.
 #[derive(Default)]
 struct NativeCameraExtras {
+    fps_limiter: Option<(bool, i32)>,
     rotation_timing: Option<crate::presentation_frame::camera::rotation::RotationTiming>,
     rotation_registers:
         Option<crate::presentation_frame::camera::registers::RotationRegistersState>,
@@ -462,7 +463,8 @@ impl CnCGameEngine {
                 .camera
                 .script_camera_shakers
                 .clone(),
-            script_fps_limit: self.script_fps_limit.clone(),
+            script_fps_limit: (self.fps_limiter.enabled() && self.fps_limiter.rate() > 0)
+                .then_some(self.fps_limiter.rate() as u32),
             camera_follow_factor: self
                 .game_logic
                 .session_view
@@ -516,7 +518,7 @@ impl CnCGameEngine {
             prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: self
                 .prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click,
             frame_counter: self.frame_counter.clone(),
-            script_fps_limit_last_tick_age: age(now, self.script_fps_limit_last_tick)?,
+            script_fps_limit_last_tick_age: age(now, self.fps_limiter_last_tick)?,
             last_click_time_age: age(now, self.last_click_time)?,
             last_right_click_time_age: age(now, self.last_right_click_time)?,
             rmb_deselect_down_at_age: age(now, self.rmb_deselect_down_at)?,
@@ -588,7 +590,16 @@ impl CnCGameEngine {
                 offset: state.camera_shake_offset,
             })
             .expect("native CameraState was validated before commitment");
-        self.script_fps_limit = state.script_fps_limit;
+        if let Some((enabled, rate)) = continuation.1.fps_limiter {
+            self.fps_limiter.restore_continuation(enabled, rate);
+        } else {
+            // V1–V8 stored only an optional positive script override. Preserve
+            // that historical migration while retaining this application's
+            // configured baseline for later reset.
+            self.fps_limiter
+                .restore_legacy_camera_rate(state.script_fps_limit)
+                .expect("legacy camera FPS was validated before admission");
+        }
 
         // Historical default observations were validated during detached decode.
         // The Logic continuation already admitted the canonical script defaults;
@@ -628,7 +639,7 @@ impl CnCGameEngine {
         self.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click =
             state.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click;
         self.frame_counter = state.frame_counter;
-        self.script_fps_limit_last_tick = restore_age(now, state.script_fps_limit_last_tick_age);
+        self.fps_limiter_last_tick = restore_age(now, state.script_fps_limit_last_tick_age);
         self.last_click_time = restore_age(now, state.last_click_time_age);
         self.last_right_click_time = restore_age(now, state.last_right_click_time_age);
         self.rmb_deselect_down_at = restore_age(now, state.rmb_deselect_down_at_age);

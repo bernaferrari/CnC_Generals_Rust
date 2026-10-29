@@ -1284,7 +1284,7 @@ impl CnCGameEngine {
         if matches!(self.current_state, GameState::Menu | GameState::Loading) {
             // Shell/loading frame cadence is managed by update_with_frame_clock() and event-loop
             // pacing. Running gameplay script FPS spin-waits here can stall the UI thread.
-            self.script_fps_limit_last_tick = None;
+            self.fps_limiter_last_tick = None;
         } else {
             self.apply_script_frame_limit();
         }

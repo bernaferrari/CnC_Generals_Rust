@@ -1213,9 +1213,12 @@ pub struct CnCGameEngine {
 
     // Camera system
     pub(in crate::cnc_game_engine) look_at_modes: super::mouse::LookAtHostModes,
-    /// Application frame pacing remains outside the session camera owner.
-    pub(crate) script_fps_limit: Option<u32>,
-    pub(crate) script_fps_limit_last_tick: Option<Instant>,
+    /// The engine's own limiter. Its configured rate is captured after config,
+    /// command-line and GameLOD admission; scripts and NewGame may only change
+    /// this receiving engine's current rate and enabled bit.
+    pub(crate) fps_limiter: super::fps_limiter::FpsLimiterState,
+    pub(crate) fps_limiter_last_tick: Option<Instant>,
+    pub(crate) startup_fps_rollback: Option<super::fps_limiter::FpsLimiterState>,
 
     // Input state
     pub(crate) keys_pressed: HashSet<Key>,

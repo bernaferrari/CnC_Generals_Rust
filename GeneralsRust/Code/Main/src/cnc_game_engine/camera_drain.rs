@@ -3564,6 +3564,7 @@ mod replay_fast_forward_probe {
         match startup_catalogs {
             super::super::StartupLoadState::InProgress { receiver, .. } => {
                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+                let mut fps_before_startup = None;
                 let prepared = loop {
                     anyhow::ensure!(
                         std::time::Instant::now() < deadline,
@@ -3575,9 +3576,23 @@ mod replay_fast_forward_probe {
                         .map_err(|error| anyhow::anyhow!("probe startup catalogs: {error}"))?;
                     match message {
                         super::super::StartupLoadMessage::Progress { .. } => {}
-                        super::super::StartupLoadMessage::Prepared(result) => {
-                            break result.map_err(anyhow::Error::msg)?;
+                        super::super::StartupLoadMessage::ApplyFpsLimit(request) => {
+                            if fps_before_startup.is_none() {
+                                fps_before_startup = Some(engine.fps_limiter);
+                            }
+                            let resolved = engine.fps_limiter.apply_new_game(request.requested);
+                            let _ = request.reply.send(resolved);
                         }
+                        super::super::StartupLoadMessage::Prepared(result) => match result {
+                            Ok(prepared) => break prepared,
+                            Err(error) => {
+                                if let Some(before) = fps_before_startup.take() {
+                                    engine.fps_limiter = before;
+                                    engine.fps_limiter_last_tick = None;
+                                }
+                                return Err(anyhow::Error::msg(error));
+                            }
+                        },
                     }
                 };
                 anyhow::ensure!(

@@ -326,6 +326,16 @@ impl CnCGameEngine {
         // GlobalData.writable.frames_per_second_limit / use_fps_limit
         // (GameEngine.cpp:535 setFramesPerSecondLimit).
         game_engine::common::game_lod::load_game_lod_ini_presets_and_options();
+        // GameEngine::init sets m_maxFPS from the now-admitted application
+        // defaults. Capture them as this engine's immutable baseline before
+        // its startup worker or any later session can mutate compatibility data.
+        let (fps_configured_rate, fps_configured_enabled) = {
+            let global = game_engine::common::global_data::read();
+            (
+                global.writable.frames_per_second_limit,
+                global.writable.use_fps_limit,
+            )
+        };
         // C++ GameEngine::init createAudioManager / TheAudio (GameEngine.cpp:410).
         let native_audio_device =
             game_engine::common::audio::game_audio::initialize_global_audio_manager();
@@ -1045,8 +1055,12 @@ impl CnCGameEngine {
             resource_manager,
             save_file_manager,
             look_at_modes: super::mouse::LookAtHostModes::default(),
-            script_fps_limit: None,
-            script_fps_limit_last_tick: None,
+            fps_limiter: super::fps_limiter::FpsLimiterState::new(
+                fps_configured_rate,
+                fps_configured_enabled,
+            ),
+            fps_limiter_last_tick: None,
+            startup_fps_rollback: None,
             keys_pressed: HashSet::new(),
             mouse_position: (0.0, 0.0),
             mouse_cursor_seen: false,

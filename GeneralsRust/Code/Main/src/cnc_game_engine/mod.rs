@@ -99,6 +99,7 @@ mod control_bar_viewport;
 mod dispatch;
 mod display_clock;
 mod eva_delivery;
+mod fps_limiter;
 mod host;
 mod host_authority;
 mod hotkeys;
@@ -158,6 +159,7 @@ pub use types::{CnCGameEngine, VertexXYZNDUV2};
 
 enum StartupLoadMessage {
     Progress { progress: f32, phase: String },
+    ApplyFpsLimit(fps_limiter::StartupFpsLimitRequest),
     Prepared(std::result::Result<StartupPreparedLoadResult, String>),
 }
 

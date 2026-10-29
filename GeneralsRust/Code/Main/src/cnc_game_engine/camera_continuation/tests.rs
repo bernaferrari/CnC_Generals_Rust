@@ -98,6 +98,13 @@ pub(super) fn fixture() -> CameraState {
         rmb_deselect_down_at_age: None,
     }
 }
+
+#[test]
+fn legacy_camera_fps_above_signed_runtime_range_is_rejected() {
+    let mut state = fixture();
+    state.script_fps_limit = Some(i32::MAX as u32 + 1);
+    assert!(state.validate().is_err());
+}
 /// Admit the authored native fixture onto the same actual owner the world
 /// snapshot captures. Native85 and Logic V2 must never describe two cameras.
 pub(super) fn fixture_on_owner(state: &mut CameraState, world: &mut crate::game_logic::GameLogic) {

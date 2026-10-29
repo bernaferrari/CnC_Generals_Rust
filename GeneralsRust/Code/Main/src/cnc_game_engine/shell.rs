@@ -1812,8 +1812,31 @@ impl CnCGameEngine {
 
                     worker_stop_if_abandoned()?;
                     startup_messages.extend(game_logic.replay_pending.take_lifecycle_messages_owned());
-                    let startup_new_game =
+                    let mut startup_new_game =
                         Self::startup_new_game_dispatch_from_messages(&startup_messages);
+                    if let Some(dispatch) = startup_new_game.as_mut() {
+                        if let Some(requested) = dispatch.max_fps {
+                            // Dispatch.cpp applies the engine rate before prepareNewGame.
+                            // Ask the receiving engine to update its owned limiter at
+                            // that exact point; the reply supplies the same resolved
+                            // value to candidate GameLogic construction.
+                            let (reply, resolved) = mpsc::sync_channel(0);
+                            sender.send(StartupLoadMessage::ApplyFpsLimit(
+                                super::fps_limiter::StartupFpsLimitRequest { requested, reply },
+                            ))
+                                .map_err(|_| "receiving engine dropped startup FPS request".to_owned())?;
+                            let resolved_rate = loop {
+                                match resolved.recv_timeout(Duration::from_millis(50)) {
+                                    Ok(rate) => break rate,
+                                    Err(mpsc::RecvTimeoutError::Timeout) => worker_stop_if_abandoned()?,
+                                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                                        return Err("receiving engine did not resolve startup FPS request".to_owned());
+                                    }
+                                }
+                            };
+                            dispatch.max_fps = Some(resolved_rate);
+                        }
+                    }
 
                     if replay_startup_requested && startup_new_game.is_none() {
                         warn!(
@@ -2419,6 +2442,12 @@ impl CnCGameEngine {
             self.startup_load_state = StartupLoadState::Complete;
             let _ = self.startup_target_state.take();
         }
+        if self
+            .fps_limiter
+            .rollback_startup(self.startup_fps_rollback.take())
+        {
+            self.fps_limiter_last_tick = None;
+        }
     }
 
     /// True when the boot overlay may release to Menu without a shell map.
@@ -2494,6 +2523,13 @@ impl CnCGameEngine {
                             }
                             *last_worker_phase = Some(phase);
                         }
+                        Ok(StartupLoadMessage::ApplyFpsLimit(request)) => {
+                            if self.startup_fps_rollback.is_none() {
+                                self.startup_fps_rollback = Some(self.fps_limiter);
+                            }
+                            let resolved = self.fps_limiter.apply_new_game(request.requested);
+                            let _ = request.reply.send(resolved);
+                        }
                         Ok(StartupLoadMessage::Prepared(complete)) => {
                             info!(
                                 "Startup catalogs prepared in {:.2}s; admitting native map",
@@ -2547,12 +2583,35 @@ impl CnCGameEngine {
 
         match result.expect("startup completion result missing") {
             Ok(prepared) => {
-                let result = self.admit_prepared_startup_map_load(prepared)?;
-                self.finalize_startup_map_load(result)?;
-                info!("Startup shell/game load completed");
-                Ok(())
+                let admitted = self
+                    .admit_prepared_startup_map_load(prepared)
+                    .and_then(|result| self.finalize_startup_map_load(result));
+                match admitted {
+                    Ok(()) => {
+                        self.startup_fps_rollback = None;
+                        info!("Startup shell/game load completed");
+                        Ok(())
+                    }
+                    Err(error) => {
+                        if self
+                            .fps_limiter
+                            .rollback_startup(self.startup_fps_rollback.take())
+                        {
+                            self.fps_limiter_last_tick = None;
+                        }
+                        Err(error)
+                    }
+                }
             }
-            Err(err) => Err(anyhow::anyhow!(err)),
+            Err(err) => {
+                if self
+                    .fps_limiter
+                    .rollback_startup(self.startup_fps_rollback.take())
+                {
+                    self.fps_limiter_last_tick = None;
+                }
+                Err(anyhow::anyhow!(err))
+            }
         }
     }
 }
