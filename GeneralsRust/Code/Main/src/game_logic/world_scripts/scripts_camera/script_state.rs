@@ -854,28 +854,6 @@ impl GameLogic {
         }
     }
 
-    /// C++ ScriptActions::doSetMoney / doGiveMoney live drain.
-    /// Leftover mutates crate player_list; live cash lives on host Player.
-    pub(super) fn apply_host_money_script_requests(&mut self) {
-        use gamelogic::scripting::HostScriptMoneyRequest;
-        for req in gamelogic::scripting::take_host_money_requests() {
-            match req {
-                HostScriptMoneyRequest::Set { player, amount } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
-                        continue;
-                    };
-                    self.host_script_set_player_money(pid, amount);
-                }
-                HostScriptMoneyRequest::Give { player, amount } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
-                        continue;
-                    };
-                    self.host_script_give_player_money(pid, amount);
-                }
-            }
-        }
-    }
-
     /// C++ doNamedFlash: NULL color → `Object::getIndicatorColor`; white → RGB 1,1,1 `getAsInt`.
     pub(super) fn host_script_flash_color(
         &self,

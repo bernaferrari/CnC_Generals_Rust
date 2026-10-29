@@ -252,7 +252,7 @@ pub enum HostScriptFaceRequest {
     TeamFaceWaypoint { team: String, waypoint: String },
 }
 
-/// Live host drain: PLAYER_SET_MONEY / PLAYER_GIVE_MONEY.
+/// Synchronous owner request: PLAYER_SET_MONEY / PLAYER_GIVE_MONEY.
 /// C++ `ScriptActions::doSetMoney` / `doGiveMoney`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostScriptMoneyRequest {
@@ -572,8 +572,6 @@ thread_local! {
         RefCell<Vec<HostScriptKillDeleteDamageRequest>> = RefCell::new(Vec::new());
     static HOST_SCRIPT_FACE_REQUESTS: RefCell<Vec<HostScriptFaceRequest>> =
         RefCell::new(Vec::new());
-    static HOST_SCRIPT_MONEY_REQUESTS: RefCell<Vec<HostScriptMoneyRequest>> =
-        RefCell::new(Vec::new());
     static HOST_SCRIPT_PLAYER_RELATES_REQUESTS: RefCell<Vec<HostScriptPlayerRelatesRequest>> =
         RefCell::new(Vec::new());
     static HOST_SCRIPT_BOOBYTRAP_REQUESTS: RefCell<Vec<HostScriptBoobytrapRequest>> =
@@ -889,17 +887,6 @@ pub fn request_host_script_face(req: HostScriptFaceRequest) {
 
 pub fn take_host_script_face_requests() -> Vec<HostScriptFaceRequest> {
     HOST_SCRIPT_FACE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
-}
-
-/// Live host drain: PLAYER_SET_MONEY / PLAYER_GIVE_MONEY.
-/// C++ `doSetMoney` withdraws all then deposits; `doGiveMoney` deposits or
-/// withdraws a signed amount.
-pub fn request_host_money(req: HostScriptMoneyRequest) {
-    HOST_SCRIPT_MONEY_REQUESTS.with(|q| q.borrow_mut().push(req));
-}
-
-pub fn take_host_money_requests() -> Vec<HostScriptMoneyRequest> {
-    HOST_SCRIPT_MONEY_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
 
 /// Live host drain: PLAYER_RELATES_PLAYER (`setPlayerRelationship`).

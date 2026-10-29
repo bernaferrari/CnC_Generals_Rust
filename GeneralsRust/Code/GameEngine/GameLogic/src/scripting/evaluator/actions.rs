@@ -521,13 +521,6 @@ impl ScriptEvaluator {
                 player.get_money_mut().set_money(amount);
             }
         }
-        crate::scripting::executor::request_host_money(
-            crate::scripting::executor::HostScriptMoneyRequest::Set {
-                player: player_name.to_string(),
-                amount,
-            },
-        );
-
         Ok(())
     }
 
@@ -560,13 +553,6 @@ impl ScriptEvaluator {
                 player.get_money_mut().set_money(updated);
             }
         }
-        crate::scripting::executor::request_host_money(
-            crate::scripting::executor::HostScriptMoneyRequest::Give {
-                player: player_name.to_string(),
-                amount,
-            },
-        );
-
         Ok(())
     }
 }

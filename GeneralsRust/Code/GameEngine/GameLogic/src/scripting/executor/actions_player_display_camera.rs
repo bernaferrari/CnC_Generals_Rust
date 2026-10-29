@@ -48,13 +48,6 @@ impl ScriptActionDispatcher<'_> {
                 log::warn!("Player '{}' not found for set money", player_name);
             }
         }
-        crate::scripting::executor::request_host_money(
-            crate::scripting::executor::HostScriptMoneyRequest::Set {
-                player: player_name,
-                amount: money_amount,
-            },
-        );
-
         Ok(ScriptActionResult::Success)
     }
 
@@ -98,13 +91,6 @@ impl ScriptActionDispatcher<'_> {
                 log::warn!("Player '{}' not found for give money", player_name);
             }
         }
-        crate::scripting::executor::request_host_money(
-            crate::scripting::executor::HostScriptMoneyRequest::Give {
-                player: player_name,
-                amount: money_amount,
-            },
-        );
-
         Ok(ScriptActionResult::Success)
     }
 

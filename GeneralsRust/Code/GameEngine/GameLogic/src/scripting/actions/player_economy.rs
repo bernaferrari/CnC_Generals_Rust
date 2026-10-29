@@ -243,13 +243,6 @@ impl ScriptAction for GiveMoneyAction {
 
         let resolved_name =
             resolve_player_name_token(&player_name, _context.is_generals_challenge_campaign());
-        let host_amount = amount.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-        crate::scripting::executor::request_host_money(
-            crate::scripting::executor::HostScriptMoneyRequest::Give {
-                player: resolved_name.clone(),
-                amount: host_amount,
-            },
-        );
         let list_guard = player_list()
             .read()
             .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?;
@@ -315,13 +308,6 @@ impl ScriptAction for SetMoneyAction {
 
         let resolved_name =
             resolve_player_name_token(&player_name, _context.is_generals_challenge_campaign());
-        let host_amount = amount.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-        crate::scripting::executor::request_host_money(
-            crate::scripting::executor::HostScriptMoneyRequest::Set {
-                player: resolved_name.clone(),
-                amount: host_amount,
-            },
-        );
         let list_guard = player_list()
             .read()
             .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?;

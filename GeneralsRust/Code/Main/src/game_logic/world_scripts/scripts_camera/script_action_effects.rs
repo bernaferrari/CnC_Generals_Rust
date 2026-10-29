@@ -88,7 +88,6 @@ impl GameLogic {
         self.apply_host_skirmish_script_requests();
         self.apply_host_set_base_construction_speed_requests();
         self.apply_host_set_train_held_requests();
-        self.apply_host_money_script_requests();
         self.apply_host_player_relates_script_requests();
 
         self.apply_host_loco_set_script_requests_with_effects(&mut ui)?;
