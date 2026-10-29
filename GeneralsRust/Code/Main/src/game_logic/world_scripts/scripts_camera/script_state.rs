@@ -1250,10 +1250,10 @@ impl GameLogic {
         self.propagate_script_disabled_mask(id, disabled, effects, &mut Vec::new())
     }
 
-    /// `SpawnBehavior::orderSlavesDisabledUntil` visits ordered spawn IDs and
-    /// calls aiIdle before setDisabledUntil; clear visits the same order with
-    /// no idle. Retain each object's birth across reentrant callbacks.
-    /// ContainModuleInterface::friend_getRider remains a separate migration.
+    /// `RiderChangeContain::friend_getRider` uses the first contained Object.
+    /// SpawnBehavior then visits ordered spawn IDs, calling aiIdle before
+    /// setDisabledUntil; clear visits the same order without idle. Retain
+    /// each object's birth across reentrant callbacks.
     fn propagate_script_disabled_mask(
         &mut self,
         id: ObjectId,
@@ -1276,11 +1276,6 @@ impl GameLogic {
         }
         visiting.push(id);
         let birth = std::sync::Arc::downgrade(&parent.visual_draw_identity_token);
-        let children = if parent.is_spawns_are_the_weapons() {
-            parent.spawn_behavior_children()
-        } else {
-            Vec::new()
-        };
         if disabled {
             self.objects
                 .get_mut(&id)
@@ -1288,6 +1283,72 @@ impl GameLogic {
                 .status
                 .disabled_script_disabled = true;
         }
+        // Main stores structure passengers on BuildingData; the admitted
+        // contain interface still owns one ordered list in either case.
+        let first_contained = |parent: &Object| {
+            parent
+                .building_data
+                .as_ref()
+                .map_or(parent.occupants.as_slice(), |building| {
+                    building.garrisoned_units.as_slice()
+                })
+                .first()
+                .copied()
+        };
+        // OpenContain's default friend_getRider returns NULL even when it has
+        // passengers. Only the admitted RiderChange interface owns this list
+        // as a rider; never treat a generic transport's first passenger as one.
+        let rider = self.host_object(id).and_then(|parent| {
+            use gamelogic::contain_module_overrides::ContainModuleDataKind;
+            let receiving = parent.thing().template.receiving_client_template.as_ref()?;
+            let mut contains = receiving
+                .behavior_modules()
+                .iter()
+                .filter_map(|module| ContainModuleDataKind::from_module_data(module.data.as_ref()));
+            // Multiple contain interfaces are invalid in C++ and cannot be
+            // safely selected through a partial host metadata projection.
+            if !matches!(contains.next(), Some(ContainModuleDataKind::RiderChange(_)))
+                || contains.next().is_some()
+            {
+                return None;
+            }
+            let rider_id = first_contained(parent)?;
+            self.host_object(rider_id)
+                .filter(|rider| rider.contained_by == Some(id))
+                .map(|rider| {
+                    (
+                        rider_id,
+                        std::sync::Arc::downgrade(&rider.visual_draw_identity_token),
+                    )
+                })
+        });
+        if let Some((rider_id, rider_birth)) = rider {
+            let matches_births = self.host_object(id).is_some_and(|parent| {
+                birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &parent.visual_draw_identity_token,
+                )) && first_contained(parent) == Some(rider_id)
+                    && self.host_object(rider_id).is_some_and(|rider| {
+                        rider.contained_by == Some(id)
+                            && rider_birth.ptr_eq(&std::sync::Arc::downgrade(
+                                &rider.visual_draw_identity_token,
+                            ))
+                    })
+            });
+            if matches_births {
+                self.propagate_script_disabled_mask(rider_id, disabled, effects, visiting)?;
+            }
+        }
+        // C++ selects the SpawnBehavior interface after the rider callback;
+        // resolve the current parent and roster again at that observation point.
+        let children = self
+            .host_object(id)
+            .and_then(|parent| {
+                (birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &parent.visual_draw_identity_token,
+                )) && parent.is_spawns_are_the_weapons())
+                .then(|| parent.spawn_behavior_children())
+            })
+            .unwrap_or_default();
         for (child_id, child_birth) in children {
             let matches_births = |world: &GameLogic| {
                 world.host_object(id).is_some_and(|parent| {
