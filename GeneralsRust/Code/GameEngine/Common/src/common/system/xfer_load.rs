@@ -42,8 +42,8 @@ impl<R: Read> XferLoad<R> {
         self.version
     }
 
-    /// Bytes consumed by completed reads. A failed partial read can advance the
-    /// underlying reader further; use its cursor for strict end-of-record checks.
+    /// Bytes returned by the underlying reader, including bytes consumed before
+    /// a failed exact read. Use the reader's cursor for strict end-of-record checks.
     pub fn bytes_read(&self) -> u64 {
         self.bytes_read
     }
@@ -228,10 +228,8 @@ impl<R: Read> Xfer for XferLoad<R> {
         let mut remaining = data_size as usize;
         while remaining > 0 {
             let count = remaining.min(buffer.len());
-            self.reader
-                .read_exact(&mut buffer[..count])
+            self.read_exact_counted(&mut buffer[..count])
                 .map_err(|_| XferStatus::SkipError)?;
-            self.bytes_read += count as u64;
             remaining -= count;
         }
         Ok(())
@@ -258,8 +256,7 @@ impl<R: Read> Xfer for XferLoad<R> {
         self.xfer_unsigned_byte(&mut len)?;
         let mut bytes = vec![0u8; len as usize];
         if len > 0 {
-            self.reader.read_exact(&mut bytes)?;
-            self.bytes_read += len as u64;
+            self.read_exact_counted(&mut bytes)?;
         }
         *ascii_string_data = bytes.iter().map(|&b| b as char).collect();
         Ok(())
@@ -274,8 +271,7 @@ impl<R: Read> Xfer for XferLoad<R> {
         let mut units = Vec::with_capacity(len as usize);
         for _ in 0..len {
             let mut bytes = [0u8; 2];
-            self.reader.read_exact(&mut bytes)?;
-            self.bytes_read += 2;
+            self.read_exact_counted(&mut bytes)?;
             units.push(u16::from_le_bytes(bytes));
         }
         *unicode_string_data = String::from_utf16_lossy(&units);
@@ -286,11 +282,35 @@ impl<R: Read> Xfer for XferLoad<R> {
     /// The caller must ensure that `data` points to a valid mutable buffer
     /// of at least `data_size` bytes.
     // SAFETY: caller contract — data valid for writes of data_size;
-    // read_exact fills exactly that many bytes from the stream.
+    // read_exact_counted fills exactly the requested slice and accounts for every
+    // successful underlying read, even if a later read in the operation fails.
     unsafe fn xfer_implementation(&mut self, data: *mut u8, data_size: usize) -> io::Result<()> {
         let slice = std::slice::from_raw_parts_mut(data, data_size);
-        self.reader.read_exact(slice)?;
-        self.bytes_read += data_size as u64;
+        self.read_exact_counted(slice)
+    }
+}
+
+impl<R: Read> XferLoad<R> {
+    /// `Read::read_exact` may consume a prefix and then return an error. Count
+    /// bytes at the point the reader actually returns them so telemetry still
+    /// reflects the cursor after truncated ASCII/UTF-16 payloads.
+    fn read_exact_counted(&mut self, mut destination: &mut [u8]) -> io::Result<()> {
+        while !destination.is_empty() {
+            match self.reader.read(destination) {
+                Ok(0) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "failed to fill whole buffer",
+                    ));
+                }
+                Ok(bytes_read) => {
+                    self.bytes_read += bytes_read as u64;
+                    destination = &mut destination[bytes_read..];
+                }
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error),
+            }
+        }
         Ok(())
     }
 }
@@ -330,7 +350,7 @@ mod tests {
     }
 
     #[test]
-    fn string_and_skip_accounting_matches_completed_wire_reads() {
+    fn string_and_skip_accounting_matches_consumed_wire_bytes() {
         let mut bytes = vec![3, b'M', 0xe9, b'x', 2, 0x41, 0, 0x22, 0x6f, 0, 0];
         bytes.extend_from_slice(&0x7654_3210_u32.to_le_bytes());
         bytes.extend_from_slice(&[11, 12, 13]);
@@ -356,17 +376,17 @@ mod tests {
     }
 
     #[test]
-    fn failed_partial_payload_counts_only_completed_reads() {
+    fn failed_partial_payload_counts_every_byte_consumed() {
         let mut ascii = XferLoad::new(Cursor::new(vec![3, b'A']), 1);
         let mut unchanged = "original".to_owned();
         assert!(ascii.xfer_ascii_string(&mut unchanged).is_err());
         assert_eq!(unchanged, "original");
-        assert_eq!(ascii.bytes_read(), 1);
+        assert_eq!(ascii.bytes_read(), 2);
         assert_eq!(ascii.reader.position(), 2);
         let mut unicode = XferLoad::new(Cursor::new(vec![2, 0x41, 0, 0x22]), 1);
         assert!(unicode.xfer_unicode_string(&mut unchanged).is_err());
         assert_eq!(unchanged, "original");
-        assert_eq!(unicode.bytes_read(), 3);
+        assert_eq!(unicode.bytes_read(), 4);
         assert_eq!(unicode.reader.position(), 4);
     }
 
