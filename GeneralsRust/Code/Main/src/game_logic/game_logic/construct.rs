@@ -845,6 +845,20 @@ impl GameLogic {
         });
     }
 
+    /// A reset must not discard an interpreter that is currently on a
+    /// callback stack or erase a failed Team admission owned by this world.
+    fn validate_reset_owners(&self) -> gamelogic::GameLogicResult<()> {
+        if self.owned_script_engine.is_none() {
+            return Err(gamelogic::GameLogicError::Configuration(
+                "GameLogic reset requires its receiving script interpreter".into(),
+            ));
+        }
+        if let Some(error) = self.team_creation_error() {
+            return Err(error);
+        }
+        Ok(())
+    }
+
     /// Reset this installed world after retiring its registered Objects through
     /// the receiving native presentation owner. This is the checked Main path;
     /// the legacy compatibility reset above remains available to detached tools.
@@ -854,6 +868,7 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         let services = Arc::clone(&self.world_services);
         gamelogic::system::engine_stores::with_world_services(&services, || {
+            self.validate_reset_owners()?;
             if self.has_unregistered_host_objects() {
                 return Err(gamelogic::GameLogicError::Configuration(
                     "GameLogic reset cannot discard an unfinished Object constructor".into(),
@@ -911,6 +926,7 @@ impl GameLogic {
         &mut self,
         effects: Option<&mut crate::game_logic::ScriptPresentationEffects<'_>>,
     ) -> gamelogic::GameLogicResult<()> {
+        self.validate_reset_owners()?;
         let mut effects = effects;
         self.intro_movie_playing = false;
         self.campaign_session_kind = super::host::CampaignSessionKind::None;
@@ -1618,6 +1634,15 @@ impl GameLogic {
         // orphan AI slots with stale object_ids while players were cleared above.
         // load_map does not call reset, so preserve_host_players still keeps AI.
         self.ai_manager = AIManager::with_team_factory(self.team_factory.clone());
+        // GameLogic.cpp resets the ScriptEngine after Object teardown and AI.
+        // The owned command queue is not the already-admitted native command
+        // batch: that batch remains with its continuation until the source
+        // update reaches its ordinary end-of-frame command-list cleanup.
+        self.owned_script_engine
+            .as_mut()
+            .expect("reset preflight retained the receiving interpreter")
+            .reset();
+        self.command_queue.clear();
         log::debug!("GameLogic::reset() complete");
         Ok(())
     }
