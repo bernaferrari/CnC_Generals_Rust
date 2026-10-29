@@ -183,12 +183,6 @@ impl ObjectStatusMaskType {
                 continue;
             }
 
-            let token = token.trim_matches(',');
-
-            if token.is_empty() {
-                continue;
-            }
-
             if token.eq_ignore_ascii_case("NONE") {
                 if found_normal || found_add_or_sub {
                     return Err("cannot mix NONE with other object status tokens".to_string());
@@ -198,7 +192,7 @@ impl ObjectStatusMaskType {
             }
 
             let (op, name) = match token.chars().next() {
-                Some('+') | Some('-') => (token.chars().next(), token[1..].trim()),
+                Some('+') | Some('-') => (token.chars().next(), &token[1..]),
                 _ => (None, token),
             };
 
@@ -671,6 +665,41 @@ mod tests {
                 "unknown object status 'UNKNOWN'"
             );
         }
+    }
+
+    #[test]
+    fn object_status_punctuation_is_not_a_token_separator_like_cpp_ini() {
+        // INI::getNextTokenOrNull uses " \n\r\t=" as separators. Commas
+        // remain part of the token and scanIndexList rejects the full token.
+        for token in [
+            ",",
+            ",STEALTHED",
+            "STEALTHED,",
+            "+,STEALTHED",
+            "+STEALTHED,",
+            "-,STEALTHED",
+            "-STEALTHED,",
+            "NONE,",
+            ",NONE",
+            "+ STEALTHED",
+        ] {
+            let error = ObjectStatusMaskType::parse_tokens([token]).unwrap_err();
+            assert!(
+                error.starts_with("unknown object status"),
+                "comma punctuation must remain in token {token:?}: {error}"
+            );
+        }
+
+        // BitFlags checks the mode conflict before scanIndexList, even when
+        // the conflicting token also contains invalid punctuation.
+        assert_eq!(
+            ObjectStatusMaskType::parse_tokens(["STEALTHED", "+,DETECTED"]).unwrap_err(),
+            "cannot mix additive object status tokens with direct listings"
+        );
+        assert_eq!(
+            ObjectStatusMaskType::parse_tokens(["+STEALTHED", "DETECTED,"]).unwrap_err(),
+            "cannot mix direct object status listings with +/- modifiers"
+        );
     }
 }
 
