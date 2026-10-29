@@ -3,10 +3,14 @@ use glam::Vec3;
 
 const WORKER: &str = "TestWorker";
 const MISCLASSIFIED_WORKER: &str = "GLAInfantryWorker";
+const SILENT_WORKER: &str = "SilentTestWorker";
 const WORKER_SHOES: &str = "Upgrade_GLAWorkerShoes";
 
-fn world() -> (
+fn world(
+    cue: &str,
+) -> (
     GameLogic,
+    generals_main::game_logic::ObjectId,
     generals_main::game_logic::ObjectId,
     generals_main::game_logic::ObjectId,
 ) {
@@ -18,7 +22,7 @@ fn world() -> (
         .admit_object_ini_sources([(
             "WorkerShoesVoiceOwner.ini".into(),
             format!(
-                "Object {WORKER}\n KindOf = INFANTRY DOZER HARVESTER SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject {MISCLASSIFIED_WORKER}\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"
+                "Object {WORKER}\n KindOf = INFANTRY DOZER HARVESTER SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n UnitSpecificSounds\n  VoiceMoveUpgraded = {cue}\n End\nEnd\nObject {MISCLASSIFIED_WORKER}\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject {SILENT_WORKER}\n KindOf = INFANTRY DOZER HARVESTER SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"
             ),
         )])
         .expect("admit worker fixture");
@@ -28,13 +32,16 @@ fn world() -> (
     let mislabeled_worker = world
         .create_object_for_player(MISCLASSIFIED_WORKER, 1, Vec3::ZERO)
         .expect("create worker with incomplete KindOf bits");
-    (world, worker, mislabeled_worker)
+    let silent_worker = world
+        .create_object_for_player(SILENT_WORKER, 1, Vec3::ZERO)
+        .expect("create worker without VoiceMoveUpgraded cue");
+    (world, worker, mislabeled_worker, silent_worker)
 }
 
 #[test]
-fn upgraded_move_voice_uses_only_the_receiving_controlling_players_completion() {
-    let (mut first, first_worker, first_mislabeled) = world();
-    let (mut peer, peer_worker, peer_mislabeled) = world();
+fn upgraded_move_voice_uses_receiving_player_and_object_sound() {
+    let (mut first, first_worker, first_mislabeled, first_silent) = world("FirstUpgradedMoveVoice");
+    let (mut peer, peer_worker, peer_mislabeled, _) = world("PeerUpgradedMoveVoice");
     assert_eq!(first_worker, peer_worker, "worlds reuse Object IDs");
     assert_eq!(first_mislabeled, peer_mislabeled, "worlds reuse Object IDs");
 
@@ -63,14 +70,19 @@ fn upgraded_move_voice_uses_only_the_receiving_controlling_players_completion() 
     assert!(!first.try_queue_picked_voice_move_upgraded(&[first_worker]));
     assert!(!peer.try_queue_picked_voice_move_upgraded(&[peer_worker]));
 
-    // The same Player completion is observed only in its receiving world.
+    // The same Player completion is observed only through that world's
+    // receiving Object definition, which supplies its own cue.
     first
         .get_player_mut(1)
         .expect("first controller")
         .completed_upgrades
         .insert(WORKER_SHOES.into());
+    peer.get_player_mut(1)
+        .expect("peer controller")
+        .completed_upgrades
+        .insert(WORKER_SHOES.into());
     assert!(first.try_queue_picked_voice_move_upgraded(&[first_worker]));
-    assert!(!peer.try_queue_picked_voice_move_upgraded(&[peer_worker]));
+    assert!(peer.try_queue_picked_voice_move_upgraded(&[peer_worker]));
     assert!(!first.try_queue_picked_voice_move_upgraded(&[first_mislabeled]));
     assert!(!peer.try_queue_picked_voice_move_upgraded(&[peer_mislabeled]));
     assert_eq!(
@@ -80,9 +92,20 @@ fn upgraded_move_voice_uses_only_the_receiving_controlling_players_completion() 
             .iter()
             .map(|request| request.event_type.as_str())
             .collect::<Vec<_>>(),
-        ["VoiceMoveUpgraded"]
+        ["FirstUpgradedMoveVoice"]
     );
-    assert!(peer.queued_audio_events.drain_requests().is_empty());
+    assert_eq!(
+        peer.queued_audio_events
+            .drain_requests()
+            .iter()
+            .map(|request| request.event_type.as_str())
+            .collect::<Vec<_>>(),
+        ["PeerUpgradedMoveVoice"]
+    );
+    // C++ sets skip even when getPerUnitSound returns NULL; silence suppresses
+    // default VoiceMove instead of synthesizing the slot name as an event.
+    assert!(first.try_queue_picked_voice_move_upgraded(&[first_silent]));
+    assert!(first.queued_audio_events.drain_requests().is_empty());
 
     // Capture changes the controlling Player. The old Object effect tag stays
     // on the worker, but must not keep the prior Player's voice entitlement.

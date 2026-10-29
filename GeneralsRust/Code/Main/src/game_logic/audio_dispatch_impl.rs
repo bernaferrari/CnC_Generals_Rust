@@ -145,11 +145,8 @@ pub(crate) fn resolve_receiving_per_unit_sound(
     template: &crate::game_logic::ThingTemplate,
     key: &str,
 ) -> Option<String> {
-    if let Some(receiving) = &template.receiving_client_template {
-        return receiving
-            .per_unit_sound_event(key)
-            .filter(|name| !name.is_empty())
-            .map(str::to_owned);
+    if template.receiving_client_template.is_some() {
+        return resolve_admitted_per_unit_sound(template, key);
     }
     #[cfg(test)]
     {
@@ -157,6 +154,21 @@ pub(crate) fn resolve_receiving_per_unit_sound(
     }
     #[cfg(not(test))]
     None
+}
+
+/// Resolve only this Object's immutable, session-admitted UnitSpecificSounds.
+/// Callers that must preserve authored silence should use this instead of the
+/// test-fixture-compatible name resolver above.
+pub(crate) fn resolve_admitted_per_unit_sound(
+    template: &crate::game_logic::ThingTemplate,
+    key: &str,
+) -> Option<String> {
+    template
+        .receiving_client_template
+        .as_ref()?
+        .per_unit_sound_event(key)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
 }
 
 /// C++ pickAndPlayUnitVoiceResponse checks the per-unit slot first, then the

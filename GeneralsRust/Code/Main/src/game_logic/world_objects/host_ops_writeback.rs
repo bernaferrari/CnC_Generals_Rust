@@ -1603,9 +1603,9 @@ impl GameLogic {
     }
 
     /// C++ `CommandXlat.cpp:433-443` — first matching worker wins (`skip=true`).
-    /// Always plays the PerUnitSound key; C++ does not `isValidAudioEvent` this line.
+    /// Missing VoiceMoveUpgraded is silent but still suppresses default VoiceMove.
     pub fn try_queue_picked_voice_move_upgraded(&mut self, unit_ids: &[ObjectId]) -> bool {
-        use crate::game_logic::audio_dispatch_impl::resolve_receiving_per_unit_sound;
+        use crate::game_logic::audio_dispatch_impl::resolve_admitted_per_unit_sound;
         use crate::game_logic::host_gla_worker::{
             WORKER_VOICE_MOVE_UPGRADED, is_worker_for_voice_move_upgraded,
             worker_shoes_voice_upgrade_complete,
@@ -1635,16 +1635,20 @@ impl GameLogic {
             if !player_has_shoes {
                 continue;
             }
-            let event =
-                resolve_receiving_per_unit_sound(obj.get_template(), WORKER_VOICE_MOVE_UPGRADED)
-                    .unwrap_or_else(|| WORKER_VOICE_MOVE_UPGRADED.to_string());
-            let pos = obj.get_position();
-            self.queue_audio_event(
-                AudioEventRequest::new(&event)
-                    .with_object(id)
-                    .with_position(pos)
-                    .with_priority(100),
-            );
+            if let Some(event) =
+                resolve_admitted_per_unit_sound(obj.get_template(), WORKER_VOICE_MOVE_UPGRADED)
+            {
+                let pos = obj.get_position();
+                self.queue_audio_event(
+                    AudioEventRequest::new(&event)
+                        .with_object(id)
+                        .with_position(pos)
+                        .with_priority(100),
+                );
+            }
+            // C++ sets `skip = true` for the upgraded worker even when the
+            // per-unit cue is absent; the final null-sound check is silent and
+            // suppresses the ordinary VoiceMove fallback.
             return true;
         }
         false
