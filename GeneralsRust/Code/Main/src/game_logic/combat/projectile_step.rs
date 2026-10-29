@@ -96,6 +96,7 @@ impl CombatSystem {
             terrain,
             ownership_events,
             historic_damage_limit,
+            None,
             &mut ProjectileFxCallbacks { fx, pose: publish },
         )
     }
@@ -111,6 +112,7 @@ impl CombatSystem {
         terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
         historic_damage_limit: u32,
+        receiving_objects: Option<&crate::assets::ReceivingObjectDefinitions>,
         runtime: &mut dyn ProjectilePresentationRuntime,
     ) -> (Vec<DamageEvent>, Vec<ObjectId>) {
         let mut damage_events = Vec::new();
@@ -206,9 +208,14 @@ impl CombatSystem {
                             source_veterancy: projectile.source_veterancy,
                             source_orientation: projectile.velocity.z.atan2(projectile.velocity.x),
                             source_velocity: projectile.velocity,
+                            projectile_die_effects: Vec::new(),
                         });
                     }
-                    Self::queue_missile_calls_on_die(&mut self.impact_fx, projectile);
+                    Self::queue_missile_calls_on_die(
+                        &mut self.impact_fx,
+                        projectile,
+                        receiving_objects,
+                    );
 
                     if step == ProjectileStep::Detonate {
                         projectiles_to_remove.push(proj_id);
@@ -364,9 +371,14 @@ impl CombatSystem {
                         source_veterancy: projectile.source_veterancy,
                         source_orientation: projectile.velocity.z.atan2(projectile.velocity.x),
                         source_velocity: projectile.velocity,
+                        projectile_die_effects: Vec::new(),
                     });
                 }
-                Self::queue_missile_calls_on_die(&mut self.impact_fx, projectile);
+                Self::queue_missile_calls_on_die(
+                    &mut self.impact_fx,
+                    projectile,
+                    receiving_objects,
+                );
 
                 projectiles_to_remove.push(proj_id);
                 return (damage_events, projectiles_to_remove);
@@ -441,9 +453,14 @@ impl CombatSystem {
                                     .z
                                     .atan2(projectile.velocity.x),
                                 source_velocity: projectile.velocity,
+                                projectile_die_effects: Vec::new(),
                             });
                         }
-                        Self::queue_missile_calls_on_die(&mut self.impact_fx, projectile);
+                        Self::queue_missile_calls_on_die(
+                            &mut self.impact_fx,
+                            projectile,
+                            receiving_objects,
+                        );
 
                         projectiles_to_remove.push(proj_id);
                     }
@@ -482,9 +499,14 @@ impl CombatSystem {
                             source_veterancy: projectile.source_veterancy,
                             source_orientation: projectile.velocity.z.atan2(projectile.velocity.x),
                             source_velocity: projectile.velocity,
+                            projectile_die_effects: Vec::new(),
                         });
                     }
-                    Self::queue_missile_calls_on_die(&mut self.impact_fx, projectile);
+                    Self::queue_missile_calls_on_die(
+                        &mut self.impact_fx,
+                        projectile,
+                        receiving_objects,
+                    );
 
                     projectiles_to_remove.push(proj_id);
                 }

@@ -67,6 +67,20 @@ pub struct ProjectileImpactFx {
     /// Current projectile transform peels needed by generic OCL dispositions.
     pub source_orientation: f32,
     pub source_velocity: Vec3,
+    /// Ordered projectile Object::onDie modules admitted with this session's
+    /// projectile Object definition. Weapon detonation effects remain in the
+    /// fields above and are dispatched first.
+    pub projectile_die_effects: Vec<ProjectileDieEffect>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ProjectileDieEffect {
+    Fx {
+        name: String,
+        audio: Option<String>,
+        orient_to_object: bool,
+    },
+    Ocl(String),
 }
 
 /// Unit of the pending speed and `min_weapon_speed` pair. Weapon.ini stores

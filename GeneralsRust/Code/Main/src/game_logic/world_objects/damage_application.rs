@@ -1501,6 +1501,7 @@ impl GameLogic {
                         Some(&terrain),
                         &mut self.ownership_events,
                         historic_damage_limit,
+                        self.receiving_object_definitions.as_ref(),
                         view,
                     )
                 },
@@ -1516,6 +1517,7 @@ impl GameLogic {
             Some(&terrain),
             &mut self.ownership_events,
             historic_damage_limit,
+            self.receiving_object_definitions.as_ref(),
             &mut (),
         );
 

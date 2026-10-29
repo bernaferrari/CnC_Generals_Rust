@@ -1677,7 +1677,10 @@ impl GameLogic {
             // ProjectileDetonationOCL independently.  An OCL-only weapon
             // (common poison/radiation field pattern) therefore still reaches
             // the real host object-creation path.
-            if impact.detonation_fx_name.is_empty() && impact.detonation_ocl_name.is_empty() {
+            if impact.detonation_fx_name.is_empty()
+                && impact.detonation_ocl_name.is_empty()
+                && impact.projectile_die_effects.is_empty()
+            {
                 continue;
             }
             if !impact.detonation_ocl_name.is_empty() {
@@ -1716,6 +1719,56 @@ impl GameLogic {
                     matrix,
                     presentation_effects,
                 );
+            }
+            for effect in &impact.projectile_die_effects {
+                match effect {
+                    crate::game_logic::combat::ProjectileDieEffect::Fx {
+                        name,
+                        audio,
+                        orient_to_object,
+                    } => {
+                        if !name.trim().is_empty() && !name.eq_ignore_ascii_case("None") {
+                            let matrix = orient_to_object.then(|| {
+                                glam::Mat4::from_translation(impact.position)
+                                    * glam::Mat4::from_rotation_y(-impact.source_orientation)
+                            });
+                            let _ = self.dispatch_fx_list_at_host_position_oriented_with_effects(
+                                name,
+                                impact.position,
+                                None,
+                                0.0,
+                                0.0,
+                                matrix,
+                                presentation_effects,
+                            );
+                        }
+                        if let Some(audio) = audio.as_deref().filter(|name| !name.is_empty()) {
+                            self.queue_audio_event(
+                                crate::game_logic::AudioEventRequest::new(audio)
+                                    .with_position(impact.position),
+                            );
+                        }
+                    }
+                    crate::game_logic::combat::ProjectileDieEffect::Ocl(ocl) => {
+                        // Preserve the existing OCL creation, receiving owner,
+                        // and impact origin. The bridge's source identity is
+                        // still the firing object because virtual projectiles
+                        // do not have a HostObjectStore birth receipt; C++
+                        // CreateObjectDie instead passes the dying projectile.
+                        // Track that attribution mismatch in hq-6lwbil rather
+                        // than dropping the authored effect or inventing an ID.
+                        let _ = self.execute_parsed_weapon_ocl_at_with_effects(
+                            ocl,
+                            Some(impact.shooter_id),
+                            impact.source_team,
+                            impact.source_veterancy,
+                            impact.source_orientation,
+                            impact.source_velocity,
+                            impact.position,
+                            presentation_effects,
+                        );
+                    }
+                }
             }
         }
     }

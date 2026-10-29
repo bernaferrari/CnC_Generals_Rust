@@ -1250,7 +1250,7 @@ pub(in crate::game_logic) mod tests {
     }
 
     #[test]
-    fn missile_calls_on_die_fires_missile_fx_not_victim_death() {
+    fn missile_calls_on_die_uses_receiving_definition_and_not_global_name_lookup() {
         let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
 
         let mut health_events = crate::game_logic::HostHealthEvents::default();
@@ -1296,24 +1296,73 @@ pub(in crate::game_logic) mod tests {
             0.0,
             false,
         );
-        crate::game_logic::host_fx_list_die::set_test_fx_list_die(
-            "ScudStormMissile",
-            crate::game_logic::host_fx_list_die::HostFxListDieData::with_fx(
-                "FX_AuthoredMissileDie",
-            ),
-        );
         if let Some(p) = combat.projectile_mut(pid) {
             p.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Exploded;
             p.die_on_detonate = true;
             p.projectile_object_name = "ScudStormMissile".into();
         }
-        let _ = combat.update_projectiles(
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                "Object ScudStormMissile\nBehavior = FXListDie MissileDie\nDeathFX = FX_AuthoredMissileDie\nEnd\nEnd\n",
+                "receiving projectile die test",
+            )
+            .expect("parse receiving projectile definition");
+        let receiving = crate::assets::ReceivingObjectDefinitions::new(
+            parser.get_all_definitions().clone().into_iter(),
+        );
+        let mut peer_parser = crate::assets::IniParser::new();
+        peer_parser
+            .parse_ini_content(
+                "Object ScudStormMissile\nBehavior = FXListDie MissileDie\nDeathFX = FX_PeerMissileDie\nEnd\nEnd\n",
+                "peer projectile die test",
+            )
+            .expect("parse peer projectile definition");
+        let peer_receiving = crate::assets::ReceivingObjectDefinitions::new(
+            peer_parser.get_all_definitions().clone().into_iter(),
+        );
+        let mut peer_projectile = combat
+            .projectile_mut(pid)
+            .expect("same numeric projectile id in peer")
+            .clone();
+        let mut peer_fx = Vec::new();
+        CombatSystem::queue_missile_calls_on_die(
+            &mut peer_fx,
+            &peer_projectile,
+            Some(&peer_receiving),
+        );
+        assert!(peer_fx.iter().any(|impact| {
+            impact.projectile_die_effects.iter().any(
+                |effect| matches!(effect, ProjectileDieEffect::Fx { name, .. } if name == "FX_PeerMissileDie"),
+            )
+        }));
+        let mut missing_fx = Vec::new();
+        CombatSystem::queue_missile_calls_on_die(&mut missing_fx, &peer_projectile, None);
+        assert!(
+            missing_fx.is_empty(),
+            "missing receiving definitions fail closed"
+        );
+        let (damage_events, _) = combat.prepare_projectile_impact_with_runtime(
+            pid,
             1.0 / 30.0,
             &mut objects,
+            None,
+            0,
+            None,
+            &mut _ownership_output,
+            0,
+            Some(&receiving),
+            &mut (),
+        );
+        combat.apply_damage_events(
+            &damage_events,
+            &mut objects,
+            None,
+            None,
+            0,
             &mut health_events,
             &mut _ownership_output,
         );
-        crate::game_logic::host_fx_list_die::clear_test_fx_list_die();
         let victim = objects.get(&target).expect("victim");
         assert_eq!(
             victim.status.death_type,
@@ -1323,13 +1372,14 @@ pub(in crate::game_logic) mod tests {
         let fx = combat.take_impact_fx();
         assert!(
             fx.iter()
-                .any(|ev| ev.detonation_fx_name == "FX_AuthoredMissileDie"),
+                .flat_map(|ev| &ev.projectile_die_effects)
+                .any(|effect| matches!(effect, ProjectileDieEffect::Fx { name, .. } if name == "FX_AuthoredMissileDie")),
             "authored missile FXListDie must fire on die_on_detonate, got {fx:?}"
         );
         assert!(
             fx.iter()
-                .all(|ev| ev.detonation_fx_name != "FX_ScudMissileDie"),
-            "must not invent FX_ScudMissileDie, got {fx:?}"
+                .all(|ev| ev.projectile_die_effects.iter().all(|effect| !matches!(effect, ProjectileDieEffect::Fx { name, .. } if name == "FX_ScudMissileDie"))),
+            "must not invent a projectile FX from its name, got {fx:?}"
         );
     }
 
@@ -1965,7 +2015,8 @@ pub(in crate::game_logic) mod tests {
         assert_eq!(area.position, projectile.position);
         assert_eq!(area.primary_victim, None);
 
-        let ordinary = AreaDamage::new(&event, objects.read(), std::f32::consts::PI, false).unwrap();
+        let ordinary =
+            AreaDamage::new(&event, objects.read(), std::f32::consts::PI, false).unwrap();
         assert_eq!(ordinary.position, impact);
         assert_eq!(ordinary.primary_victim, Some(ObjectId(192)));
     }

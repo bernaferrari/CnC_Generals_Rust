@@ -398,6 +398,7 @@ impl CombatSystem {
     fn queue_missile_calls_on_die(
         impact_fx: &mut Vec<ProjectileImpactFx>,
         projectile: &Projectile,
+        receiving_objects: Option<&crate::assets::ReceivingObjectDefinitions>,
     ) {
         if !projectile.die_on_detonate {
             return;
@@ -406,42 +407,79 @@ impl CombatSystem {
         if name.is_empty() {
             return;
         }
-        let mut fx_name = String::new();
-        if let Some(mut fx) =
-            crate::game_logic::host_fx_list_die::fx_list_die_config_for_template(name)
-        {
-            let hits = fx.collect_applicable(
-                &[],
-                crate::game_logic::host_usa_pilot::HostDeathType::Detonated,
-            );
-            if let Some((Some(name), _)) = hits.into_iter().next() {
-                fx_name = name;
+        let Some(definition) = receiving_objects
+            .and_then(|definitions| definitions.get(name))
+            .map(std::sync::Arc::as_ref)
+        else {
+            // A receiving catalog miss is authoritative. In particular, an
+            // application AssetManager row with the same name cannot supply
+            // another session's projectile Die modules.
+            return;
+        };
+        let mut die_effects = Vec::new();
+        for module in &definition.behavior_modules {
+            let attrs: Vec<(&str, &str)> = module
+                .attributes
+                .iter()
+                .map(|(key, value)| (key.as_str(), value.as_str()))
+                .collect();
+            match module.class_name.to_ascii_lowercase().as_str() {
+                "fxlistdie" => {
+                    let mut data =
+                        crate::game_logic::host_fx_list_die::fx_list_die_from_behavior_attrs(
+                            &attrs,
+                        );
+                    for hit in data.collect_applicable_mux_hits(
+                        &[],
+                        crate::game_logic::host_usa_pilot::HostDeathType::Detonated,
+                        gamelogic::common::VeterancyLevel::Regular,
+                        0,
+                    ) {
+                        if hit.death_fx.is_some() || hit.death_audio.is_some() {
+                            die_effects.push(ProjectileDieEffect::Fx {
+                                name: hit.death_fx.unwrap_or_default(),
+                                audio: hit.death_audio,
+                                orient_to_object: hit.orient_to_object,
+                            });
+                        }
+                    }
+                }
+                "createobjectdie" => {
+                    let mux = crate::game_logic::host_fx_list_die::fx_list_die_from_behavior_attrs(
+                        &attrs,
+                    );
+                    if !mux.leftover_die_mux_allows(
+                        crate::game_logic::host_usa_pilot::HostDeathType::Detonated,
+                        gamelogic::common::VeterancyLevel::Regular,
+                        0,
+                    ) {
+                        continue;
+                    }
+                    if let Some(ocl) = module
+                        .attribute("CreationList")
+                        .map(str::trim)
+                        .filter(|ocl| !ocl.is_empty() && !ocl.eq_ignore_ascii_case("None"))
+                    {
+                        die_effects.push(ProjectileDieEffect::Ocl(ocl.to_owned()));
+                    }
+                }
+                _ => {}
             }
         }
-        let ocl_name =
-            crate::game_logic::host_create_object_die::create_object_die_config_for_template(name)
-                .and_then(|mut cod| {
-                    let _ = cod.on_die();
-                    if cod.ocl_name.trim().is_empty() {
-                        None
-                    } else {
-                        Some(cod.ocl_name)
-                    }
-                })
-                .unwrap_or_default();
-        if fx_name.is_empty() && ocl_name.is_empty() {
+        if die_effects.is_empty() {
             return;
         }
         impact_fx.push(ProjectileImpactFx {
             position: projectile.position,
             shooter_id: projectile.shooter_id,
             target_id: projectile.target_id,
-            detonation_fx_name: fx_name,
-            detonation_ocl_name: ocl_name,
+            detonation_fx_name: String::new(),
+            detonation_ocl_name: String::new(),
             source_team: projectile.source_team,
             source_veterancy: projectile.source_veterancy,
             source_orientation: projectile.velocity.z.atan2(projectile.velocity.x),
             source_velocity: projectile.velocity,
+            projectile_die_effects: die_effects,
         });
     }
 
@@ -960,6 +998,7 @@ impl CombatSystem {
                 source_veterancy: proj.source_veterancy,
                 source_orientation: 0.0,
                 source_velocity: Vec3::ZERO,
+                projectile_die_effects: Vec::new(),
             });
         }
         events
