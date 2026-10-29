@@ -47,6 +47,7 @@ fn world_with_catalog(map: &std::path::Path, catalog: LocomotorStore) -> GameLog
              Object OwnerBike\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL CliffOwnerLoco GroundOwnerLoco\n Locomotor = SET_NORMAL_UPGRADED UpgradedOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = RiderChangeContain RiderTag\n Slots = 1\n Rider1 = OwnerRider RIDER1 WEAPON_RIDER1 STATUS_RIDER1 BikeSet SET_NORMAL\n End\n Behavior = LocomotorSetUpgrade Bonus\n TriggeredBy = Upgrade_Veterancy_VETERAN\n End\nEnd\n\
              Object OwnerRider\n KindOf = SELECTABLE INFANTRY\n IsTrainable = Yes\n ExperienceRequired = 0 60 150 300\n TransportSlotCount = 1\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n\
              Object OwnerJet\n KindOf = SELECTABLE AIRCRAFT\n Locomotor = SET_NORMAL AirOwnerLoco\n Locomotor = SET_TAXIING TaxiOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = JetAIUpdate JetBrain\n End\nEnd\n\
+             Object OwnerFastJet\n KindOf = SELECTABLE AIRCRAFT\n Locomotor = SET_NORMAL AirOwnerLoco\n Locomotor = SET_TAXIING TaxiOwnerLoco\n Locomotor = SET_SUPERSONIC AirOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = JetAIUpdate JetBrain\n AttackLocomotorType = SET_SUPERSONIC\n AttackLocomotorPersistTime = 200\n End\nEnd\n\
              Object OwnerTargetProbe\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL ThresholdOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
              Object NoLocoActor\n KindOf = SELECTABLE VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
         )])
@@ -161,8 +162,14 @@ fn accepted_path_and_ai_state_entry_stamp_the_receiving_frame() {
         let goal = glam::Vec3::new(120.0 + offset, 0.0, 80.0);
         assert!(logic.assign_unit_path_exact(id, goal, &[goal]));
     }
-    assert_eq!(owner.host_object(owner_id).unwrap().donut_timer, owner_frame.wrapping_add(75));
-    assert_eq!(peer.host_object(peer_id).unwrap().donut_timer, peer_frame.wrapping_add(75));
+    assert_eq!(
+        owner.host_object(owner_id).unwrap().donut_timer,
+        owner_frame.wrapping_add(75)
+    );
+    assert_eq!(
+        peer.host_object(peer_id).unwrap().donut_timer,
+        peer_frame.wrapping_add(75)
+    );
 }
 
 #[test]
@@ -670,11 +677,72 @@ fn public_move_object_to_stamps_each_receiving_world_frame() {
 
     for (logic, id, offset) in [(&mut owner, owner_id, 0.0), (&mut peer, peer_id, 12.0)] {
         logic.host_object_mut(id).unwrap().donut_timer = 0;
-        assert!(logic.move_object_to(
-            id,
-            glam::Vec3::new(120.0 + offset, 0.0, 80.0),
-        ));
+        assert!(logic.move_object_to(id, glam::Vec3::new(120.0 + offset, 0.0, 80.0),));
     }
-    assert_eq!(owner.host_object(owner_id).unwrap().donut_timer, owner_frame.wrapping_add(75));
-    assert_eq!(peer.host_object(peer_id).unwrap().donut_timer, peer_frame.wrapping_add(75));
+    assert_eq!(
+        owner.host_object(owner_id).unwrap().donut_timer,
+        owner_frame.wrapping_add(75)
+    );
+    assert_eq!(
+        peer.host_object(peer_id).unwrap().donut_timer,
+        peer_frame.wrapping_add(75)
+    );
+}
+
+#[test]
+fn jet_attack_uses_authored_default_normal_in_each_world() {
+    let mut map = DataChunkOutput::new();
+    map.open_data_chunk("HeightMapData", 3);
+    for value in [21, 21, 1, 441] {
+        map.write_int(value);
+    }
+    for _ in 0..441 {
+        map.write_byte(8);
+    }
+    map.close_data_chunk();
+    map.open_data_chunk("ObjectsList", 3);
+    map.close_data_chunk();
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("Jet.map");
+    std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
+    let mut first = world(&path, 20, 3);
+    let mut peer = world(&path, 60, 7);
+    let one = first
+        .create_object_for_player("OwnerJet", 42, glam::Vec3::new(80., 0., 120.))
+        .unwrap();
+    let two = peer
+        .create_object_for_player("OwnerFastJet", 42, glam::Vec3::new(80., 0., 120.))
+        .unwrap();
+    assert_eq!(one, two);
+    for (world, id) in [(&mut first, one), (&mut peer, two)] {
+        let jet = world.host_object_mut(id).unwrap();
+        jet.jet_ai.allow_air_loco = true;
+        jet.jet_ai.attack_loco_expire_frame = 100;
+    }
+    assert_eq!(first.update_with_dt(1.0 / 30.0).steps_run, 1);
+    assert_eq!(peer.update_with_dt(1.0 / 30.0).steps_run, 1);
+    assert_eq!(
+        first
+            .host_object(one)
+            .unwrap()
+            .get_cur_locomotor_set_token(),
+        Some("SET_NORMAL")
+    );
+    assert_eq!(
+        peer.host_object(two).unwrap().get_cur_locomotor_set_token(),
+        Some("SET_SUPERSONIC")
+    );
+    assert_eq!(
+        first
+            .host_object(one)
+            .unwrap()
+            .jet_attack_loco_persist_frames(),
+        0
+    );
+    assert_eq!(
+        peer.host_object(two)
+            .unwrap()
+            .jet_attack_loco_persist_frames(),
+        6
+    );
 }

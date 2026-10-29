@@ -574,6 +574,9 @@ impl Object {
     /// C++ `m_attackLocoPersistTime` in logic frames. Retail 100ms on Aurora /
     /// Raptor / MIG / Stealth (`AttackLocomotorPersistTime`).
     pub fn jet_attack_loco_persist_frames(&self) -> u32 {
+        if let Some(data) = self.jet_lockon_data() {
+            return data.attack_loco_persist_time;
+        }
         if !self.jet_uses_attack_locomotor() {
             return 0;
         }
@@ -644,7 +647,7 @@ impl Object {
     pub(crate) fn apply_airborne_locomotor_set_in(&mut self, locomotors: Option<&LocomotorStore>) {
         self.jet_ai.allow_air_loco = true;
         if self.jet_ai.attack_loco_expire_frame != 0 {
-            self.choose_jet_locomotor_set("SET_SUPERSONIC", locomotors);
+            self.choose_jet_locomotor_set(self.jet_attack_locomotor_token(), locomotors);
         } else {
             self.choose_jet_locomotor_set("SET_NORMAL", locomotors);
         }
@@ -652,15 +655,11 @@ impl Object {
 
     /// C++ `JetAIUpdate::chooseLocomotorSet`.
     fn choose_jet_locomotor_set(&mut self, set: &str, locomotors: Option<&LocomotorStore>) {
-        use crate::game_logic::host_upgrade_module_residuals::{
-            HostLocomotorSetKind, apply_locomotor_set_kind_for_surfaces_in,
-        };
-        let kind = if set.eq_ignore_ascii_case("SET_TAXIING") {
-            HostLocomotorSetKind::Taxiing
-        } else if set.eq_ignore_ascii_case("SET_SUPERSONIC") {
-            HostLocomotorSetKind::Supersonic
-        } else {
-            HostLocomotorSetKind::Normal
+        use crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_kind_for_surfaces_in;
+        let Some(kind) =
+            crate::game_logic::host_upgrade_module_residuals::locomotor_set_kind_from_token(set)
+        else {
+            return;
         };
         let already = self
             .jet_ai
@@ -692,12 +691,23 @@ impl Object {
             return;
         }
         if self.jet_ai.attack_loco_expire_frame != 0 {
-            self.choose_jet_locomotor_set("SET_SUPERSONIC", locomotors);
+            self.choose_jet_locomotor_set(self.jet_attack_locomotor_token(), locomotors);
         } else if self.jet_ai.cur_locomotor_set.as_deref().is_some_and(|s| {
             s.to_ascii_uppercase().contains("SUPERSONIC") || s.eq_ignore_ascii_case("SET_TAXIING")
         }) {
             self.choose_jet_locomotor_set("SET_NORMAL", locomotors);
         }
+    }
+
+    /// C++ defaults the authored JetAI attack locomotor to SET_NORMAL.
+    fn jet_attack_locomotor_token(&self) -> &'static str {
+        self.jet_lockon_data()
+            .map(|data| {
+                crate::game_logic::host_upgrade_module_residuals::locomotor_set_kind_token(
+                    data.attacking_loco,
+                )
+            })
+            .unwrap_or("SET_SUPERSONIC") // Assetless prototype fallback.
     }
 
     fn jet_lockon_data(
