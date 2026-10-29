@@ -43,6 +43,10 @@ fn world_with_positions(
             "BoobyTrapAsymmetricGeometry.ini".into(),
             "Object TrapAsymmetricTarget\n KindOf = STRUCTURE IMMOBILE SELECTABLE SCORE\n Geometry = CYLINDER\n  GeometryIsSmall = No\n  GeometryHeight = 10\n  GeometryMajorRadius = 5\n  GeometryMinorRadius = 5\n End\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\n End\nEnd\nObject TrapTallVictim\n KindOf = INFANTRY SELECTABLE SCORE\n Geometry = BOX\n  GeometryIsSmall = No\n  GeometryHeight = 20\n  GeometryMajorRadius = 4\n  GeometryMinorRadius = 4\n End\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
         ),
+        (
+            "BoobyTrapFactoryFailure.ini".into(),
+            "Object CheckedStickyCharge\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = GarrisonContain ContainTag\n  ContainMax = 1\n  AllowInsideKindOf = INFANTRY\n  InitialRoster = CheckedBad 1\n End\nEnd\nObject CheckedBad\n KindOf = INFANTRY\n Body = ActiveBody Body\n MaxHealth = NaN\n InitialHealth = 100\n End\nEnd\n".into(),
+        ),
     ])
     .expect("admit typed charge and host templates");
     admit_trap_blast(&mut game);
@@ -220,6 +224,47 @@ fn scripted_team_boobytrap_uses_authored_module_and_keeps_object_without_module(
     assert_eq!(
         team_id_for_members(&no_module, &[no_module_target, plain.id]),
         team_id_for_members(&no_module, &[no_module_target])
+    );
+}
+
+#[test]
+fn scripted_team_boobytrap_propagates_nested_factory_error_after_cleanup() {
+    let (mut game, _, target) = world();
+    let (team_id, team_name) = team_for_member(&game, target);
+
+    let error = game
+        .update_local_script_engine_with_owner(&scripted_team_boobytrap_engine(
+            "CheckedStickyCharge",
+            &team_name,
+        ))
+        .expect_err("script action returns the nested constructor failure");
+    let message = error.to_string();
+    assert!(message.contains("CheckedBad"), "child identity: {message}");
+    assert!(
+        message.contains("MaxHealth"),
+        "Body validation cause: {message}"
+    );
+
+    assert_eq!(team_id_for_members(&game, &[target]), team_id);
+    assert!(
+        game.host_object(target).is_some(),
+        "receiving target survives"
+    );
+    let committed_parent = game
+        .host_objects()
+        .registered_values()
+        .find(|object| object.template_name == "CheckedStickyCharge")
+        .expect("committed parent remains until normal queued retirement");
+    assert!(
+        committed_parent.status.destroyed,
+        "cleanup marks the committed parent for retirement before returning the failure"
+    );
+    assert!(
+        !game
+            .host_objects()
+            .registered_values()
+            .any(|object| object.template_name == "CheckedBad"),
+        "the invalid child never commits"
     );
 }
 

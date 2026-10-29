@@ -439,11 +439,13 @@ impl GameLogic {
         target_id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<ObjectId> {
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
         use crate::game_logic::KindOf;
 
         let (target_birth, team, owner_player_id, team_name, team_id, radius) = {
-            let target = self.objects.get(&target_id)?;
+            let Some(target) = self.objects.get(&target_id) else {
+                return Ok(None);
+            };
             (
                 std::sync::Arc::downgrade(&target.visual_draw_identity_token),
                 target.team,
@@ -451,12 +453,15 @@ impl GameLogic {
                     .owner_player_id
                     .and_then(|_| self.player_owner_for_host_object(target)),
                 target.team_instance_name.clone(),
-                target.team_instance_id?,
+                match target.team_instance_id {
+                    Some(team_id) => team_id,
+                    None => return Ok(None),
+                },
                 target.geometry_info().bounding_circle_radius(),
             )
         };
         if template_name.trim().is_empty() || team_name.is_empty() {
-            return None;
+            return Ok(None);
         }
 
         let creation = self.create_object_for_exact_team_with_birth_checked(
@@ -471,22 +476,22 @@ impl GameLogic {
         );
         let (charge_id, charge_birth) = match creation {
             Ok(Some(receipt)) => receipt,
-            Ok(None) => return None,
+            Ok(None) => return Ok(None),
             Err(error) => {
                 if let Some((created_id, created_birth)) = error.committed {
                     if self.object_birth_matches(created_id, &created_birth) {
-                        let _ = self.destroy_object_if_birth_matches_with_effects(
+                        self.destroy_object_if_birth_matches_with_effects(
                             created_id,
                             &created_birth,
                             effects,
-                        );
+                        )?;
                     }
                 }
                 log::error!(
                     "Failed to create scripted StickyBomb template: {}",
                     error.error
                 );
-                return None;
+                return Err(error.error);
             }
         };
 
@@ -494,19 +499,19 @@ impl GameLogic {
         // `newObject` followed by `findUpdateModule`. Do not destroy a normal
         // created object when it simply has no StickyBombUpdate behavior.
         if !self.object_birth_matches(charge_id, &charge_birth) {
-            return None;
+            return Ok(None);
         }
         if !self.booby_trap_template_has_sticky_bomb_update(template_name) {
-            return Some(charge_id);
+            return Ok(Some(charge_id));
         }
 
         // C++ keeps the raw target Object pointer through factory callbacks.
         // Rust continues only if this is still the same receiving object.
         if !self.object_birth_matches(target_id, &target_birth) {
-            return Some(charge_id);
+            return Ok(Some(charge_id));
         }
         let Some(position) = self.booby_trap_script_perimeter_position(target_id) else {
-            return Some(charge_id);
+            return Ok(Some(charge_id));
         };
         let position = glam::Vec3::new(
             position.x,
@@ -520,12 +525,12 @@ impl GameLogic {
             charge.booby_trap_attached_to = Some(target_id);
             charge.producer_id = Some(target_id);
         } else {
-            return Some(charge_id);
+            return Ok(Some(charge_id));
         }
         if !self.object_birth_matches(target_id, &target_birth)
             || !self.object_birth_matches(charge_id, &charge_birth)
         {
-            return Some(charge_id);
+            return Ok(Some(charge_id));
         }
         if let Some(charge) = self.objects.get_mut(&charge_id) {
             charge.set_position_with_effects_and_pose_owners(
@@ -539,7 +544,7 @@ impl GameLogic {
         if !self.object_birth_matches(target_id, &target_birth)
             || !self.object_birth_matches(charge_id, &charge_birth)
         {
-            return Some(charge_id);
+            return Ok(Some(charge_id));
         }
 
         let charge_is_booby_trap = self
@@ -563,7 +568,7 @@ impl GameLogic {
             None,
             155,
         );
-        Some(charge_id)
+        Ok(Some(charge_id))
     }
 
     pub(crate) fn spawn_booby_trap_special_object_with_effects(

@@ -323,7 +323,9 @@ impl GameLogic {
 
     /// C++ `ScriptActions::doNamedSetBoobytrapped` / `doTeamSetBoobytrapped`.
     /// Leftover queues [`gamelogic::scripting::HostScriptBoobytrapRequest`].
-    pub(super) fn apply_host_boobytrap_script_requests(&mut self) {
+    pub(super) fn apply_host_boobytrap_script_requests(
+        &mut self,
+    ) -> gamelogic::GameLogicResult<()> {
         self.apply_host_boobytrap_script_requests_with_effects(None, &mut Default::default())
     }
 
@@ -331,7 +333,7 @@ impl GameLogic {
         &mut self,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use gamelogic::scripting::HostScriptBoobytrapRequest;
         for req in gamelogic::scripting::take_host_script_boobytrap_requests() {
             match req {
@@ -342,7 +344,7 @@ impl GameLogic {
                             id,
                             interpreter,
                             effects,
-                        );
+                        )?;
                     }
                 }
                 HostScriptBoobytrapRequest::Team { thing, team } => {
@@ -360,11 +362,12 @@ impl GameLogic {
                             ObjectId(member),
                             interpreter,
                             effects,
-                        );
+                        )?;
                     }
                 }
             }
         }
+        Ok(())
     }
 
     /// C++ `ScriptActions::doNamedSetUnmanned` / `doTeamSetUnmanned` /
@@ -529,7 +532,11 @@ impl GameLogic {
 
     /// C++ `TheThingFactory->newObject(thing, obj->getTeam())` then
     /// `StickyBombUpdate::initStickyBomb(obj, NULL, &perimeterPos)`.
-    pub(super) fn host_script_plant_boobytrap(&mut self, thing: &str, target_id: ObjectId) {
+    pub(super) fn host_script_plant_boobytrap(
+        &mut self,
+        thing: &str,
+        target_id: ObjectId,
+    ) -> gamelogic::GameLogicResult<()> {
         self.host_script_plant_boobytrap_with_effects(
             thing,
             target_id,
@@ -544,8 +551,9 @@ impl GameLogic {
         target_id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        let _ = self.create_script_sticky_bomb_with_effects(thing, target_id, interpreter, effects);
+    ) -> gamelogic::GameLogicResult<()> {
+        self.create_script_sticky_bomb_with_effects(thing, target_id, interpreter, effects)?;
+        Ok(())
     }
 
     /// C++ `ScriptActions::doGuardSupplyCenter` live drain.

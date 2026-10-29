@@ -153,12 +153,12 @@ impl<'a> HostScriptExecutionDriver<'a> {
                 }
             }
             Request::Boobytrap { template, .. } => {
-                self.world.host_script_plant_boobytrap_with_effects(
+                return Some(self.world.host_script_plant_boobytrap_with_effects(
                     template,
                     id,
                     self.interpreter,
                     &mut self.ui,
-                );
+                ));
             }
             Request::FireWeaponPath { path, .. } => {
                 self.world
