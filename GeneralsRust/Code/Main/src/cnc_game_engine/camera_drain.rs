@@ -3232,7 +3232,9 @@ mod replay_fast_forward_probe {
     fn source_command_phase_engine_witness(engine: &mut CnCGameEngine) {
         use crate::cnc_game_engine::GameState;
         use crate::game_logic::GameMode;
-        use game_engine::common::message_stream::{GameMessage, GameMessageType};
+        use game_engine::common::message_stream::{
+            ClientShellMapLaunch, ClientSkirmishLaunch, GameMessage, GameMessageType,
+        };
         let directory = std::env::temp_dir().join(format!(
             "generals-command-phase-{}-{}",
             std::process::id(),
@@ -3266,6 +3268,86 @@ mod replay_fast_forward_probe {
             .reset_recorder_owned(inputs.clone());
         engine.current_state = GameState::InGame;
         engine.pending_match_start = None;
+        // A malformed typed lobby reaches the receiving preparation boundary
+        // after the descriptor seed, difficulty and FPS have been applied.
+        // Its rejected admission must restore the existing stream in place.
+        engine.game_logic.set_logic_random_seed(0x3141_5926);
+        let _ = engine.game_logic.logic_random.next_u32();
+        let prior_base_seed = engine.game_logic.logic_base_seed;
+        let prior_rng_words = engine.game_logic.logic_random.seed_words();
+        let prior_map_fallback = Some("Maps/PreviousReceivingFallback".to_string());
+        engine.application_map_fallback = prior_map_fallback.clone();
+        let mut invalid_shell = GameMessage::new(GameMessageType::NewGame);
+        for value in [4, 2, 71, 60] {
+            invalid_shell.append_integer_argument(value);
+        }
+        invalid_shell.set_shell_map_launch(ClientShellMapLaunch {
+            map: String::new(),
+            seed: 0x1618_0339,
+        });
+        assert!(
+            engine
+                .prepare_receiving_source_new_game(&invalid_shell)
+                .is_err()
+        );
+        assert_eq!(engine.game_logic.logic_base_seed, prior_base_seed);
+        assert_eq!(engine.game_logic.logic_random.seed_words(), prior_rng_words);
+        assert_eq!(engine.application_map_fallback, prior_map_fallback);
+        assert_eq!(engine.game_logic.game_mode(), GameMode::Skirmish);
+        assert!(engine.pending_match_start.is_none());
+
+        let mut invalid_lobby = GameMessage::new(GameMessageType::NewGame);
+        for value in [2, 1, 0, 60] {
+            invalid_lobby.append_integer_argument(value);
+        }
+        let mut invalid_game_info =
+            game_engine::common::system::skirmish_game_info::SkirmishGameInfo::default();
+        invalid_game_info.seed = 0x2718_2818;
+        invalid_lobby.set_skirmish_launch(ClientSkirmishLaunch {
+            map: "Maps/RejectedTypedLobby".into(),
+            game_info: invalid_game_info,
+            local_slot: 0,
+            old_factions_only: false,
+            fog_of_war: true,
+            game_mode_code: 2,
+            max_fps: 60,
+        });
+        assert!(
+            engine
+                .prepare_receiving_source_new_game(&invalid_lobby)
+                .is_err()
+        );
+        assert_eq!(engine.game_logic.logic_base_seed, prior_base_seed);
+        assert_eq!(engine.game_logic.logic_random.seed_words(), prior_rng_words);
+        assert_eq!(engine.application_map_fallback, prior_map_fallback);
+        assert_eq!(engine.game_logic.game_mode(), GameMode::Skirmish);
+        assert!(engine.pending_match_start.is_none());
+
+        // Exercise the second mutation site with a real receiving map request.
+        // This fixture has no active Shell; forcing that stale UI bit makes the
+        // actual Menu->Loading callback fail after map selection, then checks
+        // that the previous application fallback is restored.
+        engine.current_state = GameState::Menu;
+        engine.shell_menu_active = true;
+        let prior_map_fallback = Some("Maps/BeforeRejectedTransition".to_string());
+        engine.application_map_fallback = prior_map_fallback.clone();
+        let mut selected_map = GameMessage::new(GameMessageType::NewGame);
+        for value in [2, 1, 0, 60] {
+            selected_map.append_integer_argument(value);
+        }
+        selected_map.set_owned_new_game_map("Maps/RejectedTransition".into());
+        assert!(
+            engine
+                .prepare_receiving_source_new_game(&selected_map)
+                .is_err()
+        );
+        assert_eq!(engine.application_map_fallback, prior_map_fallback);
+        assert_eq!(engine.game_logic.logic_base_seed, prior_base_seed);
+        assert_eq!(engine.game_logic.logic_random.seed_words(), prior_rng_words);
+        assert!(engine.pending_match_start.is_none());
+        engine.shell_menu_active = false;
+        engine.current_state = GameState::InGame;
+
         let fps_before = {
             let mut global = game_engine::common::global_data::write();
             global.pending_file = "Maps/RejectedReplayInput".into();

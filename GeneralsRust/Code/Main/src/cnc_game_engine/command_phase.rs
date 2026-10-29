@@ -7,6 +7,9 @@ use super::*;
 // roster/descriptor must not publish a prepared mode or consume its pending map.
 struct SourcePreparationBefore {
     mode: GameMode,
+    logic_base_seed: u32,
+    logic_rng_seed_words: [u32; 6],
+    application_map_fallback: Option<String>,
     session_difficulty: Option<crate::ai::AIDifficulty>,
     script_difficulty: gamelogic::player::GameDifficulty,
     fps_limiter: super::fps_limiter::FpsLimiterState,
@@ -291,6 +294,9 @@ impl CnCGameEngine {
         let global = game_engine::common::global_data::read();
         SourcePreparationBefore {
             mode: self.game_logic.game_mode(),
+            logic_base_seed: self.game_logic.logic_base_seed,
+            logic_rng_seed_words: self.game_logic.logic_random.seed_words(),
+            application_map_fallback: self.application_map_fallback.clone(),
             session_difficulty: self.game_logic.session_difficulty,
             script_difficulty: self
                 .game_logic
@@ -354,12 +360,21 @@ impl CnCGameEngine {
                 }
             }
         }
+        // Restore the existing receiving stream in place. Cloning a
+        // SessionRandom handle would share its atomic state; replacing the
+        // handle would break any operation-local borrower retained by this
+        // engine. Restore only after rejection cleanup callbacks have run.
+        self.game_logic.logic_base_seed = before.logic_base_seed;
+        self.game_logic
+            .logic_random
+            .set_seed_words(before.logic_rng_seed_words);
+        self.application_map_fallback = before.application_map_fallback;
         warn!(
-            "Rejected native NewGame admission; prior receiving mode/difficulty/pending map retained"
+            "Rejected native NewGame admission; prior receiving mode/difficulty/RNG/map state retained"
         );
     }
 
-    fn prepare_receiving_source_new_game(
+    pub(super) fn prepare_receiving_source_new_game(
         &mut self,
         message: &game_engine::common::message_stream::GameMessage,
     ) -> Result<bool, String> {
