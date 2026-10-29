@@ -215,6 +215,19 @@ pub(super) fn historical_prefix_len(bytes: &[u8]) -> SaveLoadResult<usize> {
             .ok_or_else(|| corrupted("lifecycle link count overflow"))?;
         advance(bytes, &mut offset, length)?;
     }
+    // Ordered SpawnBehavior rosters are an additive, length-framed part of
+    // the structural lifecycle prefix. Camera continuation is appended
+    // immediately afterward, so leave old no-SBRO tails at the exact legacy
+    // boundary and consume only a fully present roster frame when tagged.
+    let suffix = bytes.get(offset..).unwrap_or(&[]);
+    const SPAWN_ROSTER_MAGIC: &[u8; 4] = b"SBRO";
+    if suffix.starts_with(SPAWN_ROSTER_MAGIC) {
+        offset += SPAWN_ROSTER_MAGIC.len();
+        let payload_len = word(bytes, &mut offset)? as usize;
+        advance(bytes, &mut offset, payload_len)?;
+    } else if !suffix.is_empty() && SPAWN_ROSTER_MAGIC.starts_with(suffix) {
+        return Err(corrupted("lifecycle spawn behavior frame truncated"));
+    }
     Ok(offset)
 }
 
@@ -421,5 +434,28 @@ mod tests {
         assert!(decode(&empty_lifecycle_tail(), true).is_ok());
         let decoded = decode(&[0, 0, 0, 0], false).unwrap();
         assert_eq!(decoded.legacy_tail.as_ref(), &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn historical_prefix_consumes_framed_hex_spawn_roster_and_preserves_legacy_suffix() {
+        let mut tail = super::super::lifecycle_tail::LifecycleTail::default();
+        tail.spawn_behavior_rosters =
+            Some(vec![super::super::lifecycle_tail::SpawnBehaviorRoster {
+                producer_id: 7,
+                children: vec![super::super::lifecycle_tail::SpawnBehaviorRosterChild {
+                    child_id: u32::from_le_bytes(*b"WSFL"),
+                    tombstone: true,
+                }],
+            }]);
+        let framed = super::super::lifecycle_tail::encode_lifecycle_tail(&tail);
+        assert!(!framed.windows(4).any(|window| window == b"WSFL"));
+        assert_eq!(historical_prefix_len(&framed).unwrap(), framed.len());
+
+        let mut legacy = tail;
+        legacy.spawn_behavior_rosters = None;
+        let mut legacy = super::super::lifecycle_tail::encode_lifecycle_tail(&legacy);
+        let prefix_len = legacy.len();
+        legacy.extend_from_slice(b"CAMR\x01\x00\x00\x00");
+        assert_eq!(historical_prefix_len(&legacy).unwrap(), prefix_len);
     }
 }

@@ -420,6 +420,11 @@ pub struct Object {
     /// Team ownership
     pub team: Team,
 
+    /// Ordered SpawnBehavior children admitted by this producer. Weak birth
+    /// tokens make callbacks safe when numeric ObjectIds are reused.
+    #[serde(skip, default)]
+    pub(crate) spawn_behavior_children: Vec<SpawnBehaviorChildIdentity>,
+
     /// Controlling player.  `team` is faction/template identity and is not a
     /// unique owner in same-faction skirmishes.
     #[serde(default)]
@@ -3372,6 +3377,82 @@ pub(crate) mod unit_ai_runtime;
 // Concatenated live `object/*.rs` sources (excluding tests) for residual scans.
 
 pub use unit_ai_runtime::{BaseAiContinuation, GuardTargetType, TemporaryAiMove};
+
+#[derive(Debug, Clone)]
+pub(crate) struct SpawnBehaviorChildIdentity {
+    pub(crate) id: ObjectId,
+    birth: std::sync::Weak<()>,
+}
+
+impl Object {
+    pub(crate) fn remember_spawn_behavior_child(
+        &mut self,
+        child_id: ObjectId,
+        birth: std::sync::Weak<()>,
+    ) -> bool {
+        if self
+            .spawn_behavior_children
+            .iter()
+            .any(|entry| entry.id == child_id && entry.birth.ptr_eq(&birth))
+        {
+            return false;
+        }
+        self.spawn_behavior_children
+            .push(SpawnBehaviorChildIdentity {
+                id: child_id,
+                birth,
+            });
+        true
+    }
+
+    pub(crate) fn forget_spawn_behavior_child(
+        &mut self,
+        id: ObjectId,
+        birth: &std::sync::Weak<()>,
+    ) -> bool {
+        let Some(index) = self
+            .spawn_behavior_children
+            .iter()
+            .position(|entry| entry.id == id && entry.birth.ptr_eq(birth))
+        else {
+            return false;
+        };
+        self.spawn_behavior_children.remove(index);
+        true
+    }
+
+    pub(crate) fn spawn_behavior_children(&self) -> Vec<(ObjectId, std::sync::Weak<()>)> {
+        self.spawn_behavior_children
+            .iter()
+            .map(|entry| (entry.id, entry.birth.clone()))
+            .collect()
+    }
+
+    pub(crate) fn spawn_behavior_child_birth_matches(
+        &self,
+        child_id: ObjectId,
+        birth: &std::sync::Weak<()>,
+        child: &Object,
+    ) -> bool {
+        child.id == child_id
+            && birth.ptr_eq(&std::sync::Arc::downgrade(
+                &child.visual_draw_identity_token,
+            ))
+    }
+
+    pub(crate) fn restore_spawn_behavior_children(
+        &mut self,
+        children: Vec<(ObjectId, Option<std::sync::Weak<()>>)>,
+    ) {
+        self.spawn_behavior_children = children
+            .into_iter()
+            .map(|(id, birth)| SpawnBehaviorChildIdentity {
+                id,
+                birth: birth.unwrap_or_default(),
+            })
+            .collect();
+    }
+}
 
 impl Object {
     pub(crate) fn mark_ai_dead(&mut self) {

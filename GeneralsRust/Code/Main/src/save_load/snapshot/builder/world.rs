@@ -568,6 +568,11 @@ impl SnapshotBuilder {
             super::super::body_rules_persist::prepare(lifecycle_tail, snapshot.version)?;
         let lifecycle_for_a10 =
             super::super::lifecycle_tail::decode_lifecycle_tail(lifecycle_tail)?;
+        super::super::lifecycle_tail::preflight_spawn_behavior_rosters(
+            &lifecycle_for_a10,
+            &snapshot.objects,
+            game_logic,
+        )?;
         let a10_delivery_candidate = super::super::a10_flight_persist::decode_and_validate(
             lifecycle_tail,
             &snapshot.objects,

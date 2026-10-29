@@ -14,6 +14,10 @@ pub struct LifecycleTail {
     pub envelopes: Vec<EntityLifecycleEnvelope>,
     pub contain_links: Vec<ContainLink>,
     pub producer_links: Vec<ProducerLink>,
+    /// Ordered SpawnBehavior child IDs, corresponding to C++ m_spawnIDs.
+    /// None means a legacy tail that predates the ordered roster contract.
+    /// Some(empty) is a new-format save that authoritatively has no spawners.
+    pub spawn_behavior_rosters: Option<Vec<SpawnBehaviorRoster>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +36,21 @@ pub struct ProducerLink {
     pub producer_generation: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpawnBehaviorRoster {
+    pub producer_id: u32,
+    pub children: Vec<SpawnBehaviorRosterChild>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpawnBehaviorRosterChild {
+    pub child_id: u32,
+    /// A stale C++ m_spawnIDs entry must not bind to a later reused ID.
+    pub tombstone: bool,
+}
+
+const SPAWN_ROSTER_MAGIC: &[u8; 4] = b"SBRO";
+
 pub fn encode_lifecycle_tail(tail: &LifecycleTail) -> Vec<u8> {
     let mut out = encode_lifecycle_snapshot_block(&tail.envelopes);
     append_u32(&mut out, tail.contain_links.len() as u32);
@@ -47,6 +66,27 @@ pub fn encode_lifecycle_tail(tail: &LifecycleTail) -> Vec<u8> {
         append_u32(&mut out, link.producer_id);
         append_u32(&mut out, link.entity_generation);
         append_u32(&mut out, link.producer_generation);
+    }
+    if let Some(rosters) = &tail.spawn_behavior_rosters {
+        let mut binary_payload = Vec::new();
+        append_u32(&mut binary_payload, rosters.len() as u32);
+        for roster in rosters {
+            append_u32(&mut binary_payload, roster.producer_id);
+            append_u32(&mut binary_payload, roster.children.len() as u32);
+            for child in &roster.children {
+                append_u32(&mut binary_payload, child.child_id);
+                append_u32(&mut binary_payload, u32::from(child.tombstone));
+            }
+        }
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let mut payload = Vec::with_capacity(binary_payload.len() * 2);
+        for byte in binary_payload {
+            payload.push(HEX[(byte >> 4) as usize]);
+            payload.push(HEX[(byte & 0x0f) as usize]);
+        }
+        out.extend_from_slice(SPAWN_ROSTER_MAGIC);
+        append_u32(&mut out, payload.len() as u32);
+        out.extend_from_slice(&payload);
     }
     out
 }
@@ -64,6 +104,7 @@ pub fn decode_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<LifecycleTail> {
             envelopes,
             contain_links: Vec::new(),
             producer_links: Vec::new(),
+            spawn_behavior_rosters: None,
         });
     }
     let contain_count = take_u32(&mut rest)? as usize;
@@ -102,15 +143,92 @@ pub fn decode_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<LifecycleTail> {
             producer_generation: take_u32(&mut rest)?,
         });
     }
+    // Snapshot continuations are appended after this core tail. Recognize
+    // only our framed additive section; legacy tails and unrelated suffixes
+    // remain opaque to this decoder.
+    let spawn_behavior_rosters = if rest.starts_with(SPAWN_ROSTER_MAGIC) {
+        rest = &rest[SPAWN_ROSTER_MAGIC.len()..];
+        let payload_len = take_u32(&mut rest)? as usize;
+        if rest.len() < payload_len {
+            return Err(SaveLoadError::Corrupted(
+                "lifecycle spawn behavior section truncated".into(),
+            ));
+        }
+        if payload_len % 2 != 0 {
+            return Err(SaveLoadError::Corrupted(
+                "lifecycle spawn behavior section has odd hex length".into(),
+            ));
+        }
+        let (encoded_payload, _outer_suffix) = rest.split_at(payload_len);
+        let nibble = |value| match value {
+            b'0'..=b'9' => Ok(value - b'0'),
+            b'a'..=b'f' => Ok(value - b'a' + 10),
+            _ => Err(SaveLoadError::Corrupted(
+                "lifecycle spawn behavior section has invalid hex".into(),
+            )),
+        };
+        let mut binary_payload = Vec::with_capacity(payload_len / 2);
+        for pair in encoded_payload.chunks_exact(2) {
+            binary_payload.push((nibble(pair[0])? << 4) | nibble(pair[1])?);
+        }
+        let mut payload = binary_payload.as_slice();
+        let roster_count = take_u32(&mut payload)? as usize;
+        if roster_count > payload.len() / 8 {
+            return Err(SaveLoadError::Corrupted(
+                "lifecycle spawn behavior roster truncated".into(),
+            ));
+        }
+        let mut rosters = Vec::with_capacity(roster_count);
+        for _ in 0..roster_count {
+            let producer_id = take_u32(&mut payload)?;
+            let child_count = take_u32(&mut payload)? as usize;
+            if child_count > payload.len() / 8 {
+                return Err(SaveLoadError::Corrupted(
+                    "lifecycle spawn behavior children truncated".into(),
+                ));
+            }
+            let mut children = Vec::with_capacity(child_count);
+            for _ in 0..child_count {
+                let child_id = take_u32(&mut payload)?;
+                let tombstone = match take_u32(&mut payload)? {
+                    0 => false,
+                    1 => true,
+                    _ => {
+                        return Err(SaveLoadError::Corrupted(
+                            "invalid SpawnBehavior child state".into(),
+                        ));
+                    }
+                };
+                children.push(SpawnBehaviorRosterChild {
+                    child_id,
+                    tombstone,
+                });
+            }
+            rosters.push(SpawnBehaviorRoster {
+                producer_id,
+                children,
+            });
+        }
+        if !payload.is_empty() {
+            return Err(SaveLoadError::Corrupted(
+                "lifecycle spawn behavior section has trailing bytes".into(),
+            ));
+        }
+        Some(rosters)
+    } else {
+        None
+    };
     Ok(LifecycleTail {
         envelopes,
         contain_links,
         producer_links,
+        spawn_behavior_rosters,
     })
 }
 
 pub fn capture_lifecycle_tail(game_logic: &GameLogic) -> SaveLoadResult<LifecycleTail> {
     let mut tail = LifecycleTail::default();
+    tail.spawn_behavior_rosters = Some(Vec::new());
     // CPP GameLogic.cpp3816-3821 never reuses ObjectIDs. These links belong
     // to this Main session; another observer's arena generation cannot author
     // the saved references. Independent GameWorld saves own their generations.
@@ -143,8 +261,131 @@ pub fn capture_lifecycle_tail(game_logic: &GameLogic) -> SaveLoadResult<Lifecycl
                 producer_generation: generation_for(producer),
             });
         }
+        let child_entries = object.spawn_behavior_children();
+        if !child_entries.is_empty() || GameLogic::supports_spawn_behavior_child_roster(object) {
+            // C++ can retain an ID in m_spawnIDs after a removal path that
+            // does not call onSpawnDeath. Preserve the ordered entry as an
+            // explicit tombstone rather than binding an ID-reused birth.
+            let children = child_entries
+                .iter()
+                .map(|(child_id, birth)| {
+                    let live_birth = game_logic.host_object(*child_id).is_some_and(|child| {
+                        object.spawn_behavior_child_birth_matches(*child_id, birth, child)
+                    });
+                    SpawnBehaviorRosterChild {
+                        child_id: child_id.0,
+                        tombstone: !live_birth,
+                    }
+                })
+                .collect();
+            tail.spawn_behavior_rosters
+                .as_mut()
+                .expect("capture enables the roster section")
+                .push(SpawnBehaviorRoster {
+                    producer_id: object.id.0,
+                    children,
+                });
+        }
     }
     Ok(tail)
+}
+
+/// Validate the ordered child identities against detached snapshot records
+/// before SnapshotBuilder replaces any live Object in the receiving world.
+pub(super) fn preflight_spawn_behavior_rosters(
+    tail: &LifecycleTail,
+    snapshots: &std::collections::HashMap<ObjectId, super::object::ObjectSnapshot>,
+    receiving: &GameLogic,
+) -> SaveLoadResult<()> {
+    let mut supported_parents = std::collections::HashSet::new();
+    for (id, snapshot) in snapshots {
+        if receiving
+            .supported_spawn_behavior_child_template(&snapshot.template_name)
+            .map_err(|()| {
+                SaveLoadError::Corrupted(format!(
+                    "SpawnBehavior template name {} is ambiguous in the receiving catalog",
+                    snapshot.template_name
+                ))
+            })?
+            .is_some()
+        {
+            supported_parents.insert(*id);
+        }
+    }
+    let Some(rosters) = tail.spawn_behavior_rosters.as_ref() else {
+        if !supported_parents.is_empty() {
+            return Err(SaveLoadError::Corrupted(
+                "legacy save has no ordered SpawnBehavior roster; child order is ambiguous".into(),
+            ));
+        }
+        return Ok(());
+    };
+
+    let mut roster_parents = std::collections::HashSet::new();
+    let mut roster_children =
+        std::collections::HashMap::<ObjectId, std::collections::HashSet<ObjectId>>::new();
+    for roster in rosters {
+        let parent_id = ObjectId(roster.producer_id);
+        let parent = snapshots.get(&parent_id).ok_or_else(|| {
+            SaveLoadError::Corrupted(format!(
+                "SpawnBehavior roster has missing producer {}",
+                parent_id.0
+            ))
+        })?;
+        if !supported_parents.contains(&parent_id) || !roster_parents.insert(parent_id) {
+            return Err(SaveLoadError::Corrupted(format!(
+                "duplicate or unsupported SpawnBehavior roster producer {}",
+                parent_id.0
+            )));
+        }
+        for child_entry in &roster.children {
+            let child_id = ObjectId(child_entry.child_id);
+            if child_entry.tombstone {
+                continue;
+            }
+            if child_id == parent_id
+                || !roster_children
+                    .entry(parent_id)
+                    .or_default()
+                    .insert(child_id)
+            {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "duplicate or self-referential SpawnBehavior child {}",
+                    child_id.0
+                )));
+            }
+            let child = snapshots.get(&child_id).ok_or_else(|| {
+                SaveLoadError::Corrupted(format!(
+                    "live SpawnBehavior roster child {} is missing",
+                    child_id.0
+                ))
+            })?;
+            let supported_child = receiving
+                .is_supported_spawn_behavior_child_template_pair(
+                    &parent.template_name,
+                    &child.template_name,
+                )
+                .map_err(|()| {
+                    SaveLoadError::Corrupted(format!(
+                        "SpawnBehavior template name {} is ambiguous in the receiving catalog",
+                        parent.template_name
+                    ))
+                })?;
+            if !supported_child {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "SpawnBehavior roster child {} has invalid producer/template identity",
+                    child_id.0
+                )));
+            }
+        }
+    }
+    if let Some(missing) = supported_parents.difference(&roster_parents).next() {
+        return Err(SaveLoadError::Corrupted(format!(
+            "SpawnBehavior roster section omits supported producer {}",
+            missing.0
+        )));
+    }
+    Ok(())
 }
 
 pub fn apply_lifecycle_tail_to_host(
@@ -196,10 +437,128 @@ fn apply_lifecycle_tail_to_host_inner(
             candidates.push((id, candidate));
         }
     }
+    validate_spawn_behavior_rosters(tail, game_logic, &mut candidates)?;
     validate_overlord_containment_candidates(tail, game_logic, &candidates)?;
     commit_lifecycle_candidates(game_logic, candidates)?;
     game_logic.railroad = railroad;
     apply_host_contain_producer_fixup(tail, game_logic);
+    Ok(())
+}
+
+fn validate_spawn_behavior_rosters(
+    tail: &LifecycleTail,
+    game_logic: &GameLogic,
+    candidates: &mut [(ObjectId, crate::game_logic::Object)],
+) -> SaveLoadResult<()> {
+    let owner = |id: ObjectId| {
+        candidates
+            .iter()
+            .rev()
+            .find(|(candidate_id, _)| *candidate_id == id)
+            .map(|(_, candidate)| candidate)
+            .or_else(|| game_logic.host_object(id))
+    };
+    let Some(rosters) = tail.spawn_behavior_rosters.as_ref() else {
+        let has_supported_parent = game_logic
+            .host_objects()
+            .registered_values()
+            .any(GameLogic::supports_spawn_behavior_child_roster)
+            || candidates
+                .iter()
+                .any(|(_, candidate)| GameLogic::supports_spawn_behavior_child_roster(candidate));
+        return if has_supported_parent {
+            Err(SaveLoadError::Corrupted(
+                "legacy save has no ordered SpawnBehavior roster; child order is ambiguous".into(),
+            ))
+        } else {
+            Ok(())
+        };
+    };
+
+    let mut roster_ids = std::collections::HashSet::new();
+    let mut resolved = Vec::with_capacity(rosters.len());
+    for roster in rosters {
+        let producer_id = ObjectId(roster.producer_id);
+        if !roster_ids.insert(producer_id) {
+            return Err(SaveLoadError::Corrupted(format!(
+                "duplicate SpawnBehavior roster for producer {}",
+                producer_id.0
+            )));
+        }
+        let producer = owner(producer_id).ok_or_else(|| {
+            SaveLoadError::Corrupted(format!(
+                "SpawnBehavior roster has missing producer {}",
+                producer_id.0
+            ))
+        })?;
+        if !GameLogic::supports_spawn_behavior_child_roster(producer) {
+            return Err(SaveLoadError::Corrupted(format!(
+                "SpawnBehavior roster owner {} has no supported spawn behavior",
+                producer_id.0
+            )));
+        }
+        let mut children = Vec::with_capacity(roster.children.len());
+        let mut local_live_ids = std::collections::HashSet::new();
+        for child_entry in &roster.children {
+            let child_id = ObjectId(child_entry.child_id);
+            if child_entry.tombstone {
+                children.push((child_id, None));
+                continue;
+            }
+            if child_id == producer_id || !local_live_ids.insert(child_id) {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "duplicate or self-referential SpawnBehavior child {}",
+                    child_id.0
+                )));
+            }
+            let Some(child) = owner(child_id) else {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "live SpawnBehavior roster child {} is missing",
+                    child_id.0
+                )));
+            };
+            if !GameLogic::is_supported_spawn_behavior_child(producer, child) {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "SpawnBehavior roster child {} has an unsupported template",
+                    child_id.0
+                )));
+            }
+            children.push((
+                child_id,
+                Some(std::sync::Arc::downgrade(&child.visual_draw_identity_token)),
+            ));
+        }
+        if !candidates
+            .iter()
+            .any(|(candidate_id, _)| *candidate_id == producer_id)
+        {
+            return Err(SaveLoadError::Corrupted(format!(
+                "SpawnBehavior roster producer {} has no restored envelope",
+                producer_id.0
+            )));
+        }
+        resolved.push((producer_id, children));
+    }
+
+    for (producer_id, candidate) in candidates.iter() {
+        if GameLogic::supports_spawn_behavior_child_roster(candidate)
+            && !roster_ids.contains(producer_id)
+        {
+            return Err(SaveLoadError::Corrupted(format!(
+                "SpawnBehavior roster section omits supported producer {}",
+                producer_id.0
+            )));
+        }
+    }
+    for (producer_id, children) in resolved {
+        let candidate = candidates
+            .iter_mut()
+            .rev()
+            .find(|(candidate_id, _)| *candidate_id == producer_id)
+            .map(|(_, candidate)| candidate)
+            .expect("candidate producer was validated");
+        candidate.restore_spawn_behavior_children(children);
+    }
     Ok(())
 }
 
@@ -235,9 +594,6 @@ fn commit_lifecycle_candidates(
             .objects
             .get_mut(&id)
             .expect("validated continuation slot");
-        // This is a validated continuation of the same lifetime, not a birth
-        // or an observation clone admission. Move its mutation rights exactly
-        // once; repeated saved envelopes transfer from the preceding commit.
         candidate
             .take_restored_runtime_attachments_from(existing)
             .map_err(|error| SaveLoadError::Corrupted(error.to_owned()))?;
@@ -497,9 +853,35 @@ mod tests {
                 entity_generation: 1,
                 producer_generation: 1,
             }],
+            spawn_behavior_rosters: Some(vec![SpawnBehaviorRoster {
+                producer_id: 4,
+                children: vec![
+                    SpawnBehaviorRosterChild {
+                        child_id: 12,
+                        tombstone: false,
+                    },
+                    SpawnBehaviorRosterChild {
+                        child_id: 8,
+                        tombstone: true,
+                    },
+                    SpawnBehaviorRosterChild {
+                        child_id: 33,
+                        tombstone: false,
+                    },
+                ],
+            }]),
         };
         let decoded = decode_lifecycle_tail(&encode_lifecycle_tail(&tail)).expect("roundtrip");
         assert_eq!(decoded, tail);
+    }
+
+    #[test]
+    fn old_lifecycle_tail_without_roster_section_ignores_later_suffixes() {
+        let mut old_and_later_suffixes = encode_lifecycle_tail(&LifecycleTail::default());
+        old_and_later_suffixes.extend_from_slice(b"CAMR\x04\x00\x00\x00rest");
+        let decoded = decode_lifecycle_tail(&old_and_later_suffixes)
+            .expect("old core tail remains readable before later sections");
+        assert_eq!(decoded.spawn_behavior_rosters, None);
     }
 
     #[test]

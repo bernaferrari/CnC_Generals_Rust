@@ -484,14 +484,7 @@ impl GameLogic {
                 current_player,
                 170,
             );
-            self.queue_resolved_per_unit_sound(
-                id,
-                PILOT_SOUND_EJECT_AUDIO,
-                false,
-                true,
-                None,
-                170,
-            );
+            self.queue_resolved_per_unit_sound(id, PILOT_SOUND_EJECT_AUDIO, false, true, None, 170);
             let _ = pilot_id;
         }
     }
@@ -730,6 +723,36 @@ impl GameLogic {
             topple_interpreter,
             presentation_effects,
         );
+        if result.is_ok()
+            && dying_birth.as_ref().is_some_and(|birth| {
+                self.objects.get(&id).is_some_and(|object| {
+                    object.status.on_die_started
+                        && birth.ptr_eq(&std::sync::Arc::downgrade(
+                            &object.visual_draw_identity_token,
+                        ))
+                })
+            })
+        {
+            // C++ Object::kill calls SpawnBehavior::onSpawnDeath after the
+            // dying object's module callbacks, before Team death notification
+            // and before physical retirement. Remove this exact child birth;
+            // an ID-reused replacement is a distinct roster member.
+            if let Some(child_birth) = dying_birth.as_ref() {
+                let producer_id = self.objects.get(&id).and_then(|child| {
+                    child_birth
+                        .ptr_eq(&std::sync::Arc::downgrade(
+                            &child.visual_draw_identity_token,
+                        ))
+                        .then_some(child.producer_id)
+                        .flatten()
+                });
+                if let Some(producer_id) = producer_id
+                    && let Some(producer) = self.objects.get_mut(&producer_id)
+                {
+                    producer.forget_spawn_behavior_child(id, child_birth);
+                }
+            }
+        }
         if result.is_ok()
             && dying_birth.as_ref().is_some_and(|birth| {
                 self.objects.get(&id).is_some_and(|object| {
@@ -1470,8 +1493,8 @@ impl GameLogic {
                 break;
             };
             let team = source.team;
-            let (damage_bonus, _, _, _, radius_bonus) =
-                source.weapon_bonus_fields_for_named_weapon_with_solo_set(
+            let (damage_bonus, _, _, _, radius_bonus) = source
+                .weapon_bonus_fields_for_named_weapon_with_solo_set(
                     &weapon.name,
                     &self.solo_weapon_bonus_set,
                 );

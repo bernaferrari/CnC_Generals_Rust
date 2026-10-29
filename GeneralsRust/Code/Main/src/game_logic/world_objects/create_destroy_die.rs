@@ -487,18 +487,79 @@ impl GameLogic {
 
     fn resolve_host_spawn_behavior_spec(object: &Object) -> Option<HostSpawnBehaviorSpec> {
         let template = object.get_template();
+        Self::resolve_host_spawn_behavior_template(template, &object.template_name)
+    }
+
+    fn resolve_host_spawn_behavior_template(
+        template: &ThingTemplate,
+        template_name: &str,
+    ) -> Option<HostSpawnBehaviorSpec> {
         if template.receiving_client_template.is_some()
             || template.receiving_object_definition.is_some()
         {
-            return Self::authored_spawn_behavior_spec(object);
+            return Self::authored_spawn_behavior_template(template);
         }
-        Self::fallback_spawn_behavior_spec(&object.template_name)
+        Self::fallback_spawn_behavior_spec(template_name)
     }
 
-    fn authored_spawn_behavior_spec(object: &Object) -> Option<HostSpawnBehaviorSpec> {
+    pub(crate) fn supported_spawn_behavior_child_template(
+        &self,
+        parent_template_name: &str,
+    ) -> Result<Option<String>, ()> {
+        let (name, template) =
+            if let Some((name, template)) = self.templates.get_key_value(parent_template_name) {
+                (name, template)
+            } else {
+                let mut matches = self
+                    .templates
+                    .iter()
+                    .filter(|(name, _)| name.eq_ignore_ascii_case(parent_template_name));
+                let Some(first) = matches.next() else {
+                    return Ok(None);
+                };
+                if matches.next().is_some() {
+                    return Err(());
+                }
+                first
+            };
+        Ok(Self::resolve_host_spawn_behavior_template(template, name)
+            .map(|spec| spec.spawn_template))
+    }
+
+    pub(crate) fn is_supported_spawn_behavior_child_template_pair(
+        &self,
+        parent_template_name: &str,
+        child_template_name: &str,
+    ) -> Result<bool, ()> {
+        let Some(spawn_template) =
+            self.supported_spawn_behavior_child_template(parent_template_name)?
+        else {
+            return Ok(false);
+        };
+        Ok(child_template_name.eq_ignore_ascii_case(&spawn_template)
+            || (Self::is_stinger_soldier_template(child_template_name)
+                && Self::is_stinger_soldier_template(&spawn_template)))
+    }
+
+    pub(crate) fn supports_spawn_behavior_child_roster(object: &Object) -> bool {
+        Self::resolve_host_spawn_behavior_spec(object).is_some()
+    }
+
+    pub(crate) fn is_supported_spawn_behavior_child(producer: &Object, child: &Object) -> bool {
+        let Some(spec) = Self::resolve_host_spawn_behavior_spec(producer) else {
+            return false;
+        };
+        child
+            .template_name
+            .eq_ignore_ascii_case(&spec.spawn_template)
+            || (Self::is_stinger_soldier_template(&child.template_name)
+                && Self::is_stinger_soldier_template(&spec.spawn_template))
+    }
+
+    fn authored_spawn_behavior_template(template: &ThingTemplate) -> Option<HostSpawnBehaviorSpec> {
         use gamelogic::object::behavior::spawn_behavior::SpawnBehaviorModuleData;
 
-        let receiving = object.get_template().receiving_client_template.as_ref()?;
+        let receiving = template.receiving_client_template.as_ref()?;
         let module = receiving
             .behavior_modules()
             .iter()
@@ -517,6 +578,10 @@ impl GameLogic {
             one_shot: data.is_one_shot_data,
             spawned_require_spawner: data.spawned_require_spawner,
         })
+    }
+
+    fn authored_spawn_behavior_spec(object: &Object) -> Option<HostSpawnBehaviorSpec> {
+        Self::authored_spawn_behavior_template(object.get_template())
     }
 
     fn fallback_spawn_behavior_spec(template_name: &str) -> Option<HostSpawnBehaviorSpec> {
@@ -659,8 +724,31 @@ impl GameLogic {
         if let Some((spawned, partition)) = self.host_object_and_partition_mut(spawned_id) {
             spawned.producer_id = Some(parent_id);
             spawned.set_orientation_with_partition_owner(orientation, partition);
-            // C++ SpawnPointProductionExitUpdate::exitObjectViaDoor
-            // (`SpawnPointProductionExitUpdate.cpp:87`) `setDisabled(DISABLED_HELD)`.
+        }
+        // C++ SpawnBehavior::createSpawn appends the child ID after assigning
+        // its producer/slaved state and before the exit callback can observe it.
+        let child_identity = self.host_object(spawned_id).map(|child| {
+            (
+                child.id,
+                std::sync::Arc::downgrade(&child.visual_draw_identity_token),
+            )
+        });
+        let admitted = child_identity
+            .zip(self.host_object_mut(parent_id))
+            .is_some_and(|((child_id, birth), parent)| {
+                parent.remember_spawn_behavior_child(child_id, birth)
+            });
+        if !admitted {
+            // Never leave an admitted child whose producer cannot own its
+            // roster identity. This is an invariant failure, not a fallback
+            // to deriving order from the world registry.
+            self.destroy_object_with_effects(spawned_id, ui)?;
+            return Ok(None);
+        }
+        // C++ SpawnBehavior::createSpawn appends the ID before
+        // SpawnPointProductionExitUpdate::exitObjectViaDoor calls
+        // `setDisabled(DISABLED_HELD)` (`SpawnPointProductionExitUpdate.cpp:87`).
+        if let Some(spawned) = self.host_object_mut(spawned_id) {
             spawned.set_status_disabled_held(true);
         }
         Ok(Some(spawned_id))
@@ -705,19 +793,40 @@ impl GameLogic {
         spawn_template: &str,
         live_only: bool,
     ) -> u32 {
-        self.objects
-            .registered_values()
+        self.spawn_behavior_child_objects(parent_id, spawn_template)
+            .into_iter()
             .filter(|object| {
-                object.producer_id == Some(parent_id)
-                    && (object.template_name.eq_ignore_ascii_case(spawn_template)
-                        || (Self::is_stinger_soldier_template(&object.template_name)
-                            && Self::is_stinger_soldier_template(spawn_template)))
-                    && (!live_only
-                        || (object.is_alive()
-                            && !object.status.destroyed
-                            && !object.status.effectively_dead))
+                !live_only
+                    || (object.is_alive()
+                        && !object.status.destroyed
+                        && !object.status.effectively_dead)
             })
             .count() as u32
+    }
+
+    /// Resolve only admitted SpawnBehavior roster entries. A producer link by
+    /// itself also represents ordinary production/OCL objects and is not
+    /// evidence of C++ m_spawnIDs membership.
+    fn spawn_behavior_child_objects(
+        &self,
+        parent_id: ObjectId,
+        spawn_template: &str,
+    ) -> Vec<&Object> {
+        let Some(parent) = self.host_object(parent_id) else {
+            return Vec::new();
+        };
+        parent
+            .spawn_behavior_children()
+            .into_iter()
+            .filter_map(|(child_id, birth)| {
+                let child = self.host_object(child_id)?;
+                (parent.spawn_behavior_child_birth_matches(child_id, &birth, child)
+                    && (child.template_name.eq_ignore_ascii_case(spawn_template)
+                        || (Self::is_stinger_soldier_template(&child.template_name)
+                            && Self::is_stinger_soldier_template(spawn_template))))
+                .then_some(child)
+            })
+            .collect()
     }
 
     /// C++ `SpawnBehavior::update` first-init + `createSpawn` for Tunnel Network
@@ -844,14 +953,8 @@ impl GameLogic {
             return Ok(());
         }
         let existing: Vec<Vec3> = self
-            .objects
-            .registered_values()
-            .filter(|object| {
-                object.producer_id == Some(parent_id)
-                    && object
-                        .template_name
-                        .eq_ignore_ascii_case(&spec.spawn_template)
-            })
+            .spawn_behavior_child_objects(parent_id, &spec.spawn_template)
+            .into_iter()
             .map(|object| object.get_position())
             .collect();
         let mut created = 0u32;
@@ -948,14 +1051,10 @@ impl GameLogic {
             return Ok(());
         }
         let existing: Vec<Vec3> = self
-            .objects
-            .registered_values()
+            .spawn_behavior_child_objects(parent_id, &spec.spawn_template)
+            .into_iter()
             .filter(|object| {
-                object.producer_id == Some(parent_id)
-                    && Self::is_stinger_soldier_template(&object.template_name)
-                    && object.is_alive()
-                    && !object.status.destroyed
-                    && !object.status.effectively_dead
+                object.is_alive() && !object.status.destroyed && !object.status.effectively_dead
             })
             .map(|object| object.get_position())
             .collect();
@@ -1050,22 +1149,16 @@ impl GameLogic {
                 continue;
             }
             let soldiers: Vec<(ObjectId, Vec3, bool)> = self
-                .objects
-                .registered()
-                .filter_map(|(id, object)| {
-                    if object.producer_id == Some(site_id)
-                        && Self::is_stinger_soldier_template(&object.template_name)
-                    {
-                        Some((
-                            *id,
-                            object.get_position(),
-                            object.is_alive()
-                                && !object.status.destroyed
-                                && !object.status.effectively_dead,
-                        ))
-                    } else {
-                        None
-                    }
+                .spawn_behavior_child_objects(site_id, &spec.spawn_template)
+                .into_iter()
+                .map(|object| {
+                    (
+                        object.id,
+                        object.get_position(),
+                        object.is_alive()
+                            && !object.status.destroyed
+                            && !object.status.effectively_dead,
+                    )
                 })
                 .collect();
             let (site_pos, mut slaves) = {
@@ -1135,21 +1228,10 @@ impl GameLogic {
             crate::game_logic::ObjectId,
             crate::game_logic::VeterancyLevel,
         )> = self
-            .objects
-            .registered()
-            .filter_map(|(id, object)| {
-                if object.producer_id == Some(parent_id)
-                    && object.is_alive()
-                    && !object.status.effectively_dead
-                    && (object.template_name.eq_ignore_ascii_case(spawn_template)
-                        || (Self::is_stinger_soldier_template(&object.template_name)
-                            && Self::is_stinger_soldier_template(spawn_template)))
-                {
-                    Some((*id, object.experience.level))
-                } else {
-                    None
-                }
-            })
+            .spawn_behavior_child_objects(parent_id, spawn_template)
+            .into_iter()
+            .filter(|object| object.is_alive() && !object.status.effectively_dead)
+            .map(|object| (object.id, object.experience.level))
             .collect();
         let mut high = parent_level;
         for (_, level) in &children {
@@ -1220,39 +1302,53 @@ impl GameLogic {
         parent_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        let Some(spec) = self
-            .host_object(parent_id)
-            .and_then(Self::resolve_host_spawn_behavior_spec)
-        else {
+        let Some((children, spawned_require_spawner)) = self.host_object(parent_id).map(|parent| {
+            (
+                parent.spawn_behavior_children(),
+                Self::resolve_host_spawn_behavior_spec(parent)
+                    .is_some_and(|spec| spec.spawned_require_spawner),
+            )
+        }) else {
             return;
         };
-        if !spec.spawned_require_spawner {
+        if children.is_empty() {
             return;
         }
-        let victims: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter_map(|(id, object)| {
-                if object.producer_id == Some(parent_id)
-                    && (object
-                        .template_name
-                        .eq_ignore_ascii_case(&spec.spawn_template)
-                        || Self::is_stinger_soldier_template(&object.template_name))
-                    && object.is_alive()
-                    && !object.status.effectively_dead
-                {
-                    Some(*id)
-                } else {
-                    None
+        // C++ SpawnBehavior::onDie first notifies each slaved child and clears
+        // its producer in m_spawnIDs order, then performs the optional kill
+        // pass over that same list. Main has not yet ported onSlaverDie; keep
+        // identity selection and producer-clear ordering faithful here.
+        for (child_id, birth) in &children {
+            let still_owned_birth = self
+                .host_object(parent_id)
+                .zip(self.host_object(*child_id))
+                .is_some_and(|(parent, child)| {
+                    parent.spawn_behavior_child_birth_matches(*child_id, birth, child)
+                });
+            if still_owned_birth {
+                if let Some(child) = self.host_object_mut(*child_id) {
+                    child.producer_id = None;
                 }
-            })
-            .collect();
-        for victim in victims {
-            if let Some(object) = self.host_object_mut(victim) {
-                object.internal_change_health(-object.health.current);
-                object.status.effectively_dead = true;
             }
-            self.mark_object_for_destruction_with_effects(victim, None, effects);
+        }
+        if !spawned_require_spawner {
+            return;
+        }
+        for (child_id, birth) in children {
+            let live_child = self.host_object(child_id).is_some_and(|child| {
+                birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &child.visual_draw_identity_token,
+                )) && child.is_alive()
+                    && !child.status.effectively_dead
+            });
+            if !live_child {
+                continue;
+            }
+            if let Some(child) = self.host_object_mut(child_id) {
+                child.internal_change_health(-child.health.current);
+                child.status.effectively_dead = true;
+            }
+            self.mark_object_for_destruction_with_effects(child_id, None, effects);
         }
     }
 
