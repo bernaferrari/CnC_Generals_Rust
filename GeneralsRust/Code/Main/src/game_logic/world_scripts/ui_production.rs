@@ -1225,32 +1225,94 @@ impl GameLogic {
                     blocker_ids.push(obj.id);
                 }
             }
-            // C++ BuildAssistant.cpp:759-870 factory exit-width bibs — only
-            // KINDOF_IMMOBILE neighbours are collision-tested (mobile objects
-            // can move out of the way).
-            if obj.is_kind_of(crate::game_logic::KindOf::Immobile) {
-                if let Some((ex, ez, er)) = factory_exit_blocker(
-                    self.factory_exit_widths(&obj.template_name).0,
-                    (*obj.geometry_info()).major_radius,
-                    p,
-                    obj.get_orientation(),
-                ) {
-                    blockers.push((ex, ez, er));
-                }
-            }
         }
-        if let Some((ex, ez, er)) = factory_exit_blocker(
-            self.factory_exit_widths(template_name).0,
-            query_major,
-            position,
-            orientation,
-        ) {
-            if legal_build_objects_in_the_way_residual((ex, ez), er, &blockers) {
-                return crate::game_logic::host_production_buildable_command_residual::LBC_OBJECTS_IN_THE_WAY;
+
+        // C++ runs a second nearby-structure query even when no object touches
+        // the candidate footprint. Its expanded bounds and exits are distinct
+        // from the ordinary obstruction query above.
+        let only_check_enemies = options
+            == crate::game_logic::host_production_buildable_command_residual::LOCAL_LEGAL_NO_ENEMY_OBJECT_OVERLAP;
+        let mut factory_in_way = false;
+        if !only_check_enemies {
+            let (my_exit_width, my_extra) = self.factory_exit_widths(template_name);
+            let my_bounds = factory_expanded_bounds(&query_shape, my_extra, my_extra);
+            let my_exit = factory_exit_shape(&query_shape, my_exit_width);
+            let range = 2.0 * (query_major + query_minor);
+            for obj in self.objects.registered_values() {
+                if !obj.is_alive()
+                    || !obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Shrubbery)
+                    || obj.is_kind_of(KindOf::ClearedByBuild)
+                {
+                    continue;
+                }
+                let rel = builder
+                    .map(|b| self.object_relationship(b, obj))
+                    .unwrap_or(gamelogic::common::Relationship::Neutral);
+                if options & crate::game_logic::host_production_buildable_command_residual::LOCAL_LEGAL_IGNORE_STEALTHED != 0
+                    && rel != gamelogic::common::Relationship::Allies
+                    && obj.is_effectively_stealthed()
+                {
+                    continue;
+                }
+                let p = obj.get_position();
+                let geometry = &(*obj.geometry_info());
+                let his_shape = PlacementShape {
+                    x: p.x,
+                    z: p.z,
+                    angle: obj.get_orientation(),
+                    geom_type: if geometry.authored {
+                        geometry.geom_type
+                    } else {
+                        crate::game_logic::HostGeometryType::Cylinder
+                    },
+                    major: if geometry.authored {
+                        geometry.major_radius.max(1.0)
+                    } else {
+                        Self::structure_place_radius(obj)
+                    },
+                    minor: if geometry.authored {
+                        geometry.minor_radius.max(1.0)
+                    } else {
+                        Self::structure_place_radius(obj)
+                    },
+                };
+                let dx = p.x - position.x;
+                let dz = p.z - position.z;
+                let radius = range + his_shape.bounding_radius();
+                if dx * dx + dz * dz > radius * radius {
+                    continue;
+                }
+                let (his_exit_width, his_extra) = self.factory_exit_widths(&obj.template_name);
+                // BuildAssistant.cpp:827 uses myExtraWidth for an existing box's
+                // minor radius, while its major radius uses hisExtraWidth.
+                let his_bounds = factory_expanded_bounds(&his_shape, his_extra, my_extra);
+                let his_exit = factory_exit_shape(&his_shape, his_exit_width);
+                let bounds_overlap = xy_shapes_collide(&his_bounds, &my_bounds);
+                let immobile = obj.is_kind_of(KindOf::Immobile);
+                let exit_overlap = immobile
+                    && (my_exit
+                        .as_ref()
+                        .is_some_and(|exit| xy_shapes_collide(&his_bounds, exit))
+                        || his_exit
+                            .as_ref()
+                            .is_some_and(|exit| xy_shapes_collide(exit, &my_bounds))
+                        || my_exit
+                            .as_ref()
+                            .zip(his_exit.as_ref())
+                            .is_some_and(|(mine, his)| xy_shapes_collide(his, mine)));
+                if bounds_overlap || exit_overlap {
+                    factory_in_way = true;
+                    if !blocker_ids.contains(&obj.id) {
+                        blocker_ids.push(obj.id);
+                    }
+                    break;
+                }
             }
         }
 
         let in_way = busy_ally_in_way
+            || factory_in_way
             || legal_build_objects_in_the_way_residual(
                 (position.x, position.z),
                 place_r,
@@ -3179,24 +3241,47 @@ fn xy_shapes_collide(a: &PlacementShape, b: &PlacementShape) -> bool {
     }
 }
 
-/// C++ BuildAssistant.cpp:786-794 factory exit rectangle as a circle residual.
-fn factory_exit_blocker(
-    exit_w: f32,
-    major: f32,
-    position: glam::Vec3,
-    orientation: f32,
-) -> Option<(f32, f32, f32)> {
-    if exit_w <= 0.0 {
+/// C++ BuildAssistant.cpp:773-782 / 822-828 expands placement bounds.
+fn factory_expanded_bounds(
+    shape: &PlacementShape,
+    major_extra: f32,
+    minor_extra: f32,
+) -> PlacementShape {
+    let major = shape.major + major_extra;
+    PlacementShape {
+        x: shape.x,
+        z: shape.z,
+        angle: shape.angle,
+        geom_type: crate::game_logic::HostGeometryType::Box,
+        major,
+        minor: if shape.geom_type == crate::game_logic::HostGeometryType::Box {
+            shape.minor + minor_extra
+        } else {
+            major
+        },
+    }
+}
+
+/// BuildAssistant.cpp:783-795 / 829-843 places each factory's exit
+/// using that structure's own facing, width, and geometry.
+fn factory_exit_shape(shape: &PlacementShape, width: f32) -> Option<PlacementShape> {
+    if width <= 0.0 {
         return None;
     }
-    let offset = major + exit_w * 0.5;
-    // Port facing is (cosθ, 0, −sinθ) (thing.rs:3360; C++ model +X = forward,
-    // PartitionManager.cpp:5284) — the exit bib sits forward of the door.
-    Some((
-        position.x + orientation.cos() * offset,
-        position.z - orientation.sin() * offset,
-        (exit_w * 0.5).max(1.0),
-    ))
+    let half = width / 2.0;
+    let offset = shape.major + half;
+    Some(PlacementShape {
+        x: shape.x + shape.angle.cos() * offset,
+        z: shape.z - shape.angle.sin() * offset,
+        angle: shape.angle,
+        geom_type: shape.geom_type,
+        major: half,
+        minor: if shape.geom_type == crate::game_logic::HostGeometryType::Box {
+            shape.minor
+        } else {
+            shape.major
+        },
+    })
 }
 
 impl GameLogic {
