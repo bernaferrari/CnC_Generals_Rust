@@ -139,6 +139,8 @@ pub struct GameLogic {
     /// Canonical mutable Object values for this match. Ordinary reads, scripts,
     /// commands and save snapshots all borrow these same admitted objects.
     pub objects: HostObjectStore,
+    /// Ordered AIGroup membership owned by this simulation session.
+    pub(crate) ai_groups: super::ai_group_owner::AiGroupOwner,
     /// C++ `SupplyWarehouseCripplingBehavior` clocks, scoped to this game.
     pub(in crate::game_logic) warehouse_crippling_states:
         HashMap<ObjectId, crate::game_logic::host_supply_gather::WarehouseCripplingState>,

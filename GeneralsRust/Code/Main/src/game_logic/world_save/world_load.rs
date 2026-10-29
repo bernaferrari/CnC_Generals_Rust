@@ -363,6 +363,7 @@ impl GameLogic {
         self.objects
             .retire_owned_scalar_stamps(&mut self.partition_manager);
         self.objects.clear();
+        self.ai_groups.clear_groups();
         self.partition_manager =
             crate::game_logic::partition_manager::PartitionManager::with_scalar_owner(
                 self.world_services.shroud(),

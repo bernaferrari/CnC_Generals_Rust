@@ -206,8 +206,8 @@ impl GameLogic {
         if !unit.has_ai_update_interface() {
             return;
         }
-        let position = unit.get_position();
         self.host_object_leave_group(id);
+        let position = self.host_object(id).expect("resolved Guard unit").get_position();
         self.apply_unit_locomotor_set(id, "normal");
         self.apply_owned_script_guard_position(id, position);
     }

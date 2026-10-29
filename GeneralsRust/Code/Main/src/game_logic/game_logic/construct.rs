@@ -129,6 +129,7 @@ impl GameLogic {
             max_retaliate_distance: 210.0,
             host_logic_step_active: false,
             objects: HostObjectStore::new_for_world(&live_draw_playback_world),
+            ai_groups: Default::default(),
             warehouse_crippling_states: HashMap::new(),
             vision_last_looks: HashMap::new(),
             vision_last_reveal_all: HashMap::new(),
@@ -1000,6 +1001,7 @@ impl GameLogic {
         self.drawable_tint_envelopes.clear();
         self.finish_all_building_sounds();
         self.objects.clear();
+        self.ai_groups.reset();
         self.partition_manager = PartitionManager::with_scalar_owner(self.world_services.shroud());
         self.beacon_client.clear();
         self.named_script_cache.clear();

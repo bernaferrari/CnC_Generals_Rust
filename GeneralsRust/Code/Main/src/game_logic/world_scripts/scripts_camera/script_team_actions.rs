@@ -1387,9 +1387,11 @@ impl GameLogic {
         Ok(())
     }
 
-    /// C++ `Object::leaveGroup` removes membership; it does not alter the
-    /// independent formation ID or offset. Main has no AIGroup owner yet.
-    pub(super) fn host_object_leave_group(&mut self, _id: ObjectId) {}
+    /// C++ `Object::leaveGroup` removes membership but leaves the independent
+    /// formation ID and offset unchanged.
+    pub(super) fn host_object_leave_group(&mut self, id: ObjectId) {
+        self.leave_ai_group(id);
+    }
 
     /// C++ `getAIUpdateInterface` + `getCurLocomotor`. Structures have no
     /// current locomotor; generic test scouts without KindOf still stamp.

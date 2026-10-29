@@ -53,6 +53,9 @@ impl GameLogic {
         // Object::~Object623 follows Drawable/sendDestroyed/team teardown and
         // precedes module destruction. Pending dirty identity retires with it.
         self.partition_manager.unregister_object(id.0);
+        // Object::~Object removes group membership after partition teardown,
+        // before module destruction.
+        self.leave_ai_group_with_birth(id, &std::sync::Arc::downgrade(&object.visual_draw_identity_token));
         object.partition_namespace = Default::default();
         object.host_trigger_world = Default::default();
         object.team_factory.clear();

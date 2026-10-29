@@ -43,8 +43,6 @@ impl GameLogic {
     /// C++ ScriptActions.cpp1985 resolves an existing team, adds its members to
     /// an AIGroup, then issues groupHunt(CMD_FROM_SCRIPT). Missing names are a
     /// no-op; this read never asks TeamFactory to instantiate a prototype.
-    /// The Rust path preserves roster visitation and commands but does not yet
-    /// migrate persistent AIGroup membership and its leave/admission lifecycle.
     pub(super) fn apply_owned_team_hunt(
         &mut self,
         raw_team: &str,
@@ -56,8 +54,14 @@ impl GameLogic {
         else {
             return Ok(());
         };
-        for member in members {
-            self.unit_command_script_hunt(ObjectId(member));
+        let group = self.create_team_ai_group(&members);
+        // Take a bounded roster snapshot before running callbacks and check
+        // membership again, so a removed object is never commanded later.
+        let ordered = self.ai_group_members(group);
+        for member in ordered {
+            if self.ai_group_id_of(member) == Some(group) {
+                self.unit_command_script_hunt(member);
+            }
         }
         Ok(())
     }

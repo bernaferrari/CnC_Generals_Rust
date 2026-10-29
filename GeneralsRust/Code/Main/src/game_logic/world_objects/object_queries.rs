@@ -1574,6 +1574,7 @@ impl GameLogic {
         self.visual_world_epoch = self.visual_world_epoch.wrapping_add(1).max(1);
         self.finish_all_building_sounds();
         self.objects.clear();
+        self.ai_groups.clear_groups();
         self.beacon_client.clear();
         self.named_script_cache.clear();
         // Playback/retry deadlines are transient; restored IDs start fresh.
