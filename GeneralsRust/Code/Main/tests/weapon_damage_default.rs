@@ -2,7 +2,7 @@
 //! The target armor coefficients are the current Rust residuals, not retail
 //! Armor.ini or full original-game shot parity. Frame CRCs are diagnostic only.
 
-use gamelogic::damage::DamageType as NativeDamageType;
+use gamelogic::damage::{DamageType as NativeDamageType, DeathType as NativeDeathType};
 use generals_main::assets::ini_template_loader::register_weapons_from_ini_text;
 use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
 use generals_main::deterministic_trace::FrameTrace;
@@ -51,6 +51,17 @@ fn run_case(
     let target_name = format!("WeaponDefaultTarget_{label}");
     // Unique fresh names avoid inheriting DamageType through a partial override.
     let rule_name = format!("WeaponDefaultRule_{label}");
+    // A saved active AI continuation must come from a real admitted module.
+    // The hand-built templates below still provide this fixture's weapon and
+    // armor inputs; the receiving catalog supplies their source identities.
+    world
+        .admit_object_ini_sources([(
+            "WeaponDefaultFixture.ini".into(),
+            format!(
+                "Object {attacker_name}\n Behavior = AIUpdateInterface Brain\n End\nEnd\nObject {target_name}\nEnd\n"
+            ),
+        )])
+        .unwrap();
     let mut attacker = ThingTemplate::new(&attacker_name);
     attacker
         .set_health(360.0)
@@ -87,6 +98,9 @@ fn run_case(
                     .map(|(_, ty)| ty)
                     .unwrap_or(NativeDamageType::Explosion)
             );
+            // C++ WeaponTemplate initializes DamageType and DeathType
+            // independently; omitting DeathType retains DEATH_NORMAL.
+            assert_eq!(parsed.death_type, NativeDeathType::Normal);
             assert_eq!(parsed.min_delay_between_shots, 3);
             assert_eq!(parsed.max_delay_between_shots, 3);
             attacker.set_primary_weapon_name(&rule_name);
@@ -220,9 +234,9 @@ fn run_case(
         assert_eq!(victim.get_position(), Vec3::new(10.0, 0.0, 0.0));
         println!(
             "state {label}: frame={frame} ai={:?} target={:?} substate={:?} can_fire={} can_attack={} cannot_attack={}",
-            shooter.ai_state,
+            shooter.ai_state(),
             shooter.target,
-            shooter.attack_substate,
+            shooter.attack_substate(),
             shooter.can_fire(frame as f32 / 30.0),
             shooter.can_attack(),
             world.cannot_possibly_attack_object(attacker_id, target_id, false)
@@ -301,8 +315,8 @@ fn run_case(
             Binding::Unnamed => ("Explosive", "Normal"),
             Binding::Missing if radius > 0.0 => ("Explosive", "Exploded"),
             Binding::Missing => ("Bullet", "Normal"),
-            Binding::Named(None) => ("Explosive", "Exploded"),
-            Binding::Named(Some(("LASER", _))) => ("Laser", "Lasered"),
+            Binding::Named(None) => ("Explosive", "Normal"),
+            Binding::Named(Some(("LASER", _))) => ("Laser", "Normal"),
             Binding::Named(Some(("SMALL_ARMS", _))) => ("Bullet", "Normal"),
             Binding::Named(Some(("GATTLING", _))) => ("Gattling", "Normal"),
             _ => panic!("unexpected fixture"),
