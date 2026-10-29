@@ -598,6 +598,16 @@ mod tests {
             xfer_save.close().expect("close save file");
         }
 
+        // Build a stored-v1 fixture from the production v2 writer, changing only
+        // GameStateMap's leading version byte. C++ gates its mode field on the
+        // current implementation version (2), not the stored version, so v1
+        // saves still contain this field before the embedded map block.
+        let mut v1_bytes = fs::read(&save_path).expect("read production v2 save");
+        assert_eq!(v1_bytes.first(), Some(&2), "writer stores GameStateMap v2");
+        v1_bytes[0] = 1;
+        let v1_save_path = save_dir.join("stored_v1.sav");
+        fs::write(&v1_save_path, v1_bytes).expect("write stored-v1 fixture");
+
         event_log.lock().expect("event log lock").clear();
 
         {
@@ -627,6 +637,32 @@ mod tests {
 
         assert!(payload_idx < start_idx);
         assert!(start_idx < refresh_idx);
+
+        // The current v2 stream above remains the normal round-trip control.
+        // Loading the stored-v1 stream through the same production xfer path
+        // must consume game mode before extracting the following map block.
+        event_log.lock().expect("event log lock").clear();
+        {
+            let mut xfer_load = XferLoad::new();
+            xfer_load
+                .open(v1_save_path.to_string_lossy().into_owned())
+                .expect("open stored-v1 load file");
+            game_state_map
+                .xfer(&mut xfer_load)
+                .expect("load stored-v1 game state map");
+            xfer_load.close().expect("close stored-v1 load file");
+        }
+        assert_eq!(
+            fs::read(&map_path).expect("read extracted map"),
+            b"dummy map payload"
+        );
+        assert!(
+            event_log
+                .lock()
+                .expect("event log lock")
+                .iter()
+                .any(|event| event == "set_game_mode_skirmish")
+        );
 
         let _ = fs::remove_dir_all(save_dir);
     }
