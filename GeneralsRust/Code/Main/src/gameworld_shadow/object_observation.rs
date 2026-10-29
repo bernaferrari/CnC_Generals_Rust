@@ -7,12 +7,7 @@ use gamelogic::world::{GameWorld, PlayerId, WorldMutation, WorldSnapshot};
 use std::collections::{HashMap, HashSet};
 
 impl GameWorldShadow {
-    pub(super) fn refresh_mapped_from_host(
-        &mut self,
-        logic: &GameLogic,
-        oid: ObjectId,
-        write_health: bool,
-    ) {
+    pub(super) fn refresh_mapped_from_host(&mut self, logic: &GameLogic, oid: ObjectId) {
         let Some(obj) = logic.host_object(oid) else {
             return;
         };
@@ -34,9 +29,7 @@ impl GameWorldShadow {
         e.auto_acquire_when_idle = obj.auto_acquire_when_idle();
         e.attack_priority_set = obj.attack_priority_set.clone().unwrap_or_default();
 
-        if write_health {
-            e.health = health;
-        }
+        e.health = health;
         e.transform = transform;
         e.owner = owner;
         {

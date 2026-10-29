@@ -1568,7 +1568,7 @@ remains boot residual without presentation.
 
 ### GameWorld shadow orientation sync residual (2026-07-14)
 
-`sync_from_host_with` copies `Object::get_orientation()` into shadow `Transform`
+`sync_from_host` copies `Object::get_orientation()` into shadow `Transform`
 (no longer forces yaw 0). Pose writeback / `apply_host_positions_as_transforms`
 remain the last-writer path for mid-tick facing changes.
 
@@ -1636,20 +1636,20 @@ module / bounty award pipeline / skirmish color table authority.
 ### GameWorld entity selection/construction residual (2026-07-14)
 
 `Entity` carries `max_health`, `selected`, `destroyed`, and
-`construction_percent` host residual. `sync_from_host_with` copies them each
+`construction_percent` host residual. `sync_from_host` copies them each
 tick. Fail-closed: not full selection-manager / build-queue module authority.
 
 ### GameWorld entity team/status residual (2026-07-14)
 
 `Entity` carries `team_ordinal`, `selection_radius`, `under_construction`,
-`moving`, and `attacking` host residual. `sync_from_host_with` copies them each
+`moving`, and `attacking` host residual. `sync_from_host` copies them each
 tick. Fail-closed: not full AI state machine / kindof matrix / multi-select
 manager authority.
 
 ### GameWorld entity color/power/type residual (2026-07-14)
 
 `Entity` carries `team_color`, `power_provided`, `power_consumed`,
-`object_type_ordinal`, and `max_transport` host residual. `sync_from_host_with`
+`object_type_ordinal`, and `max_transport` host residual. `sync_from_host`
 copies them each tick. Fail-closed: not full power-plant graph / transport
 contain matrix / material palette authority.
 
@@ -1657,14 +1657,14 @@ contain matrix / material palette authority.
 
 `Entity` carries `force_attack`, `show_health_bar`, `target_location`,
 `guard_position`, `guard_target_host`, `ai_state_ordinal`, and `occupant_count`
-host residual. `sync_from_host_with` copies them each tick. Fail-closed: not full
+host residual. `sync_from_host` copies them each tick. Fail-closed: not full
 AI FSM / garrison graph / guard-mode parity.
 
 ### GameWorld entity xp/status residual (2026-07-14)
 
 `Entity` carries `experience_points`, `veterancy_ordinal`, `stored_supplies`, and
 extended host status flags (`stealthed`, `detected`, `using_ability`,
-`airborne_target`, `disabled_*`). `sync_from_host_with` copies them each tick.
+`airborne_target`, `disabled_*`). `sync_from_host` copies them each tick.
 Fail-closed: not full veterancy bonus matrix / stealth detector network /
 disabled-type FSM authority.
 
@@ -1672,7 +1672,7 @@ disabled-type FSM authority.
 
 `Entity` carries `is_building`, `building_type_ordinal`, production queue head
 (`production_queue_len` / `production_progress` / `production_template`),
-`rally_point`, and garrison counts. `sync_from_host_with` copies them each tick.
+`rally_point`, and garrison counts. `sync_from_host` copies them each tick.
 Fail-closed: not full ProductionUpdate / dual-queue / exit-door / garrison AI
 authority.
 
@@ -1680,7 +1680,7 @@ authority.
 
 `Entity` carries primary-weapon residual (`has_weapon`, damage/range/ammo/flags),
 `has_secondary_weapon`, and movement residual (`move_max_speed`, `velocity`,
-`path_len`/`path_index`). `sync_from_host_with` copies them each tick.
+`path_len`/`path_index`). `sync_from_host` copies them each tick.
 Fail-closed: not full WeaponSet slots / projectile spawn / loco pathfinder
 authority.
 
@@ -1689,14 +1689,14 @@ authority.
 `Entity` carries `display_name`, `overlord_bunker_capacity`, passenger-fire /
 weapon-set flags, transport-kind markers (battle bus / technical / combat cycle /
 tunnel / combat chinook), `combat_cycle_rider`, and `contained_by_host`.
-`sync_from_host_with` copies them each tick. Fail-closed: not full
+`sync_from_host` copies them each tick. Fail-closed: not full
 OpenContain/RiderChangeContain/TunnelContain matrix authority.
 
 ### GameWorld entity detector/sp residual (2026-07-14)
 
 `Entity` carries cheer/overcharge/weapon-slot, `guard_radius`,
 `applied_upgrade_count`, special-power ready/cooldown residual, and detector /
-innate-stealth flags. `sync_from_host_with` copies them each tick. Fail-closed:
+innate-stealth flags. `sync_from_host` copies them each tick. Fail-closed:
 not full SpecialPowerTemplate / StealthDetectorUpdate / upgrade-module authority.
 
 ### GameWorld entity combat-bonus residual (2026-07-14)
@@ -1704,7 +1704,7 @@ not full SpecialPowerTemplate / StealthDetectorUpdate / upgrade-module authority
 `Entity` carries weapon-bonus flags, continuous-fire/faerie-fire, extra transport
 kinds/addons, demo/hive, turret angles, AI attitude, last damage source,
 command-set override, disguise, vision-spied mask, and camo residual.
-`sync_from_host_with` copies them each tick. Fail-closed: not full
+`sync_from_host` copies them each tick. Fail-closed: not full
 WeaponBonusCondition / TurretAI / disguise drawable / mine module authority.
 
 ### Presentation turret/weapon-bonus residual (2026-07-14)
@@ -1776,7 +1776,7 @@ StealthUpdate delay FSM / Frenzy countdown authority.
 `Entity` carries `weapon_bonus_frenzy_until_frame`,
 `continuous_fire_coast_until_frame`, and `battle_plan_sight_scalar_applied`
 host residual (alongside existing consecutive/detector/stealth fields).
-`sync_from_host_with` copies them each tick. Fail-closed: not full Frenzy
+`sync_from_host` copies them each tick. Fail-closed: not full Frenzy
 countdown / Gattling coast / BattlePlan sight FSM authority.
 
 ### Construction panel command_set_override residual (2026-07-14)
@@ -1824,7 +1824,7 @@ disguise/camo/vision. Fail-closed: host still base-freezes presentation.
 ### GameWorld path waypoints + overlay complete residual (2026-07-14)
 
 `Entity` carries capped `path_waypoints` and secondary weapon range/damage.
-`sync_from_host_with` copies them; `overlay_gameworld_shadow` last-writes path
+`sync_from_host` copies them; `overlay_gameworld_shadow` last-writes path
 waypoints, production queue head, secondary weapon, and has_mine onto
 presentation. Fail-closed: not full multi-item production queue / garrison ID
 list authority.

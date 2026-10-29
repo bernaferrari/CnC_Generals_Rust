@@ -260,12 +260,6 @@ impl GameWorldShadow {
     }
 
     pub fn sync_from_host(&mut self, logic: &GameLogic) {
-        self.sync_from_host_with(logic, true);
-    }
-
-    /// Like [`sync_from_host`]; `write_health=false` keeps existing entity HP
-    /// Observation filters never affect the canonical simulation.
-    pub fn sync_from_host_with(&mut self, logic: &GameLogic, write_health: bool) {
         self.sync_players(logic);
 
         let mut obj_ids: Vec<ObjectId> = logic.host_objects().registered_keys().copied().collect();
@@ -312,7 +306,7 @@ impl GameWorldShadow {
             self.spawn_mapped(oid, obj, owner, transform, obj.health.current.max(0.0));
         }
         for oid in obj_ids {
-            self.refresh_mapped_from_host(logic, oid, write_health);
+            self.refresh_mapped_from_host(logic, oid);
         }
 
         let mapped: Vec<ObjectId> = self.host_to_entity.keys().copied().map(ObjectId).collect();
