@@ -377,6 +377,31 @@ impl GameLogic {
         };
         if let Err(error) = self.run_owned_team_creation_actions(&created, effects, interpreter, ui)
         {
+            // C++ assigns TeamInQueue::m_team only after createInactiveTeam's
+            // null-Team action returns. Keep that ordering here: after the
+            // callback has returned (even with an error), bind the exact Team
+            // receipt so a later queue pass cannot recreate it through the
+            // legacy ambient TeamFactory path. A reentrant callback may have
+            // removed/replaced the Team or its queue node; only bind when both
+            // original identities still exist.
+            let still_admitted = factory
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .find_team_by_id(team_id)
+                .filter(|current| std::sync::Arc::ptr_eq(current, &created));
+            if let Some(ai) = self.ai_manager.ai_players.get_mut(&player) {
+                if let Some(index) = ai
+                    .team_queue
+                    .iter()
+                    .position(|node| node.visit_token == token)
+                {
+                    if still_admitted.is_some() {
+                        ai.team_queue[index].team_id = Some(team_id);
+                    } else {
+                        ai.team_queue.retain(|node| node.visit_token != token);
+                    }
+                }
+            }
             log::error!("AI queued Team creation failed: {error}");
             return false;
         }
@@ -828,6 +853,125 @@ mod tests {
         assert!(world.owned_script_engine.is_some());
         assert_eq!(world.ai_manager.ai_players.len(), 2);
     }
+
+    #[test]
+    fn failed_reentrant_create_callback_keeps_receipt_and_queue_retry_does_not_recreate() {
+        let mut world = callback_world();
+        world.admit_challenge_session(true);
+
+        // Child's null-Team callback reenters AI team creation, then fails on
+        // the challenge-only ThePlayer alias because this fixture has no local
+        // player. The first action's nested queue admission must remain visible.
+        let mut nested = build("PeerChild");
+        let mut failing = ScriptAction::new(ScriptActionType::MoveTeamTo);
+        failing
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                gamelogic::scripting::core::TEAM_THE_PLAYER.into(),
+            ))
+            .unwrap();
+        failing
+            .add_parameter(Parameter::with_string(
+                ParameterType::Waypoint,
+                "UnusedWaypoint".into(),
+            ))
+            .unwrap();
+        nested.set_next_action(Some(Box::new(failing)));
+
+        let mut create = Script::new();
+        create.script_name = "BuildChild".into();
+        create.is_subroutine = true;
+        create.action = Some(Box::new(nested));
+        let mut count = ScriptAction::new(ScriptActionType::IncrementCounter);
+        count
+            .add_parameter(Parameter::with_int(ParameterType::Int, 1))
+            .unwrap();
+        count
+            .add_parameter(Parameter::with_string(
+                ParameterType::Counter,
+                "PeerCreateVisits".into(),
+            ))
+            .unwrap();
+        let mut peer_create = Script::new();
+        peer_create.script_name = "NestedReceipt".into();
+        peer_create.is_subroutine = true;
+        peer_create.action = Some(Box::new(count));
+        let mut scripts = ScriptList::new();
+        scripts.append_script(Box::new(create));
+        scripts.append_script(Box::new(peer_create));
+        let mut engine = ScriptEngine::new().unwrap();
+        engine.set_counter("PeerCreateVisits", 0).unwrap();
+        engine
+            .set_script_list_for_player(0, Some(Box::new(scripts)))
+            .unwrap();
+        world.install_owned_script_engine(engine);
+
+        assert!(!world.build_owned_specific_ai_team_with_effects(
+            1,
+            "Child",
+            false,
+            None,
+            &mut Default::default(),
+        ));
+
+        let (child_id, child_identity) = {
+            let factory = world.team_factory.lock().unwrap();
+            let child = factory.find_team_instances("Child").pop().unwrap();
+            let child_id = child.read().unwrap().get_id();
+            (child_id, child)
+        };
+        let ai = &world.ai_manager.ai_players[&1];
+        assert_eq!(
+            ai.team_queue
+                .iter()
+                .find(|node| node.name == "Child")
+                .unwrap()
+                .team_id,
+            Some(child_id)
+        );
+        assert_eq!(
+            world
+                .owned_script_engine
+                .as_ref()
+                .unwrap()
+                .get_counter("PeerCreateVisits")
+                .unwrap()
+                .value,
+            1
+        );
+        assert!(world.team_creation_error().is_some());
+
+        // The production queue processor is the retry boundary. It must keep
+        // the completed callback receipt and must not enter the legacy binder.
+        let data = AiDataView::from_world(&world);
+        world
+            .update_owned_ai_military_with_effects(1, 0.0, &data, &mut Default::default())
+            .unwrap();
+        assert_eq!(
+            world
+                .owned_script_engine
+                .as_ref()
+                .unwrap()
+                .get_counter("PeerCreateVisits")
+                .unwrap()
+                .value,
+            1
+        );
+        let factory = world.team_factory.lock().unwrap();
+        let child_now = factory.find_team_by_id(child_id).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&child_identity, &child_now));
+        assert_eq!(factory.find_team_instances("Child").len(), 1);
+        assert_eq!(factory.find_team_instances("PeerChild").len(), 1);
+        assert_eq!(
+            world.ai_manager.ai_players[&1]
+                .team_queue
+                .iter()
+                .filter(|node| node.name == "Child")
+                .count(),
+            1
+        );
+    }
+
     #[test]
     fn automatic_military_selection_runs_owned_condition_and_nested_build_immediately() {
         let mut world = callback_world();
