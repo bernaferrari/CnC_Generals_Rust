@@ -743,6 +743,49 @@ mod tests {
     }
 
     #[test]
+    fn scorch_vertex_color_rebakes_from_receiving_lighting_changes() {
+        let mut visual = TerrainVisualImpl::new();
+        visual
+            .load_heightmap_from_data(HeightMap::new(8, 8, 0.0, 10.0), None, None)
+            .unwrap();
+        assert!(visual.add_scorch([12.0, 8.0, 0.0], 18.0, 2));
+
+        let first = crate::terrain::chunk::TerrainStaticLighting {
+            lights: Vec::new(),
+            ambient: [0.1, 0.2, 0.3],
+            scorch_diffuse: [0.2, 0.4, 0.6],
+        };
+        assert!(visual.admit_static_lighting(first));
+        let height = visual.height_map.as_ref().unwrap().clone();
+        let first_diffuse = crate::terrain::scorch_mesh::scorch_diffuse_bgra(
+            visual.chunk_manager.static_lighting().ambient,
+            visual.chunk_manager.static_lighting().scorch_diffuse,
+        );
+        let first_mesh = visual.scorches.update_scorches(&height, first_diffuse);
+        assert_eq!(first_mesh.vertices[0].diffuse, 0xFF33_6699);
+        assert_eq!(visual.scorches.scorches_in_buffer, 1);
+
+        let changed = crate::terrain::chunk::TerrainStaticLighting {
+            lights: Vec::new(),
+            ambient: [0.2, 0.1, 0.0],
+            scorch_diffuse: [0.4, 0.8, 0.6],
+        };
+        assert!(visual.admit_static_lighting(changed));
+        assert_eq!(visual.scorches.scorches_in_buffer, 0);
+        let changed_diffuse = crate::terrain::scorch_mesh::scorch_diffuse_bgra(
+            visual.chunk_manager.static_lighting().ambient,
+            visual.chunk_manager.static_lighting().scorch_diffuse,
+        );
+        let changed_mesh = visual.scorches.update_scorches(&height, changed_diffuse);
+        assert_eq!(changed_mesh.vertices[0].diffuse, 0xFF66_7F4C);
+        assert_eq!(visual.scorches.scorches_in_buffer, 1);
+        assert_ne!(
+            changed_mesh.vertices[0].diffuse,
+            first_mesh.vertices[0].diffuse
+        );
+    }
+
+    #[test]
     fn receiving_height_effect_keeps_logical_scorches_and_invalidates_only_its_gpu_cache() {
         let mut a = TerrainVisualImpl::new();
         let mut b = TerrainVisualImpl::new();

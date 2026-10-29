@@ -53,6 +53,9 @@ fn falloff_weight(distance: f32, radius: f32, falloff: f32) -> f32 {
 pub struct TerrainStaticLighting {
     pub lights: Vec<(Vec3, [f32; 3])>,
     pub ambient: [f32; 3],
+    /// C++ `updateScorches` reads terrain diffuse light zero directly, even
+    /// when that light is not active for directional terrain shading.
+    pub scorch_diffuse: [f32; 3],
 }
 
 impl Default for TerrainStaticLighting {
@@ -69,9 +72,11 @@ impl Default for TerrainStaticLighting {
             })
             .collect();
         let ambient = data.terrain_ambient[0];
+        let scorch_diffuse = data.terrain_diffuse[0];
         Self {
             lights,
             ambient: [ambient.r, ambient.g, ambient.b],
+            scorch_diffuse: [scorch_diffuse.r, scorch_diffuse.g, scorch_diffuse.b],
         }
     }
 }

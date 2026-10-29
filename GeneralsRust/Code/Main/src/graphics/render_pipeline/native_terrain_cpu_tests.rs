@@ -1,4 +1,27 @@
 use super::*;
+
+#[test]
+fn receiving_scorch_lighting_keeps_primary_terrain_diffuse_when_not_directionally_active() {
+    let mut env = crate::presentation_frame::PresentationWorldEnv::default();
+    env.terrain_global_lights[0] =
+        Some(crate::presentation_frame::PresentationPrimaryGlobalLight {
+            ambient: [0.1, 0.2, 0.3],
+            diffuse: [0.2, 0.4, 0.6],
+            light_pos: [0.0; 3],
+            object_light_active: false,
+        });
+
+    let lighting = RenderPipeline::static_terrain_lighting(&env).unwrap();
+    assert!(lighting.lights.is_empty());
+    assert_eq!(lighting.ambient, [0.1, 0.2, 0.3]);
+    assert_eq!(lighting.scorch_diffuse, [0.2, 0.4, 0.6]);
+
+    // A later frozen time-of-day frame is re-admitted through this same owner path.
+    env.terrain_global_lights[0].as_mut().unwrap().diffuse = [0.8, 0.6, 0.4];
+    let changed = RenderPipeline::static_terrain_lighting(&env).unwrap();
+    assert_eq!(changed.scorch_diffuse, [0.8, 0.6, 0.4]);
+}
+
 #[test]
 fn detached_native_cpu_map_admission_uses_receiving_bytes_and_authored_scorches_once() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(

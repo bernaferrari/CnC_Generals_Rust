@@ -3,6 +3,7 @@ use game_client_rust::fx_list::{DisplayLightPulse, DisplayLightScene};
 use game_client_rust::system::SubsystemInterface;
 use game_client_rust::terrain::HeightMap;
 use game_client_rust::terrain::chunk::TerrainStaticLighting;
+use game_client_rust::terrain::scorch_mesh::{TerrainScorchBuffer, scorch_diffuse_bgra};
 use game_client_rust::terrain::terrain_visual::TerrainVisualImpl;
 use game_engine::common::ini::ini_game_data::{
     LightingContentRules, RGBColor, TerrainTrackRules, TimeOfDay,
@@ -101,7 +102,39 @@ fn lighting(ambient: [f32; 3]) -> TerrainStaticLighting {
     TerrainStaticLighting {
         lights: vec![(Vec3::new(0.0, -1.0, 0.0), [0.05; 3])],
         ambient,
+        scorch_diffuse: [0.2; 3],
     }
+}
+
+#[test]
+fn receiving_lighting_changes_baked_scorch_vertex_color() {
+    let mut scorch = TerrainScorchBuffer::new();
+    assert!(scorch.add_scorch([12.0, 8.0, 0.0], 18.0, 2));
+    let height = HeightMap::new(8, 8, 0.0, 10.0);
+
+    let receiving = TerrainStaticLighting {
+        lights: Vec::new(),
+        ambient: [0.1, 0.2, 0.3],
+        scorch_diffuse: [0.2, 0.4, 0.6],
+    };
+    let first = scorch.update_scorches(
+        &height,
+        scorch_diffuse_bgra(receiving.ambient, receiving.scorch_diffuse),
+    );
+    assert_eq!(first.vertices[0].diffuse, 0xFF33_6699);
+
+    let changed = TerrainStaticLighting {
+        ambient: [0.2, 0.1, 0.0],
+        scorch_diffuse: [0.4, 0.8, 0.6],
+        ..receiving
+    };
+    scorch.scorches_in_buffer = 0;
+    let second = scorch.update_scorches(
+        &height,
+        scorch_diffuse_bgra(changed.ambient, changed.scorch_diffuse),
+    );
+    assert_eq!(second.vertices[0].diffuse, 0xFF66_7F4C);
+    assert_ne!(second.vertices[0].diffuse, first.vertices[0].diffuse);
 }
 
 fn visual(light: TerrainStaticLighting) -> TerrainVisualImpl {

@@ -928,7 +928,12 @@ impl TerrainVisualImpl {
             self.scorch_meshes.clear();
             return;
         };
-        let baked = self.scorches.update_scorches(height_map, 0xffff_ffff);
+        let lighting = self.chunk_manager.static_lighting();
+        let diffuse = crate::terrain::scorch_mesh::scorch_diffuse_bgra(
+            lighting.ambient,
+            lighting.scorch_diffuse,
+        );
+        let baked = self.scorches.update_scorches(height_map, diffuse);
         if baked.vertices.is_empty() || baked.indices.is_empty() {
             self.scorch_meshes.clear();
             return;

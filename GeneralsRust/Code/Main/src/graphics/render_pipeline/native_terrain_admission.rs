@@ -24,7 +24,9 @@ impl RenderPipeline {
     pub(crate) fn static_terrain_lighting(
         env: &crate::presentation_frame::PresentationWorldEnv,
     ) -> Option<game_client::terrain::chunk::TerrainStaticLighting> {
-        let ambient = env.terrain_global_lights[0]?.ambient;
+        let primary = env.terrain_global_lights[0]?;
+        let ambient = primary.ambient;
+        let scorch_diffuse = primary.diffuse;
         let lights = env
             .terrain_global_lights
             .iter()
@@ -32,7 +34,11 @@ impl RenderPipeline {
             .filter(|light| light.object_light_active)
             .map(|light| (Vec3::from_array(light.render_light_pos()), light.diffuse))
             .collect();
-        Some(game_client::terrain::chunk::TerrainStaticLighting { lights, ambient })
+        Some(game_client::terrain::chunk::TerrainStaticLighting {
+            lights,
+            ambient,
+            scorch_diffuse,
+        })
     }
 
     pub(crate) fn prepare_native_terrain_cpu(

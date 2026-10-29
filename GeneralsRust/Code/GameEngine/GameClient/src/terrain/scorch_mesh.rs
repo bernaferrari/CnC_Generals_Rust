@@ -51,6 +51,15 @@ pub const MAX_SCORCH_INDEX: usize = 6 * 8194;
 /// C++ `amtToFloat = MAP_HEIGHT_SCALE/10`.
 pub const SCORCH_FLOAT_AMOUNT: f32 = MAP_HEIGHT_SCALE / 10.0;
 
+/// C++ `BaseHeightMapRenderObjClass::updateScorches` static diffuse packing.
+/// `REAL_TO_INT` truncates toward zero; the source does not clamp channels.
+pub fn scorch_diffuse_bgra(ambient: [f32; 3], diffuse: [f32; 3]) -> u32 {
+    let red = ((ambient[0] + diffuse[0] / 2.0) * 255.0) as i32 as u32;
+    let green = ((ambient[1] + diffuse[1] / 2.0) * 255.0) as i32 as u32;
+    let blue = ((ambient[2] + diffuse[2] / 2.0) * 255.0) as i32 as u32;
+    blue | (green << 8) | (red << 16) | (255 << 24)
+}
+
 /// C++ `TScorch`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScorchMark {
@@ -335,6 +344,20 @@ pub fn bake_terrain_scorch_gpu_mesh(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scorch_diffuse_uses_cpp_ambient_plus_half_primary_diffuse() {
+        assert_eq!(
+            scorch_diffuse_bgra([0.1, 0.2, 0.3], [0.2, 0.4, 0.6]),
+            0xFF33_6699
+        );
+        // C++ packs unbounded channel ints directly: green over 255 bleeds
+        // into the red byte instead of being clamped first.
+        assert_eq!(
+            scorch_diffuse_bgra([0.0, 1.1, 0.0], [0.0, 0.4, 0.0]),
+            0xFF01_4B00
+        );
+    }
 
     struct MockHeight {
         flip: bool,
