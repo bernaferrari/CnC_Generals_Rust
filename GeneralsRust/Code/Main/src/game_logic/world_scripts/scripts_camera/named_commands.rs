@@ -235,14 +235,16 @@ impl GameLogic {
         {
             return;
         }
-        if let Some(area) = area {
-            // privateGuardArea installs these fields before clearing the old
-            // machine, so outgoing-state effects observe the new guard data.
+        {
+            // Both privateGuardPosition and privateGuardArea install their
+            // new guard data before the old state machine exits.
             let unit = self.host_object_mut(id).expect("admitted Guard unit");
             unit.unit_ai_runtime.set_raw_guard_position(Some(position));
-            unit.unit_ai_runtime.set_raw_guard_target(None);
-            unit.unit_ai_runtime.set_raw_guard_area(Some(area.to_owned()));
             unit.set_guard_mode(GuardMode::Normal);
+            if let Some(area) = area {
+                unit.unit_ai_runtime.set_raw_guard_target(None);
+                unit.unit_ai_runtime.set_raw_guard_area(Some(area.to_owned()));
+            }
         }
         let clear_team_target = self
             .host_object(id)
@@ -264,12 +266,12 @@ impl GameLogic {
         unit.unit_ai_runtime.clear_hunt();
         unit.set_hunting(false);
         unit.set_guard_mode(GuardMode::Normal);
+        unit.last_command_source =
+            crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
         if let Some(area) = area {
             // privateGuardArea installs both its polygon and center before
             // entering AI_GUARD; state entry must observe the area target.
             unit.set_guard_area_trigger(Some(area.to_owned()));
-            unit.last_command_source =
-                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
             unit.set_ai_state(
                 AIState::GuardingArea,
                 &mut crate::game_logic::ObjectAudio::queue(audio_events),
@@ -279,8 +281,6 @@ impl GameLogic {
                 Some(position),
                 &mut crate::game_logic::ObjectAudio::queue(audio_events),
             );
-            unit.last_command_source =
-                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
         }
         unit.mark_jet_command_for_reload_interrupt(true);
         self.return_guard_to_post(id);

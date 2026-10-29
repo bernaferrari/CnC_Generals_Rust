@@ -45,6 +45,29 @@ impl GameLogic {
         Ok(())
     }
 
+    /// ScriptActions::doTeamGuardPosition resolves the receiving waypoint and
+    /// Team before creating the group and issuing the ordered guard commands.
+    pub(super) fn apply_owned_team_guard_position(
+        &mut self,
+        team: &str,
+        waypoint: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let position = self.host_script_waypoint_position(waypoint);
+        let members = self.resolve_owned_script_team(team, calling, condition)?;
+        let (Some(position), Some((_, members))) = (position, members) else {
+            return Ok(());
+        };
+        let group = self.create_team_ai_group(&members);
+        for id in self.ai_group_members(group) {
+            if self.ai_group_id_of(id) == Some(group) {
+                self.apply_owned_script_guard_position(id, position);
+            }
+        }
+        Ok(())
+    }
+
     /// ScriptActions::doTeamGuardArea resolves the qualified polygon before
     /// the Team, then admits its roster to a new AIGroup and issues aiGuardArea.
     pub(super) fn apply_owned_team_guard_area(

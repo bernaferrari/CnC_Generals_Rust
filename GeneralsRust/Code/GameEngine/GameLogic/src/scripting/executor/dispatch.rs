@@ -1452,7 +1452,25 @@ impl ScriptActionDispatcher<'_> {
                 self.do_team_garrison_nearest_building(action)
             }
             ScriptActionType::TeamExitAllBuildings => self.do_team_exit_all_buildings(action),
-            ScriptActionType::TeamGuardPosition => self.do_team_guard_position(action),
+            ScriptActionType::TeamGuardPosition => {
+                let team = self.get_string_param(action, 0)?;
+                let waypoint = self.get_string_param(action, 1)?;
+                let (calling, condition) = self
+                    .context
+                    .with_engine_ref(|engine| {
+                        (engine.get_calling_team_id(), engine.get_condition_team_id())
+                    })
+                    .unwrap_or((None, None));
+                if let Some(result) =
+                    driver.team_guard_position(&team, &waypoint, calling, condition)
+                {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    // Temporary Core-only fallback until every driver owns its route.
+                    self.do_team_guard_position(action)
+                }
+            }
             ScriptActionType::TeamGuardObject => {
                 let team = self.get_string_param(action, 0)?;
                 let target = self.get_string_param(action, 1)?;

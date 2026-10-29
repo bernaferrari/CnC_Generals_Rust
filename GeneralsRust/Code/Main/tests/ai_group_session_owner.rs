@@ -69,6 +69,28 @@ fn map_file_with_area(root: &std::path::Path, area_start: i32) -> std::path::Pat
     out.write_dict(&team);
     out.close_data_chunk();
     out.open_data_chunk("ObjectsList", 3);
+    out.open_data_chunk("Object", 3);
+    for value in [
+        (area_start + 80) as f32,
+        (area_start + 100) as f32,
+        0.0,
+        0.0,
+    ] {
+        out.write_real(value);
+    }
+    out.write_int(0);
+    out.write_ascii_string("Waypoint");
+    let mut waypoint = Dict::new();
+    waypoint.set_int(
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("waypointID"),
+        1902,
+    );
+    waypoint.set_ascii_string(
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("waypointName"),
+        "OwnedWaypoint",
+    );
+    out.write_dict(&waypoint);
+    out.close_data_chunk();
     out.close_data_chunk();
     let path = root.join(format!("AiGroupOwner-{area_start}.map"));
     std::fs::write(&path, out.into_ckmp_bytes()).unwrap();
@@ -432,6 +454,71 @@ fn team_guard_area_borrows_the_qualified_polygon_and_group_from_each_world() {
     assert_eq!(
         owner.host_object(first).unwrap().guard_position(),
         Some(Vec3::new(20.0, 0.0, 20.0))
+    );
+    assert_eq!(owner.host_object(first).unwrap().formation_id, 17);
+}
+
+fn guard_position(world: &mut GameLogic, team: &str, waypoint: &str) {
+    run_action_with_parameters(
+        world,
+        ScriptActionType::TeamGuardPosition,
+        [
+            Parameter::with_string(ParameterType::Team, team.into()),
+            Parameter::with_string(ParameterType::Waypoint, waypoint.into()),
+        ],
+    );
+}
+
+#[test]
+fn team_guard_position_uses_receiving_waypoint_and_owned_group() {
+    let root = tempfile::tempdir().unwrap();
+    let owner_map = map_file_with_area(root.path(), 0);
+    let peer_map = map_file_with_area(root.path(), 200);
+    let (mut owner, first, second, inert) = world(&owner_map);
+    let (mut peer, peer_first, peer_second, _) = world(&peer_map);
+    assert_eq!((first, second), (peer_first, peer_second));
+    hunt(&mut owner);
+    hunt(&mut peer);
+    let old_group = owner.ai_group_id_of(first).unwrap();
+    guard_position(&mut owner, "HuntTeam", "MissingWaypoint");
+    guard_position(&mut owner, "MissingTeam", "OwnedWaypoint");
+    assert_eq!(owner.ai_group_id_of(first), Some(old_group));
+    assert!(owner.host_object(first).unwrap().is_hunting());
+
+    guard_object(&mut owner, "HuntTeam", "Inert");
+    assert_eq!(
+        owner.host_object(first).unwrap().guard_target(),
+        Some(inert)
+    );
+    let previous = owner.ai_group_id_of(first);
+    guard_position(&mut owner, "HuntTeam", "OwnedWaypoint");
+    assert_ne!(owner.ai_group_id_of(first), previous);
+    assert_eq!(
+        owner.ai_group_members_of(first).as_deref(),
+        Some(&[second, first][..])
+    );
+    assert_eq!(owner.ai_group_id_of(inert), None);
+    for id in [first, second] {
+        let object = owner.host_object(id).unwrap();
+        assert_eq!(object.guard_position(), Some(Vec3::new(80.0, 0.0, 100.0)));
+        assert_eq!(
+            object.ai_state(),
+            generals_main::game_logic::AIState::GuardingArea
+        );
+        // C++ privateGuardPosition does not erase m_objectToGuard.
+        assert_eq!(object.guard_target(), Some(inert));
+        assert!(!object.is_hunting());
+        assert!(peer.host_object(id).unwrap().is_hunting());
+    }
+    assert_eq!(peer.ai_group_id_of(first), Some(old_group));
+    guard_position(&mut peer, "HuntTeam", "OwnedWaypoint");
+    assert_eq!(
+        peer.host_object(first).unwrap().guard_position(),
+        Some(Vec3::new(280.0, 0.0, 300.0))
+    );
+    assert_eq!(
+        owner.host_object(first).unwrap().guard_position(),
+        Some(Vec3::new(80.0, 0.0, 100.0))
     );
     assert_eq!(owner.host_object(first).unwrap().formation_id, 17);
 }

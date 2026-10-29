@@ -914,6 +914,17 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             .push_superweapon_object_display_mutation(mutation);
         Some(Ok(()))
     }
+    fn team_guard_position(
+        &mut self,
+        team: &str,
+        waypoint: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(self.world.apply_owned_team_guard_position(
+            team, waypoint, calling, condition,
+        ))
+    }
     fn team_guard_area(
         &mut self,
         team: &str,
