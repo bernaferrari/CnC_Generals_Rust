@@ -1,13 +1,34 @@
 //! Behavior suite extracted from `science_and_upgrades`.
 use super::*;
 
+fn run_rank_script(world: &mut GameLogic, action: gamelogic::scripting::core::ScriptAction) {
+    use gamelogic::scripting::core::{Condition, ConditionType, OrCondition, Script, ScriptList};
+    use gamelogic::scripting::engine::ScriptEngine;
+
+    let mut condition = OrCondition::new();
+    condition.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    let mut script = Script::new();
+    script.script_name = "RankOwnerFixture".into();
+    script.condition = Some(Box::new(condition));
+    script.action = Some(Box::new(action));
+    script.is_one_shot = true;
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(script));
+    let engine = ScriptEngine::new().unwrap();
+    engine
+        .set_script_list_for_player(0, Some(Box::new(list)))
+        .unwrap();
+    world
+        .update_local_script_engine_with_owner(&engine)
+        .unwrap();
+}
+
 #[test]
 fn script_rank_caps_stay_with_the_driving_match() {
     // GameLogic.h:205-209 owns the cap; Player.cpp:2433-2456 and
     // 2654-2672 consult that match for awards and explicit rank changes.
     use crate::game_logic::{Player, Team};
-    use gamelogic::scripting::{HostScriptRankRequest, request_host_rank};
-    let _ = gamelogic::scripting::take_host_rank_requests();
+    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
     let mut first = GameLogic::new();
     let mut second = GameLogic::new();
     for world in [&mut first, &mut second] {
@@ -15,11 +36,13 @@ fn script_rank_caps_stay_with_the_driving_match() {
         world.add_player(Player::new(0, Team::USA, "Local", true));
     }
 
-    request_host_rank(HostScriptRankRequest::SetRankLevelLimit { limit: 2 });
-    first.evaluate_and_execute_scripts(0.0);
-    request_host_rank(HostScriptRankRequest::SetRankLevelLimit { limit: 4 });
-    second.evaluate_and_execute_scripts(0.0);
-    assert!(gamelogic::scripting::take_host_rank_requests().is_empty());
+    for (world, limit) in [(&mut first, 2), (&mut second, 4)] {
+        let mut action = ScriptAction::new(ScriptActionType::PlayerSetRanklevellimit);
+        action
+            .add_parameter(Parameter::with_int(ParameterType::Int, limit))
+            .unwrap();
+        run_rank_script(world, action);
+    }
 
     assert!(first.set_player_rank_level(0, 5));
     assert_eq!(first.get_player(0).unwrap().rank_level, 2);
@@ -67,19 +90,21 @@ fn script_set_rank_level_plays_eva_general_level_up() {
     // C++ Player.cpp:2708-2714 setRankLevel always EVA for local.
     use crate::game_logic::Team;
     use gamelogic::helpers::EvaEvent;
-    use gamelogic::scripting::HostScriptRankRequest;
-    let _ = gamelogic::scripting::take_host_rank_requests();
+    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
     logic.players.insert(
         0,
         crate::game_logic::Player::new(0, Team::USA, "Local", true).with_script_identity("Local"),
     );
-    gamelogic::scripting::request_host_rank(HostScriptRankRequest::SetRankLevel {
-        player: "Local".into(),
-        level: 3,
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    let mut action = ScriptAction::new(ScriptActionType::PlayerSetRanklevel);
+    action
+        .add_parameter(Parameter::with_string(ParameterType::Side, "Local".into()))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_int(ParameterType::Int, 3))
+        .unwrap();
+    run_rank_script(&mut logic, action);
     assert_eq!(logic.players.get(&0).expect("p").rank_level, 3);
     assert!(logic.honesty_eva_general_level_up_ok());
     let events = logic.take_eva_requests();

@@ -10,25 +10,25 @@
 
 use super::core::*;
 use super::engine::{
-    get_area_tracker, get_named_object_tracker, CanonicalScriptExecutionDriver,
-    ScriptExecutionDriver, TFade,
+    CanonicalScriptExecutionDriver, ScriptExecutionDriver, TFade, get_area_tracker,
+    get_named_object_tracker,
 };
-use crate::ai::integration::{with_ai_integration_mut, IntegratedAiPlayer};
+use crate::ai::integration::{IntegratedAiPlayer, with_ai_integration_mut};
 use crate::ai::{
     AiCommandInterface, AiCommandParams, AiCommandType, AiGroup, AttitudeType, GuardMode,
 };
 use crate::commands::{
-    get_command_queue_manager, Command, CommandPriority, CommandType, QueuedCommand,
+    Command, CommandPriority, CommandType, QueuedCommand, get_command_queue_manager,
 };
 use crate::common::{
-    AsciiString, Color, CommandSourceType, Coord3D, ObjectID, Relationship, WaypointID, INVALID_ID,
-    LOGICFRAMES_PER_SECOND,
+    AsciiString, Color, CommandSourceType, Coord3D, INVALID_ID, LOGICFRAMES_PER_SECOND, ObjectID,
+    Relationship, WaypointID,
 };
 use crate::control_bar::{get_control_bar_bridge, set_command_set_slot_override};
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::{
-    get_game_logic_random_value, get_game_logic_random_value_real, TheAudio, TheGameLogic,
-    ThePartitionManager, TheVictoryConditions,
+    TheAudio, TheGameLogic, ThePartitionManager, TheVictoryConditions, get_game_logic_random_value,
+    get_game_logic_random_value_real,
 };
 use crate::modules::AIAttitudeType;
 use crate::object::behavior::auto_heal_behavior::parse_kind_of;
@@ -39,7 +39,7 @@ use crate::object::update::special_power_update::SpecialPowerCommandOption;
 use crate::object_creation_list::nuggets::INVALID_ANGLE;
 use crate::object_manager::get_object_manager;
 use crate::path::PATHFIND_CELL_SIZE_F;
-use crate::player::{player_list, PlayerType};
+use crate::player::{PlayerType, player_list};
 use crate::system::game_logic::TheObjectFactory;
 use crate::team::get_team_factory;
 use crate::terrain::get_terrain_logic;
@@ -48,8 +48,8 @@ use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::audio::AudioAffect as EngineAudioAffect;
 use game_engine::common::global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::rts::{get_science_store, ScienceType, SCIENCE_INVALID};
-use game_engine::common::system::radar::{get_radar_system, RadarEventType};
+use game_engine::common::rts::{SCIENCE_INVALID, ScienceType, get_science_store};
+use game_engine::common::system::radar::{RadarEventType, get_radar_system};
 use once_cell::sync::Lazy;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -280,19 +280,6 @@ pub enum HostScriptBoobytrapRequest {
     Team { thing: String, team: String },
 }
 
-/// Live host drain: PLAYER_ADD_SKILLPOINTS / ADD_RANKLEVEL / SET_RANKLEVEL /
-/// SET_RANKLEVELLIMIT / AFFECT_RECEIVING_EXPERIENCE.
-/// C++ `doPlayerAddSkillPoints` / `doPlayerAddRankLevels` / `doPlayerSetRankLevel` /
-/// `doMapSetRankLevelLimit` / `doAffectSkillPointsModifier`.
-/// Leftover writes leftover player_list / leftover GameLogic; live rank lives on host.
-#[derive(Debug, Clone, PartialEq)]
-pub enum HostScriptRankRequest {
-    AddSkillPoints { player: String, delta: i32 },
-    AddRankLevel { player: String, delta: i32 },
-    SetRankLevel { player: String, level: i32 },
-    SetRankLevelLimit { limit: i32 },
-    AffectReceivingExperience { player: String, modifier: f32 },
-}
 /// Live host drain: NAMED/TEAM SET_UNMANNED_STATUS / DELETE_ALL_UNMANNED.
 /// C++ `ScriptActions::doNamedSetUnmanned` / `doTeamSetUnmanned` /
 /// `deleteAllUnmanned` (`DISABLED_UNMANNED` + Neutral team / destroyObject).
@@ -590,8 +577,6 @@ thread_local! {
     static HOST_SCRIPT_PLAYER_RELATES_REQUESTS: RefCell<Vec<HostScriptPlayerRelatesRequest>> =
         RefCell::new(Vec::new());
     static HOST_SCRIPT_BOOBYTRAP_REQUESTS: RefCell<Vec<HostScriptBoobytrapRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_RANK_REQUESTS: RefCell<Vec<HostScriptRankRequest>> =
         RefCell::new(Vec::new());
     static HOST_SCRIPT_UNMANNED_REQUESTS: RefCell<Vec<HostScriptUnmannedRequest>> =
         RefCell::new(Vec::new());
@@ -935,16 +920,6 @@ pub fn take_host_script_boobytrap_requests() -> Vec<HostScriptBoobytrapRequest> 
     HOST_SCRIPT_BOOBYTRAP_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
 
-/// Live host drain: PLAYER_ADD_SKILLPOINTS / ADD_RANKLEVEL / SET_RANKLEVEL /
-/// SET_RANKLEVELLIMIT / AFFECT_RECEIVING_EXPERIENCE.
-pub fn request_host_rank(req: HostScriptRankRequest) {
-    HOST_SCRIPT_RANK_REQUESTS.with(|q| q.borrow_mut().push(req));
-}
-
-pub fn take_host_rank_requests() -> Vec<HostScriptRankRequest> {
-    HOST_SCRIPT_RANK_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
-}
-
 /// Live host drain: NAMED/TEAM SET_UNMANNED / DELETE_ALL_UNMANNED.
 pub fn request_host_script_unmanned(req: HostScriptUnmannedRequest) {
     HOST_SCRIPT_UNMANNED_REQUESTS.with(|q| q.borrow_mut().push(req));
@@ -1090,8 +1065,8 @@ pub fn request_host_team_partial_command_button(req: HostScriptTeamPartialComman
     HOST_TEAM_PARTIAL_COMMAND_BUTTON_REQUESTS.with(|q| q.borrow_mut().push(req));
 }
 
-pub fn take_host_team_partial_command_button_requests(
-) -> Vec<HostScriptTeamPartialCommandButtonRequest> {
+pub fn take_host_team_partial_command_button_requests()
+-> Vec<HostScriptTeamPartialCommandButtonRequest> {
     HOST_TEAM_PARTIAL_COMMAND_BUTTON_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
 

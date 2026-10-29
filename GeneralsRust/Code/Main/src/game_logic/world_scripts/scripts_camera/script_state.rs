@@ -1271,53 +1271,6 @@ impl GameLogic {
         player.set_rank_level_from_template(new_level, template.as_ref(), self.rank_level_limit)
     }
 
-    /// C++ ScriptActions skill/rank leftover drain.
-    /// Leftover mutates crate player_list / leftover GameLogic; live rank lives on host Player.
-    pub(super) fn apply_host_rank_script_requests(&mut self) {
-        use gamelogic::scripting::HostScriptRankRequest;
-        for req in gamelogic::scripting::take_host_rank_requests() {
-            match req {
-                HostScriptRankRequest::AddSkillPoints { player, delta } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
-                        continue;
-                    };
-                    let _ = self.add_player_skill_points(pid, delta);
-                }
-                HostScriptRankRequest::AddRankLevel { player, delta } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
-                        continue;
-                    };
-                    let current = self.players.get(&pid).map(|p| p.rank_level).unwrap_or(1);
-                    let changed =
-                        self.set_player_rank_level(pid, (current as i32 + delta).max(1) as u32);
-                    if changed {
-                        self.try_eva_general_level_up(pid);
-                    }
-                }
-                HostScriptRankRequest::SetRankLevel { player, level } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
-                        continue;
-                    };
-                    let changed = self.set_player_rank_level(pid, level.max(1) as u32);
-                    if changed {
-                        self.try_eva_general_level_up(pid);
-                    }
-                }
-                HostScriptRankRequest::SetRankLevelLimit { limit } => {
-                    self.set_rank_level_limit(limit);
-                }
-                HostScriptRankRequest::AffectReceivingExperience { player, modifier } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
-                        continue;
-                    };
-                    if let Some(p) = self.players.get_mut(&pid) {
-                        p.skill_points_modifier = modifier;
-                    }
-                }
-            }
-        }
-    }
-
     /// C++ ScriptActions::updatePlayerRelationTowardPlayer live drain.
     /// Leftover writes leftover ThePlayerList; live relations live on host Player.
     pub(super) fn apply_host_player_relates_script_requests(&mut self) {

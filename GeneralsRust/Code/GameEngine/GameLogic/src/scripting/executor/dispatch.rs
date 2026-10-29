@@ -304,6 +304,55 @@ impl ScriptActionDispatcher<'_> {
             }
         }
 
+        use crate::scripting::engine::ScriptPlayerRankRequest as RankRequest;
+        let rank_request = match action_type {
+            ScriptActionType::PlayerAddSkillpoints => Some(RankRequest::AddSkillPoints {
+                player: self.get_string_param(action, 0)?,
+                delta: self.get_int_param(action, 1)?,
+            }),
+            ScriptActionType::PlayerAddRanklevel => Some(RankRequest::AddRankLevel {
+                player: self.get_string_param(action, 0)?,
+                delta: self.get_int_param(action, 1)?,
+            }),
+            ScriptActionType::PlayerSetRanklevel => Some(RankRequest::SetRankLevel {
+                player: self.get_string_param(action, 0)?,
+                level: self.get_int_param(action, 1)?,
+            }),
+            ScriptActionType::PlayerSetRanklevellimit => Some(RankRequest::SetRankLevelLimit {
+                limit: self.get_int_param(action, 0)?,
+            }),
+            ScriptActionType::PlayerAffectReceivingExperience => {
+                Some(RankRequest::AffectReceivingExperience {
+                    player: self.get_string_param(action, 0)?,
+                    modifier: self.get_real_param(action, 1)?,
+                })
+            }
+            _ => None,
+        };
+        if let Some(request) = rank_request {
+            // Core Player rank transitions still emit science-acquisition and
+            // control-bar callbacks consumed by existing production paths.
+            // Preserve those callbacks until their recipients are session-owned
+            // (hq-eiojb); the Main rank mutation itself no longer uses a queue.
+            let core_result = match action_type {
+                ScriptActionType::PlayerAddSkillpoints => self.do_player_add_skillpoints(action),
+                ScriptActionType::PlayerAddRanklevel => self.do_player_add_ranklevel(action),
+                ScriptActionType::PlayerSetRanklevel => self.do_player_set_ranklevel(action),
+                ScriptActionType::PlayerSetRanklevellimit => {
+                    self.do_player_set_ranklevellimit(action)
+                }
+                ScriptActionType::PlayerAffectReceivingExperience => {
+                    self.do_player_affect_receiving_experience(action)
+                }
+                _ => unreachable!("rank request was constructed above"),
+            }?;
+            let current = self.context.borrowed_engine().get_current_player_name();
+            if let Some(result) = driver.player_rank(request, current.as_deref()) {
+                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+            }
+            return Ok(core_result);
+        }
+
         if matches!(
             action_type,
             ScriptActionType::NamedSetHeld

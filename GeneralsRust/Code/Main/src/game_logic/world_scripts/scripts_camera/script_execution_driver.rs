@@ -5,8 +5,8 @@ use gamelogic::scripting::engine::{
     ScriptAiPlayerRequest, ScriptBridgeStatus, ScriptCameraRequest, ScriptDisplayRequest,
     ScriptExecutionDriver, ScriptNamedCommand, ScriptObjectStatus, ScriptOwnerQuery,
     ScriptPlayerAreaQuery, ScriptPlayerConstructionRequest, ScriptPlayerEventSource,
-    ScriptSightingFilter, ScriptSkirmishCensus, ScriptSpecialPowerReadiness, ScriptTeamPresence,
-    ScriptTeamStatus, ScriptWaterRequest,
+    ScriptPlayerRankRequest, ScriptSightingFilter, ScriptSkirmishCensus,
+    ScriptSpecialPowerReadiness, ScriptTeamPresence, ScriptTeamStatus, ScriptWaterRequest,
 };
 use std::sync::{Arc, RwLock};
 
@@ -1905,6 +1905,57 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 self.world
                     .host_set_objects_enabled(player_id, &template, enabled);
             }
+        }
+        Some(Ok(()))
+    }
+
+    fn player_rank(
+        &mut self,
+        request: ScriptPlayerRankRequest,
+        current_player: Option<&str>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        use ScriptPlayerRankRequest as Request;
+
+        let player_token = match &request {
+            Request::SetRankLevelLimit { limit } => {
+                self.world.set_rank_level_limit(*limit);
+                return Some(Ok(()));
+            }
+            Request::AddSkillPoints { player, .. }
+            | Request::AddRankLevel { player, .. }
+            | Request::SetRankLevel { player, .. }
+            | Request::AffectReceivingExperience { player, .. } => player,
+        };
+        let Some(player_id) = self.script_player_id(player_token, current_player) else {
+            return Some(Ok(()));
+        };
+        match request {
+            Request::AddSkillPoints { delta, .. } => {
+                self.world.add_player_skill_points(player_id, delta);
+            }
+            Request::AddRankLevel { delta, .. } => {
+                let Some(current) = self.world.players.get(&player_id).map(|p| p.rank_level) else {
+                    return Some(Ok(()));
+                };
+                let next = (i64::from(current) + i64::from(delta)).clamp(1, i64::from(u32::MAX));
+                if self.world.set_player_rank_level(player_id, next as u32) {
+                    self.world.try_eva_general_level_up(player_id);
+                }
+            }
+            Request::SetRankLevel { level, .. } => {
+                if self
+                    .world
+                    .set_player_rank_level(player_id, level.max(1) as u32)
+                {
+                    self.world.try_eva_general_level_up(player_id);
+                }
+            }
+            Request::AffectReceivingExperience { modifier, .. } => {
+                if let Some(player) = self.world.players.get_mut(&player_id) {
+                    player.skill_points_modifier = modifier;
+                }
+            }
+            Request::SetRankLevelLimit { .. } => unreachable!("handled above"),
         }
         Some(Ok(()))
     }

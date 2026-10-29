@@ -226,6 +226,17 @@ pub enum ScriptPlayerConstructionRequest {
     },
 }
 
+/// Rank actions retain the authored player selector until the receiving
+/// interpreter resolves it against its own match.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ScriptPlayerRankRequest {
+    AddSkillPoints { player: String, delta: i32 },
+    AddRankLevel { player: String, delta: i32 },
+    SetRankLevel { player: String, level: i32 },
+    SetRankLevelLimit { limit: i32 },
+    AffectReceivingExperience { player: String, modifier: f32 },
+}
+
 /// CPP ScriptActions1042–1062/1861–1878/1966–1980/6081–6095: named AI commands.
 /// The owner resolves literal names and THIS_OBJECT within its own object store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -975,6 +986,16 @@ pub trait ScriptExecutionDriver {
     fn player_construction(
         &mut self,
         _request: ScriptPlayerConstructionRequest,
+        _current_player: Option<&str>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    /// Apply rank/skill actions synchronously on the receiving match.
+    /// `None` retains the standalone Core PlayerList implementation.
+    fn player_rank(
+        &mut self,
+        _request: ScriptPlayerRankRequest,
         _current_player: Option<&str>,
     ) -> Option<GameLogicResult<()>> {
         None
