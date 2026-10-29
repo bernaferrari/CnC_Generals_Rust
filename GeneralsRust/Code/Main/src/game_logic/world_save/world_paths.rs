@@ -993,8 +993,36 @@ impl GameLogic {
         goals: &[(ObjectId, Vec3)],
         destination: Vec3,
     ) -> bool {
+        self.assign_shared_group_paths_with_source(goals, destination, true, false)
+            .is_ok()
+    }
+
+    pub(crate) fn assign_shared_group_paths_for_script(
+        &mut self,
+        goals: &[(ObjectId, Vec3)],
+        destination: Vec3,
+    ) -> bool {
+        self.assign_shared_group_paths_with_source(goals, destination, false, false)
+            .is_ok()
+    }
+
+    pub(crate) fn assign_shared_formation_paths_for_script(
+        &mut self,
+        goals: &[(ObjectId, Vec3)],
+        destination: Vec3,
+    ) -> Result<(), Vec3> {
+        self.assign_shared_group_paths_with_source(goals, destination, false, true)
+    }
+
+    fn assign_shared_group_paths_with_source(
+        &mut self,
+        goals: &[(ObjectId, Vec3)],
+        destination: Vec3,
+        from_player: bool,
+        formation: bool,
+    ) -> Result<(), Vec3> {
         if goals.is_empty() {
-            return false;
+            return Err(destination);
         }
         for &(id, _) in goals {
             let Some(unit) = self.objects.lookup(&id) else {
@@ -1029,7 +1057,7 @@ impl GameLogic {
             }
         }
         if count <= 0.0 {
-            return false;
+            return Err(destination);
         }
         cx /= count;
         cz /= count;
@@ -1054,10 +1082,10 @@ impl GameLogic {
             })
             .min_by(|a, b| a.2.total_cmp(&b.2));
         let Some((_, start, _)) = leader else {
-            return false;
+            return Err(destination);
         };
         if !self.map_loaded {
-            return false;
+            return Err(destination);
         }
         // C++ AIGroup::friend_computeGroundPath uses a fixed ground, non-crusher
         // group search. A member's individual locomotor and footprint do not
@@ -1081,8 +1109,11 @@ impl GameLogic {
                 &ground_source,
             )
         }) else {
-            return false;
+            return Err(destination);
         };
+        if formation {
+            return self.assign_shared_formation_spine_paths(goals, &spine, destination);
+        }
         // C++ group march direction = spine start → destination; the lateral
         // lanes live on its normal (AIGroup.cpp:708-716 startVectorNormal).
         let mut dir_vec = Vec3::new(destination.x - start.x, 0.0, destination.z - start.z);
@@ -1128,7 +1159,12 @@ impl GameLogic {
                     && !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(o)
             });
             if airborne_aircraft {
-                if self.unit_command_move_free(unit_id, goal, destination) {
+                let moved = if from_player {
+                    self.unit_command_move_free(unit_id, goal, destination)
+                } else {
+                    self.unit_command_script_move_to(unit_id, goal)
+                };
+                if moved {
                     any = true;
                 }
                 continue;
@@ -1166,12 +1202,87 @@ impl GameLogic {
                     .unwrap_or_else(legacy_spine),
                 None => legacy_spine(),
             };
+            if let Some(unit) = self.objects.get_mut(&unit_id) {
+                unit.last_command_source = if from_player {
+                    crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_PLAYER
+                } else {
+                    crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
+                };
+            }
             let _ = self.note_move_to_request_path(unit_id);
             if self.apply_computed_unit_path(unit_id, unit_start, goal, path, false) {
                 any = true;
             }
         }
-        any
+        if any {
+            Ok(())
+        } else {
+            Err(destination)
+        }
+    }
+
+    /// C++ AIGroup::friend_moveFormationToPos over the path created by
+    /// friend_computeGroundPath. Trim the shared spine at the same lead and
+    /// tail distances, offset every retained node by the existing formation
+    /// offset, and install one route per member through this world owner.
+    fn assign_shared_formation_spine_paths(
+        &mut self,
+        goals: &[(ObjectId, Vec3)],
+        spine: &[Vec3],
+        destination: Vec3,
+    ) -> Result<(), Vec3> {
+        const FAR_ENOUGH_SQR: f32 = (6.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL)
+            * (6.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL);
+        let distance_sqr = |a: Vec3, b: Vec3| {
+            let dx = a.x - b.x;
+            let dz = a.z - b.z;
+            dx * dx + dz * dz
+        };
+        let Some(&start_point) = spine.first() else {
+            return Err(destination);
+        };
+        let Some(&end_point) = spine.last() else {
+            return Err(destination);
+        };
+        let Some(start_index) = spine
+            .iter()
+            .position(|node| distance_sqr(*node, start_point) > FAR_ENOUGH_SQR)
+        else {
+            return Err(end_point);
+        };
+        let Some(end_index) = spine
+            .iter()
+            .rposition(|node| distance_sqr(*node, end_point) > FAR_ENOUGH_SQR)
+        else {
+            return Err(end_point);
+        };
+        if end_index <= start_index {
+            return Err(end_point);
+        }
+
+        let mut any = false;
+        for &(id, _) in goals {
+            let Some(unit) = self.objects.lookup(&id) else {
+                continue;
+            };
+            if unit.status.disabled_held || !unit.has_ai_update_interface() {
+                continue;
+            }
+            let mut path: Vec<Vec3> = spine[start_index..=end_index].to_vec();
+            let endpoint = end_point;
+            // C++ keeps the trimmed endNode in the route, then appends the
+            // separately adjusted endPoint + formation offset as final goal.
+            // The receiving follow-path installer owns per-unit destination
+            // adjustment, matching Pathfinder::adjustDestination.
+            path.push(endpoint);
+            self.host_script_issue_group_follow_path(id, &path);
+            any = true;
+        }
+        if any {
+            Ok(())
+        } else {
+            Err(end_point)
+        }
     }
 
     /// Per-member marching lanes for a shared-spine group march.

@@ -24,8 +24,8 @@ impl GameLogic {
         Ok(Some((identity, team.get_members().to_vec())))
     }
 
-    /// Apply the current live TeamMove behavior through the receiving world.
-    /// Full C++ AIGroup formation/path parity remains separate work.
+    /// ScriptActions::doMoveToWaypoint: admit the team in roster order before
+    /// looking up the waypoint, then move that receiving-world AIGroup.
     pub(super) fn apply_owned_team_move_to_waypoint(
         &mut self,
         team: &str,
@@ -36,12 +36,21 @@ impl GameLogic {
         let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };
+        self.apply_owned_team_move_members_to_waypoint(&members, waypoint)
+    }
+
+    pub(super) fn apply_owned_team_move_members_to_waypoint(
+        &mut self,
+        members: &[u32],
+        waypoint: &str,
+    ) -> gamelogic::GameLogicResult<()> {
+        let group = self.create_team_ai_group(members);
+        let ordered_members = self.ai_group_members(group);
         let Some(destination) = self.host_script_waypoint_position(waypoint) else {
             return Ok(());
         };
-        for member in members {
-            self.unit_command_move_to(ObjectId(member), destination);
-        }
+        let mut executor = crate::command_executor::CommandExecutor::new(self, 0);
+        let _ = executor.execute_script_team_move(&ordered_members, destination)?;
         Ok(())
     }
 
@@ -331,7 +340,10 @@ impl GameLogic {
             .filter_map(|member| {
                 let id = ObjectId(member);
                 self.host_object(id).map(|object| {
-                    (id, std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+                    (
+                        id,
+                        std::sync::Arc::downgrade(&object.visual_draw_identity_token),
+                    )
                 })
             })
             .collect();
@@ -364,7 +376,10 @@ impl GameLogic {
                 break;
             }
             if self.object_birth_matches(id, &birth)
-                && self.host_object(id).and_then(|object| object.team_instance_id) == Some(team_id)
+                && self
+                    .host_object(id)
+                    .and_then(|object| object.team_instance_id)
+                    == Some(team_id)
             {
                 self.apply_researched_player_upgrades_to_object_with_interpreter(
                     id,

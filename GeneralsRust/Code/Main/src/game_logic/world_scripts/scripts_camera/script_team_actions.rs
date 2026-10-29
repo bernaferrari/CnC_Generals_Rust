@@ -2284,6 +2284,17 @@ impl GameLogic {
         }
     }
 
+    /// C++ AIGroup::friend_moveFormationToPos issues aiFollowPath with the
+    /// trimmed shared spine. Preserve the existing formation by letting the
+    /// receiving path owner apply each member's stored formation offset.
+    pub(in crate::game_logic) fn host_script_issue_group_follow_path(
+        &mut self,
+        unit: ObjectId,
+        path: &[glam::Vec3],
+    ) {
+        self.host_script_issue_follow_waypoint_path(&[unit], path, false, true, None);
+    }
+
     pub(super) fn host_script_area_center(&self, area_name: &str) -> Option<glam::Vec3> {
         let center = {
             let terrain = self.world_services.terrain().read().ok()?;

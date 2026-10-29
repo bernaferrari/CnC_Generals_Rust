@@ -283,6 +283,99 @@ fn compute_ground_path_infantry_line_passable_fallback() {
 }
 
 #[test]
+fn script_formation_move_keeps_shared_obstacle_spine_and_group_speed() {
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{GameLogic, GridPos, KindOf, Object, ObjectId, Team, ThingTemplate};
+    use glam::{Vec2, Vec3};
+
+    let mut logic = GameLogic::new();
+    logic.override_world_size(1024.0, 1024.0);
+    logic.force_map_loaded_for_path_test(true);
+    let mut template = ThingTemplate::new("ScriptFormationInfantry");
+    template.add_kind_of(KindOf::Infantry);
+    template.add_kind_of(KindOf::Selectable);
+    template.set_health(100.0);
+    logic
+        .templates
+        .insert("ScriptFormationInfantry".to_string(), template.clone());
+    let destination = Vec3::new(0.0, 0.0, 420.0);
+    let wall_start = logic
+        .pathfinding_system
+        .grid
+        .world_to_grid(Vec3::new(-250.0, 0.0, 100.0));
+    let wall_end = logic
+        .pathfinding_system
+        .grid
+        .world_to_grid(Vec3::new(100.0, 0.0, 100.0));
+    for x in wall_start.x..wall_end.x {
+        logic
+            .pathfinding_system
+            .grid
+            .set_blocked(GridPos::new(x, wall_start.y), true);
+    }
+
+    let mut members = Vec::new();
+    for (id, x, speed, offset) in [(8800, -5.0, 10.0, -20.0), (8801, 5.0, 20.0, 20.0)] {
+        let mut unit = Object::new(template.clone(), ObjectId(id), Team::USA);
+        unit.set_position(Vec3::new(x, 0.0, 5.0));
+        unit.movement.max_speed = speed;
+        unit.set_formation(91, Vec2::new(offset, 0.0));
+        logic.objects.insert(ObjectId(id), unit);
+        members.push(ObjectId(id));
+    }
+
+    assert_eq!(
+        CommandExecutor::new(&mut logic, 0)
+            .execute_script_team_move(&members, destination)
+            .unwrap(),
+        CommandResult::Success
+    );
+    for id in &members {
+        let unit = logic.host_object(*id).unwrap();
+        assert!(
+            !unit.movement.path.is_empty(),
+            "{id:?} must receive the shared route"
+        );
+        assert_eq!(
+            unit.formation_id, 91,
+            "script movement keeps formation membership"
+        );
+        assert_eq!(
+            unit.last_command_source,
+            crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
+        );
+    }
+    let first_path = &logic.host_object(members[0]).unwrap().movement.path;
+    assert!(
+        first_path
+            .iter()
+            .any(|point| point.x > 100.0 || point.x < -250.0),
+        "shared route must bend around the obstructing wall: {first_path:?}"
+    );
+    let first_goal = logic
+        .host_object(members[0])
+        .unwrap()
+        .requested_destination
+        .unwrap();
+    let second_goal = logic
+        .host_object(members[1])
+        .unwrap()
+        .requested_destination
+        .unwrap();
+    assert!(
+        ((first_goal.x + 40.0) - second_goal.x).abs() < 20.0
+            && (first_goal.z - second_goal.z).abs() < 20.0,
+        "final FollowPath goals preserve member offsets: {first_goal:?} {second_goal:?}"
+    );
+    assert!(
+        (logic.host_object(members[0]).unwrap().group_speed_factor - 1.0).abs() < 1e-5
+            && (logic.host_object(members[1]).unwrap().group_speed_factor - 0.5).abs() < 1e-5,
+        "formed march uses the slowest member's shared speed"
+    );
+}
+
+#[test]
 fn stamped_formation_move_does_not_tighten() {
     // C++ AIGroup::groupMoveToPosition (AIGroup.cpp:1559-1615): click-to-gather
     // only when !isFormation. Stamped formations keep offsets.

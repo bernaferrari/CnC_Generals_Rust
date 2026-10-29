@@ -215,6 +215,26 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         destination: Vec3,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        self.execute_group_move_to_position(units, destination, true)
+    }
+
+    /// ScriptActions::doMoveToWaypoint calls AIGroup::groupMoveToPosition
+    /// with CMD_FROM_SCRIPT. Reuse the group planner while suppressing player
+    /// gather, source clipping, voice and stealth-mood effects.
+    pub(crate) fn execute_script_team_move(
+        &mut self,
+        units: &[ObjectId],
+        destination: Vec3,
+    ) -> gamelogic::GameLogicResult<CommandResult> {
+        self.execute_group_move_to_position(units, destination, false)
+    }
+
+    fn execute_group_move_to_position(
+        &mut self,
+        units: &[ObjectId],
+        destination: Vec3,
+        from_player: bool,
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         // Wave 232: move last-writes via GameLogic unit_command_move_free.
         // C++ AIGroup::groupMoveToPosition (AIGroup.cpp:1559-1615): click-to-gather
         // only when !isFormation. A stamped formation always takes
@@ -222,7 +242,7 @@ impl<'a> CommandExecutor<'a> {
         // C++ clamps the click to map extent before tighten/formation (`:1592-1593`).
         let destination = self.clamp_group_waypoint(units, destination);
         let is_formation = self.group_is_stamped_formation(units);
-        if !is_formation && self.should_tighten_group_move(units, destination) {
+        if from_player && !is_formation && self.should_tighten_group_move(units, destination) {
             let result = self.execute_tighten_to_position(units, destination);
             if matches!(result, CommandResult::Success) {
                 self.play_context_move_voice(units);
@@ -230,8 +250,12 @@ impl<'a> CommandExecutor<'a> {
             return Ok(result);
         }
         if is_formation && units.len() > 1 {
-            let result = self.execute_move_formation_to_position(units, destination)?;
-            if matches!(result, CommandResult::Success) {
+            let result = if from_player {
+                self.execute_move_formation_to_position(units, destination)?
+            } else {
+                self.execute_script_formation_move(units, destination)
+            };
+            if from_player && matches!(result, CommandResult::Success) {
                 self.play_context_move_voice(units);
             }
             return Ok(result);
@@ -242,10 +266,14 @@ impl<'a> CommandExecutor<'a> {
         let free_ids: Vec<ObjectId> = goals.iter().map(|(id, _)| *id).collect();
         self.dissolve_free_move_formation_stamps(&free_ids);
         if units.len() > 1 && self.compute_ground_path_should_group(units, destination) {
-            if self
-                .game_logic
-                .assign_shared_group_paths(&goals, destination)
-            {
+            let assigned_shared_path = if from_player {
+                self.game_logic
+                    .assign_shared_group_paths(&goals, destination)
+            } else {
+                self.game_logic
+                    .assign_shared_group_paths_for_script(&goals, destination)
+            };
+            if assigned_shared_path {
                 let moved: Vec<ObjectId> = goals.iter().map(|(id, _)| *id).collect();
                 let inf_columned = {
                     let n = goals
@@ -298,12 +326,20 @@ impl<'a> CommandExecutor<'a> {
                     if skip {
                         continue;
                     }
-                    let _ = self
-                        .game_logic
-                        .unit_command_move_free(*unit_id, *goal, destination);
+                    if from_player {
+                        let _ =
+                            self.game_logic
+                                .unit_command_move_free(*unit_id, *goal, destination);
+                    } else {
+                        let _ = self
+                            .game_logic
+                            .unit_command_script_move_to(*unit_id, *goal);
+                    }
                 }
-                self.apply_player_stealth_mood_delay(&moved);
-                self.play_context_move_voice(units);
+                if from_player {
+                    self.apply_player_stealth_mood_delay(&moved);
+                    self.play_context_move_voice(units);
+                }
                 return Ok(CommandResult::Success);
             }
         }
@@ -317,10 +353,13 @@ impl<'a> CommandExecutor<'a> {
             {
                 continue;
             }
-            if !self
-                .game_logic
-                .unit_command_move_free(unit_id, goal, destination)
-            {
+            let moved_ok = if from_player {
+                self.game_logic
+                    .unit_command_move_free(unit_id, goal, destination)
+            } else {
+                self.game_logic.unit_command_script_move_to(unit_id, goal)
+            };
+            if !moved_ok {
                 if self.game_logic.host_object(unit_id).is_none() {
                     missing = true;
                 }
@@ -335,9 +374,54 @@ impl<'a> CommandExecutor<'a> {
         if moved.is_empty() && !goals.is_empty() {
             return Ok(CommandResult::InvalidCommand);
         }
-        self.apply_player_stealth_mood_delay(&moved);
-        self.play_context_move_voice(units);
+        if from_player {
+            self.apply_player_stealth_mood_delay(&moved);
+            self.play_context_move_voice(units);
+        }
         Ok(CommandResult::Success)
+    }
+
+    fn execute_script_formation_move(
+        &mut self,
+        units: &[ObjectId],
+        destination: Vec3,
+    ) -> CommandResult {
+        // C++ AIMoveToState::onEnter uses AIGroup::getSpeed when the existing
+        // formation IDs survive the order. This remains an approximation of
+        // C++ current-locomotor-speed and damage-penalty filtering.
+        self.apply_group_desired_speed(units, true);
+        let mut move_destination = destination;
+        let mut goals = self.group_move_destinations(units, move_destination);
+        if goals.len() > 1
+            && self.compute_ground_path_should_group(units, destination)
+        {
+            match self
+                .game_logic
+                .assign_shared_formation_paths_for_script(&goals, destination)
+            {
+                Ok(()) => return CommandResult::Success,
+                Err(fallback_destination) => {
+                    // C++ friend_moveFormationToPos retains the snapped
+                    // m_groundPath endpoint when its trimmed window is empty.
+                    move_destination = fallback_destination;
+                    goals = self.group_move_destinations(units, move_destination);
+                }
+            }
+        }
+        let mut any = false;
+        for (id, goal) in goals {
+            if self.game_logic.host_object(id).is_some_and(|object| {
+                object.status.disabled_held || !(object.is_mobile() || object.can_attack())
+            }) {
+                continue;
+            }
+            any |= self.game_logic.unit_command_script_move_to(id, goal);
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
     }
 
     pub(super) fn execute_move_to(

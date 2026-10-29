@@ -1181,14 +1181,10 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 }
                 Err(error) => return Some(Err(error)),
             };
-            let Some(destination) = self.world.host_script_waypoint_position(waypoint) else {
-                return Some(Ok(()));
-            };
-            for member in members {
+            return Some(
                 self.world
-                    .unit_command_move_to(ObjectId(member), destination);
-            }
-            return Some(Ok(()));
+                    .apply_owned_team_move_members_to_waypoint(&members, waypoint),
+            );
         }
         Some(
             self.world
