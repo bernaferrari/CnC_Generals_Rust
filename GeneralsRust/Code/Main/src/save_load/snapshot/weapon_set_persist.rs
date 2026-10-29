@@ -61,10 +61,28 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
 }
 
 pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    let Some(suffix) = find_wsfl_suffix(bytes) else {
+    let Some(payload) = decode_payload(bytes)? else {
         return Ok(());
     };
-    let mut rest = suffix;
+    apply_payload(game_logic, payload);
+    Ok(())
+}
+
+pub(super) fn validate_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<()> {
+    let _ = decode_payload(bytes)?;
+    Ok(())
+}
+
+fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<WeaponSetPersistPayload>> {
+    let Some(record) = find_wsfl_record(bytes)? else {
+        return Ok(None);
+    };
+    if record.len() < 12 {
+        return Err(SaveLoadError::Corrupted(
+            "WSFL header truncated".to_string(),
+        ));
+    }
+    let mut rest = &record[4..];
     let version = take_u32(&mut rest)?;
     if version != WSFL_VERSION {
         return Err(SaveLoadError::Corrupted(format!(
@@ -79,8 +97,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     }
     let payload: WeaponSetPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("WSFL payload decode: {err}")))?;
-    apply_payload(game_logic, payload);
-    Ok(())
+    Ok(Some(payload))
 }
 
 fn capture(game_logic: &GameLogic) -> WeaponSetPersistPayload {
@@ -206,11 +223,11 @@ fn stamp_veterancy_weaponset_model_bits(object: &mut crate::game_logic::Object) 
     }
 }
 
-fn find_wsfl_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == WSFL_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
+fn find_wsfl_record(bytes: &[u8]) -> SaveLoadResult<Option<&[u8]>> {
+    let Some(range) = super::hotkey_squad_persist::find_lifecycle_record(bytes, WSFL_MAGIC)? else {
+        return Ok(None);
+    };
+    Ok(Some(&bytes[range]))
 }
 
 fn append_u32(out: &mut Vec<u8>, value: u32) {
@@ -234,7 +251,7 @@ mod tests {
 
     #[test]
     fn absent_suffix_is_ignored() {
-        assert!(find_wsfl_suffix(b"no-magic-here").is_none());
+        assert!(find_wsfl_record(b"no-magic-here").unwrap().is_none());
         apply_from_lifecycle_tail(b"no-magic-here", &mut GameLogic::new()).expect("apply");
     }
 
@@ -263,7 +280,9 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_wsfl_suffix(&snapshot.lifecycle_tail).is_some(),
+            find_wsfl_record(&snapshot.lifecycle_tail)
+                .expect("WSFL framing")
+                .is_some(),
             "WSFL suffix must be appended to lifecycle tail"
         );
 

@@ -15,6 +15,9 @@ impl SnapshotBuilder {
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
         snapshot.audio_policy.validate()?;
+        // WSFL framing and contents are validated before any receiving-world
+        // mutation, just like the other detached lifecycle candidates.
+        super::super::weapon_set_persist::validate_lifecycle_tail(&snapshot.lifecycle_tail)?;
         // Native input owns squads; validate its detached wire before world mutation.
         let _ = super::super::hotkey_squad_persist::read_control_groups(&snapshot.lifecycle_tail)?;
         if candidate.object_lifecycle_callback_depth != 0
