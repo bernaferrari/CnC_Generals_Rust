@@ -225,6 +225,13 @@ pub(crate) struct ScenePointLightState {
 
 impl ScenePointLightState {
     fn begin_fade(&mut self, frames: u32) {
+        // C++ W3DDynamicLight treats a zero decay-frame count as "never decays"
+        // in On_Frame_Update. Do not turn that value into a one-frame removal.
+        if frames == 0 {
+            self.light.fade_remaining = 0;
+            self.fade = None;
+            return;
+        }
         self.fade = Some(ScenePointLightFade::start(&mut self.light, frames));
     }
 
@@ -1784,6 +1791,25 @@ mod scene_point_light_fade_tests {
         assert_eq!(state.light.fade_remaining, 0);
         assert!(!state.light.enabled);
         assert!(state.fade.is_none());
+    }
+
+    #[test]
+    fn zero_frame_fade_keeps_light_enabled_like_cpp_nondecaying_light() {
+        let mut state = state();
+        let original = state.light.clone();
+
+        state.begin_fade(0);
+
+        assert!(state.fade.is_none());
+        assert_eq!(state.light.fade_remaining, 0);
+        for _ in 0..3 {
+            assert!(!state.advance_fade());
+            assert_eq!(state.light.pos, original.pos);
+            assert_eq!(state.light.ambient, original.ambient);
+            assert_eq!(state.light.diffuse, original.diffuse);
+            assert_eq!(state.light.far_end, original.far_end);
+            assert!(state.light.enabled);
+        }
     }
 
     #[test]
