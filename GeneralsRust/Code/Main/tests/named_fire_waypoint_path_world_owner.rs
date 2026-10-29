@@ -134,7 +134,31 @@ fn admitted_world(
     capable_of_following_waypoint: bool,
     secondary_weapon: Option<(&str, &str, bool)>,
 ) -> GameLogic {
+    admitted_world_with_projectile_ai(
+        path,
+        projectile_name,
+        capable_of_following_waypoint,
+        secondary_weapon,
+        true,
+    )
+}
+
+fn admitted_world_with_projectile_ai(
+    path: &std::path::Path,
+    projectile_name: &str,
+    capable_of_following_waypoint: bool,
+    secondary_weapon: Option<(&str, &str, bool)>,
+    projectile_has_ai: bool,
+) -> GameLogic {
     let mut game = GameLogic::new();
+    let mut player_templates =
+        game_engine::common::rts::player_template::PlayerTemplateStore::new_owned();
+    player_templates.apply_source(
+        "PlayerTemplate FactionCivilian\n Side = Civilian\nEnd\nPlayerTemplate FactionAmerica\n Side = America\nEnd\n",
+        game_engine::common::ini::INILoadType::Overwrite,
+    ).unwrap();
+    game.admit_player_template_definitions(player_templates)
+        .unwrap();
     let mut locomotors = LocomotorStore::new_owned();
     locomotors
         .apply_source("Locomotor OwnedProjectileLoco\n Surfaces = AIR\n Speed = 100\n Acceleration = 100\n TurnRate = 120\n Appearance = WINGS\n End\n")
@@ -143,11 +167,16 @@ fn admitted_world(
     let secondary_weapon_set = secondary_weapon
         .map(|(name, _, _)| format!(" Weapon = SECONDARY {name}\n"))
         .unwrap_or_default();
+    let projectile_ai = if projectile_has_ai {
+        " Behavior = AIUpdateInterface ProjectileAI\n End\n"
+    } else {
+        ""
+    };
     game.admit_object_ini_sources([(
         "NamedFireOwner.ini".into(),
         format!(
             "Object {UNIT_NAME}\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 400\n InitialHealth = 400\n End\n WeaponSet\n  Conditions = NONE\n  Weapon = PRIMARY {WEAPON}\n{secondary_weapon_set} End\nEnd\n\
-             Object {projectile_name}\n KindOf = PROJECTILE AIRCRAFT\n Locomotor = SET_NORMAL OwnedProjectileLoco\n Body = ActiveBody ProjectileBody\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface ProjectileAI\n End\nEnd\n"
+             Object {projectile_name}\n KindOf = PROJECTILE AIRCRAFT\n Locomotor = SET_NORMAL OwnedProjectileLoco\n Body = ActiveBody ProjectileBody\n MaxHealth = 100\n InitialHealth = 100\n End\n{projectile_ai}End\n"
         ),
     )])
     .expect("admit launcher and projectile object definitions");
@@ -166,6 +195,31 @@ fn admitted_world(
     game.start_new_game(GameMode::SinglePlayer);
     assert!(game.load_map(path.to_str().expect("UTF-8 map path")));
     game
+}
+
+#[test]
+fn projectile_without_ai_is_created_but_receives_no_waypoint_order() {
+    let root = tempfile::tempdir().unwrap();
+    let map = waypoint_map(root.path(), 200.0);
+    let mut world = admitted_world_with_projectile_ai(&map, OWNER_PROJECTILE, true, None, false);
+    let shooter = world
+        .host_objects()
+        .registered_values()
+        .find(|object| object.name == OBJECT_NAME)
+        .unwrap()
+        .id;
+    world.update();
+    let projectile = world
+        .host_objects()
+        .registered_values()
+        .find(|object| {
+            object.template_name == OWNER_PROJECTILE && object.producer_id == Some(shooter)
+        })
+        .expect("the projectile exists even when it has no AI interface");
+    assert!(!projectile.has_ai_update_interface());
+    assert!(projectile.requested_destination.is_none());
+    assert!(projectile.movement.target_position.is_none());
+    assert!(projectile.movement.path.is_empty());
 }
 
 fn fired_endpoint(game: &GameLogic, shooter: ObjectId, template: &str) -> f32 {

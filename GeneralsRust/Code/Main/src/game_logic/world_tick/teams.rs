@@ -1773,6 +1773,13 @@ impl GameLogic {
         };
         if let Some(obj) = self.host_object_mut(proj_id) {
             obj.note_producer(id);
+            // ScriptActions.cpp checks getAIUpdateInterface before leaveGroup,
+            // choosing a locomotor, or issuing the waypoint command. An
+            // authored projectile without AI is still created, but none of
+            // those operations belong to it.
+            if !obj.has_ai_update_interface() {
+                return;
+            }
             obj.set_formation(0, glam::Vec2::ZERO);
         }
         let _ = self.apply_unit_locomotor_set(proj_id, "normal");
