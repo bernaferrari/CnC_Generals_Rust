@@ -3,6 +3,7 @@ use generals_main::command_executor::CommandExecutor;
 use generals_main::command_system::{CommandResult, CommandType, GameCommand, ModifierKeys};
 use generals_main::game_logic::{GameLogic, GameMode, ObjectId, Player, Team};
 use generals_main::save_load::SnapshotBuilder;
+use generals_main::ui::color_for_player;
 use std::time::SystemTime;
 
 fn minimal_map(root: &std::path::Path) -> std::path::PathBuf {
@@ -123,19 +124,29 @@ fn minimap_beacons_use_receiving_objects_with_same_ids_and_conflicting_global_ma
 
     assert_eq!(first_state.minimap_beacons.len(), 2);
     assert_eq!(peer_state.minimap_beacons.len(), 1);
+    assert_eq!(
+        first_state.minimap_beacons[0].color,
+        color_for_player(1),
+        "dot color comes from the receiving beacon owner"
+    );
+    assert_eq!(
+        peer_state.minimap_beacons[0].color,
+        color_for_player(1),
+        "same numeric owner in a peer still receives its own marker"
+    );
+    assert_eq!(first_state.minimap_beacons[0].size, 4.0);
+    assert_eq!(first_state.minimap_beacons[1].size, 4.0);
+    assert_eq!(peer_state.minimap_beacons[0].size, 4.0);
     let first_dots: Vec<_> = first_state
         .minimap_beacons
         .iter()
         .map(|dot| dot.position)
         .collect();
     let peer_dot = peer_state.minimap_beacons[0].position;
-    assert!(first_dots.iter().any(|dot| {
-        (dot.x - first_expected.0).abs() < 0.001 && (dot.y - first_expected.1).abs() < 0.001
-    }));
-    assert!(first_dots.iter().any(|dot| {
-        (dot.x - first_nearby_expected.0).abs() < 0.001
-            && (dot.y - first_nearby_expected.1).abs() < 0.001
-    }));
+    assert!((first_dots[0].x - first_expected.0).abs() < 0.001);
+    assert!((first_dots[0].y - first_expected.1).abs() < 0.001);
+    assert!((first_dots[1].x - first_nearby_expected.0).abs() < 0.001);
+    assert!((first_dots[1].y - first_nearby_expected.1).abs() < 0.001);
     assert!((peer_dot.x - peer_expected.0).abs() < 0.001);
     assert!((peer_dot.y - peer_expected.1).abs() < 0.001);
 
