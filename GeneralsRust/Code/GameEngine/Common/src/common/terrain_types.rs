@@ -1,12 +1,11 @@
 //! Terrain type definitions matching C++ TerrainTypes.h / TerrainTypes.cpp
 //!
 //! TerrainType describes terrain surface properties (name, texture, class, blend edges).
-//! TerrainTypeCollection is a linked-list collection of all terrain types.
-//! TheTerrainTypes is the global singleton.
+//! TerrainTypeCollection is a value collection matching the legacy linked-list
+//! ordering. Live map terrain definitions are owned by the receiving INI catalog.
 
 use crate::common::rts::AsciiString;
 use crate::common::system::{SubsystemInterface, SubsystemResult, SubsystemState};
-use std::sync::{Arc, Mutex, OnceLock};
 
 /// Terrain class enumeration matching C++ TerrainClass enum.
 /// Must be kept in sync with terrainTypeNames[].
@@ -249,20 +248,20 @@ impl Default for TerrainType {
 /// Matches C++ TerrainTypeCollection from TerrainTypes.h.
 #[derive(Debug)]
 pub struct TerrainTypeCollection {
-    /// All terrain types indexed by name (case-insensitive).
-    terrain_map: std::collections::HashMap<String, TerrainType>,
+    /// Newest entry first, matching the C++ prepended linked list.
+    terrain_list: Vec<TerrainType>,
 }
 
 impl TerrainTypeCollection {
     pub fn new() -> Self {
         Self {
-            terrain_map: std::collections::HashMap::new(),
+            terrain_list: Vec::new(),
         }
     }
 
-    /// Initialize the collection (called once at engine startup).
+    /// C++ TerrainTypeCollection::init leaves its entries intact.
     pub fn init(&mut self) {
-        self.terrain_map.clear();
+        // No initialization is needed for the value collection.
     }
 
     /// Reset the collection (not used for terrain, kept for SubsystemInterface).
@@ -275,43 +274,40 @@ impl TerrainTypeCollection {
         // No per-frame updates needed.
     }
 
-    /// Find a terrain type by name (case-insensitive).
+    /// Find the newest terrain type with an exact, case-sensitive name.
     pub fn find_terrain(&self, name: &str) -> Option<&TerrainType> {
-        self.terrain_map.get(&name.to_ascii_lowercase())
+        self.terrain_list
+            .iter()
+            .find(|terrain| terrain.name.as_str() == name)
     }
 
     /// Allocate a new terrain type and register it.
     /// Copies defaults from "DefaultTerrain" if it exists (matching C++ behavior).
     pub fn new_terrain(&mut self, name: AsciiString) -> &mut TerrainType {
-        let key = name.as_str().to_ascii_lowercase();
-
-        // Copy defaults from the default terrain entry if present
-        if let Some(default) = self.terrain_map.get("defaultterrain") {
-            let mut terrain = default.clone();
-            terrain.name = name;
-            self.terrain_map.insert(key.clone(), terrain);
-        } else {
-            let mut terrain = TerrainType::new();
-            terrain.name = name;
-            self.terrain_map.insert(key.clone(), terrain);
-        }
-
-        self.terrain_map.get_mut(&key).unwrap()
+        // C++ findTerrain("DefaultTerrain") uses exact AsciiString equality.
+        // Copy only the definition fields; each instance owns its name.
+        let mut terrain = self
+            .find_terrain("DefaultTerrain")
+            .cloned()
+            .unwrap_or_else(TerrainType::new);
+        terrain.name = name;
+        self.terrain_list.insert(0, terrain);
+        &mut self.terrain_list[0]
     }
 
-    /// Iterate over all terrain types.
+    /// Iterate over all terrain types, newest first as in the C++ linked list.
     pub fn iter(&self) -> impl Iterator<Item = &TerrainType> {
-        self.terrain_map.values()
+        self.terrain_list.iter()
     }
 
     /// Number of terrain types.
     pub fn len(&self) -> usize {
-        self.terrain_map.len()
+        self.terrain_list.len()
     }
 
     /// Check if empty.
     pub fn is_empty(&self) -> bool {
-        self.terrain_map.is_empty()
+        self.terrain_list.is_empty()
     }
 }
 
@@ -342,7 +338,7 @@ impl SubsystemInterface for TerrainTypeCollection {
     }
 
     fn shutdown(&mut self) -> SubsystemResult<()> {
-        self.terrain_map.clear();
+        self.terrain_list.clear();
         Ok(())
     }
 
@@ -356,33 +352,6 @@ impl SubsystemInterface for TerrainTypeCollection {
 
     fn as_any_mut(&mut self) -> &mut (dyn std::any::Any + Send + Sync) {
         self
-    }
-}
-
-/// Global terrain type collection singleton (matches C++ `TheTerrainTypes`).
-static THE_TERRAIN_TYPES: OnceLock<Arc<Mutex<TerrainTypeCollection>>> = OnceLock::new();
-
-/// Get the global terrain type collection.
-pub fn get_terrain_types() -> Option<Arc<Mutex<TerrainTypeCollection>>> {
-    THE_TERRAIN_TYPES.get().cloned()
-}
-
-/// Initialize the global terrain type collection.
-pub fn init_terrain_types() -> Arc<Mutex<TerrainTypeCollection>> {
-    THE_TERRAIN_TYPES
-        .get_or_init(|| {
-            let collection = TerrainTypeCollection::new();
-            Arc::new(Mutex::new(collection))
-        })
-        .clone()
-}
-
-/// Shut down the global terrain type collection.
-pub fn shutdown_terrain_types() {
-    if let Some(arc) = THE_TERRAIN_TYPES.get() {
-        if let Ok(mut guard) = arc.lock() {
-            guard.terrain_map.clear();
-        }
     }
 }
 
@@ -420,7 +389,7 @@ mod tests {
         }
 
         assert!(collection.find_terrain("Grass").is_some());
-        assert!(collection.find_terrain("grass").is_some());
+        assert!(collection.find_terrain("grass").is_none());
         assert!(collection.find_terrain("Sand").is_none());
     }
 
@@ -445,19 +414,11 @@ mod tests {
     }
 
     #[test]
-    fn global_collection_init_and_find() {
-        let arc = init_terrain_types();
-        {
-            let mut guard = arc.lock().unwrap();
-            let t = guard.new_terrain(AsciiString::from("TestTerrain"));
-            t.set_class(TerrainClass::Rock);
-        }
-
-        let guard = get_terrain_types().unwrap();
-        let collection = guard.lock().unwrap();
-        let t = collection.find_terrain("TestTerrain").unwrap();
-        assert_eq!(t.get_class(), TerrainClass::Rock);
-
-        shutdown_terrain_types();
+    fn collection_init_preserves_local_value() {
+        let mut collection = TerrainTypeCollection::new();
+        collection.new_terrain(AsciiString::from("TestTerrain"));
+        assert_eq!(collection.len(), 1);
+        collection.init();
+        assert!(collection.find_terrain("TestTerrain").is_some());
     }
 }

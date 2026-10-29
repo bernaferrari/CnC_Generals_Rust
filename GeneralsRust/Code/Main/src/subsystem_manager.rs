@@ -429,7 +429,8 @@ impl SubsystemInterface for GlobalDataSubsystem {
 }
 
 impl_bootstrap_subsystem!(TerrainTypesSubsystem, "TerrainTypes", {
-    let _ = game_engine::common::terrain_types::init_terrain_types();
+    // The active parsed terrain catalog is owned by the receiving session.
+    // TerrainTypeCollection is only a value compatibility type.
     Ok(())
 });
 
