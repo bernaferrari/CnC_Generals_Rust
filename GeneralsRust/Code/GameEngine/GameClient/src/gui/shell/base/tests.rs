@@ -21,6 +21,11 @@ mod tests {
                     end_frame: frame,
                     show_advice: true,
                     advice: game_engine::common::rts::AcademyAdviceInfo::default(),
+                    player_roster: None,
+                    is_single_player: None,
+                    is_skirmish: None,
+                    session_difficulty: None,
+                    skirmish_outcome: None,
                 };
             shell.push_score_screen(snapshot(100), false).unwrap();
             assert_eq!(
@@ -719,11 +724,9 @@ End
                 "Menus/MainMenu.wnd".to_string(),
             )));
 
-            assert!(
-                shell
-                    .find_screen_by_filename("menus/mainmenu.wnd")
-                    .is_some()
-            );
+            assert!(shell
+                .find_screen_by_filename("menus/mainmenu.wnd")
+                .is_some());
         });
     }
 
@@ -996,22 +999,16 @@ End
 
             let event_log = events.borrow();
             assert!(event_log.iter().any(|event| event == "destroy:stack.wnd"));
-            assert!(
-                !event_log
-                    .iter()
-                    .any(|event| event == "destroy:save_load.wnd")
-            );
-            assert!(
-                !event_log
-                    .iter()
-                    .any(|event| event == "destroy:popup_replay.wnd")
-            );
+            assert!(!event_log
+                .iter()
+                .any(|event| event == "destroy:save_load.wnd"));
+            assert!(!event_log
+                .iter()
+                .any(|event| event == "destroy:popup_replay.wnd"));
             assert!(!event_log.iter().any(|event| event == "destroy:options.wnd"));
-            assert!(
-                !event_log
-                    .iter()
-                    .any(|event| event == "destroy:background.wnd")
-            );
+            assert!(!event_log
+                .iter()
+                .any(|event| event == "destroy:background.wnd"));
         });
     }
 

@@ -582,7 +582,17 @@ impl CnCGameEngine {
                 game_client::gui::callbacks::simulate_score_screen_bind_controls(effects)
             })?;
         }
-        self.enter_shell_screen_from_runtime_host(Some("ScoreScreen"), "Menus/ScoreScreen.wnd")?;
+        let end_frame = self.game_logic.frame;
+        let show_advice = matches!(
+            self.game_logic.game_mode(),
+            crate::game_logic::GameMode::Skirmish | crate::game_logic::GameMode::Internet
+        );
+        let advice = if show_advice {
+            self.game_logic.score_academy_advice()
+        } else {
+            Default::default()
+        };
+        self.host_push_score_screen_like_cpp(end_frame, advice, show_advice)?;
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             "open_score_screen_ok_wnd".into()
         } else {

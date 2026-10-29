@@ -241,7 +241,8 @@ impl CnCGameEngine {
             .as_deref()
             .filter(|map| !map.trim().is_empty())
             .or_else(|| owned_map.as_deref().filter(|map| !map.trim().is_empty()));
-        let prepared_map = Self::prepare_application_new_game_map(explicit_map, receiving, dispatch);
+        let prepared_map =
+            Self::prepare_application_new_game_map(explicit_map, receiving, dispatch);
         Self::resolve_application_new_game_map(
             mode,
             campaign_map,
@@ -510,6 +511,11 @@ impl CnCGameEngine {
                 end_frame,
                 advice,
                 show_advice,
+                player_roster: Some(self.game_logic.score_screen_player_roster()),
+                is_single_player: Some(self.game_logic.score_screen_is_single_player()),
+                is_skirmish: Some(self.game_logic.score_screen_is_skirmish()),
+                session_difficulty: self.game_logic.score_screen_session_difficulty(),
+                skirmish_outcome: self.game_logic.score_screen_skirmish_outcome(),
             };
             self.game_client
                 .window_manager_owner_ref()

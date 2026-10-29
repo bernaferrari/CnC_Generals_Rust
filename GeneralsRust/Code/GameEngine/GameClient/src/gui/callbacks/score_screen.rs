@@ -370,7 +370,25 @@ fn init_single_player(effects: &mut WindowEventEffects<'_>) {
         let value = ScoreScreenType::SinglePlayer;
         effects.score_screen_mut().screen_type = value
     };
-    if let Ok(list) = ThePlayerList().read() {
+    if let Some(snapshot) = effects.score_screen().parent.as_ref().and_then(|window| {
+        window
+            .borrow()
+            .get_user_data::<ScoreScreenAcademySnapshot>()
+            .cloned()
+    }) {
+        if let Some(manager) = effects.campaign_manager.as_deref_mut() {
+            if let Some(roster) = snapshot.player_roster.as_ref() {
+                if let Some(local) = roster.iter().find(|player| player.is_local) {
+                    manager.set_rank_points(local.rank_points);
+                }
+            }
+            manager.set_game_difficulty(match snapshot.session_difficulty.unwrap_or(1) {
+                0 => CampaignDifficulty::Easy,
+                2 => CampaignDifficulty::Hard,
+                _ => CampaignDifficulty::Normal,
+            });
+        }
+    } else if let Ok(list) = ThePlayerList().read() {
         if let Some(local_player) = list.get_local_player() {
             if let Ok(player) = local_player.read() {
                 if let Some(manager) = effects.campaign_manager.as_deref_mut() {
@@ -935,6 +953,10 @@ fn grab_multi_player_info(
     state: &mut ScoreScreenState,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) {
+    if let Some(players) = score_screen_roster(&state.parent) {
+        grab_multi_player_info_from_snapshot(state, receiving_manager, &players);
+        return;
+    }
     let Ok(list) = ThePlayerList().read() else {
         return;
     };
@@ -978,10 +1000,339 @@ fn grab_multi_player_info(
     }
 }
 
+fn score_screen_is_single_player(parent: &Option<Rc<RefCell<GameWindow>>>) -> bool {
+    parent
+        .as_ref()
+        .and_then(|window| {
+            window
+                .borrow()
+                .get_user_data::<ScoreScreenAcademySnapshot>()
+                .and_then(|snapshot| snapshot.is_single_player)
+        })
+        .unwrap_or(false)
+}
+
+fn snapshot_player_rows(roster: &[ScoreScreenPlayerSnapshot]) -> Vec<&ScoreScreenPlayerSnapshot> {
+    (0..MAX_SLOTS)
+        .filter_map(|index| {
+            let slot = format!("player{index}");
+            roster.iter().find(|player| player.player_name == slot)
+        })
+        .collect()
+}
+
+fn grab_multi_player_info_from_snapshot(
+    state: &mut ScoreScreenState,
+    manager: &mut crate::gui::window_manager::WindowManager,
+    roster: &[ScoreScreenPlayerSnapshot],
+) {
+    if roster.iter().any(|player| player.is_local) {
+        set_window_image(&state.parent, "MutiPlayer_ScoreScreen");
+    }
+    let mut ranked = std::collections::BTreeMap::new();
+    let mut player_count = 0;
+    let mut adder = 1;
+    for player in snapshot_player_rows(roster) {
+        player_count += 1;
+        let mut score = player.score_keeper.total_score();
+        if ranked.contains_key(&score) {
+            score += adder;
+            adder += 1;
+        }
+        // C++ inserts into std::map after its one collision adjustment. If
+        // that adjusted key is already present, insertion replaces its row.
+        ranked.insert(score, player);
+    }
+    hide_windows(state, player_count as i32, manager);
+    for (index, (_, player)) in ranked.into_iter().rev().enumerate() {
+        if player.is_observer {
+            populate_snapshot_observer(state, player, index as i32, manager);
+        } else {
+            populate_snapshot_player(state, player, index as i32, manager);
+        }
+    }
+}
+
+fn grab_single_player_info_from_snapshot(
+    state: &mut ScoreScreenState,
+    manager: &mut crate::gui::window_manager::WindowManager,
+    roster: &[ScoreScreenPlayerSnapshot],
+    is_single_player: bool,
+) {
+    let Some(local) = roster.iter().find(|player| player.is_local) else {
+        return;
+    };
+    if !local.score_screen_image.is_empty() {
+        set_window_image(&state.parent, &local.score_screen_image);
+    }
+    let mut count = 0;
+    let score_local = if local.is_observer {
+        let Some(human) = roster.iter().find(|player| player.is_human) else {
+            return;
+        };
+        populate_snapshot_player(state, human, count, manager);
+        count += 1;
+        human
+    } else {
+        populate_snapshot_player(state, local, count, manager);
+        count += 1;
+        local
+    };
+    for (side, is_friend) in [
+        ("USA", true),
+        ("China", true),
+        ("GLA", true),
+        ("USA", false),
+        ("China", false),
+        ("GLA", false),
+    ] {
+        let mut gather = ScoreGather::default();
+        let mut included = false;
+        let mut color = 0xffff_ffff;
+        for player in roster {
+            if player.id == score_local.id
+                || player.base_side != side
+                || (is_single_player && !player.list_in_score_screen)
+                || !include_in_campaign_side_row(is_friend, player.relationship_to_local)
+            {
+                continue;
+            }
+            let score = &player.score_keeper;
+            gather.total_buildings_built += score.get_total_buildings_built();
+            gather.total_buildings_destroyed += score.get_total_buildings_destroyed();
+            gather.total_buildings_lost += score.get_total_buildings_lost();
+            gather.total_money_earned += score.get_total_money_earned();
+            gather.total_money_spent += score.get_total_money_spent();
+            gather.total_units_built += score.get_total_units_built();
+            gather.total_units_destroyed += score.get_total_units_destroyed();
+            gather.total_units_lost += score.get_total_units_lost();
+            gather.side_icon = player.side_icon.clone();
+            color = player.color_argb;
+            included = true;
+        }
+        if included {
+            let label = format!("GUI:{side}{}", if is_friend { "Allies" } else { "Enemies" });
+            populate_side_info(
+                state,
+                &GameText::fetch(&label),
+                &gather,
+                count,
+                color,
+                manager,
+            );
+            count += 1;
+        }
+    }
+    hide_windows(state, count, manager);
+}
+
+fn populate_snapshot_observer(
+    state: &mut ScoreScreenState,
+    player: &ScoreScreenPlayerSnapshot,
+    pos: i32,
+    manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    if !(0..MAX_SLOTS).contains(&pos) {
+        return;
+    }
+    let player_win = find_child(
+        &state.parent,
+        &format!("ScoreScreen.wnd:StaticTextPlayer{pos}"),
+    );
+    if let Some(win) = player_win.as_ref() {
+        set_text(win, &player.display_name);
+        let _ = win.borrow_mut().hide(false, manager);
+        set_text_color(win, 0xffff_ffff);
+    }
+    hide_window(
+        &find_child(
+            &state.parent,
+            &format!("ScoreScreen.wnd:StaticTextObserver{pos}"),
+        ),
+        false,
+        manager,
+    );
+    for field in [
+        "StaticTextUnitsBuilt",
+        "StaticTextUnitsLost",
+        "StaticTextUnitsDestroyed",
+        "StaticTextBuildingsBuilt",
+        "StaticTextBuildingsLost",
+        "StaticTextBuildingsDestroyed",
+        "StaticTextResources",
+    ] {
+        hide_window(
+            &find_child(&state.parent, &format!("ScoreScreen.wnd:{field}{pos}")),
+            true,
+            manager,
+        );
+    }
+    let winner = find_child(
+        &state.parent,
+        &format!("ScoreScreen.wnd:GameWindowWinner{pos}"),
+    );
+    hide_window(&winner, false, manager);
+    if !player.side_icon.is_empty() {
+        set_window_image(&winner, &player.side_icon);
+    }
+}
+
+fn persist_snapshot_skirmish_honors(
+    player: &ScoreScreenPlayerSnapshot,
+    outcome: &ScoreScreenSkirmishOutcome,
+    score: &game_engine::common::rts::score_keeper::ScoreKeeper,
+    end_frame: u32,
+) {
+    if should_skip_skirmish_honor_persist(
+        outcome.sandbox,
+        outcome.allied_defeat,
+        outcome.allied_victory,
+        outcome.local_player_active,
+    ) {
+        return;
+    }
+    let mut stats = SkirmishBattleHonors::new();
+    if outcome.allied_victory {
+        stats.set_wins(stats.get_wins() + 1);
+        stats.set_win_streak(stats.get_win_streak() + 1);
+        let best = stats.get_best_win_streak().max(stats.get_win_streak());
+        stats.set_best_win_streak(best);
+        update_skirmish_battle_honors(&mut stats, &player.side, score, end_frame);
+        let mut challenge_medals = stats.get_challenge_medals();
+        update_challenge_medals(&mut challenge_medals);
+        stats.set_challenge_medals(challenge_medals);
+    } else {
+        stats.set_losses(stats.get_losses() + 1);
+        stats.set_win_streak(0);
+    }
+    let last_general = stats.get_last_general();
+    stats.set_last_general(player.side.clone());
+    if last_general == stats.get_last_general() {
+        stats.set_num_games_loyal(stats.get_num_games_loyal() + 1);
+    } else {
+        stats.set_num_games_loyal(0);
+    }
+    let _ = stats.write();
+}
+
+fn populate_snapshot_player(
+    state: &mut ScoreScreenState,
+    player: &ScoreScreenPlayerSnapshot,
+    pos: i32,
+    manager: &mut crate::gui::window_manager::WindowManager,
+) {
+    if !(0..MAX_SLOTS).contains(&pos) {
+        return;
+    }
+    let color = player.color_argb;
+    let player_win = find_child(
+        &state.parent,
+        &format!("ScoreScreen.wnd:StaticTextPlayer{pos}"),
+    );
+    if let Some(win) = player_win {
+        let label = if state.override_player_display_name {
+            GameText::fetch("GUI:Player")
+        } else {
+            player.display_name.clone()
+        };
+        set_text(&win, &label);
+        let _ = win.borrow_mut().hide(false, manager);
+        set_text_color(&win, color);
+    }
+    hide_window(
+        &find_child(
+            &state.parent,
+            &format!("ScoreScreen.wnd:StaticTextObserver{pos}"),
+        ),
+        true,
+        manager,
+    );
+    let score = &player.score_keeper;
+    for (field, value) in [
+        ("StaticTextUnitsBuilt", score.get_total_units_built()),
+        ("StaticTextUnitsLost", score.get_total_units_lost()),
+        (
+            "StaticTextUnitsDestroyed",
+            score.get_total_units_destroyed(),
+        ),
+        (
+            "StaticTextBuildingsBuilt",
+            score.get_total_buildings_built(),
+        ),
+        ("StaticTextBuildingsLost", score.get_total_buildings_lost()),
+        (
+            "StaticTextBuildingsDestroyed",
+            score.get_total_buildings_destroyed(),
+        ),
+        ("StaticTextResources", score.get_total_money_earned()),
+    ] {
+        if let Some(win) = find_child(&state.parent, &format!("ScoreScreen.wnd:{field}{pos}")) {
+            set_text(&win, &value.to_string());
+            set_text_color(&win, color);
+            let _ = win.borrow_mut().hide(false, manager);
+        }
+    }
+    if player.is_local {
+        if let Some(listbox) = state.listbox_academy.as_ref() {
+            let _ = listbox.borrow_mut().hide(false, manager);
+            hide_window(&state.static_text_academy_title, false, manager);
+            if let Some(snapshot) = state.parent.as_ref().and_then(|window| {
+                window
+                    .borrow()
+                    .get_user_data::<ScoreScreenAcademySnapshot>()
+                    .cloned()
+            }) {
+                let mut listbox = listbox.borrow_mut();
+                if let Some(widget) = listbox.list_box_mut() {
+                    for index in 0..snapshot.advice.num_tips.max(0) as usize {
+                        if let Some(tip) = snapshot.advice.advice.get(index) {
+                            if !tip.is_empty() {
+                                widget.add_item(&GameText::fetch(tip));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let winner = find_child(
+        &state.parent,
+        &format!("ScoreScreen.wnd:GameWindowWinner{pos}"),
+    );
+    hide_window(&winner, false, manager);
+    if !player.side_icon.is_empty() {
+        set_window_image(&winner, &player.side_icon);
+    }
+    if state.screen_type == ScoreScreenType::Skirmish && player.is_local {
+        if let Some(outcome) = state.parent.as_ref().and_then(|window| {
+            window
+                .borrow()
+                .get_user_data::<ScoreScreenAcademySnapshot>()
+                .and_then(|snapshot| snapshot.skirmish_outcome)
+        }) {
+            persist_snapshot_skirmish_honors(
+                player,
+                &outcome,
+                score,
+                score_end_frame(&state.parent),
+            );
+        }
+    }
+}
+
 fn grab_single_player_info(
     state: &mut ScoreScreenState,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) {
+    if let Some(players) = score_screen_roster(&state.parent) {
+        grab_single_player_info_from_snapshot(
+            state,
+            receiving_manager,
+            &players,
+            score_screen_is_single_player(&state.parent),
+        );
+        return;
+    }
     let Ok(list) = ThePlayerList().read() else {
         return;
     };
@@ -1014,10 +1365,10 @@ fn grab_single_player_info(
 
     for (side, is_friend) in [
         ("USA", true),
-        ("USA", false),
         ("China", true),
-        ("China", false),
         ("GLA", true),
+        ("USA", false),
+        ("China", false),
         ("GLA", false),
     ] {
         let mut gather = ScoreGather::default();
@@ -1283,12 +1634,47 @@ fn leftover_single_alliance_remaining(local: &Player) -> bool {
     saw_local_alliance != saw_other_alliance
 }
 
-fn update_skirmish_battle_honors(
+trait SkirmishScoreMetrics {
+    fn get_total_objects_built(&self, template_name: &str) -> i32;
+    fn get_total_units_built_filtered(
+        &self,
+        required: &KindOfMaskType,
+        excluded: &KindOfMaskType,
+    ) -> i32;
+}
+
+impl SkirmishScoreMetrics for game_engine::common::rts::score_keeper::ScoreKeeper {
+    fn get_total_objects_built(&self, template_name: &str) -> i32 {
+        self.get_total_objects_built(template_name)
+    }
+    fn get_total_units_built_filtered(
+        &self,
+        required: &KindOfMaskType,
+        excluded: &KindOfMaskType,
+    ) -> i32 {
+        self.get_total_units_built_filtered(required, excluded)
+    }
+}
+
+impl SkirmishScoreMetrics for gamelogic::player::ScoreKeeper {
+    fn get_total_objects_built(&self, template_name: &str) -> i32 {
+        self.get_total_objects_built(template_name)
+    }
+    fn get_total_units_built_filtered(
+        &self,
+        required: &KindOfMaskType,
+        excluded: &KindOfMaskType,
+    ) -> i32 {
+        self.get_total_units_built_filtered(required, excluded)
+    }
+}
+
+fn update_skirmish_battle_honors<S: SkirmishScoreMetrics>(
     stats: &mut SkirmishBattleHonors,
-    player: &Player,
+    side: &str,
+    score: &S,
     end_frame: u32,
 ) {
-    let score = player.get_score_keeper();
     if stats.get_win_streak() >= 5 {
         stats.set_honors(BATTLE_HONOR_STREAK as i32);
     }
@@ -1335,7 +1721,6 @@ fn update_skirmish_battle_honors(
         stats.set_honors(BATTLE_HONOR_BLITZ10 as i32);
     }
 
-    let side = player.get_side();
     if stats.get_num_games_loyal() >= 20 {
         if side == "America" {
             stats.set_honors(BATTLE_HONOR_LOYALTY_USA as i32);
@@ -1443,6 +1828,57 @@ pub struct ScoreScreenAcademySnapshot {
     pub end_frame: u32,
     pub show_advice: bool,
     pub advice: game_engine::common::rts::AcademyAdviceInfo,
+    /// Complete receiving-session identity and display rows. Native layouts
+    /// must never resolve these through the process Core PlayerList.
+    pub player_roster: Option<Vec<ScoreScreenPlayerSnapshot>>,
+    pub is_single_player: Option<bool>,
+    pub is_skirmish: Option<bool>,
+    /// Main's admitted difficulty for this session (0 easy, 1 medium, 2 hard,
+    /// 3 brutal). A snapshot never consults another session's ScriptEngine.
+    pub session_difficulty: Option<i32>,
+    /// C++ Skirmish battle-honor decision captured from the receiving match.
+    pub skirmish_outcome: Option<ScoreScreenSkirmishOutcome>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ScoreScreenSkirmishOutcome {
+    pub sandbox: bool,
+    pub allied_victory: bool,
+    pub allied_defeat: bool,
+    pub local_player_active: bool,
+}
+
+#[derive(Clone)]
+pub struct ScoreScreenPlayerSnapshot {
+    pub id: i32,
+    pub player_name: String,
+    pub display_name: String,
+    pub side: String,
+    pub base_side: String,
+    pub color_argb: u32,
+    pub side_icon: String,
+    pub score_screen_image: String,
+    pub is_local: bool,
+    pub is_observer: bool,
+    pub is_human: bool,
+    pub is_neutral: bool,
+    pub is_active: bool,
+    pub has_objects: bool,
+    pub list_in_score_screen: bool,
+    pub relationship_to_local: gamelogic::prelude::Relationship,
+    pub rank_points: i32,
+    pub score_keeper: game_engine::common::rts::score_keeper::ScoreKeeper,
+}
+
+fn score_screen_roster(
+    parent: &Option<Rc<RefCell<GameWindow>>>,
+) -> Option<Vec<ScoreScreenPlayerSnapshot>> {
+    parent.as_ref().and_then(|window| {
+        window
+            .borrow()
+            .get_user_data::<ScoreScreenAcademySnapshot>()
+            .and_then(|snapshot| snapshot.player_roster.clone())
+    })
 }
 
 pub(crate) fn bind_score_screen_snapshot(
@@ -1692,7 +2128,12 @@ fn populate_player_info(
             stats.set_win_streak(stats.get_win_streak() + 1);
             let best = stats.get_best_win_streak().max(stats.get_win_streak());
             stats.set_best_win_streak(best);
-            update_skirmish_battle_honors(&mut stats, player, score_end_frame(&state.parent));
+            update_skirmish_battle_honors(
+                &mut stats,
+                &player.get_side(),
+                score,
+                score_end_frame(&state.parent),
+            );
             let mut challenge_medals = stats.get_challenge_medals();
             update_challenge_medals(&mut challenge_medals);
             stats.set_challenge_medals(challenge_medals);
@@ -2005,7 +2446,35 @@ pub fn score_screen_init(
         effects.score_screen_mut().need_finish_singleplayer_init = value
     };
 
-    if TheGameLogic::is_in_replay_game() {
+    let receiving_single_player = effects.score_screen().parent.as_ref().and_then(|window| {
+        window
+            .borrow()
+            .get_user_data::<ScoreScreenAcademySnapshot>()
+            .and_then(|snapshot| snapshot.is_single_player)
+    });
+    let receiving_skirmish = effects.score_screen().parent.as_ref().and_then(|window| {
+        window
+            .borrow()
+            .get_user_data::<ScoreScreenAcademySnapshot>()
+            .and_then(|snapshot| snapshot.is_skirmish)
+    });
+    if receiving_single_player == Some(true) {
+        // Match the original single-player branch: the score row uses the GUI
+        // generic Player label and replay saving is unavailable here.
+        effects.score_screen_mut().override_player_display_name = true;
+        init_single_player(effects);
+        if let Some(parent) = effects.score_screen().parent.clone().as_ref() {
+            if let Some(button) = parent
+                .borrow()
+                .find_child_by_id(effects.score_screen().button_save_replay_id)
+            {
+                let _ = effects
+                    .with_manager(|manager, effects| button.borrow_mut().hide(true, manager));
+            }
+        }
+    } else if receiving_skirmish == Some(true) {
+        effects.with_manager(|manager, effects| init_skirmish(effects.score_screen_mut(), manager));
+    } else if TheGameLogic::is_in_replay_game() {
         if let Some(parent) = effects.score_screen().parent.clone().as_ref() {
             if let Some(button) = parent
                 .borrow()
@@ -2476,6 +2945,11 @@ mod tests {
                 end_frame: frame,
                 show_advice: false,
                 advice: Default::default(),
+                player_roster: None,
+                is_single_player: None,
+                is_skirmish: None,
+                session_difficulty: None,
+                skirmish_outcome: None,
             });
             Some(Rc::new(RefCell::new(window)))
         }
@@ -2892,6 +3366,11 @@ mod owned_academy_snapshot_tests {
                     end_frame: frame,
                     show_advice: true,
                     advice,
+                    player_roster: None,
+                    is_single_player: None,
+                    is_skirmish: None,
+                    session_difficulty: None,
+                    skirmish_outcome: None,
                 },
             );
             // Same callback helper used after real ScoreScreen initialization;
