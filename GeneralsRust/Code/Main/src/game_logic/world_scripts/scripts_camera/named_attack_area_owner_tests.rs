@@ -59,7 +59,7 @@ fn named_attack_area_uses_the_driving_polygon_and_persistent_target_selection() 
         ),
         1
     );
-    assert_eq!(owner.host_object(unit).unwrap().formation_id, 0);
+    assert_eq!(owner.host_object(unit).unwrap().formation_id, 19);
     assert_eq!(
         owner
             .host_object(unit)
@@ -118,7 +118,7 @@ fn named_attack_area_move_without_a_victim_retains_script_source() {
         object.last_command_source,
         crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
     );
-    assert_eq!(object.formation_id, 0);
+    assert_eq!(object.formation_id, 19);
     assert_eq!(
         object.jet_ai.cur_locomotor_set.as_deref(),
         Some("SET_NORMAL")

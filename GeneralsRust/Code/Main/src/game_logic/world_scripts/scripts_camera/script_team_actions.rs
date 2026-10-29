@@ -1387,15 +1387,9 @@ impl GameLogic {
         Ok(())
     }
 
-    /// C++ `Object::leaveGroup` before PLAYER_HUNT `aiHunt`.
-    /// Live formation_id is the AIGroup/formation membership leftover `group_id` maps to.
-    pub(super) fn host_object_leave_group(&mut self, id: ObjectId) {
-        if let Some(unit) = self.objects.get_mut(&id) {
-            if unit.formation_id != 0 || unit.formation_offset != glam::Vec2::ZERO {
-                unit.set_formation(0, glam::Vec2::ZERO);
-            }
-        }
-    }
+    /// C++ `Object::leaveGroup` removes membership; it does not alter the
+    /// independent formation ID or offset. Main has no AIGroup owner yet.
+    pub(super) fn host_object_leave_group(&mut self, _id: ObjectId) {}
 
     /// C++ `getAIUpdateInterface` + `getCurLocomotor`. Structures have no
     /// current locomotor; generic test scouts without KindOf still stamp.
@@ -2345,9 +2339,7 @@ impl GameLogic {
         {
             return Ok(());
         }
-        self.host_object_mut(id)
-            .unwrap()
-            .set_formation(0, glam::Vec2::ZERO);
+        self.host_object_leave_group(id);
         self.apply_unit_locomotor_set(id, "normal");
         self.apply_owned_attack_team_member(id, team_id, force_normal, effects)?;
         Ok(())
@@ -2451,9 +2443,7 @@ impl GameLogic {
         {
             return Ok(());
         }
-        self.host_object_mut(id)
-            .unwrap()
-            .set_formation(0, glam::Vec2::ZERO);
+        self.host_object_leave_group(id);
         self.apply_unit_locomotor_set(id, "normal");
         self.host_script_attack_area_with_effects(id, area, effects)?;
         Ok(())

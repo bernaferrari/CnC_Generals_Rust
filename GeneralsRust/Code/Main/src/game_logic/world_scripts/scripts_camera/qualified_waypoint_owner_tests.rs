@@ -61,7 +61,7 @@ fn my_inner_perimeter_qualification_uses_owned_player_start_and_polygon() {
     );
     issue(&mut owner, team, &order);
     assert_eq!(owner.host_object(unit).unwrap().target, Some(target));
-    assert_eq!(owner.host_object(unit).unwrap().formation_id, 0);
+    assert_eq!(owner.host_object(unit).unwrap().formation_id, 19);
     assert_eq!(
         owner.host_object(unit).unwrap().last_command_source,
         crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT

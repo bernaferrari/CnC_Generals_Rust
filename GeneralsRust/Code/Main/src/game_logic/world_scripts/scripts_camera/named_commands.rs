@@ -206,8 +206,8 @@ impl GameLogic {
         if !unit.has_ai_update_interface() {
             return;
         }
-        unit.set_formation(0, glam::Vec2::ZERO);
         let position = unit.get_position();
+        self.host_object_leave_group(id);
         self.apply_unit_locomotor_set(id, "normal");
         self.apply_owned_script_guard_position(id, position);
     }
@@ -412,10 +412,7 @@ impl GameLogic {
                     return Ok(());
                 }
                 // CPP ScriptActions1499: leaveGroup and NORMAL precede aiEnter.
-                // Canonical formation belongs to this owner, not a Core registry.
-                self.host_object_mut(id)
-                    .unwrap()
-                    .set_formation(0, glam::Vec2::ZERO);
+                self.host_object_leave_group(id);
                 self.apply_unit_locomotor_set(id, "normal");
                 if !self.owned_named_ai_command_admitted(id)
                     || !self.can_unit_enter_script_target(id, target)
@@ -455,9 +452,7 @@ impl GameLogic {
                     return Ok(());
                 }
                 // CPP ScriptActions1544: leaveGroup, NORMAL, aiEvacuate(FALSE).
-                self.host_object_mut(id)
-                    .unwrap()
-                    .set_formation(0, glam::Vec2::ZERO);
+                self.host_object_leave_group(id);
                 self.apply_unit_locomotor_set(id, "normal");
                 self.order_owned_script_passengers_to_exit(id, true);
                 return Ok(());
@@ -499,11 +494,7 @@ impl GameLogic {
             unit.pending_move = None;
         }
         // CPP ScriptActions.cpp1042/6081: leaveGroup precedes NORMAL selection.
-        // The compatibility leave-group helper also touches OBJECT_REGISTRY;
-        // the selected owner's command must affect only its own formation.
-        self.host_object_mut(id)
-            .expect("resolved script unit")
-            .set_formation(0, glam::Vec2::ZERO);
+        self.host_object_leave_group(id);
         self.apply_unit_locomotor_set(id, "normal");
         match request {
             ScriptNamedCommand::Hunt { .. }

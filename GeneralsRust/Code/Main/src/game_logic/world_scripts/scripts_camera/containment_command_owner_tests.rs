@@ -82,7 +82,7 @@ fn enter_rejected_noncontainer_preserves_ai_after_script_preparation() {
     assert_eq!(unit.target, Some(target));
     assert_eq!(unit.pending_move, Some(old));
     assert_eq!(unit.last_command_source, 99);
-    assert_eq!(unit.formation_id, 0);
+    assert_eq!(unit.formation_id, 19);
     assert_eq!(b.host_object(foreign).unwrap().formation_id, 19);
 }
 
@@ -378,7 +378,7 @@ fn enter_group_preparation_does_not_write_foreign_core_object_with_same_id() {
                 ),
                 1
             );
-            assert_eq!(world.host_object(id).unwrap().formation_id, 0);
+            assert_eq!(world.host_object(id).unwrap().formation_id, 19);
             assert_eq!(
                 foreign.read().unwrap().get_group_id(),
                 Some(913),

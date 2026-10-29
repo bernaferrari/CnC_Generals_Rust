@@ -112,6 +112,17 @@ fn world(path: &std::path::Path) -> (GameLogic, ObjectId) {
             "Object OwnedNamedMoveUnit\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
         )])
         .unwrap();
+    let mut player_templates =
+        game_engine::common::rts::player_template::PlayerTemplateStore::new_owned();
+    player_templates
+        .apply_source(
+            "PlayerTemplate FactionCivilian\n Side = Civilian\nEnd\nPlayerTemplate FactionAmerica\n Side = America\nEnd\n",
+            game_engine::common::ini::INILoadType::Overwrite,
+        )
+        .unwrap();
+    world
+        .admit_player_template_definitions(player_templates)
+        .unwrap();
     world.start_new_game(GameMode::SinglePlayer);
     assert!(world.load_map(path.to_str().expect("UTF-8 map path")));
     let unit = world
@@ -145,10 +156,10 @@ fn map_authored_named_move_uses_each_receiving_world_and_missing_waypoint_is_noo
     owner
         .host_object_mut(owner_unit)
         .unwrap()
-        .set_formation(17, glam::Vec2::ZERO);
+        .set_formation(17, glam::Vec2::new(5.0, -7.0));
     peer.host_object_mut(peer_unit)
         .unwrap()
-        .set_formation(29, glam::Vec2::ZERO);
+        .set_formation(29, glam::Vec2::new(-9.0, 3.0));
 
     // Main's ordinary update executes each map-authored ScriptEngine through
     // its receiving HostScriptExecutionDriver.
@@ -161,7 +172,11 @@ fn map_authored_named_move_uses_each_receiving_world_and_missing_waypoint_is_noo
         peer.host_object(peer_unit).unwrap().requested_destination,
         None
     );
-    assert_eq!(owner.host_object(owner_unit).unwrap().formation_id, 0);
+    assert_eq!(owner.host_object(owner_unit).unwrap().formation_id, 17);
+    assert_eq!(
+        owner.host_object(owner_unit).unwrap().formation_offset,
+        glam::Vec2::new(5.0, -7.0)
+    );
     assert_eq!(peer.host_object(peer_unit).unwrap().formation_id, 29);
 
     peer.update();
@@ -173,7 +188,11 @@ fn map_authored_named_move_uses_each_receiving_world_and_missing_waypoint_is_noo
         owner.host_object(owner_unit).unwrap().requested_destination,
         Some(glam::Vec3::new(180.0, 0.0, 210.0))
     );
-    assert_eq!(peer.host_object(peer_unit).unwrap().formation_id, 0);
+    assert_eq!(peer.host_object(peer_unit).unwrap().formation_id, 29);
+    assert_eq!(
+        peer.host_object(peer_unit).unwrap().formation_offset,
+        glam::Vec2::new(-9.0, 3.0)
+    );
 
     missing
         .host_object_mut(missing_unit)

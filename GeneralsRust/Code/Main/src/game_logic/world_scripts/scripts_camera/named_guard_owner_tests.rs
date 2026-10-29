@@ -57,8 +57,8 @@ fn guard_enters_driving_object_at_current_position_with_normal_script_order() {
         .set_guard_mode(GuardMode::WithoutPursuit);
     guard(&mut first, "NamedUnit");
     let unit = first.host_object(id).unwrap();
-    assert_eq!(unit.formation_id, 0);
-    assert_eq!(unit.formation_offset, glam::Vec2::ZERO);
+    assert_eq!(unit.formation_id, 19);
+    assert_eq!(unit.formation_offset, glam::Vec2::new(4.0, 6.0));
     assert_eq!(
         unit.cur_locomotor_name.as_deref(),
         Some("BasicHumanLocomotor")
@@ -228,7 +228,7 @@ fn guard_does_not_idle_passengers() {
 
 // Tests below additionally exercise command admission on the owned route.
 #[test]
-fn guard_rejected_admission_still_leaves_formation_and_selects_normal() {
+fn guard_rejected_admission_keeps_formation_and_selects_normal() {
     let setters: [fn(&mut Object); 5] = [
         |u| u.status.effectively_dead = true,
         |u| {
@@ -247,7 +247,7 @@ fn guard_rejected_admission_still_leaves_formation_and_selects_normal() {
         reject(world.host_object_mut(id).unwrap());
         guard(&mut world, "NamedUnit");
         let unit = world.host_object(id).unwrap();
-        assert_eq!(unit.formation_id, 0);
+        assert_eq!(unit.formation_id, 19);
         assert_eq!(unit.jet_ai.cur_locomotor_set.as_deref(), Some("SET_NORMAL"));
         assert_eq!(unit.active_guard_position(), None);
         assert_eq!(
@@ -269,7 +269,7 @@ fn guard_sleep_gate_uses_controller_instead_of_locality() {
             .set_ai_attitude(crate::game_logic::host_strategy_center::HostAiAttitude::Sleep);
         guard(&mut world, "NamedUnit");
         let unit = world.host_object(id).unwrap();
-        assert_eq!(unit.formation_id, 0);
+        assert_eq!(unit.formation_id, 19);
         assert_eq!(unit.jet_ai.cur_locomotor_set.as_deref(), Some("SET_NORMAL"));
         assert_eq!(unit.active_guard_position().is_some(), human);
     }
@@ -402,7 +402,7 @@ fn guard_disabled_masks_reject_after_script_preparation() {
         reject(&mut world.host_object_mut(id).unwrap().status);
         guard(&mut world, "NamedUnit");
         let unit = world.host_object(id).unwrap();
-        assert_eq!(unit.formation_id, 0);
+        assert_eq!(unit.formation_id, 19);
         assert_eq!(unit.jet_ai.cur_locomotor_set.as_deref(), Some("SET_NORMAL"));
         assert_eq!(unit.active_guard_position(), None);
         assert_eq!(

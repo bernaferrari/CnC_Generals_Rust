@@ -3148,7 +3148,8 @@ fn live_named_enter_and_exit_all_drain_ai_enter_evacuate() {
         "NAMED_ENTER_NAMED must issue the owning aiEnter"
     );
     assert_eq!(infantry_after.ai_state(), AIState::Entering);
-    assert_eq!(infantry_after.formation_id, 0);
+    assert_eq!(infantry_after.formation_id, 37);
+    assert_eq!(infantry_after.formation_offset, glam::Vec2::new(3.0, 7.0));
     assert_eq!(
         infantry_after.last_command_source,
         crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT

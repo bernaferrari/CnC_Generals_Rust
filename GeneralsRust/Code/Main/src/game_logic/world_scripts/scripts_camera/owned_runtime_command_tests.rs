@@ -50,7 +50,7 @@ fn team_attack_team_keeps_group_and_locomotor_and_uses_owned_victim_roster() {
 }
 
 #[test]
-fn named_waypoint_orders_read_owned_map_clear_group_and_use_script_source() {
+fn named_waypoint_orders_read_owned_map_preserve_formation_and_use_script_source() {
     let (mut owner, unit, _) = world();
     let (peer, peer_unit, _) = world();
     let mut map = gamelogic::system::map_loader::MapData::new();
@@ -90,7 +90,7 @@ fn named_waypoint_orders_read_owned_map_clear_group_and_use_script_source() {
         1
     );
     let object = owner.host_object(unit).unwrap();
-    assert_eq!(object.formation_id, 0);
+    assert_eq!(object.formation_id, 19);
     assert_eq!(
         object.jet_ai.cur_locomotor_set.as_deref(),
         Some("SET_NORMAL")

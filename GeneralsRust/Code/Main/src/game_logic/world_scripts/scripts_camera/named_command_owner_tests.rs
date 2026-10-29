@@ -97,7 +97,7 @@ fn named_action_walk_calibration() {
 }
 
 #[test]
-fn named_attack_leaves_formation_and_sets_script_unlimited_force_order() {
+fn named_attack_preserves_formation_and_sets_script_unlimited_force_order() {
     let (mut first, id, target) = world();
     let (mut second, second_id, _) = world();
     assert_eq!(id, second_id);
@@ -117,8 +117,8 @@ fn named_attack_leaves_formation_and_sets_script_unlimited_force_order() {
     let object = first.host_object(id).unwrap();
     assert_eq!(object.pending_move, None);
     assert_eq!(
-        object.formation_id, 0,
-        "script attack must leave the driving formation"
+        object.formation_id, 19,
+        "leaving a group must preserve the independent formation"
     );
     assert!(!object.is_panicking);
     assert_eq!(object.target, Some(target));
@@ -170,7 +170,7 @@ fn named_face_retains_object_goal_and_clears_route_without_idling_passengers() {
     );
     assert_eq!(object.target, Some(target));
     assert_eq!(object.face_goal_pos(), None);
-    assert_eq!(object.formation_id, 0);
+    assert_eq!(object.formation_id, 19);
     assert!(!object.is_panicking);
     assert!(object.movement.path.is_empty());
     assert_eq!(object.requested_destination, None);
@@ -328,7 +328,7 @@ fn named_commands_ignore_foreign_core_member() {
                     "NamedTarget",
                 )],
             );
-            assert_eq!(world.host_object(id).unwrap().formation_id, 0);
+            assert_eq!(world.host_object(id).unwrap().formation_id, 19);
             execute(
                 &mut world,
                 &[(ScriptActionType::NamedFaceNamed, "NamedUnit", "NamedTarget")],
