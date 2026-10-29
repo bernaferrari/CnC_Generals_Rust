@@ -235,6 +235,15 @@ impl GameLogic {
         {
             return;
         }
+        if let Some(area) = area {
+            // privateGuardArea installs these fields before clearing the old
+            // machine, so outgoing-state effects observe the new guard data.
+            let unit = self.host_object_mut(id).expect("admitted Guard unit");
+            unit.unit_ai_runtime.set_raw_guard_position(Some(position));
+            unit.unit_ai_runtime.set_raw_guard_target(None);
+            unit.unit_ai_runtime.set_raw_guard_area(Some(area.to_owned()));
+            unit.set_guard_mode(GuardMode::Normal);
+        }
         let clear_team_target = self
             .host_object(id)
             .is_some_and(|unit| matches!(unit.guard_chase_phase, 1 | 3));
@@ -258,8 +267,6 @@ impl GameLogic {
         if let Some(area) = area {
             // privateGuardArea installs both its polygon and center before
             // entering AI_GUARD; state entry must observe the area target.
-            unit.unit_ai_runtime.set_raw_guard_position(Some(position));
-            unit.unit_ai_runtime.set_raw_guard_target(None);
             unit.set_guard_area_trigger(Some(area.to_owned()));
             unit.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
