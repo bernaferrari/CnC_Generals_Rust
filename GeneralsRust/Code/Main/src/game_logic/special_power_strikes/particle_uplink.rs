@@ -535,8 +535,9 @@ pub fn particle_manual_speed_per_frame(fast: bool) -> f32 {
 ///
 /// C++: `m_lastDrivingClickFrame - m_2ndLastDrivingClickFrame < delay`.
 pub fn particle_is_fast_drive(last_click_frame: u32, second_last_click_frame: u32) -> bool {
-    last_click_frame.saturating_sub(second_last_click_frame)
-        < PARTICLE_DOUBLE_CLICK_FAST_DRIVE_FRAMES
+    // C++ subtracts UnsignedInt timestamps, so a frame-counter wrap is
+    // intentional modulo-2^32 arithmetic rather than a zero-length gap.
+    last_click_frame.wrapping_sub(second_last_click_frame) < PARTICLE_DOUBLE_CLICK_FAST_DRIVE_FRAMES
 }
 
 /// Next absolute frame for the next Particle Uplink damage pulse (fractional residual).
