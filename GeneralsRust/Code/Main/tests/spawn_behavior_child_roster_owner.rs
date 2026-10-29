@@ -368,7 +368,11 @@ fn stinger_hive_damage_uses_receiving_roster_order_and_death_deadlines() {
         Some(active_source),
     );
     assert_eq!(
-        active_body.host_object(ObjectId(active_children[0])).unwrap().health.current,
+        active_body
+            .host_object(ObjectId(active_children[0]))
+            .unwrap()
+            .health
+            .current,
         active_child_health,
         "ActiveBody must not enter the HiveStructureBody redirection path"
     );
@@ -464,4 +468,76 @@ fn legacy_supported_spawner_restore_fails_before_replacing_live_objects() {
         receiver_health,
         "legacy preflight must fail before replacing receiving children"
     );
+}
+
+#[test]
+fn hive_damage_masks_follow_receiving_body_and_source() {
+    use generals_main::game_logic::host_base_defense::HostHiveDamageClass;
+    fn make_world(propagate: &str, swallow: &str) -> GameLogic {
+        let mut world = GameLogic::new();
+        let ini = format!(
+            "Object GLAStingerSite\n KindOf = STRUCTURE SELECTABLE\n Body = HiveStructureBody SiteBody\n PropagateDamageTypesToSlavesWhenExisting = {propagate}\n SwallowDamageTypesIfSlavesNotExisting = {swallow}\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SpawnBehavior SiteSpawn\n OneShot = No\n SpawnNumber = 1\n SpawnReplaceDelay = 2000\n SpawnTemplateName = GLAInfantryStingerSoldier\n End\nEnd\nObject GLAInfantryStingerSoldier\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody SoldierBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject HiveShooter\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody ShooterBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"
+        );
+        world
+            .admit_object_ini_sources([("HiveMasks.ini".into(), ini)])
+            .unwrap();
+        world.add_player(Player::new(1, Team::GLA, "Owner", true));
+        world
+    }
+    let mut first = make_world("SMALL_ARMS", "SMALL_ARMS");
+    let mut peer = make_world("SNIPER", "SMALL_ARMS");
+    let site = first
+        .create_object_for_player("GLAStingerSite", 1, Vec3::ZERO)
+        .unwrap();
+    let peer_site = peer
+        .create_object_for_player("GLAStingerSite", 1, Vec3::ZERO)
+        .unwrap();
+    let shooter = first
+        .create_object_for_player("HiveShooter", 1, Vec3::ZERO)
+        .unwrap();
+    let peer_shooter = peer
+        .create_object_for_player("HiveShooter", 1, Vec3::ZERO)
+        .unwrap();
+    assert_eq!((site, shooter), (peer_site, peer_shooter));
+    let first_child = ObjectId(roster(&first, site)[0]);
+    let peer_child = ObjectId(roster(&peer, peer_site)[0]);
+    assert_eq!(first_child, peer_child);
+    // The same SMALL_ARMS hit propagates only in the first world; the peer's
+    // swallow bit cannot apply unless the propagate bit is also set.
+    first.apply_host_hive_damage_from(
+        site,
+        1000.0,
+        HostHiveDamageClass::PropagateToSlaves,
+        None,
+        Some(shooter),
+    );
+    peer.apply_host_hive_damage_from(
+        peer_site,
+        10.0,
+        HostHiveDamageClass::PropagateToSlaves,
+        None,
+        Some(peer_shooter),
+    );
+    assert!(roster(&first, site).is_empty());
+    assert_eq!(peer.host_object(peer_child).unwrap().health.current, 100.0);
+    assert_eq!(first.host_object(site).unwrap().health.current, 1000.0);
+    assert_eq!(peer.host_object(peer_site).unwrap().health.current, 990.0);
+    // With no child, a resolved source is swallowed; a missing source falls
+    // through to the body even though both authored flags are set.
+    first.apply_host_hive_damage_from(
+        site,
+        10.0,
+        HostHiveDamageClass::PropagateToSlaves,
+        None,
+        Some(shooter),
+    );
+    assert_eq!(first.host_object(site).unwrap().health.current, 1000.0);
+    first.apply_host_hive_damage_from(
+        site,
+        10.0,
+        HostHiveDamageClass::PropagateToSlaves,
+        None,
+        None,
+    );
+    assert_eq!(first.host_object(site).unwrap().health.current, 990.0);
 }

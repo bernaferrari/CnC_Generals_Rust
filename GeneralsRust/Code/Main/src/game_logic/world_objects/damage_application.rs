@@ -1265,7 +1265,9 @@ impl GameLogic {
         if after_fx.had_active_body() {
             after_damage_fx
                 .take()
-                .expect("non-forwarded damage retains its FX continuation")(self, victim_id);
+                .expect("non-forwarded damage retains its FX continuation")(
+                self, victim_id
+            );
         }
         let enable_repulsors = self.enable_repulsors;
         #[cfg(feature = "game_client")]
@@ -1421,8 +1423,61 @@ impl GameLogic {
         if !authored_hive_body || !GameLogic::supports_spawn_behavior_child_roster(parent) {
             return None;
         }
-        let class = hive_damage_class_for_type(damage_type);
-        if class == HostHiveDamageClass::HitStructure {
+        // The effective typed body belongs to this receiving template. A
+        // synthetic template with no admitted definition keeps the legacy
+        // host matrix; admitted content never falls back to that matrix.
+        let (propagate, swallow) = if parent
+            .thing()
+            .template
+            .receiving_object_definition
+            .is_some()
+        {
+            let data = parent
+                .thing()
+                .template
+                .receiving_client_template
+                .as_ref()
+                .and_then(|receiving| {
+                    receiving.behavior_modules().iter().find(|entry| {
+                        entry
+                            .name
+                            .as_str()
+                            .eq_ignore_ascii_case("HiveStructureBody")
+                    })
+                })
+                .and_then(|entry| {
+                    entry.data.as_any().downcast_ref::<
+                        gamelogic::object::body::hive_structure_body::HiveStructureBodyModuleData,
+                    >()
+                });
+            let Some(data) = data else {
+                log::error!(
+                    "Admitted HiveStructureBody for '{}' has no typed receiving module data",
+                    template_name
+                );
+                // The damage API cannot return an error; keep the invalid
+                // admission from being interpreted as an ordinary hull hit.
+                return Some(OwnedDamageResult {
+                    destroyed: false,
+                    hp_lost: 0.0,
+                    victim_position: position,
+                    victim_team: team,
+                });
+            };
+            let kind = damage_type.to_store();
+            (
+                data.damage_types_to_propagate_to_slaves
+                    .test_damage_type(kind),
+                data.damage_types_to_swallow.test_damage_type(kind),
+            )
+        } else {
+            let class = hive_damage_class_for_type(damage_type);
+            (
+                class != HostHiveDamageClass::HitStructure,
+                class == HostHiveDamageClass::SwallowIfNoSlaves,
+            )
+        };
+        if !propagate {
             return None;
         }
         let Some(source) = source_id.and_then(|id| self.objects.get(&id)) else {
@@ -1521,7 +1576,7 @@ impl GameLogic {
                 victim_team: team,
             });
         }
-        if class == HostHiveDamageClass::SwallowIfNoSlaves {
+        if swallow {
             let _ = (damage, context);
             return Some(OwnedDamageResult {
                 destroyed: false,
@@ -1845,12 +1900,9 @@ impl GameLogic {
             };
             let before = victim.health.current;
             let result = if damage > 0.0 {
-                let context = DamageHitContext::new(
-                    self.objects.get(shooter_id),
-                    None,
-                    *damage_type,
-                )
-                .with_shock_wave_force(shock);
+                let context =
+                    DamageHitContext::new(self.objects.get(shooter_id), None, *damage_type)
+                        .with_shock_wave_force(shock);
                 self.apply_owned_damage_with_effects(
                     victim_id,
                     damage,
