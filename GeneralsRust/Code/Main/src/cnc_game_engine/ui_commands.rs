@@ -2399,20 +2399,17 @@ impl CnCGameEngine {
         // protects the next alternate-mouse blank LMB from deselecting.
         self.host_set_prevent_left_click_deselection(true);
 
-        self.game_hud_mut()
+        let orientation = self
+            .game_hud_mut()
             .construction_panel
-            .clear_structure_placement();
+            .finish_structure_placement();
         self.play_sound_effect(SoundType::Command);
 
         self.host_queue_and_process_command_silent(crate::command_system::GameCommand {
             command_type: crate::command_system::CommandType::DozerConstruct {
                 template_name: template,
                 location,
-                orientation: self
-                    .game_hud()
-                    .construction_panel
-                    .placement_preview()
-                    .facing_radians,
+                orientation,
             },
             player_id,
             command_id: 0,

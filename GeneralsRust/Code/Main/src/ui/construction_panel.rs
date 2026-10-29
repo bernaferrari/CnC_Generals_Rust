@@ -296,13 +296,12 @@ impl PlacementPreview {
         self.facing_radians = 0.0;
     }
 
-    /// Rotate placement ghost residual (mouse wheel while placing).
-    pub fn rotate_facing(&mut self, delta_radians: f32) {
+    /// Set the placement ghost's world-facing angle from the anchored drag.
+    pub fn set_facing(&mut self, angle_radians: f32) {
         if !self.is_active() {
             return;
         }
-        const TAU: f32 = std::f32::consts::TAU;
-        self.facing_radians = (self.facing_radians + delta_radians).rem_euclid(TAU);
+        self.facing_radians = angle_radians;
     }
 
     /// Update ghost cursor world position + legality residual.

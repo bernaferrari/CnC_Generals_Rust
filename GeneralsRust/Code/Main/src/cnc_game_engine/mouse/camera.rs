@@ -65,17 +65,6 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         self.inject_game_client_mouse_scroll(delta_y);
 
-        // C++ wheel is zoom during placement. rotate_structure_placement remains
-        // available for keyboard/UI; do not steal the wheel from zoom.
-        if self.pending_structure_placement.is_some() {
-            let _facing_radians = self
-                .game_hud()
-                .construction_panel
-                .placement_preview()
-                .facing_radians;
-            let _ = (_facing_radians, "rotate_structure_placement");
-        }
-
         // C++ LookAtXlat wheel -> View::zoomIn/Out: HAG +/- 10wu per detent,
         // W3DView clamps to GameData Min/MaxCameraHeight when zoomLimited.
         let (admitted, result) =

@@ -94,7 +94,7 @@ impl CnCGameEngine {
     fn apply_structure_placement_angle(&mut self, angle: f32) {
         self.game_hud_mut()
             .construction_panel
-            .rotate_structure_placement(angle);
+            .set_structure_placement_facing(angle);
         self.game_client
             .in_game_ui_subsystem_mut()
             .expect("receiving InGameUI initialized")
@@ -175,7 +175,9 @@ impl CnCGameEngine {
         if wdx.abs() <= f32::EPSILON && wdz.abs() <= f32::EPSILON {
             return;
         }
-        self.apply_structure_placement_angle(wdz.atan2(wdx));
+        self.apply_structure_placement_angle(
+            game_engine::common::system::geometry::coord2d_to_angle(wdx, wdz),
+        );
     }
 
     pub(in crate::cnc_game_engine) fn handle_left_click(&mut self) {
@@ -820,7 +822,9 @@ impl CnCGameEngine {
                     .in_game_ui_subsystem_mut()
                     .expect("receiving InGameUI initialized")
                     .set_placement_end(Some(end_px));
-                self.apply_structure_placement_angle(dz.atan2(dx));
+                self.apply_structure_placement_angle(
+                    game_engine::common::system::geometry::coord2d_to_angle(dx, dz),
+                );
             }
             if Self::is_wall_structure_template(&template)
                 && drag_distance_screen > DRAG_TOLERANCE_PX

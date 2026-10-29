@@ -425,6 +425,13 @@ impl ConstructionPanel {
         self.placement.cancel();
     }
 
+    /// Finish placement while retaining the angle needed by the build command.
+    pub fn finish_structure_placement(&mut self) -> f32 {
+        let angle = self.placement.facing_radians;
+        self.clear_structure_placement();
+        angle
+    }
+
     pub fn arm_structure_placement(&mut self, template_name: String) {
         self.pending_structure_placement = Some(template_name.clone());
         self.placement.start(&template_name, &template_name, 0);
@@ -441,8 +448,8 @@ impl ConstructionPanel {
         &self.placement
     }
 
-    pub fn rotate_structure_placement(&mut self, delta_radians: f32) {
-        self.placement.rotate_facing(delta_radians);
+    pub fn set_structure_placement_facing(&mut self, angle_radians: f32) {
+        self.placement.set_facing(angle_radians);
     }
 
     pub fn set_radius_overlay(
