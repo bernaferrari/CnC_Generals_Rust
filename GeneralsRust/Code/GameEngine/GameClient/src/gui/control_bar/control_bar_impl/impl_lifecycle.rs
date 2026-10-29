@@ -71,6 +71,7 @@ impl ControlBar {
             displayed_construct_percent: -1.0,
             displayed_ocl_timer_seconds: 0,
             presentation_money: None,
+            presentation_beacon_limit: None,
             presentation_power: (0, 0),
             last_displayed_money: -1,
             presentation_can_make: Vec::new(),
@@ -343,7 +344,7 @@ impl ControlBar {
             self.ui_dirty = false;
         }
 
-        self.update_place_beacon_button_enabled(receiving_manager);
+        self.update_place_beacon_button_enabled(receiving_manager, publish_standalone);
 
         let context = &self.context;
         let current_state = context.current_state;
@@ -555,6 +556,11 @@ impl ControlBar {
     /// rendered, since it may not exist yet.
     pub fn apply_presentation_money(&mut self, supplies: i32) {
         self.presentation_money = Some(supplies.max(0));
+    }
+
+    /// Install the decision frozen from this control bar's receiving session.
+    pub fn apply_presentation_beacon_limit(&mut self, enabled: Option<bool>) {
+        self.presentation_beacon_limit = enabled;
     }
 
     /// Stamp host presentation CanMake residual for leftover WND availability.

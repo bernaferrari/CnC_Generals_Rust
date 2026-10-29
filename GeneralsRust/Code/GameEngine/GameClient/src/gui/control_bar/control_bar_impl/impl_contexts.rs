@@ -462,11 +462,18 @@ impl ControlBar {
     fn update_place_beacon_button_enabled(
         &self,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        standalone: bool,
     ) {
         let place_button =
             receiving_manager.find_window_by_name("ControlBar.wnd:ButtonPlaceBeacon");
-        let enabled = self.local_player_below_beacon_limit();
-        Self::apply_place_beacon_button_enabled(&place_button, enabled);
+        let enabled = if standalone {
+            Some(self.local_player_below_beacon_limit())
+        } else {
+            self.presentation_beacon_limit
+        };
+        if let Some(enabled) = enabled {
+            Self::apply_place_beacon_button_enabled(&place_button, enabled);
+        }
     }
 
     fn local_player_below_beacon_limit(&self) -> bool {

@@ -2018,6 +2018,8 @@ impl PresentationFrame {
             #[cfg(feature = "game_client")]
             host_physics_visuals,
             local_player_id,
+            #[cfg(feature = "game_client")]
+            local_beacon_button_enabled: super::beacon_limit::freeze(logic, local_player_id),
             local_team,
             local_team_base_position,
             players,

@@ -55,6 +55,10 @@ pub struct PresentationFrame {
         std::sync::Arc<gamelogic::object::draw::w3d_science_model_draw::ReceivingSciencePlayer>,
     >,
     pub local_player_id: u32,
+    /// C++ ControlBar beacon button decision from the receiving player and teams.
+    #[cfg(feature = "game_client")]
+    #[serde(skip)]
+    pub local_beacon_button_enabled: Option<bool>,
     /// Local player team frozen at snapshot time (selection/hotkey residual).
     /// Prefer this over live `GameLogic::get_player` dual-reads when a frame is installed.
     pub local_team: Team,

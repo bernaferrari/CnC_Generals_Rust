@@ -104,6 +104,14 @@ impl PartialEq for ReceivingClientTemplate {
 }
 
 impl ReceivingClientTemplate {
+    /// Compare against another definition admitted by this receiving session.
+    pub(crate) fn is_equivalent_to_admitted(
+        &self,
+        other: &game_engine::common::thing::thing_template::AdmittedReceivingTemplate,
+    ) -> bool {
+        self.0.template().is_equivalent_to(other.template())
+    }
+
     /// C++ ThingTemplate placement data from this session's admitted definition.
     pub(crate) fn placement_preview_facts(&self) -> (f32, (f32, f32, bool)) {
         let template = self.0.template();

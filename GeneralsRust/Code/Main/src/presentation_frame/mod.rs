@@ -22,6 +22,8 @@ use serde::{Deserialize, Serialize};
 
 mod alive;
 mod apply;
+#[cfg(feature = "game_client")]
+mod beacon_limit;
 #[cfg(test)]
 mod authored_model_owner_tests;
 mod build;

@@ -346,6 +346,8 @@ pub struct ControlBar {
     displayed_ocl_timer_seconds: u32,
     /// Host freeze cash waiting for the next MoneyDisplay WND update.
     presentation_money: Option<i32>,
+    /// Frozen receiving-world beacon limit; None means no local player/template.
+    presentation_beacon_limit: Option<bool>,
     /// This bar's frozen local/observer player Energy (produced, consumed).
     presentation_power: (i32, i32),
     /// C++ InGameUI.cpp lastMoney — cash successfully written to MoneyDisplay.
