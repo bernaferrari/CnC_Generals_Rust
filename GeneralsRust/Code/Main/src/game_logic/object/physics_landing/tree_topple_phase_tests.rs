@@ -156,7 +156,7 @@ fn installed_motion_topple_fx_precedes_trigger_update_and_is_consumed_once() {
 
 #[test]
 fn no_tree_motion_contact_marks_team_through_receiving_world_after_object_loan() {
-    use game_engine::common::{AsciiString, ICoord3D};
+    use gamelogic::common::types::{AsciiString, ICoord3D};
     use gamelogic::polygon_trigger::PolygonTrigger;
 
     let mut world = world();
