@@ -74,7 +74,8 @@ impl AIUpdateInterface for RiderExitAi {
 fn registered_object(name: &str, id: ObjectID, kind: &str) -> Arc<RwLock<Object>> {
     let mut template = DefaultThingTemplate::new(name.to_string());
     template
-        .parse_object_fields_from_ini(&HashMap::from([("KindOf".to_string(), kind.to_string())]));
+        .parse_object_fields_from_ini(&HashMap::from([("KindOf".to_string(), kind.to_string())]))
+        .expect("valid template fixture");
     Object::new_with_id(Arc::new(template), id, ObjectStatusMaskType::NONE, None).unwrap()
 }
 

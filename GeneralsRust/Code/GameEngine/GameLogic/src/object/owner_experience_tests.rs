@@ -7,13 +7,15 @@ use crate::object::registry::OBJECT_REGISTRY;
 fn tracked(id: ObjectID, trainable: bool, required: &str) -> Object {
     let mut object = Object::new_test(id, 100.0);
     let mut template = DefaultThingTemplate::new(format!("OwnerExperience{id}"));
-    template.parse_object_fields_from_ini(&std::collections::HashMap::from([
-        (
-            "IsTrainable".to_owned(),
-            if trainable { "Yes" } else { "No" }.to_owned(),
-        ),
-        ("ExperienceRequired".to_owned(), required.to_owned()),
-    ]));
+    template
+        .parse_object_fields_from_ini(&std::collections::HashMap::from([
+            (
+                "IsTrainable".to_owned(),
+                if trainable { "Yes" } else { "No" }.to_owned(),
+            ),
+            ("ExperienceRequired".to_owned(), required.to_owned()),
+        ]))
+        .expect("valid template fixture");
     object.set_template_for_test(Arc::new(template));
     object.experience_tracker = Some(Box::new(ExperienceTracker::new(id)));
     object

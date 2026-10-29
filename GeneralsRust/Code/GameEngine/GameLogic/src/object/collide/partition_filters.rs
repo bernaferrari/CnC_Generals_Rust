@@ -1889,7 +1889,9 @@ mod tests {
         let mut template = DefaultThingTemplate::new("TestStructure".to_string());
         let mut fields = HashMap::new();
         fields.insert("KindOf".to_string(), kind_of.to_string());
-        template.parse_object_fields_from_ini(&fields);
+        template
+            .parse_object_fields_from_ini(&fields)
+            .expect("valid template fixture");
 
         Object::new(Arc::new(template), ObjectStatusMaskType::none(), None)
             .expect("test structure object")
@@ -1907,7 +1909,9 @@ mod tests {
         let mut template = DefaultThingTemplate::new(format!("TestObject{object_id}"));
         let mut fields = HashMap::new();
         fields.insert("KindOf".to_string(), kind_of.to_string());
-        template.parse_object_fields_from_ini(&fields);
+        template
+            .parse_object_fields_from_ini(&fields)
+            .expect("valid template fixture");
 
         Object::new_with_id(
             Arc::new(template),
@@ -2192,10 +2196,12 @@ mod tests {
         team: Arc<RwLock<Team>>,
     ) -> Arc<RwLock<Object>> {
         let mut template = DefaultThingTemplate::new(format!("OwnedFilter{id}"));
-        template.parse_object_fields_from_ini(&HashMap::from([(
-            "KindOf".to_string(),
-            kind_of.to_string(),
-        )]));
+        template
+            .parse_object_fields_from_ini(&HashMap::from([(
+                "KindOf".to_string(),
+                kind_of.to_string(),
+            )]))
+            .expect("valid template fixture");
         Object::new_unpublished_preparing_ai(
             Arc::new(template),
             id,

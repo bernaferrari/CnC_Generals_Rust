@@ -187,10 +187,12 @@ fn assert_missile_collision_uses_kindof(kind: &str, collision_mask: u32) {
         .unwrap()
         .set_template_for_test(Arc::new(projectile));
     let mut target_template = crate::common::DefaultThingTemplate::new("PlainTarget".into());
-    target_template.parse_object_fields_from_ini(&std::collections::HashMap::from([(
-        "KindOf".into(),
-        format!("PROJECTILE {kind}"),
-    )]));
+    target_template
+        .parse_object_fields_from_ini(&std::collections::HashMap::from([(
+            "KindOf".into(),
+            format!("PROJECTILE {kind}"),
+        )]))
+        .expect("valid template fixture");
     target
         .write()
         .unwrap()

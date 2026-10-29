@@ -1281,7 +1281,9 @@ mod tests {
         let mut template = DefaultThingTemplate::new(name.to_string());
         let mut fields = HashMap::new();
         fields.insert("KindOf".to_string(), kind_of.to_string());
-        template.parse_object_fields_from_ini(&fields);
+        template
+            .parse_object_fields_from_ini(&fields)
+            .expect("valid template fixture");
         Object::new_with_id(Arc::new(template), id, ObjectStatusMaskType::none(), None)
             .expect("test object")
     }
@@ -1291,7 +1293,9 @@ mod tests {
         let mut fields = HashMap::new();
         fields.insert("KindOf".to_string(), "INFANTRY".to_string());
         fields.insert("TransportSlotCount".to_string(), "1".to_string());
-        template.parse_object_fields_from_ini(&fields);
+        template
+            .parse_object_fields_from_ini(&fields)
+            .expect("valid template fixture");
         Object::new_with_id(Arc::new(template), id, ObjectStatusMaskType::none(), None)
             .expect("test object")
     }

@@ -74,10 +74,12 @@ impl CompletionFixture {
             template.add_kind_of(KindOf::Powered);
         }
         template.set_energy_production(power);
-        template.parse_object_fields_from_ini(&std::collections::HashMap::from([(
-            "BuildCost".to_owned(),
-            "700".to_owned(),
-        )]));
+        template
+            .parse_object_fields_from_ini(&std::collections::HashMap::from([(
+                "BuildCost".to_owned(),
+                "700".to_owned(),
+            )]))
+            .expect("valid template fixture");
         let builder = Arc::new(RwLock::new(Object::new_test(object_ids[0], 100.0)));
         let structure = Arc::new(RwLock::new(Object::new_test_from_template(
             object_ids[1],

@@ -308,84 +308,80 @@ impl DefaultThingTemplate {
     pub fn parse_object_fields_from_ini(
         &mut self,
         properties: &std::collections::HashMap<String, String>,
-    ) {
+    ) -> Result<(), String> {
+        // Parse into a candidate so callers never observe a partially updated
+        // template when one field fails, matching C++ initialization failure.
+        let mut parsed = self.clone();
+        parsed.parse_object_fields_from_ini_in_place(properties)?;
+        *self = parsed;
+        Ok(())
+    }
+
+    fn parse_object_fields_from_ini_in_place(
+        &mut self,
+        properties: &std::collections::HashMap<String, String>,
+    ) -> Result<(), String> {
         for (key, value) in properties {
             let trimmed = value.trim();
             match key.as_str() {
                 // --- Vision / shroud ---
                 "VisionRange" => {
-                    if let Ok(v) = trimmed.parse::<Real>() {
-                        self.vision_range = v;
-                    }
+                    self.vision_range = parse_ini_real(key, trimmed)?;
                 }
                 "ShroudClearingRange" => {
-                    if let Ok(v) = trimmed.parse::<Real>() {
-                        self.shroud_clearing_range = v;
-                    }
+                    self.shroud_clearing_range = parse_ini_real(key, trimmed)?;
                 }
                 "ShroudRevealToAllRange" => {
-                    if let Ok(v) = trimmed.parse::<Real>() {
-                        self.shroud_reveal_to_all_range = v;
-                    }
+                    self.shroud_reveal_to_all_range = parse_ini_real(key, trimmed)?;
                 }
 
                 // --- Build ---
                 "BuildCost" => {
-                    if let Ok(v) = trimmed.parse::<Int>() {
-                        self.build_cost = v;
-                    }
+                    self.build_cost = parse_ini_int(key, trimmed)?;
                 }
                 "BuildTime" => {
-                    if let Ok(v) = trimmed.parse::<Real>() {
-                        self.build_time = v;
-                    }
+                    self.build_time = parse_ini_real(key, trimmed)?;
                 }
                 "ExperienceRequired" => {
-                    for (slot, value) in self
-                        .experience_required
-                        .iter_mut()
-                        .zip(trimmed.split_ascii_whitespace())
-                    {
-                        if let Ok(value) = value.parse::<Int>() {
-                            *slot = value;
-                        }
+                    let values = trimmed.split_ascii_whitespace().collect::<Vec<_>>();
+                    if values.len() < self.experience_required.len() {
+                        return Err(format!(
+                            "Invalid {key}: expected {} integer entries, got {}",
+                            self.experience_required.len(),
+                            values.len()
+                        ));
+                    }
+                    for (slot, value) in self.experience_required.iter_mut().zip(values) {
+                        *slot = parse_ini_int(key, value)?;
                     }
                 }
                 "IsTrainable" => {
-                    if let Ok(value) = game_engine::common::ini::INI::parse_bool(trimmed) {
-                        self.is_trainable = value;
-                    }
+                    self.is_trainable = game_engine::common::ini::INI::parse_bool(trimmed)
+                        .map_err(|_| format!("Invalid {key} boolean: {trimmed}"))?;
                 }
 
                 // --- Combat ---
                 "ThreatValue" => {
-                    if let Ok(v) = trimmed.parse::<UnsignedInt>() {
-                        self.threat_value = v;
-                    }
+                    self.threat_value = parse_ini_bounded_unsigned(key, trimmed, u16::MAX as i32)?;
                 }
                 "TransportSlotCount" => {
-                    if let Ok(v) = trimmed.parse::<UnsignedByte>() {
-                        self.transport_slot_count = v;
-                    }
+                    self.transport_slot_count =
+                        parse_ini_bounded_unsigned(key, trimmed, u8::MAX as i32)? as UnsignedByte;
                 }
 
                 // --- Occlusion ---
                 "OcclusionDelay" => {
-                    if let Ok(v) = trimmed.parse::<u32>() {
-                        self.occlusion_delay = v;
-                    }
+                    self.occlusion_delay = trimmed
+                        .parse::<u32>()
+                        .map_err(|_| format!("Invalid {key} value: {trimmed}"))?;
                 }
 
                 // --- Energy ---
                 "EnergyProduction" => {
-                    if let Ok(v) = trimmed.parse::<Int>() {
-                        self.energy_production = v;
-                    }
+                    self.energy_production = parse_ini_int(key, trimmed)?;
                 }
                 "EnergyBonus" => {
-                    if let Ok(v) = trimmed.parse::<Int>() {
-                        self.energy_bonus = v;
-                    }
+                    self.energy_bonus = parse_ini_int(key, trimmed)?;
                 }
 
                 // --- Command set ---
@@ -462,7 +458,27 @@ impl DefaultThingTemplate {
                 _ => {}
             }
         }
+        Ok(())
     }
+}
+
+fn parse_ini_int(key: &str, value: &str) -> Result<Int, String> {
+    game_engine::common::ini::parse_decimal_integer_prefix(value)
+        .ok_or_else(|| format!("Invalid {key} integer: {value}"))
+}
+
+fn parse_ini_bounded_unsigned(key: &str, value: &str, max: Int) -> Result<UnsignedInt, String> {
+    let parsed = parse_ini_int(key, value)?;
+    if !(0..=max).contains(&parsed) {
+        return Err(format!("Invalid {key} value: {value}"));
+    }
+    Ok(parsed as UnsignedInt)
+}
+
+fn parse_ini_real(key: &str, value: &str) -> Result<Real, String> {
+    value
+        .parse::<Real>()
+        .map_err(|_| format!("Invalid {key} real: {value}"))
 }
 
 impl Default for DefaultThingTemplate {
@@ -738,5 +754,64 @@ impl ThingTemplate for DefaultThingTemplate {
 
     fn get_sound_falling(&self) -> crate::common::audio::AudioEventRts {
         self.sound_falling.clone()
+    }
+}
+
+#[cfg(test)]
+mod default_template_parse_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn malformed_experience_required_is_fallible_and_does_not_publish_partial_fields() {
+        let mut template = DefaultThingTemplate::new("TemplateParseAtomicity".into());
+        template.build_cost = 125;
+        template.experience_required = [10, 20, 30, 40];
+        let malformed = HashMap::from([
+            ("BuildCost".to_string(), "900".to_string()),
+            (
+                "ExperienceRequired".to_string(),
+                "0 nope 200 300".to_string(),
+            ),
+        ]);
+
+        let error = template
+            .parse_object_fields_from_ini(&malformed)
+            .expect_err("malformed C++ scanInt token must reject the template");
+
+        assert!(error.contains("ExperienceRequired"));
+        assert_eq!(template.build_cost, 125);
+        assert_eq!(template.experience_required, [10, 20, 30, 40]);
+
+        for (key, value) in [
+            ("ThreatValue", "-1"),
+            ("ThreatValue", "65536"),
+            ("ThreatValue", "2147483648"),
+            ("TransportSlotCount", "-1"),
+            ("TransportSlotCount", "256"),
+            ("TransportSlotCount", "2147483648"),
+        ] {
+            let invalid = HashMap::from([(key.to_string(), value.to_string())]);
+            assert!(
+                template.parse_object_fields_from_ini(&invalid).is_err(),
+                "{key} must reject {value}"
+            );
+        }
+
+        let missing = HashMap::from([("ExperienceRequired".to_string(), "1 2 3".to_string())]);
+        assert!(template.parse_object_fields_from_ini(&missing).is_err());
+
+        let valid = HashMap::from([
+            (
+                "ExperienceRequired".to_string(),
+                "+1tail -2suffix 3 4 ignored-fifth".to_string(),
+            ),
+            ("ThreatValue".to_string(), "+42tail".to_string()),
+            ("TransportSlotCount".to_string(), "255suffix".to_string()),
+        ]);
+        template.parse_object_fields_from_ini(&valid).unwrap();
+        assert_eq!(template.experience_required, [1, -2, 3, 4]);
+        assert_eq!(template.threat_value, 42);
+        assert_eq!(template.transport_slot_count, 255);
     }
 }

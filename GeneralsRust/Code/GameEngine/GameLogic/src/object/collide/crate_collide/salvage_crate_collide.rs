@@ -754,7 +754,9 @@ mod tests {
         let mut template = DefaultThingTemplate::new(format!("TestKindOf{id}"));
         let mut properties = HashMap::new();
         properties.insert("KindOf".to_string(), kind_of.to_string());
-        template.parse_object_fields_from_ini(&properties);
+        template
+            .parse_object_fields_from_ini(&properties)
+            .expect("valid template fixture");
         Arc::new(RwLock::new(Object::new_raw(
             Arc::new(template),
             id,

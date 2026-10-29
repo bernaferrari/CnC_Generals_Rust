@@ -2658,7 +2658,9 @@ mod veterancy_side_effect_tests {
             "ExperienceRequired".to_string(),
             "0 100 300 600".to_string(),
         );
-        template.parse_object_fields_from_ini(&fields);
+        template
+            .parse_object_fields_from_ini(&fields)
+            .expect("valid template fixture");
         obj.set_template_for_test(Arc::new(template));
         obj.experience_tracker = Some(Box::new(ExperienceTracker::new(id)));
         obj

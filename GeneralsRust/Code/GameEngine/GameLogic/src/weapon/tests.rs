@@ -1045,7 +1045,9 @@ fn registered_projectile_collision_object(
     let mut template =
         crate::common::DefaultThingTemplate::new(format!("ProjectileCollisionObject{}", id));
     let properties = std::collections::HashMap::from([("KindOf".to_string(), kind_of.to_string())]);
-    template.parse_object_fields_from_ini(&properties);
+    template
+        .parse_object_fields_from_ini(&properties)
+        .expect("valid template fixture");
 
     let object = crate::object::Object::new_with_id(
         Arc::new(template),

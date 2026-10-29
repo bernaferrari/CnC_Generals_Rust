@@ -209,7 +209,8 @@ impl CommandButtonHuntUpdate {
             let _ = self.update_simple();
             let now = TheGameLogic::get_frame();
             self.next_call_frame_and_phase = now.saturating_add(1);
-            object.reschedule_named_update("CommandButtonHuntUpdate", self.next_call_frame_and_phase);
+            object
+                .reschedule_named_update("CommandButtonHuntUpdate", self.next_call_frame_and_phase);
         }
     }
 
@@ -870,7 +871,9 @@ mod tests {
         let mut template = DefaultThingTemplate::new(format!("HuntTarget{id}"));
         let mut fields = HashMap::new();
         fields.insert("KindOf".to_string(), kind_of.to_string());
-        template.parse_object_fields_from_ini(&fields);
+        template
+            .parse_object_fields_from_ini(&fields)
+            .expect("valid template fixture");
         crate::object::Object::new_raw(Arc::new(template), id, ObjectStatusMaskType::none(), None)
     }
 

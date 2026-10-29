@@ -398,10 +398,12 @@ mod tests {
     fn borrowed_rider_admission_preserves_scuttle_and_replacement_gates() {
         let mut template = DefaultThingTemplate::new("BorrowedBikeRider".into());
         template.add_kind_of(KindOf::Infantry);
-        template.parse_object_fields_from_ini(&HashMap::from([(
-            "TransportSlotCount".into(),
-            "1".into(),
-        )]));
+        template
+            .parse_object_fields_from_ini(&HashMap::from([(
+                "TransportSlotCount".into(),
+                "1".into(),
+            )]))
+            .expect("valid template fixture");
         let rider = Object::new_raw(Arc::new(template), 9790, ObjectStatusMaskType::NONE, None);
         let owner = Object::new_raw(
             Arc::new(DefaultThingTemplate::new("BorrowedBike".into())),
@@ -552,7 +554,9 @@ mod tests {
             "ExperienceRequired".to_string(),
             "0 100 300 600".to_string(),
         );
-        template.parse_object_fields_from_ini(&fields);
+        template
+            .parse_object_fields_from_ini(&fields)
+            .expect("valid template fixture");
 
         let cloned = template.clone();
         let template_view: &dyn crate::common::ThingTemplate = &cloned;
@@ -580,7 +584,9 @@ mod tests {
         if name.starts_with("BikeRider") {
             let mut fields = HashMap::new();
             fields.insert("KindOf".to_string(), "INFANTRY".to_string());
-            template.parse_object_fields_from_ini(&fields);
+            template
+                .parse_object_fields_from_ini(&fields)
+                .expect("valid template fixture");
         }
         let template = Arc::new(template);
         Object::new_with_id(template, id, ObjectStatusMaskType::none(), Some(team))
@@ -603,7 +609,9 @@ mod tests {
             "ExperienceRequired".to_string(),
             "0 100 300 600".to_string(),
         );
-        template.parse_object_fields_from_ini(&fields);
+        template
+            .parse_object_fields_from_ini(&fields)
+            .expect("valid template fixture");
         Object::new_with_id(
             Arc::new(template),
             id,
@@ -625,7 +633,9 @@ mod tests {
         let mut fields = HashMap::new();
         fields.insert("KindOf".to_string(), "INFANTRY".to_string());
         fields.insert("TransportSlotCount".to_string(), "1".to_string());
-        template.parse_object_fields_from_ini(&fields);
+        template
+            .parse_object_fields_from_ini(&fields)
+            .expect("valid template fixture");
         Object::new_with_id(
             Arc::new(template),
             id,
