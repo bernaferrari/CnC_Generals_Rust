@@ -187,4 +187,29 @@ fn each_archive_admits_its_own_science_definitions_and_prerequisites() {
         peer.find_science_info(peer_shared).unwrap().prereq_sciences,
         vec![peer.get_science_from_internal_name("SCIENCE_Root")]
     );
+
+    // The compatibility RTS store receives each parsed declaration in source
+    // order too. Reinitializing for every registration used to retain only the
+    // final block and silently drop the shared science and its prerequisite.
+    let live = game_engine::common::rts::science::get_science_store().unwrap();
+    let live_shared = live.get_science_from_internal_name("SCIENCE_Shared");
+    let live_root = live.get_science_from_internal_name("SCIENCE_Root");
+    let live_extra = live.get_science_from_internal_name("SCIENCE_Extra");
+    assert_ne!(
+        live_shared,
+        game_engine::common::rts::science::SCIENCE_INVALID
+    );
+    assert_ne!(
+        live_root,
+        game_engine::common::rts::science::SCIENCE_INVALID
+    );
+    assert_ne!(
+        live_extra,
+        game_engine::common::rts::science::SCIENCE_INVALID
+    );
+    assert_eq!(live.get_science_purchase_cost(live_shared), 3);
+    assert_eq!(
+        live.find_science_info(live_shared).unwrap().prereq_sciences,
+        vec![live_root]
+    );
 }

@@ -546,6 +546,11 @@ pub async fn load_science_templates(
         return Ok((0, definitions));
     }
 
+    // The process-wide compatibility store mirrors C++'s one ScienceStore
+    // initialized before the ordered Default/Science and override files load.
+    // Initializing in `register_science_template` resets every prior entry.
+    game_engine::common::rts::science::init_science_store();
+
     info!(
         "Loading science templates from {} INI files",
         science_files.len()
@@ -1618,7 +1623,7 @@ fn register_science_template(name: &str, properties: &HashMap<String, String>) -
     use game_engine::common::ascii_string::AsciiString;
     use game_engine::common::ini::ini_science::{get_science_store_mut, parse_science_definition};
     use game_engine::common::rts::science::{
-        ScienceDefinition, get_science_store_mut as get_live_science_store_mut, init_science_store,
+        ScienceDefinition, get_science_store_mut as get_live_science_store_mut,
     };
 
     match parse_science_definition(name, properties) {
@@ -1629,7 +1634,6 @@ fn register_science_template(name: &str, properties: &HashMap<String, String>) -
             }
             // C++ TheScienceStore is one store. Host leftover leftover parse also
             // feeds the live rts store used by GrantScience / scripts.
-            init_science_store();
             if let Some(mut live) = get_live_science_store_mut() {
                 let prereq_names = properties.get("PrerequisiteSciences").map(|value| {
                     value
