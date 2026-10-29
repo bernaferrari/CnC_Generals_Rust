@@ -113,12 +113,11 @@ impl GameLogic {
 }
 
 impl GameLogic {
-    /// C++ destroyAllObjectsImmediate: ordinary installed onDelete callbacks,
-    /// then the existing ordered physical-destruction phase. Native resources
-    /// are retired by this operation's explicit receiving presentation loan.
-    pub(crate) fn destroy_all_objects_immediate_with_effects_checked(
-        &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    /// Check the owners needed for bulk retirement before reset changes any
+    /// state that callbacks or ordinary Object lookup can observe.
+    pub(crate) fn validate_bulk_object_retirement_owners(
+        &self,
+        effects: &crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         if let Some(error) = self.object_retirement_error() {
             return Err(error);
@@ -139,6 +138,17 @@ impl GameLogic {
                 ));
             }
         }
+        Ok(())
+    }
+
+    /// C++ destroyAllObjectsImmediate: ordinary installed onDelete callbacks,
+    /// then the existing ordered physical-destruction phase. Native resources
+    /// are retired by this operation's explicit receiving presentation loan.
+    pub(crate) fn destroy_all_objects_immediate_with_effects_checked(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.validate_bulk_object_retirement_owners(effects)?;
         // Snapshot original linked-list order. Containment may append child
         // destruction, but never sort/requeue the existing pending events.
         let ids = self.objects.ordered_ids().to_vec();

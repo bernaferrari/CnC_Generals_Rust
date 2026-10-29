@@ -243,6 +243,25 @@ pub(crate) fn run() -> anyhow::Result<()> {
             .has_drawable_lifetime(peer_id.0)
     );
 
+    // Reject a missing receiving View before changing ordinary lookup or
+    // starting Object callbacks; a later attempt with its owner can proceed.
+    assert!(
+        world
+            .reset_with_effects_checked(&mut ScriptPresentationEffects::default())
+            .is_err()
+    );
+    assert!(world.host_object(id).is_some());
+    assert!(
+        client
+            .borrow_native_drawable_owner()
+            .has_object_drawable(id.0)
+    );
+    assert!(
+        pipeline
+            .borrow_native_installed_poses()
+            .has_drawable_lifetime(id.0)
+    );
+
     // Mirrors start_game.rs / host_game_engine_reset ordering: complete the
     // real receiving Client reset; retire this pipeline's renderer receipts;
     // clear the host visual bridge; then invoke checked GameLogic teardown.

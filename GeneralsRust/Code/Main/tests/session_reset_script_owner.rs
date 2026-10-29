@@ -1,5 +1,5 @@
 use generals_main::command_system::{CommandType, GameCommand, ModifierKeys, SpecialPowerType};
-use generals_main::game_logic::{GameLogic, ObjectId};
+use generals_main::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
 use generals_main::save_load::snapshot::SnapshotBuilder;
 use std::time::SystemTime;
 
@@ -30,10 +30,22 @@ fn triggered_sources(world: &GameLogic) -> Vec<u32> {
         .collect()
 }
 
+fn add_object(world: &mut GameLogic) -> ObjectId {
+    let mut template = ThingTemplate::new("ResetOwnerProbe");
+    template.add_kind_of(KindOf::Selectable).set_health(100.0);
+    world.templates.insert(template.name.clone(), template);
+    world
+        .create_object("ResetOwnerProbe", Team::USA, glam::Vec3::ZERO)
+        .expect("create the receiving Object")
+}
+
 #[test]
 fn reset_clears_only_the_receiving_session_commands_and_script_events() {
     let mut first = GameLogic::new();
     let mut peer = GameLogic::new();
+    let first_object = add_object(&mut first);
+    let peer_object = add_object(&mut peer);
+    assert_eq!(first_object, peer_object);
     queue_command(&mut first);
     queue_command(&mut peer);
     first.notify_script_engine_special_power_event(
@@ -55,6 +67,8 @@ fn reset_clears_only_the_receiving_session_commands_and_script_events() {
 
     assert!(!first.has_pending_commands());
     assert!(triggered_sources(&first).is_empty());
+    assert!(first.host_object(first_object).is_none());
     assert!(peer.has_pending_commands());
     assert_eq!(triggered_sources(&peer), vec![7]);
+    assert!(peer.host_object(peer_object).is_some());
 }
