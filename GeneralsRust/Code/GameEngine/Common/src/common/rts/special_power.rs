@@ -343,6 +343,10 @@ pub trait SpecialPowerPlayer {
 #[derive(Debug, Clone)]
 pub struct SpecialPowerStore {
     templates: Vec<SpecialPowerTemplate>,
+    /// Definitions that were admitted by ordinary INI parsing. Runtime map
+    /// overrides mutate `templates`, while reset restores this original
+    /// catalog and drops entries introduced only by override parsing.
+    base_templates: Vec<SpecialPowerTemplate>,
     next_special_power_id: u32,
 }
 
@@ -352,6 +356,7 @@ impl SpecialPowerStore {
     pub fn new() -> Self {
         Self {
             templates: Vec::new(),
+            base_templates: Vec::new(),
             next_special_power_id: 0,
         }
     }
@@ -384,14 +389,18 @@ impl SpecialPowerStore {
 
     /// Add a new template
     pub fn add_template(&mut self, template: SpecialPowerTemplate) {
+        self.next_special_power_id = self.next_special_power_id.max(template.id);
+        self.base_templates.push(template.clone());
         self.templates.push(template);
     }
 
     /// Reset the store
     /// Reference: C++ SpecialPowerStore::reset()
     pub fn reset(&mut self) {
-        self.templates.clear();
-        self.next_special_power_id = 0;
+        // C++ Overridable::deleteOverrides removes only override copies. A
+        // base template remains at its original pointer/ID with original
+        // fields, and the store's ID counter is deliberately not rewound.
+        self.templates.clone_from(&self.base_templates);
     }
 
     /// Check if an object can use a special power
@@ -513,6 +522,9 @@ impl SpecialPowerStore {
         // Reference: C++ m_specialPowerFieldParse array (lines 85-102)
         self.apply_field_parse(&mut template, properties, sciences)?;
 
+        if load_type != INILoadType::CreateOverrides {
+            self.base_templates.push(template.clone());
+        }
         self.templates.push(template);
         Ok(())
     }
