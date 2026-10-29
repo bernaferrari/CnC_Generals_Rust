@@ -1163,7 +1163,8 @@ impl GameLogic {
         player_id: u32,
         template_name: &str,
         enable: bool,
-    ) {
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         // C++ Player::setObjectsEnabled walks the receiving Player's ordered
         // prototype list, then each prototype's live instance list and member
         // order. Re-resolve both membership and object identity before every
@@ -1220,11 +1221,115 @@ impl GameLogic {
                 {
                     continue;
                 }
-                self.with_owned_radar_disabled_partition_operation(id, |object, partition| {
-                    object.set_script_disabled_with_partition_owner(!enable, partition)
-                });
+                self.set_script_disabled_for_receiving_object(id, !enable, effects)?;
             }
         }
+        Ok(())
+    }
+
+    /// C++ setScriptStatus first changes the independent script bit and dirties
+    /// the partition, then delegates to setDisabled / clearDisabled.
+    fn set_script_disabled_for_receiving_object(
+        &mut self,
+        id: ObjectId,
+        disabled: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some(object) = self.objects.get_mut(&id) else {
+            return Ok(());
+        };
+        if object.status.script_status_disabled == disabled {
+            return Ok(());
+        }
+        object.status.script_status_disabled = disabled;
+        self.partition_manager.mark_receiving_object_dirty(
+            id.0,
+            &object.visual_draw_identity_token,
+            true,
+        );
+        self.propagate_script_disabled_mask(id, disabled, effects, &mut Vec::new())
+    }
+
+    /// `SpawnBehavior::orderSlavesDisabledUntil` visits ordered spawn IDs and
+    /// calls aiIdle before setDisabledUntil; clear visits the same order with
+    /// no idle. Retain each object's birth across reentrant callbacks.
+    /// ContainModuleInterface::friend_getRider remains a separate migration.
+    fn propagate_script_disabled_mask(
+        &mut self,
+        id: ObjectId,
+        disabled: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        visiting: &mut Vec<ObjectId>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some(parent) = self.objects.get(&id) else {
+            return Ok(());
+        };
+        if parent.status.disabled_script_disabled == disabled {
+            return Ok(());
+        }
+        let was_disabled = parent.has_disabled_type();
+        if visiting.contains(&id) {
+            return Err(gamelogic::GameLogicError::Configuration(format!(
+                "cyclic SpawnBehavior disable roster at object {}",
+                id.0
+            )));
+        }
+        visiting.push(id);
+        let birth = std::sync::Arc::downgrade(&parent.visual_draw_identity_token);
+        let children = if parent.is_spawns_are_the_weapons() {
+            parent.spawn_behavior_children()
+        } else {
+            Vec::new()
+        };
+        if disabled {
+            self.objects
+                .get_mut(&id)
+                .unwrap()
+                .status
+                .disabled_script_disabled = true;
+        }
+        for (child_id, child_birth) in children {
+            let matches_births = |world: &GameLogic| {
+                world.host_object(id).is_some_and(|parent| {
+                    birth.ptr_eq(&std::sync::Arc::downgrade(
+                        &parent.visual_draw_identity_token,
+                    )) && parent.contains_spawn_behavior_child(child_id, &child_birth)
+                        && world.host_object(child_id).is_some_and(|child| {
+                            parent.spawn_behavior_child_birth_matches(child_id, &child_birth, child)
+                        })
+                })
+            };
+            if !matches_births(self) {
+                continue;
+            }
+            if disabled {
+                self.unit_command_ai_idle_owned_with_effects(child_id, effects)?;
+            }
+            if matches_births(self) {
+                self.propagate_script_disabled_mask(child_id, disabled, effects, visiting)?;
+            }
+        }
+        let original_parent = self.host_object(id).is_some_and(|object| {
+            birth.ptr_eq(&std::sync::Arc::downgrade(
+                &object.visual_draw_identity_token,
+            ))
+        });
+        if original_parent {
+            let parent = self.objects.get_mut(&id).unwrap();
+            if disabled {
+                if !was_disabled {
+                    parent.on_disabled_edge(true);
+                }
+            } else {
+                parent.status.disabled_script_disabled = false;
+                if !parent.has_disabled_type() {
+                    parent.on_disabled_edge(false);
+                }
+            }
+            self.admit_host_radar_disabled_edges(id);
+        }
+        visiting.pop();
+        Ok(())
     }
 
     pub(super) fn template_mut_by_name(&mut self, name: &str) -> Option<&mut ThingTemplate> {

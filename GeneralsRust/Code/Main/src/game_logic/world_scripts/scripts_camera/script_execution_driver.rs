@@ -1902,8 +1902,12 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             ScriptPlayerConstructionRequest::Factories {
                 template, enabled, ..
             } => {
-                self.world
-                    .host_set_objects_enabled(player_id, &template, enabled);
+                if let Err(error) =
+                    self.world
+                        .host_set_objects_enabled(player_id, &template, enabled, &mut self.ui)
+                {
+                    return Some(Err(error));
+                }
             }
         }
         Some(Ok(()))

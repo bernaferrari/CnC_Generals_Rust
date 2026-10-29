@@ -328,3 +328,121 @@ fn script_flag_and_disabled_mask_are_distinct_and_survive_restore() {
             .disabled_script_disabled
     );
 }
+
+#[test]
+fn factory_disable_visits_only_its_ordered_spawn_children_in_each_world() {
+    use game_engine::common::ini::ini_locomotor::LocomotorStore;
+    use generals_main::game_logic::{AIState, ObjectId};
+    use generals_main::save_load::snapshot::{SnapshotBuilder, capture_lifecycle_tail};
+
+    fn world_with_spawns(prefix: &str, has_ai: bool) -> (GameLogic, ObjectId, Vec<ObjectId>) {
+        let mut world = GameLogic::new();
+        let mut locomotors = LocomotorStore::new_owned();
+        locomotors.apply_source("Locomotor GuardWalk\n Surfaces = GROUND\n Speed = 60\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\n").unwrap();
+        world.admit_locomotor_definitions(locomotors).unwrap();
+        let ai_module = if has_ai {
+            " Behavior = AIUpdateInterface Brain\n End\n"
+        } else {
+            ""
+        };
+        world.admit_object_ini_sources([(
+            "SpawnFactory.ini".into(),
+            format!("Object SharedFactory\n KindOf = STRUCTURE SELECTABLE SPAWNS_ARE_THE_WEAPONS\n Body = ActiveBody FactoryBody\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SpawnBehavior FactorySpawn\n OneShot = Yes\n SpawnNumber = 2\n SpawnTemplateName = SpawnedGuard\n End\nEnd\nObject SpawnedGuard\n KindOf = INFANTRY SELECTABLE\n Locomotor = SET_NORMAL GuardWalk\n Body = ActiveBody GuardBody\n MaxHealth = 100\n InitialHealth = 100\n End\n{ai_module}End\n"),
+        )]).unwrap();
+        let name = format!("{prefix}Player");
+        world.add_player(Player::new(1, Team::USA, &name, false).with_script_identity(&name));
+        let factory = world
+            .create_object_for_player("SharedFactory", 1, glam::Vec3::ZERO)
+            .unwrap();
+        let tail = capture_lifecycle_tail(&world).unwrap();
+        let roster = tail
+            .spawn_behavior_rosters
+            .unwrap()
+            .into_iter()
+            .find(|roster| roster.producer_id == factory.0)
+            .unwrap();
+        let children: Vec<_> = roster
+            .children
+            .into_iter()
+            .map(|child| ObjectId(child.child_id))
+            .collect();
+        assert_eq!(children.len(), 2);
+        (world, factory, children)
+    }
+
+    let (mut alpha, factory, children) = world_with_spawns("Alpha", true);
+    let (mut beta, peer_factory, peer_children) = world_with_spawns("Beta", false);
+    assert_eq!((factory, &children), (peer_factory, &peer_children));
+    let unrelated = alpha
+        .create_object_for_player("SpawnedGuard", 1, glam::Vec3::ZERO)
+        .unwrap();
+    alpha.host_object_mut(unrelated).unwrap().producer_id = Some(factory);
+    assert!(
+        alpha
+            .unit_command_set_ai_state(children[0], AIState::Moving)
+            .unwrap()
+    );
+    assert_eq!(
+        alpha.host_object(children[0]).unwrap().ai_state(),
+        AIState::Moving
+    );
+    run(&mut alpha, ScriptActionType::PlayerDisableFactories, true);
+    assert_eq!(
+        alpha.host_object(children[0]).unwrap().ai_state(),
+        AIState::Idle
+    );
+    for child in &children {
+        let object = alpha.host_object(*child).unwrap();
+        assert!(object.status.disabled_script_disabled);
+        assert!(!object.is_script_disabled());
+        assert!(
+            !beta
+                .host_object(*child)
+                .unwrap()
+                .status
+                .disabled_script_disabled
+        );
+    }
+    assert!(
+        !alpha
+            .host_object(unrelated)
+            .unwrap()
+            .status
+            .disabled_script_disabled
+    );
+    run(&mut beta, ScriptActionType::PlayerDisableFactories, true);
+    for child in &children {
+        let object = beta.host_object(*child).unwrap();
+        assert!(!object.has_ai_update_interface());
+        assert!(object.status.disabled_script_disabled);
+    }
+
+    // The child's own script bit remains distinct when the parent's clear
+    // removes only the propagated disabled mask.
+    alpha
+        .update_local_script_engine_with_owner(&script(
+            ScriptActionType::PlayerDisableFactories,
+            true,
+            "SpawnedGuard",
+        ))
+        .unwrap();
+    let snapshot = SnapshotBuilder::new()
+        .create_world_snapshot(&alpha)
+        .unwrap();
+    let (mut restored, _, _) = world_with_spawns("Alpha", true);
+    SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    run(&mut restored, ScriptActionType::PlayerEnableFactories, true);
+    for child in &children {
+        let object = restored.host_object(*child).unwrap();
+        assert!(object.is_script_disabled());
+        assert!(!object.status.disabled_script_disabled);
+        assert!(
+            beta.host_object(*child)
+                .unwrap()
+                .status
+                .disabled_script_disabled
+        );
+    }
+}
