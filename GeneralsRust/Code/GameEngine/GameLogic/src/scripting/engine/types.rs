@@ -524,6 +524,26 @@ pub trait ScriptExecutionDriver {
         ScriptOwnerQuery::Unavailable
     }
 
+    /// C++ ScriptEngine::update maps each side slot to its receiving world's
+    /// corresponding Player. `Present(None)` means the world has no Player for
+    /// that side and must not consult the standalone PlayerList.
+    fn side_script_current_player(
+        &self,
+        _side_index: usize,
+    ) -> ScriptOwnerQuery<Option<String>> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    /// Resolve authored Player tokens before Core's PlayerList adapter runs.
+    /// The interpreter's current Player is supplied by the exact driving walk.
+    fn script_player_name_token(
+        &self,
+        _raw: &str,
+        _current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<Option<String>> {
+        ScriptOwnerQuery::Unavailable
+    }
+
     fn named_selection(
         &self,
         _literal_name: &str,

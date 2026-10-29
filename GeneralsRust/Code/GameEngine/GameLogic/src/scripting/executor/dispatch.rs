@@ -6,6 +6,25 @@
 use super::*;
 
 impl ScriptActionDispatcher<'_> {
+    pub(crate) fn resolve_player_name_token_with_driver(
+        &self,
+        raw: &str,
+        driver: &dyn crate::scripting::engine::ScriptExecutionDriver,
+    ) -> Option<String> {
+        let current_player = self
+            .context
+            .with_engine_ref(|engine| engine.get_current_player_name())
+            .flatten();
+        match driver.script_player_name_token(raw, current_player.as_deref()) {
+            crate::scripting::engine::ScriptOwnerQuery::Present(Some(name)) => Some(name),
+            crate::scripting::engine::ScriptOwnerQuery::Present(None)
+            | crate::scripting::engine::ScriptOwnerQuery::Missing => None,
+            crate::scripting::engine::ScriptOwnerQuery::Unavailable => {
+                Some(self.resolve_player_name_token(raw))
+            }
+        }
+    }
+
     pub(crate) fn resolve_player_name_token(&self, raw: &str) -> String {
         match raw {
             THE_PLAYER => {

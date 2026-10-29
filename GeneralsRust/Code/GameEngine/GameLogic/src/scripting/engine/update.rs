@@ -253,28 +253,39 @@ impl ScriptEngine {
         // into that immediate nested path. C++ iterates TheSidesList, not the
         // live player count — walk every side slot so installed map scripts
         // run even when leftover PlayerList is empty.
-        let player_names = {
-            let player_list = crate::player::player_list();
-            match player_list.try_read() {
-                Ok(list_guard) => {
-                    let player_count = list_guard.get_player_count().min(Self::MAX_PLAYER_COUNT);
-                    (0..player_count)
-                        .map(|index| {
-                            list_guard.get_player(index as i32).and_then(|player| {
-                                player.read().ok().and_then(|player| {
-                                    NameKeyGenerator::key_to_name(player.get_player_name_key())
-                                })
-                            })
-                        })
-                        .collect::<Vec<_>>()
-                }
-                Err(_) => Vec::new(),
-            }
-        };
+        let mut standalone_player_names = None;
 
         for i in 0..Self::MAX_PLAYER_COUNT {
             // Match C++: `m_currentPlayer` is the nth player for the side index.
-            self.lock_inner_mut().current_player = player_names.get(i).cloned().flatten();
+            let current_player = match execution.driver.side_script_current_player(i) {
+                ScriptOwnerQuery::Present(name) => name,
+                ScriptOwnerQuery::Missing => None,
+                ScriptOwnerQuery::Unavailable => {
+                    let player_names = standalone_player_names.get_or_insert_with(|| {
+                        let player_list = crate::player::player_list();
+                        match player_list.try_read() {
+                            Ok(list_guard) => {
+                                let player_count =
+                                    list_guard.get_player_count().min(Self::MAX_PLAYER_COUNT);
+                                (0..player_count)
+                                    .map(|index| {
+                                        list_guard.get_player(index as i32).and_then(|player| {
+                                            player.read().ok().and_then(|player| {
+                                                NameKeyGenerator::key_to_name(
+                                                    player.get_player_name_key(),
+                                                )
+                                            })
+                                        })
+                                    })
+                                    .collect::<Vec<_>>()
+                            }
+                            Err(_) => Vec::new(),
+                        }
+                    });
+                    player_names.get(i).cloned().flatten()
+                }
+            };
+            self.lock_inner_mut().current_player = current_player;
 
             // Every side list remains searchable through the lexical active
             // store while an individual script is detached for dispatch.

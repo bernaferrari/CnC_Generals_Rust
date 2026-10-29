@@ -861,7 +861,12 @@ impl ScriptActionDispatcher<'_> {
         action: &ScriptAction,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.get_string_param(action, 0)?;
+        let Some(player_name) = self.resolve_player_name_token_with_driver(
+            &self.get_string_param(action, 0)?,
+            driver,
+        ) else {
+            return Ok(ScriptActionResult::Success);
+        };
         let upgrade_name = self.get_string_param(action, 1)?;
         if let Some(result) = driver.ai_player(
             crate::scripting::engine::ScriptAiPlayerRequest::BuildUpgrade {

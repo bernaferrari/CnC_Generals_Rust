@@ -137,7 +137,11 @@ impl<'a> HostScriptExecutionDriver<'a> {
         )
     }
 
-    pub(super) fn script_player_id(&self, token: &str, current_player: Option<&str>) -> Option<u32> {
+    pub(super) fn script_player_id(
+        &self,
+        token: &str,
+        current_player: Option<&str>,
+    ) -> Option<u32> {
         use gamelogic::scripting::core::{
             LOCAL_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_PLAYER_ENEMY,
         };
@@ -279,6 +283,51 @@ impl HostScriptExecutionDriver<'_> {
 }
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn script_player_name_token(
+        &self,
+        raw: &str,
+        current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<Option<String>> {
+        match self.script_player_id(raw, current_player) {
+            Some(id) => ScriptOwnerQuery::Present(
+                self.world
+                    .players
+                    .get(&id)
+                    .map(|player| player.map_side.map_player_name.clone()),
+            ),
+            None => {
+                use gamelogic::scripting::core::{
+                    LOCAL_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_PLAYER_ENEMY,
+                };
+                let authored_selector = matches!(
+                    raw,
+                    LOCAL_PLAYER | THE_PLAYER | THIS_PLAYER | THIS_PLAYER_ENEMY
+                );
+                if authored_selector {
+                    ScriptOwnerQuery::Present(None)
+                } else {
+                    ScriptOwnerQuery::Present(Some(raw.to_string()))
+                }
+            }
+        }
+    }
+
+    fn side_script_current_player(&self, side_index: usize) -> ScriptOwnerQuery<Option<String>> {
+        // ScriptEngine's no-map fallback mirrors C++ PlayerList::getNthPlayer:
+        // the side index is an ordinal. Do not let the shared host-side helper
+        // treat a matching numeric Player ID as a hit before that ordinal
+        // lookup (e.g. side 1 must be absent when only Player ID 1 exists).
+        let player_id = if self.world.prepared_map_sides.get_num_sides() > 0 {
+            self.world.host_player_id_for_side_index(side_index as u32)
+        } else {
+            let mut player_ids: Vec<_> = self.world.players.keys().copied().collect();
+            player_ids.sort_unstable();
+            player_ids.get(side_index).copied()
+        };
+        let player = player_id.and_then(|id| self.world.players.get(&id));
+        ScriptOwnerQuery::Present(player.map(|player| player.map_side.map_player_name.clone()))
+    }
+
     fn music_track_completed(
         &mut self,
         track: &str,
@@ -1028,16 +1077,14 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         let Some(player) = self.script_player_id(player, current_player) else {
             return Some(Ok(()));
         };
-        Some(
-            self.world.apply_owned_team_transfer(
-                team,
-                player,
-                calling,
-                condition,
-                self.interpreter,
-                &mut self.ui,
-            ),
-        )
+        Some(self.world.apply_owned_team_transfer(
+            team,
+            player,
+            calling,
+            condition,
+            self.interpreter,
+            &mut self.ui,
+        ))
     }
     fn transfer_player_assets(
         &mut self,

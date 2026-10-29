@@ -1451,7 +1451,12 @@ impl ScriptActionDispatcher<'_> {
         action: &ScriptAction,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
+        let Some(player_name) = self.resolve_player_name_token_with_driver(
+            &self.get_string_param(action, 0)?,
+            driver,
+        ) else {
+            return Ok(ScriptActionResult::Success);
+        };
         let delay_seconds = self.get_int_param(action, 1)?;
         // CPP updateBaseConstructionSpeed calls Player::setTeamDelaySeconds;
         // the original signed seconds are carried unchanged to the owner.
