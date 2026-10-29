@@ -344,11 +344,8 @@ pub fn the_ai() -> Arc<RwLock<AI>> {
     Arc::clone(active().ai())
 }
 
-/// Move `bundle`'s AI contents out for a whole-world restore transaction
-/// while preserving the lock identity aliases hold (contents swap, C++
-/// AI.cpp:280 wrapper semantics). The runtime world transaction owns the
-/// only raw use of this boundary API and passes the explicit bundle it
-/// captured at `begin`, so the swap never depends on ambient resolution.
+/// Swap AI contents for the scoped-bundle restoration fixture.
+#[cfg(test)]
 pub(crate) fn take_ai_for_world_boundary(bundle: &Arc<EngineStores>) -> AI {
     let mut ai = bundle
         .ai()
@@ -357,8 +354,8 @@ pub(crate) fn take_ai_for_world_boundary(bundle: &Arc<EngineStores>) -> AI {
     std::mem::replace(&mut *ai, AI::new())
 }
 
-/// Install AI contents into `bundle` at a whole-world restore boundary and
-/// return the contents they replaced. See [`take_ai_for_world_boundary`].
+/// Restore the fixture's captured AI contents to its original bundle.
+#[cfg(test)]
 pub(crate) fn replace_ai_for_world_boundary(bundle: &Arc<EngineStores>, next: AI) -> AI {
     let mut ai = bundle
         .ai()

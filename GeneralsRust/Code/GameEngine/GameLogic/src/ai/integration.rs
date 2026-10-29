@@ -704,23 +704,8 @@ lazy_static::lazy_static! {
         Arc::new(RwLock::new(None));
 }
 
-/// Move the integration manager contents out for a whole-world restore
-/// transaction without replacing the stable global `Arc`/`RwLock` wrapper.
-///
-/// A staged snapshot calls [`initialize_ai_integration`], which otherwise
-/// replaces the active match's manager before the staged world is known to be
-/// valid.  This raw boundary is deliberately crate-private; the runtime world
-/// transaction is the only caller allowed to exchange global contents.
-pub(crate) fn take_ai_integration_for_world_boundary() -> Option<AiIntegrationManager> {
-    let mut manager = AI_INTEGRATION_MANAGER
-        .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    std::mem::take(&mut *manager)
-}
-
-/// Install integration-manager contents at a whole-world restore boundary and
-/// return the contents they replaced.  See
-/// [`take_ai_integration_for_world_boundary`].
+/// Replace the singleton for isolated legacy construction-callback fixtures.
+#[cfg(test)]
 pub(crate) fn replace_ai_integration_for_world_boundary(
     next: Option<AiIntegrationManager>,
 ) -> Option<AiIntegrationManager> {

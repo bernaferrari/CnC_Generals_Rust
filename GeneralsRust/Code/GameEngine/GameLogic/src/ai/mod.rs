@@ -3108,31 +3108,6 @@ pub fn the_ai() -> Arc<RwLock<AI>> {
     crate::system::engine_stores::the_ai()
 }
 
-/// Move the legacy AI singleton contents out of `bundle` for a whole-world
-/// restore transaction while preserving the lock identity.
-///
-/// Candidate save restore may initialize the AI before it is known to be
-/// valid.  Replacing the wrapper would strand aliases held by the active
-/// world, while clearing it would corrupt the active match on rollback.  The
-/// runtime transaction owns the only raw use of this boundary API and passes
-/// the explicit bundle it captured at `begin`, so the swap never depends on
-/// ambient active-slot resolution.
-pub(crate) fn take_global_ai_for_world_boundary(
-    bundle: &Arc<crate::system::engine_stores::EngineStores>,
-) -> AI {
-    crate::system::engine_stores::take_ai_for_world_boundary(bundle)
-}
-
-/// Install legacy AI contents into `bundle` at a whole-world restore boundary
-/// and return the contents they replaced.  See
-/// [`take_global_ai_for_world_boundary`].
-pub(crate) fn replace_global_ai_for_world_boundary(
-    bundle: &Arc<crate::system::engine_stores::EngineStores>,
-    next: AI,
-) -> AI {
-    crate::system::engine_stores::replace_ai_for_world_boundary(bundle, next)
-}
-
 // AI behavior modules
 pub mod ai_group;
 pub mod dock;
