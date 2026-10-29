@@ -514,7 +514,7 @@ impl Object {
     }
 
     pub fn is_script_disabled(&self) -> bool {
-        self.status.disabled_script_disabled
+        self.status.script_status_disabled
     }
 
     /// C++ `setScriptStatus(OBJECT_STATUS_SCRIPT_DISABLED, disabled)`.
@@ -547,9 +547,10 @@ impl Object {
         partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
     ) {
         self.require_partition_owner(partition.as_deref());
-        if self.status.disabled_script_disabled == disabled {
+        if self.status.script_status_disabled == disabled {
             return;
         }
+        self.status.script_status_disabled = disabled;
         // C++ setScriptStatus1019: dirty before the single disabled callback.
         if let Some(partition) = partition {
             partition.mark_receiving_object_dirty(

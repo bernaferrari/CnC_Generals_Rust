@@ -234,3 +234,97 @@ fn following_script_condition_observes_enable_in_the_same_world_walk() {
     assert!(world.get_player(1).unwrap().can_build_units);
     assert!(!world.get_player(1).unwrap().can_build_base);
 }
+
+#[test]
+fn script_flag_and_disabled_mask_are_distinct_and_survive_restore() {
+    let mut a = world("Alpha");
+    let mut b = world("Beta");
+    let id = a.objects.registered_values().next().unwrap().id;
+    let peer_id = b.objects.registered_values().next().unwrap().id;
+    assert_eq!(id, peer_id);
+    // A parent can propagate a disabled type without changing a child's
+    // independent script flag.
+    let child = a.host_object_mut(id).unwrap();
+    child.set_status_disabled_script_disabled(true);
+    assert!(!child.is_script_disabled());
+    assert!(child.status.disabled_script_disabled);
+    // An independently set script flag can outlive the propagated mask.
+    run(&mut b, ScriptActionType::PlayerDisableFactories, true);
+    let scripted = b.host_object_mut(id).unwrap();
+    scripted.set_status_disabled_script_disabled(false);
+    assert!(scripted.is_script_disabled());
+    assert!(!scripted.status.disabled_script_disabled);
+
+    let builder = generals_main::save_load::snapshot::SnapshotBuilder::new();
+    let saved_a = builder.create_world_snapshot(&a).unwrap();
+    let saved_b = builder.create_world_snapshot(&b).unwrap();
+    let mut restored_a = world("Alpha");
+    let mut restored_b = world("Beta");
+    builder
+        .restore_from_snapshot(&saved_a, &mut restored_a)
+        .unwrap();
+    builder
+        .restore_from_snapshot(&saved_b, &mut restored_b)
+        .unwrap();
+    let a_child = restored_a.host_object(id).unwrap();
+    assert!(!a_child.is_script_disabled());
+    assert!(a_child.status.disabled_script_disabled);
+    let b_child = restored_b.host_object(id).unwrap();
+    assert!(b_child.is_script_disabled());
+    assert!(!b_child.status.disabled_script_disabled);
+    run(
+        &mut restored_b,
+        ScriptActionType::PlayerEnableFactories,
+        true,
+    );
+    run(
+        &mut restored_b,
+        ScriptActionType::PlayerDisableFactories,
+        true,
+    );
+    assert!(
+        restored_b
+            .host_object(id)
+            .unwrap()
+            .status
+            .disabled_script_disabled
+    );
+
+    // ODIS v1 contained only the disabled mask. Its only possible script
+    // interpretation is the same bit; keep it readable after the split.
+    let mut old = builder.create_world_snapshot(&restored_b).unwrap();
+    let offset = old
+        .lifecycle_tail
+        .windows(4)
+        .position(|bytes| bytes == b"ODIS")
+        .expect("ODIS continuation present");
+    let old_length = u32::from_le_bytes(
+        old.lifecycle_tail[offset + 8..offset + 12]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    let payload = bincode_legacy::serialize(&vec![(id.0, false, false, 0u32, 0u32)]).unwrap();
+    let mut v1 = b"ODIS".to_vec();
+    v1.extend_from_slice(&1u32.to_le_bytes());
+    v1.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    v1.extend_from_slice(&payload);
+    old.lifecycle_tail
+        .splice(offset..offset + 12 + old_length, v1);
+    let mut legacy_receiver = world("Beta");
+    builder
+        .restore_from_snapshot(&old, &mut legacy_receiver)
+        .unwrap();
+    assert!(
+        legacy_receiver
+            .host_object(id)
+            .unwrap()
+            .is_script_disabled()
+    );
+    assert!(
+        legacy_receiver
+            .host_object(id)
+            .unwrap()
+            .status
+            .disabled_script_disabled
+    );
+}

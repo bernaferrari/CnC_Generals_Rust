@@ -85,6 +85,7 @@ impl SnapshotBuilder {
             native_lifecycle,
             saved_order,
             &HashMap::new(),
+            &HashMap::new(),
             game_logic,
         )
     }
@@ -100,6 +101,7 @@ impl SnapshotBuilder {
         >,
         saved_order: Option<&[ObjectId]>,
         geometry: &HashMap<ObjectId, crate::game_logic::HostGeometryInfo>,
+        script_status_flags: &HashMap<ObjectId, bool>,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         self.validate_object_restore_admission(objects, game_logic)?;
@@ -168,6 +170,7 @@ impl SnapshotBuilder {
                 snapshot,
                 body_kinds.get(&snapshot.id).copied(),
                 native_lifecycle.get(&snapshot.id),
+                script_status_flags.get(&snapshot.id).copied(),
                 game_logic,
             )?;
             max_id = max_id.max(id.0);
@@ -211,7 +214,7 @@ impl SnapshotBuilder {
         snapshot: &ObjectSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        self.restore_object_with_body_kind(snapshot, None, None, game_logic)
+        self.restore_object_with_body_kind(snapshot, None, None, None, game_logic)
     }
 
     pub(super) fn validate_object_restore_admission(
@@ -278,6 +281,7 @@ impl SnapshotBuilder {
         snapshot: &ObjectSnapshot,
         body_kind: Option<crate::game_logic::thing::BodyKind>,
         native_lifecycle: Option<&crate::game_logic::native_lifecycle::NativeLifecycleRuntime>,
+        script_status_disabled: Option<bool>,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         game_logic
@@ -429,6 +433,9 @@ impl SnapshotBuilder {
 
         // Core gameplay state
         self.restore_object_status(&snapshot.status, &mut object);
+        if let Some(flag) = script_status_disabled {
+            object.status.script_status_disabled = flag;
+        }
         object.selected = snapshot.status.selected;
         object.health = snapshot.health.clone();
         // Canonical Body maximum comes from the saved runtime record, not the
@@ -649,6 +656,9 @@ impl SnapshotBuilder {
         object.status.unselectable = status.unselectable;
         object.status.deployed = status.deployed;
         object.status.disabled_script_disabled = status.disabled_script_disabled;
+        // Pre-ODIS-v2 and standalone object snapshots had one combined bit.
+        // A world continuation restores the distinct script bit afterward.
+        object.status.script_status_disabled = status.disabled_script_disabled;
         object.status.disabled_script_underpowered = status.disabled_script_underpowered;
         object.script_unsellable = status.script_unsellable;
         object.script_unstealthed = status.script_unstealthed;

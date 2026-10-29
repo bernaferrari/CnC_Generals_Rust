@@ -488,6 +488,11 @@ impl KindOf {
 /// Object status flags
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ObjectStatus {
+    /// `Object::m_scriptStatus` is distinct from the disabled mask, which may
+    /// also be changed by a containing object or its SpawnBehavior owner.
+    /// The ODIS continuation carries this without changing positional saves.
+    #[serde(skip)]
+    pub(crate) script_status_disabled: bool,
     /// Original disabled mask bits 8/9. Companion framing preserves their
     /// continuation without changing positional ObjectStatus save bytes.
     #[serde(skip)]

@@ -6,9 +6,18 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 const TAG: &[u8; 4] = b"ODIS";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct Record {
+    object_id: u32,
+    awestruck: bool,
+    brainwashed: bool,
+    awestruck_until: u32,
+    brainwashed_until: u32,
+    script_status_disabled: Option<bool>,
+}
+#[derive(Deserialize)]
+struct RecordV1 {
     object_id: u32,
     awestruck: bool,
     brainwashed: bool,
@@ -29,6 +38,7 @@ pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<(
             brainwashed: object.status.disabled_brainwashed,
             awestruck_until: object.status.disabled_awestruck_until_frame,
             brainwashed_until: object.status.disabled_brainwashed_until_frame,
+            script_status_disabled: Some(object.status.script_status_disabled),
         })
         .collect();
     records.sort_by_key(|entry| entry.object_id);
@@ -58,7 +68,7 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
     }
     let version = u32::from_le_bytes(suffix[4..8].try_into().unwrap());
     let length = u32::from_le_bytes(suffix[8..12].try_into().unwrap()) as usize;
-    if version != VERSION {
+    if version != 1 && version != VERSION {
         return Err(corrupted("unknown version"));
     }
     let end = 12usize
@@ -68,8 +78,33 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
         .get(12..end)
         .ok_or_else(|| corrupted("truncated records"))?;
     let payload_length = payload.len();
-    let (records, consumed): (Vec<Record>, usize) =
-        bincode::serde::decode_from_slice(payload, bincode::config::legacy()).map_err(corrupted)?;
+    let (records, consumed): (Vec<Record>, usize) = if version == 1 {
+        let (old, consumed): (Vec<RecordV1>, usize) =
+            bincode::serde::decode_from_slice(payload, bincode::config::legacy())
+                .map_err(corrupted)?;
+        (
+            old.into_iter()
+                .map(|entry| Record {
+                    object_id: entry.object_id,
+                    awestruck: entry.awestruck,
+                    brainwashed: entry.brainwashed,
+                    awestruck_until: entry.awestruck_until,
+                    brainwashed_until: entry.brainwashed_until,
+                    script_status_disabled: None,
+                })
+                .collect(),
+            consumed,
+        )
+    } else {
+        bincode::serde::decode_from_slice(payload, bincode::config::legacy()).map_err(corrupted)?
+    };
+    if version == VERSION
+        && records
+            .iter()
+            .any(|record: &Record| record.script_status_disabled.is_none())
+    {
+        return Err(corrupted("missing script status"));
+    }
     if consumed != payload_length || suffix[end..].starts_with(TAG) {
         return Err(corrupted("trailing or duplicate records"));
     }
@@ -100,6 +135,19 @@ pub(super) fn validate(
     }
     Ok(())
 }
+/// Reconstruct the saved script bit before each Object is admitted, so its
+/// restore callbacks cannot observe the old combined-mask approximation.
+pub(super) fn script_status_flags(records: Option<&[Record]>) -> HashMap<ObjectId, bool> {
+    records
+        .into_iter()
+        .flatten()
+        .filter_map(|record| {
+            record
+                .script_status_disabled
+                .map(|flag| (ObjectId(record.object_id), flag))
+        })
+        .collect()
+}
 pub(super) fn apply(records: Option<&[Record]>, world: &mut GameLogic) {
     // Pre-native saves explicitly restore both unsupported bits clear.
     for object in world.objects.registered_values_mut() {
@@ -107,6 +155,8 @@ pub(super) fn apply(records: Option<&[Record]>, world: &mut GameLogic) {
         object.status.disabled_brainwashed = false;
         object.status.disabled_awestruck_until_frame = 0;
         object.status.disabled_brainwashed_until_frame = 0;
+        // Old saves conflated both bits, so preserve their historical meaning.
+        object.status.script_status_disabled = object.status.disabled_script_disabled;
     }
     for record in records.into_iter().flatten() {
         if let Some(object) = world.objects.get_mut(&ObjectId(record.object_id)) {
@@ -114,6 +164,9 @@ pub(super) fn apply(records: Option<&[Record]>, world: &mut GameLogic) {
             object.status.disabled_brainwashed = record.brainwashed;
             object.status.disabled_awestruck_until_frame = record.awestruck_until;
             object.status.disabled_brainwashed_until_frame = record.brainwashed_until;
+            if let Some(script_status_disabled) = record.script_status_disabled {
+                object.status.script_status_disabled = script_status_disabled;
+            }
         }
     }
 }

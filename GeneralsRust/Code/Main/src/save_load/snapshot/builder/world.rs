@@ -752,6 +752,9 @@ impl SnapshotBuilder {
             &native_lifecycle_runtimes,
             object_order.saved_order.as_deref(),
             &super::super::geometry_shape_persist::shapes(geometry_shapes.records.as_deref()),
+            &super::super::original_disabled_persist::script_status_flags(
+                original_disabled.records.as_deref(),
+            ),
             game_logic,
         )?;
         super::super::garrison_team_identity_persist::apply_rows(

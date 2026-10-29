@@ -109,6 +109,7 @@ fn malformed_frame_and_owner_roster_reject_before_receiver_mutation() {
         brainwashed: false,
         awestruck_until: 9,
         brainwashed_until: 0,
+        script_status_disabled: Some(false),
     };
     assert!(validate(Some(&[record.clone(), record.clone()]), &snapshot.objects).is_err());
     let mut unknown = record;
@@ -121,7 +122,7 @@ fn malformed_frame_and_owner_roster_reject_before_receiver_mutation() {
         assert!(decode(&bytes[..length]).is_err());
     }
     let mut bad = bytes.clone();
-    bad[boundary + 4..boundary + 8].copy_from_slice(&2u32.to_le_bytes());
+    bad[boundary + 4..boundary + 8].copy_from_slice(&3u32.to_le_bytes());
     assert!(decode(&bad).is_err());
     bytes.extend_from_within(boundary..);
     assert!(decode(&bytes).is_err());
