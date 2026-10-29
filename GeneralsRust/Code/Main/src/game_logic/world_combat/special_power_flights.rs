@@ -302,19 +302,29 @@ impl GameLogic {
         edge.y = 150.0;
         let dx = target.x - edge.x;
         let dz = target.z - edge.z;
-        if !self.templates.contains_key(CLUSTER_MINES_OCL_TRANSPORT) {
-            let mut t = ThingTemplate::new(CLUSTER_MINES_OCL_TRANSPORT);
-            t.set_health(600.0)
-                .add_kind_of(KindOf::Aircraft)
-                .add_kind_of(KindOf::Vehicle);
-            self.templates
-                .insert(CLUSTER_MINES_OCL_TRANSPORT.to_string(), t);
-        }
-        if !self.templates.contains_key(CLUSTER_MINES_BOMB_OBJECT) {
-            let mut t = ThingTemplate::new(CLUSTER_MINES_BOMB_OBJECT);
-            t.set_health(50.0).add_kind_of(KindOf::Projectile);
-            self.templates
-                .insert(CLUSTER_MINES_BOMB_OBJECT.to_string(), t);
+        if self.receiving_module_content.is_some() {
+            // Materialize the receiving definitions before the factory's map skip
+            // check; a bare fallback would discard authored gameplay modules.
+            if !self.ensure_host_spawn_template(CLUSTER_MINES_OCL_TRANSPORT)
+                || !self.ensure_host_spawn_template(CLUSTER_MINES_BOMB_OBJECT)
+            {
+                return None;
+            }
+        } else {
+            if !self.templates.contains_key(CLUSTER_MINES_OCL_TRANSPORT) {
+                let mut t = ThingTemplate::new(CLUSTER_MINES_OCL_TRANSPORT);
+                t.set_health(600.0)
+                    .add_kind_of(KindOf::Aircraft)
+                    .add_kind_of(KindOf::Vehicle);
+                self.templates
+                    .insert(CLUSTER_MINES_OCL_TRANSPORT.to_string(), t);
+            }
+            if !self.templates.contains_key(CLUSTER_MINES_BOMB_OBJECT) {
+                let mut t = ThingTemplate::new(CLUSTER_MINES_BOMB_OBJECT);
+                t.set_health(50.0).add_kind_of(KindOf::Projectile);
+                self.templates
+                    .insert(CLUSTER_MINES_BOMB_OBJECT.to_string(), t);
+            }
         }
         let tid = self.create_object_with_script_effects(
             CLUSTER_MINES_OCL_TRANSPORT,
@@ -473,6 +483,7 @@ impl GameLogic {
                     team,
                     impact,
                     producer,
+                    Some(id),
                     presentation_effects,
                 );
 
@@ -2472,7 +2483,9 @@ impl GameLogic {
         for (sid, pos, finished_sink, birth) in moved {
             let is_original = |world: &Self| {
                 world.objects.get(&sid).is_some_and(|object| {
-                    birth.ptr_eq(&std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+                    birth.ptr_eq(&std::sync::Arc::downgrade(
+                        &object.visual_draw_identity_token,
+                    ))
                 })
             };
             if !is_original(self) {
