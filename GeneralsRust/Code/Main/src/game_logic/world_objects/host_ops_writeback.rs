@@ -1607,8 +1607,8 @@ impl GameLogic {
     pub fn try_queue_picked_voice_move_upgraded(&mut self, unit_ids: &[ObjectId]) -> bool {
         use crate::game_logic::audio_dispatch_impl::resolve_receiving_per_unit_sound;
         use crate::game_logic::host_gla_worker::{
-            UPGRADE_GLA_WORKER_SHOES, WORKER_VOICE_MOVE_UPGRADED,
-            is_worker_for_voice_move_upgraded, worker_shoes_voice_upgrade_complete,
+            WORKER_VOICE_MOVE_UPGRADED, is_worker_for_voice_move_upgraded,
+            worker_shoes_voice_upgrade_complete,
         };
         for &id in unit_ids {
             let Some(obj) = self.objects.get(&id) else {
@@ -1621,30 +1621,18 @@ impl GameLogic {
                 obj.is_kind_of(KindOf::Infantry),
                 obj.is_kind_of(KindOf::Dozer),
                 obj.is_kind_of(KindOf::Harvester),
-                &obj.template_name,
             ) {
                 continue;
             }
-            let object_has_shoes = obj.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES);
             let player_names = |p: &crate::game_logic::Player| {
-                p.has_unlocked_upgrade(UPGRADE_GLA_WORKER_SHOES)
-                    || worker_shoes_voice_upgrade_complete(
-                        false,
-                        p.unlocked_sciences
-                            .iter()
-                            .chain(p.completed_upgrades.iter()),
-                    )
+                worker_shoes_voice_upgrade_complete(p.completed_upgrades.iter())
             };
             let player_has_shoes = obj
                 .owner_player_id
                 .and_then(|pid| self.players.get(&pid))
                 .map(player_names)
-                .unwrap_or_else(|| {
-                    self.players
-                        .values()
-                        .any(|p| p.team == obj.team && player_names(p))
-                });
-            if !object_has_shoes && !player_has_shoes {
+                .unwrap_or(false);
+            if !player_has_shoes {
                 continue;
             }
             let event =
