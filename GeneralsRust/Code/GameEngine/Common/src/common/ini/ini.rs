@@ -2069,7 +2069,42 @@ impl INI {
     }
 
     pub fn parse_unsigned_int(token: &str) -> INIResult<u32> {
-        token.parse().map_err(|_| INIError::InvalidData)
+        // C++ INI::scanUnsignedInt uses sscanf("%u"): decimal conversion,
+        // optional sign, and successful numeric prefixes are accepted. Keep
+        // overflow/no-conversion failures explicit instead of defaulting.
+        let bytes = token.as_bytes();
+        let mut at = bytes
+            .iter()
+            .position(|byte| !byte.is_ascii_whitespace())
+            .unwrap_or(bytes.len());
+        let negative = match bytes.get(at) {
+            Some(b'+') => {
+                at += 1;
+                false
+            }
+            Some(b'-') => {
+                at += 1;
+                true
+            }
+            _ => false,
+        };
+        let digits_start = at;
+        let mut value = 0u32;
+        while let Some(byte @ b'0'..=b'9') = bytes.get(at).copied() {
+            value = value
+                .checked_mul(10)
+                .and_then(|value| value.checked_add(u32::from(byte - b'0')))
+                .ok_or(INIError::InvalidData)?;
+            at += 1;
+        }
+        if at == digits_start {
+            return Err(INIError::InvalidData);
+        }
+        Ok(if negative {
+            value.wrapping_neg()
+        } else {
+            value
+        })
     }
 
     pub fn parse_real(token: &str) -> INIResult<f32> {
@@ -2659,6 +2694,31 @@ mod tests {
     use crate::common::rts::special_power::{
         SpecialPowerType, get_special_power_store, reset_special_power_store,
     };
+
+    #[test]
+    fn unsigned_scan_matches_cpp_decimal_prefix_and_sign_cases() {
+        for (token, expected) in [
+            ("123", 123),
+            ("  +42rest", 42),
+            ("-1", u32::MAX),
+            ("-4294967295suffix", 1),
+            ("0x10", 0),
+            ("4294967295", u32::MAX),
+        ] {
+            assert_eq!(
+                INI::parse_unsigned_int(token).unwrap(),
+                expected,
+                "{token:?}"
+            );
+        }
+        for token in ["", "text", "+", "-", "4294967296", "-4294967296"] {
+            assert_eq!(
+                INI::parse_unsigned_int(token),
+                Err(INIError::InvalidData),
+                "{token:?}"
+            );
+        }
+    }
 
     #[test]
     fn strict_loader_rejects_model_top_level_token() {

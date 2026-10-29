@@ -2398,6 +2398,29 @@ mod tests {
     }
 
     #[test]
+    fn default_starting_cash_uses_unsigned_scan_without_defaulting_failures() {
+        let mut data = GlobalData::new();
+        let mut ini = INI::new();
+        ini.with_inline_source("GameData\n DefaultStartingCash = -1tail\nEnd\n", |ini| {
+            ini.read_line()?;
+            parse_game_data_block(ini, &mut data)
+        })
+        .expect("C++ %u accepts the in-range signed decimal prefix");
+        assert_eq!(data.default_starting_cash, u32::MAX);
+
+        data.default_starting_cash = 77;
+        let result = ini.with_inline_source(
+            "GameData\n DefaultStartingCash = 4294967296\nEnd\n",
+            |ini| {
+                ini.read_line()?;
+                parse_game_data_block(ini, &mut data)
+            },
+        );
+        assert!(result.is_err(), "out-of-range input remains a parse error");
+        assert_eq!(data.default_starting_cash, 77);
+    }
+
+    #[test]
     fn sell_percentage_rules_follow_order_default_and_common_percent_syntax() {
         let base = SellPercentageRules::default();
         assert_eq!(base.percentage, 1.0);
