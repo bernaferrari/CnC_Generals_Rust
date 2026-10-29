@@ -72,10 +72,79 @@ fn with_receiving_view<R>(
     run(&mut view)
 }
 
+fn verify_command_tail_survives_reset(private_root: &std::path::Path) -> anyhow::Result<()> {
+    use crate::game_logic::{NativeCommandAction, NativeCommandCompletion, NativeTickProgress};
+    use game_engine::common::message_stream::{
+        GameMessage, GameMessageArgumentType, GameMessageType,
+    };
+    use game_engine::common::recorder::RecorderOwnerInputs;
+
+    let mut world = GameLogic::new();
+    world
+        .replay_pending
+        .reset_recorder_owned(RecorderOwnerInputs {
+            map: "Maps/SourceCommandPhase".into(),
+            seed: 37,
+            replay_directory: private_root.join("Replays"),
+            exe_crc: 0,
+            ini_crc: 0,
+            save_stats: false,
+            stats_directory: private_root.join("Stats"),
+        });
+    let mut next_game = GameMessage::new(GameMessageType::NewGame);
+    for value in [3, 2, 71, 60] {
+        next_game.append_integer_argument(value);
+    }
+    world
+        .replay_pending
+        .receive_client_messages(vec![
+            GameMessage::new(GameMessageType::ClearGameData),
+            next_game,
+        ])
+        .map_err(anyhow::Error::msg)?;
+    let NativeTickProgress::CommandBoundary(mut pending) = world.begin_native_logic_tick(
+        1.0 / 30.0,
+        None,
+        Some(1),
+        Default::default(),
+        |_| None,
+        |_| panic!("old-world callback before reset"),
+    ) else {
+        anyhow::bail!("clear command did not release the world");
+    };
+    assert!(matches!(
+        pending.take_action(),
+        NativeCommandAction::ClearGameData
+    ));
+    world.reset();
+    let NativeTickProgress::CommandBoundary(mut pending) = world.resume_native_logic_tick(
+        pending,
+        NativeCommandCompletion::Cleared {
+            reset_performed: true,
+        },
+        Default::default(),
+        |_| None,
+        |_| panic!("new-game command was lost across reset"),
+    ) else {
+        anyhow::bail!("new-game command did not survive reset");
+    };
+    let NativeCommandAction::PrepareNewGame(message) = pending.take_action() else {
+        anyhow::bail!("unexpected command after reset");
+    };
+    for (index, expected) in [3, 2, 71, 60].into_iter().enumerate() {
+        assert!(
+            matches!(message.get_argument(index), Some(GameMessageArgumentType::Integer(value)) if *value == expected)
+        );
+    }
+    Ok(())
+}
+
 pub(crate) fn run() -> anyhow::Result<()> {
-    let private_root = std::env::var_os("GENERALS_RESET_DRAWABLE_PROBE_PRIVATE_ROOT")
-        .ok_or_else(|| anyhow::anyhow!("requires private launch root"))?;
-    std::fs::create_dir_all(std::path::PathBuf::from(private_root).join("userdata"))?;
+    let private_root = std::path::PathBuf::from(
+        std::env::var_os("GENERALS_RESET_DRAWABLE_PROBE_PRIVATE_ROOT")
+            .ok_or_else(|| anyhow::anyhow!("requires private launch root"))?,
+    );
+    std::fs::create_dir_all(private_root.join("userdata"))?;
     let content_root = std::env::var_os("GENERALS_RESET_DRAWABLE_PROBE_CONTENT_ROOT")
         .ok_or_else(|| anyhow::anyhow!("requires installed game content root"))?;
     std::env::set_current_dir(content_root)?;
@@ -213,8 +282,9 @@ pub(crate) fn run() -> anyhow::Result<()> {
             .borrow_native_installed_poses()
             .has_drawable_lifetime(peer_id.0)
     );
+    verify_command_tail_survives_reset(&private_root)?;
     println!(
-        "PASS native reset receiver: Client -> renderer receipt -> host visual bridge -> checked GameLogic; peer preserved"
+        "PASS native reset receiver: Client -> renderer receipt -> host visual bridge -> checked GameLogic; peer and admitted command tail preserved"
     );
     Ok(())
 }
