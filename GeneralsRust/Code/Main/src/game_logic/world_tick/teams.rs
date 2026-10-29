@@ -1748,12 +1748,13 @@ impl GameLogic {
         waypoint: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        let Some((pos, team, proj_name)) = self.host_object(id).and_then(|obj| {
+        let Some((pos, owner, proj_name)) = self.host_object(id).and_then(|obj| {
             if !obj.is_alive() || obj.status.destroyed {
                 return None;
             }
             let projectile_name = self.host_script_waypoint_following_weapon(obj)?;
-            Some((obj.get_position(), obj.team, projectile_name))
+            let owner = self.player_owner_for_host_object(obj)?;
+            Some((obj.get_position(), owner, projectile_name))
         }) else {
             return;
         };
@@ -1763,11 +1764,8 @@ impl GameLogic {
         if proj_name.is_empty() {
             return;
         }
-        if !self.templates.contains_key(&proj_name) {
-            return;
-        }
         let Some(proj_id) =
-            self.create_object_with_script_effects(&proj_name, team, pos, None, effects)
+            self.create_projectile_for_controller_with_effects(&proj_name, owner, pos, effects)
         else {
             return;
         };

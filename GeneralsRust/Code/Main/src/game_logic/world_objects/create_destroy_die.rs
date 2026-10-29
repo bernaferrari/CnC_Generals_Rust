@@ -539,23 +539,22 @@ impl GameLogic {
         if !is_stinger_site_structure(parent_template_name) {
             return Ok(None);
         }
-        let (name, template) = if let Some((name, template)) =
-            self.templates.get_key_value(parent_template_name)
-        {
-            (name, template)
-        } else {
-            let mut matches = self
-                .templates
-                .iter()
-                .filter(|(name, _)| name.eq_ignore_ascii_case(parent_template_name));
-            let Some(first) = matches.next() else {
-                return Ok(None);
+        let (name, template) =
+            if let Some((name, template)) = self.templates.get_key_value(parent_template_name) {
+                (name, template)
+            } else {
+                let mut matches = self
+                    .templates
+                    .iter()
+                    .filter(|(name, _)| name.eq_ignore_ascii_case(parent_template_name));
+                let Some(first) = matches.next() else {
+                    return Ok(None);
+                };
+                if matches.next().is_some() {
+                    return Err(());
+                }
+                first
             };
-            if matches.next().is_some() {
-                return Err(());
-            }
-            first
-        };
         let Some(spec) = Self::resolve_host_spawn_behavior_template(template, name) else {
             return Ok(None);
         };
@@ -643,7 +642,8 @@ impl GameLogic {
                     crate::game_logic::host_base_defense::STINGER_SPAWN_TEMPLATE,
                 ),
                 spawn_number: crate::game_logic::host_base_defense::STINGER_SPAWN_NUMBER,
-                replacement_delay: crate::game_logic::host_base_defense::STINGER_SPAWN_REPLACE_DELAY_FRAMES,
+                replacement_delay:
+                    crate::game_logic::host_base_defense::STINGER_SPAWN_REPLACE_DELAY_FRAMES,
                 one_shot: false,
                 spawned_require_spawner: true,
             });
@@ -923,7 +923,8 @@ impl GameLogic {
                     &object.template_name,
                 )
             }) {
-                let live = self.count_spawn_behavior_children(object_id, &spec.spawn_template, true);
+                let live =
+                    self.count_spawn_behavior_children(object_id, &spec.spawn_template, true);
                 if live < spec.spawn_number
                     && self
                         .host_object(object_id)
@@ -1072,8 +1073,8 @@ impl GameLogic {
                         && child.is_alive()
                         && !child.status.destroyed
                         && !child.status.effectively_dead)
-                    .then_some(slot)
-                    .flatten()
+                        .then_some(slot)
+                        .flatten()
                 })
                 .collect::<std::collections::HashSet<_>>();
             (
@@ -1512,6 +1513,44 @@ impl GameLogic {
         };
         self.apply_cash_bounty_on_object_created(id);
         Ok(Some(id))
+    }
+
+    /// Weapon.cpp creates a projectile on the firing controller's default
+    /// Team, including the reserved neutral Player. The generic production
+    /// helper above intentionally rejects neutral construction.
+    pub(crate) fn create_projectile_for_controller_with_effects(
+        &mut self,
+        template_name: &str,
+        owner_player_id: u32,
+        position: Vec3,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
+        let team = self.players.get(&owner_player_id)?.team;
+        // This is a weapon spawn, not map-object ingestion. Materialize an
+        // admitted projectile before the factory's map skip-list check so a
+        // valid projectile name on that list remains spawnable.
+        if self.receiving_module_content.is_some()
+            && !self.ensure_host_spawn_template(template_name)
+        {
+            return None;
+        }
+        let id = self
+            .create_object_with_initial_team_and_ui_checked(
+                template_name,
+                team,
+                Some(owner_player_id),
+                position,
+                FactoryCreationPurpose::AtCreation,
+                None,
+                None,
+                ui,
+            )
+            .unwrap_or_else(|error| {
+                log::error!("{error}");
+                None
+            })?;
+        self.apply_cash_bounty_on_object_created(id);
+        Some(id)
     }
 
     /// C++ BuildAssistant::buildObjectNow's instant structure arm. Command

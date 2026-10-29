@@ -222,6 +222,74 @@ fn projectile_without_ai_is_created_but_receives_no_waypoint_order() {
     assert!(projectile.movement.path.is_empty());
 }
 
+#[test]
+fn waypoint_projectile_uses_shooter_owner_and_admitted_uncached_template() {
+    use generals_main::game_logic::{Player, Team};
+
+    let root = tempfile::tempdir().unwrap();
+    let map = waypoint_map(root.path(), 200.0);
+    let mut world = admitted_world(&map, OWNER_PROJECTILE, true, None);
+    let shooter = world
+        .host_objects()
+        .registered_values()
+        .find(|object| object.name == OBJECT_NAME)
+        .unwrap();
+    let shooter_id = shooter.id;
+    let owner = 201;
+    let other_id = 202;
+    let faction = Team::USA;
+    assert!(world.get_player(owner).is_none());
+    assert!(world.get_player(other_id).is_none());
+    world.add_player(
+        Player::new(owner, faction, "ExactOwner", false).with_script_identity("ExactOwner"),
+    );
+    world.add_player(
+        Player::new(other_id, faction, "SameFactionPeer", false)
+            .with_script_identity("SameFactionPeer"),
+    );
+    assert!(world.transfer_object_to_player(shooter_id, owner));
+    // A second player of the same faction makes faction-to-player inference
+    // ambiguous. The projectile belongs to the actual shooter's controller.
+    world.templates.remove(OWNER_PROJECTILE);
+    assert!(!world.templates.contains_key(OWNER_PROJECTILE));
+
+    world.update();
+    let projectile = world
+        .host_objects()
+        .registered_values()
+        .find(|object| {
+            object.template_name == OWNER_PROJECTILE && object.producer_id == Some(shooter_id)
+        })
+        .expect("projectile is materialized from this session's admitted definitions");
+    assert_eq!(projectile.owner_player_id, Some(owner));
+    let default_team = world.default_host_team_instance_name(Some(owner), faction);
+    assert!(!default_team.is_empty());
+    assert!(projectile.team_instance_identity().is_some());
+    assert_eq!(
+        projectile.team_instance_name, default_team,
+        "projectile belongs to its controlling player's default team"
+    );
+    assert_eq!(fired_endpoint(&world, shooter_id, OWNER_PROJECTILE), 200.0);
+}
+
+#[test]
+fn waypoint_weapon_can_spawn_an_admitted_map_skip_list_projectile() {
+    let root = tempfile::tempdir().unwrap();
+    let map = waypoint_map(root.path(), 200.0);
+    let name = "InfernoTankShell";
+    let mut world = admitted_world(&map, name, true, None);
+    let shooter = world
+        .host_objects()
+        .registered_values()
+        .find(|object| object.name == OBJECT_NAME)
+        .unwrap()
+        .id;
+    world.templates.remove(name);
+    assert!(!world.templates.contains_key(name));
+    world.update();
+    assert_eq!(fired_endpoint(&world, shooter, name), 200.0);
+}
+
 fn fired_endpoint(game: &GameLogic, shooter: ObjectId, template: &str) -> f32 {
     let projectile = game
         .host_objects()
