@@ -4,6 +4,7 @@
 //! are never taken or swapped here. Existing global metadata still requires
 //! the process transaction mutex and the original deferred callback order.
 use super::*;
+use crate::system::engine_stores;
 use crate::system::engine_stores::WorldServices;
 struct HostRuntimeGlobals {
     players: PlayerList,

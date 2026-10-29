@@ -170,8 +170,7 @@ fn detached_a_allows_b_failed_c_drop_and_commit_interleavings_without_reserving_
 }
 
 #[test]
-fn native_rejection_drops_detached_receipts_without_callbacks_and_original_runtime_still_reserves()
-{
+fn native_rejection_drops_detached_receipts_without_callbacks_and_releases_reservation() {
     let _serial = crate::test_sync::lock();
     let live = Arc::new(WorldServices::new_for_world());
     let original = HostRuntimeGlobals::take_from_singletons(&live);
@@ -201,14 +200,6 @@ fn native_rejection_drops_detached_receipts_without_callbacks_and_original_runti
     );
     assert!(candidate.preflight_native().is_err());
     observe(1);
-    let stage = RuntimeWorldStage::begin();
-    assert!(world_runtime_transaction_lock().try_lock().is_err());
-    let candidate = stage.finish_and_restore_live();
-    assert!(
-        world_runtime_transaction_lock().try_lock().is_err(),
-        "standalone transaction contract unchanged"
-    );
-    drop(candidate);
     assert!(world_runtime_transaction_lock().try_lock().is_ok());
     observe(1);
 }

@@ -668,9 +668,8 @@ mod tests {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .snapshot_state();
 
-        // RuntimeWorldStage::begin: capture the live bundle explicitly and
-        // take the live AI/shroud contents out (fresh defaults stay behind
-        // as the staging scratch the candidate map writes into).
+        // Capture the live bundle explicitly and take the live AI/shroud
+        // contents out (fresh defaults stay behind as staging scratch).
         let live_bundle = active();
         assert!(Arc::ptr_eq(&live_bundle, &a));
         let live_ai = take_ai_for_world_boundary(&live_bundle);
@@ -686,14 +685,13 @@ mod tests {
         let b = new_for_world();
         install_active(Arc::clone(&b));
 
-        // Early Err: locals drop newest-declared-first, so the staged
-        // GameLogic B drops *before* the RuntimeWorldStage. B's drop pops it
-        // and reinstates A as head...
+        // Early Err: locals drop newest-declared-first, so staged GameLogic B
+        // drops before rollback; B's drop pops it and reinstates A as head...
         uninstall_active_if_current(&b);
         assert!(Arc::ptr_eq(&active(), &a));
 
-        // ...then the stage's Drop reinstalls the live contents through the
-        // CAPTURED bundle handle (pinned via with_active_stores), never
+        // ...then rollback reinstalls the live contents through the CAPTURED
+        // bundle handle (pinned via with_active_stores), never
         // through ambient/engine-lifetime resolution. This is exactly the
         // ordering that used to install A's AI/shroud into the
         // engine-lifetime bundle.
