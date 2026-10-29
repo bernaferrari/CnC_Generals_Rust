@@ -443,11 +443,12 @@ fn parse_production_cost_change(
     tokens: &[&str],
 ) -> INIResult<()> {
     let name = tokens.get(0).ok_or(INIError::InvalidData)?;
+    // C++ PlayerTemplate.cpp:110-129 calls NAMEKEY before scanPercentToReal.
+    // getNextToken for the percentage can itself throw when it is missing, so
+    // a present name consumes its key even when the value token is absent.
+    let _ = ini.name_to_key(name);
     let percent = tokens.get(1).ok_or(INIError::InvalidData)?;
     let change = INI::parse_percent_to_real(percent)?;
-    // Preserve parse-time namespace allocation for unmigrated definition consumers.
-    // Production lookups retain the authored name across startup worker handoff.
-    let _ = ini.name_to_key(name);
     template
         .production_cost_changes
         .insert((*name).to_string(), change);
@@ -460,9 +461,11 @@ fn parse_production_time_change(
     tokens: &[&str],
 ) -> INIResult<()> {
     let name = tokens.get(0).ok_or(INIError::InvalidData)?;
+    // C++ PlayerTemplate.cpp:121-129 interns the exact name before scanning
+    // its percentage. INI::getNextToken also throws when that value is absent.
+    let _ = ini.name_to_key(name);
     let percent = tokens.get(1).ok_or(INIError::InvalidData)?;
     let change = INI::parse_percent_to_real(percent)?;
-    let _ = ini.name_to_key(name);
     template
         .production_time_changes
         .insert((*name).to_string(), change);
@@ -832,6 +835,66 @@ End
             retained.get_production_veterancy_level("USAJet"),
             VeterancyLevel::Veteran
         );
+    }
+
+    #[test]
+    fn invalid_production_percent_consumes_name_identity_before_rejection() {
+        // Source pin: GeneralsMD/Code/GameEngine/Source/Common/RTS/
+        // PlayerTemplate.cpp SHA256 32d20a3dda6b16e8b1f4825d9bceb0aec3ecc2310d27c85d53e39f97b57a8de4.
+        // parseProductionCostChange and parseProductionTimeChange each call
+        // NAMEKEY(getNextToken()) before INI::scanPercentToReal(getNextToken());
+        // INI.cpp SHA256 a8aa77e908d2482aa774408be94cc9b7a1fa13fa4b48d0ea64311e85a9e3a5e7
+        // throws INI_INVALID_DATA when sscanf cannot scan a float.
+        let parsers: [fn(&mut INI, &mut PlayerTemplate, &[&str]) -> INIResult<()>; 2] =
+            [parse_production_cost_change, parse_production_time_change];
+
+        for (index, parse) in parsers.into_iter().enumerate() {
+            NameKeyGenerator::reset();
+            let mut ini = INI::new();
+            let mut template = PlayerTemplate::new(String::new());
+            let invalid_name = if index == 0 {
+                "InvalidCost"
+            } else {
+                "InvalidTime"
+            };
+            assert!(parse(&mut ini, &mut template, &[invalid_name, "not-a-percent"]).is_err());
+            assert_eq!(
+                NameKeyGenerator::name_to_key("after-invalid-production-line"),
+                2,
+                "the invalid value is rejected after the authored name is interned"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_production_tokens_preserve_namekey_call_order() {
+        let parsers: [fn(&mut INI, &mut PlayerTemplate, &[&str]) -> INIResult<()>; 2] =
+            [parse_production_cost_change, parse_production_time_change];
+
+        for parse in parsers {
+            // C++ INI::getNextToken throws for either missing token, but the
+            // first name has already been passed through NAMEKEY before the
+            // second getNextToken call is made.
+            NameKeyGenerator::reset();
+            let mut ini = INI::new();
+            let mut template = PlayerTemplate::new(String::new());
+            assert!(parse(&mut ini, &mut template, &[]).is_err());
+            assert_eq!(
+                NameKeyGenerator::name_to_key("after-missing-name"),
+                1,
+                "a missing first token fails before NAMEKEY"
+            );
+
+            NameKeyGenerator::reset();
+            let mut ini = INI::new();
+            let mut template = PlayerTemplate::new(String::new());
+            assert!(parse(&mut ini, &mut template, &["NameWithoutValue"]).is_err());
+            assert_eq!(
+                NameKeyGenerator::name_to_key("after-missing-value"),
+                2,
+                "a missing second token fails after NAMEKEY consumed the present name"
+            );
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
