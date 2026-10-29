@@ -7,9 +7,6 @@ pub mod entity_generation;
 pub mod entity_inventory_audit;
 pub mod entity_module_instances;
 pub mod entity_modules;
-mod shadow_death_completions;
-pub use shadow_death_completions::ShadowDeathCompletionKind;
-use shadow_death_completions::ShadowDeathCompletions;
 pub mod weapon_slots;
 pub use contain_roster::GameWorldContainRoster;
 pub use entity_fixup::{ContainFixup, ProducerFixup};
@@ -1349,8 +1346,6 @@ pub struct GameWorld {
     /// Occupant roster (Entity keeps host-id residual only).
     contain_roster: GameWorldContainRoster,
     entity_modules: entity_modules::GameWorldEntityModules,
-    /// Per-instance transient delivery from shadow death timers to Main.
-    shadow_death_completions: ShadowDeathCompletions,
 }
 
 impl GameWorld {
@@ -1366,8 +1361,16 @@ impl GameWorld {
             weapon_slots: GameWorldWeaponSlots::default(),
             contain_roster: GameWorldContainRoster::default(),
             entity_modules: entity_modules::GameWorldEntityModules::default(),
-            shadow_death_completions: ShadowDeathCompletions::default(),
         }
+    }
+
+    /// Clear all entities and their associated runtime state.
+    pub fn clear_entities(&mut self) {
+        self.inner.clear_entities();
+        self.pending_destroy.clear();
+        self.contain_roster.clear();
+        self.weapon_slots.clear();
+        self.entity_modules.clear();
     }
 
     pub fn weapon_slots(&self) -> &GameWorldWeaponSlots {
