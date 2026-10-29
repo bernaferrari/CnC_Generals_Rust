@@ -5,7 +5,7 @@
 //! Purpose: Parse a control Bar Scheme
 
 use super::ini::INILoadType;
-use super::ini::{FieldParse, INI, INIError, INIResult};
+use super::ini::{FieldParse, INIError, INIResult, INI};
 use super::ini_mapped_image::ICoord2D;
 use log::warn;
 use once_cell::sync::OnceCell;
@@ -378,23 +378,23 @@ impl ControlBarScheme {
             }
 
             if key.eq_ignore_ascii_case("ImagePart") {
-                let image_part = Self::parse_image_part_block(ini)?;
-                self.scheme_images.push(image_part.image.clone());
+                let mut image_part = Self::parse_image_part_block(ini)?;
+                self.add_parsed_image(&mut image_part.image);
                 self.image_parts.push(image_part);
                 continue;
             }
 
             if key.eq_ignore_ascii_case("AnimatingPart") {
-                let animation_part = Self::parse_animating_part_block(ini)?;
-                self.scheme_images.push(animation_part.image.clone());
+                let mut animation_part = Self::parse_animating_part_block(ini)?;
+                self.add_parsed_image(&mut animation_part.image);
                 self.animation_parts.push(animation_part);
                 continue;
             }
 
             if key.eq_ignore_ascii_case("VideoPart") {
-                let video_part = Self::parse_video_part_block(ini)?;
+                let mut video_part = Self::parse_video_part_block(ini)?;
                 if !video_part.image.image_name.is_empty() {
-                    self.scheme_images.push(video_part.image.clone());
+                    self.add_parsed_image(&mut video_part.image);
                 }
                 self.video_parts.push(video_part);
                 continue;
@@ -412,6 +412,22 @@ impl ControlBarScheme {
         }
 
         Ok(())
+    }
+
+    /// Match C++ `ControlBarScheme::addImage`: invalid layers assert in debug
+    /// builds and fall back to the foreground layer in release builds.
+    fn add_parsed_image(&mut self, image: &mut SchemeImage) {
+        if !(0..MAX_CONTROL_BAR_SCHEME_IMAGE_LAYERS as i32).contains(&image.layer) {
+            crate::debug_assert_crash!(
+                false,
+                "ControlBarScheme {} has invalid image layer {} (expected 0..{})",
+                self.name,
+                image.layer,
+                MAX_CONTROL_BAR_SCHEME_IMAGE_LAYERS - 1
+            );
+        }
+        image.layer = cpp_add_image_layer(image.layer);
+        self.scheme_images.push(image.clone());
     }
 
     fn parse_image_part_block(ini: &mut INI) -> INIResult<ControlBarSchemeImagePart> {
@@ -1096,6 +1112,14 @@ fn parse_i32_token(args: &[&str]) -> INIResult<i32> {
 fn parse_string_token(args: &[&str]) -> INIResult<String> {
     let token = args.first().ok_or(INIError::InvalidData)?;
     INI::parse_ascii_string(token)
+}
+
+fn cpp_add_image_layer(layer: i32) -> i32 {
+    if (0..MAX_CONTROL_BAR_SCHEME_IMAGE_LAYERS as i32).contains(&layer) {
+        layer
+    } else {
+        0
+    }
 }
 
 fn parse_icoord2d(args: &[&str]) -> INIResult<(i32, i32)> {
@@ -1840,6 +1864,65 @@ mod tests {
         assert_eq!(scheme.get_name(), "testscheme");
         assert_eq!(scheme.screen_width, 1024);
         assert_eq!(scheme.screen_height, 768);
+    }
+
+    fn parse_scheme_fixture(name: &str, image_layers: &[i32]) -> ControlBarScheme {
+        let root = tempfile::tempdir().unwrap();
+        let mut source = format!("ControlBarScheme {name}\n");
+        for (index, layer) in image_layers.iter().enumerate() {
+            source.push_str(&format!(
+                "ImagePart\n  Position = 0 0\n  Size = 8 8\n  ImageName = Layer{index}\n  Layer = {layer}\nEnd\n"
+            ));
+        }
+        source.push_str("End\n");
+        let path = root.path().join("ControlBarScheme.ini");
+        std::fs::write(&path, source).unwrap();
+
+        let mut ini = INI::new();
+        ini.load(&path, INILoadType::Overwrite).unwrap();
+        get_control_bar_scheme_manager()
+            .unwrap()
+            .read()
+            .find_scheme(name)
+            .unwrap()
+            .clone()
+    }
+
+    #[test]
+    fn control_bar_scheme_ini_keeps_valid_image_layers() {
+        let name = format!("TestImageLayers_{}", std::process::id());
+        let scheme = parse_scheme_fixture(&name, &[0, 3, 5]);
+        assert_eq!(
+            scheme
+                .scheme_images
+                .iter()
+                .map(|image| image.layer)
+                .collect::<Vec<_>>(),
+            vec![0, 3, 5]
+        );
+    }
+
+    #[test]
+    fn control_bar_scheme_ini_matches_cpp_invalid_layer_diagnostic_and_fallback() {
+        for invalid_layer in [-1, 6] {
+            let name = format!(
+                "TestInvalidImageLayer_{}_{}",
+                std::process::id(),
+                invalid_layer
+            );
+            let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                parse_scheme_fixture(&name, &[invalid_layer])
+            }));
+
+            if cfg!(debug_assertions) {
+                assert!(
+                    parsed.is_err(),
+                    "debug parse should assert on invalid layer"
+                );
+            } else {
+                assert_eq!(parsed.unwrap().scheme_images[0].layer, 0);
+            }
+        }
     }
 
     #[test]
