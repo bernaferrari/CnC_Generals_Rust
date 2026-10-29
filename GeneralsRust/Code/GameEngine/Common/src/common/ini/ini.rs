@@ -326,10 +326,6 @@ fn parse_mapped_image_block(ini: &mut INI) -> INIResult<()> {
     parse_block_result(super::ini_mapped_image::parse_mapped_image_definition(ini))
 }
 
-fn parse_model_block(ini: &mut INI) -> INIResult<()> {
-    parse_block_result(super::ini_model::parse_model_definition(ini))
-}
-
 fn parse_object_block(ini: &mut INI) -> INIResult<()> {
     super::ini_object::IniObject::parse_object_definition_from_ini(ini)
 }
@@ -989,10 +985,6 @@ const BLOCK_PARSE_TABLE: &[BlockParse] = &[
     BlockParse {
         token: "MiscAudio",
         parse: super::ini_misc_audio::parse_misc_audio,
-    },
-    BlockParse {
-        token: "Model",
-        parse: parse_model_block,
     },
     BlockParse {
         token: "Mouse",
@@ -2667,6 +2659,16 @@ mod tests {
     use crate::common::rts::special_power::{
         SpecialPowerType, get_special_power_store, reset_special_power_store,
     };
+
+    #[test]
+    fn strict_loader_rejects_model_top_level_token() {
+        let input = tempfile::NamedTempFile::new().unwrap();
+        fs::write(input.path(), "Model\n  Name = invented\nEnd\n").unwrap();
+
+        let result = INI::new().load(input.path(), INILoadType::Overwrite);
+
+        assert_eq!(result, Err(INIError::UnknownToken));
+    }
 
     #[test]
     fn ascii_string_lone_quote_is_empty_without_panicking() {
