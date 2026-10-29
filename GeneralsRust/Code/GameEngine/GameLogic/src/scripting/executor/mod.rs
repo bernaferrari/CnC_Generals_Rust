@@ -322,26 +322,6 @@ pub enum HostScriptStealthEnabledRequest {
     Team { team: String, enabled: bool },
 }
 
-/// Live host drain: PLAYER_DISABLE/ENABLE_UNIT_CONSTRUCTION,
-/// PLAYER_DISABLE/ENABLE_BASE_CONSTRUCTION, PLAYER_DISABLE/ENABLE_FACTORIES.
-/// C++ `Player::setCanBuildUnits` / `setCanBuildBase` / `setObjectsEnabled`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptCanBuildRequest {
-    Units {
-        player: String,
-        enable: bool,
-    },
-    Base {
-        player: String,
-        enable: bool,
-    },
-    Factories {
-        player: String,
-        template: String,
-        enable: bool,
-    },
-}
-
 /// Live host drain: TECHTREE_MODIFY_BUILDABILITY_OBJECT.
 /// C++ `ScriptActions::doModifyBuildableStatus` → `setBuildableStatusOverride`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -618,8 +598,6 @@ thread_local! {
     static HOST_SCRIPT_RADAR_EVENT_REQUESTS: RefCell<Vec<HostScriptRadarEventRequest>> =
         RefCell::new(Vec::new());
     static HOST_SCRIPT_STEALTH_ENABLED_REQUESTS: RefCell<Vec<HostScriptStealthEnabledRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_CAN_BUILD_REQUESTS: RefCell<Vec<HostScriptCanBuildRequest>> =
         RefCell::new(Vec::new());
     static HOST_SCRIPT_BUILDABLE_OVERRIDE_REQUESTS:
         RefCell<Vec<HostScriptBuildableOverrideRequest>> = RefCell::new(Vec::new());
@@ -992,15 +970,6 @@ pub fn request_host_script_stealth_enabled(req: HostScriptStealthEnabledRequest)
 
 pub fn take_host_script_stealth_enabled_requests() -> Vec<HostScriptStealthEnabledRequest> {
     HOST_SCRIPT_STEALTH_ENABLED_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
-}
-
-/// Live host drain: PLAYER_DISABLE/ENABLE unit/base/factory construction.
-pub fn request_host_can_build(req: HostScriptCanBuildRequest) {
-    HOST_SCRIPT_CAN_BUILD_REQUESTS.with(|q| q.borrow_mut().push(req));
-}
-
-pub fn take_host_can_build_requests() -> Vec<HostScriptCanBuildRequest> {
-    HOST_SCRIPT_CAN_BUILD_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
 
 /// Live host drain: TECHTREE_MODIFY_BUILDABILITY_OBJECT.

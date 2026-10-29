@@ -876,42 +876,6 @@ impl GameLogic {
         }
     }
 
-    /// C++ PLAYER_DISABLE/ENABLE unit/base/factory construction drain.
-    /// Leftover writes leftover PlayerList; live flags live on host Player.
-    pub(super) fn apply_host_can_build_script_requests(&mut self) {
-        use gamelogic::scripting::HostScriptCanBuildRequest;
-        for req in gamelogic::scripting::take_host_can_build_requests() {
-            match req {
-                HostScriptCanBuildRequest::Units { player, enable } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
-                        continue;
-                    };
-                    if let Some(p) = self.players.get_mut(&pid) {
-                        p.set_can_build_units(enable);
-                    }
-                }
-                HostScriptCanBuildRequest::Base { player, enable } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
-                        continue;
-                    };
-                    if let Some(p) = self.players.get_mut(&pid) {
-                        p.set_can_build_base(enable);
-                    }
-                }
-                HostScriptCanBuildRequest::Factories {
-                    player,
-                    template,
-                    enable,
-                } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
-                        continue;
-                    };
-                    self.host_set_objects_enabled(pid, &template, enable);
-                }
-            }
-        }
-    }
-
     /// C++ doNamedFlash: NULL color → `Object::getIndicatorColor`; white → RGB 1,1,1 `getAsInt`.
     pub(super) fn host_script_flash_color(
         &self,
@@ -1222,19 +1186,66 @@ impl GameLogic {
         template_name: &str,
         enable: bool,
     ) {
-        let ids: Vec<ObjectId> = self
-            .objects
-            .registered_values()
-            .filter(|obj| {
-                obj.owner_player_id == Some(player_id)
-                    && obj.template_name.eq_ignore_ascii_case(template_name)
-            })
-            .map(|obj| obj.id)
-            .collect();
-        for id in ids {
-            self.with_owned_radar_disabled_partition_operation(id, |object, partition| {
-                object.set_script_disabled_with_partition_owner(!enable, partition)
-            });
+        // C++ Player::setObjectsEnabled walks the receiving Player's ordered
+        // prototype list, then each prototype's live instance list and member
+        // order. Re-resolve both membership and object identity before every
+        // status callback, since the callback may re-enter world mutation.
+        let teams = self
+            .team_factory
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .owned_team_instances_for_controller(player_id);
+        for team in teams {
+            let members: Vec<_> = team
+                .read()
+                .unwrap_or_else(|error| error.into_inner())
+                .get_members()
+                .iter()
+                .filter_map(|raw_id| {
+                    let id = ObjectId(*raw_id);
+                    self.host_object(id).map(|object| {
+                        (
+                            *raw_id,
+                            std::sync::Arc::downgrade(&object.visual_draw_identity_token),
+                        )
+                    })
+                })
+                .collect();
+            for (raw_id, object_birth) in members {
+                let still_owned = {
+                    let factory = self
+                        .team_factory
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner());
+                    factory
+                        .owned_team_instances_for_controller(player_id)
+                        .iter()
+                        .any(|current| std::sync::Arc::ptr_eq(current, &team))
+                };
+                let still_member = team
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .get_members()
+                    .contains(&raw_id);
+                if !still_owned || !still_member {
+                    continue;
+                }
+                let id = ObjectId(raw_id);
+                let Some(object) = self.host_object(id) else {
+                    continue;
+                };
+                let Some(expected_birth) = object_birth.upgrade() else {
+                    continue;
+                };
+                if !std::sync::Arc::ptr_eq(&object.visual_draw_identity_token, &expected_birth)
+                    || object.template_name != template_name
+                {
+                    continue;
+                }
+                self.with_owned_radar_disabled_partition_operation(id, |object, partition| {
+                    object.set_script_disabled_with_partition_owner(!enable, partition)
+                });
+            }
         }
     }
 

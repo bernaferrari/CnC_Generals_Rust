@@ -207,6 +207,25 @@ pub enum ScriptAiPlayerRequest<'a> {
     },
 }
 
+/// C++ ScriptActions player construction toggles; the raw selector is kept
+/// until the receiving owner resolves it against the current interpreter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ScriptPlayerConstructionRequest {
+    Units {
+        player: String,
+        enabled: bool,
+    },
+    Base {
+        player: String,
+        enabled: bool,
+    },
+    Factories {
+        player: String,
+        template: String,
+        enabled: bool,
+    },
+}
+
 /// CPP ScriptActions1042–1062/1861–1878/1966–1980/6081–6095: named AI commands.
 /// The owner resolves literal names and THIS_OBJECT within its own object store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -527,10 +546,7 @@ pub trait ScriptExecutionDriver {
     /// C++ ScriptEngine::update maps each side slot to its receiving world's
     /// corresponding Player. `Present(None)` means the world has no Player for
     /// that side and must not consult the standalone PlayerList.
-    fn side_script_current_player(
-        &self,
-        _side_index: usize,
-    ) -> ScriptOwnerQuery<Option<String>> {
+    fn side_script_current_player(&self, _side_index: usize) -> ScriptOwnerQuery<Option<String>> {
         ScriptOwnerQuery::Unavailable
     }
 
@@ -948,6 +964,17 @@ pub trait ScriptExecutionDriver {
     fn sell_everything(
         &mut self,
         _player: &str,
+        _current_player: Option<&str>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    /// Apply PLAYER_DISABLE/ENABLE unit, base or factory construction against
+    /// the receiving world. Some is authoritative, including missing players;
+    /// None retains the standalone Core PlayerList adapter.
+    fn player_construction(
+        &mut self,
+        _request: ScriptPlayerConstructionRequest,
         _current_player: Option<&str>,
     ) -> Option<GameLogicResult<()>> {
         None

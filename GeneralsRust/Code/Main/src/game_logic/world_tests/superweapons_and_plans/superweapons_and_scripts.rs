@@ -2457,7 +2457,7 @@ fn script_disable_unit_construction_and_techtree_override_write_live() {
     use crate::game_logic::host_production_buildable_command_residual::{
         BSTATUS_NO, CANMAKE_FACTORY_IS_DISABLED, CANMAKE_NO_PREREQ, CANMAKE_OK,
     };
-    use gamelogic::scripting::HostScriptCanBuildRequest;
+    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptActionType, THIS_PLAYER};
 
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
@@ -2469,12 +2469,11 @@ fn script_disable_unit_construction_and_techtree_override_write_live() {
         .expect("barracks");
     assert_eq!(logic.can_make_unit(barracks, "TestInfantry"), CANMAKE_OK);
 
-    let _ = gamelogic::scripting::take_host_can_build_requests();
-    gamelogic::scripting::request_host_can_build(HostScriptCanBuildRequest::Units {
-        player: "TestPlayer".into(),
-        enable: false,
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    execute_owned_fixture_action(
+        &mut logic,
+        ScriptActionType::PlayerDisableUnitConstruction,
+        vec![Parameter::with_string(ParameterType::Side, THIS_PLAYER.into())],
+    );
     assert!(
         !logic.get_player(0).expect("p").can_build_units,
         "PLAYER_DISABLE_UNIT_CONSTRUCTION must flip live can_build_units"
@@ -2484,19 +2483,21 @@ fn script_disable_unit_construction_and_techtree_override_write_live() {
         CANMAKE_NO_PREREQ
     );
 
-    gamelogic::scripting::request_host_can_build(HostScriptCanBuildRequest::Units {
-        player: "TestPlayer".into(),
-        enable: true,
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    execute_owned_fixture_action(
+        &mut logic,
+        ScriptActionType::PlayerEnableUnitConstruction,
+        vec![Parameter::with_string(ParameterType::Side, THIS_PLAYER.into())],
+    );
     assert!(logic.get_player(0).expect("p").can_build_units);
 
-    gamelogic::scripting::request_host_can_build(HostScriptCanBuildRequest::Factories {
-        player: "TestPlayer".into(),
-        template: "TestBarracks".into(),
-        enable: false,
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    execute_owned_fixture_action(
+        &mut logic,
+        ScriptActionType::PlayerDisableFactories,
+        vec![
+            Parameter::with_string(ParameterType::Side, THIS_PLAYER.into()),
+            Parameter::with_string(ParameterType::ObjectType, "TestBarracks".into()),
+        ],
+    );
     assert!(
         logic
             .host_object(barracks)
@@ -2508,12 +2509,14 @@ fn script_disable_unit_construction_and_techtree_override_write_live() {
         logic.can_make_unit(barracks, "TestInfantry"),
         CANMAKE_FACTORY_IS_DISABLED
     );
-    gamelogic::scripting::request_host_can_build(HostScriptCanBuildRequest::Factories {
-        player: "TestPlayer".into(),
-        template: "TestBarracks".into(),
-        enable: true,
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    execute_owned_fixture_action(
+        &mut logic,
+        ScriptActionType::PlayerEnableFactories,
+        vec![
+            Parameter::with_string(ParameterType::Side, THIS_PLAYER.into()),
+            Parameter::with_string(ParameterType::ObjectType, "TestBarracks".into()),
+        ],
+    );
 
     let _ = gamelogic::scripting::take_host_buildable_status_override_requests();
     logic.set_buildable_status_override("TestInfantry", BSTATUS_NO as i32);

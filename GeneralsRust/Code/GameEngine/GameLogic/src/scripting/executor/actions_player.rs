@@ -83,13 +83,6 @@ impl ScriptActionDispatcher<'_> {
                 }
             }
         }
-        crate::scripting::executor::request_host_can_build(
-            crate::scripting::executor::HostScriptCanBuildRequest::Base {
-                player: player_name,
-                enable: false,
-            },
-        );
-
         Ok(ScriptActionResult::Success)
     }
 
@@ -112,14 +105,6 @@ impl ScriptActionDispatcher<'_> {
                 }
             }
         }
-        crate::scripting::executor::request_host_can_build(
-            crate::scripting::executor::HostScriptCanBuildRequest::Factories {
-                player: player_name,
-                template: object_name,
-                enable: false,
-            },
-        );
-
         Ok(ScriptActionResult::Success)
     }
 
@@ -137,13 +122,6 @@ impl ScriptActionDispatcher<'_> {
                 }
             }
         }
-        crate::scripting::executor::request_host_can_build(
-            crate::scripting::executor::HostScriptCanBuildRequest::Units {
-                player: player_name,
-                enable: false,
-            },
-        );
-
         Ok(ScriptActionResult::Success)
     }
 
@@ -161,13 +139,6 @@ impl ScriptActionDispatcher<'_> {
                 }
             }
         }
-        crate::scripting::executor::request_host_can_build(
-            crate::scripting::executor::HostScriptCanBuildRequest::Base {
-                player: player_name,
-                enable: true,
-            },
-        );
-
         Ok(ScriptActionResult::Success)
     }
 
@@ -186,14 +157,6 @@ impl ScriptActionDispatcher<'_> {
                 }
             }
         }
-        crate::scripting::executor::request_host_can_build(
-            crate::scripting::executor::HostScriptCanBuildRequest::Factories {
-                player: player_name,
-                template: object_name,
-                enable: true,
-            },
-        );
-
         Ok(ScriptActionResult::Success)
     }
 
@@ -211,13 +174,6 @@ impl ScriptActionDispatcher<'_> {
                 }
             }
         }
-        crate::scripting::executor::request_host_can_build(
-            crate::scripting::executor::HostScriptCanBuildRequest::Units {
-                player: player_name,
-                enable: true,
-            },
-        );
-
         Ok(ScriptActionResult::Success)
     }
 
@@ -795,10 +751,9 @@ impl ScriptActionDispatcher<'_> {
         action: &ScriptAction,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let Some(player_name) = self.resolve_player_name_token_with_driver(
-            &self.get_string_param(action, 0)?,
-            driver,
-        ) else {
+        let Some(player_name) =
+            self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver)
+        else {
             return Ok(ScriptActionResult::Success);
         };
         let mut skillset = self.get_int_param(action, 1)?;

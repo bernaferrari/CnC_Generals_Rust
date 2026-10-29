@@ -4,8 +4,9 @@ use gamelogic::common::Relationship;
 use gamelogic::scripting::engine::{
     ScriptAiPlayerRequest, ScriptBridgeStatus, ScriptCameraRequest, ScriptDisplayRequest,
     ScriptExecutionDriver, ScriptNamedCommand, ScriptObjectStatus, ScriptOwnerQuery,
-    ScriptPlayerAreaQuery, ScriptPlayerEventSource, ScriptSightingFilter, ScriptSkirmishCensus,
-    ScriptSpecialPowerReadiness, ScriptTeamPresence, ScriptTeamStatus, ScriptWaterRequest,
+    ScriptPlayerAreaQuery, ScriptPlayerConstructionRequest, ScriptPlayerEventSource,
+    ScriptSightingFilter, ScriptSkirmishCensus, ScriptSpecialPowerReadiness, ScriptTeamPresence,
+    ScriptTeamStatus, ScriptWaterRequest,
 };
 use std::sync::{Arc, RwLock};
 
@@ -1872,6 +1873,40 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 .iter()
                 .any(|name| self.world.script_player_can_build_template(player, name)),
         )
+    }
+
+    fn player_construction(
+        &mut self,
+        request: ScriptPlayerConstructionRequest,
+        current_player: Option<&str>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        let player_token = match &request {
+            ScriptPlayerConstructionRequest::Units { player, .. }
+            | ScriptPlayerConstructionRequest::Base { player, .. }
+            | ScriptPlayerConstructionRequest::Factories { player, .. } => player.as_str(),
+        };
+        let Some(player_id) = self.script_player_id(player_token, current_player) else {
+            return Some(Ok(()));
+        };
+        match request {
+            ScriptPlayerConstructionRequest::Units { enabled, .. } => {
+                if let Some(player) = self.world.players.get_mut(&player_id) {
+                    player.set_can_build_units(enabled);
+                }
+            }
+            ScriptPlayerConstructionRequest::Base { enabled, .. } => {
+                if let Some(player) = self.world.players.get_mut(&player_id) {
+                    player.set_can_build_base(enabled);
+                }
+            }
+            ScriptPlayerConstructionRequest::Factories {
+                template, enabled, ..
+            } => {
+                self.world
+                    .host_set_objects_enabled(player_id, &template, enabled);
+            }
+        }
+        Some(Ok(()))
     }
 
     fn player_event_source(

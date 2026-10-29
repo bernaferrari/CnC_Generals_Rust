@@ -255,6 +255,54 @@ impl ScriptActionDispatcher<'_> {
                 return Ok(ScriptActionResult::Success);
             }
         }
+        let construction_request = match action_type {
+            ScriptActionType::PlayerDisableBaseConstruction => Some(
+                crate::scripting::engine::ScriptPlayerConstructionRequest::Base {
+                    player: self.get_string_param(action, 0)?,
+                    enabled: false,
+                },
+            ),
+            ScriptActionType::PlayerEnableBaseConstruction => Some(
+                crate::scripting::engine::ScriptPlayerConstructionRequest::Base {
+                    player: self.get_string_param(action, 0)?,
+                    enabled: true,
+                },
+            ),
+            ScriptActionType::PlayerDisableUnitConstruction => Some(
+                crate::scripting::engine::ScriptPlayerConstructionRequest::Units {
+                    player: self.get_string_param(action, 0)?,
+                    enabled: false,
+                },
+            ),
+            ScriptActionType::PlayerEnableUnitConstruction => Some(
+                crate::scripting::engine::ScriptPlayerConstructionRequest::Units {
+                    player: self.get_string_param(action, 0)?,
+                    enabled: true,
+                },
+            ),
+            ScriptActionType::PlayerDisableFactories => Some(
+                crate::scripting::engine::ScriptPlayerConstructionRequest::Factories {
+                    player: self.get_string_param(action, 0)?,
+                    template: self.get_string_param(action, 1)?,
+                    enabled: false,
+                },
+            ),
+            ScriptActionType::PlayerEnableFactories => Some(
+                crate::scripting::engine::ScriptPlayerConstructionRequest::Factories {
+                    player: self.get_string_param(action, 0)?,
+                    template: self.get_string_param(action, 1)?,
+                    enabled: true,
+                },
+            ),
+            _ => None,
+        };
+        if let Some(request) = construction_request {
+            let current = self.context.borrowed_engine().get_current_player_name();
+            if let Some(result) = driver.player_construction(request, current.as_deref()) {
+                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                return Ok(ScriptActionResult::Success);
+            }
+        }
 
         if matches!(
             action_type,
