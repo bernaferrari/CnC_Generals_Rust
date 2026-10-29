@@ -795,8 +795,45 @@ impl GameLogic {
                 return footprint;
             }
         }
+        if let Some(plan) = self
+            .receiving_module_content
+            .as_ref()
+            .and_then(|content| content.admitted_template(template_name))
+        {
+            let geometry = plan.template().get_template_geometry_info();
+            let major = geometry.major_radius().max(1.0);
+            let is_box = matches!(
+                geometry.geometry_type,
+                game_engine::common::system::geometry::GeometryType::Box
+            );
+            let minor = if is_box {
+                geometry.minor_radius().max(1.0)
+            } else {
+                major
+            };
+            return (major, minor, is_box);
+        }
         let r = crate::game_logic::host_production_buildable_command_residual::STRUCTURE_PLACE_CLEARANCE_RESIDUAL * 0.5;
         (r, r, false)
+    }
+
+    fn factory_exit_widths(&self, template_name: &str) -> (f32, f32) {
+        if let Some(template) = self.templates.get(template_name) {
+            if let Some(widths) = template.factory_exit_widths() {
+                return widths;
+            }
+        }
+        self.receiving_module_content
+            .as_ref()
+            .and_then(|content| content.admitted_template(template_name))
+            .map(|plan| {
+                let template = plan.template();
+                (
+                    template.get_factory_exit_width(),
+                    template.get_factory_extra_bib_width(),
+                )
+            })
+            .unwrap_or((0.0, 0.0))
     }
 
     pub(crate) fn placement_preview_facts(&self, template_name: &str) -> (f32, (f32, f32)) {
@@ -1034,7 +1071,7 @@ impl GameLogic {
             && position.x <= max_x
             && position.z >= min_z
             && position.z <= max_z;
-        let (_, extra_bib) = leftover_factory_exit_widths(template_name);
+        let (_, extra_bib) = self.factory_exit_widths(template_name);
         let place_r = self.structure_place_radius_for_template(template_name) + extra_bib.max(0.0);
         // C++ BuildAssistant::isLocationClearOfObjects queries
         // iteratePotentialCollisions with the template geometry at the
@@ -1102,7 +1139,7 @@ impl GameLogic {
             }
             let p = obj.get_position();
             let r = Self::structure_place_radius(obj)
-                + leftover_factory_exit_widths(&obj.template_name).1.max(0.0);
+                + self.factory_exit_widths(&obj.template_name).1.max(0.0);
             if obj.is_kind_of(KindOf::SupplySource) {
                 supply_sources.push((p.x, p.z, r.max(10.0)));
             }
@@ -1192,16 +1229,22 @@ impl GameLogic {
             // KINDOF_IMMOBILE neighbours are collision-tested (mobile objects
             // can move out of the way).
             if obj.is_kind_of(crate::game_logic::KindOf::Immobile) {
-                if let Some((ex, ez, er)) =
-                    leftover_factory_exit_blocker(&obj.template_name, p, obj.get_orientation())
-                {
+                if let Some((ex, ez, er)) = factory_exit_blocker(
+                    self.factory_exit_widths(&obj.template_name).0,
+                    (*obj.geometry_info()).major_radius,
+                    p,
+                    obj.get_orientation(),
+                ) {
                     blockers.push((ex, ez, er));
                 }
             }
         }
-        if let Some((ex, ez, er)) =
-            leftover_factory_exit_blocker(template_name, position, orientation)
-        {
+        if let Some((ex, ez, er)) = factory_exit_blocker(
+            self.factory_exit_widths(template_name).0,
+            query_major,
+            position,
+            orientation,
+        ) {
             if legal_build_objects_in_the_way_residual((ex, ez), er, &blockers) {
                 return crate::game_logic::host_production_buildable_command_residual::LBC_OBJECTS_IN_THE_WAY;
             }
@@ -3136,49 +3179,16 @@ fn xy_shapes_collide(a: &PlacementShape, b: &PlacementShape) -> bool {
     }
 }
 
-fn leftover_structure_place_footprint(name: &str) -> Option<(f32, f32, bool)> {
-    let tmpl = leftover_thing_template(name)?;
-    let g = tmpl.get_template_geometry_info();
-    let major = g.major_radius();
-    if major <= 0.5 {
-        return None;
-    }
-    let is_box = matches!(
-        g.geometry_type,
-        game_engine::common::system::geometry::GeometryType::Box
-    );
-    let minor = if is_box {
-        g.minor_radius().max(1.0)
-    } else {
-        major
-    };
-    Some((major.max(1.0), minor, is_box))
-}
-
-fn leftover_factory_exit_widths(name: &str) -> (f32, f32) {
-    leftover_thing_template(name)
-        .map(|tmpl| {
-            (
-                tmpl.get_factory_exit_width(),
-                tmpl.get_factory_extra_bib_width(),
-            )
-        })
-        .unwrap_or((0.0, 0.0))
-}
-
 /// C++ BuildAssistant.cpp:786-794 factory exit rectangle as a circle residual.
-fn leftover_factory_exit_blocker(
-    template_name: &str,
+fn factory_exit_blocker(
+    exit_w: f32,
+    major: f32,
     position: glam::Vec3,
     orientation: f32,
 ) -> Option<(f32, f32, f32)> {
-    let (exit_w, _) = leftover_factory_exit_widths(template_name);
     if exit_w <= 0.0 {
         return None;
     }
-    let major = leftover_structure_place_footprint(template_name)
-        .map(|(major, _, _)| major)
-        .unwrap_or(exit_w * 0.5);
     let offset = major + exit_w * 0.5;
     // Port facing is (cosθ, 0, −sinθ) (thing.rs:3360; C++ model +X = forward,
     // PartitionManager.cpp:5284) — the exit bib sits forward of the door.

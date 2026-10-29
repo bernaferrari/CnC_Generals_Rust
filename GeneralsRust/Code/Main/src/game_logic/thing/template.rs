@@ -122,6 +122,14 @@ impl ReceivingClientTemplate {
         (angle, (major, minor, is_box))
     }
 
+    pub(crate) fn factory_exit_widths(&self) -> (f32, f32) {
+        let template = self.0.template();
+        (
+            template.get_factory_exit_width(),
+            template.get_factory_extra_bib_width(),
+        )
+    }
+
     pub(crate) fn is_bridge(&self) -> bool {
         self.0.is_bridge()
     }
@@ -956,6 +964,12 @@ impl ThingTemplate {
         self.receiving_client_template
             .as_ref()
             .map(ReceivingClientTemplate::placement_preview_facts)
+    }
+
+    pub(crate) fn factory_exit_widths(&self) -> Option<(f32, f32)> {
+        self.receiving_client_template
+            .as_ref()
+            .map(ReceivingClientTemplate::factory_exit_widths)
     }
 
     pub(crate) fn particle_manual_drive_settings(
