@@ -30,6 +30,22 @@ pub(super) struct HostSession {
 
 pub(super) fn run_host_session(frames: u32) -> gamelogic::GameLogicResult<HostSession> {
     let mut logic = GameLogic::new();
+    let sources = pollster::block_on(
+        crate::cnc_game_engine::CnCGameEngine::load_startup_game_data_texts(None),
+    )
+    .map_err(gamelogic::GameLogicError::Configuration)?;
+    if sources.is_empty() {
+        return Err(gamelogic::GameLogicError::Configuration(
+            "authored startup GameData is unavailable".into(),
+        ));
+    }
+    let mut movement = game_engine::common::ini::ini_game_data::CameraMovementRules::default();
+    for (path, text) in sources {
+        movement = movement.overlay_ini_text(&text).map_err(|error| {
+            gamelogic::GameLogicError::Configuration(format!("{path}: {error}"))
+        })?;
+    }
+    logic.admit_camera_application_movement(movement);
 
     let resolved = super::maps::resolve_host_map();
     let map_resolved = resolved.is_some();
@@ -40,25 +56,46 @@ pub(super) fn run_host_session(frames: u32) -> gamelogic::GameLogicResult<HostSe
     let map_path = resolved.map(|(_, p)| p);
 
     // Production UI path only — no golden_skirmish_config fallback.
+    let settings = pollster::block_on(
+        crate::cnc_game_engine::CnCGameEngine::load_owned_multiplayer_definitions(),
+    )
+    .map_err(gamelogic::GameLogicError::Configuration)?;
     let mut menu = SkirmishMenu::new();
-    let menu_init_ok = menu.initialize().is_ok();
+    let menu_init_ok = menu.initialize_with_settings(&settings).is_ok();
     // Slot 0 is Human by default; configure slot 1 as Medium AI via menu cycling.
     let medium_ai_ok = menu.configure_slot_medium_ai(1);
     if map_resolved {
         menu.set_map_name(map_id.clone());
     }
     let (slots, rules, menu_map_name) = menu.get_game_config();
-    let cfg = config_from_skirmish_menu(&menu_map_name, &rules, &slots, menu.random_seed());
+    let mut cfg = config_from_skirmish_menu(&menu_map_name, &rules, &slots, menu.random_seed());
+    // This headless scenario has no saved preferences; C++ uses the authored
+    // default cash when StartingCash is absent and applies the shroud setting.
+    if !settings.got_default_starting_money {
+        return Err(gamelogic::GameLogicError::Configuration(
+            "authored default starting money is unavailable".into(),
+        ));
+    }
+    cfg.rules.starting_cash = i32::try_from(settings.default_starting_money.count_money())
+        .map_err(|_| {
+            gamelogic::GameLogicError::Configuration(
+                "authored default starting money exceeds headless menu range".into(),
+            )
+        })?;
+    cfg.rules.fog_of_war = settings.is_shroud_in_multiplayer;
     let active = cfg.slots.iter().filter(|s| s.is_active).count();
     let has_human = cfg.slots.iter().any(|s| s.is_human);
     let has_ai = cfg.slots.iter().any(|s| !s.is_human && s.is_active);
     let menu_config_ok = menu_init_ok && medium_ai_ok && active >= 2 && has_human && has_ai;
 
-    let apply_ok = apply_skirmish_config(&mut logic, &cfg).is_ok();
+    let apply_ok = crate::skirmish_config::apply_skirmish_config_with_multiplayer_settings(
+        &mut logic, &cfg, &settings,
+    )
+    .is_ok();
     let skirmish_config_ok = apply_ok
         && logic.get_players().len() >= 2
         && logic.host_ai_player_count() >= 1
-        && logic.skirmish_rules().fog_of_war;
+        && logic.skirmish_rules().fog_of_war == settings.is_shroud_in_multiplayer;
 
     // Host is "constructed" only when production apply path succeeds — not a constant true.
     let host_constructed = skirmish_config_ok;

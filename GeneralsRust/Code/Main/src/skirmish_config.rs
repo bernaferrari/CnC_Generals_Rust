@@ -645,6 +645,7 @@ fn resolve_skirmish_slots<'a>(
     config: &'a SkirmishMatchConfig,
     definitions: &game_engine::common::rts::player_template::PlayerTemplateStore,
     random: &mut game_engine::common::random_value::RandomState,
+    multiplayer: Option<&game_engine::common::ini::ini_multiplayer::MultiplayerSettings>,
 ) -> Result<Vec<ResolvedSkirmishSlot<'a>>, String> {
     let mut active_slots: Vec<&SkirmishSlotConfig> =
         config.slots.iter().filter(|slot| slot.is_active).collect();
@@ -708,9 +709,12 @@ fn resolve_skirmish_slots<'a>(
         .source_game_info
         .as_ref()
         .map(|(source, _)| source.slots.iter().map(|s| s.color).collect::<Vec<_>>());
-    let palette = game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|s| {
-        s.color_definitions.clone()
-    });
+    let palette = match multiplayer {
+        Some(settings) => settings.color_definitions.clone(),
+        None => game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|settings| {
+            settings.color_definitions.clone()
+        }),
+    };
     if let Some(colors) = colors.as_mut() {
         for slot in active_slots.iter().rev() {
             let color = colors[slot.slot_index];
@@ -798,14 +802,24 @@ fn resolve_skirmish_slots_for_owner<'a>(
     definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
     random: &mut game_engine::common::random_value::RandomState,
 ) -> Result<Vec<ResolvedSkirmishSlot<'a>>, String> {
+    resolve_skirmish_slots_for_owner_with_settings(config, definitions, random, None)
+}
+
+fn resolve_skirmish_slots_for_owner_with_settings<'a>(
+    config: &'a SkirmishMatchConfig,
+    definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
+    random: &mut game_engine::common::random_value::RandomState,
+    multiplayer: Option<&game_engine::common::ini::ini_multiplayer::MultiplayerSettings>,
+) -> Result<Vec<ResolvedSkirmishSlot<'a>>, String> {
     match definitions {
-        Some(definitions) => resolve_skirmish_slots(config, definitions, random),
+        Some(definitions) => resolve_skirmish_slots(config, definitions, random, multiplayer),
         None => {
             game_engine::common::ini::ensure_player_templates_loaded();
             resolve_skirmish_slots(
                 config,
                 &game_engine::common::rts::player_template::get_player_template_store(),
                 random,
+                multiplayer,
             )
         }
     }
@@ -828,18 +842,47 @@ pub(crate) fn apply_skirmish_config_for_mode(
     config: &SkirmishMatchConfig,
     mode: GameMode,
 ) -> Result<(), String> {
+    apply_skirmish_config_for_mode_with_settings(logic, config, mode, None)
+}
+
+/// Apply a headless skirmish using the setup's own authored multiplayer data.
+pub(crate) fn apply_skirmish_config_with_multiplayer_settings(
+    logic: &mut GameLogic,
+    config: &SkirmishMatchConfig,
+    multiplayer: &game_engine::common::ini::ini_multiplayer::MultiplayerSettings,
+) -> Result<(), String> {
+    apply_skirmish_config_for_mode_with_settings(
+        logic,
+        config,
+        GameMode::Skirmish,
+        Some(multiplayer),
+    )
+}
+
+fn apply_skirmish_config_for_mode_with_settings(
+    logic: &mut GameLogic,
+    config: &SkirmishMatchConfig,
+    mode: GameMode,
+    multiplayer: Option<&game_engine::common::ini::ini_multiplayer::MultiplayerSettings>,
+) -> Result<(), String> {
     // Validate/resolve the candidate without changing an existing match on
     // error. Replay admission uses the same GameInfo seed in this config.
     let mut selection = game_engine::common::random_value::RandomState::default();
     selection.seed_random(config.random_seed);
-    let resolved_slots = resolve_skirmish_slots_for_owner(
+    let resolved_slots = resolve_skirmish_slots_for_owner_with_settings(
         config,
         logic.player_template_definitions.as_ref(),
         &mut selection,
+        multiplayer,
     )?;
     // New admission metadata must reject before reset/seed side effects. This
     // scratch validation does not perform start selection or retain a second owner.
-    saved_admission::SavedSkirmishAdmission::capture(config, &config.slots, &resolved_slots)?;
+    saved_admission::SavedSkirmishAdmission::capture_with_settings(
+        config,
+        &config.slots,
+        &resolved_slots,
+        multiplayer,
+    )?;
     logic.set_logic_random_seed(config.random_seed);
     let stream = logic.logic_random.clone();
     game_engine::common::random_value::with_session_random(&stream, || {
@@ -851,9 +894,13 @@ pub(crate) fn apply_skirmish_config_for_mode(
         let mut assigned = config.slots.clone();
         populate_random_start_position(&mut assigned, &config.map, &logic.logic_random);
 
-        let admission =
-            saved_admission::SavedSkirmishAdmission::capture(config, &assigned, &resolved_slots)?;
-        admit_resolved_slots(logic, config, &assigned, resolved_slots)?;
+        let admission = saved_admission::SavedSkirmishAdmission::capture_with_settings(
+            config,
+            &assigned,
+            &resolved_slots,
+            multiplayer,
+        )?;
+        admit_resolved_slots(logic, config, &assigned, resolved_slots, multiplayer)?;
         admission.admit_local_selection(logic);
         logic.initial_skirmish_admission = Some(Box::new(admission));
         if mode == GameMode::Replay {
@@ -870,6 +917,7 @@ fn admit_resolved_slots(
     config: &SkirmishMatchConfig,
     assigned: &[SkirmishSlotConfig],
     resolved_slots: Vec<ResolvedSkirmishSlot<'_>>,
+    multiplayer: Option<&game_engine::common::ini::ini_multiplayer::MultiplayerSettings>,
 ) -> Result<(), String> {
     // GameInfo stores unsigned Money; the UI snapshot's Int is its bit
     // representation, including zero and values above i32::MAX.
@@ -982,7 +1030,11 @@ fn admit_resolved_slots(
     );
 
     // C++ startNewGame: ReplayObserver + MultiplayerScripts.scb when numTeams > 1.
-    let _ = logic.ensure_replay_observer_player();
+    if let Some(settings) = multiplayer {
+        let _ = logic.ensure_replay_observer_player_with_settings(settings);
+    } else {
+        let _ = logic.ensure_replay_observer_player();
+    }
     logic.install_replay_observer_side();
     logic.set_install_multiplayer_scripts(skirmish_num_teams(&assigned) > 1);
 
@@ -2198,3 +2250,6 @@ mod resolved_player_identity_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod multiplayer_admission_owner_tests;

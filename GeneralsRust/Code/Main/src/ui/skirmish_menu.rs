@@ -292,6 +292,20 @@ impl SkirmishMenu {
             game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|s| {
                 PlayerColor::from_authored(-1, &s.random_color)
             });
+        self.initialize_slots()
+    }
+
+    /// Capture the authored palette from the setup driving this menu.
+    pub fn initialize_with_settings(
+        &mut self,
+        settings: &game_engine::common::ini::ini_multiplayer::MultiplayerSettings,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.palette = settings.color_definitions.clone();
+        self.random_color = PlayerColor::from_authored(-1, &settings.random_color);
+        self.initialize_slots()
+    }
+
+    fn initialize_slots(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.palette.is_empty() {
             return Err("authored MultiplayerColorDefinition palette is unavailable".into());
         }

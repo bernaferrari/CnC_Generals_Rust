@@ -35,6 +35,9 @@ pub(super) fn evaluate_selection(host: &HostSession) -> (bool, bool) {
             let mut bar = game_client::gui::control_bar::ControlBar::new();
             let mut client =
                 game_client::core::GameClient::new().expect("owned headless ControlBar client");
+            client.set_in_game_ui_subsystem(
+                game_client::core::subsystems::InGameUISubsystem::default(),
+            );
             client.with_window_event_effects(None, |effects| {
                 effects.with_manager(|manager, effects| {
                     pres.apply_to_control_bar(&mut bar, manager, effects)

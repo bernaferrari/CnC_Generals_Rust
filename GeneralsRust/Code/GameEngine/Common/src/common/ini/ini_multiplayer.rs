@@ -176,7 +176,10 @@ impl MultiplayerSettings {
     }
 
     pub fn add_starting_money_choice(&mut self, money: Money, is_default: bool) {
-        let settings = MultiplayerStartingMoneySettings { money: money.clone(), is_default };
+        let settings = MultiplayerStartingMoneySettings {
+            money: money.clone(),
+            is_default,
+        };
         self.starting_money_choices.push(settings);
         if is_default {
             self.default_starting_money = money;
@@ -451,32 +454,57 @@ pub fn parse_multiplayer_settings_definition(ini: &mut INI) -> INIResult<()> {
     if ini.get_load_type() == INIParseLoadType::CreateOverrides {
         return Err(INIError::InvalidData);
     }
+    parse_multiplayer_settings_definition_into(ini, &mut multiplayer_settings_mut())
+}
 
-    let mut settings = multiplayer_settings_mut();
-    ini.init_from_ini_with_fields(&mut *settings, MULTIPLAYER_SETTINGS_FIELDS)?;
-    Ok(())
+pub(super) fn parse_multiplayer_settings_definition_into(
+    ini: &mut INI,
+    settings: &mut MultiplayerSettings,
+) -> INIResult<()> {
+    if ini.get_load_type() == INIParseLoadType::CreateOverrides {
+        return Err(INIError::InvalidData);
+    }
+    ini.init_from_ini_with_fields(settings, MULTIPLAYER_SETTINGS_FIELDS)
 }
 
 pub fn parse_multiplayer_color_definition(ini: &mut INI) -> INIResult<()> {
+    let name = multiplayer_color_name(ini)?;
+    parse_multiplayer_color_named_into(ini, &mut multiplayer_settings_mut(), &name)
+}
+
+pub(super) fn parse_multiplayer_color_definition_into(
+    ini: &mut INI,
+    settings: &mut MultiplayerSettings,
+) -> INIResult<()> {
+    let name = multiplayer_color_name(ini)?;
+    parse_multiplayer_color_named_into(ini, settings, &name)
+}
+
+fn multiplayer_color_name(ini: &INI) -> INIResult<AsciiString> {
     let tokens = ini.get_line_tokens();
     let name = tokens
         .iter()
         .skip(1)
         .find(|token| **token != "=")
         .ok_or(INIError::InvalidData)?;
+    Ok(AsciiString::from(name))
+}
 
-    let mut settings = multiplayer_settings_mut();
+fn parse_multiplayer_color_named_into(
+    ini: &mut INI,
+    settings: &mut MultiplayerSettings,
+    name: &AsciiString,
+) -> INIResult<()> {
     let color_definition = if settings
-        .find_multiplayer_color_definition_by_name(&AsciiString::from(name))
+        .find_multiplayer_color_definition_by_name(name)
         .is_some()
     {
         settings
-            .find_multiplayer_color_definition_by_name_mut(&AsciiString::from(name))
+            .find_multiplayer_color_definition_by_name_mut(name)
             .unwrap()
     } else {
-        settings.new_multiplayer_color_definition(AsciiString::from(name))
+        settings.new_multiplayer_color_definition(name.clone())
     };
-
     ini.init_from_ini_with_fields(color_definition, MULTIPLAYER_COLOR_FIELDS)?;
     color_definition.set_color(color_definition.get_rgb_value());
     color_definition.set_night_color(color_definition.get_rgb_night_value());
@@ -484,16 +512,27 @@ pub fn parse_multiplayer_color_definition(ini: &mut INI) -> INIResult<()> {
 }
 
 pub fn parse_multiplayer_starting_money_choice_definition(ini: &mut INI) -> INIResult<()> {
+    let settings = parse_starting_money_choice(ini)?;
+    multiplayer_settings_mut().add_starting_money_choice(settings.money, settings.is_default);
+    Ok(())
+}
+
+pub(super) fn parse_multiplayer_starting_money_choice_definition_into(
+    ini: &mut INI,
+    multiplayer_settings: &mut MultiplayerSettings,
+) -> INIResult<()> {
+    let settings = parse_starting_money_choice(ini)?;
+    multiplayer_settings.add_starting_money_choice(settings.money, settings.is_default);
+    Ok(())
+}
+
+fn parse_starting_money_choice(ini: &mut INI) -> INIResult<MultiplayerStartingMoneySettings> {
     if ini.get_load_type() == INIParseLoadType::CreateOverrides {
         return Err(INIError::InvalidData);
     }
-
     let mut settings = MultiplayerStartingMoneySettings::default();
     ini.init_from_ini_with_fields(&mut settings, STARTING_MONEY_FIELDS)?;
-
-    let mut multiplayer_settings = multiplayer_settings_mut();
-    multiplayer_settings.add_starting_money_choice(settings.money, settings.is_default);
-    Ok(())
+    Ok(settings)
 }
 
 /// INI parsing functions

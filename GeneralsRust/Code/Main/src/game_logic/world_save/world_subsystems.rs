@@ -385,6 +385,25 @@ impl GameLogic {
 
     /// C++ GameLogic.cpp:1436-1459 always adds a ReplayObserver side/team.
     pub fn ensure_replay_observer_player(&mut self) -> u32 {
+        self.ensure_replay_observer_player_with_color_source(|| {
+            game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(
+                replay_observer_colors,
+            )
+        })
+    }
+
+    /// Admit the synthetic observer from the receiving setup's authored palette.
+    pub(crate) fn ensure_replay_observer_player_with_settings(
+        &mut self,
+        settings: &game_engine::common::ini::ini_multiplayer::MultiplayerSettings,
+    ) -> u32 {
+        self.ensure_replay_observer_player_with_color_source(|| replay_observer_colors(settings))
+    }
+
+    fn ensure_replay_observer_player_with_color_source(
+        &mut self,
+        color_source: impl FnOnce() -> ((u8, u8, u8), (u8, u8, u8)),
+    ) -> u32 {
         if let Some(id) = self.replay_observer_player_id() {
             return id;
         }
@@ -402,21 +421,7 @@ impl GameLogic {
         // authored palette index zero, independently of occupied observer slots.
         // Retain the existing fallback when definitions are unavailable.
         // Native boot admits the authored palette before player setup.
-        let (day, night) =
-            game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|settings| {
-                let rgb = |packed: u32| {
-                    (
-                        ((packed >> 16) & 255) as u8,
-                        ((packed >> 8) & 255) as u8,
-                        (packed & 255) as u8,
-                    )
-                };
-                settings
-                    .color_definitions
-                    .first()
-                    .map(|color| (rgb(color.get_color()), rgb(color.night_color)))
-                    .unwrap_or(((170, 170, 170), (170, 170, 170)))
-            });
+        let (day, night) = color_source();
         observer.color_rgb = day;
         observer.color_night_rgb = night;
 
@@ -1777,3 +1782,20 @@ mod terrain_height_owner_tests;
 #[cfg(test)]
 #[path = "native_player_owner_tests.rs"]
 mod native_player_owner_tests;
+
+fn replay_observer_colors(
+    settings: &game_engine::common::ini::ini_multiplayer::MultiplayerSettings,
+) -> ((u8, u8, u8), (u8, u8, u8)) {
+    let rgb = |packed: u32| {
+        (
+            ((packed >> 16) & 255) as u8,
+            ((packed >> 8) & 255) as u8,
+            (packed & 255) as u8,
+        )
+    };
+    settings
+        .color_definitions
+        .first()
+        .map(|color| (rgb(color.get_color()), rgb(color.night_color)))
+        .unwrap_or(((170, 170, 170), (170, 170, 170)))
+}
