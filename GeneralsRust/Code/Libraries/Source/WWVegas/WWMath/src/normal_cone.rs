@@ -11,7 +11,8 @@ use crate::{Matrix3, Vector3};
 use std::f32::consts::PI;
 
 /// Small epsilon value for floating-point comparisons.
-const EPSILON: f32 = 1e-6;
+// C++ WWMath/wwmath.h defines WWMATH_EPSILON as 0.0001f.
+const EPSILON: f32 = 1e-4;
 
 /// A normal cone representing a collection of normal vectors.
 ///
@@ -87,7 +88,7 @@ impl NormalCone {
     /// # Returns
     /// `true` if the cone represents all possible directions
     pub fn is_complete_sphere(&self) -> bool {
-        (self.angle + EPSILON) <= -1.0
+        (self.angle - EPSILON) <= -1.0
     }
 
     /// Find the two vectors on the edge of the cone residing on the same plane as the input vector.
@@ -292,6 +293,8 @@ impl NormalCone {
 mod tests {
     use super::*;
 
+    const TEST_EPSILON: f32 = 1e-6;
+
     fn assert_approx_eq(a: f32, b: f32, tolerance: f32) {
         assert!(
             (a - b).abs() < tolerance,
@@ -313,8 +316,8 @@ mod tests {
         let center = Vector3::new(0.0, 0.0, 1.0);
         let cone = NormalCone::new(center, 0.5);
 
-        assert_vector_approx_eq(&cone.center, &center, EPSILON);
-        assert_approx_eq(cone.angle, 0.5, EPSILON);
+        assert_vector_approx_eq(&cone.center, &center, TEST_EPSILON);
+        assert_approx_eq(cone.angle, 0.5, TEST_EPSILON);
     }
 
     #[test]
@@ -322,8 +325,8 @@ mod tests {
         let direction = Vector3::new(1.0, 0.0, 0.0);
         let cone = NormalCone::from_direction(direction);
 
-        assert_vector_approx_eq(&cone.center, &direction, EPSILON);
-        assert_approx_eq(cone.angle, 1.0, EPSILON);
+        assert_vector_approx_eq(&cone.center, &direction, TEST_EPSILON);
+        assert_approx_eq(cone.angle, 1.0, TEST_EPSILON);
         assert!(!cone.is_complete_sphere());
     }
 
@@ -332,8 +335,8 @@ mod tests {
         let center = Vector3::new(0.0, 1.0, 0.0);
         let cone = NormalCone::hemisphere(center);
 
-        assert_vector_approx_eq(&cone.center, &center, EPSILON);
-        assert_approx_eq(cone.angle, 0.0, EPSILON);
+        assert_vector_approx_eq(&cone.center, &center, TEST_EPSILON);
+        assert_approx_eq(cone.angle, 0.0, TEST_EPSILON);
         assert!(!cone.is_complete_sphere());
     }
 
@@ -341,8 +344,15 @@ mod tests {
     fn test_complete_sphere() {
         let cone = NormalCone::complete_sphere();
 
-        assert_approx_eq(cone.angle, -1.0, EPSILON);
+        assert_approx_eq(cone.angle, -1.0, TEST_EPSILON);
         assert!(cone.is_complete_sphere());
+    }
+
+    #[test]
+    fn complete_sphere_uses_the_cpp_subtractive_epsilon_boundary() {
+        assert!(NormalCone::new(Vector3::new(0.0, 0.0, 1.0), -1.0 + EPSILON).is_complete_sphere());
+        assert!(NormalCone::new(Vector3::new(0.0, 0.0, 1.0), -0.99995).is_complete_sphere());
+        assert!(!NormalCone::new(Vector3::new(0.0, 0.0, 1.0), -0.99989).is_complete_sphere());
     }
 
     #[test]
@@ -374,14 +384,14 @@ mod tests {
         assert_approx_eq(
             cone.smallest_dot_product(&Vector3::new(0.0, 0.0, 1.0)),
             1.0,
-            EPSILON,
+            TEST_EPSILON,
         );
 
         // Opposite direction should give -1.0
         assert_approx_eq(
             cone.smallest_dot_product(&Vector3::new(0.0, 0.0, -1.0)),
             -1.0,
-            EPSILON,
+            TEST_EPSILON,
         );
 
         // Test with complete sphere
@@ -389,7 +399,7 @@ mod tests {
         assert_approx_eq(
             sphere.smallest_dot_product(&Vector3::new(1.0, 0.0, 0.0)),
             -1.0,
-            EPSILON,
+            TEST_EPSILON,
         );
     }
 
@@ -403,9 +413,12 @@ mod tests {
             assert!((n1.length() - 1.0).abs() < 0.01);
             assert!((n2.length() - 1.0).abs() < 0.01);
 
-            // Both normals should be on the cone edge (dot with center = angle)
-            assert_approx_eq(n1.dot(cone.center), cone.angle, 0.1);
-            assert_approx_eq(n2.dot(cone.center), cone.angle, 0.1);
+            // The source rotates by (1-angle)*PI/2. At angle 0.5 that is
+            // PI/4, so each resulting dot with the center is cos(PI/4), not
+            // the raw angle value.
+            let expected_center_dot = ((1.0 - cone.angle) * PI * 0.5).cos();
+            assert_approx_eq(n1.dot(cone.center), expected_center_dot, TEST_EPSILON);
+            assert_approx_eq(n2.dot(cone.center), expected_center_dot, TEST_EPSILON);
         } else {
             panic!("Should have found coplanar normals");
         }
@@ -419,8 +432,8 @@ mod tests {
         let original_center = cone.center;
         let original_angle = cone.angle;
         cone.merge_normal(&Vector3::new(0.0, 0.0, 1.0));
-        assert_vector_approx_eq(&cone.center, &original_center, EPSILON);
-        assert_approx_eq(cone.angle, original_angle, EPSILON);
+        assert_vector_approx_eq(&cone.center, &original_center, TEST_EPSILON);
+        assert_approx_eq(cone.angle, original_angle, TEST_EPSILON);
 
         // Merging a different direction should expand the cone
         cone.merge_normal(&Vector3::new(1.0, 0.0, 0.0));
@@ -431,39 +444,57 @@ mod tests {
     fn test_merge_opposite_normals() {
         let mut cone = NormalCone::from_direction(Vector3::new(0.0, 0.0, 1.0));
 
-        // Merging opposite direction should create complete sphere
+        // The C++ cross-length short circuit leaves the cone unchanged for
+        // exactly opposite input normals.
         cone.merge_normal(&Vector3::new(0.0, 0.0, -1.0));
-        assert!(cone.is_complete_sphere() || cone.angle < -0.9);
+        assert_eq!(cone.center, Vector3::new(0.0, 0.0, 1.0));
+        assert_eq!(cone.angle, 1.0);
     }
 
     #[test]
     fn test_half_angle() {
         // Test degenerate cone
         let degenerate = NormalCone::from_direction(Vector3::new(0.0, 0.0, 1.0));
-        assert_approx_eq(degenerate.half_angle_radians().unwrap(), 0.0, EPSILON);
+        assert_approx_eq(degenerate.half_angle_radians().unwrap(), 0.0, TEST_EPSILON);
 
         // Test hemisphere
         let hemisphere = NormalCone::hemisphere(Vector3::new(0.0, 0.0, 1.0));
-        assert_approx_eq(hemisphere.half_angle_radians().unwrap(), PI / 2.0, EPSILON);
+        assert_approx_eq(
+            hemisphere.half_angle_radians().unwrap(),
+            PI / 2.0,
+            TEST_EPSILON,
+        );
 
         // Test complete sphere
         let sphere = NormalCone::complete_sphere();
-        assert_approx_eq(sphere.half_angle_radians().unwrap(), PI, EPSILON);
+        assert_approx_eq(sphere.half_angle_radians().unwrap(), PI, TEST_EPSILON);
     }
 
     #[test]
     fn test_opening_angle() {
         // Test degenerate cone
         let degenerate = NormalCone::from_direction(Vector3::new(0.0, 0.0, 1.0));
-        assert_approx_eq(degenerate.opening_angle_radians().unwrap(), 0.0, EPSILON);
+        assert_approx_eq(
+            degenerate.opening_angle_radians().unwrap(),
+            0.0,
+            TEST_EPSILON,
+        );
 
         // Test hemisphere
         let hemisphere = NormalCone::hemisphere(Vector3::new(0.0, 0.0, 1.0));
-        assert_approx_eq(hemisphere.opening_angle_radians().unwrap(), PI, EPSILON);
+        assert_approx_eq(
+            hemisphere.opening_angle_radians().unwrap(),
+            PI,
+            TEST_EPSILON,
+        );
 
         // Test complete sphere
         let sphere = NormalCone::complete_sphere();
-        assert_approx_eq(sphere.opening_angle_radians().unwrap(), 2.0 * PI, EPSILON);
+        assert_approx_eq(
+            sphere.opening_angle_radians().unwrap(),
+            2.0 * PI,
+            TEST_EPSILON,
+        );
     }
 
     #[test]
