@@ -14,14 +14,14 @@ use super::audio_paths::AudioPathSettings;
 use crate::common::audio::{
     audio_cache::AudioFileCache,
     audio_event_rts::{
-        AC_INTERRUPT, AC_LOOP, AudioEventInfo, AudioEventRts, AudioHandle, AudioPriority,
-        AudioType, Coord3D, MilesVolumeSliders, ObjectId, PortionToPlay, ST_GLOBAL,
         miles_event_world_position, miles_get_effective_volume, miles_positional_gain,
-        miles_positional_ranges,
+        miles_positional_ranges, AudioEventInfo, AudioEventRts, AudioHandle, AudioPriority,
+        AudioType, Coord3D, MilesVolumeSliders, ObjectId, PortionToPlay, AC_INTERRUPT, AC_LOOP,
+        ST_GLOBAL,
     },
     audio_request::{AudioRequest, RequestType},
     game_music::create_music_manager,
-    game_sounds::{PlayNowAudioQueries, create_sound_manager},
+    game_sounds::{create_sound_manager, PlayNowAudioQueries},
     rodio_spatial::{miles_slider_volume, stereo_pan},
 };
 use crate::common::game_common::MSEC_PER_LOGICFRAME_REAL;
@@ -29,6 +29,7 @@ use crate::common::system::file::FileAccess;
 use crate::common::system::file_system::get_file_system;
 use glam::Mat4;
 use hound::WavReader;
+use indexmap::IndexMap;
 use lewton::inside_ogg::OggStreamReader;
 #[cfg(not(target_arch = "wasm32"))]
 use minimp3::{Decoder as Mp3Decoder, Error as Mp3Error};
@@ -39,7 +40,7 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use std::sync::{Arc, LazyLock, Mutex, OnceLock, Weak};
 use std::time::Instant;
-use ww3d_animation::{SoundLibraryBridge, initialize_animated_sound_mgr, set_sound_library};
+use ww3d_animation::{initialize_animated_sound_mgr, set_sound_library, SoundLibraryBridge};
 use ww3d_core::errors::{W3DError, W3DResult};
 
 #[cfg(test)]
@@ -609,7 +610,7 @@ pub struct AudioManager {
     listener_orientation: Coord3D,
     fading_audio: Vec<FadingAudio>,
     audio_requests: Vec<AudioRequest>,
-    active_audio_events: HashMap<AudioHandle, AudioEventRts>,
+    active_audio_events: IndexMap<AudioHandle, AudioEventRts>,
     music_tracks: Vec<AsciiString>,
     current_music_track: AsciiString,
 
@@ -668,7 +669,7 @@ impl AudioManager {
             },
             audio_requests: Vec::new(),
             fading_audio: Vec::new(),
-            active_audio_events: HashMap::new(),
+            active_audio_events: IndexMap::new(),
             music_tracks: Vec::new(),
             current_music_track: String::new(),
             all_audio_event_info: HashMap::new(),
@@ -1084,7 +1085,7 @@ impl AudioManager {
                 })
                 .collect();
             for handle in music_handles {
-                self.active_audio_events.remove(&handle);
+                self.active_audio_events.shift_remove(&handle);
                 let _ = self.playback_recipient.with_hook(|hook| hook.stop(handle));
             }
             return;
@@ -1101,7 +1102,7 @@ impl AudioManager {
             return;
         }
 
-        self.active_audio_events.remove(&audio_event);
+        self.active_audio_events.shift_remove(&audio_event);
         let request = AudioRequest::new_with_handle(RequestType::Stop, audio_event);
         self.append_audio_request(request);
     }
@@ -1916,7 +1917,7 @@ impl AudioManager {
         if handle < AHSV_FIRST_HANDLE {
             return;
         }
-        if let Some(event) = self.active_audio_events.remove(&handle) {
+        if let Some(event) = self.active_audio_events.shift_remove(&handle) {
             self.notify_sample_completion_if_effect(&event);
         }
         let _ = self.playback_recipient.with_hook(|hook| hook.stop(handle));
@@ -2069,7 +2070,7 @@ impl AudioManager {
 
     pub fn allocate_new_handle(&mut self) -> AudioHandle {
         let handle = self.audio_handle_pool;
-        self.audio_handle_pool += 1;
+        self.audio_handle_pool = self.audio_handle_pool.wrapping_add(1);
         handle
     }
 
@@ -2319,7 +2320,7 @@ impl AudioManager {
         let event_name = event.get_event_name().to_string();
         let positional = event.is_positional_audio();
 
-        let mut matching_handles: Vec<AudioHandle> = self
+        let matching_handles: Vec<AudioHandle> = self
             .active_audio_events
             .values()
             .filter(|playing| {
@@ -2329,8 +2330,6 @@ impl AudioManager {
             })
             .map(|playing| playing.get_playing_handle())
             .collect();
-        matching_handles.sort_unstable();
-
         let mut total_playing_count = matching_handles.len() as Int;
         if let Some(&oldest) = matching_handles.first() {
             event.set_handle_to_kill(oldest);
@@ -2842,7 +2841,7 @@ impl AudioManager {
             {
                 continue;
             }
-            self.active_audio_events.remove(&handle);
+            self.active_audio_events.shift_remove(&handle);
             self.fading_audio.push(FadingAudio {
                 event,
                 frames_faded: 0,
@@ -2872,7 +2871,7 @@ impl AudioManager {
         let volume_changed = self.volume_has_changed;
 
         for handle in handles {
-            let Some(mut event) = self.active_audio_events.remove(&handle) else {
+            let Some(mut event) = self.active_audio_events.shift_remove(&handle) else {
                 continue;
             };
 
@@ -3117,7 +3116,7 @@ impl AudioManager {
     }
 
     pub fn force_notify_completion_for_test(&mut self, handle: AudioHandle) -> bool {
-        let Some(mut event) = self.active_audio_events.remove(&handle) else {
+        let Some(mut event) = self.active_audio_events.shift_remove(&handle) else {
             return false;
         };
         let restarted = self.notify_of_audio_completion(&mut event);

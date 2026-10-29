@@ -213,6 +213,75 @@ fn delayed_play_request_defers_until_under_one_logic_frame() {
 }
 
 #[test]
+fn audio_handle_wrap_and_oldest_limit_victim_follow_unsigned_fifo_order() {
+    // C++ AudioManager::allocateNewHandle post-increments an unsigned value
+    // (GameAudio.cpp:1054); MilesAudioManager scans the playing list in order
+    // (MilesAudioManager.cpp:1815-1830).
+    let mut manager = AudioManager::new();
+    manager.audio_handle_pool = u32::MAX;
+
+    let wrapped_sequence = [
+        manager.allocate_new_handle(),
+        manager.allocate_new_handle(),
+        manager.allocate_new_handle(),
+    ];
+    assert_eq!(wrapped_sequence, [u32::MAX, 0, 1]);
+
+    // Do not activate any of those wrapped values: the separate
+    // hq-x1j4u.1.1 issue tracks the Rust/C++ special-value mismatch. Verify
+    // FIFO for handles admitted on either side of the Rust sentinel interval.
+    manager.audio_handle_pool = 0xFFFF_FFEF;
+    let last_pre_sentinel = manager.allocate_new_handle();
+    assert_eq!(last_pre_sentinel, 0xFFFF_FFEF);
+    manager.audio_handle_pool = AHSV_FIRST_HANDLE;
+    let first_post_sentinel = manager.allocate_new_handle();
+    assert_eq!(first_post_sentinel, AHSV_FIRST_HANDLE);
+    let handles = [last_pre_sentinel, first_post_sentinel];
+
+    let mut visible = |_: &Coord3D| true;
+    for handle in handles {
+        let mut playing = event_with(test_info("WrapBoom", AudioType::SoundEffect, 0, 1), 1.0);
+        playing.set_playing_handle(handle);
+        manager.play_audio_event(playing, &mut visible);
+    }
+
+    // Production play admission calls track_active_event after playback; the
+    // normal frame pass must keep these registration slots in order too.
+    manager.process_playing_list(&mut visible);
+    assert_eq!(
+        manager
+            .active_audio_events
+            .keys()
+            .copied()
+            .collect::<Vec<_>>(),
+        handles
+    );
+
+    let mut incoming = event_with(test_info("WrapBoom", AudioType::SoundEffect, 0, 1), 1.0);
+    assert!(manager.does_violate_limit(&mut incoming));
+    assert_eq!(incoming.get_handle_to_kill(), last_pre_sentinel);
+
+    // The playback completion path removes both admitted handles in order and
+    // leaves no stale event behind.
+    manager.release_playing_handle(last_pre_sentinel);
+    assert_eq!(
+        manager
+            .active_audio_events
+            .keys()
+            .copied()
+            .collect::<Vec<_>>(),
+        [AHSV_FIRST_HANDLE]
+    );
+    let mut after_first_release =
+        event_with(test_info("WrapBoom", AudioType::SoundEffect, 0, 1), 1.0);
+    assert!(manager.does_violate_limit(&mut after_first_release));
+    assert_eq!(after_first_release.get_handle_to_kill(), AHSV_FIRST_HANDLE);
+
+    manager.release_playing_handle(first_post_sentinel);
+    assert!(manager.active_audio_events.is_empty());
+}
+
+#[test]
 fn does_violate_limit_sets_oldest_handle_and_interrupt_request_counts() {
     // C++ MilesAudioManager::doesViolateLimit (MilesAudioManager.cpp:1802-1882).
     let mut manager = AudioManager::new();
