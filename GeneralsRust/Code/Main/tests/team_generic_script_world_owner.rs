@@ -2,10 +2,12 @@ use game_engine::common::dict::Dict;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::DataChunkOutput;
 use game_engine::common::well_known_keys::{
-    key_player_faction, key_player_is_human, key_player_name, key_team_generic_script_hook,
-    key_team_is_singleton, key_team_name, key_team_owner, key_team_production_priority,
-    key_team_unit_max_count1, key_team_unit_min_count1, key_team_unit_type1,
+    key_player_faction, key_player_is_human, key_player_name, key_team_executes_actions_on_create,
+    key_team_generic_script_hook, key_team_is_singleton, key_team_name, key_team_owner,
+    key_team_production_condition, key_team_production_priority, key_team_unit_max_count1,
+    key_team_unit_min_count1, key_team_unit_type1,
 };
+use game_engine::common::{ini::INILoadType, rts::player_template::PlayerTemplateStore};
 use gamelogic::scripting::chunk_codec::ScriptTemplateLookup;
 use gamelogic::scripting::core::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
@@ -29,6 +31,20 @@ fn map_file_with_condition(
     amount: i32,
     condition: ConditionType,
 ) -> std::path::PathBuf {
+    authored_map_file(root, amount, condition, false, true)
+}
+
+fn map_with_factory_money_callbacks(root: &std::path::Path, amount: i32) -> std::path::PathBuf {
+    authored_map_file(root, amount, ConditionType::ConditionTrue, true, false)
+}
+
+fn authored_map_file(
+    root: &std::path::Path,
+    amount: i32,
+    condition: ConditionType,
+    factory_money_callbacks: bool,
+    include_member: bool,
+) -> std::path::PathBuf {
     let mut sides = SidesList::new();
     let mut player = Dict::new();
     player.set_ascii_string(key_player_name(), "Owner");
@@ -39,7 +55,14 @@ fn map_file_with_condition(
     let mut team = Dict::new();
     team.set_ascii_string(key_team_name(), TEAM);
     team.set_ascii_string(key_team_owner(), "Owner");
-    team.set_bool(key_team_is_singleton(), true);
+    team.set_bool(key_team_is_singleton(), !factory_money_callbacks);
+    if factory_money_callbacks {
+        team.set_ascii_string(key_team_production_condition(), SCRIPT);
+        team.set_bool(key_team_executes_actions_on_create(), true);
+        team.set_ascii_string(key_team_unit_type1(), "AmericaInfantryRanger");
+        team.set_int(key_team_unit_min_count1(), 1);
+        team.set_int(key_team_unit_max_count1(), 1);
+    }
     let generic_hook = NameKeyGenerator::name_to_key(&format!(
         "{}0",
         NameKeyGenerator::key_to_name(key_team_generic_script_hook()).unwrap()
@@ -51,7 +74,11 @@ fn map_file_with_condition(
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Side,
-            THIS_PLAYER.into(),
+            if factory_money_callbacks {
+                "Owner".into()
+            } else {
+                THIS_PLAYER.into()
+            },
         ))
         .unwrap();
     action
@@ -85,17 +112,19 @@ fn map_file_with_condition(
     }
     out.close_data_chunk();
     out.open_data_chunk("ObjectsList", 3);
-    out.open_data_chunk("Object", 3);
-    for value in [100.0, 100.0, 0.0, 0.0] {
-        out.write_real(value);
+    if include_member {
+        out.open_data_chunk("Object", 3);
+        for value in [100.0, 100.0, 0.0, 0.0] {
+            out.write_real(value);
+        }
+        out.write_int(0);
+        out.write_ascii_string(UNIT);
+        let mut properties = Dict::new();
+        properties.set_ascii_string(NameKeyGenerator::name_to_key("objectName"), "GenericMember");
+        properties.set_ascii_string(NameKeyGenerator::name_to_key("originalOwner"), TEAM);
+        out.write_dict(&properties);
+        out.close_data_chunk();
     }
-    out.write_int(0);
-    out.write_ascii_string(UNIT);
-    let mut properties = Dict::new();
-    properties.set_ascii_string(NameKeyGenerator::name_to_key("objectName"), "GenericMember");
-    properties.set_ascii_string(NameKeyGenerator::name_to_key("originalOwner"), TEAM);
-    out.write_dict(&properties);
-    out.close_data_chunk();
     out.close_data_chunk();
     sides.write_sides_data_chunk(&mut out, &ScriptTemplateLookup::from_engine(&engine));
 
@@ -370,18 +399,42 @@ fn always_true() -> Box<OrCondition> {
     Box::new(branch)
 }
 
+fn team_build_money_engine(amount: i32) -> ScriptEngine {
+    let mut money = ScriptAction::new(ScriptActionType::PlayerGiveMoney);
+    money
+        .add_parameter(Parameter::with_string(ParameterType::Side, "Owner".into()))
+        .unwrap();
+    money
+        .add_parameter(Parameter::with_int(ParameterType::Int, amount))
+        .unwrap();
+    let mut callback = Script::new();
+    callback.script_name = SCRIPT.into();
+    callback.is_active = false;
+    callback.condition = Some(always_true());
+    callback.action = Some(Box::new(money));
+
+    let mut build = ScriptAction::new(ScriptActionType::BuildTeam);
+    build
+        .add_parameter(Parameter::with_string(ParameterType::Team, TEAM.into()))
+        .unwrap();
+    let mut trigger = Script::new();
+    trigger.script_name = "TriggerReceivingBuildTeam".into();
+    trigger.is_one_shot = true;
+    trigger.condition = Some(always_true());
+    trigger.action = Some(Box::new(build));
+
+    let mut scripts = ScriptList::new();
+    scripts.append_script(Box::new(callback));
+    scripts.append_script(Box::new(trigger));
+    let engine = ScriptEngine::new().expect("script templates");
+    engine
+        .set_script_list_for_player(0, Some(Box::new(scripts)))
+        .expect("admit TeamBuild and callback scripts");
+    engine
+}
+
 fn world(map: &std::path::Path) -> (GameLogic, ObjectId) {
-    let mut game = GameLogic::new();
-    game.admit_object_ini_sources([(
-        "ReceivingGeneric.ini".into(),
-        format!(
-            "Object {UNIT}\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n"
-        ),
-    )])
-    .expect("admit generic hook object");
-    game.start_new_game(GameMode::SinglePlayer);
-    assert!(game.load_map(map.to_str().expect("UTF-8 map path")));
-    assert!(game.get_player(1).is_some(), "map admits its Owner side");
+    let game = empty_world(map);
     let member = game
         .host_objects()
         .registered_values()
@@ -394,6 +447,33 @@ fn world(map: &std::path::Path) -> (GameLogic, ObjectId) {
         .map(|object| object.id)
         .expect("map admits the Team member through originalOwner");
     (game, member)
+}
+
+fn empty_world(map: &std::path::Path) -> GameLogic {
+    let mut game = GameLogic::new();
+    game.admit_object_ini_sources([(
+        "ReceivingGeneric.ini".into(),
+            format!(
+                "Object {UNIT}\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n\
+                 Object AmericaInfantryRanger\n KindOf = INFANTRY SELECTABLE\n BuildCost = 100\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
+                 Object AmericaBarracks\n KindOf = STRUCTURE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\nEnd\n"
+            ),
+    )])
+    .expect("admit generic hook object");
+    let mut player_templates = PlayerTemplateStore::new_owned();
+    player_templates
+        .apply_source(
+            "PlayerTemplate FactionCivilian\n Side = Civilian\nEnd\n\
+             PlayerTemplate FactionAmerica\n Side = America\nEnd\n",
+            INILoadType::Overwrite,
+        )
+        .expect("parse authored map PlayerTemplates");
+    game.admit_player_template_definitions(player_templates)
+        .expect("admit map PlayerTemplates to this GameLogic");
+    game.start_new_game(GameMode::SinglePlayer);
+    assert!(game.load_map(map.to_str().expect("UTF-8 map path")));
+    assert!(game.get_player(1).is_some(), "map admits its Owner side");
+    game
 }
 
 #[test]
@@ -434,6 +514,169 @@ fn map_authored_generic_team_hook_runs_in_each_receiving_game_logic_tick() {
     assert_eq!(
         owner.get_player(1).unwrap().resources.supplies,
         owner_before + 17
+    );
+}
+
+#[test]
+fn team_factory_null_and_bound_callbacks_apply_money_in_receiving_world_order() {
+    // The C++ and Main source paths identify the creation callback as
+    // null-Team and the subsequent generic callback as bound-Team. This test
+    // observes their separate admission/update effects, not the Team context.
+    let roots = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+    let control_roots = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+    let owner_amount = 17;
+    let peer_amount = 29;
+    let owner_map = authored_map_file(
+        roots[0].path(),
+        owner_amount,
+        ConditionType::ConditionTrue,
+        true,
+        true,
+    );
+    let peer_map = authored_map_file(
+        roots[1].path(),
+        peer_amount,
+        ConditionType::ConditionTrue,
+        true,
+        true,
+    );
+    let owner_control_map = map_file(control_roots[0].path(), 0);
+    let peer_control_map = map_file(control_roots[1].path(), 0);
+    let (mut owner, owner_member) = world(&owner_map);
+    let (mut peer, peer_member) = world(&peer_map);
+    let (control_owner, _) = world(&owner_control_map);
+    let (control_peer, _) = world(&peer_control_map);
+    assert_eq!(
+        owner_member, peer_member,
+        "same-ID worlds use distinct TeamFactory owners"
+    );
+    assert_eq!(
+        owner.get_player(1).unwrap().name,
+        peer.get_player(1).unwrap().name
+    );
+
+    let owner_after_null_team = owner.get_player(1).unwrap().resources.supplies;
+    let peer_after_null_team = peer.get_player(1).unwrap().resources.supplies;
+    assert_eq!(
+        owner_after_null_team,
+        control_owner.get_player(1).unwrap().resources.supplies + owner_amount as u32,
+        "ExecuteActionsOnCreate runs the production condition synchronously with no Team context during map Team admission"
+    );
+    assert_eq!(
+        peer_after_null_team,
+        control_peer.get_player(1).unwrap().resources.supplies + peer_amount as u32,
+        "the peer's null-Team callback uses its own admitted script and player"
+    );
+
+    owner.update();
+    assert_eq!(
+        owner.get_player(1).unwrap().resources.supplies,
+        owner_after_null_team + owner_amount as u32,
+        "the TeamFactory generic callback runs with its bound Team after the null-Team creation callback"
+    );
+    assert_eq!(
+        peer.get_player(1).unwrap().resources.supplies,
+        peer_after_null_team,
+        "updating one same-ID world cannot deliver the bound-Team callback to its peer"
+    );
+
+    peer.update();
+    assert_eq!(
+        peer.get_player(1).unwrap().resources.supplies,
+        peer_after_null_team + peer_amount as u32
+    );
+    assert_eq!(
+        owner.get_player(1).unwrap().resources.supplies,
+        owner_after_null_team + owner_amount as u32
+    );
+}
+
+#[test]
+fn authored_team_build_applies_both_money_callbacks_to_receiving_world() {
+    let owner_root = tempfile::tempdir().unwrap();
+    let peer_root = tempfile::tempdir().unwrap();
+    let owner_map = map_with_factory_money_callbacks(owner_root.path(), 17);
+    let peer_map = map_with_factory_money_callbacks(peer_root.path(), 29);
+    let mut owner = empty_world(&owner_map);
+    let mut peer = empty_world(&peer_map);
+    owner.add_ai_opponent(
+        1,
+        generals_main::game_logic::Team::USA,
+        generals_main::ai::AIDifficulty::Easy,
+    );
+    peer.add_ai_opponent(
+        1,
+        generals_main::game_logic::Team::USA,
+        generals_main::ai::AIDifficulty::Easy,
+    );
+    let owner_factory = owner
+        .create_object_for_player("AmericaBarracks", 1, glam::Vec3::new(120.0, 0.0, 120.0))
+        .expect("admit the receiving AI's authored unit factory");
+    let peer_factory = peer
+        .create_object_for_player("AmericaBarracks", 1, glam::Vec3::new(120.0, 0.0, 120.0))
+        .expect("admit the same-ID peer AI factory");
+    assert_eq!(owner_factory, peer_factory);
+    assert_eq!(
+        owner.get_player(1).unwrap().name,
+        peer.get_player(1).unwrap().name
+    );
+    let owner_before = owner.get_player(1).unwrap().resources.supplies;
+    let peer_before = peer.get_player(1).unwrap().resources.supplies;
+
+    owner
+        .update_local_script_engine_with_owner(&team_build_money_engine(17))
+        .expect("invoke the admitted TeamBuild script through Main's receiving driver");
+
+    assert_eq!(
+        owner.get_player(1).unwrap().resources.supplies,
+        owner_before + 34,
+        "both authored production-condition callbacks credit the receiving world"
+    );
+    assert_eq!(
+        peer.get_player(1).unwrap().resources.supplies,
+        peer_before,
+        "TeamFactory and synchronous money effects stay in the receiving same-ID session"
+    );
+
+    peer.update_local_script_engine_with_owner(&team_build_money_engine(29))
+        .expect("run the peer's own receiving TeamBuild path");
+    assert_eq!(
+        peer.get_player(1).unwrap().resources.supplies,
+        peer_before + 58
+    );
+    assert_eq!(
+        owner.get_player(1).unwrap().resources.supplies,
+        owner_before + 34
+    );
+
+    owner.start_new_game(GameMode::SinglePlayer);
+    assert!(owner.load_map(owner_map.to_str().unwrap()));
+    let clean_owner = empty_world(&owner_map);
+    assert_eq!(
+        owner.get_player(1).unwrap().resources.supplies,
+        clean_owner.get_player(1).unwrap().resources.supplies,
+        "reset and map reload do not replay an earlier callback through a deferred money queue"
+    );
+    owner.add_ai_opponent(
+        1,
+        generals_main::game_logic::Team::USA,
+        generals_main::ai::AIDifficulty::Easy,
+    );
+    owner
+        .create_object_for_player("AmericaBarracks", 1, glam::Vec3::new(120.0, 0.0, 120.0))
+        .expect("re-admit factory after receiving-world reset");
+    let reset_owner_before = owner.get_player(1).unwrap().resources.supplies;
+    owner
+        .update_local_script_engine_with_owner(&team_build_money_engine(17))
+        .expect("callbacks still route through the receiving owner after reset");
+    assert_eq!(
+        owner.get_player(1).unwrap().resources.supplies,
+        reset_owner_before + 34
+    );
+    assert_eq!(
+        peer.get_player(1).unwrap().resources.supplies,
+        peer_before + 58,
+        "resetting and reusing one world leaves its same-ID peer unchanged"
     );
 }
 
