@@ -13,6 +13,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use crate::common::ini::ini_map_cache::{get_map_cache, init_global_map_cache};
 use crate::common::ini::ini_multiplayer::with_multiplayer_settings;
 use crate::common::ini::ini_webpage_url::get_registry_language;
+use crate::common::multiplayer_settings::{
+    PLAYERTEMPLATE_MIN, PLAYERTEMPLATE_OBSERVER, PLAYERTEMPLATE_RANDOM,
+};
 use crate::common::rts::money::Money;
 use crate::common::rts::player_template::get_player_template_store;
 use crate::common::system::quoted_printable::{
@@ -21,7 +24,6 @@ use crate::common::system::quoted_printable::{
 };
 use crate::common::user_preferences::UserPreferences;
 use crate::game_network::gamespy::peer_defs::get_gamespy_info;
-use crate::game_network::{PLAYERTEMPLATE_MIN, PLAYERTEMPLATE_OBSERVER, PLAYERTEMPLATE_RANDOM};
 
 /// Base preference value type
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

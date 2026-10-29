@@ -7,6 +7,8 @@ pub type MultiplayerColor = u32;
 /// C++ `PLAYERTEMPLATE_RANDOM` / `PLAYERTEMPLATE_OBSERVER` from GameInfo.h.
 pub const PLAYERTEMPLATE_RANDOM: i32 = -1;
 pub const PLAYERTEMPLATE_OBSERVER: i32 = -2;
+/// Lowest valid C++ `PlayerTemplateType` sentinel.
+pub const PLAYERTEMPLATE_MIN: i32 = PLAYERTEMPLATE_OBSERVER;
 
 /// C++ MultiplayerColorDefinition ctor: RGB + packed color are white.
 pub const MULTIPLAYER_COLOR_WHITE: MultiplayerColor = 0xFFFF_FFFF;
