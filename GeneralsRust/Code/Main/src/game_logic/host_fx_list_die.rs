@@ -5,10 +5,6 @@
 //! mask matches, then `FXList::doFXObj` (`OrientToObject` default TRUE) or
 //! `doFXPos` with authored `DeathFX`.
 use serde::{Deserialize, Serialize};
-#[cfg(test)]
-use std::cell::RefCell;
-#[cfg(test)]
-use std::collections::HashMap;
 
 use crate::game_logic::host_usa_pilot::HostDeathType;
 
@@ -402,47 +398,6 @@ pub(crate) fn fx_list_die_config_for_definition(
     Some(first)
 }
 
-fn authored_fx_list_die(name: &str) -> Option<HostFxListDieData> {
-    let manager = crate::assets::get_asset_manager()?;
-    let manager = manager.lock().ok()?;
-    let definition = manager.get_object_definition(name)?;
-    fx_list_die_config_for_definition(definition)
-}
-
-#[cfg(test)]
-thread_local! {
-    static TEST_FX_LIST_DIE: RefCell<HashMap<String, HostFxListDieData>> =
-        RefCell::new(HashMap::new());
-}
-
-/// Test-only authored FXListDie inject (INI module, not name heuristics).
-#[cfg(test)]
-pub fn set_test_fx_list_die(name: &str, data: HostFxListDieData) {
-    TEST_FX_LIST_DIE.with(|m| {
-        m.borrow_mut().insert(name.to_string(), data);
-    });
-}
-
-#[cfg(test)]
-pub fn clear_test_fx_list_die() {
-    TEST_FX_LIST_DIE.with(|m| m.borrow_mut().clear());
-}
-
-/// Leftover `FXListDie`: play only authored `DeathFX`. No name fallback.
-pub fn fx_list_die_config_for_template(name: &str) -> Option<HostFxListDieData> {
-    if let Some(authored) = authored_fx_list_die(name) {
-        return Some(authored);
-    }
-    #[cfg(test)]
-    {
-        return TEST_FX_LIST_DIE.with(|m| m.borrow().get(name).cloned());
-    }
-    #[cfg(not(test))]
-    {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -666,7 +621,6 @@ mod tests {
 
     #[test]
     fn unauthored_templates_do_not_invent_death_fx() {
-        clear_test_fx_list_die();
         for name in [
             "TestTankNoFxListDie",
             "TestVehicleNoDeathFx",
@@ -676,25 +630,31 @@ mod tests {
             "TestNukeMissileFake",
             "TestFactoryFake",
         ] {
+            let definition = crate::assets::ObjectDefinition::new(name.to_string());
             assert!(
-                fx_list_die_config_for_template(name).is_none(),
+                fx_list_die_config_for_definition(&definition).is_none(),
                 "{name} has no authored FXListDie; must not invent DeathFX/audio"
             );
         }
     }
 
     #[test]
-    fn test_override_is_authored_not_name_heuristic() {
-        clear_test_fx_list_die();
-        set_test_fx_list_die(
-            "ScudStormMissile",
-            HostFxListDieData::with_fx("FX_AuthoredMissileDie"),
-        );
-        let d = fx_list_die_config_for_template("ScudStormMissile").expect("override");
+    fn definition_is_authored_not_name_heuristic() {
+        let mut definition = crate::assets::ObjectDefinition::new("ScudStormMissile".to_string());
+        definition
+            .behavior_modules
+            .push(crate::assets::ini_parser::BehaviorModuleDefinition {
+                class_name: "FXListDie".to_string(),
+                module_tag: Some("Death".to_string()),
+                attributes: [("DeathFX".to_string(), "FX_AuthoredMissileDie".to_string())]
+                    .into_iter()
+                    .collect(),
+            });
+        let d = fx_list_die_config_for_definition(&definition).expect("authored definition");
         assert_eq!(d.death_fx.as_deref(), Some("FX_AuthoredMissileDie"));
         assert!(d.death_audio.is_none());
         assert_ne!(d.death_fx.as_deref(), Some("FX_ScudMissileDie"));
-        clear_test_fx_list_die();
-        assert!(fx_list_die_config_for_template("ScudStormMissile").is_none());
+        definition.behavior_modules.clear();
+        assert!(fx_list_die_config_for_definition(&definition).is_none());
     }
 }

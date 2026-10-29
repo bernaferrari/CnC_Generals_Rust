@@ -767,14 +767,6 @@ impl Object {
             .receiving_object_definition
             .as_deref()
             .and_then(crate::game_logic::host_fx_list_die::fx_list_die_config_for_definition);
-        // Old component fixtures may deliberately install a test-only named
-        // definition. An admitted empty definition must never fall through.
-        #[cfg(test)]
-        if self.fx_list_die.is_none() && self.thing.template.receiving_object_definition.is_none() {
-            self.fx_list_die = crate::game_logic::host_fx_list_die::fx_list_die_config_for_template(
-                &self.template_name,
-            );
-        }
     }
 
     pub fn take_pending_transition_damage_fx(
