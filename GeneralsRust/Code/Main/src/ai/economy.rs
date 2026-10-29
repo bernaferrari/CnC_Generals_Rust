@@ -422,8 +422,8 @@ impl AIPlayer {
             game_logic.modified_build_cost_supplies(self.player_id, &template_name, cost.supplies);
         let dozer = Self::find_available_dozer(game_logic, self.team, position, self.repair_dozer)?;
         let legal = |candidate| {
-            game_logic.is_location_legal_to_build_for_builder(
-                self.team,
+            game_logic.is_location_legal_to_build_for_ai(
+                self.player_id,
                 candidate,
                 &template_name,
                 Some(dozer),

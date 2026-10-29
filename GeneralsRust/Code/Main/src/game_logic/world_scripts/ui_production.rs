@@ -1049,6 +1049,61 @@ impl GameLogic {
         options: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
+        self.legal_build_code_at_angle_with_player(
+            team,
+            position,
+            template_name,
+            orientation,
+            builder_id,
+            options,
+            None,
+            effects,
+        )
+    }
+
+    /// AIPlayer passes its own player separately from the optional builder.
+    pub fn is_location_legal_to_build_for_ai(
+        &self,
+        player_id: u32,
+        position: glam::Vec3,
+        template_name: &str,
+        builder_id: Option<ObjectId>,
+    ) -> bool {
+        let Some(player) = self.players.get(&player_id) else {
+            return false;
+        };
+        use crate::game_logic::host_production_buildable_command_residual::{
+            LBC_OK, LOCAL_LEGAL_FAIL_STEALTHED_WITHOUT_FEEDBACK, LOCAL_LEGAL_IGNORE_STEALTHED,
+        };
+        let orientation = self
+            .templates
+            .get(template_name)
+            .and_then(ThingTemplate::placement_preview_facts)
+            .map(|(angle, _)| angle)
+            .unwrap_or(0.0);
+        self.legal_build_code_at_angle_with_player(
+            player.team,
+            position,
+            template_name,
+            orientation,
+            builder_id,
+            LOCAL_LEGAL_IGNORE_STEALTHED | LOCAL_LEGAL_FAIL_STEALTHED_WITHOUT_FEEDBACK,
+            Some(player_id),
+            &mut Default::default(),
+        ) == LBC_OK
+    }
+
+    fn legal_build_code_at_angle_with_player(
+        &self,
+        team: Team,
+        position: glam::Vec3,
+        template_name: &str,
+        orientation: f32,
+        builder_id: Option<ObjectId>,
+        options: u32,
+        spacing_player: Option<u32>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
         use crate::game_logic::host_production_buildable_command_residual::{
             STRUCTURE_PLACE_CLEARANCE_RESIDUAL, cell_shroud_blocks_build_residual,
             footprint_height_delta_residual, footprint_map_edge_sample_points_residual,
@@ -1234,7 +1289,20 @@ impl GameLogic {
             == crate::game_logic::host_production_buildable_command_residual::LOCAL_LEGAL_NO_ENEMY_OBJECT_OVERLAP;
         let mut factory_in_way = false;
         if !only_check_enemies {
-            let (my_exit_width, my_extra) = self.factory_exit_widths(template_name);
+            let (mut my_exit_width, mut my_extra) = self.factory_exit_widths(template_name);
+            // BuildAssistant.cpp:762-770: only an explicitly supplied
+            // skirmish-AI player expands the candidate's bounds. A builder's
+            // owner alone is not enough: dozer execution passes NULL here.
+            if spacing_player
+                .and_then(|id| self.players.get(&id))
+                .is_some_and(|player| player.map_side.is_skirmish_ai)
+            {
+                let minimum = 3.0 * gamelogic::path::PATHFIND_CELL_SIZE_F;
+                if my_extra < minimum {
+                    my_extra = minimum;
+                    my_exit_width = (my_exit_width - my_extra).max(0.0);
+                }
+            }
             let my_bounds = factory_expanded_bounds(&query_shape, my_extra, my_extra);
             let my_exit = factory_exit_shape(&query_shape, my_exit_width);
             let range = 2.0 * (query_major + query_minor);

@@ -455,7 +455,7 @@ impl AIPlayer {
         seed: Vec3,
     ) -> Option<Vec3> {
         let game_logic = &AiWorldView::new(game_logic);
-        if game_logic.is_location_legal_to_build(self.team, seed, template_name) {
+        if game_logic.is_location_legal_to_build(self.player_id, seed, template_name) {
             return Some(seed);
         }
         const STEP: f32 = 20.0;
@@ -471,7 +471,11 @@ impl AIPlayer {
                         seed.y,
                         seed.z + dz as f32 * reach,
                     );
-                    if game_logic.is_location_legal_to_build(self.team, candidate, template_name) {
+                    if game_logic.is_location_legal_to_build(
+                        self.player_id,
+                        candidate,
+                        template_name,
+                    ) {
                         return Some(candidate);
                     }
                 }

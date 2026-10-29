@@ -843,9 +843,7 @@ impl AIPlayer {
     ) -> Vec<String> {
         let n = (num_skills.max(0) as usize).min(skills.len());
         (0..n)
-            .filter_map(|i| {
-                ai_data.science_name(skills[i]).map(str::to_owned)
-            })
+            .filter_map(|i| ai_data.science_name(skills[i]).map(str::to_owned))
             .collect()
     }
 
@@ -1156,7 +1154,7 @@ impl AIPlayer {
             }
 
             let legal = game_logic
-                .map(|gl| gl.is_location_legal_to_build(self.team, build_pos, thing_name))
+                .map(|gl| gl.is_location_legal_to_build(self.player_id, build_pos, thing_name))
                 .unwrap_or(true);
             if legal {
                 return Some(build_pos);
@@ -1179,7 +1177,7 @@ impl AIPlayer {
         if self.base_defense_structure() != Some(name.as_str()) {
             return;
         }
-        if game_logic.is_location_legal_to_build(self.team, position, &name) {
+        if game_logic.is_location_legal_to_build(self.player_id, position, &name) {
             return;
         }
         if let Some(next) = self.place_next_base_defense_structure(Some(game_logic), &name, false) {

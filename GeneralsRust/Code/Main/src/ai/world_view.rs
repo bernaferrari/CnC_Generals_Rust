@@ -160,12 +160,12 @@ impl<'a> AiWorldView<'a> {
     }
     pub(super) fn is_location_legal_to_build(
         &self,
-        team: Team,
+        player_id: u32,
         position: Vec3,
         template: &str,
     ) -> bool {
         self.world
-            .is_location_legal_to_build(team, position, template)
+            .is_location_legal_to_build_for_ai(player_id, position, template, None)
     }
     pub(super) fn modified_build_cost_supplies(
         &self,
