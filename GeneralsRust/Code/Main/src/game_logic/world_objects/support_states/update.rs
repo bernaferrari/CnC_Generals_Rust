@@ -1303,6 +1303,7 @@ impl GameLogic {
                         Self::set_owned_containment_in_parts(
                             &mut self.objects,
                             &mut self.partition_manager,
+                            &mut self.ai_groups,
                             containment_actor_id,
                             Some(container_id),
                             enclosing_garrison,
@@ -2303,15 +2304,7 @@ impl GameLogic {
                             if hijacker_is_infantry
                                 && self.vehicle_supports_hijacker_ride(special_target_id)
                             {
-                                if let Some(h) = self.objects.get_mut(&object_id) {
-                                    h.begin_hijacker_in_vehicle_with_partition_owner(
-                                        special_target_id,
-                                        &mut crate::game_logic::ObjectAudio::queue(
-                                            &mut self.queued_audio_events,
-                                        ),
-                                        &mut self.partition_manager,
-                                    );
-                                }
+                                self.begin_owned_hijacker_ride(object_id, special_target_id);
                                 self.admit_object_drawable_deselection(object_id);
                             } else {
                                 self.mark_destroyed_authority_aware(object_id, None);
@@ -3948,6 +3941,7 @@ impl GameLogic {
                             Self::set_owned_containment_in_parts(
                                 &mut self.objects,
                                 &mut self.partition_manager,
+                                &mut self.ai_groups,
                                 containment_actor_id,
                                 None,
                                 true,
@@ -4007,6 +4001,7 @@ impl GameLogic {
                             Self::set_owned_containment_in_parts(
                                 &mut self.objects,
                                 &mut self.partition_manager,
+                                &mut self.ai_groups,
                                 containment_actor_id,
                                 None,
                                 true,
@@ -4028,6 +4023,7 @@ impl GameLogic {
                             Self::set_owned_containment_in_parts(
                                 &mut self.objects,
                                 &mut self.partition_manager,
+                                &mut self.ai_groups,
                                 containment_actor_id,
                                 None,
                                 true,
@@ -4049,6 +4045,7 @@ impl GameLogic {
                         Self::set_owned_containment_in_parts(
                             &mut self.objects,
                             &mut self.partition_manager,
+                            &mut self.ai_groups,
                             containment_actor_id,
                             Some(container_id),
                             enclosing,

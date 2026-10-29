@@ -42,12 +42,22 @@ impl super::super::GameLogic {
                 .get_mut(&other_id)
                 .is_some_and(|c| c.add_occupant(self_id));
             if boarded {
+                // OpenContain removes a rider from its group and the world only
+                // when this particular passenger is enclosed by the container.
+                let enclosing = self
+                    .objects
+                    .get(&other_id)
+                    .zip(self.objects.get(&self_id))
+                    .is_some_and(|(container, rider)| container.is_enclosing_container_for(rider));
+                Self::set_owned_containment_in_parts(
+                    &mut self.objects,
+                    &mut self.partition_manager,
+                    &mut self.ai_groups,
+                    self_id,
+                    Some(other_id),
+                    enclosing,
+                );
                 if let Some(us) = self.objects.get_mut(&self_id) {
-                    us.set_contained_by_with_partition_owner(
-                        Some(other_id),
-                        true,
-                        &mut self.partition_manager,
-                    );
                     us.set_ai_state(
                         AIState::Garrisoned,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),

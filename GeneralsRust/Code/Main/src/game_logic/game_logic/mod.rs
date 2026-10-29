@@ -12,7 +12,7 @@ pub(crate) mod named_script_cache;
 mod prelude;
 pub(self) use prelude::*;
 
-mod ai_group_owner;
+pub(crate) mod ai_group_owner;
 mod ambient_sound_retries;
 mod authority;
 mod beacon_client_state;

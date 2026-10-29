@@ -884,12 +884,34 @@ impl Object {
         vehicle_id: ObjectId,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
+        self.prepare_hijacker_in_vehicle(vehicle_id);
+        self.finish_hijacker_in_vehicle(audio);
+    }
+
+    /// C++ HijackerUpdate setup and status bits run before Object::leaveGroup.
+    pub(crate) fn prepare_hijacker_in_vehicle(&mut self, vehicle_id: ObjectId) {
         self.hijack_vehicle_id = Some(vehicle_id);
         self.hijacker_in_vehicle = true;
         self.hijacker_update_active = true;
         self.set_status_no_collisions(true);
         self.set_status_masked(true);
         self.set_status_unselectable(true);
+    }
+
+    /// C++ aiIdle and ride hiding happen after Object::leaveGroup.
+    fn finish_hijacker_in_vehicle(
+        &mut self,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+    ) {
+        self.finish_hijacker_in_vehicle_ai_idle(audio);
+        // C++ ConvertToHijackedVehicleCrateCollide: setDrawableHidden(true).
+        self.set_drawable_hidden(true);
+    }
+
+    fn finish_hijacker_in_vehicle_ai_idle(
+        &mut self,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+    ) {
         self.status.attacking = false;
         self.set_status_moving(false);
         self.stop_moving(audio);
@@ -897,7 +919,17 @@ impl Object {
         if self.ai_state() != AIState::Idle {
             self.set_ai_state(AIState::Idle, audio);
         }
-        // C++ ConvertToHijackedVehicleCrateCollide: setDrawableHidden(true).
+    }
+
+    /// C++ ride path runs aiIdle, unregisters from the world, then hides.
+    pub(crate) fn finish_hijacker_in_vehicle_after_group_leave_with_partition_owner(
+        &mut self,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        self.require_partition_owner(Some(partition));
+        self.finish_hijacker_in_vehicle_ai_idle(audio);
+        partition.unregister_object(self.id.0);
         self.set_drawable_hidden(true);
     }
 

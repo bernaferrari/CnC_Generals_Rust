@@ -3266,6 +3266,7 @@ impl GameLogic {
                 Self::set_owned_containment_in_parts(
                     &mut self.objects,
                     &mut self.partition_manager,
+                    &mut self.ai_groups,
                     containment_actor_id,
                     Some(outpost_id),
                     true,
@@ -3423,6 +3424,7 @@ impl GameLogic {
                 Self::set_owned_containment_in_parts(
                     &mut self.objects,
                     &mut self.partition_manager,
+                    &mut self.ai_groups,
                     containment_actor_id,
                     Some(crawler_id),
                     true,
@@ -3546,6 +3548,7 @@ impl GameLogic {
                 Self::set_owned_containment_in_parts(
                     &mut self.objects,
                     &mut self.partition_manager,
+                    &mut self.ai_groups,
                     containment_actor_id,
                     None,
                     true,

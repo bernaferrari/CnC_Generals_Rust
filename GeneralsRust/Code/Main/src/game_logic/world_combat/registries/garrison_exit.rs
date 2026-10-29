@@ -92,6 +92,7 @@ impl GameLogic {
             Self::set_owned_containment_in_parts(
                 &mut self.objects,
                 &mut self.partition_manager,
+                &mut self.ai_groups,
                 containment_actor_id,
                 None,
                 true,
@@ -175,6 +176,7 @@ impl GameLogic {
             Self::set_owned_containment_in_parts(
                 &mut self.objects,
                 &mut self.partition_manager,
+                &mut self.ai_groups,
                 containment_actor_id,
                 None,
                 true,

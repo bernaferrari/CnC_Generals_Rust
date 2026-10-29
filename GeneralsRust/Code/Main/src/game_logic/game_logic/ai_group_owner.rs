@@ -74,6 +74,19 @@ impl AiGroupOwner {
         true
     }
 
+    /// Remove only the membership belonging to this exact live Object birth.
+    pub(crate) fn remove_if_birth(&mut self, object: ObjectId, birth: &Weak<()>) -> bool {
+        if self
+            .membership
+            .get(&object)
+            .is_some_and(|member| member.birth.ptr_eq(birth))
+        {
+            self.remove(object)
+        } else {
+            false
+        }
+    }
+
     fn members(&self, group: u32) -> Option<&[ObjectId]> {
         self.groups.get(&group).map(Vec::as_slice)
     }
@@ -121,16 +134,28 @@ impl GameLogic {
     }
 
     pub(crate) fn leave_ai_group_with_birth(&mut self, object: ObjectId, birth: &Weak<()>) -> bool {
-        if self
-            .ai_groups
-            .membership
-            .get(&object)
-            .is_some_and(|membership| membership.birth.ptr_eq(birth))
-        {
-            self.ai_groups.remove(object)
-        } else {
-            false
-        }
+        self.ai_groups.remove_if_birth(object, birth)
+    }
+
+    /// Run the C++ ConvertToHijackedVehicleCrateCollide ride transition around
+    /// Object::leaveGroup: module/status setup, group leave, AI idle, unregister,
+    /// and hide. Generic team transfers deliberately do not use this path.
+    pub(crate) fn begin_owned_hijacker_ride(
+        &mut self,
+        object: ObjectId,
+        vehicle: ObjectId,
+    ) -> bool {
+        let Some(actor) = self.objects.get_mut(&object) else {
+            return false;
+        };
+        actor.prepare_hijacker_in_vehicle(vehicle);
+        let birth = Arc::downgrade(&actor.visual_draw_identity_token);
+        self.ai_groups.remove_if_birth(object, &birth);
+        actor.finish_hijacker_in_vehicle_after_group_leave_with_partition_owner(
+            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+            &mut self.partition_manager,
+        );
+        true
     }
 
     /// The group currently owning this object's birth, if any. IDs are scoped

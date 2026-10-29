@@ -85,12 +85,13 @@ fn world(
 }
 
 fn exit_all_script() -> ScriptEngine {
+    exit_all_script_for("teamOwner")
+}
+
+fn exit_all_script_for(team: &str) -> ScriptEngine {
     let mut action = ScriptAction::new(ScriptActionType::TeamExitAll);
     action
-        .add_parameter(Parameter::with_string(
-            ParameterType::Team,
-            "teamOwner".into(),
-        ))
+        .add_parameter(Parameter::with_string(ParameterType::Team, team.into()))
         .unwrap();
     let mut condition = OrCondition::new();
     condition.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
@@ -136,8 +137,27 @@ fn live_team_exit_all_only_changes_the_receiving_world_with_colliding_ids() {
     );
 
     first
+        .update_local_script_engine_with_owner(&exit_all_script_for("MissingTeam"))
+        .unwrap();
+    assert_eq!(first.ai_group_id_of(first_carrier), None);
+    assert_ne!(
+        first.host_object(first_passenger).unwrap().ai_state(),
+        generals_main::game_logic::AIState::Exiting
+    );
+
+    first
         .update_local_script_engine_with_owner(&exit_all_script())
         .unwrap();
+    let first_group = first
+        .ai_group_id_of(first_carrier)
+        .expect("carrier joins the receiving AIGroup");
+    assert_eq!(first.ai_group_id_of(first_passenger), Some(first_group));
+    assert_eq!(
+        first.ai_group_members_of(first_carrier).as_deref(),
+        Some(&[first_passenger, first_carrier][..])
+    );
+    assert_eq!(second.ai_group_id_of(second_carrier), None);
+    assert_eq!(second.ai_group_id_of(second_passenger), None);
     assert_eq!(first.host_object(first_carrier).unwrap().formation_id, 73);
     assert_eq!(
         first.host_object(first_carrier).unwrap().formation_offset,
@@ -175,6 +195,23 @@ fn live_team_exit_all_only_changes_the_receiving_world_with_colliding_ids() {
         second.host_object(second_passenger).unwrap().ai_state(),
         generals_main::game_logic::AIState::Exiting
     );
+    first
+        .update_local_script_engine_with_owner(&exit_all_script_for("MissingTeam"))
+        .unwrap();
+    assert_eq!(first.ai_group_id_of(first_carrier), Some(first_group));
+    assert_eq!(
+        first.host_object(first_passenger).unwrap().ai_state(),
+        generals_main::game_logic::AIState::Exiting
+    );
+    first
+        .update_local_script_engine_with_owner(&exit_all_script())
+        .unwrap();
+    assert_ne!(first.ai_group_id_of(first_carrier), Some(first_group));
+    assert_eq!(
+        first.ai_group_members_of(first_carrier).as_deref(),
+        Some(&[first_passenger, first_carrier][..])
+    );
+    assert_eq!(second.ai_group_id_of(second_carrier), None);
 }
 
 #[test]
@@ -207,6 +244,8 @@ fn live_team_exit_all_routes_airborne_transport_through_receiving_world() {
         .update_local_script_engine_with_owner(&exit_all_script())
         .unwrap();
 
+    assert!(first.ai_group_id_of(first_aircraft).is_some());
+    assert_eq!(second.ai_group_id_of(second_aircraft), None);
     let owner = first.host_object(first_aircraft).unwrap();
     assert!(owner.pending_evacuate_on_stop);
     assert_eq!(owner.ai_state(), generals_main::game_logic::AIState::Moving);
@@ -279,10 +318,7 @@ fn garrison_world() -> (
 fn player_garrison_all_script(player: &str) -> ScriptEngine {
     let mut action = ScriptAction::new(ScriptActionType::PlayerGarrisonAllBuildings);
     action
-        .add_parameter(Parameter::with_string(
-            ParameterType::Side,
-            player.into(),
-        ))
+        .add_parameter(Parameter::with_string(ParameterType::Side, player.into()))
         .unwrap();
     let mut condition = OrCondition::new();
     condition.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
@@ -318,11 +354,13 @@ fn live_player_garrison_all_is_synchronous_and_isolated_for_colliding_ids() {
         first.host_object(first_infantry).unwrap().ai_state(),
         generals_main::game_logic::AIState::Entering
     );
-    assert!(second
-        .host_object(second_infantry)
-        .unwrap()
-        .target
-        .is_none());
+    assert!(
+        second
+            .host_object(second_infantry)
+            .unwrap()
+            .target
+            .is_none()
+    );
 
     second
         .update_local_script_engine_with_owner(&player_garrison_all_script("Owner"))

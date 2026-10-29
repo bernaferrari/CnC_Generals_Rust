@@ -828,6 +828,7 @@ mod tests {
                 ] {
                     let mut template = ThingTemplate::new(name);
                     template.add_kind_of(KindOf::Immobile);
+                    template.add_kind_of(KindOf::AlwaysSelectable);
                     owner.templates.insert(name.into(), template);
                 }
                 let carrier = owner
@@ -839,14 +840,21 @@ mod tests {
                 let rider = owner
                     .create_object("PartitionVisibleRider", Team::USA, glam::Vec3::ZERO)
                     .unwrap();
+                let group = owner.create_team_ai_group(&[chute.0, rider.0]);
+                assert_eq!(owner.ai_group_id_of(chute), Some(group));
+                assert_eq!(owner.ai_group_id_of(rider), Some(group));
                 owner.objects.get_mut(&chute).unwrap().occupants.push(rider);
                 GameLogic::set_owned_containment_in_parts(
                     &mut owner.objects,
                     &mut owner.partition_manager,
+                    &mut owner.ai_groups,
                     rider,
                     Some(chute),
                     false,
                 );
+                // A direct non-enclosing entry leaves both actors in their groups.
+                assert_eq!(owner.ai_group_id_of(chute), Some(group));
+                assert_eq!(owner.ai_group_id_of(rider), Some(group));
                 owner.update_owned_partition_with_effects(&mut Default::default());
                 let old_chute =
                     Arc::downgrade(&owner.partition_manager.object_cells[&chute.0].identity);
@@ -856,19 +864,38 @@ mod tests {
                 GameLogic::set_owned_containment_in_parts(
                     &mut owner.objects,
                     &mut owner.partition_manager,
+                    &mut owner.ai_groups,
                     chute,
                     Some(carrier),
                     true,
                 );
+                // Outer enclosing entry walks the parachute's visible child in
+                // list order and removes both exact births from the group.
+                assert_eq!(owner.ai_group_id_of(chute), None);
+                assert_eq!(owner.ai_group_id_of(rider), None);
                 assert!(!owner.partition_manager.is_registered(chute.0));
                 assert!(!owner.partition_manager.is_registered(rider.0));
                 assert!(
                     owner.objects[&chute].drawable_hidden && owner.objects[&rider].drawable_hidden
                 );
                 assert!(old_chute.upgrade().is_none() && old_rider.upgrade().is_none());
+                // A repeated admission of an already-contained rider cannot
+                // replay OpenContain::addToContain's world-removal phase.
+                let contained_group = owner.create_team_ai_group(&[chute.0, rider.0]);
                 GameLogic::set_owned_containment_in_parts(
                     &mut owner.objects,
                     &mut owner.partition_manager,
+                    &mut owner.ai_groups,
+                    chute,
+                    Some(carrier),
+                    true,
+                );
+                assert_eq!(owner.ai_group_id_of(chute), Some(contained_group));
+                assert_eq!(owner.ai_group_id_of(rider), Some(contained_group));
+                GameLogic::set_owned_containment_in_parts(
+                    &mut owner.objects,
+                    &mut owner.partition_manager,
+                    &mut owner.ai_groups,
                     chute,
                     None,
                     true,

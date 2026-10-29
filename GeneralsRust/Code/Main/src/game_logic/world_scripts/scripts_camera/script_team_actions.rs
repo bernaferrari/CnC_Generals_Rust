@@ -1429,25 +1429,23 @@ impl GameLogic {
         condition: Option<u32>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        for id in self.receiving_garrison_members(team, calling, condition)? {
+        let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
+            return Ok(());
+        };
+        // ScriptActions::doTeamExitAll creates and fills the AIGroup before
+        // groupEvacuate; admission also leaves any previous group immediately.
+        let group = self.create_team_ai_group(&members);
+        for id in self.ai_group_members(group) {
+            if self.ai_group_id_of(id) != Some(group) {
+                continue;
+            }
             let Some(member) = self.host_object(id) else {
                 continue;
             };
             let has_ai = member.has_ai_update_interface();
             let is_structure = member.is_kind_of(crate::game_logic::KindOf::Structure);
-            let is_always_selectable =
-                member.is_kind_of(crate::game_logic::KindOf::AlwaysSelectable);
             let airborne_aircraft = member.is_kind_of(crate::game_logic::KindOf::Aircraft)
                 && member.status.airborne_target;
-
-            // C++ AIGroup::add admits AIUpdate objects, structures, and
-            // AlwaysSelectable objects. The latter have no groupEvacuate
-            // branch without AI. C++ AIGroup::add also calls Object::enterGroup;
-            // Main has no corresponding owner-bound group lifetime here, so
-            // persistent AIGroup membership remains a separate migration gap.
-            if !has_ai && !is_structure && !is_always_selectable {
-                continue;
-            }
 
             if airborne_aircraft && has_ai {
                 // C++ AIGroup.cpp:2416-2422 snapshots the aircraft position,
