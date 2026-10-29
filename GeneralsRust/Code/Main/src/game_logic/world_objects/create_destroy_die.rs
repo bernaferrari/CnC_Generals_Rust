@@ -40,6 +40,7 @@ fn reset_continuous_fire_state(object: &mut Object) {
 struct HostSpawnBehaviorSpec {
     spawn_template: String,
     spawn_number: u32,
+    replacement_delay: u32,
     one_shot: bool,
     spawned_require_spawner: bool,
 }
@@ -611,6 +612,7 @@ impl GameLogic {
         (!spawn_template.is_empty()).then_some(HostSpawnBehaviorSpec {
             spawn_template,
             spawn_number,
+            replacement_delay: data.spawn_replace_delay_data as u32,
             one_shot: data.is_one_shot_data,
             spawned_require_spawner: data.spawned_require_spawner,
         })
@@ -629,6 +631,7 @@ impl GameLogic {
             return Some(HostSpawnBehaviorSpec {
                 spawn_template: tunnel_network_spawn_template_for(template_name),
                 spawn_number: TUNNEL_NETWORK_SPAWN_NUMBER,
+                replacement_delay: 0,
                 one_shot: true,
                 spawned_require_spawner: false,
             });
@@ -640,6 +643,7 @@ impl GameLogic {
                     crate::game_logic::host_base_defense::STINGER_SPAWN_TEMPLATE,
                 ),
                 spawn_number: crate::game_logic::host_base_defense::STINGER_SPAWN_NUMBER,
+                replacement_delay: crate::game_logic::host_base_defense::STINGER_SPAWN_REPLACE_DELAY_FRAMES,
                 one_shot: false,
                 spawned_require_spawner: true,
             });

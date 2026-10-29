@@ -211,7 +211,7 @@ fn no_spawner_world() -> GameLogic {
 fn stinger_hive_damage_uses_receiving_roster_order_and_death_deadlines() {
     use generals_main::game_logic::host_base_defense::HostHiveDamageClass;
 
-    fn stinger_world(site_body: &str) -> GameLogic {
+    fn stinger_world(site_body: &str, replacement_delay_ms: u32) -> GameLogic {
         let body_fields = if site_body.eq_ignore_ascii_case("HiveStructureBody") {
             " PropagateDamageTypesToSlavesWhenExisting = SMALL_ARMS SNIPER POISON RADIATION SURRENDER MICROWAVE\n SwallowDamageTypesIfSlavesNotExisting = SNIPER POISON SURRENDER\n"
         } else {
@@ -221,15 +221,15 @@ fn stinger_hive_damage_uses_receiving_roster_order_and_death_deadlines() {
         world
             .admit_object_ini_sources([(
                 "StingerHiveOwner.ini".into(),
-                format!("Object GLAStingerSite\n KindOf = STRUCTURE SELECTABLE\n Body = {site_body} SiteBody\n{body_fields} MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SpawnBehavior SiteSpawn\n OneShot = No\n SpawnNumber = 3\n SpawnReplaceDelay = 30000\n SpawnTemplateName = GLAInfantryStingerSoldier\n End\nEnd\nObject GLAInfantryStingerSoldier\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody SoldierBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject HiveShooter\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody ShooterBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n").into(),
+                format!("Object GLAStingerSite\n KindOf = STRUCTURE SELECTABLE\n Body = {site_body} SiteBody\n{body_fields} MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SpawnBehavior SiteSpawn\n OneShot = No\n SpawnNumber = 3\n SpawnReplaceDelay = {replacement_delay_ms}\n SpawnTemplateName = GLAInfantryStingerSoldier\n End\nEnd\nObject GLAInfantryStingerSoldier\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody SoldierBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject HiveShooter\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody ShooterBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n").into(),
             )])
             .expect("receiving Stinger and source definitions are valid");
         world.add_player(Player::new(1, Team::GLA, "HiveOwner", true));
         world
     }
 
-    let mut first = stinger_world("HiveStructureBody");
-    let mut peer = stinger_world("HiveStructureBody");
+    let mut first = stinger_world("HiveStructureBody", 2000);
+    let mut peer = stinger_world("HiveStructureBody", 30000);
     let site = first
         .create_object_for_player("GLAStingerSite", 1, Vec3::ZERO)
         .expect("Stinger SpawnBehavior admitted");
@@ -325,13 +325,28 @@ fn stinger_hive_damage_uses_receiving_roster_order_and_death_deadlines() {
         .into_iter()
         .find(|record| record.producer_id == site.0)
         .unwrap();
-    assert_eq!(record.replacement_times, vec![900]);
+    assert_eq!(record.replacement_times, vec![60]);
     assert_eq!(roster(&peer, peer_site), peer_roster);
+    peer.apply_host_hive_damage_from(
+        peer_site,
+        1_000.0,
+        HostHiveDamageClass::PropagateToSlaves,
+        None,
+        Some(peer_shooter),
+    );
+    let peer_tail = capture_lifecycle_tail(&peer).expect("capture peer replacement deadline");
+    let peer_record = peer_tail
+        .spawn_behavior_rosters
+        .unwrap()
+        .into_iter()
+        .find(|record| record.producer_id == peer_site.0)
+        .unwrap();
+    assert_eq!(peer_record.replacement_times, vec![900]);
 
     // A matching Stinger name and SpawnBehavior do not change an ActiveBody
     // into HiveStructureBody. C++ virtual dispatch therefore damages the
     // structure directly instead of redirecting the hit to a child.
-    let mut active_body = stinger_world("ActiveBody");
+    let mut active_body = stinger_world("ActiveBody", 30000);
     let active_site = active_body
         .create_object_for_player("GLAStingerSite", 1, Vec3::ZERO)
         .expect("ActiveBody Stinger-like object admitted");
@@ -365,7 +380,7 @@ fn stinger_hive_damage_uses_receiving_roster_order_and_death_deadlines() {
     let snapshot = SnapshotBuilder::new()
         .create_world_snapshot(&first)
         .expect("capture complete Stinger child/deadline continuation");
-    let mut restored = stinger_world("HiveStructureBody");
+    let mut restored = stinger_world("HiveStructureBody", 2000);
     SnapshotBuilder::new()
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("restore ordered child identities and replacement deadline");
@@ -373,7 +388,7 @@ fn stinger_hive_damage_uses_receiving_roster_order_and_death_deadlines() {
     let restored_tail = capture_lifecycle_tail(&restored).expect("capture restored state");
     assert_eq!(
         restored_tail.spawn_behavior_rosters.unwrap()[0].replacement_times,
-        vec![900],
+        vec![60],
         "replacement timing remains part of the receiving object's continuation"
     );
 }

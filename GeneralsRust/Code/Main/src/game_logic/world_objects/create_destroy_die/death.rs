@@ -755,11 +755,11 @@ impl GameLogic {
                     ) {
                         // C++ SpawnBehavior::onSpawnDeath appends one absolute
                         // replacement time before erasing the exact ID.
-                        producer.enqueue_spawn_behavior_replacement(
-                            self.frame.saturating_add(
-                                crate::game_logic::host_base_defense::STINGER_SPAWN_REPLACE_DELAY_FRAMES,
-                            ),
-                        );
+                        if let Some(spec) = Self::resolve_host_spawn_behavior_spec(producer) {
+                            producer.enqueue_spawn_behavior_replacement(
+                                self.frame.wrapping_add(spec.replacement_delay),
+                            );
+                        }
                     }
                     let _ = producer.forget_spawn_behavior_child(id, child_birth);
                 }
