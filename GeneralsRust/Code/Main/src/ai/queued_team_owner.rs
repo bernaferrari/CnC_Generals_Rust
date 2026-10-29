@@ -879,7 +879,8 @@ mod tests {
         nested.set_next_action(Some(Box::new(failing)));
 
         let mut create = Script::new();
-        create.script_name = "BuildChild".into();
+        // Child's creation hook is named BuildPeer in callback_world().
+        create.script_name = "BuildPeer".into();
         create.is_subroutine = true;
         create.action = Some(Box::new(nested));
         let mut count = ScriptAction::new(ScriptActionType::IncrementCounter);
@@ -937,12 +938,13 @@ mod tests {
                 .get_counter("PeerCreateVisits")
                 .unwrap()
                 .value,
-            1
+            2
         );
         assert!(world.team_creation_error().is_some());
 
         // The production queue processor is the retry boundary. It must keep
         // the completed callback receipt and must not enter the legacy binder.
+        world.ai_manager.ai_players.get_mut(&1).unwrap().next_team_queue_time = 0.0;
         let data = AiDataView::from_world(&world);
         world
             .update_owned_ai_military_with_effects(1, 0.0, &data, &mut Default::default())
@@ -955,7 +957,7 @@ mod tests {
                 .get_counter("PeerCreateVisits")
                 .unwrap()
                 .value,
-            1
+            2
         );
         let factory = world.team_factory.lock().unwrap();
         let child_now = factory.find_team_by_id(child_id).unwrap();
