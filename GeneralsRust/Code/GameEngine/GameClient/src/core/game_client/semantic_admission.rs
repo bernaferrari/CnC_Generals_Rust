@@ -101,6 +101,16 @@ impl GameClient {
     }
 }
 impl NativeDrawableOwner<'_> {
+    /// Whether this exact receiving owner has finished retiring its CPU
+    /// Drawable world. Native renderer reset uses this as a preflight before
+    /// dropping the parallel constructor receipts.
+    pub fn has_live_drawable_world(&self) -> bool {
+        !self.drawables.drawable_map.is_empty()
+            || !self.drawables.native_drawable_order.is_empty()
+            || !self.drawables.drawable_object_map.is_empty()
+            || !self.drawables.presentation_direct_drawable_bindings.is_empty()
+    }
+
     /// Immutable per-pass ray-pick geometry from this exact receiving
     /// gameplay Drawable roster. Objectless auxiliary drawables are omitted.
     pub fn translator_pick_drawables(

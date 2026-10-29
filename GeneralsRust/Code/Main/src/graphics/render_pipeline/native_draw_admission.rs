@@ -61,6 +61,27 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
     pub(super) fn retire_native_drawable(&mut self, id: crate::game_logic::ObjectId) {
         self.retire_native_owner(NativeDrawOwnerId::Actor(id.0));
     }
+
+    /// GameClient reset has already retired every CPU Drawable before the
+    /// subsequent GameLogic reset begins. Retire the corresponding renderer
+    /// constructor receipts at that same engine boundary, so later Object
+    /// callbacks observe the source-ordered absence instead of a stale pose
+    /// lifetime with no Client binding.
+    pub(crate) fn retire_after_game_client_reset(
+        &mut self,
+        client: &game_client::core::game_client::NativeDrawableOwner<'_>,
+    ) -> Result<(), String> {
+        if client.has_live_drawable_world() {
+            return Err("GameClient reset left native Drawables installed".into());
+        }
+        let owners: Vec<_> = self.native_drawable_lifetimes.keys().copied().collect();
+        for owner in owners {
+            self.retire_native_owner(owner);
+        }
+        *self.pending_client_drawable_restore = None;
+        self.pending_client_drawable_imports.clear();
+        Ok(())
+    }
     fn retire_native_owner(&mut self, owner: NativeDrawOwnerId) {
         self.native_drawable_lifetimes.remove(&owner);
         self.drawable_visual_states

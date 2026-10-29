@@ -17,6 +17,10 @@ pub struct HostObjectStore {
     // discarded with its native owner. Clearing a live roster is not an
     // acknowledgement that failed native resource cleanup succeeded.
     failed_retirement: Option<FailedObjectRetirement>,
+    // C++ reset clears m_objVector before destroying the still-linked Object
+    // list. Keep canonical storage/ordered visitation available to the owner,
+    // while ordinary ID lookup observes the cleared vector during that phase.
+    ordinary_lookup_hidden_ids: Option<std::collections::HashSet<ObjectId>>,
 }
 
 #[derive(Debug)]
@@ -56,16 +60,31 @@ impl HostObjectStore {
         }
     }
 
-    pub fn get(&self, id: &ObjectId) -> Option<&Object> {
+    /// Stable owner storage access. Unlike `lookup`, this intentionally
+    /// ignores reset's ordinary-ID-lookup mask so internal Object lifecycle
+    /// callbacks can keep operating on the linked teardown roster.
+    pub(crate) fn get(&self, id: &ObjectId) -> Option<&Object> {
         self.map.get(id)
     }
 
     pub fn lookup(&self, id: &ObjectId) -> Option<&Object> {
-        self.get(id)
+        if self
+            .ordinary_lookup_hidden_ids
+            .as_ref()
+            .is_some_and(|hidden| hidden.contains(id))
+        {
+            None
+        } else {
+            self.map.get(id)
+        }
     }
 
-    pub fn contains_key(&self, id: &ObjectId) -> bool {
+    pub(crate) fn contains_key(&self, id: &ObjectId) -> bool {
         self.map.contains_key(id)
+    }
+
+    pub(crate) fn suspend_ordinary_lookup_for_reset(&mut self) {
+        self.ordinary_lookup_hidden_ids = Some(self.registration_order.iter().copied().collect());
     }
 
     pub fn registered(
@@ -114,6 +133,9 @@ impl HostObjectStore {
             "new Object admission cannot replace a live lifetime"
         );
         self.registration_order.insert(0, id);
+        if let Some(hidden) = self.ordinary_lookup_hidden_ids.as_mut() {
+            hidden.remove(&id);
+        }
         self.map.insert(id, object)
     }
 
@@ -136,6 +158,7 @@ impl HostObjectStore {
     pub fn clear(&mut self) {
         self.map.clear();
         self.registration_order.clear();
+        self.ordinary_lookup_hidden_ids = None;
     }
 
     pub(crate) fn failed_retirement_reason(&self) -> Option<&str> {
@@ -165,8 +188,22 @@ impl HostObjectStore {
         });
     }
 
-    pub fn get_mut(&mut self, id: &ObjectId) -> Option<&mut Object> {
+    /// Mutable stable owner storage access; ordinary ID resolution must use
+    /// `lookup_mut` so reset callback visibility follows C++ `m_objVector`.
+    pub(crate) fn get_mut(&mut self, id: &ObjectId) -> Option<&mut Object> {
         self.map.get_mut(id)
+    }
+
+    pub(crate) fn lookup_mut(&mut self, id: &ObjectId) -> Option<&mut Object> {
+        if self
+            .ordinary_lookup_hidden_ids
+            .as_ref()
+            .is_some_and(|hidden| hidden.contains(id))
+        {
+            None
+        } else {
+            self.map.get_mut(id)
+        }
     }
 
     /// Borrow distinct object values without exposing membership mutation.
@@ -313,7 +350,7 @@ pub struct HostObjectRead<'a> {
 }
 impl<'a> HostObjectRead<'a> {
     pub fn lookup(self, id: &ObjectId) -> Option<&'a Object> {
-        self.store.map.get(id)
+        self.store.lookup(id)
     }
     pub fn registered(
         self,

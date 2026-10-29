@@ -99,7 +99,7 @@ impl GameLogic {
         let redirected = self.redirected_containment_owner(id);
         if redirected != id {
             let children = self
-                .host_object(redirected)
+                .teardown_object(redirected)
                 .map(|object| object.contained_units())
                 .unwrap_or_default();
             // CPP onDelete removes the child's contents before switching back
@@ -107,11 +107,11 @@ impl GameLogic {
             for child in children {
                 self.remove_direct_contained_child_with_effects(redirected, child, effects)?;
             }
-            if let Some(outer) = self.host_object_mut(id) {
+            if let Some(outer) = self.teardown_object_mut(id) {
                 outer.overlord_redirection_active = false;
             }
             let payloads = self
-                .host_object(id)
+                .teardown_object(id)
                 .map(|object| object.occupants.clone())
                 .unwrap_or_default();
             for payload in payloads {
@@ -175,12 +175,12 @@ impl GameLogic {
         child_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        let Some(container) = self.host_object(container_id) else {
+        let Some(container) = self.teardown_object(container_id) else {
             return Ok(());
         };
         if !container.contained_units().contains(&child_id)
             || !self
-                .host_object(child_id)
+                .teardown_object(child_id)
                 .is_some_and(|child| child.contained_by == Some(container_id))
         {
             return Ok(());
@@ -218,7 +218,7 @@ impl GameLogic {
             }
         }
         self.play_container_removing_template_sounds(container_id, child_id, effects);
-        let _ = self.host_object_mut(child_id);
+        let _ = self.teardown_object_mut(child_id);
         if self.objects.contains_key(&child_id) {
             Self::set_owned_containment_in_parts(
                 &mut self.objects,
@@ -253,7 +253,7 @@ impl GameLogic {
             self.scatter_dying_transport_rider_with_effects(container_id, child_id, effects);
             self.reset_rider_mood_check_on_exit(container_id, child_id);
             let frame = self.frame;
-            if let Some(container) = self.host_object_mut(container_id) {
+            if let Some(container) = self.teardown_object_mut(container_id) {
                 container.frame_exit_not_busy = frame.wrapping_add(delay);
                 if container.contained_units().is_empty() {
                     let bit = crate::game_logic::host_enum_table_residual::loaded_model_bit();

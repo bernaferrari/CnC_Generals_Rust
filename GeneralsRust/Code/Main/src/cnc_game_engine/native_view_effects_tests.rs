@@ -1205,6 +1205,116 @@ fn missing_client_key_with_canonical_constructor_is_not_prebirth_absence() {
     );
 }
 
+#[test]
+#[ignore = "requires native WGPU; exercises the production Client-before-GameLogic reset phase"]
+fn actual_client_reset_retires_renderer_receipts_before_logic_reset_and_preserves_peer() {
+    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 32,
+        height: 32,
+        ..Default::default()
+    })
+    .unwrap();
+    struct Scope;
+    impl Drop for Scope {
+        fn drop(&mut self) {
+            let _ = ww3d_engine::shutdown();
+        }
+    }
+    let _scope = Scope;
+    let mut graphics = GraphicsSystem::new(
+        ww3d_engine::device().unwrap(),
+        ww3d_engine::queue().unwrap(),
+        ww3d_engine::color_format().unwrap(),
+        ww3d_engine::depth_format().unwrap(),
+    )
+    .unwrap();
+    graphics.cache_model(
+        crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
+        model("CameraModel", 0.),
+    );
+    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut client = GameClient::new().unwrap();
+    let mut peer_client = GameClient::new().unwrap();
+    let mut world = physical_retirement_world();
+    let mut peer = physical_retirement_world();
+    let id = birth_physical_retirement_actor(
+        &mut world,
+        "StrictFactoryOwner",
+        Vec3::ZERO,
+        &mut client,
+        &mut pipeline,
+        &mut graphics,
+        EPOCH,
+    );
+    let peer_id = birth_physical_retirement_actor(
+        &mut peer,
+        "StrictFactoryOwner",
+        Vec3::new(303., 5., 7.),
+        &mut peer_client,
+        &mut peer_pipeline,
+        &mut graphics,
+        EPOCH + 1,
+    );
+    assert_eq!(id, peer_id, "same numeric IDs are session-local");
+    let peer_source = peer.current_native_slave_source(peer_id, 0).unwrap();
+    assert!(pipeline
+        .borrow_native_installed_poses()
+        .has_drawable_lifetime(id.0));
+
+    // Match start_game.rs: GameClient::reset, world visual bridge clear,
+    // then host_reset_game_logic. The production pipeline hook retires only
+    // this engine's Main renderer receipts after Client reset succeeds.
+    client.reset().unwrap();
+    let (_, _, client_drawables) = client.split_frame_snow_and_drawable_owner();
+    pipeline
+        .retire_native_drawables_after_client_reset(&client_drawables)
+        .unwrap();
+    gamelogic::helpers::ClientVisualHandle::new(std::sync::Arc::clone(
+        &world.world_services,
+    ))
+    .clear_visual_state_for_reset();
+    assert!(!pipeline
+        .borrow_native_installed_poses()
+        .has_drawable_lifetime(id.0));
+
+    with_physical_retirement_view(
+        &mut client,
+        &mut pipeline,
+        &mut graphics,
+        EPOCH,
+        |runtime| {
+            assert!(runtime.drawables.binding_key(EPOCH, id.0).is_none());
+            assert!(runtime.retire_object_drawable(&world.live_draw_playback_identity(
+                &world.objects[&id],
+            )).is_ok());
+            world
+                .reset_with_effects_checked(&mut crate::game_logic::ScriptPresentationEffects {
+                    view: Some(&mut *runtime),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert!(world.objects.registered_is_empty());
+        },
+    );
+    with_physical_retirement_view(
+        &mut peer_client,
+        &mut peer_pipeline,
+        &mut graphics,
+        EPOCH + 1,
+        |runtime| {
+            assert!(runtime.drawables.binding_key(EPOCH + 1, peer_id.0).is_some());
+            assert!(runtime.poses.has_drawable_lifetime(peer_id.0));
+            assert_eq!(
+                pose(runtime.sample_slave(&peer_source, "CAMERA"))
+                    .w_axis
+                    .truncate(),
+                Vec3::new(303., 5., 7.)
+            );
+        },
+    );
+}
+
 #[path = "native_physical_callback_tests.rs"]
 mod native_physical_callback_tests;
 

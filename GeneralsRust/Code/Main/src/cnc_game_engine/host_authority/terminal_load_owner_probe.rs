@@ -123,6 +123,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
             "Lone Eagle".into(),
             None,
         ))
+        .expect("actual start request should be accepted")
     );
     let deferred_before_failure = engine
         .pending_match_start
@@ -399,6 +400,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
             "Lone Eagle".into(),
             None,
         ))
+        .expect("actual start request should complete")
     );
     verify(&engine);
     // A healthy previously parked start must recheck ownership on completion.

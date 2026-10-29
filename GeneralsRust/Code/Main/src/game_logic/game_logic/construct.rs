@@ -840,11 +840,78 @@ impl GameLogic {
         // duration of reset; a peer reset must not select that peer forever.
         let services = Arc::clone(&self.world_services);
         gamelogic::system::engine_stores::with_world_services(&services, || {
-            self.reset_with_receiving_services();
+            self.reset_with_receiving_services(None)
+                .expect("detached GameLogic reset must retire its particle receipts");
         });
     }
 
-    fn reset_with_receiving_services(&mut self) {
+    /// Reset this installed world after retiring its registered Objects through
+    /// the receiving native presentation owner. This is the checked Main path;
+    /// the legacy compatibility reset above remains available to detached tools.
+    pub(crate) fn reset_with_effects_checked(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let services = Arc::clone(&self.world_services);
+        gamelogic::system::engine_stores::with_world_services(&services, || {
+            if self.has_unregistered_host_objects() {
+                return Err(gamelogic::GameLogicError::Configuration(
+                    "GameLogic reset cannot discard an unfinished Object constructor".into(),
+                ));
+            }
+            if let Some(error) = self.object_retirement_error() {
+                return Err(error);
+            }
+            if self.object_lifecycle_callback_depth != 0 {
+                return Err(gamelogic::GameLogicError::Configuration(
+                    "GameLogic reset cannot replace an active Object lifecycle callback".into(),
+                ));
+            }
+            if !self.combat_particles.can_clear() {
+                #[cfg(feature = "game_client")]
+                {
+                    let manager = effects
+                        .view
+                        .as_deref_mut()
+                        .and_then(|view| view.particle_systems_mut())
+                        .ok_or_else(|| {
+                            gamelogic::GameLogicError::Configuration(
+                                "GameLogic reset requires its live receiving particle manager"
+                                    .into(),
+                            )
+                        })?;
+                    if !self.combat_particles.can_clear_with_client_manager(manager) {
+                        return Err(gamelogic::GameLogicError::Configuration(
+                            "GameLogic reset received a peer particle manager".into(),
+                        ));
+                    }
+                }
+                #[cfg(not(feature = "game_client"))]
+                return Err(gamelogic::GameLogicError::Configuration(
+                    "GameLogic reset requires its live receiving particle manager".into(),
+                ));
+            }
+
+            // C++ GameLogic::reset clears these controls and restores the
+            // input/pause state before Object onDelete callbacks run.
+            // Keep this prefix ahead of the ordered Object drain so callbacks
+            // observe the reset session state.
+            self.buildable_status_overrides.clear();
+            self.control_bar_overrides.clear();
+            self.is_paused = false;
+            self.set_script_input_enabled(true);
+            self.objects.suspend_ordinary_lookup_for_reset();
+
+            self.destroy_all_objects_immediate_with_effects_checked(effects)?;
+            self.reset_with_receiving_services(Some(effects))
+        })
+    }
+
+    fn reset_with_receiving_services(
+        &mut self,
+        effects: Option<&mut crate::game_logic::ScriptPresentationEffects<'_>>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let mut effects = effects;
         self.intro_movie_playing = false;
         self.campaign_session_kind = super::host::CampaignSessionKind::None;
         self.host_trigger_world
@@ -861,12 +928,14 @@ impl GameLogic {
             self.object_retirement_error().is_none(),
             "GameLogic reset cannot recover a failed native retirement; replace the session and native owner"
         );
-        // Reject an unavailable live particle owner before any world mutation.
-        // The compatibility reset API cannot yet receive that owner explicitly.
-        assert!(
-            self.combat_particles.can_clear(),
-            "GameLogic reset requires its live receiving particle manager"
-        );
+        // Legacy detached reset has no manager loan; checked Main reset has
+        // already preflighted and will retire bindings with its exact receiver.
+        if effects.is_none() {
+            assert!(
+                self.combat_particles.can_clear(),
+                "GameLogic reset requires its live receiving particle manager"
+            );
+        }
         self.restore_combat_bonus_baseline();
         self.queued_audio_events.reset();
         self.session_view.world_animations.clear();
@@ -994,9 +1063,30 @@ impl GameLogic {
         self.objects_to_destroy.clear();
         self.accepted_gather_commands.clear();
         self.supply_dropoff_events.clear();
-        self.combat_particles
-            .clear()
-            .expect("particle owner changed during synchronous reset");
+        if let Some(effects) = effects.as_deref_mut() {
+            #[cfg(feature = "game_client")]
+            if let Some(manager) = effects
+                .view
+                .as_deref_mut()
+                .and_then(|view| view.particle_systems_mut())
+            {
+                self.combat_particles
+                    .clear_with_client_manager_checked(manager)
+                    .map_err(gamelogic::GameLogicError::Configuration)?;
+            } else {
+                self.combat_particles
+                    .clear()
+                    .map_err(gamelogic::GameLogicError::Configuration)?;
+            }
+            #[cfg(not(feature = "game_client"))]
+            self.combat_particles
+                .clear()
+                .map_err(gamelogic::GameLogicError::Configuration)?;
+        } else {
+            self.combat_particles
+                .clear()
+                .map_err(gamelogic::GameLogicError::Configuration)?;
+        }
         self.special_power_strikes.clear();
         self.host_paradrops.clear();
         self.host_ambushes.clear();
@@ -1529,6 +1619,7 @@ impl GameLogic {
         // load_map does not call reset, so preserve_host_players still keeps AI.
         self.ai_manager = AIManager::with_team_factory(self.team_factory.clone());
         log::debug!("GameLogic::reset() complete");
+        Ok(())
     }
 }
 

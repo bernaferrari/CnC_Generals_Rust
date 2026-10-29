@@ -1890,7 +1890,7 @@ impl GameLogic {
         // An explicitly supplied interpreter remains authoritative even when
         // its named override is absent; no process owner or mirror is selected.
         let override_direction = self
-            .host_object(id)
+            .teardown_object(id)
             .and_then(|object| {
                 topple_interpreter
                     .or(self.owned_script_engine.as_ref())

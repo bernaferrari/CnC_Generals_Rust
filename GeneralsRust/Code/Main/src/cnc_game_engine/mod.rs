@@ -209,6 +209,15 @@ pub fn run_terminal_load_owner_probe() -> anyhow::Result<()> {
     host_authority::terminal_load_owner_probe::run()
 }
 
+#[cfg(all(
+    feature = "internal",
+    feature = "game_client",
+    not(target_arch = "wasm32")
+))]
+pub fn run_reset_drawable_owner_probe() -> anyhow::Result<()> {
+    host_authority::reset_drawable_owner_probe::run()
+}
+
 mod diplomacy_owner;
 
 #[cfg(feature = "game_client")]

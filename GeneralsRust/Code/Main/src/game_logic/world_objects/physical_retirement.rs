@@ -143,7 +143,7 @@ impl GameLogic {
         // destruction, but never sort/requeue the existing pending events.
         let ids = self.objects.ordered_ids().to_vec();
         for id in ids {
-            self.destroy_object_with_effects(id, effects);
+            self.destroy_object_with_effects(id, effects)?;
         }
         self.process_destroy_list_with_effects_checked(effects)?;
         if !self.objects.registered_is_empty() || self.has_pending_object_removals() {

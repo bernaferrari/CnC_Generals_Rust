@@ -685,9 +685,20 @@ impl CnCGameEngine {
         &mut self,
     ) -> std::result::Result<(), NativeBoundaryFailure> {
         self.require_native_world_boundary("GameLogic reset")?;
-        // Wave 584/871/933: host reset residual via session-control authority.
-        self.host_game_logic_mut()
-            .apply_session_control_op(crate::game_logic::SessionControlOp::Reset);
+        // C++ GameLogic::reset first drains Objects through destroyObject and
+        // processDestroyList. The GameClient was reset at the earlier engine
+        // boundary, matching the native teardown phase; this checked operation
+        // now runs the ordinary logical callbacks with this engine's receiver.
+        if let Err(error) = self.with_native_camera_effects(|world, effects| {
+            world
+                .reset_with_effects_checked(effects)
+                .map_err(|error| error.to_string())
+        }) {
+            error!("Rejecting GameLogic reset after receiving Object retirement failed: {error}");
+            self.pending_state = None;
+            self.current_state = GameState::Exiting;
+            return Err(NativeBoundaryFailure::InstalledWorld(error));
+        }
         if let Some(shadow) = self.gameworld_shadow.as_mut() {
             shadow.reset_for_world_boundary();
         }
@@ -3714,3 +3725,11 @@ mod native_fade_owner_tests;
 ))]
 #[path = "host_authority/terminal_load_owner_probe.rs"]
 pub(super) mod terminal_load_owner_probe;
+
+#[cfg(all(
+    feature = "internal",
+    feature = "game_client",
+    not(target_arch = "wasm32")
+))]
+#[path = "host_authority/reset_drawable_owner_probe.rs"]
+pub(super) mod reset_drawable_owner_probe;

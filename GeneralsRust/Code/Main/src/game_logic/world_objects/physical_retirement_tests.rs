@@ -2,6 +2,8 @@
 //! native resource disposal is covered separately by the WGPU receiver tests.
 use super::*;
 use crate::game_logic::{NativeObjectRetirement, NativeViewEffects, ScriptPresentationEffects};
+use game_client::effects::{ParticleSystemManager, ParticleSystemTemplate};
+use std::sync::Arc;
 
 fn world() -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
@@ -24,6 +26,7 @@ struct Observe {
     team_id: Option<u32>,
     calls: usize,
     reject: bool,
+    particles: Option<ParticleSystemManager>,
 }
 impl Observe {
     fn new(world: &GameLogic, id: ObjectId, reject: bool) -> Self {
@@ -34,10 +37,15 @@ impl Observe {
             team_id: object.team_instance_id,
             calls: 0,
             reject,
+            particles: None,
         }
     }
 }
 impl NativeViewEffects for Observe {
+    fn particle_systems_mut(&mut self) -> Option<&mut ParticleSystemManager> {
+        self.particles.as_mut()
+    }
+
     #[cfg(feature = "game_client")]
     fn body_visual_changed(
         &mut self,
@@ -406,6 +414,258 @@ fn bulk_clear_failed_native_destructor_never_resets_or_retries_old_identity() {
             .is_err()
     );
     assert_eq!(probe.calls, 1);
+}
+
+#[test]
+fn reset_callbacks_see_empty_id_lookup_while_registered_objects_remain_ordered() {
+    struct ResetLookupProbe {
+        parent: ObjectId,
+        child: ObjectId,
+        observed_nested_child: bool,
+    }
+    impl NativeViewEffects for ResetLookupProbe {
+        #[cfg(feature = "game_client")]
+        fn body_visual_changed(
+            &mut self,
+            change: &crate::game_logic::NativeBodyVisualChange,
+            audio: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
+        ) -> Result<bool, String> {
+            let _ = (change, audio);
+            Ok(false)
+        }
+
+        fn local_player_id(&self) -> u32 {
+            1
+        }
+        fn host_epoch(&self) -> u64 {
+            1
+        }
+        fn sample_slave(
+            &mut self,
+            _: &crate::game_logic::NativeSlaveSource,
+            _: &str,
+        ) -> crate::presentation_frame::camera::build::SlaveCameraSample {
+            panic!("reset teardown does not sample a camera")
+        }
+        fn admit_factory_drawable(
+            &mut self,
+            _: crate::game_logic::NativeFactoryDrawableSource,
+            _: game_client::core::game_client::NativeDrawableBirthContext,
+            _: &mut game_engine::common::thing::module_factory::ModuleFactory,
+        ) -> Result<(), String> {
+            panic!("reset teardown does not admit drawables")
+        }
+        fn retire_physical_object_drawable(
+            &mut self,
+            source: &NativeObjectRetirement<'_>,
+        ) -> Result<(), String> {
+            let id = source.object.id;
+            if id == self.parent {
+                assert!(
+                    source.live_objects.lookup(&self.child).is_none(),
+                    "C++ GameLogic::reset clears m_objVector before onDestroy"
+                );
+                assert!(
+                    source
+                        .live_objects
+                        .registered()
+                        .any(|(key, _)| *key == self.child),
+                    "the linked Object list remains available to ordered teardown"
+                );
+                assert!(
+                    source
+                        .live_objects
+                        .get(&self.child)
+                        .is_some_and(|child| child.status.destroyed),
+                    "nested child onDestroy ran through stable teardown storage"
+                );
+                self.observed_nested_child = true;
+            }
+            Ok(())
+        }
+    }
+
+    let (mut owner, first) = world();
+    let second = owner
+        .create_object("PhysicalOwner", Team::USA, Vec3::new(4., 5., 6.))
+        .unwrap();
+    let parent = owner
+        .create_object("PhysicalOwner", Team::USA, Vec3::new(7., 8., 9.))
+        .unwrap();
+    owner
+        .objects
+        .get_mut(&parent)
+        .unwrap()
+        .template_mut()
+        .contain_module
+        .kind = crate::game_logic::thing::ContainModuleKind::Transport;
+    owner
+        .objects
+        .get_mut(&parent)
+        .unwrap()
+        .occupants
+        .push(second);
+    owner.set_fixture_object_contained_by(second, Some(parent));
+    let mut probe = ResetLookupProbe {
+        parent,
+        child: second,
+        observed_nested_child: false,
+    };
+    owner
+        .reset_with_effects_checked(&mut ScriptPresentationEffects {
+            view: Some(&mut probe),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(probe.observed_nested_child);
+    assert!(owner.host_object(first).is_none());
+    assert!(owner.host_object(second).is_none());
+
+    owner.add_player(Player::new(1, Team::USA, "PhysicalOwner", true));
+    let next = owner
+        .create_object("PhysicalOwner", Team::USA, Vec3::ZERO)
+        .unwrap();
+    assert!(
+        owner.host_object(next).is_some(),
+        "lookup resumes after reset"
+    );
+}
+
+#[test]
+fn checked_reset_drains_only_receiving_world_before_reusing_object_ids() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "checked_reset_drains_only_receiving_world_before_reusing_object_ids",
+        || {
+            let (mut owner, id) = world();
+            let (mut peer, peer_id) = world();
+            assert_eq!(id, peer_id, "fixture exercises same numeric ObjectId");
+            owner.require_native_drawable_owner();
+            let old_epoch = owner.visual_world_epoch;
+            owner
+                .combat_particles_mut()
+                .restore_from_snapshot(
+                    2,
+                    [crate::game_logic::CombatParticleSystemEntry {
+                        id: 1,
+                        kind: crate::game_logic::CombatParticleKind::DeathExplosion,
+                        template_name: "ResetOwnedParticle".into(),
+                        position: Vec3::ZERO,
+                        source_object: None,
+                        target_object: None,
+                        spawned_frame: 0,
+                        active: true,
+                        client_system_id: None,
+                        fx_list_name: String::new(),
+                        ocl_list_name: String::new(),
+                        attach_offset: Vec3::ZERO,
+                        attachment: None,
+                    }],
+                )
+                .unwrap();
+            let particle_manager = |name: &str| {
+                let mut manager = ParticleSystemManager::new();
+                let mut template = ParticleSystemTemplate::new(name.into());
+                template.info_mut().system_lifetime = 10;
+                manager.register_template(Arc::new(template));
+                manager
+            };
+            let mut actual_particles = particle_manager("ResetOwnedParticle");
+            assert_eq!(
+                owner
+                    .combat_particles_mut()
+                    .backfill_client_systems(&mut actual_particles),
+                1
+            );
+            let particle_id = owner
+                .combat_particles()
+                .get(1)
+                .unwrap()
+                .client_system_id
+                .unwrap();
+
+            // The explicit Main reset API rejects before any callbacks or reset
+            // state changes if the native particle manager wasn't lent to this call.
+            assert!(
+                owner
+                    .reset_with_effects_checked(&mut ScriptPresentationEffects::default())
+                    .is_err()
+            );
+            assert!(owner.objects.contains_key(&id));
+            assert!(!owner.objects[&id].status.destroyed);
+            assert_eq!(owner.visual_world_epoch, old_epoch);
+
+            let mut peer_receiver = Observe::new(&owner, id, false);
+            peer_receiver.particles = Some(particle_manager("ResetOwnedParticle"));
+            assert!(
+                owner
+                    .reset_with_effects_checked(&mut ScriptPresentationEffects {
+                        view: Some(&mut peer_receiver),
+                        ..Default::default()
+                    })
+                    .is_err()
+            );
+            assert_eq!(peer_receiver.calls, 0);
+            assert!(owner.objects.contains_key(&id));
+            assert!(!owner.objects[&id].status.destroyed);
+            assert!(
+                !actual_particles
+                    .find_particle_system(particle_id)
+                    .unwrap()
+                    .is_destroyed()
+            );
+            assert_eq!(
+                peer_receiver
+                    .particles
+                    .as_ref()
+                    .unwrap()
+                    .active_system_count(),
+                0
+            );
+
+            {
+                let mut receiver = Observe::new(&owner, id, false);
+                receiver.particles = Some(actual_particles);
+                owner
+                    .reset_with_effects_checked(&mut ScriptPresentationEffects {
+                        view: Some(&mut receiver),
+                        ..Default::default()
+                    })
+                    .unwrap();
+                assert_eq!(receiver.calls, 1);
+                assert!(
+                    receiver
+                        .particles
+                        .as_ref()
+                        .unwrap()
+                        .find_particle_system(particle_id)
+                        .unwrap()
+                        .is_destroyed()
+                );
+            }
+            assert!(owner.objects.registered_is_empty());
+            assert!(!owner.has_pending_object_removals());
+            assert_eq!(owner.next_object_id_for_snapshot(), ObjectId(1));
+            assert_ne!(owner.visual_world_epoch, old_epoch);
+
+            // Numeric identity reuse in one world cannot act on its same-ID peer.
+            assert!(peer.objects.contains_key(&peer_id));
+            assert!(!peer.objects[&peer_id].status.destroyed);
+            let new_id = owner
+                .create_object("PhysicalOwner", Team::USA, Vec3::ZERO)
+                .unwrap();
+            assert_eq!(new_id, id);
+            let mut next_receiver = Observe::new(&owner, new_id, false);
+            owner
+                .reset_with_effects_checked(&mut ScriptPresentationEffects {
+                    view: Some(&mut next_receiver),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(next_receiver.calls, 1, "each birth is retired exactly once");
+            assert!(!peer.objects[&peer_id].status.destroyed);
+        },
+    );
 }
 
 #[test]

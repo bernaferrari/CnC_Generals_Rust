@@ -10,6 +10,18 @@
 use super::*;
 
 impl RenderPipeline {
+    /// Retire renderer-side constructor receipts after the receiving
+    /// GameClient has completed its source-ordered Drawable reset. This is
+    /// intentionally separate from full world invalidation, which occurs
+    /// after GameLogic's Object teardown callbacks.
+    pub(crate) fn retire_native_drawables_after_client_reset(
+        &mut self,
+        client: &game_client::core::game_client::NativeDrawableOwner<'_>,
+    ) -> Result<(), String> {
+        self.borrow_native_installed_poses()
+            .retire_after_game_client_reset(client)
+    }
+
     /// Initialize render pipeline - equivalent to C++ RenderPipeline::Initialize()
     pub fn initialize(graphics_system: &GraphicsSystem) -> Result<Self> {
         info!("Initializing RenderPipeline (C++ SAGE equivalent)");

@@ -2259,8 +2259,29 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         self.control_bar.discard_pending_command_clicks();
         #[cfg(feature = "game_client")]
-        if let Err(err) = self.game_client.reset() {
-            warn!("GameEngine::reset GameClient::reset failed: {err}");
+        {
+            if let Err(error) = self.game_client.reset() {
+                self.pending_state = None;
+                self.current_state = GameState::Exiting;
+                return Err(NativeBoundaryFailure::InstalledWorld(format!(
+                    "GameEngine::reset could not reset the receiving GameClient: {error}"
+                )));
+            }
+            // GameClient.cpp destroys its Drawables before GameLogic begins
+            // Object teardown. Retire the matching renderer constructor
+            // receipts now; the later Object callbacks must not mistake
+            // those already retired Client owners for a missing receiver.
+            let (_, _, client_drawables) = self.game_client.split_frame_snow_and_drawable_owner();
+            if let Err(error) = self
+                .render_pipeline
+                .retire_native_drawables_after_client_reset(&client_drawables)
+            {
+                self.pending_state = None;
+                self.current_state = GameState::Exiting;
+                return Err(NativeBoundaryFailure::InstalledWorld(format!(
+                    "GameEngine::reset could not complete the receiving Client/renderer boundary: {error}"
+                )));
+            }
         }
         // The GameClient has destroyed its Drawables. Clear the presentation
         // bridge belonging to this engine's world, even if a save/load

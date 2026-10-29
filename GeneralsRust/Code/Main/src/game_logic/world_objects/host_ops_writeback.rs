@@ -1034,7 +1034,7 @@ impl GameLogic {
     /// The world owns these live values. A comparison session is an observer.
     #[inline]
     pub fn host_object(&self, id: ObjectId) -> Option<&crate::game_logic::object::Object> {
-        self.objects.get(&id)
+        self.objects.lookup(&id)
     }
 
     /// Wave 955/958: host-authority object map borrow (command apply / AI / shadow).
@@ -1057,6 +1057,23 @@ impl GameLogic {
     /// Wave 950/958: host-authority mutable object borrow.
     #[inline]
     pub fn host_object_mut(
+        &mut self,
+        id: ObjectId,
+    ) -> Option<&mut crate::game_logic::object::Object> {
+        self.objects.lookup_mut(&id)
+    }
+
+    /// Internal stable storage access for an Object lifecycle callback.
+    /// During C++-ordered reset teardown, ordinary ID lookup is empty while
+    /// the still-linked Object values remain available to their destructors.
+    pub(in crate::game_logic) fn teardown_object(
+        &self,
+        id: ObjectId,
+    ) -> Option<&crate::game_logic::object::Object> {
+        self.objects.get(&id)
+    }
+
+    pub(in crate::game_logic) fn teardown_object_mut(
         &mut self,
         id: ObjectId,
     ) -> Option<&mut crate::game_logic::object::Object> {

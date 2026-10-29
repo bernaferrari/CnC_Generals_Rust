@@ -279,6 +279,33 @@ impl CombatParticleRegistry {
 
 #[cfg(feature = "game_client")]
 impl CombatParticleRegistry {
+    /// Whether every still-live client receipt belongs to this exact receiving
+    /// manager. Historical/dead receipts need no native teardown authority.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn can_clear_with_client_manager(
+        &self,
+        manager: &game_client::effects::particle_manager::ParticleSystemManager,
+    ) -> bool {
+        let owner = manager.runtime_owner();
+        self.client_bindings
+            .values()
+            .all(|binding| !binding.owner.is_live() || binding.owner == owner)
+    }
+
+    /// Checked version for reset boundaries: reject a peer manager before any
+    /// registry or native particle mutation.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn clear_with_client_manager_checked(
+        &mut self,
+        manager: &mut game_client::effects::particle_manager::ParticleSystemManager,
+    ) -> Result<(), String> {
+        if !self.can_clear_with_client_manager(manager) {
+            return Err("combat particle reset requires its exact live receiving manager".into());
+        }
+        self.clear_with_client_manager(manager);
+        Ok(())
+    }
+
     /// Same retirement operation with the actual receiving manager already
     /// borrowed, used by callers which own that service directly.
     pub(crate) fn deactivate_with_client_manager(
