@@ -23,8 +23,9 @@ fn authored_freeze_speed_weather_follow_receiver_without_or_with_foreign_handler
                 // Observe each action after the actual executor's after_action,
                 // including repeated state changes before save/restore.
                 for (frozen, speed, visible) in
-                    [(true, 3, false), (false, 2, true), (true, 4, false)]
+                    [(true, 3, false), (false, 0, true), (true, -2, false)]
                 {
+                    let simulation_frame_before = owner.get_frame();
                     let freeze = ScriptAction::new(if frozen {
                         ScriptActionType::FreezeTime
                     } else {
@@ -52,6 +53,7 @@ fn authored_freeze_speed_weather_follow_receiver_without_or_with_foreign_handler
                     }
                     assert_eq!(owner.is_script_time_frozen(), frozen);
                     assert_eq!(owner.visual_speed_multiplier(), speed as f32);
+                    assert_eq!(owner.get_frame(), simulation_frame_before);
                     assert_eq!(owner.weather_state().visible, visible);
                     assert!(!peer.is_script_time_frozen());
                     assert_eq!(peer.visual_speed_multiplier(), 1.0);

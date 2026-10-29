@@ -325,6 +325,75 @@ mod tests {
     }
 
     #[test]
+    fn zero_and_negative_view_multipliers_keep_raw_value_without_throttling() {
+        for multiplier in [0, -2] {
+            let mut clock = VisualClock::new();
+            for frame in 1..=3 {
+                let mut offered = input(frame);
+                offered.multiplier = multiplier;
+                let admission = clock.admit(offered);
+                assert!(admission.update_views);
+                assert!(admission.draw_drawables);
+                assert_eq!(clock.time_multiplier_counter, 1);
+            }
+        }
+    }
+
+    #[test]
+    fn switching_below_one_resets_the_deadline_but_retains_cpp_counter() {
+        let mut clock = VisualClock::new();
+        assert!(
+            clock
+                .admit(DisplayInputs {
+                    multiplier: 4,
+                    ..input(1)
+                })
+                .draw_drawables
+        );
+        assert!(
+            !clock
+                .admit(DisplayInputs {
+                    multiplier: 4,
+                    ..input(2)
+                })
+                .draw_drawables
+        );
+        assert!(
+            clock
+                .admit(DisplayInputs {
+                    multiplier: 0,
+                    ..input(3)
+                })
+                .draw_drawables
+        );
+        assert!(
+            clock
+                .admit(DisplayInputs {
+                    multiplier: -2,
+                    ..input(4)
+                })
+                .draw_drawables
+        );
+        // C++ W3DDisplay.cpp:1788-1800 skips the static throttle counter in
+        // the <=1 branch, then resumes its previous counter when speed rises.
+        let continuation = clock.capture_continuation();
+        VisualClock::validate_continuation(&continuation).unwrap();
+        let mut restored = VisualClock::new();
+        restored.admit_continuation(continuation, 4, 100);
+        for (frame, restored_frame, multiplier) in [(5, 101, 4), (6, 102, 4), (7, 103, 4)] {
+            let source = clock.admit(DisplayInputs {
+                multiplier,
+                ..input(frame)
+            });
+            let resumed = restored.admit(DisplayInputs {
+                multiplier,
+                ..input(restored_frame)
+            });
+            assert_eq!(source, resumed);
+        }
+    }
+
+    #[test]
     fn tivo_skips_only_gpu_and_device_readiness_is_a_separate_phase() {
         let mut clock = VisualClock::new();
         let tivo = clock.admit(DisplayInputs {

@@ -258,7 +258,9 @@ impl GameLogic {
             .rolling_average(request.frames);
     }
     pub(crate) fn apply_visual_speed_multiplier(&mut self, request: &VisualSpeedMultiplierRequest) {
-        self.visual_speed_multiplier = request.multiplier.max(1) as f32;
+        // C++ SET_VISUAL_SPEED_MULTIPLIER forwards the authored Int directly
+        // to W3DView::setTimeMultiplier; zero and negative values are valid.
+        self.visual_speed_multiplier = request.multiplier as f32;
     }
     pub(in crate::game_logic::game_logic) fn apply_set_fps_limit(
         &mut self,
