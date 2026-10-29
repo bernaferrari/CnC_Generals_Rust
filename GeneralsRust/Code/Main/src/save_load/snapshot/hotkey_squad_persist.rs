@@ -202,7 +202,7 @@ fn find_hsqd_record(bytes: &[u8]) -> SaveLoadResult<Option<std::ops::Range<usize
     find_lifecycle_record(bytes, HSQD_MAGIC)
 }
 
-/// Locate one record in the typed lifecycle prefix. OXFR v9 owns an extra
+/// Locate one record in the typed lifecycle prefix. OXFR v9+ owns an extra
 /// length+OXFE locator after its payload, so walking by the ordinary header
 /// length alone would strand later records at those footer bytes.
 pub(super) fn find_lifecycle_record(
@@ -253,18 +253,18 @@ pub(super) fn find_lifecycle_record(
             .filter(|&n| n <= bytes.len())
             .ok_or_else(|| SaveLoadError::Corrupted("lifecycle record payload truncated".into()))?;
         let next = if rest.starts_with(b"OXFR")
-            && u32::from_le_bytes(rest[4..8].try_into().unwrap()) == 9
+            && u32::from_le_bytes(rest[4..8].try_into().unwrap()) >= 9
         {
             let footer_end = payload_end
                 .checked_add(8)
                 .filter(|&n| n <= bytes.len())
-                .ok_or_else(|| SaveLoadError::Corrupted("OXFR v9 locator truncated".into()))?;
+                .ok_or_else(|| SaveLoadError::Corrupted("OXFR locator truncated".into()))?;
             let locator_len =
                 u32::from_le_bytes(bytes[payload_end..payload_end + 4].try_into().unwrap())
                     as usize;
             if locator_len != len || &bytes[payload_end + 4..footer_end] != b"OXFE" {
                 return Err(SaveLoadError::Corrupted(
-                    "invalid OXFR v9 length/footer locator".into(),
+                    "invalid OXFR length/footer locator".into(),
                 ));
             }
             footer_end

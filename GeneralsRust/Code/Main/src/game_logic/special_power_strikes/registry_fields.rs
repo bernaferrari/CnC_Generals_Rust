@@ -1012,6 +1012,27 @@ impl HostSpecialPowerStrikeRegistry {
         parent_strike_id: u32,
         manual_target_mode: bool,
     ) -> u32 {
+        self.spawn_beam_field_with_manual_settings(
+            source_object,
+            source_team,
+            position,
+            spawn_frame,
+            parent_strike_id,
+            manual_target_mode,
+            ParticleManualDriveSettings::default(),
+        )
+    }
+
+    pub(crate) fn spawn_beam_field_with_manual_settings(
+        &mut self,
+        source_object: ObjectId,
+        source_team: crate::game_logic::Team,
+        position: Vec3,
+        spawn_frame: u32,
+        parent_strike_id: u32,
+        manual_target_mode: bool,
+        manual_drive_settings: ParticleManualDriveSettings,
+    ) -> u32 {
         let id = self.next_beam_id;
         self.next_beam_id = self.next_beam_id.saturating_add(1).max(1);
         let field = HostParticleBeamField {
@@ -1034,6 +1055,7 @@ impl HostSpecialPowerStrikeRegistry {
             damage_applications: 0,
             objects_destroyed: 0,
             parent_strike_id,
+            manual_drive_settings,
             last_swath_position: position,
             max_swath_offset: 0.0,
             swath_applications: 0,
@@ -1322,11 +1344,11 @@ impl HostSpecialPowerStrikeRegistry {
             }
             if field.manual_target_mode || field.scripted_waypoint_mode {
                 let fast = field.scripted_waypoint_mode
-                    || particle_is_fast_drive(
+                    || field.manual_drive_settings.is_fast_drive(
                         field.last_driving_click_frame,
                         field.second_last_driving_click_frame,
                     );
-                let mut step = particle_manual_speed_per_frame(fast);
+                let mut step = field.manual_drive_settings.speed_per_frame(fast);
                 let dx = field.override_destination.x - field.current_target_position.x;
                 let dz = field.override_destination.z - field.current_target_position.z;
                 let dy = field.override_destination.y - field.current_target_position.y;

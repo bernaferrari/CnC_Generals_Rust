@@ -5,7 +5,7 @@ use glam::Vec3;
 
 #[test]
 fn keepobject_oxfr_v7_appends_new_module_state_after_retained_rows() {
-    assert_eq!(OXFR_VERSION, 7);
+    assert_eq!(OXFR_VERSION, 10);
     let mut source = GameLogic::new();
     let mut template = ThingTemplate::new("TechOilDerrick");
     template.add_kind_of(KindOf::Structure);

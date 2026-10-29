@@ -17,6 +17,11 @@ pub enum HostStrikePhase {
 pub struct HostSpecialPowerStrike {
     pub id: u32,
     pub kind: HostSuperweaponKind,
+    /// Exact per-cannon module data captured from the receiving source Object.
+    /// OXFR carries this for bincode/direct-Xfer without changing the positional
+    /// registry body; legacy/programmatic strikes use the previous Main values.
+    #[serde(skip, default)]
+    pub manual_drive_settings: ParticleManualDriveSettings,
     pub source_object: ObjectId,
     pub source_team: crate::game_logic::Team,
     pub target_position: Vec3,

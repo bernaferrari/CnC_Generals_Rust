@@ -6,8 +6,8 @@ use generals_main::command_executor::CommandExecutor;
 use generals_main::command_system::{CommandResult, CommandType, GameCommand, ModifierKeys};
 use generals_main::game_logic::{AIState, GameLogic, GameMode, ObjectId, Player, Team};
 use generals_main::save_load::{
-    ObjectGarrisonOriginalTeamSnapshot, Snapshot, SnapshotBuilder, WorldSnapshot, XferLoad,
-    XferSave,
+    ObjectGarrisonOriginalTeamSnapshot, Snapshot, SnapshotBuilder,
+    WORLD_SNAPSHOT_DIRECT_XFER_VERSION, WorldSnapshot, XferLoad, XferSave,
 };
 use glam::Vec3;
 
@@ -210,7 +210,7 @@ fn version_35_bincode_and_append_only_direct_xfer_still_decode() {
     assert!(bincode_decoded.garrison_original_team_instances.is_empty());
 
     // Version35 predates the append-only direct-Xfer Team vector. Emit the
-    // current v37 body, then remove only that final zero-length-vector count
+    // current body, then remove only that final zero-length-vector count
     // and restore the historical envelope version to model its exact bytes.
     let mut current_xfer = std::io::Cursor::new(Vec::new());
     {
@@ -220,7 +220,7 @@ fn version_35_bincode_and_append_only_direct_xfer_still_decode() {
     let mut version_35_xfer = current_xfer.into_inner();
     assert_eq!(
         u32::from_le_bytes(version_35_xfer[..4].try_into().unwrap()),
-        37
+        WORLD_SNAPSHOT_DIRECT_XFER_VERSION
     );
     version_35_xfer.truncate(version_35_xfer.len() - 4);
     version_35_xfer[..4].copy_from_slice(&35u32.to_le_bytes());
@@ -249,14 +249,14 @@ fn current_default_snapshot_roundtrips_and_restores() {
     let mut direct_bytes = std::io::Cursor::new(Vec::new());
     direct_source
         .xfer(&mut XferSave::new(&mut direct_bytes))
-        .expect("current default snapshot writes as direct Xfer v37");
-    assert_eq!(direct_source.version, 37);
+        .expect("current default snapshot writes as direct Xfer");
+    assert_eq!(direct_source.version, WORLD_SNAPSHOT_DIRECT_XFER_VERSION);
     direct_bytes.set_position(0);
     let mut direct_decoded = WorldSnapshot::default();
     direct_decoded
         .xfer(&mut XferLoad::new(direct_bytes))
-        .expect("current default snapshot reads as direct Xfer v37");
-    assert_eq!(direct_decoded.version, 37);
+        .expect("current default snapshot reads as direct Xfer");
+    assert_eq!(direct_decoded.version, WORLD_SNAPSHOT_DIRECT_XFER_VERSION);
     assert!(
         direct_decoded
             .lifecycle_tail
@@ -286,7 +286,7 @@ fn current_default_snapshot_roundtrips_and_restores() {
             let mut reader = XferLoad::new(bytes);
             direct_decoded.xfer(&mut reader).unwrap();
         }
-        assert_eq!(direct_decoded.version, 37);
+        assert_eq!(direct_decoded.version, WORLD_SNAPSHOT_DIRECT_XFER_VERSION);
         let mut direct_receiver = GameLogic::new();
         SnapshotBuilder::new()
             .restore_from_snapshot(&direct_decoded, &mut direct_receiver)

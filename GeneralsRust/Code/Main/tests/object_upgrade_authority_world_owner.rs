@@ -9,7 +9,10 @@ use gamelogic::scripting::{
 };
 use generals_main::{
     game_logic::{BuildingData, BuildingType, GameLogic, GameMode, ObjectId, Player, Team},
-    save_load::{Snapshot, SnapshotBuilder, XferLoad, XferSave, snapshot::WorldSnapshot},
+    save_load::{
+        Snapshot, SnapshotBuilder, WORLD_SNAPSHOT_DIRECT_XFER_VERSION, XferLoad, XferSave,
+        snapshot::WorldSnapshot,
+    },
 };
 use std::collections::HashMap;
 
@@ -374,7 +377,7 @@ fn object_grant_capture_and_restore_keep_object_and_player_upgrade_authority_sep
     );
 
     // A v36 envelope already carries GOTS. Encoding it through direct Xfer
-    // upgrades the envelope to v37 while retaining both exact Team identity
+    // upgrades the envelope to the current version while retaining both exact Team identity
     // and Object-completion continuation ahead of APRO/CPAT/CPAD.
     let mut version_36: WorldSnapshot =
         bincode_legacy::deserialize(&bincode_legacy::serialize(&snapshot).unwrap()).unwrap();
@@ -383,14 +386,14 @@ fn object_grant_capture_and_restore_keep_object_and_player_upgrade_authority_sep
     version_36
         .xfer(&mut XferSave::new(&mut direct_bytes))
         .unwrap();
-    assert_eq!(version_36.version, 37);
+    assert_eq!(version_36.version, WORLD_SNAPSHOT_DIRECT_XFER_VERSION);
     let mut direct_decoded = WorldSnapshot::default();
     direct_decoded
         .xfer(&mut XferLoad::new(std::io::Cursor::new(
             direct_bytes.into_inner(),
         )))
         .unwrap();
-    assert_eq!(direct_decoded.version, 37);
+    assert_eq!(direct_decoded.version, WORLD_SNAPSHOT_DIRECT_XFER_VERSION);
     assert!(
         direct_decoded
             .lifecycle_tail
@@ -403,7 +406,7 @@ fn object_grant_capture_and_restore_keep_object_and_player_upgrade_authority_sep
                 .lifecycle_tail
                 .windows(tag.len())
                 .any(|part| part == tag),
-            "direct Xfer v37 tail retains {}",
+            "direct Xfer tail retains {}",
             String::from_utf8_lossy(tag)
         );
     }

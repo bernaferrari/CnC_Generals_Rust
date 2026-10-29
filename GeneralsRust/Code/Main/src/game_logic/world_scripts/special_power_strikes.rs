@@ -58,6 +58,26 @@ impl GameLogic {
             .get(&source_object)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
+        // C++ reads these values from this exact source Object's update-module
+        // data. The admitted template identity is retained by that Object;
+        // copy the typed settings now so delayed strikes and independent live
+        // beams do not depend on the source Object remaining alive.
+        let particle_manual_drive_settings = if kind == HostSuperweaponKind::ParticleCannon {
+            let captured = self
+                .objects
+                .get(&source_object)
+                .map(|object| object.get_template().particle_manual_drive_settings())
+                .transpose();
+            let Ok(captured) = captured else {
+                // The exact admitted Object advertised this module but did
+                // not retain its typed data. Refuse this power instead of
+                // silently substituting unrelated compatibility defaults.
+                return None;
+            };
+            Some(captured.flatten().unwrap_or_default())
+        } else {
+            None
+        };
         let frame = self.frame;
         // C++ OCLSpecialPower::findOCL: getObject()->getControllingPlayer()->hasScience.
         // Never union same-faction allies or USA-vs-USA opponents.
@@ -103,6 +123,11 @@ impl GameLogic {
             scud_anthrax_tier,
             a10_tier,
         );
+        if let Some(settings) = particle_manual_drive_settings {
+            if let Some(strike) = self.special_power_strikes.get_mut(id) {
+                strike.manual_drive_settings = settings;
+            }
+        }
         // C++ ParticleUplinkCannonUpdate.cpp:260-268: !COMMAND_FIRED_BY_SCRIPT
         // arms m_manualTargetMode so the live beam holds the click.
         if kind == HostSuperweaponKind::ParticleCannon {

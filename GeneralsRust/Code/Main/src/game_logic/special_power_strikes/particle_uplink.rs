@@ -137,6 +137,44 @@ pub const PARTICLE_MANUAL_DRIVING_SPEED: f32 = 20.0;
 pub const PARTICLE_MANUAL_FAST_DRIVING_SPEED: f32 = 40.0;
 /// Retail DoubleClickToFastDriveDelay = 500 ms → 15 frames.
 pub const PARTICLE_DOUBLE_CLICK_FAST_DRIVE_FRAMES: u32 = (500 * 30) / 1000;
+
+/// Per-cannon values copied from its exact admitted receiving module when a
+/// strike is queued. The source Object can be retired while its beam remains
+/// active, so the independent beam residual owns this small immutable payload.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ParticleManualDriveSettings {
+    pub manual_driving_speed: f32,
+    pub manual_fast_driving_speed: f32,
+    pub double_click_to_fast_drive_delay: u32,
+}
+
+impl Default for ParticleManualDriveSettings {
+    fn default() -> Self {
+        // Programmatic/non-authored compatibility keeps Main's prior residual.
+        Self {
+            manual_driving_speed: PARTICLE_MANUAL_DRIVING_SPEED,
+            manual_fast_driving_speed: PARTICLE_MANUAL_FAST_DRIVING_SPEED,
+            double_click_to_fast_drive_delay: PARTICLE_DOUBLE_CLICK_FAST_DRIVE_FRAMES,
+        }
+    }
+}
+
+impl ParticleManualDriveSettings {
+    pub fn speed_per_frame(self, fast: bool) -> f32 {
+        let speed = if fast {
+            self.manual_fast_driving_speed
+        } else {
+            self.manual_driving_speed
+        };
+        speed / SP_LOGIC_FPS
+    }
+
+    pub fn is_fast_drive(self, last_click_frame: u32, second_last_click_frame: u32) -> bool {
+        // C++ subtracts UnsignedInt timestamps, so wrap is modulo 2^32.
+        last_click_frame.wrapping_sub(second_last_click_frame)
+            < self.double_click_to_fast_drive_delay
+    }
+}
 /// Residual ambient cue while beam is annihilating ground.
 pub const PARTICLE_BEAM_AUDIO: &str = "ParticleUplinkCannon_GroundAnnihilationSoundLoop";
 /// Retail OuterEffectNumBones = 5 (outer node FX bones / connector lasers).
@@ -523,21 +561,15 @@ pub fn particle_status_for_attack(
 /// C++: `speed /= LOGICFRAMES_PER_SECOND` after selecting ManualDrivingSpeed or
 /// ManualFastDrivingSpeed.
 pub fn particle_manual_speed_per_frame(fast: bool) -> f32 {
-    let speed = if fast {
-        PARTICLE_MANUAL_FAST_DRIVING_SPEED
-    } else {
-        PARTICLE_MANUAL_DRIVING_SPEED
-    };
-    speed / SP_LOGIC_FPS
+    ParticleManualDriveSettings::default().speed_per_frame(fast)
 }
 
 /// True when double-click gap is within [`PARTICLE_DOUBLE_CLICK_FAST_DRIVE_FRAMES`].
 ///
 /// C++: `m_lastDrivingClickFrame - m_2ndLastDrivingClickFrame < delay`.
 pub fn particle_is_fast_drive(last_click_frame: u32, second_last_click_frame: u32) -> bool {
-    // C++ subtracts UnsignedInt timestamps, so a frame-counter wrap is
-    // intentional modulo-2^32 arithmetic rather than a zero-length gap.
-    last_click_frame.wrapping_sub(second_last_click_frame) < PARTICLE_DOUBLE_CLICK_FAST_DRIVE_FRAMES
+    ParticleManualDriveSettings::default()
+        .is_fast_drive(last_click_frame, second_last_click_frame)
 }
 
 /// Next absolute frame for the next Particle Uplink damage pulse (fractional residual).

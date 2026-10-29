@@ -885,6 +885,7 @@ impl HostSpecialPowerStrikeRegistry {
         let mut strike = HostSpecialPowerStrike {
             id,
             kind,
+            manual_drive_settings: ParticleManualDriveSettings::default(),
             source_object,
             source_team,
             target_position,

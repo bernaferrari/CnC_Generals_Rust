@@ -118,6 +118,32 @@ impl ReceivingClientTemplate {
         self.0.behavior_modules()
     }
 
+    pub(crate) fn particle_manual_drive_settings(
+        &self,
+    ) -> Result<Option<crate::game_logic::special_power_strikes::ParticleManualDriveSettings>, ()> {
+        let Some(entry) = self
+            .0
+            .behavior_modules()
+            .iter()
+            .find(|entry| entry.name.as_str().eq_ignore_ascii_case("ParticleUplinkCannonUpdate"))
+        else {
+            return Ok(None);
+        };
+        let Some(data) = entry
+            .data
+            .downcast_ref::<gamelogic::object::behavior::ParticleUplinkCannonUpdateModuleData>()
+        else {
+            // An admitted authored module must retain its parsed typed data.
+            // Do not reinterpret a broken admission as a synthetic cannon.
+            return Err(());
+        };
+        Ok(Some(crate::game_logic::special_power_strikes::ParticleManualDriveSettings {
+            manual_driving_speed: data.manual_driving_speed,
+            manual_fast_driving_speed: data.manual_fast_driving_speed,
+            double_click_to_fast_drive_delay: data.double_click_to_fast_drive_delay,
+        }))
+    }
+
     pub(crate) fn has_behavior_module(&self, name: &str) -> bool {
         self.0
             .behavior_modules()
@@ -905,6 +931,15 @@ pub struct ThingTemplate {
 }
 
 impl ThingTemplate {
+    pub(crate) fn particle_manual_drive_settings(
+        &self,
+    ) -> Result<Option<crate::game_logic::special_power_strikes::ParticleManualDriveSettings>, ()> {
+        self.receiving_client_template.as_ref().map_or(
+            Ok(None),
+            ReceivingClientTemplate::particle_manual_drive_settings,
+        )
+    }
+
     /// C++ Object::getObjectExitInterface checks behavior modules in authored
     /// order before falling back to the OpenContain interface.
     pub(crate) fn rally_point_exit_owner(&self) -> RallyPointExitOwner {

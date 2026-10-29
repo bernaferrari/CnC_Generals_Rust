@@ -37,6 +37,7 @@ impl Snapshot for WorldSnapshot {
                 &mut self.lifecycle_tail,
                 self.version,
                 &self.objects,
+                &self.special_power_strikes,
             )?;
             if self.version < WORLD_SNAPSHOT_GARRISON_TEAM_VERSION {
                 super::garrison_team_identity_persist::ensure_empty_capsule(

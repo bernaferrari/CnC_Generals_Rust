@@ -12,7 +12,8 @@
 //!
 //! Persist a Rust-only tagged suffix after the contain/producer payload and
 //! before the terminal owner-footer chain.
-//! OXFR v9 adds a typed terminal locator for persisted names. OXFR v8 carries
+//! OXFR v10 adds queued/active Particle Cannon manual-drive settings. OXFR v9
+//! adds a typed terminal locator for persisted names. OXFR v8 carries
 //! Object-completion provenance. OXFR v7 adds per-module CostModifierUpgrade
 //! execution state. OXFR v6 adds
 //! per-module StatusBitsUpgrade execution state. OXFR v5 adds per-module
@@ -21,8 +22,8 @@
 //! persists object/private status and ActiveBody::xfer persists BODY_RUBBLE;
 //! KeepObjectDie::xfer adds no custom retained fields. These are Rust runtime
 //! records, not new C++ wire fields. Versions 1–3 are rejected on restore.
-//! The enclosing WorldSnapshot advances to v37 while retaining v36's GOTS
-//! continuation contract.
+//! The enclosing WorldSnapshot advances to v38, retains v37 Object completion
+//! provenance and v36's GOTS continuation contract.
 
 use crate::game_logic::host_battle_bus::HostBattleBusBodyData;
 use crate::game_logic::host_helicopter_slow_death::HostHelicopterSlowDeathData;
@@ -34,7 +35,7 @@ use serde::{Deserialize, Serialize};
 
 const OXFR_MAGIC: &[u8; 4] = b"OXFR";
 const OXFR_FOOTER: &[u8; 4] = b"OXFE";
-const OXFR_VERSION: u32 = 9;
+const OXFR_VERSION: u32 = 10;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectModuleXferPersistPayload {
@@ -49,6 +50,92 @@ struct ObjectModuleXferPersistPayload {
     cost_modifier_executed_present: bool,
     completed_object_upgrades: Vec<ObjectUpgradeCompletionPersist>,
     completion_snapshot_present: bool,
+    particle_drive_strikes: Vec<ParticleDriveStrikePersist>,
+    particle_drive_beams: Vec<ParticleDriveBeamPersist>,
+    particle_drive_snapshot_present: bool,
+    #[serde(skip)]
+    wire_version: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ParticleDriveSettingsPersist {
+    manual_driving_speed: f32,
+    manual_fast_driving_speed: f32,
+    double_click_to_fast_drive_delay: u32,
+}
+
+impl From<crate::game_logic::special_power_strikes::ParticleManualDriveSettings>
+    for ParticleDriveSettingsPersist
+{
+    fn from(value: crate::game_logic::special_power_strikes::ParticleManualDriveSettings) -> Self {
+        Self {
+            manual_driving_speed: value.manual_driving_speed,
+            manual_fast_driving_speed: value.manual_fast_driving_speed,
+            double_click_to_fast_drive_delay: value.double_click_to_fast_drive_delay,
+        }
+    }
+}
+
+impl From<ParticleDriveSettingsPersist>
+    for crate::game_logic::special_power_strikes::ParticleManualDriveSettings
+{
+    fn from(value: ParticleDriveSettingsPersist) -> Self {
+        Self {
+            manual_driving_speed: value.manual_driving_speed,
+            manual_fast_driving_speed: value.manual_fast_driving_speed,
+            double_click_to_fast_drive_delay: value.double_click_to_fast_drive_delay,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ParticleDriveStrikePersist {
+    strike_id: u32,
+    settings: ParticleDriveSettingsPersist,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ParticleDriveBeamPersist {
+    beam_id: u32,
+    settings: ParticleDriveSettingsPersist,
+}
+
+/// OXFR v9 payload layout. Keep the old positional body stable.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectModuleXferPersistPayloadV9 {
+    stun: Vec<StunPersist>,
+    battle_bus: Vec<BattleBusPersist>,
+    slow_death: Vec<SlowDeathPersist>,
+    radar: Vec<RadarPersist>,
+    death_start: Vec<DeathStartPersist>,
+    retained_death: Vec<RetainedDeathStatePersist>,
+    object_creation_upgrade: Vec<ObjectCreationUpgradePersist>,
+    status_bits_executed_present: bool,
+    cost_modifier_executed_present: bool,
+    completed_object_upgrades: Vec<ObjectUpgradeCompletionPersist>,
+    completion_snapshot_present: bool,
+}
+
+impl From<ObjectModuleXferPersistPayloadV9> for ObjectModuleXferPersistPayload {
+    fn from(value: ObjectModuleXferPersistPayloadV9) -> Self {
+        Self {
+            stun: value.stun,
+            battle_bus: value.battle_bus,
+            slow_death: value.slow_death,
+            radar: value.radar,
+            death_start: value.death_start,
+            retained_death: value.retained_death,
+            object_creation_upgrade: value.object_creation_upgrade,
+            status_bits_executed_present: value.status_bits_executed_present,
+            cost_modifier_executed_present: value.cost_modifier_executed_present,
+            completed_object_upgrades: value.completed_object_upgrades,
+            completion_snapshot_present: value.completion_snapshot_present,
+            particle_drive_strikes: Vec::new(),
+            particle_drive_beams: Vec::new(),
+            particle_drive_snapshot_present: false,
+            wire_version: 9,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,6 +172,10 @@ impl From<ObjectModuleXferPersistPayloadV7> for ObjectModuleXferPersistPayload {
             cost_modifier_executed_present: value.cost_modifier_executed_present,
             completed_object_upgrades: Vec::new(),
             completion_snapshot_present: false,
+            particle_drive_strikes: Vec::new(),
+            particle_drive_beams: Vec::new(),
+            particle_drive_snapshot_present: false,
+            wire_version: 7,
         }
     }
 }
@@ -161,6 +252,10 @@ impl From<ObjectModuleXferPersistPayloadV6> for ObjectModuleXferPersistPayload {
             cost_modifier_executed_present: false,
             completed_object_upgrades: Vec::new(),
             completion_snapshot_present: false,
+            particle_drive_strikes: Vec::new(),
+            particle_drive_beams: Vec::new(),
+            particle_drive_snapshot_present: false,
+            wire_version: 6,
         }
     }
 }
@@ -179,6 +274,10 @@ impl From<ObjectModuleXferPersistPayloadV4> for ObjectModuleXferPersistPayload {
             cost_modifier_executed_present: false,
             completed_object_upgrades: Vec::new(),
             completion_snapshot_present: false,
+            particle_drive_strikes: Vec::new(),
+            particle_drive_beams: Vec::new(),
+            particle_drive_snapshot_present: false,
+            wire_version: 4,
         }
     }
 }
@@ -206,6 +305,10 @@ impl From<ObjectModuleXferPersistPayloadV5> for ObjectModuleXferPersistPayload {
             cost_modifier_executed_present: false,
             completed_object_upgrades: Vec::new(),
             completion_snapshot_present: false,
+            particle_drive_strikes: Vec::new(),
+            particle_drive_beams: Vec::new(),
+            particle_drive_snapshot_present: false,
+            wire_version: 5,
         }
     }
 }
@@ -303,7 +406,7 @@ fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<ObjectModuleXferPersist
             "OXFR payload truncated".to_string(),
         ));
     }
-    let payload = if version == 4 {
+    let mut payload: ObjectModuleXferPersistPayload = if version == 4 {
         let old: ObjectModuleXferPersistPayloadV4 =
             bincode_legacy::deserialize(&rest[..payload_len]).map_err(|err| {
                 SaveLoadError::Corrupted(format!("OXFR v4 payload decode: {err}"))
@@ -327,10 +430,17 @@ fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<ObjectModuleXferPersist
                 SaveLoadError::Corrupted(format!("OXFR v7 payload decode: {err}"))
             })?;
         old.into()
+    } else if version == 8 || version == 9 {
+        let old: ObjectModuleXferPersistPayloadV9 =
+            bincode_legacy::deserialize(&rest[..payload_len]).map_err(|err| {
+                SaveLoadError::Corrupted(format!("OXFR v{version} payload decode: {err}"))
+            })?;
+        old.into()
     } else {
         bincode_legacy::deserialize(&rest[..payload_len])
             .map_err(|err| SaveLoadError::Corrupted(format!("OXFR payload decode: {err}")))?
     };
+    payload.wire_version = version;
     Ok(Some(payload))
 }
 
@@ -366,21 +476,76 @@ pub fn validate_completion_provenance_before_restore(
     bytes: &[u8],
     version: u32,
     objects: &std::collections::HashMap<ObjectId, super::object::ObjectSnapshot>,
+    special_powers: &super::special_powers::SpecialPowerStrikeRegistrySnapshot,
     game_logic: &GameLogic,
 ) -> SaveLoadResult<()> {
     let payload = decode_payload(bytes)?;
     let completion_state = payload
         .as_ref()
         .is_some_and(|payload| payload.completion_snapshot_present);
-    if version >= super::types::WORLD_SNAPSHOT_DIRECT_XFER_VERSION && !completion_state {
+    if version >= super::types::WORLD_SNAPSHOT_OBJECT_COMPLETION_VERSION && !completion_state {
         return Err(SaveLoadError::Corrupted(
             "current snapshot is missing OXFR object-completion continuation".into(),
+        ));
+    }
+    if version >= super::types::WORLD_SNAPSHOT_PARTICLE_DRIVE_SETTINGS_VERSION
+        && !payload
+            .as_ref()
+            .is_some_and(|payload| payload.wire_version >= 10 && payload.particle_drive_snapshot_present)
+    {
+        return Err(SaveLoadError::Corrupted(
+            "version-38 snapshot is missing OXFR v10 Particle Cannon settings".into(),
         ));
     }
     if let Some(payload) = payload
         .as_ref()
         .filter(|payload| payload.completion_snapshot_present)
     {
+        if payload.particle_drive_snapshot_present {
+            let expected_strikes: std::collections::HashSet<_> = special_powers
+                .strikes
+                .iter()
+                .filter(|strike| {
+                    strike.kind
+                        == crate::game_logic::special_power_strikes::HostSuperweaponKind::ParticleCannon
+                })
+                .map(|strike| strike.id)
+                .collect();
+            let actual_strikes: std::collections::HashSet<_> = payload
+                .particle_drive_strikes
+                .iter()
+                .map(|row| row.strike_id)
+                .collect();
+            let expected_beams: std::collections::HashSet<_> = special_powers
+                .beam_fields
+                .iter()
+                .map(|beam| beam.id)
+                .collect();
+            let actual_beams: std::collections::HashSet<_> = payload
+                .particle_drive_beams
+                .iter()
+                .map(|row| row.beam_id)
+                .collect();
+            let valid_settings = payload
+                .particle_drive_strikes
+                .iter()
+                .map(|row| &row.settings)
+                .chain(payload.particle_drive_beams.iter().map(|row| &row.settings))
+                .all(|settings| {
+                    settings.manual_driving_speed.is_finite()
+                        && settings.manual_fast_driving_speed.is_finite()
+                });
+            if actual_strikes.len() != payload.particle_drive_strikes.len()
+                || actual_beams.len() != payload.particle_drive_beams.len()
+                || actual_strikes != expected_strikes
+                || actual_beams != expected_beams
+                || !valid_settings
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "invalid or incomplete OXFR Particle Cannon settings rows".into(),
+                ));
+            }
+        }
         let mut object_ids = std::collections::HashSet::new();
         for row in &payload.completed_object_upgrades {
             let id = ObjectId(row.object_id);
@@ -425,6 +590,7 @@ pub fn validate_completion_provenance_before_restore(
 pub fn append_empty_completion_capsule(bytes: &mut Vec<u8>) -> SaveLoadResult<()> {
     let payload = ObjectModuleXferPersistPayload {
         completion_snapshot_present: true,
+        particle_drive_snapshot_present: true,
         ..Default::default()
     };
     append_payload_record(bytes, &payload)
@@ -434,15 +600,29 @@ pub fn upgrade_completion_capsule_for_save(
     bytes: &mut Vec<u8>,
     version: u32,
     objects: &std::collections::HashMap<ObjectId, super::object::ObjectSnapshot>,
+    special_powers: &super::special_powers::SpecialPowerStrikeRegistrySnapshot,
 ) -> SaveLoadResult<()> {
     let mut payload = decode_payload(bytes)?;
-    if payload
-        .as_ref()
-        .is_some_and(|payload| payload.completion_snapshot_present)
+    if let Some(current) = payload
+        .as_mut()
+        .filter(|payload| payload.completion_snapshot_present)
     {
+        if current.particle_drive_snapshot_present {
+            return Ok(());
+        }
+        if version >= super::types::WORLD_SNAPSHOT_PARTICLE_DRIVE_SETTINGS_VERSION {
+            return Err(SaveLoadError::Corrupted(
+                "version-38 snapshot is missing OXFR v10 Particle Cannon settings".into(),
+            ));
+        }
+        // v37 carried the same positional strike/beam data without the
+        // receiving Cannon module settings. Preserve prior Main behavior when
+        // such an older snapshot is rewritten into the v38 contract.
+        let upgraded = payload_with_default_particle_settings(current.clone(), special_powers);
+        append_payload_record(bytes, &upgraded)?;
         return Ok(());
     }
-    if version >= super::types::WORLD_SNAPSHOT_DIRECT_XFER_VERSION {
+    if version >= super::types::WORLD_SNAPSHOT_OBJECT_COMPLETION_VERSION {
         return Err(SaveLoadError::Corrupted(
             "current snapshot is missing OXFR object-completion continuation".into(),
         ));
@@ -462,7 +642,39 @@ pub fn upgrade_completion_capsule_for_save(
     let mut payload = payload.take().unwrap_or_default();
     payload.completed_object_upgrades.clear();
     payload.completion_snapshot_present = true;
+    payload = payload_with_default_particle_settings(payload, special_powers);
     append_payload_record(bytes, &payload)
+}
+
+fn payload_with_default_particle_settings(
+    mut payload: ObjectModuleXferPersistPayload,
+    special_powers: &super::special_powers::SpecialPowerStrikeRegistrySnapshot,
+) -> ObjectModuleXferPersistPayload {
+    payload.particle_drive_strikes = special_powers
+        .strikes
+        .iter()
+        .filter(|strike| {
+            strike.kind
+                == crate::game_logic::special_power_strikes::HostSuperweaponKind::ParticleCannon
+        })
+        .map(|strike| ParticleDriveStrikePersist {
+            strike_id: strike.id,
+            settings: crate::game_logic::special_power_strikes::ParticleManualDriveSettings::default().into(),
+        })
+        .collect();
+    payload.particle_drive_beams = special_powers
+        .beam_fields
+        .iter()
+        .map(|beam| ParticleDriveBeamPersist {
+            beam_id: beam.id,
+            settings: crate::game_logic::special_power_strikes::ParticleManualDriveSettings::default().into(),
+        })
+        .collect();
+    payload.particle_drive_strikes.sort_by_key(|row| row.strike_id);
+    payload.particle_drive_beams.sort_by_key(|row| row.beam_id);
+    payload.particle_drive_snapshot_present = true;
+    payload.wire_version = OXFR_VERSION;
+    payload
 }
 
 fn append_payload_record(
@@ -675,6 +887,30 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
         }
     }
 
+    let mut particle_drive_strikes: Vec<_> = game_logic
+        .special_power_strikes
+        .strikes
+        .values()
+        .filter(|strike| {
+            strike.kind == crate::game_logic::special_power_strikes::HostSuperweaponKind::ParticleCannon
+        })
+        .map(|strike| ParticleDriveStrikePersist {
+            strike_id: strike.id,
+            settings: strike.manual_drive_settings.into(),
+        })
+        .collect();
+    particle_drive_strikes.sort_by_key(|row| row.strike_id);
+    let mut particle_drive_beams: Vec<_> = game_logic
+        .special_power_strikes
+        .beam_fields
+        .iter()
+        .map(|field| ParticleDriveBeamPersist {
+            beam_id: field.id,
+            settings: field.manual_drive_settings.into(),
+        })
+        .collect();
+    particle_drive_beams.sort_by_key(|row| row.beam_id);
+
     ObjectModuleXferPersistPayload {
         stun,
         battle_bus,
@@ -687,6 +923,10 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
         cost_modifier_executed_present: true,
         completed_object_upgrades,
         completion_snapshot_present: true,
+        particle_drive_strikes,
+        particle_drive_beams,
+        particle_drive_snapshot_present: true,
+        wire_version: OXFR_VERSION,
     }
 }
 
@@ -695,6 +935,26 @@ fn apply_payload(
     payload: ObjectModuleXferPersistPayload,
 ) -> SaveLoadResult<()> {
     validate_payload_before_apply(game_logic, &payload)?;
+
+    if payload.particle_drive_snapshot_present {
+        for row in &payload.particle_drive_strikes {
+            let strike = game_logic
+                .special_power_strikes
+                .strikes
+                .get_mut(&row.strike_id)
+                .expect("ParticleCannon strike was preflighted");
+            strike.manual_drive_settings = row.settings.clone().into();
+        }
+        for row in &payload.particle_drive_beams {
+            let field = game_logic
+                .special_power_strikes
+                .beam_fields
+                .iter_mut()
+                .find(|field| field.id == row.beam_id)
+                .expect("Particle beam was preflighted");
+            field.manual_drive_settings = row.settings.clone().into();
+        }
+    }
 
     if payload.completion_snapshot_present {
         for (_, object) in game_logic.host_objects_mut().registered_mut() {
@@ -846,6 +1106,47 @@ fn validate_payload_before_apply(
     payload: &ObjectModuleXferPersistPayload,
 ) -> SaveLoadResult<()> {
     let corrupted = |message: &str| SaveLoadError::Corrupted(message.to_owned());
+    if payload.particle_drive_snapshot_present {
+        let expected_strikes: std::collections::HashSet<u32> = game_logic
+            .special_power_strikes
+            .strikes
+            .values()
+            .filter(|strike| {
+                strike.kind
+                    == crate::game_logic::special_power_strikes::HostSuperweaponKind::ParticleCannon
+            })
+            .map(|strike| strike.id)
+            .collect();
+        let mut actual_strikes = std::collections::HashSet::new();
+        for row in &payload.particle_drive_strikes {
+            if !actual_strikes.insert(row.strike_id)
+                || !expected_strikes.contains(&row.strike_id)
+                || !row.settings.manual_driving_speed.is_finite()
+                || !row.settings.manual_fast_driving_speed.is_finite()
+            {
+                return Err(corrupted("invalid or duplicate ParticleCannon strike settings in OXFR"));
+            }
+        }
+        let expected_beams: std::collections::HashSet<u32> = game_logic
+            .special_power_strikes
+            .beam_fields
+            .iter()
+            .map(|field| field.id)
+            .collect();
+        let mut actual_beams = std::collections::HashSet::new();
+        for row in &payload.particle_drive_beams {
+            if !actual_beams.insert(row.beam_id)
+                || !expected_beams.contains(&row.beam_id)
+                || !row.settings.manual_driving_speed.is_finite()
+                || !row.settings.manual_fast_driving_speed.is_finite()
+            {
+                return Err(corrupted("invalid or duplicate Particle beam settings in OXFR"));
+            }
+        }
+        if actual_strikes != expected_strikes || actual_beams != expected_beams {
+            return Err(corrupted("ParticleCannon drive settings are incomplete in OXFR"));
+        }
+    }
     if payload.completion_snapshot_present {
         let mut object_ids = std::collections::HashSet::new();
         for row in &payload.completed_object_upgrades {

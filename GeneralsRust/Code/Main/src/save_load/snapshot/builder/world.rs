@@ -359,6 +359,7 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             snapshot.version,
             &snapshot.objects,
+            &snapshot.special_power_strikes,
             game_logic,
         )?;
         // Validate the original ScriptEngine continuation before mutating the

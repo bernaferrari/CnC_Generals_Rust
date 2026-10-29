@@ -346,7 +346,14 @@ impl HostSpecialPowerStrikeRegistry {
             u32,
             SpectreGunshipScienceTier,
         )> = None;
-        let mut spawn_beam: Option<(ObjectId, crate::game_logic::Team, Vec3, u32, bool)> = None;
+        let mut spawn_beam: Option<(
+            ObjectId,
+            crate::game_logic::Team,
+            Vec3,
+            u32,
+            bool,
+            ParticleManualDriveSettings,
+        )> = None;
         if let Some(strike) = self.strikes.get_mut(&strike_id) {
             if strike.phase == HostStrikePhase::Queued {
                 strike.total_damage_applied = strike.total_damage_applied + total_damage;
@@ -629,6 +636,7 @@ impl HostSpecialPowerStrikeRegistry {
                             strike.target_position,
                             strike.impact_frame,
                             strike.manual_beam_hold,
+                            strike.manual_drive_settings,
                         ));
                     }
                 }
@@ -669,14 +677,15 @@ impl HostSpecialPowerStrikeRegistry {
                 spectre_tier,
             );
         }
-        if let Some((source, team, pos, impact_frame, manual_hold)) = spawn_beam {
-            let beam_id = self.spawn_beam_field_with_manual(
+        if let Some((source, team, pos, impact_frame, manual_hold, manual_drive_settings)) = spawn_beam {
+            let beam_id = self.spawn_beam_field_with_manual_settings(
                 source,
                 team,
                 pos,
                 impact_frame,
                 strike_id,
                 manual_hold,
+                manual_drive_settings,
             );
             if let Some(strike) = self.strikes.get(&strike_id) {
                 if strike.scripted_waypoint_mode {

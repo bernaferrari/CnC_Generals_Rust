@@ -568,6 +568,10 @@ pub struct HostParticleBeamField {
     pub objects_destroyed: u32,
     /// Parent ParticleCannon strike id (0 if spawned without a strike).
     pub parent_strike_id: u32,
+    /// Settings captured by the source ParticleUplinkCannonUpdate at queue
+    /// time. Persisted in the lifecycle OXFR capsule, not the positional body.
+    #[serde(skip, default)]
+    pub manual_drive_settings: ParticleManualDriveSettings,
     /// Last residual SwathOfDeath epicenter used for a damage pulse.
     #[serde(default)]
     pub last_swath_position: Vec3,

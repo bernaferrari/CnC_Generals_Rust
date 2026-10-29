@@ -798,6 +798,8 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
             HostSpecialPowerStrike {
                 id: 0,
                 kind: HostSuperweaponKind::DaisyCutter,
+                manual_drive_settings:
+                    crate::game_logic::special_power_strikes::ParticleManualDriveSettings::default(),
                 source_object: ObjectId(0),
                 source_team: Team::Neutral,
                 target_position: Vec3::ZERO,
@@ -1080,6 +1082,8 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 damage_applications: 0,
                 objects_destroyed: 0,
                 parent_strike_id: 0,
+                manual_drive_settings:
+                    crate::game_logic::special_power_strikes::ParticleManualDriveSettings::default(),
                 last_swath_position: Vec3::ZERO,
                 max_swath_offset: 0.0,
                 swath_applications: 0,
