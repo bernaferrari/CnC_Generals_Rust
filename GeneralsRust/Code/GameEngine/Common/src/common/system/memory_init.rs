@@ -827,10 +827,6 @@ impl MemoryPoolManager {
 
 fn memory_pools_ini_path() -> Option<PathBuf> {
     let relative = Path::new("Data").join("INI").join("MemoryPools.ini");
-    if relative.is_file() {
-        return Some(relative);
-    }
-
     std::env::current_exe()
         .ok()
         .and_then(|path| path.parent().map(|parent| parent.join(&relative)))
@@ -901,6 +897,73 @@ pub fn adjust_pool_size(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
+
+    const MEMORY_POOLS_PATH_TEST_CHILD: &str = "GENERALS_MEMORY_POOLS_PATH_TEST_CHILD";
+    const MEMORY_POOLS_PATH_TEST_NAME: &str =
+        "common::system::memory_init::tests::memory_pools_ini_uses_executable_directory";
+
+    #[test]
+    fn memory_pools_ini_uses_executable_directory() {
+        if std::env::var_os(MEMORY_POOLS_PATH_TEST_CHILD).is_none() {
+            // Changing cwd is process-global, so isolate the competing-path
+            // check from parallel tests by running it in a child process.
+            let source_executable = std::env::current_exe().unwrap();
+            let isolated_executable_directory = tempfile::tempdir().unwrap();
+            let child_executable = isolated_executable_directory
+                .path()
+                .join(source_executable.file_name().unwrap());
+            std::fs::copy(&source_executable, &child_executable).unwrap();
+
+            let output = Command::new(child_executable)
+                .args(["--exact", MEMORY_POOLS_PATH_TEST_NAME, "--nocapture"])
+                .env(MEMORY_POOLS_PATH_TEST_CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "isolated path-selection test failed:\n{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let executable = std::env::current_exe().unwrap();
+        let executable_data_dir = executable.parent().unwrap().join("Data");
+        let executable_ini_dir = executable_data_dir.join("INI");
+        let executable_ini = executable_ini_dir.join("MemoryPools.ini");
+        assert!(
+            !executable_ini.exists(),
+            "dedicated test target already contains {executable_ini:?}"
+        );
+        std::fs::create_dir_all(&executable_ini_dir).unwrap();
+        std::fs::write(&executable_ini, "ObjectPool 101 201\n").unwrap();
+
+        let working_directory = tempfile::tempdir().unwrap();
+        let working_ini = working_directory
+            .path()
+            .join("Data")
+            .join("INI")
+            .join("MemoryPools.ini");
+        std::fs::create_dir_all(working_ini.parent().unwrap()).unwrap();
+        std::fs::write(&working_ini, "ObjectPool 301 401\n").unwrap();
+
+        let original_directory = std::env::current_dir().unwrap();
+        std::env::set_current_dir(working_directory.path()).unwrap();
+        let mut manager = MemoryPoolManager::new();
+        manager.init();
+        std::env::set_current_dir(original_directory).unwrap();
+
+        let object_pool = manager.get_pool_config("ObjectPool").unwrap();
+        let loaded_values = (object_pool.initial, object_pool.overflow);
+
+        std::fs::remove_file(&executable_ini).unwrap();
+        let _ = std::fs::remove_dir(&executable_ini_dir);
+        let _ = std::fs::remove_dir(&executable_data_dir);
+
+        assert_eq!(loaded_values, (104, 204));
+    }
 
     #[test]
     fn test_pool_init_rec() {
