@@ -2258,10 +2258,7 @@ fn helicopter_slow_death_defers_destroy() {
 
 #[test]
 fn slow_death_defers_infantry_destruction() {
-    use crate::game_logic::host_slow_death::{
-        HostSlowDeathIni, clear_slow_death_ini_override_for_tests,
-        override_slow_death_ini_for_tests,
-    };
+    use crate::game_logic::host_slow_death::HostSlowDeathIni;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let mut t = ThingTemplate::new("AmericaInfantryRanger");
@@ -2325,19 +2322,18 @@ fn slow_death_defers_infantry_destruction() {
 
     // Combat death with authored SlowDeathBehavior starts beginSlowDeath
     // (C++ SlowDeathBehavior.cpp:191) and uses INI delays, not KindOf skip.
-    clear_slow_death_ini_override_for_tests();
     let mut tank_t = ThingTemplate::new("IniSlowDeathCrusader");
     tank_t.set_health(400.0);
     tank_t.add_kind_of(KindOf::Vehicle);
-    logic
-        .templates
-        .insert("IniSlowDeathCrusader".into(), tank_t);
     let ini = crate::game_logic::host_slow_death::slow_death_ini_from_behavior_attrs(&[
         ("DestructionDelay", "5000"),
         ("SinkDelay", "0"),
         ("SinkRate", "0"),
     ]);
-    override_slow_death_ini_for_tests("IniSlowDeathCrusader", ini);
+    tank_t.authored_slow_death = Some(vec![ini]);
+    logic
+        .templates
+        .insert("IniSlowDeathCrusader".into(), tank_t);
     let id3 = logic
         .create_object(
             "IniSlowDeathCrusader",
@@ -2361,7 +2357,6 @@ fn slow_death_defers_infantry_destruction() {
         logic.objects_to_destroy.iter().all(|e| e.id != id3),
         "INI SlowDeath must defer processDestroyList"
     );
-    clear_slow_death_ini_override_for_tests();
 }
 
 #[test]

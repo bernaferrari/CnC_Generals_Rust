@@ -20,8 +20,6 @@
 //! - Variance uses 0 (no GameLogicRandomValue)
 
 use serde::{Deserialize, Serialize};
-#[cfg(test)]
-use std::cell::RefCell;
 
 /// Logic FPS residual.
 pub const SLOW_DEATH_LOGIC_FPS: f32 = 30.0;
@@ -39,12 +37,6 @@ pub const INFANTRY_DESTRUCTION_DELAY_MS: u32 = 8_000;
 pub const VEHICLE_DESTRUCTION_DELAY_MS: u32 = 1_000;
 /// Retail AmericaInfantry SlowDeathBehavior INITIAL/FINAL peel.
 pub const INFANTRY_SLOW_DEATH_FX: &str = "FX_DieByGunGeneric";
-
-#[cfg(test)]
-thread_local! {
-    static SLOW_DEATH_INI_OVERRIDE: RefCell<Option<(String, HostSlowDeathIni)>> =
-        const { RefCell::new(None) };
-}
 
 /// Authored `SlowDeathBehavior` Object INI fields (msec / dist-per-sec as written).
 ///
@@ -505,10 +497,10 @@ pub fn slow_death_ini_from_behavior_attrs(attrs: &[(&str, &str)]) -> HostSlowDea
     }
 }
 
-fn authored_slow_death_ini(name: &str) -> Option<HostSlowDeathIni> {
-    let manager = crate::assets::get_asset_manager()?;
-    let manager = manager.lock().ok()?;
-    let definition = manager.get_object_definition(name)?;
+/// Read the effective immutable definition already admitted to the object.
+pub(crate) fn slow_death_ini_for_definition(
+    definition: &crate::assets::ObjectDefinition,
+) -> Option<HostSlowDeathIni> {
     for module in &definition.behavior_modules {
         if !module.class_name.eq_ignore_ascii_case("SlowDeathBehavior") {
             continue;
@@ -521,46 +513,6 @@ fn authored_slow_death_ini(name: &str) -> Option<HostSlowDeathIni> {
         return Some(slow_death_ini_from_behavior_attrs(&attrs));
     }
     None
-}
-
-/// Test helper: treat `template_name` as authoring SlowDeathBehavior.
-#[cfg(test)]
-pub fn override_slow_death_ini_for_tests(template_name: &str, ini: HostSlowDeathIni) {
-    SLOW_DEATH_INI_OVERRIDE.with(|slot| {
-        *slot.borrow_mut() = Some((template_name.to_string(), ini));
-    });
-}
-
-#[cfg(test)]
-pub fn clear_slow_death_ini_override_for_tests() {
-    SLOW_DEATH_INI_OVERRIDE.with(|slot| {
-        *slot.borrow_mut() = None;
-    });
-}
-
-/// Live lookup: override (tests) then authored Object INI `SlowDeathBehavior`.
-pub fn slow_death_ini_for_template(name: &str) -> Option<HostSlowDeathIni> {
-    #[cfg(test)]
-    {
-        let hit = SLOW_DEATH_INI_OVERRIDE.with(|slot| {
-            slot.borrow()
-                .as_ref()
-                .and_then(|(n, ini)| n.eq_ignore_ascii_case(name).then(|| ini.clone()))
-        });
-        if hit.is_some() {
-            return hit;
-        }
-    }
-    authored_slow_death_ini(name)
-}
-
-pub fn has_slow_death_behavior(template_name: &str) -> bool {
-    slow_death_ini_for_template(template_name).is_some()
-}
-
-/// True only when Object INI authors SlowDeathBehavior (not KindOf).
-pub fn wants_slow_death(template_name: &str, _is_infantry: bool, _is_vehicle: bool) -> bool {
-    has_slow_death_behavior(template_name)
 }
 
 #[cfg(test)]
@@ -655,8 +607,9 @@ mod tests {
 
     #[test]
     fn missing_slow_death_module_is_not_kindof_inferred() {
-        clear_slow_death_ini_override_for_tests();
-        assert!(!wants_slow_death("AmericaInfantryRanger", true, false));
-        assert!(!wants_slow_death("AmericaTankCrusader", false, true));
+        for name in ["AmericaInfantryRanger", "AmericaTankCrusader"] {
+            let definition = crate::assets::ObjectDefinition::new(name.to_string());
+            assert!(slow_death_ini_for_definition(&definition).is_none());
+        }
     }
 }

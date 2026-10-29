@@ -489,11 +489,14 @@ impl Object {
         current_frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
-        let ini = match &self.thing.template.authored_slow_death {
-            Some(modules) => modules.first().cloned(),
-            None => {
-                crate::game_logic::host_slow_death::slow_death_ini_for_template(&self.template_name)
-            }
+        let template = &self.thing.template;
+        let ini = if let Some(definition) = template.receiving_object_definition.as_deref() {
+            crate::game_logic::host_slow_death::slow_death_ini_for_definition(definition)
+        } else {
+            template
+                .authored_slow_death
+                .as_ref()
+                .and_then(|modules| modules.first().cloned())
         };
         let Some(ini) = ini else {
             return self
