@@ -19,6 +19,10 @@ use generals_main::game_logic::{GameLogic, GameMode, ObjectId};
 use glam::Vec3;
 
 fn map_file(root: &std::path::Path) -> std::path::PathBuf {
+    map_file_with_area(root, 0)
+}
+
+fn map_file_with_area(root: &std::path::Path, area_start: i32) -> std::path::PathBuf {
     let mut out = DataChunkOutput::new();
     out.open_data_chunk("HeightMapData", 3);
     for value in [41, 41, 1, 1681] {
@@ -26,6 +30,21 @@ fn map_file(root: &std::path::Path) -> std::path::PathBuf {
     }
     for _ in 0..1681 {
         out.write_byte(0);
+    }
+    out.close_data_chunk();
+    out.open_data_chunk("PolygonTriggers", 4);
+    out.write_int(1);
+    out.write_ascii_string("InnerPerimeter1");
+    out.write_ascii_string("OwnerLayer");
+    out.write_int(1901);
+    out.write_byte(1);
+    out.write_byte(0);
+    out.write_int(0);
+    out.write_int(4);
+    for (x, y) in [(0, 0), (40, 0), (40, 40), (0, 40)] {
+        out.write_int(area_start + x);
+        out.write_int(area_start + y);
+        out.write_int(0);
     }
     out.close_data_chunk();
     out.open_data_chunk("SidesList", 2);
@@ -51,7 +70,7 @@ fn map_file(root: &std::path::Path) -> std::path::PathBuf {
     out.close_data_chunk();
     out.open_data_chunk("ObjectsList", 3);
     out.close_data_chunk();
-    let path = root.join("AiGroupOwner.map");
+    let path = root.join(format!("AiGroupOwner-{area_start}.map"));
     std::fs::write(&path, out.into_ckmp_bytes()).unwrap();
     path
 }
@@ -101,6 +120,15 @@ fn run_action_with_parameters(
     kind: ScriptActionType,
     parameters: impl IntoIterator<Item = Parameter>,
 ) {
+    run_action_with_parameters_at(world, kind, parameters, 0);
+}
+
+fn run_action_with_parameters_at(
+    world: &mut GameLogic,
+    kind: ScriptActionType,
+    parameters: impl IntoIterator<Item = Parameter>,
+    side_index: usize,
+) {
     let mut action = ScriptAction::new(kind);
     for parameter in parameters {
         action.add_parameter(parameter).unwrap();
@@ -116,7 +144,7 @@ fn run_action_with_parameters(
     scripts.append_script(Box::new(script));
     let engine = ScriptEngine::new().unwrap();
     engine
-        .set_script_list_for_player(0, Some(Box::new(scripts)))
+        .set_script_list_for_player(side_index, Some(Box::new(scripts)))
         .unwrap();
     world
         .update_local_script_engine_with_owner(&engine)
@@ -329,4 +357,81 @@ fn team_guard_object_creates_a_receiving_group_only_after_target_and_team_resolv
         peer.ai_group_members_of(first).as_deref(),
         Some(&[second, first][..])
     );
+}
+
+fn guard_area(world: &mut GameLogic, team: &str, area: &str) {
+    run_action_with_parameters_at(
+        world,
+        ScriptActionType::TeamGuardArea,
+        [
+            Parameter::with_string(ParameterType::Team, team.into()),
+            Parameter::with_string(ParameterType::TriggerArea, area.into()),
+        ],
+        1,
+    );
+}
+
+#[test]
+fn team_guard_area_borrows_the_qualified_polygon_and_group_from_each_world() {
+    let root = tempfile::tempdir().unwrap();
+    let owner_map = map_file_with_area(root.path(), 0);
+    let peer_map = map_file_with_area(root.path(), 200);
+    let (mut owner, first, second, inert) = world(&owner_map);
+    let (mut peer, peer_first, peer_second, _) = world(&peer_map);
+    assert_eq!((first, second), (peer_first, peer_second));
+    owner.get_player_mut(1).unwrap().start_position = 0;
+    peer.get_player_mut(1).unwrap().start_position = 0;
+    hunt(&mut owner);
+    hunt(&mut peer);
+    let original_group = owner.ai_group_id_of(first).unwrap();
+    guard_area(&mut owner, "HuntTeam", "MissingArea");
+    guard_area(&mut owner, "MissingTeam", "InnerPerimeter1");
+    assert_eq!(owner.ai_group_id_of(first), Some(original_group));
+    assert!(owner.host_object(first).unwrap().is_hunting());
+
+    guard_object(&mut owner, "HuntTeam", "Inert");
+    assert_eq!(
+        owner.host_object(first).unwrap().guard_target(),
+        Some(inert)
+    );
+    guard_area(&mut owner, "HuntTeam", "[Skirmish]MyInnerPerimeter");
+    assert_ne!(owner.ai_group_id_of(first), Some(original_group));
+    assert_eq!(
+        owner.ai_group_members_of(first).as_deref(),
+        Some(&[second, first][..])
+    );
+    assert_eq!(owner.ai_group_id_of(inert), None);
+    for id in [first, second] {
+        let unit = owner.host_object(id).unwrap();
+        assert_eq!(
+            unit.guard_area_trigger().as_deref(),
+            Some("InnerPerimeter1")
+        );
+        assert_eq!(unit.guard_position(), Some(Vec3::new(20.0, 0.0, 20.0)));
+        assert_eq!(unit.guard_target(), None);
+        assert_eq!(
+            unit.ai_state(),
+            generals_main::game_logic::AIState::GuardingArea
+        );
+        assert!(!unit.is_hunting());
+        assert!(peer.host_object(id).unwrap().is_hunting());
+    }
+    assert_eq!(peer.ai_group_id_of(first), Some(original_group));
+    guard_area(&mut peer, "HuntTeam", "[Skirmish]MyInnerPerimeter");
+    assert_eq!(
+        peer.host_object(first)
+            .unwrap()
+            .guard_area_trigger()
+            .as_deref(),
+        Some("InnerPerimeter1")
+    );
+    assert_eq!(
+        peer.host_object(first).unwrap().guard_position(),
+        Some(Vec3::new(220.0, 0.0, 220.0))
+    );
+    assert_eq!(
+        owner.host_object(first).unwrap().guard_position(),
+        Some(Vec3::new(20.0, 0.0, 20.0))
+    );
+    assert_eq!(owner.host_object(first).unwrap().formation_id, 17);
 }

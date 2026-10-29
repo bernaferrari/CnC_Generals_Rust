@@ -45,6 +45,31 @@ impl GameLogic {
         Ok(())
     }
 
+    /// ScriptActions::doTeamGuardArea resolves the qualified polygon before
+    /// the Team, then admits its roster to a new AIGroup and issues aiGuardArea.
+    pub(super) fn apply_owned_team_guard_area(
+        &mut self,
+        team: &str,
+        area: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some((center, _, polygon)) = self.host_named_guard_area_polygon(area) else {
+            return Ok(());
+        };
+        let area = polygon.get_trigger_name().as_str().to_owned();
+        let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
+            return Ok(());
+        };
+        let group = self.create_team_ai_group(&members);
+        for id in self.ai_group_members(group) {
+            if self.ai_group_id_of(id) == Some(group) {
+                self.apply_owned_script_guard_area(id, center, &area);
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn apply_owned_team_guard_object(
         &mut self,
         team: &str,

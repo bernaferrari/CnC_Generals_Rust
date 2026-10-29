@@ -1475,7 +1475,33 @@ impl ScriptActionDispatcher<'_> {
                     self.do_team_guard_object(action)
                 }
             }
-            ScriptActionType::TeamGuardArea => self.do_team_guard_area(action),
+            ScriptActionType::TeamGuardArea => {
+                let team = self.get_string_param(action, 0)?;
+                let area = self.get_string_param(action, 1)?;
+                let (current_player, calling, condition) = self
+                    .context
+                    .with_engine_ref(|engine| {
+                        (
+                            engine.get_current_player_name(),
+                            engine.get_calling_team_id(),
+                            engine.get_condition_team_id(),
+                        )
+                    })
+                    .unwrap_or((None, None, None));
+                if let Some(result) = driver.team_guard_area(
+                    &team,
+                    &area,
+                    current_player.as_deref(),
+                    calling,
+                    condition,
+                ) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    // Temporary Core-only fallback until every driver owns its route.
+                    self.do_team_guard_area(action)
+                }
+            }
             ScriptActionType::TeamGuardSupplyCenter => self.do_team_guard_supply_center(action),
             ScriptActionType::TeamGuardInTunnelNetwork => {
                 self.do_team_guard_in_tunnel_network(action)

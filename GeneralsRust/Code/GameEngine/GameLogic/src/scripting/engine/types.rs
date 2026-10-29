@@ -848,6 +848,16 @@ pub trait ScriptExecutionDriver {
     ) -> Option<GameLogicResult<()>> {
         None
     }
+    fn team_guard_area(
+        &mut self,
+        _team: &str,
+        _area: &str,
+        _current_player: Option<&str>,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
     fn team_guard_object(
         &mut self,
         _team: &str,
