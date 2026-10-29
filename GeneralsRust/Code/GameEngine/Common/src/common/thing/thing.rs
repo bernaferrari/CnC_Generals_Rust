@@ -247,17 +247,13 @@ impl BaseThing {
     /// Get ground height at coordinates via the registered terrain provider.
     /// Returns 0.0 if no provider is registered (before terrain init).
     fn get_ground_height(&self, x: Real, y: Real) -> Real {
-        GROUND_HEIGHT_PROVIDER.with_borrow(|slot| {
-            slot.as_deref().map_or(0.0, |f| f(x, y))
-        })
+        GROUND_HEIGHT_PROVIDER.with_borrow(|slot| slot.as_deref().map_or(0.0, |f| f(x, y)))
     }
 
     /// Check if underwater and get water level via the registered provider.
     /// Returns (false, 0.0) if no provider is registered.
     fn is_underwater(&self, x: Real, y: Real) -> (bool, Real) {
-        UNDERWATER_PROVIDER.with_borrow(|slot| {
-            slot.as_deref().map_or((false, 0.0), |f| f(x, y))
-        })
+        UNDERWATER_PROVIDER.with_borrow(|slot| slot.as_deref().map_or((false, 0.0), |f| f(x, y)))
     }
 
     /// C++ `getUnitDirectionVector2D`: Cos/Sin of cached angle, then VALID_DIRVECTOR.

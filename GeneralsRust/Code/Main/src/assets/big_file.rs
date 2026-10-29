@@ -9,9 +9,9 @@
 use anyhow::{Result, anyhow};
 use log::{error, info};
 use std::collections::HashMap;
-use std::path::Path;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
+use std::path::Path;
 
 /// BIG file identifier - exactly as in C++
 const _BIG_FILE_IDENTIFIER: &[u8; 4] = b"BIGF";
