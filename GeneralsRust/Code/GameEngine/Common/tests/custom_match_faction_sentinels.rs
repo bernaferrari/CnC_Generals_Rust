@@ -5,7 +5,7 @@ use game_engine::common::preferences::CustomMatchPreferences;
 use game_engine::common::rts::player_template::{PlayerTemplate, get_player_template_store_mut};
 
 #[test]
-fn offline_preferred_faction_uses_cpp_sentinels_and_preserves_faction_one() {
+fn custom_match_faction_uses_cpp_sentinels_and_preserves_faction_one() {
     let mut store = get_player_template_store_mut();
     store.clear();
     for name in ["FactionIndexZero", "FactionIndexOne", "FactionIndexTwo"] {
@@ -20,7 +20,7 @@ fn offline_preferred_faction_uses_cpp_sentinels_and_preserves_faction_one() {
     assert_eq!(
         prefs.get_preferred_faction(),
         1,
-        "real faction index 1 is not OBSERVER"
+        "faction index 1 is not OBSERVER"
     );
 
     prefs.set_preferred_faction(PLAYERTEMPLATE_RANDOM);
