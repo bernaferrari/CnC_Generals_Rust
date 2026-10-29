@@ -435,6 +435,14 @@ impl GameLogic {
             .expect("receiving FloatUpdate failed");
     }
 
+    /// Exercise the actual FloatUpdate phase without the enclosing world-services
+    /// publication, so integration tests can detect accidental ambient lookup.
+    #[cfg(feature = "integration-tests")]
+    #[doc(hidden)]
+    pub fn update_float_for_owner_test(&mut self) {
+        self.update_float_update();
+    }
+
     pub(in super::super) fn update_float_update_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,

@@ -107,3 +107,55 @@ fn actual_float_update_samples_the_receiving_water_plane_for_same_id_worlds() {
     high.update_with_dt(1.0 / 30.0);
     assert_water_height(&high, high_object, 80.0);
 }
+
+#[cfg(feature = "integration-tests")]
+#[test]
+fn float_phase_ignores_foreign_published_terrain() {
+    let temp = tempfile::tempdir().unwrap();
+    let high_map = water_map(temp.path(), "high-direct", 80);
+    let low_map = water_map(temp.path(), "low-direct", 30);
+    let (mut high, high_object) = world(&high_map);
+    let (mut low, low_object) = world(&low_map);
+    assert_eq!(high_object, low_object);
+
+    // Deliberately publish a different service owner around the FloatUpdate
+    // phase itself. Calling the usual full tick would republish the receiver
+    // and would not distinguish this from the old ambient implementation.
+    let foreign = gamelogic::system::engine_stores::new_world_services();
+    {
+        let mut terrain = foreign.terrain().write().unwrap();
+        let mut water = gamelogic::polygon_trigger::PolygonTrigger::new(
+            99,
+            "ForeignFloatWater".into(),
+            vec![
+                gamelogic::common::ICoord3D::new(0, 0, 120),
+                gamelogic::common::ICoord3D::new(200, 0, 120),
+                gamelogic::common::ICoord3D::new(200, 200, 120),
+                gamelogic::common::ICoord3D::new(0, 200, 120),
+            ],
+        );
+        water.set_water_area(true);
+        terrain.add_trigger_area(water);
+        assert_eq!(
+            generals_main::game_logic::host_float_update::receiving_water_surface_y(
+                &terrain, 100.0, 100.0,
+            ),
+            Some(120.0),
+            "the published control must contain a distinct water plane"
+        );
+    }
+    gamelogic::system::engine_stores::with_world_services(&foreign, || {
+        assert!(std::sync::Arc::ptr_eq(
+            gamelogic::system::engine_stores::active_services().terrain(),
+            foreign.terrain(),
+        ));
+        high.update_float_for_owner_test();
+        assert_water_height(&high, high_object, 80.0);
+        assert_eq!(y(&low, low_object), 0.0);
+        low.update_float_for_owner_test();
+        assert_water_height(&low, low_object, 30.0);
+        low.reset();
+        high.update_float_for_owner_test();
+        assert_water_height(&high, high_object, 80.0);
+    });
+}
