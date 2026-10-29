@@ -34,12 +34,17 @@ pub struct FileInfo {
 impl FileInfo {
     /// Create FileInfo from a path
     pub fn from_path(path: &Path) -> io::Result<Self> {
-        let metadata = fs::metadata(path)?;
         let name = path
             .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("")
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "directory entry name is not valid UTF-8",
+                )
+            })?
             .to_string();
+        let metadata = fs::metadata(path)?;
 
         Ok(Self {
             name: AsciiString::from(&name),
@@ -47,7 +52,7 @@ impl FileInfo {
             size: metadata.len(),
             modified_time: metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
             is_directory: metadata.is_dir(),
-            is_readable: true, // Simplified - would check actual permissions
+            is_readable: path_is_readable(path, &metadata),
             is_writable: !metadata.permissions().readonly(),
         })
     }
@@ -65,6 +70,82 @@ impl FileInfo {
     pub fn matches_pattern(&self, pattern: &str) -> bool {
         let name = self.name.as_str();
         match_pattern(name, pattern)
+    }
+}
+
+/// Conservatively check this process's access to a regular file or directory.
+/// A mode-000 entry is treated as unreadable even for a privileged process.
+fn path_is_readable(path: &Path, metadata: &fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // Require both a granted permission bit and successful access by this
+        // process. The first check keeps mode-000 entries unreadable even when
+        // the test process is privileged; the open/read_dir probe observes the
+        // effective owner class, ACLs, and other access-control decisions.
+        if metadata.permissions().mode() & 0o444 == 0 {
+            return false;
+        }
+        if metadata.is_dir() {
+            fs::read_dir(path).is_ok()
+        } else if metadata.file_type().is_file() {
+            fs::File::open(path).is_ok()
+        } else {
+            // Never open FIFOs/devices/sockets just to infer readability; an
+            // open may block or have side effects, so report conservatively.
+            false
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        if metadata.is_dir() {
+            fs::read_dir(path).is_ok()
+        } else if metadata.file_type().is_file() {
+            fs::File::open(path).is_ok()
+        } else {
+            false
+        }
+    }
+}
+
+/// Non-recursive snapshot matching the C++ `Directory` file/subdirectory
+/// partition without changing the process working directory.
+#[derive(Debug, Default)]
+pub struct DirectorySnapshot {
+    /// Non-directory entries, sorted by filename like C++ `FileInfoSet`.
+    pub files: Vec<FileInfo>,
+    /// Directory entries, sorted by filename like C++ `FileInfoSet`.
+    pub subdirectories: Vec<FileInfo>,
+}
+
+impl DirectorySnapshot {
+    /// Enumerate one directory level. Paths are resolved relative to the
+    /// supplied path and the process current directory is never changed.
+    /// Invalid UTF-8 names and metadata failures (including dangling symlinks,
+    /// because metadata follows symlinks) fail the whole snapshot with an I/O
+    /// error instead of silently omitting or misnaming an entry.
+    pub fn read(path: &Path) -> io::Result<Self> {
+        let mut snapshot = Self::default();
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            let name = entry.file_name();
+            if name == "." || name == ".." {
+                continue;
+            }
+            let info = FileInfo::from_path(&entry.path())?;
+            if info.is_directory {
+                snapshot.subdirectories.push(info);
+            } else {
+                snapshot.files.push(info);
+            }
+        }
+        snapshot
+            .files
+            .sort_by(|left, right| left.name.as_str().cmp(right.name.as_str()));
+        snapshot
+            .subdirectories
+            .sort_by(|left, right| left.name.as_str().cmp(right.name.as_str()));
+        Ok(snapshot)
     }
 }
 
@@ -531,6 +612,120 @@ mod tests {
             .filter(|e| !e.is_directory)
             .collect();
         assert_eq!(txt_files.len(), 1);
+    }
+
+    #[test]
+    fn directory_snapshot_partitions_entries_without_changing_cwd() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+        fs::create_dir(root.join("z-subdir")).unwrap();
+        fs::create_dir(root.join("a-subdir")).unwrap();
+        File::create(root.join("z-file.txt")).unwrap();
+        let unreadable_path = root.join("a-unreadable.txt");
+        File::create(&unreadable_path).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&unreadable_path, fs::Permissions::from_mode(0o000)).unwrap();
+        }
+
+        let cwd_before = std::env::current_dir().unwrap();
+        let snapshot = DirectorySnapshot::read(root).unwrap();
+        let cwd_after = std::env::current_dir().unwrap();
+
+        assert_eq!(cwd_before, cwd_after);
+        assert_eq!(
+            snapshot
+                .files
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
+            ["a-unreadable.txt", "z-file.txt"]
+        );
+        assert_eq!(
+            snapshot
+                .subdirectories
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
+            ["a-subdir", "z-subdir"]
+        );
+        assert!(
+            !snapshot
+                .files
+                .iter()
+                .any(|entry| entry.name.as_str() == ".")
+        );
+        assert!(
+            !snapshot
+                .files
+                .iter()
+                .any(|entry| entry.name.as_str() == "..")
+        );
+        assert!(
+            !snapshot
+                .subdirectories
+                .iter()
+                .any(|entry| { entry.name.as_str() == "." || entry.name.as_str() == ".." })
+        );
+        #[cfg(unix)]
+        assert!(
+            !snapshot
+                .files
+                .iter()
+                .find(|entry| entry.name.as_str() == "a-unreadable.txt")
+                .unwrap()
+                .is_readable
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_info_uses_effective_open_access_when_read_bits_exist() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("other-class-read-only.txt");
+        File::create(&path).unwrap();
+        // The owner has no read bit, while the other class does. For a
+        // nonprivileged owner, effective access should still be denied.
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o004)).unwrap();
+        let can_open_as_this_process = fs::File::open(&path).is_ok();
+        let info = FileInfo::from_path(&path).unwrap();
+        assert_eq!(info.is_readable, can_open_as_this_process);
+        if !can_open_as_this_process {
+            assert_ne!(fs::metadata(&path).unwrap().permissions().mode() & 0o444, 0);
+            assert!(!info.is_readable);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_info_rejects_non_utf8_names() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let name = OsStr::from_bytes(b"invalid-\xff-name");
+        // Some filesystems (including the macOS test filesystem) reject such
+        // names at creation. Test FileInfo's explicit failure policy directly
+        // so the behavior remains covered on both permissive and strict FSes.
+        let error = FileInfo::from_path(Path::new(name)).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_snapshot_propagates_dangling_symlink_metadata_failure() {
+        use std::os::unix::fs::symlink;
+
+        let temp_dir = TempDir::new().unwrap();
+        symlink(
+            temp_dir.path().join("missing-target"),
+            temp_dir.path().join("dangling-link"),
+        )
+        .unwrap();
+        let error = DirectorySnapshot::read(temp_dir.path()).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
     }
 
     #[test]
