@@ -907,7 +907,7 @@ impl GlobalData {
             health_bonus: [1.0; LEVEL_COUNT],
             default_structure_rubble_height: 1.0,
 
-            shell_map_name: String::new(),
+            shell_map_name: "Maps\\ShellMap1\\ShellMap1.map".to_string(),
             shell_map_on: true,
             play_intro: true,
             play_sizzle: true,
@@ -919,10 +919,10 @@ impl GlobalData {
             keyboard_scroll_factor: 0.5,
             keyboard_default_scroll_factor: 0.5,
 
-            music_volume_factor: 0.8,
-            sfx_volume_factor: 0.8,
-            voice_volume_factor: 0.8,
-            sound_3d_pref: true,
+            music_volume_factor: 0.5,
+            sfx_volume_factor: 0.5,
+            voice_volume_factor: 0.5,
+            sound_3d_pref: false,
 
             animate_windows: true,
             incremental_agp_buf: false,
@@ -2454,6 +2454,12 @@ mod tests {
     fn global_data_constructor_matches_cpp_gameplay_feedback_defaults() {
         let data = GlobalData::new();
 
+        assert_eq!(data.shell_map_name, "Maps\\ShellMap1\\ShellMap1.map");
+        assert!(data.shell_map_on);
+        assert_eq!(data.music_volume_factor, 0.5);
+        assert_eq!(data.sfx_volume_factor, 0.5);
+        assert_eq!(data.voice_volume_factor, 0.5);
+        assert!(!data.sound_3d_pref);
         assert_eq!(data.net_min_players, 1);
         assert_eq!(data.base_value_per_supply_box, 100);
         assert_eq!(data.build_speed, 0.0);
