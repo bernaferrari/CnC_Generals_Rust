@@ -210,7 +210,7 @@ fn version_35_bincode_and_append_only_direct_xfer_still_decode() {
     assert!(bincode_decoded.garrison_original_team_instances.is_empty());
 
     // Version35 predates the append-only direct-Xfer Team vector. Emit the
-    // current v36 body, then remove only that final zero-length-vector count
+    // current v37 body, then remove only that final zero-length-vector count
     // and restore the historical envelope version to model its exact bytes.
     let mut current_xfer = std::io::Cursor::new(Vec::new());
     {
@@ -220,7 +220,7 @@ fn version_35_bincode_and_append_only_direct_xfer_still_decode() {
     let mut version_35_xfer = current_xfer.into_inner();
     assert_eq!(
         u32::from_le_bytes(version_35_xfer[..4].try_into().unwrap()),
-        36
+        37
     );
     version_35_xfer.truncate(version_35_xfer.len() - 4);
     version_35_xfer[..4].copy_from_slice(&35u32.to_le_bytes());
@@ -234,12 +234,39 @@ fn version_35_bincode_and_append_only_direct_xfer_still_decode() {
 #[test]
 fn current_default_snapshot_roundtrips_and_restores() {
     let snapshot = WorldSnapshot::default();
+    assert!(
+        snapshot.lifecycle_tail.windows(4).any(|tag| tag == b"GOTS"),
+        "a current default snapshot must contain its mandatory empty GOTS frame"
+    );
     let bincode_bytes = bincode_legacy::serialize(&snapshot).unwrap();
     let bincode_decoded: WorldSnapshot = bincode_legacy::deserialize(&bincode_bytes).unwrap();
     let mut receiver = GameLogic::new();
     SnapshotBuilder::new()
         .restore_from_snapshot(&bincode_decoded, &mut receiver)
         .expect("valid current default snapshot restores");
+
+    let mut direct_source = WorldSnapshot::default();
+    let mut direct_bytes = std::io::Cursor::new(Vec::new());
+    direct_source
+        .xfer(&mut XferSave::new(&mut direct_bytes))
+        .expect("current default snapshot writes as direct Xfer v37");
+    assert_eq!(direct_source.version, 37);
+    direct_bytes.set_position(0);
+    let mut direct_decoded = WorldSnapshot::default();
+    direct_decoded
+        .xfer(&mut XferLoad::new(direct_bytes))
+        .expect("current default snapshot reads as direct Xfer v37");
+    assert_eq!(direct_decoded.version, 37);
+    assert!(
+        direct_decoded
+            .lifecycle_tail
+            .windows(4)
+            .any(|tag| tag == b"GOTS")
+    );
+    let mut direct_receiver = GameLogic::new();
+    SnapshotBuilder::new()
+        .restore_from_snapshot(&direct_decoded, &mut direct_receiver)
+        .expect("current default direct-Xfer snapshot restores");
 
     for legacy_version in [34, 35] {
         let mut bytes = std::io::Cursor::new(Vec::new());
@@ -259,7 +286,7 @@ fn current_default_snapshot_roundtrips_and_restores() {
             let mut reader = XferLoad::new(bytes);
             direct_decoded.xfer(&mut reader).unwrap();
         }
-        assert_eq!(direct_decoded.version, 36);
+        assert_eq!(direct_decoded.version, 37);
         let mut direct_receiver = GameLogic::new();
         SnapshotBuilder::new()
             .restore_from_snapshot(&direct_decoded, &mut direct_receiver)

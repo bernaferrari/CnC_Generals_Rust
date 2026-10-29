@@ -167,9 +167,6 @@ impl SnapshotBuilder {
                 super::super::deliver_payload_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
                 );
-                super::super::object_module_xfer_persist::append_to_lifecycle_tail(
-                    &mut bytes, game_logic,
-                );
                 super::super::auto_deposit_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
                 );
@@ -236,6 +233,9 @@ impl SnapshotBuilder {
                     &mut bytes, game_logic,
                 );
 
+                super::super::object_module_xfer_persist::append_to_lifecycle_tail(
+                    &mut bytes, game_logic,
+                )?;
                 super::super::ai_player_queue_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
                 );
@@ -247,8 +247,8 @@ impl SnapshotBuilder {
                 super::super::garrison_team_identity_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
                 )?;
-                // Framed completion footer is last; its parser never scans
-                // arbitrary object/template payload bytes for a marker.
+                // Academy begins the terminal footer chain; preserve the
+                // exact ordering consumed by CPAT and CPAD.
                 super::super::player_academy_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
                 );
@@ -355,6 +355,12 @@ impl SnapshotBuilder {
         // Native input owns squads; validate its detached wire before world mutation.
         let hotkey_groups =
             super::super::hotkey_squad_persist::read_control_groups(&snapshot.lifecycle_tail)?;
+        super::super::object_module_xfer_persist::validate_completion_provenance_before_restore(
+            &snapshot.lifecycle_tail,
+            snapshot.version,
+            &snapshot.objects,
+            game_logic,
+        )?;
         // Validate the original ScriptEngine continuation before mutating the
         // receiving world, including callers that deserialize the typed body directly.
         let mut receiving_persist = snapshot.persist_v18.clone();
@@ -592,8 +598,7 @@ impl SnapshotBuilder {
             .transpose()?
             .unwrap_or_default();
         let player_team_chunks = super::super::player_team_chunks::chunks_from_world(snapshot)?;
-        if snapshot.version >= WORLD_SNAPSHOT_BINCODE_VERSION
-            && snapshot.garrison_original_team_instances.is_empty()
+        if snapshot.version >= super::super::types::WORLD_SNAPSHOT_GARRISON_TEAM_VERSION
             && !super::super::garrison_team_identity_persist::has_lifecycle_capsule(
                 &snapshot.lifecycle_tail,
             )?

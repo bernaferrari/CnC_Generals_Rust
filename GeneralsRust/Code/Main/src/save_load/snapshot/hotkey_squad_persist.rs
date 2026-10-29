@@ -199,9 +199,19 @@ fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<HotkeySquadPersistPaylo
 /// Traverse record boundaries, never payload bytes. Later framed continuations
 /// are removed first; an object's name/timer/module blob cannot become HSQD.
 fn find_hsqd_record(bytes: &[u8]) -> SaveLoadResult<Option<std::ops::Range<usize>>> {
+    find_lifecycle_record(bytes, HSQD_MAGIC)
+}
+
+/// Locate one record in the typed lifecycle prefix. OXFR v9 owns an extra
+/// length+OXFE locator after its payload, so walking by the ordinary header
+/// length alone would strand later records at those footer bytes.
+pub(super) fn find_lifecycle_record(
+    bytes: &[u8],
+    wanted: &[u8; 4],
+) -> SaveLoadResult<Option<std::ops::Range<usize>>> {
     let end = super::named_unit_history_persist::suffix_start(bytes)?;
     let bytes = &bytes[..end];
-    let mut at = if bytes.starts_with(HSQD_MAGIC) || bytes.is_empty() {
+    let mut at = if bytes.starts_with(wanted) || bytes.is_empty() {
         0
     } else {
         match super::combat_projectile_persist::prefix_len(bytes) {
@@ -237,14 +247,36 @@ fn find_hsqd_record(bytes: &[u8]) -> SaveLoadResult<Option<std::ops::Range<usize
             ));
         }
         let len = u32::from_le_bytes(rest[8..12].try_into().unwrap()) as usize;
-        let next = at
+        let payload_end = at
             .checked_add(12)
             .and_then(|n| n.checked_add(len))
             .filter(|&n| n <= bytes.len())
             .ok_or_else(|| SaveLoadError::Corrupted("lifecycle record payload truncated".into()))?;
-        if rest.starts_with(HSQD_MAGIC) {
+        let next = if rest.starts_with(b"OXFR")
+            && u32::from_le_bytes(rest[4..8].try_into().unwrap()) == 9
+        {
+            let footer_end = payload_end
+                .checked_add(8)
+                .filter(|&n| n <= bytes.len())
+                .ok_or_else(|| SaveLoadError::Corrupted("OXFR v9 locator truncated".into()))?;
+            let locator_len =
+                u32::from_le_bytes(bytes[payload_end..payload_end + 4].try_into().unwrap())
+                    as usize;
+            if locator_len != len || &bytes[payload_end + 4..footer_end] != b"OXFE" {
+                return Err(SaveLoadError::Corrupted(
+                    "invalid OXFR v9 length/footer locator".into(),
+                ));
+            }
+            footer_end
+        } else {
+            payload_end
+        };
+        if rest.starts_with(wanted) {
             if found.is_some() {
-                return Err(SaveLoadError::Corrupted("duplicate HSQD record".into()));
+                return Err(SaveLoadError::Corrupted(format!(
+                    "duplicate {} lifecycle record",
+                    String::from_utf8_lossy(wanted)
+                )));
             }
             found = Some(at..next);
         }

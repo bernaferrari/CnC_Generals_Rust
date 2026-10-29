@@ -1141,6 +1141,7 @@ impl Object {
             last_unload_sound_frame: 0,
 
             applied_upgrades: HashSet::new(),
+            completed_object_upgrades: HashSet::new(),
             special_power_ready: true,
             special_power_cooldown,
             special_power_cooldown_remaining: 0.0,
@@ -2089,6 +2090,7 @@ impl Object {
             last_unload_sound_frame: 0,
 
             applied_upgrades: HashSet::new(),
+            completed_object_upgrades: HashSet::new(),
             special_power_ready: true,
             special_power_cooldown: 10.0,
             special_power_cooldown_remaining: 0.0,

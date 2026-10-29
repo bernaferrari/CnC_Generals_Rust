@@ -1631,7 +1631,11 @@ pub struct Object {
     pub last_unload_sound_frame: u32,
 
     /// Applied upgrades keyed by upgrade template/tag name.
+    /// Effect/tag history consumed by existing modules and combat residuals.
     pub applied_upgrades: HashSet<String>,
+    /// C++ `m_objectUpgradesCompleted` represented by upgrade names so the
+    /// receiving UpgradeCenter resolves the correct masks after load.
+    pub completed_object_upgrades: HashSet<String>,
 
     /// Special power availability/cooldown state.
     ///

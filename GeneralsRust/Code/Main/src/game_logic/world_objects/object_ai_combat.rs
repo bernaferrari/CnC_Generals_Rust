@@ -519,12 +519,21 @@ impl GameLogic {
         }) {
             return false;
         }
-        self.apply_upgrade_to_object_with_interpreter_checked(
-            id,
-            upgrade_name,
-            interpreter,
-            effects,
-        )
+        if object_scoped {
+            self.apply_upgrade_to_object_with_interpreter_checked(
+                id,
+                upgrade_name,
+                interpreter,
+                effects,
+            )
+        } else {
+            self.apply_player_research_to_object_with_interpreter_checked(
+                id,
+                upgrade_name,
+                interpreter,
+                effects,
+            )
+        }
         .expect("owned upgrade callback admission must complete");
         if !object_scoped {
             self.apply_passengers_fire_upgrade_to_team(recipient, upgrade_name);

@@ -33,13 +33,24 @@ impl Snapshot for WorldSnapshot {
         // payload bytes can be consumed under the wrong layout.
         if xfer.get_mode() != XferMode::Load {
             validate_direct_world_snapshot_version(self.version)?;
-            // Re-encode an accepted previous envelope with the current AI
-            // continuation layout so old readers reject it up front.
-            if self.version < WORLD_SNAPSHOT_DIRECT_XFER_VERSION {
+            super::object_module_xfer_persist::upgrade_completion_capsule_for_save(
+                &mut self.lifecycle_tail,
+                self.version,
+                &self.objects,
+            )?;
+            if self.version < WORLD_SNAPSHOT_GARRISON_TEAM_VERSION {
                 super::garrison_team_identity_persist::ensure_empty_capsule(
                     &mut self.lifecycle_tail,
                 )?;
+            } else if !super::garrison_team_identity_persist::has_lifecycle_capsule(
+                &self.lifecycle_tail,
+            )? {
+                return Err(SaveLoadError::Corrupted(
+                    "version-36+ save is missing its framed original Garrison Team identity continuation"
+                        .into(),
+                ));
             }
+            // Upgrade and GOTS frames precede APRO, particle, and CPAD footers.
             self.version = WORLD_SNAPSHOT_DIRECT_XFER_VERSION;
         }
         self.version.xfer(xfer)?;

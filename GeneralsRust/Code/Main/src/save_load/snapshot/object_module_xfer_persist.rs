@@ -10,15 +10,19 @@
 //! fields, so a stunned tumble, bus second-life, death collapse, or radar
 //! dish snapped back to idle on load.
 //!
-//! Append a Rust-only tagged suffix after the contain/producer payload.
-//! OXFR v7 adds per-module CostModifierUpgrade execution state. OXFR v6 adds
+//! Persist a Rust-only tagged suffix after the contain/producer payload and
+//! before the terminal owner-footer chain.
+//! OXFR v9 adds a typed terminal locator for persisted names. OXFR v8 carries
+//! Object-completion provenance. OXFR v7 adds per-module CostModifierUpgrade
+//! execution state. OXFR v6 adds
 //! per-module StatusBitsUpgrade execution state. OXFR v5 adds per-module
 //! ObjectCreationUpgrade execution state. OXFR v4 adds per-module RadarUpgrade executed state and preserves Object-owned retained death status and KeepObject runtime
 //! separately from the existing functional onDie latch. C++ Object::xfer
 //! persists object/private status and ActiveBody::xfer persists BODY_RUBBLE;
 //! KeepObjectDie::xfer adds no custom retained fields. These are Rust runtime
 //! records, not new C++ wire fields. Versions 1–3 are rejected on restore.
-//! The current WorldSnapshot body/version remains unchanged.
+//! The enclosing WorldSnapshot advances to v37 while retaining v36's GOTS
+//! continuation contract.
 
 use crate::game_logic::host_battle_bus::HostBattleBusBodyData;
 use crate::game_logic::host_helicopter_slow_death::HostHelicopterSlowDeathData;
@@ -29,7 +33,8 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const OXFR_MAGIC: &[u8; 4] = b"OXFR";
-const OXFR_VERSION: u32 = 7;
+const OXFR_FOOTER: &[u8; 4] = b"OXFE";
+const OXFR_VERSION: u32 = 9;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectModuleXferPersistPayload {
@@ -42,6 +47,46 @@ struct ObjectModuleXferPersistPayload {
     object_creation_upgrade: Vec<ObjectCreationUpgradePersist>,
     status_bits_executed_present: bool,
     cost_modifier_executed_present: bool,
+    completed_object_upgrades: Vec<ObjectUpgradeCompletionPersist>,
+    completion_snapshot_present: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ObjectUpgradeCompletionPersist {
+    object_id: u32,
+    names: Vec<String>,
+}
+
+/// OXFR v7 positional layout. Keep the old payload stable for saved streams.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectModuleXferPersistPayloadV7 {
+    stun: Vec<StunPersist>,
+    battle_bus: Vec<BattleBusPersist>,
+    slow_death: Vec<SlowDeathPersist>,
+    radar: Vec<RadarPersist>,
+    death_start: Vec<DeathStartPersist>,
+    retained_death: Vec<RetainedDeathStatePersist>,
+    object_creation_upgrade: Vec<ObjectCreationUpgradePersist>,
+    status_bits_executed_present: bool,
+    cost_modifier_executed_present: bool,
+}
+
+impl From<ObjectModuleXferPersistPayloadV7> for ObjectModuleXferPersistPayload {
+    fn from(value: ObjectModuleXferPersistPayloadV7) -> Self {
+        Self {
+            stun: value.stun,
+            battle_bus: value.battle_bus,
+            slow_death: value.slow_death,
+            radar: value.radar,
+            death_start: value.death_start,
+            retained_death: value.retained_death,
+            object_creation_upgrade: value.object_creation_upgrade,
+            status_bits_executed_present: value.status_bits_executed_present,
+            cost_modifier_executed_present: value.cost_modifier_executed_present,
+            completed_object_upgrades: Vec::new(),
+            completion_snapshot_present: false,
+        }
+    }
 }
 
 /// OXFR v4 payload layout. Keep its field order stable for existing saves.
@@ -114,6 +159,8 @@ impl From<ObjectModuleXferPersistPayloadV6> for ObjectModuleXferPersistPayload {
                 .collect(),
             status_bits_executed_present: value.status_bits_executed_present,
             cost_modifier_executed_present: false,
+            completed_object_upgrades: Vec::new(),
+            completion_snapshot_present: false,
         }
     }
 }
@@ -130,6 +177,8 @@ impl From<ObjectModuleXferPersistPayloadV4> for ObjectModuleXferPersistPayload {
             object_creation_upgrade: Vec::new(),
             status_bits_executed_present: false,
             cost_modifier_executed_present: false,
+            completed_object_upgrades: Vec::new(),
+            completion_snapshot_present: false,
         }
     }
 }
@@ -155,6 +204,8 @@ impl From<ObjectModuleXferPersistPayloadV5> for ObjectModuleXferPersistPayload {
                 .collect(),
             status_bits_executed_present: false,
             cost_modifier_executed_present: false,
+            completed_object_upgrades: Vec::new(),
+            completion_snapshot_present: false,
         }
     }
 }
@@ -229,39 +280,19 @@ struct ObjectCreationUpgradePersist {
     cost_modifier_executed: Vec<bool>,
 }
 
-impl ObjectModuleXferPersistPayload {
-    fn is_empty(&self) -> bool {
-        self.stun.is_empty()
-            && self.battle_bus.is_empty()
-            && self.slow_death.is_empty()
-            && self.radar.is_empty()
-            && self.death_start.is_empty()
-            && self.retained_death.is_empty()
-            && self.object_creation_upgrade.is_empty()
-    }
-}
-
-pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
+pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) -> SaveLoadResult<()> {
     let payload = capture(game_logic);
-    if payload.is_empty() {
-        return;
-    }
-    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
-        return;
-    };
-    bytes.extend_from_slice(OXFR_MAGIC);
-    append_u32(bytes, OXFR_VERSION);
-    append_u32(bytes, encoded.len() as u32);
-    bytes.extend_from_slice(&encoded);
+    append_payload_record(bytes, &payload)
 }
 
 fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<ObjectModuleXferPersistPayload>> {
-    let Some(suffix) = find_oxfr_suffix(bytes) else {
+    let Some((start, end)) = completion_record_range(bytes)? else {
         return Ok(None);
     };
+    let suffix = &bytes[start + OXFR_MAGIC.len()..end];
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
-    if version != 4 && version != 5 && version != 6 && version != OXFR_VERSION {
+    if !(4..=OXFR_VERSION).contains(&version) {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown OXFR suffix version {version}"
         )));
@@ -290,6 +321,12 @@ fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<ObjectModuleXferPersist
                 SaveLoadError::Corrupted(format!("OXFR v6 payload decode: {err}"))
             })?;
         old.into()
+    } else if version == 7 {
+        let old: ObjectModuleXferPersistPayloadV7 =
+            bincode_legacy::deserialize(&rest[..payload_len]).map_err(|err| {
+                SaveLoadError::Corrupted(format!("OXFR v7 payload decode: {err}"))
+            })?;
+        old.into()
     } else {
         bincode_legacy::deserialize(&rest[..payload_len])
             .map_err(|err| SaveLoadError::Corrupted(format!("OXFR payload decode: {err}")))?
@@ -298,10 +335,178 @@ fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<ObjectModuleXferPersist
 }
 
 pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    if let Some(payload) = decode_payload(bytes)? {
-        apply_payload(game_logic, payload)?;
+    let Some(payload) = decode_payload(bytes)? else {
+        if game_logic
+            .host_objects()
+            .registered()
+            .any(|(_, object)| !object.applied_upgrades.is_empty())
+        {
+            return Err(SaveLoadError::IncompatibleSave(
+                "legacy save has ambiguous Object/player upgrade completion provenance".into(),
+            ));
+        }
+        return Ok(());
+    };
+    if !payload.completion_snapshot_present
+        && game_logic
+            .host_objects()
+            .registered()
+            .any(|(_, object)| !object.applied_upgrades.is_empty())
+    {
+        return Err(SaveLoadError::IncompatibleSave(
+            "legacy save has ambiguous Object/player upgrade completion provenance".into(),
+        ));
+    }
+    apply_payload(game_logic, payload)?;
+    Ok(())
+}
+
+/// Validate provenance before SnapshotBuilder mutates the receiving world.
+pub fn validate_completion_provenance_before_restore(
+    bytes: &[u8],
+    version: u32,
+    objects: &std::collections::HashMap<ObjectId, super::object::ObjectSnapshot>,
+    game_logic: &GameLogic,
+) -> SaveLoadResult<()> {
+    let payload = decode_payload(bytes)?;
+    let completion_state = payload
+        .as_ref()
+        .is_some_and(|payload| payload.completion_snapshot_present);
+    if version >= super::types::WORLD_SNAPSHOT_DIRECT_XFER_VERSION && !completion_state {
+        return Err(SaveLoadError::Corrupted(
+            "current snapshot is missing OXFR object-completion continuation".into(),
+        ));
+    }
+    if let Some(payload) = payload
+        .as_ref()
+        .filter(|payload| payload.completion_snapshot_present)
+    {
+        let mut object_ids = std::collections::HashSet::new();
+        for row in &payload.completed_object_upgrades {
+            let id = ObjectId(row.object_id);
+            if !object_ids.insert(row.object_id)
+                || !objects.contains_key(&id)
+                || row.names.is_empty()
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "invalid or duplicate Object upgrade completion owner".into(),
+                ));
+            }
+            let mut names = std::collections::HashSet::new();
+            for name in &row.names {
+                if name.trim().is_empty()
+                    || !names.insert(name.to_ascii_lowercase())
+                    || game_logic.upgrade_template(name).is_none()
+                {
+                    return Err(SaveLoadError::Corrupted(
+                        "invalid Object upgrade completion name".into(),
+                    ));
+                }
+            }
+        }
+        return Ok(());
+    }
+    let ambiguous = objects.values().any(|object| {
+        matches!(
+            object.modules.get("Upgrade"),
+            Some(super::object::ModuleSnapshot::Upgrade(upgrades))
+                if !upgrades.active_upgrades.is_empty()
+        )
+    });
+    if ambiguous {
+        return Err(SaveLoadError::IncompatibleSave(
+            "legacy save has ambiguous Object/player upgrade completion provenance".into(),
+        ));
     }
     Ok(())
+}
+
+/// WorldSnapshot::default is a valid current empty save value.
+pub fn append_empty_completion_capsule(bytes: &mut Vec<u8>) -> SaveLoadResult<()> {
+    let payload = ObjectModuleXferPersistPayload {
+        completion_snapshot_present: true,
+        ..Default::default()
+    };
+    append_payload_record(bytes, &payload)
+}
+
+pub fn upgrade_completion_capsule_for_save(
+    bytes: &mut Vec<u8>,
+    version: u32,
+    objects: &std::collections::HashMap<ObjectId, super::object::ObjectSnapshot>,
+) -> SaveLoadResult<()> {
+    let mut payload = decode_payload(bytes)?;
+    if payload
+        .as_ref()
+        .is_some_and(|payload| payload.completion_snapshot_present)
+    {
+        return Ok(());
+    }
+    if version >= super::types::WORLD_SNAPSHOT_DIRECT_XFER_VERSION {
+        return Err(SaveLoadError::Corrupted(
+            "current snapshot is missing OXFR object-completion continuation".into(),
+        ));
+    }
+    let ambiguous = objects.values().any(|object| {
+        matches!(
+            object.modules.get("Upgrade"),
+            Some(super::object::ModuleSnapshot::Upgrade(upgrades))
+                if !upgrades.active_upgrades.is_empty()
+        )
+    });
+    if ambiguous {
+        return Err(SaveLoadError::IncompatibleSave(
+            "legacy save has ambiguous Object/player upgrade completion provenance".into(),
+        ));
+    }
+    let mut payload = payload.take().unwrap_or_default();
+    payload.completed_object_upgrades.clear();
+    payload.completion_snapshot_present = true;
+    append_payload_record(bytes, &payload)
+}
+
+fn append_payload_record(
+    bytes: &mut Vec<u8>,
+    payload: &ObjectModuleXferPersistPayload,
+) -> SaveLoadResult<()> {
+    let encoded = bincode_legacy::serialize(payload)
+        .map_err(|error| SaveLoadError::Corrupted(format!("encoding OXFR payload: {error}")))?;
+    let mut record = Vec::with_capacity(OXFR_MAGIC.len() + 16 + encoded.len());
+    record.extend_from_slice(OXFR_MAGIC);
+    append_u32(&mut record, OXFR_VERSION);
+    append_u32(&mut record, encoded.len() as u32);
+    record.extend_from_slice(&encoded);
+    append_u32(&mut record, encoded.len() as u32);
+    record.extend_from_slice(OXFR_FOOTER);
+
+    // OXFR sits at the typed AIQF prefix boundary. Its v9 end locator keeps
+    // `OXFR` inside an authored upgrade name from looking like a record.
+    let boundary = completion_record_boundary(bytes)?;
+    if let Some((start, end)) = completion_record_range(bytes)? {
+        if end == boundary {
+            bytes.splice(start..end, record);
+        } else {
+            // v4-v8 records were emitted earlier in the legacy extension
+            // prefix. Replace that record and place v9 at the typed boundary.
+            bytes.drain(start..end);
+            let insertion = completion_record_boundary(bytes)?;
+            bytes.splice(insertion..insertion, record);
+        }
+    } else {
+        bytes.splice(boundary..boundary, record);
+    }
+    Ok(())
+}
+
+fn completion_record_boundary(bytes: &[u8]) -> SaveLoadResult<usize> {
+    super::named_unit_history_persist::suffix_start(bytes)
+}
+
+fn completion_record_range(bytes: &[u8]) -> SaveLoadResult<Option<(usize, usize)>> {
+    Ok(
+        super::hotkey_squad_persist::find_lifecycle_record(bytes, OXFR_MAGIC)?
+            .map(|range| (range.start, range.end)),
+    )
 }
 
 /// Detached observations of the exact saved lifecycle flags, independent of HP.
@@ -367,11 +572,20 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
     let mut death_start = Vec::with_capacity(ids.len());
     let mut retained_death = Vec::with_capacity(ids.len());
     let mut object_creation_upgrade = Vec::new();
+    let mut completed_object_upgrades = Vec::new();
 
     for id in ids {
         let Some(object) = game_logic.host_object(id) else {
             continue;
         };
+        if !object.completed_object_upgrades.is_empty() {
+            let mut names: Vec<_> = object.completed_object_upgrades.iter().cloned().collect();
+            names.sort();
+            completed_object_upgrades.push(ObjectUpgradeCompletionPersist {
+                object_id: id.0,
+                names,
+            });
+        }
         // Exact state for every admitted object, including false and KeepObject
         // husks. A death phase or dead HP is not evidence that onDie ran.
         death_start.push(DeathStartPersist {
@@ -471,6 +685,8 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
         object_creation_upgrade,
         status_bits_executed_present: true,
         cost_modifier_executed_present: true,
+        completed_object_upgrades,
+        completion_snapshot_present: true,
     }
 }
 
@@ -479,6 +695,20 @@ fn apply_payload(
     payload: ObjectModuleXferPersistPayload,
 ) -> SaveLoadResult<()> {
     validate_payload_before_apply(game_logic, &payload)?;
+
+    if payload.completion_snapshot_present {
+        for (_, object) in game_logic.host_objects_mut().registered_mut() {
+            object.completed_object_upgrades.clear();
+        }
+        for row in &payload.completed_object_upgrades {
+            let object = game_logic
+                .host_object_mut(ObjectId(row.object_id))
+                .expect("completion owner was preflighted");
+            object
+                .completed_object_upgrades
+                .extend(row.names.iter().cloned());
+        }
+    }
 
     for entry in payload.stun {
         if let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) {
@@ -616,6 +846,31 @@ fn validate_payload_before_apply(
     payload: &ObjectModuleXferPersistPayload,
 ) -> SaveLoadResult<()> {
     let corrupted = |message: &str| SaveLoadError::Corrupted(message.to_owned());
+    if payload.completion_snapshot_present {
+        let mut object_ids = std::collections::HashSet::new();
+        for row in &payload.completed_object_upgrades {
+            if !object_ids.insert(row.object_id) || row.names.is_empty() {
+                return Err(corrupted(
+                    "invalid or duplicate Object upgrade completion owner in OXFR",
+                ));
+            }
+            let object_id = ObjectId(row.object_id);
+            if game_logic.host_object(object_id).is_none() {
+                return Err(corrupted(
+                    "Object upgrade completion owner is absent during OXFR restore",
+                ));
+            }
+            let mut names = std::collections::HashSet::new();
+            for name in &row.names {
+                if name.trim().is_empty()
+                    || !names.insert(name.to_ascii_lowercase())
+                    || game_logic.upgrade_template(name).is_none()
+                {
+                    return Err(corrupted("invalid Object upgrade completion name in OXFR"));
+                }
+            }
+        }
+    }
     let mut radar_ids = std::collections::HashSet::new();
     for entry in &payload.radar {
         if !radar_ids.insert(entry.object_id) {
@@ -968,10 +1223,8 @@ fn apply_radar_bits(object: &mut crate::game_logic::Object) {
 }
 
 fn find_oxfr_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == OXFR_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
+    let (start, end) = completion_record_range(bytes).ok().flatten()?;
+    Some(&bytes[start + OXFR_MAGIC.len()..end])
 }
 
 fn append_u32(out: &mut Vec<u8>, value: u32) {

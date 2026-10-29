@@ -26,6 +26,12 @@ enum AuthoredOrderedUpgrade {
     CostModifier(AuthoredCostModifierUpgrade),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum UpgradeGrantOrigin {
+    Object,
+    PlayerResearch,
+}
+
 impl AuthoredOrderedUpgrade {
     fn source_index(&self) -> usize {
         match self {
@@ -226,6 +232,39 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        self.apply_upgrade_to_object_with_interpreter_and_origin_checked(
+            object_id,
+            upgrade,
+            interpreter,
+            presentation_effects,
+            UpgradeGrantOrigin::Object,
+        )
+    }
+
+    pub(crate) fn apply_player_research_to_object_with_interpreter_checked(
+        &mut self,
+        object_id: ObjectId,
+        upgrade: &str,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.apply_upgrade_to_object_with_interpreter_and_origin_checked(
+            object_id,
+            upgrade,
+            interpreter,
+            presentation_effects,
+            UpgradeGrantOrigin::PlayerResearch,
+        )
+    }
+
+    fn apply_upgrade_to_object_with_interpreter_and_origin_checked(
+        &mut self,
+        object_id: ObjectId,
+        upgrade: &str,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        origin: UpgradeGrantOrigin,
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_overlord_addons::{
             is_bunker_addon_upgrade, is_gattling_addon_upgrade, is_overlord_family_host,
             is_propaganda_addon_upgrade,
@@ -257,12 +296,28 @@ impl GameLogic {
         };
         let object_creation_key_mask =
             self.object_creation_upgrade_key_mask(object_id, Some(upgrade));
+        let object_completion_name = if origin == UpgradeGrantOrigin::Object {
+            let Some(template) = self.upgrade_template(upgrade) else {
+                // Object.cpp:3559-3567 ignores a missing UpgradeTemplate on
+                // map grants; Object::giveUpgrade likewise does nothing for
+                // a null template. Keep unknown map/OCL upgrade tokens inert.
+                return Ok(());
+            };
+            Some(template.get_name().as_str().to_owned())
+        } else {
+            None
+        };
         if let Some(obj) = self.objects.get_mut(&object_id) {
             // C++ UpgradeMux::isAlreadyUpgraded — first give only.
             // C++ wouldUpgrade ConflictsWith: leftover ObjectCreationUpgrade already
             // matches; host objects skip OCL when another drone tag is complete.
             let first_give = status_upgrade_first_give;
             obj.apply_upgrade_tag(upgrade);
+            if let Some(name) = &object_completion_name {
+                // Object::giveUpgrade records any supplied template mask,
+                // regardless of the template's declared UpgradeType.
+                obj.completed_object_upgrades.insert(name.clone());
+            }
             if first_give {
                 if let Some(spec) =
                     crate::game_logic::host_satellite_hack::satellite_hack_spy_spec(upgrade)
@@ -855,26 +910,36 @@ impl GameLogic {
         let Some(object) = self.objects.get(&object_id) else {
             return gamelogic::upgrade::UpgradeMask::none();
         };
-        let Some(owner_id) = self.player_owner_for_host_object(object) else {
-            return gamelogic::upgrade::UpgradeMask::none();
-        };
-        let mut names = object
-            .applied_upgrades
+        // C++ Object::updateUpgradeModules combines two separate masks:
+        // completed upgrades on this Object and completed upgrades on its
+        // current controlling Player. Object grant names are explicit
+        // provenance: C++ Object::giveUpgrade records any supplied template's
+        // mask, even when that template is Type=PLAYER. Keep object upgrades
+        // available when there is no controlling Player.
+        let mut mask = object
+            .completed_object_upgrades
             .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>();
-        if let Some(player) = self.players.get(&owner_id) {
-            names.extend(player.completed_upgrades.iter().map(String::as_str));
-        }
-        if let Some(pending) = pending_upgrade {
-            names.push(pending);
-        }
-        names
-            .into_iter()
             .filter_map(|name| self.upgrade_template(name))
             .fold(gamelogic::upgrade::UpgradeMask::none(), |mask, template| {
                 mask | template.get_mask()
-            })
+            });
+        if let Some(owner_id) = self.player_owner_for_host_object(object) {
+            if let Some(player) = self.players.get(&owner_id) {
+                mask |= player
+                    .completed_upgrades
+                    .iter()
+                    .filter_map(|name| self.upgrade_template(name))
+                    .fold(gamelogic::upgrade::UpgradeMask::none(), |mask, template| {
+                        mask | template.get_mask()
+                    });
+            }
+        }
+        if let Some(pending) = pending_upgrade {
+            if let Some(template) = self.upgrade_template(pending) {
+                mask |= template.get_mask();
+            }
+        }
+        mask
     }
 
     /// Main's raw Object tag mutator has no receiving world argument. Route
@@ -925,12 +990,39 @@ impl GameLogic {
         {
             tags_to_remove.push(upgrade.to_owned());
         }
+        let mut completed_names_to_remove: Vec<_> = self
+            .objects
+            .get(&object_id)
+            .map(|object| {
+                object
+                    .completed_object_upgrades
+                    .iter()
+                    .filter(|name| {
+                        name.eq_ignore_ascii_case(upgrade)
+                            || (removed_mask != 0
+                                && self.upgrade_template(name).is_some_and(|template| {
+                                    template.get_mask().bits() & removed_mask != 0
+                                }))
+                    })
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !completed_names_to_remove
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(upgrade))
+        {
+            completed_names_to_remove.push(upgrade.to_owned());
+        }
         let Some(object) = self.objects.get_mut(&object_id) else {
             return false;
         };
         let mut removed = false;
         for name in tags_to_remove {
             removed |= object.remove_upgrade_tag(&name);
+        }
+        for name in completed_names_to_remove {
+            removed |= object.completed_object_upgrades.remove(&name);
         }
         if removed_mask != 0 {
             for (index, activation) in activation_masks.iter().enumerate() {
@@ -1138,6 +1230,15 @@ mod object_creation_upgrade_birth_tests {
         .expect("upgrade definition should admit");
     }
 
+    fn admit_object_upgrade(world: &mut GameLogic, name: &str) {
+        let mut ini = game_engine::common::ini::INI::new();
+        ini.with_inline_source(&format!("Upgrade {name}\nType = OBJECT\nEnd\n"), |ini| {
+            ini.read_line()?;
+            world.upgrade_definitions.parse_upgrade_definition(ini)
+        })
+        .expect("object upgrade definition should admit");
+    }
+
     fn world(triggers: &str, ocl_name: &str, child_name: Option<&str>) -> (GameLogic, ObjectId) {
         world_with_mux(triggers, false, ocl_name, child_name)
     }
@@ -1268,6 +1369,85 @@ mod object_creation_upgrade_birth_tests {
             .expect("mismatched receipt should be a harmless no-op");
         assert!(!destroyed);
         assert!(world.object_birth_matches(id, &replacement_birth));
+    }
+
+    #[test]
+    fn upgrade_module_mask_separates_receiving_player_and_object_completions() {
+        const FORMER_PLAYER_UPGRADE: &str = "Upgrade_FormerOwnerResearch";
+        const RECEIVING_PLAYER_UPGRADE: &str = "Upgrade_ReceivingOwnerResearch";
+        const OBJECT_UPGRADE: &str = "Upgrade_AuthoredObjectCompletion";
+        const PLAYER_TYPED_OBJECT_GRANT: &str = "Upgrade_PlayerTypedObjectGrant";
+
+        let (mut world_a, source_a) = world(UPGRADE, "OCL_UpgradeMaskA", None);
+        let (mut world_b, source_b) = world(UPGRADE, "OCL_UpgradeMaskB", None);
+        assert_eq!(
+            source_a, source_b,
+            "the worlds must reuse the same ObjectId"
+        );
+        for world in [&mut world_a, &mut world_b] {
+            admit_upgrade(world, FORMER_PLAYER_UPGRADE);
+            admit_upgrade(world, RECEIVING_PLAYER_UPGRADE);
+            admit_object_upgrade(world, OBJECT_UPGRADE);
+            world
+                .objects
+                .get_mut(&source_a)
+                .expect("source object")
+                .apply_upgrade_tag(FORMER_PLAYER_UPGRADE);
+        }
+        admit_upgrade(&mut world_a, PLAYER_TYPED_OBJECT_GRANT);
+        admit_upgrade(&mut world_b, PLAYER_TYPED_OBJECT_GRANT);
+        for (world, source) in [(&mut world_a, source_a), (&mut world_b, source_b)] {
+            apply(world, source, OBJECT_UPGRADE);
+            apply(world, source, PLAYER_TYPED_OBJECT_GRANT);
+        }
+        world_a
+            .players
+            .get_mut(&0)
+            .expect("world A receiving owner")
+            .add_completed_upgrade(RECEIVING_PLAYER_UPGRADE);
+        world_b
+            .players
+            .get_mut(&0)
+            .expect("world B receiving owner")
+            .add_completed_upgrade(FORMER_PLAYER_UPGRADE);
+
+        let mask_a = world_a.object_creation_upgrade_key_mask(source_a, None);
+        let mask_b = world_b.object_creation_upgrade_key_mask(source_b, None);
+        let former = world_a
+            .upgrade_template(FORMER_PLAYER_UPGRADE)
+            .unwrap()
+            .get_mask();
+        let receiving = world_a
+            .upgrade_template(RECEIVING_PLAYER_UPGRADE)
+            .unwrap()
+            .get_mask();
+        let object = world_a.upgrade_template(OBJECT_UPGRADE).unwrap().get_mask();
+        assert!(!mask_a.test_for_any(former));
+        assert!(mask_a.test_for_all(receiving | object));
+        assert!(mask_b.test_for_all(former | object));
+        assert!(!mask_b.test_for_any(receiving));
+        let player_typed = world_a
+            .upgrade_template(PLAYER_TYPED_OBJECT_GRANT)
+            .unwrap()
+            .get_mask();
+        assert!(mask_a.test_for_all(player_typed));
+        assert!(mask_b.test_for_all(player_typed));
+
+        // C++ Object::updateUpgradeModules always includes the object's own
+        // mask, even when there is no controlling Player to contribute one.
+        let unowned_id = ObjectId(91_004);
+        let mut unowned = Object::new(
+            ThingTemplate::new("UnownedUpgradeMask"),
+            unowned_id,
+            Team::Neutral,
+        );
+        world_a.objects.insert(unowned_id, unowned);
+        apply(&mut world_a, unowned_id, OBJECT_UPGRADE);
+        assert!(
+            world_a
+                .object_creation_upgrade_key_mask(unowned_id, None)
+                .test_for_all(object)
+        );
     }
 
     #[test]
@@ -1653,9 +1833,18 @@ End
         );
         a.apply_upgrade_to_object(source_a, UPGRADE);
         b.apply_upgrade_to_object(source_b, UPGRADE);
-        assert_eq!(a.modified_build_cost_supplies(0, "CostModifierVehicle", 1000), 1000);
-        assert_eq!(a.modified_build_cost_supplies(0, "CostModifierDualKind", 1000), 900);
-        assert_eq!(b.modified_build_cost_supplies(0, "CostModifierDualKind", 1000), 750);
+        assert_eq!(
+            a.modified_build_cost_supplies(0, "CostModifierVehicle", 1000),
+            1000
+        );
+        assert_eq!(
+            a.modified_build_cost_supplies(0, "CostModifierDualKind", 1000),
+            900
+        );
+        assert_eq!(
+            b.modified_build_cost_supplies(0, "CostModifierDualKind", 1000),
+            750
+        );
 
         let new_team = a.players[&1]
             .default_team_id

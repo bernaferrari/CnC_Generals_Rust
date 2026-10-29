@@ -32,12 +32,15 @@ use std::time::SystemTime;
 /// Version35 supports length-framed AI continuations beyond the ASCII name limit.
 /// Version36 persists exact original Garrison Team instance identity so an
 /// occupied same-faction building restores to the same receiving Team.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 36;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 36;
+/// Version37 carries explicit Object-completed upgrade provenance in OXFR v9.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 37;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 37;
+/// Version36 introduced mandatory exact original-Garrison-Team continuation.
+pub const WORLD_SNAPSHOT_GARRISON_TEAM_VERSION: u32 = 36;
 
 /// Validate the Rust outer envelope before consuming or restoring its body.
 pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadResult<()> {
-    if version == WORLD_SNAPSHOT_DIRECT_XFER_VERSION || version == 35 || version == 34 {
+    if matches!(version, 34 | 35 | 36) || version == WORLD_SNAPSHOT_DIRECT_XFER_VERSION {
         Ok(())
     } else {
         Err(crate::save_load::SaveLoadError::VersionMismatch {
@@ -550,7 +553,12 @@ impl Default for WorldSnapshot {
             shroud: ShroudSnapshot::default(),
             // Metadata suffixes follow the lifecycle record, including when
             // that record contains no objects or links.
-            lifecycle_tail: super::combat_projectile_persist::empty_lifecycle_tail(),
+            lifecycle_tail: {
+                let mut bytes = super::combat_projectile_persist::empty_lifecycle_tail();
+                super::object_module_xfer_persist::append_empty_completion_capsule(&mut bytes)
+                    .expect("empty Object-upgrade continuation is serializable");
+                bytes
+            },
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),

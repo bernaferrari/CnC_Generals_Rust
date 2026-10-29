@@ -720,7 +720,7 @@ impl Object {
 
     /// C++ Object::hasUpgrade for a completed OBJECT-scoped upgrade tag.
     pub fn has_object_upgrade_complete(&self, upgrade: &str) -> bool {
-        self.applied_upgrades
+        self.completed_object_upgrades
             .iter()
             .any(|name| name.eq_ignore_ascii_case(upgrade))
     }

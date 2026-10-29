@@ -1202,7 +1202,7 @@ impl GameLogic {
             if self.is_object_scoped_upgrade(&name) {
                 continue;
             }
-            self.apply_upgrade_to_object_with_interpreter_checked(
+            self.apply_player_research_to_object_with_interpreter_checked(
                 structure_id,
                 &name,
                 interpreter,

@@ -33,6 +33,9 @@ pub enum SaveLoadError {
     #[error("Save file version mismatch: expected {expected}, got {actual}")]
     VersionMismatch { expected: u32, actual: u32 },
 
+    #[error("Save continuation is unsupported: {0}")]
+    IncompatibleSave(String),
+
     #[error("Compression error: {0}")]
     Compression(String),
 

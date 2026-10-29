@@ -3040,11 +3040,11 @@ impl GameLogic {
 
             // C++ GrantUpgradeCreate::onCreate for map-placed / instant-finished
             // objects (ExemptStatus=UNDER_CONSTRUCTION and not constructing).
-            self.apply_grant_upgrade_create_on_create_with_interpreter_and_effects(
+            self.apply_grant_upgrade_create_on_create_with_interpreter_and_effects_checked(
                 id,
                 interpreter,
                 ui,
-            );
+            )?;
             verify_factory_birth!();
             // Residual honesty: Emperor innate propaganda counts as install on spawn.
             if emperor_spawn {
@@ -3380,11 +3380,28 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        if let Err(error) = self
+            .apply_grant_upgrade_create_on_create_with_interpreter_and_effects_checked(
+                object_id,
+                interpreter,
+                effects,
+            )
+        {
+            log::error!("GrantUpgradeCreate onCreate failed: {error}");
+        }
+    }
+
+    pub(in super::super) fn apply_grant_upgrade_create_on_create_with_interpreter_and_effects_checked(
+        &mut self,
+        object_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(obj) = self.objects.get(&object_id) else {
-            return;
+            return Ok(());
         };
         if obj.status.under_construction {
-            return;
+            return Ok(());
         }
         let grants: Vec<_> = obj
             .thing()
@@ -3399,7 +3416,7 @@ impl GameLogic {
             &grants,
             interpreter,
             effects,
-        );
+        )
     }
 
     /// C++ GameLogic.cpp:1878-1885 / ProductionUpdate.cpp:819-825 — every
@@ -3447,7 +3464,7 @@ impl GameLogic {
             &grants,
             interpreter,
             ui,
-        );
+        )?;
         self.apply_lock_weapon_create(object_id);
         // C++ SpecialPowerCreate::onBuildComplete walks every getSpecialPower().
         self.on_structure_superweapon_creation(object_id);

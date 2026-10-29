@@ -60,9 +60,11 @@ impl GameLogic {
         grants: &[crate::game_logic::GrantUpgradeCreateMetadata],
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        self.apply_grant_upgrade_creates_with_interpreter_and_effects(
+        if let Err(error) = self.apply_grant_upgrade_creates_with_interpreter_and_effects(
             object_id, grants, None, effects,
-        )
+        ) {
+            log::error!("GrantUpgradeCreate failed: {error}");
+        }
     }
     pub(in super::super::super) fn apply_grant_upgrade_creates_with_interpreter_and_effects(
         &mut self,
@@ -70,16 +72,20 @@ impl GameLogic {
         grants: &[crate::game_logic::GrantUpgradeCreateMetadata],
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         if grants.is_empty() {
-            return;
+            return Ok(());
         }
         let Some(obj) = self.objects.get(&object_id) else {
-            return;
+            return Ok(());
         };
         let player_id = self.player_owner_for_host_object(obj);
+        let object_birth = std::sync::Arc::downgrade(&obj.visual_draw_identity_token);
         let mut radar_upgrade = false;
         for grant in grants {
+            if !self.object_birth_matches(object_id, &object_birth) {
+                return Ok(());
+            }
             match host_grant_upgrade_kind(self, &grant.upgrade_name) {
                 Some(GrantUpgradeKind::Player) => {
                     if let Some(pid) = player_id {
@@ -92,9 +98,17 @@ impl GameLogic {
                     }
                 }
                 Some(GrantUpgradeKind::Object) => {
-                    if let Some(o) = self.objects.get_mut(&object_id) {
-                        o.apply_upgrade_tag(&grant.upgrade_name);
-                    }
+                    // C++ GrantUpgradeCreate::onCreate calls Object::giveUpgrade,
+                    // which updates the Object completion mask and immediately
+                    // dispatches UpgradeMux callbacks. Keep that operation at
+                    // this authored Create-module position and retain its birth
+                    // guard across reentrant callbacks.
+                    self.apply_upgrade_to_object_with_interpreter_checked(
+                        object_id,
+                        &grant.upgrade_name,
+                        interpreter,
+                        effects,
+                    )?;
                     if crate::game_logic::host_upgrades::HostUpgradeKind::from_name(
                         &grant.upgrade_name,
                     ) == crate::game_logic::host_upgrades::HostUpgradeKind::Radar
@@ -103,6 +117,9 @@ impl GameLogic {
                     }
                 }
                 None => {}
+            }
+            if !self.object_birth_matches(object_id, &object_birth) {
+                return Ok(());
             }
         }
         self.admit_host_radar_provider_with_effects(object_id, effects);
@@ -115,5 +132,6 @@ impl GameLogic {
             // C++ GrantUpgradeCreate → updateUpgradeModules → RadarUpgrade::extendRadar
             self.maybe_start_radar_extend(object_id);
         }
+        Ok(())
     }
 }
