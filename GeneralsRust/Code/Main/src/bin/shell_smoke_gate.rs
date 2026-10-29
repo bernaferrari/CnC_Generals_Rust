@@ -1,6 +1,7 @@
 use generals_main::shell_smoke::{format_shell_smoke_report, run_shell_smoke};
 
 fn main() -> gamelogic::GameLogicResult<()> {
+    let _ = env_logger::try_init();
     let r = run_shell_smoke(10)?;
     println!("{}", format_shell_smoke_report(&r));
     let pass = r.status == "success"

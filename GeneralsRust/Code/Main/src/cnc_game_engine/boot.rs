@@ -46,7 +46,7 @@ impl CnCGameEngine {
     }
     /// One application-boundary loose-file/archive resolver; constructors
     /// consume private parsed content and never select ambient game data.
-    pub(super) async fn load_startup_game_data_texts(
+    pub(crate) async fn load_startup_game_data_texts(
         assets: Option<&StartupAssets>,
     ) -> Result<Vec<(&'static str, String)>, String> {
         let mut paths = vec!["Data/INI/Default/GameData.ini", "Data/INI/GameData.ini"];

@@ -1660,6 +1660,36 @@ impl INI {
         self.parse_file()
     }
 
+    /// Read multiplayer definitions into the receiving settings without
+    /// dispatching unrelated blocks into process-wide compatibility state.
+    pub fn parse_current_file_into_multiplayer_settings(
+        &mut self,
+        settings: &mut super::ini_multiplayer::MultiplayerSettings,
+    ) -> INIResult<()> {
+        while !self.end_of_file {
+            self.read_line()?;
+            let Some(token) = self.get_first_token() else {
+                continue;
+            };
+            if token.eq_ignore_ascii_case("MultiplayerSettings") {
+                super::ini_multiplayer::parse_multiplayer_settings_definition_into(self, settings)?;
+            } else if token.eq_ignore_ascii_case("MultiplayerColor") {
+                super::ini_multiplayer::parse_multiplayer_color_definition_into(self, settings)?;
+            } else if token.eq_ignore_ascii_case("MultiplayerStartingMoneyChoice") {
+                super::ini_multiplayer::parse_multiplayer_starting_money_choice_definition_into(
+                    self, settings,
+                )?;
+            } else if token.eq_ignore_ascii_case("OnlineChatColors") {
+                // Retail Multiplayer.ini also contains chat presentation colors.
+                // This receiving owner has no need to publish those definitions.
+                consume_block_with_nesting(self)?;
+            } else {
+                return Err(INIError::UnknownToken);
+            }
+        }
+        Ok(())
+    }
+
     /// Read water definitions into the receiving content owner without
     /// dispatching other blocks or publishing compatibility globals.
     pub fn parse_water_definitions_into(

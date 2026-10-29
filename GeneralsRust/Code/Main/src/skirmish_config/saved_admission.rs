@@ -29,6 +29,15 @@ impl SavedSkirmishAdmission {
         assigned: &[SkirmishSlotConfig],
         resolved: &[ResolvedSkirmishSlot<'_>],
     ) -> Result<Self, String> {
+        Self::capture_with_settings(config, assigned, resolved, None)
+    }
+
+    pub(super) fn capture_with_settings(
+        config: &SkirmishMatchConfig,
+        assigned: &[SkirmishSlotConfig],
+        resolved: &[ResolvedSkirmishSlot<'_>],
+        multiplayer: Option<&game_engine::common::ini::ini_multiplayer::MultiplayerSettings>,
+    ) -> Result<Self, String> {
         let mut config_copy = config.clone();
         let observed = config_copy.source_game_info.take();
         config_copy.slots = assigned.to_vec();
@@ -130,18 +139,20 @@ impl SavedSkirmishAdmission {
                     .filter(|slot| slot.is_active)
                     .all(|slot| {
                         let color = info.slots[slot.slot_index].color;
+                        let agrees = |settings: &game_engine::common::ini::ini_multiplayer::MultiplayerSettings| {
+                            settings.get_color_value(color).is_some_and(|packed| {
+                                (
+                                    ((packed >> 16) & 255) as u8,
+                                    ((packed >> 8) & 255) as u8,
+                                    (packed & 255) as u8,
+                                ) == slot.color_rgb
+                            })
+                        };
                         resolved_original_color(slot, color)
-                            && game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(
-                                |settings| {
-                                    settings.get_color_value(color).is_some_and(|packed| {
-                                        (
-                                            ((packed >> 16) & 255) as u8,
-                                            ((packed >> 8) & 255) as u8,
-                                            (packed & 255) as u8,
-                                        ) == slot.color_rgb
-                                    })
-                                },
-                            )
+                            && match multiplayer {
+                                Some(settings) => agrees(settings),
+                                None => game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(agrees),
+                            }
                     })
         });
         if !original_record_complete {
@@ -493,7 +504,7 @@ impl SavedSkirmishAdmission {
             }
         }
         world.clear_all_players();
-        admit_resolved_slots(world, &self.config, &self.config.slots, resolved)?;
+        admit_resolved_slots(world, &self.config, &self.config.slots, resolved, None)?;
         self.admit_local_selection(world);
         world.initial_skirmish_admission = Some(Box::new(self.clone()));
         Ok(())
