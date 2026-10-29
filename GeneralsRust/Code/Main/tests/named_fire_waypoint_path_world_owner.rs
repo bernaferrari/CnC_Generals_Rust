@@ -140,6 +140,7 @@ fn admitted_world(
         capable_of_following_waypoint,
         secondary_weapon,
         true,
+        false,
     )
 }
 
@@ -149,6 +150,7 @@ fn admitted_world_with_projectile_ai(
     capable_of_following_waypoint: bool,
     secondary_weapon: Option<(&str, &str, bool)>,
     projectile_has_ai: bool,
+    manual_reload: bool,
 ) -> GameLogic {
     let mut game = GameLogic::new();
     let mut player_templates =
@@ -183,11 +185,19 @@ fn admitted_world_with_projectile_ai(
     let mut weapon = WeaponTemplate::new(WEAPON.to_owned());
     weapon.capable_of_following_waypoint = capable_of_following_waypoint;
     weapon.projectile_name = projectile_name.to_owned();
+    if manual_reload {
+        weapon.clip_size = 2;
+        weapon.reload_type = gamelogic::weapon::WeaponReloadType::NoReload;
+    }
     let mut weapons = vec![(WEAPON.into(), weapon)];
     if let Some((name, projectile, capable)) = secondary_weapon {
         let mut secondary = WeaponTemplate::new(name.to_owned());
         secondary.capable_of_following_waypoint = capable;
         secondary.projectile_name = projectile.to_owned();
+        if manual_reload {
+            secondary.clip_size = 2;
+            secondary.reload_type = gamelogic::weapon::WeaponReloadType::NoReload;
+        }
         weapons.push((name.to_owned(), secondary));
     }
     game.admit_receiving_weapon_snapshot(weapons)
@@ -201,7 +211,8 @@ fn admitted_world_with_projectile_ai(
 fn projectile_without_ai_is_created_but_receives_no_waypoint_order() {
     let root = tempfile::tempdir().unwrap();
     let map = waypoint_map(root.path(), 200.0);
-    let mut world = admitted_world_with_projectile_ai(&map, OWNER_PROJECTILE, true, None, false);
+    let mut world =
+        admitted_world_with_projectile_ai(&map, OWNER_PROJECTILE, true, None, false, false);
     let shooter = world
         .host_objects()
         .registered_values()
@@ -220,6 +231,87 @@ fn projectile_without_ai_is_created_but_receives_no_waypoint_order() {
     assert!(projectile.requested_destination.is_none());
     assert!(projectile.movement.target_position.is_none());
     assert!(projectile.movement.path.is_empty());
+}
+
+#[test]
+fn empty_nonreloading_weapon_does_not_fire_a_waypoint_projectile() {
+    let root = tempfile::tempdir().unwrap();
+    let map = waypoint_map(root.path(), 200.0);
+    let mut empty =
+        admitted_world_with_projectile_ai(&map, OWNER_PROJECTILE, true, None, true, true);
+    let mut loaded =
+        admitted_world_with_projectile_ai(&map, OWNER_PROJECTILE, true, None, true, true);
+    let shooter = empty
+        .host_objects()
+        .registered_values()
+        .find(|object| object.name == OBJECT_NAME)
+        .unwrap()
+        .id;
+    let peer_shooter = loaded
+        .host_objects()
+        .registered_values()
+        .find(|object| object.name == OBJECT_NAME)
+        .unwrap()
+        .id;
+    assert_eq!(shooter, peer_shooter);
+    let weapon = empty
+        .host_object_mut(shooter)
+        .unwrap()
+        .weapon_slot_mut(0)
+        .unwrap();
+    assert_eq!(weapon.clip_size, 2);
+    weapon.ammo = Some(0);
+    assert_eq!(
+        loaded
+            .host_object(peer_shooter)
+            .unwrap()
+            .weapon_slot(0)
+            .unwrap()
+            .ammo,
+        Some(2)
+    );
+    empty.update();
+    assert!(
+        empty
+            .host_objects()
+            .registered_values()
+            .all(|object| object.producer_id != Some(shooter))
+    );
+    loaded.update();
+    assert_eq!(
+        fired_endpoint(&loaded, peer_shooter, OWNER_PROJECTILE),
+        200.0
+    );
+
+    // The highest capable slot is selected before firing. An empty
+    // secondary must not silently redirect the shot to primary.
+    let mut higher = admitted_world_with_projectile_ai(
+        &map,
+        OWNER_PROJECTILE,
+        true,
+        Some((HIGHER_PRIORITY_WEAPON, OWNER_PROJECTILE, true)),
+        true,
+        true,
+    );
+    let higher_shooter = higher
+        .host_objects()
+        .registered_values()
+        .find(|object| object.name == OBJECT_NAME)
+        .unwrap()
+        .id;
+    higher
+        .host_object_mut(higher_shooter)
+        .unwrap()
+        .weapon_slot_mut(1)
+        .unwrap()
+        .ammo = Some(0);
+    higher.update();
+    assert!(
+        higher
+            .host_objects()
+            .registered_values()
+            .all(|object| object.producer_id != Some(higher_shooter))
+    );
 }
 
 #[test]

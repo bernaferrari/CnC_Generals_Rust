@@ -1832,6 +1832,26 @@ impl GameLogic {
                 continue;
             }
 
+            // Weapon::privateFireWeapon returns without discharging when the
+            // selected weapon is OUT_OF_AMMO.  This narrow case is certain:
+            // an explicitly empty finite clip that does not auto-reload has
+            // no pending automatic refill. Do not fall through to a lower
+            // slot. DISARM and DEPLOY have special pre-status handling in C++.
+            if selected.is_some_and(|rule| {
+                !rule.get_auto_reloads_clip()
+                    && !rule.leech_range_weapon
+                    && !matches!(
+                        rule.damage_type,
+                        gamelogic::damage::DamageType::Disarm
+                            | gamelogic::damage::DamageType::Deploy
+                    )
+                    && obj
+                        .weapon_slot(slot)
+                        .is_some_and(|weapon| weapon.clip_size > 0 && weapon.ammo == Some(0))
+            }) {
+                return None;
+            }
+
             // C++ returns the first capable slot before forceFireWeapon. If
             // its projectile is absent, do not fall through to a lower slot.
             let projectile = native
