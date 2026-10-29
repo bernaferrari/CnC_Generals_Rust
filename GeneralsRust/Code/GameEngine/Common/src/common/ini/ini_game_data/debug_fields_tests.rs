@@ -33,6 +33,51 @@ fn parse_private(text: &str) -> INIResult<GlobalData> {
     })?;
     Ok(data)
 }
+
+#[test]
+fn omitted_debug_fields_match_explicit_cpp_constructor_defaults() {
+    let data = parse_private("GameData\nEnd\n").unwrap();
+    assert!(!data.wireframe);
+    assert!(!data.state_machine_debug);
+    assert!(data.use_camera_constraints);
+    assert!(data.shroud_on);
+    assert!(!data.fog_of_war_on);
+    assert!(!data.jabber_on && !data.munkee_on);
+    assert!(!data.allow_unselectable_selection);
+    assert!(!data.disable_camera_fade);
+    assert!(!data.disable_scripted_input_disabling);
+    assert!(!data.disable_military_caption);
+    assert_eq!(data.benchmark_timer, -1);
+    assert!(data.check_for_leaks);
+    assert!(!data.v_tune);
+    assert!(!data.debug_camera && !data.debug_visibility);
+    assert_eq!(data.debug_visibility_tile_count, 32);
+    assert_eq!(data.debug_visibility_tile_width, 0.0);
+    assert_eq!(data.debug_visibility_tile_duration, 30);
+    assert_eq!(data.debug_visibility_targettable_color, RGBColor::black());
+    assert_eq!(data.debug_visibility_deshroud_color, RGBColor::black());
+    assert_eq!(data.debug_visibility_gap_color, RGBColor::black());
+    assert_eq!(data.debug_projectile_tile_width, 10.0);
+    assert_eq!(data.debug_projectile_tile_duration, 30);
+    assert_eq!(data.debug_projectile_tile_color, RGBColor::black());
+    assert_eq!(data.debug_threat_map_tile_duration, 30);
+    assert_eq!(data.max_debug_threat, 5000);
+    assert_eq!(data.debug_cash_value_map_tile_duration, 30);
+    assert_eq!(data.max_debug_value, 10000);
+    assert!(!data.debug_ignore_asserts && !data.debug_ignore_stack_trace);
+    assert!(!data.show_collision_extents && !data.show_audio_locations);
+    assert!(!data.save_stats && !data.save_all_stats);
+    assert!(!data.use_local_motd);
+    assert_eq!(data.base_stats_dir, ".\\");
+    assert_eq!(data.motd_path, "MOTD.txt");
+    assert_eq!(data.latency_average, 0);
+    assert_eq!(data.latency_amplitude, 0);
+    assert_eq!(data.latency_period, 0);
+    assert_eq!(data.latency_noise, 0);
+    assert_eq!(data.packet_loss, 0);
+    assert!(!data.extra_logging);
+}
+
 #[test]
 fn actual_startup_debug_declarations_populate_existing_typed_fields() {
     let data = parse_private(DEBUG_BLOCK).unwrap();
