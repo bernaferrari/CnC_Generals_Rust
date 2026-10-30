@@ -61,6 +61,83 @@ fn world(map: &std::path::Path) -> (GameLogic, generals_main::game_logic::Object
     (world, unit)
 }
 
+#[test]
+fn contact_attack_uses_reachable_nearby_position_in_its_own_world() {
+    use generals_main::command_executor::CommandExecutor;
+    use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
+    use glam::Vec3;
+    use std::time::UNIX_EPOCH;
+
+    fn contact_world(map: &std::path::Path) -> (GameLogic, generals_main::game_logic::ObjectId) {
+        let mut game = GameLogic::new();
+        let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+        locomotors.apply_source("Locomotor GroupGround\n Surfaces = GROUND\n Speed = 20\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\n").unwrap();
+        game.admit_locomotor_definitions(locomotors).unwrap();
+        game.admit_object_ini_sources([("Contact.ini".into(), "Object ContactUnit\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL GroupGround\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n WeaponSet\n Conditions = NONE\n Weapon = PRIMARY ContactFixtureWeapon\n End\nEnd\n".into())]).unwrap();
+        let mut weapon = gamelogic::weapon::WeaponTemplate::new("ContactFixtureWeapon".into());
+        weapon.primary_damage = 10.0;
+        weapon.attack_range = 5.0;
+        game.admit_receiving_weapon_snapshot(vec![("ContactFixtureWeapon".into(), weapon)])
+            .unwrap();
+        game.start_new_game(GameMode::SinglePlayer);
+        assert!(game.load_map(map.to_str().unwrap()));
+        game.add_player(Player::new(1, Team::USA, "Owner", true).with_script_identity("Owner"));
+        let id = game
+            .create_object_for_player("ContactUnit", 1, Vec3::new(100.0, 0.0, 100.0))
+            .unwrap();
+        (game, id)
+    }
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path(), [205.0, 0.0, 205.0]);
+    let (mut blocked, attacker) = contact_world(&map);
+    let (mut peer, peer_attacker) = contact_world(&map);
+    let (mut sealed, sealed_attacker) = contact_world(&map);
+    assert_eq!(attacker, peer_attacker);
+    assert_eq!(attacker, sealed_attacker);
+    blocked.set_pathfinding_static_block(20, 20, true);
+    for x in 10..=30 {
+        for z in 10..=30 {
+            sealed.set_pathfinding_static_block(x, z, true);
+        }
+    }
+    let destination = Vec3::new(205.0, 0.0, 205.0);
+    for game in [&mut blocked, &mut peer, &mut sealed] {
+        CommandExecutor::new(game, 1)
+            .execute_command(GameCommand {
+                command_type: CommandType::AttackPosition {
+                    location: Some(destination),
+                    max_shots: 3,
+                },
+                player_id: 1,
+                command_id: 1,
+                timestamp: UNIX_EPOCH,
+                selected_units: vec![attacker],
+                modifier_keys: ModifierKeys::default(),
+            })
+            .unwrap();
+    }
+    let actual = blocked
+        .host_object(attacker)
+        .unwrap()
+        .target_location
+        .unwrap();
+    assert_ne!(actual, destination, "blocked contact goal must be adjusted");
+    assert!(actual.distance(destination) <= 100.0);
+    assert!(
+        !blocked.is_pathfinding_static_blocked((actual.x / 10.0) as i32, (actual.z / 10.0) as i32)
+    );
+    assert_eq!(
+        peer.host_object(attacker).unwrap().target_location,
+        Some(destination)
+    );
+    assert_eq!(
+        sealed.host_object(attacker).unwrap().target_location,
+        Some(destination),
+        "an exhausted search preserves the requested position"
+    );
+    assert_eq!(blocked.host_object(attacker).unwrap().max_shots_to_fire, 3);
+}
+
 fn move_script(team: &str, waypoint: &str) -> ScriptEngine {
     let mut action = ScriptAction::new(ScriptActionType::MoveTeamTo);
     action

@@ -1684,23 +1684,38 @@ impl GameLogic {
         max_shots: i32,
     ) -> gamelogic::GameLogicResult<bool> {
         self.stamp_player_command_source(id);
-        let Some((range, source_birth, source_position)) = self.host_object(id).map(|source| {
-            let range = source.selected_weapon_slot().map_or(0.0, |slot| {
-                source.selected_native_weapon_rule(slot).map_or_else(
-                    || {
-                        source
-                            .weapon_name_for_slot(slot)
-                            .map_or(0.0, |name| self.receiving_continue_attack_range(name))
-                    },
-                    |weapon| weapon.continue_attack_range.max(0.0),
+        let Some((range, contact, source_birth, source_position)) =
+            self.host_object(id).map(|source| {
+                let range = source.selected_weapon_slot().map_or(0.0, |slot| {
+                    source.selected_native_weapon_rule(slot).map_or_else(
+                        || {
+                            source
+                                .weapon_name_for_slot(slot)
+                                .map_or(0.0, |name| self.receiving_continue_attack_range(name))
+                        },
+                        |weapon| weapon.continue_attack_range.max(0.0),
+                    )
+                });
+                let contact = source.selected_weapon_slot().is_some_and(|slot| {
+                    source.selected_native_weapon_rule(slot).map_or_else(
+                        || {
+                            source.weapon_slot(slot).is_some_and(|weapon| {
+                                crate::game_logic::weapon_bootstrap::is_contact_weapon_range(
+                                    weapon.range,
+                                )
+                            })
+                        },
+                        |weapon| weapon.is_contact_weapon(),
+                    )
+                });
+                (
+                    range,
+                    contact,
+                    std::sync::Arc::downgrade(&source.visual_draw_identity_token),
+                    source.get_position(),
                 )
-            });
-            (
-                range,
-                std::sync::Arc::downgrade(&source.visual_draw_identity_token),
-                source.get_position(),
-            )
-        }) else {
+            })
+        else {
             return Ok(false);
         };
         let mut shot_limit = max_shots;
@@ -1761,7 +1776,12 @@ impl GameLogic {
             }
             shot_limit = 1;
         }
-        Ok(self.apply_owned_attack_position(id, location, shot_limit, false))
+        let goal = if contact {
+            self.resolve_contact_attack_position(id, location)?
+        } else {
+            location
+        };
+        Ok(self.apply_owned_attack_position(id, goal, shot_limit, false))
     }
 
     fn apply_owned_attack_position(

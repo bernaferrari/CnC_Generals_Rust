@@ -79,16 +79,17 @@ impl GameLogic {
         let start = std::f32::consts::TAU * (self.logic_random.next_u32() as f32 / u32::MAX as f32);
         Ok(
             find_position_around(center, 0., 100., start, |candidate, angle| {
-                self.try_owned_parachute_landing_position(candidate, center.y, angle)
+                self.try_owned_ground_position(candidate, center.y, angle, None)
             })
             .unwrap_or(center),
         )
     }
-    fn try_owned_parachute_landing_position(
+    fn try_owned_ground_position(
         &self,
         mut candidate: Vec3,
         center_height: f32,
         angle: f32,
+        ignore: Option<ObjectId>,
     ) -> Option<Vec3> {
         let owner = self.world_services.terrain();
         let cliff = {
@@ -134,6 +135,7 @@ impl GameLogic {
             .partition_manager
             .ids_in_radius(candidate.x, candidate.z, 5.5)
             .into_iter()
+            .filter(|id| Some(ObjectId(*id)) != ignore)
             .filter_map(|id| self.objects.get(&ObjectId(id)))
             .any(|object| {
                 crate::game_logic::partition_geometry::object_would_collide_2d(
@@ -146,6 +148,63 @@ impl GameLogic {
                 )
             });
         (!blocked).then_some(candidate)
+    }
+
+    /// AIUpdate::privateAttackPosition: a contact weapon must be able to
+    /// reach the goal. If it cannot, use PartitionManager's same 0..100 ring
+    /// search, ignoring the source and checking the source's locomotor path.
+    pub(crate) fn resolve_contact_attack_position(
+        &self,
+        source_id: ObjectId,
+        center: Vec3,
+    ) -> gamelogic::GameLogicResult<Vec3> {
+        let Some(source) = self.host_object(source_id) else {
+            return Err(gamelogic::GameLogicError::InvalidObject(source_id.0));
+        };
+        let start_pos = source.get_position();
+        let surfaces = if source.locomotor_surfaces == 0 {
+            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+        } else {
+            source.locomotor_surfaces
+        };
+        let path_exists = |destination| {
+            self.pathfinding_system
+                .client_safe_quick_does_path_exist_for(start_pos, destination, surfaces)
+        };
+        if path_exists(center) {
+            return Ok(center);
+        }
+        if center.x < self.world_min.x
+            || center.x > self.world_max.x
+            || center.z < self.world_min.z
+            || center.z > self.world_max.z
+        {
+            return Ok(center);
+        }
+        {
+            let terrain_owner = self.world_services.terrain();
+            let terrain = terrain_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            if self.map_loaded
+                && !terrain.has_height_map()
+                && self.terrain.is_none()
+                && self.pathfinding_height_samples.is_none()
+            {
+                return Err(gamelogic::GameLogicError::Configuration(
+                    "Partition contact attack query lacks receiving terrain".into(),
+                ));
+            }
+        }
+        let start = std::f32::consts::TAU * (self.logic_random.next_u32() as f32 / u32::MAX as f32);
+        Ok(
+            find_position_around(center, 0., 100., start, |candidate, angle| {
+                let position =
+                    self.try_owned_ground_position(candidate, center.y, angle, Some(source_id))?;
+                path_exists(position).then_some(position)
+            })
+            .unwrap_or(center),
+        )
     }
 }
 #[cfg(test)]
@@ -195,7 +254,7 @@ mod tests {
         drop(peer);
         assert!(
             world
-                .try_owned_parachute_landing_position(Vec3::new(100., 0., 100.), 80., 0.)
+                .try_owned_ground_position(Vec3::new(100., 0., 100.), 80., 0., None)
                 .is_none()
         );
         let found = world.find_owned_parachute_landing_position(center).unwrap();

@@ -486,6 +486,11 @@ impl<'a> CommandExecutor<'a> {
                     .game_logic
                     .host_object(unit_id)
                     .is_some_and(|unit| unit.target.is_some());
+            let ground_goal = self
+                .game_logic
+                .host_object(unit_id)
+                .and_then(|unit| unit.target_location)
+                .unwrap_or(attack_pos);
             let need_approach = if !has_ai || target_is_object {
                 None
             } else {
@@ -494,10 +499,10 @@ impl<'a> CommandExecutor<'a> {
                         return None;
                     }
                     let pos = unit.get_position();
-                    let dist = (pos.x - attack_pos.x).hypot(pos.z - attack_pos.z);
+                    let dist = (pos.x - ground_goal.x).hypot(pos.z - ground_goal.z);
                     let range = unit.weapon.as_ref().map(|w| w.range).unwrap_or(50.0);
                     if dist > range.max(20.0) {
-                        Some(attack_pos)
+                        Some(ground_goal)
                     } else {
                         None
                     }
