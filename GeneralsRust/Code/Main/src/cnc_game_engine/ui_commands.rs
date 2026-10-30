@@ -647,96 +647,38 @@ impl CnCGameEngine {
         }
     }
 
-    /// C++ `InGameUI::setRadiusCursor` radius (InGameUI.cpp:1210-1258).
-    /// Leftover `resolve_radius_cursor_radius`: ATTACK_DAMAGE_AREA = primary
-    /// damage, SCATTER = scatter+scalar, CONTINUE/CLEARMINES = continueAttackRange,
-    /// GUARD = `AIGuardMachine::get_std_guard_range`, special = RadiusCursorRadius.
-    /// Never uses the construction_panel OFFENSIVE_SPECIALPOWER=0 table.
+    /// C++ InGameUI::setRadiusCursor uses the pending command's weapon slot.
     pub(super) fn resolve_radius_cursor_radius(&self, cursor_type: &str) -> f32 {
         let seed = self.ui_selection_seed_id();
-        // GUARD_AREA is authoritative even at zero; the GameClient adapter
-        // otherwise resolves a potentially unrelated Core object with this ID.
         if cursor_type == "GUARD_AREA" {
             return self.radius_cursor_guard_range(seed);
         }
-
-        let weapon_name = self.radius_cursor_primary_weapon_name(seed);
+        let slot = match self.pending_map_command.as_ref() {
+            Some(PendingMapCommand::Weapon(weapon)) => match &weapon.weapon_slot {
+                crate::command_system::WeaponSlot::Primary => Some(0),
+                crate::command_system::WeaponSlot::Secondary => Some(1),
+                crate::command_system::WeaponSlot::Tertiary => Some(2),
+                crate::command_system::WeaponSlot::Slot(slot) => {
+                    u8::try_from(*slot).ok().filter(|slot| *slot < 3)
+                }
+                crate::command_system::WeaponSlot::AntiAir => None,
+            },
+            _ => Some(0),
+        };
+        let radii = seed
+            .zip(slot)
+            .and_then(|(id, slot)| self.game_logic.weapon_cursor_radii(id, slot));
         match cursor_type {
-            "ATTACK_DAMAGE_AREA" => self.radius_cursor_primary_damage(weapon_name.as_deref()),
-            "ATTACK_SCATTER_AREA" => self.radius_cursor_scatter(weapon_name.as_deref()),
+            "ATTACK_DAMAGE_AREA" => radii.map_or(0.0, |radii| radii.damage),
+            "ATTACK_SCATTER_AREA" => radii.map_or(0.0, |radii| radii.scatter),
             "ATTACK_CONTINUE_AREA" | "CLEARMINES" => {
-                self.radius_cursor_continue_attack(weapon_name.as_deref())
+                radii.map_or(0.0, |radii| radii.continue_attack)
             }
-            "GUARD_AREA" => self.radius_cursor_guard_range(seed),
             _ => {
                 let special = self.leftover_special_power_radius_cursor(cursor_type);
                 if special > 0.0 { special } else { 0.0 }
             }
         }
-    }
-
-    fn radius_cursor_primary_weapon_name(
-        &self,
-        seed: Option<crate::game_logic::ObjectId>,
-    ) -> Option<String> {
-        let id = seed?;
-        if let Some(obj) = self.game_logic.host_object(id) {
-            if let Some(name) = obj.weapon_name_for_slot(0) {
-                if !name.is_empty() {
-                    return Some(name.to_string());
-                }
-            }
-            if let Some(name) = obj.get_template().primary_weapon_name.as_deref() {
-                if !name.is_empty() {
-                    return Some(name.to_string());
-                }
-            }
-            let template = obj.template_name.clone();
-            if let Some(name) = crate::game_logic::primary_weapon_name_for_unit(&template) {
-                return Some(name.to_string());
-            }
-            if !template.is_empty() {
-                return Some(template);
-            }
-        }
-        let template = self
-            .last_presentation_frame
-            .as_ref()
-            .and_then(|frame| frame.objects.iter().find(|o| o.id == id))
-            .map(|o| o.template_name.as_str())
-            .unwrap_or("");
-        crate::game_logic::primary_weapon_name_for_unit(template)
-            .map(str::to_string)
-            .or_else(|| {
-                if template.is_empty() {
-                    None
-                } else {
-                    Some(template.to_string())
-                }
-            })
-    }
-
-    fn radius_cursor_primary_damage(&self, weapon_name: Option<&str>) -> f32 {
-        let Some(name) = weapon_name.filter(|n| !n.is_empty()) else {
-            return 0.0;
-        };
-        self.game_logic
-            .receiving_cursor_damage_radius(self.ui_selection_seed_id(), name)
-    }
-
-    fn radius_cursor_scatter(&self, weapon_name: Option<&str>) -> f32 {
-        let Some(name) = weapon_name.filter(|n| !n.is_empty()) else {
-            return 0.0;
-        };
-        let radii = self.game_logic.receiving_weapon_radii(name);
-        radii.scatter + radii.scatter_target_scalar
-    }
-
-    fn radius_cursor_continue_attack(&self, weapon_name: Option<&str>) -> f32 {
-        let Some(name) = weapon_name.filter(|n| !n.is_empty()) else {
-            return 0.0;
-        };
-        self.game_logic.receiving_continue_attack_range(name)
     }
 
     fn radius_cursor_guard_range(&self, seed: Option<crate::game_logic::ObjectId>) -> f32 {

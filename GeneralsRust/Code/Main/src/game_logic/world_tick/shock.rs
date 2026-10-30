@@ -1647,16 +1647,52 @@ impl GameLogic {
         }
     }
 
-    pub(crate) fn receiving_cursor_damage_radius(&self, id: Option<ObjectId>, name: &str) -> f32 {
-        let radius = self.receiving_weapon_radii(name).primary_damage;
-        let multiplier = id
-            .and_then(|id| self.host_object(id))
-            .map_or(1.0, |object| {
-                object
-                    .weapon_bonus_fields_for_slot_with_solo_set(0, &self.solo_weapon_bonus_set)
-                    .4
+    /// C++ InGameUI::setRadiusCursor reads the requested WeaponSet slot from
+    /// the selected object. The session owns both its definition and bonuses.
+    pub fn weapon_cursor_radii(
+        &self,
+        id: ObjectId,
+        slot: u8,
+    ) -> Option<crate::game_logic::weapon_bootstrap::WeaponCursorRadii> {
+        use crate::game_logic::weapon_bootstrap::{ReceivingWeaponRadii, WeaponCursorRadii};
+        let object = self.host_object(id)?;
+        let weapon = object.weapon_slot(slot)?;
+        let name = object
+            .selected_weapon_name(slot)
+            .or_else(|| object.authored_weapon_name_for_slot(slot));
+        let native = object.selected_native_weapon_rule(slot);
+        let radii = native
+            .as_deref()
+            .map(ReceivingWeaponRadii::from_template)
+            .or_else(|| name.map(|name| self.receiving_weapon_radii(name)))
+            .unwrap_or(ReceivingWeaponRadii {
+                primary_damage: weapon.splash_radius,
+                ..Default::default()
             });
-        radius * multiplier
+        let continue_attack = native.as_ref().map_or_else(
+            || name.map_or(0.0, |name| self.receiving_continue_attack_range(name)),
+            |rule| rule.continue_attack_range.max(0.0),
+        );
+        let multiplier = name.map_or_else(
+            || {
+                object
+                    .weapon_bonus_fields_for_slot_with_solo_set(slot, &self.solo_weapon_bonus_set)
+                    .4
+            },
+            |name| {
+                object
+                    .weapon_bonus_fields_for_named_weapon_with_solo_set(
+                        name,
+                        &self.solo_weapon_bonus_set,
+                    )
+                    .4
+            },
+        );
+        Some(WeaponCursorRadii {
+            damage: radii.primary_damage * multiplier,
+            scatter: radii.scatter + radii.scatter_target_scalar,
+            continue_attack,
+        })
     }
 
     /// Resolve the effective definition in this session. An admitted zero is

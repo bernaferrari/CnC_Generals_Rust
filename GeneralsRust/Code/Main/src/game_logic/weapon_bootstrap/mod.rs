@@ -59,6 +59,14 @@ pub(crate) struct ReceivingWeaponRadii {
     pub scatter_target_scalar: f32,
 }
 
+/// Values consumed by the presentation cursor for one concrete weapon slot.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct WeaponCursorRadii {
+    pub damage: f32,
+    pub scatter: f32,
+    pub continue_attack: f32,
+}
+
 impl ReceivingWeaponRadii {
     pub fn from_template(weapon: &gamelogic::weapon::WeaponTemplate) -> Self {
         Self {
