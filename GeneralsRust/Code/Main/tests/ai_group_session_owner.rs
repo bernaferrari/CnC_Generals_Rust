@@ -878,3 +878,29 @@ fn live_hijacker_ride_leaves_only_its_receiving_ai_group() {
     assert!(peer.ai_group_id_of(peer_hijacker).is_some());
     assert!(!peer.host_object(peer_hijacker).unwrap().hijacker_in_vehicle);
 }
+
+#[test]
+fn script_guard_exits_attack_move_in_the_receiving_world() {
+    use generals_main::game_logic::{AIState, ObjectAudio, SessionAudio};
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file_with_area(root.path(), 0);
+    let (mut owner, first, _, _) = world(&map);
+    let (mut peer, peer_first, _, _) = world(&map);
+    assert_eq!(first, peer_first);
+    let mut audio = SessionAudio::default();
+    for session in [&mut owner, &mut peer] {
+        let actor = session.host_object_mut(first).unwrap();
+        actor.set_ai_state(AIState::AttackMoving, &mut ObjectAudio::queue(&mut audio));
+        actor.randomly_offset_mood_check = false;
+    }
+    guard_position(&mut owner, "HuntTeam", "OwnedWaypoint");
+    let actor = owner.host_object(first).unwrap();
+    assert_eq!(actor.ai_state(), AIState::GuardingArea);
+    assert!(
+        actor.randomly_offset_mood_check,
+        "AttackMove exit enters the child Idle body"
+    );
+    let other = peer.host_object(first).unwrap();
+    assert_eq!(other.ai_state(), AIState::AttackMoving);
+    assert!(!other.randomly_offset_mood_check);
+}

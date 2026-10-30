@@ -207,7 +207,10 @@ impl GameLogic {
             return;
         }
         self.host_object_leave_group(id);
-        let position = self.host_object(id).expect("resolved Guard unit").get_position();
+        let position = self
+            .host_object(id)
+            .expect("resolved Guard unit")
+            .get_position();
         self.apply_unit_locomotor_set(id, "normal");
         self.apply_owned_script_guard_position(id, position);
     }
@@ -243,12 +246,21 @@ impl GameLogic {
             unit.set_guard_mode(GuardMode::Normal);
             if let Some(area) = area {
                 unit.unit_ai_runtime.set_raw_guard_target(None);
-                unit.unit_ai_runtime.set_raw_guard_area(Some(area.to_owned()));
+                unit.unit_ai_runtime
+                    .set_raw_guard_area(Some(area.to_owned()));
             }
         }
         let clear_team_target = self
             .host_object(id)
             .is_some_and(|unit| matches!(unit.guard_chase_phase, 1 | 3));
+        // The new guard data is already staged above. Run the outgoing
+        // machine's callbacks before clearing its paths and projections.
+        if !matches!(
+            self.clear_base_ai_machine_owned(id, &mut Default::default()),
+            Ok(true)
+        ) {
+            return;
+        }
         self.drop_jet_targeters_on_attack_exit(id);
         if clear_team_target {
             self.set_host_team_common_target(id, None);
