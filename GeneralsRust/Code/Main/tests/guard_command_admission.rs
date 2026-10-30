@@ -83,3 +83,48 @@ fn guard_retaliation_exits_before_ineligible_guard_order_is_rejected() {
     assert_ne!(actor.ai_state(), AIState::GuardRetaliating);
     assert_eq!(actor.guard_position(), None);
 }
+
+#[test]
+fn guard_orders_exit_the_receiving_attack_state() {
+    use generals_main::game_logic::{ObjectAudio, SessionAudio};
+    for object_guard in [false, true] {
+        let mut world = make_world(KindOf::Selectable);
+        let id = world
+            .create_object("GuardAdmission", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let mut peer = make_world(KindOf::Selectable);
+        let peer_id = peer
+            .create_object("GuardAdmission", Team::USA, Vec3::ZERO)
+            .unwrap();
+        assert_eq!(id, peer_id);
+        let mut audio = SessionAudio::default();
+        for session in [&mut world, &mut peer] {
+            let actor = session.host_object_mut(id).unwrap();
+            actor.set_ai_state(AIState::Attacking, &mut ObjectAudio::queue(&mut audio));
+            actor.target = Some(id);
+            actor.set_status_attacking(true);
+            actor.set_status_firing_weapon(true);
+            actor.set_status_aiming_weapon(true);
+        }
+        if object_guard {
+            assert!(world.unit_command_guard_object(id, id));
+        } else {
+            assert!(world.unit_command_guard_position(id, Vec3::new(10., 0., 20.)));
+        }
+        let actor = world.host_object(id).unwrap();
+        assert!(
+            !actor.status.attacking
+                && !actor.status.is_firing_weapon
+                && !actor.status.is_aiming_weapon
+        );
+        assert_eq!(actor.target, None);
+        let foreign = peer.host_object(id).unwrap();
+        assert_eq!(foreign.ai_state(), AIState::Attacking);
+        assert!(
+            foreign.status.attacking
+                && foreign.status.is_firing_weapon
+                && foreign.status.is_aiming_weapon
+        );
+        assert_eq!(foreign.target, Some(id));
+    }
+}

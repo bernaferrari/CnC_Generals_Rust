@@ -822,6 +822,15 @@ impl GameLogic {
         }) {
             return false;
         }
+        // privateGuardPosition publishes its destination before clearing the
+        // outgoing machine. The actual type-staging slots remain a separate
+        // migration; retain the previous discriminator until that exit runs.
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.unit_ai_runtime.set_raw_guard_position(Some(pos));
+        }
+        if !matches!(self.clear_base_ai_machine_owned(id, effects), Ok(true)) {
+            return false;
+        }
         self.stamp_player_command_source(id);
         {
             let Some(unit) = self.objects.get_mut(&id) else {
@@ -959,6 +968,15 @@ impl GameLogic {
         if !self.objects.get(&id).is_some_and(|unit| {
             unit.is_mobile_for_ai_command() && !unit.is_kind_of(KindOf::Projectile)
         }) {
+            return false;
+        }
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.unit_ai_runtime.set_raw_guard_target(Some(target_id));
+        }
+        if !matches!(
+            self.clear_base_ai_machine_owned(id, &mut Default::default()),
+            Ok(true)
+        ) {
             return false;
         }
         if player {
