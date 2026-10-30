@@ -338,6 +338,7 @@ fn callback_completion_rereads_late_values_and_is_consumed_once_before_damage_fx
                         source,
                         &mut audio,
                         &game_engine::common::random_value::SessionRandom::default(),
+                        &game_engine::common::ini::ini_damage_fx::DamageFXStore::new(),
                     ),
                 }
             };

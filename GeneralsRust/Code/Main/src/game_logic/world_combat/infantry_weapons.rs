@@ -98,6 +98,7 @@ impl GameLogic {
                                 &mut self.combat_particles,
                                 &mut self.queued_audio_events,
                                 frame,
+                                &self.damage_fx_definitions,
                                 view,
                             );
                         }
@@ -127,12 +128,13 @@ impl GameLogic {
                                source: Option<
                 &crate::game_logic::host_transition_damage_fx::HostDamageFxVictim,
             >| {
-                crate::game_logic::Object::execute_body_state_fx_without_view_with_particles(
+                Self::execute_body_state_fx_without_view_with_particles(
                     object,
                     effect,
                     source,
                     audio,
                     random,
+                    &self.damage_fx_definitions,
                     &mut body_particles,
                 )
             };
@@ -165,10 +167,10 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (u32, bool) {
         use crate::game_logic::host_scud_launcher::{
+            SCUD_DAMAGE_TYPE, SCUD_DEATH_TYPE, SCUD_FIRE_AUDIO, SCUD_POISON_AUDIO,
+            SCUD_POISON_DAMAGE_TYPE, SCUD_POISON_DEATH_TYPE, UPGRADE_GLA_ANTHRAX_BETA,
             is_legal_scud_splash_target, scud_explosive_damage_at, scud_splash_radius,
-            scud_toxin_blast_damage_at, SCUD_DAMAGE_TYPE, SCUD_DEATH_TYPE, SCUD_FIRE_AUDIO,
-            SCUD_POISON_AUDIO, SCUD_POISON_DAMAGE_TYPE, SCUD_POISON_DEATH_TYPE,
-            UPGRADE_GLA_ANTHRAX_BETA,
+            scud_toxin_blast_damage_at,
         };
 
         let impact_xz = (impact.x, impact.z);
@@ -257,8 +259,8 @@ impl GameLogic {
         // Toxin / Anthrax residual: spawn MediumPoisonField DoT (Beta/Gamma tier).
         if toxin_warhead {
             use crate::game_logic::host_toxin_tractor::{
-                anthrax_tier_from_flags, is_chem_general_template, AnthraxResidualTier,
-                UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+                AnthraxResidualTier, UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+                anthrax_tier_from_flags, is_chem_general_template,
             };
             let anthrax = source
                 .and_then(|sid| {
@@ -663,7 +665,7 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_spectre_gunship_deployment::{
-            airf_gunship_template_for_tier, default_map_extents, SPECTRE_GUNSHIP_TEMPLATE,
+            SPECTRE_GUNSHIP_TEMPLATE, airf_gunship_template_for_tier, default_map_extents,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -1447,8 +1449,8 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_ocl_special_power::{
-            create_object_for_ocl, deliver_payload_for_ocl, ocl_execute_mode_for_template,
-            OclExecuteMode,
+            OclExecuteMode, create_object_for_ocl, deliver_payload_for_ocl,
+            ocl_execute_mode_for_template,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -2597,10 +2599,10 @@ impl GameLogic {
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        use crate::game_logic::AudioEventRequest;
         use crate::game_logic::host_tensile_formation::{
             TENSILE_BODY_DAMAGED_HEALTH_FRAC, TENSILE_CRACK_SOUND, TENSILE_PROPAGATE_RADIUS,
         };
-        use crate::game_logic::AudioEventRequest;
 
         let frame = self.frame as u32;
         let members: Vec<(ObjectId, Vec3)> = self
@@ -2948,7 +2950,7 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_nuke_cannon::{
-            nuke_shell_flight_frames, NUKE_CANNON_PROJECTILE, NUKE_SHELL_MAX_HEALTH,
+            NUKE_CANNON_PROJECTILE, NUKE_SHELL_MAX_HEALTH, nuke_shell_flight_frames,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 

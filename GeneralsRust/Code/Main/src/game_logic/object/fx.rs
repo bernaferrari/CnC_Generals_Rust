@@ -296,8 +296,23 @@ impl crate::game_logic::GameLogic {
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
         audio: &mut crate::game_logic::SessionAudio,
         random: &game_engine::common::random_value::SessionRandom,
+        damage_fx: &game_engine::common::ini::ini_damage_fx::DamageFXStore,
     ) {
         match effect {
+            BodyStateFx::ArmorDamage {
+                damage_type,
+                actual_damage,
+                frame,
+            } => {
+                crate::game_logic::host_transition_damage_fx::dispatch_owned_armor_damage_fx(
+                    object,
+                    damage_type,
+                    actual_damage,
+                    frame,
+                    source,
+                    damage_fx,
+                );
+            }
             BodyStateFx::BoneStateChange {
                 new_state, frame, ..
             } => {
@@ -323,7 +338,10 @@ impl crate::game_logic::GameLogic {
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
         audio: &mut crate::game_logic::SessionAudio,
         random: &game_engine::common::random_value::SessionRandom,
-        body_particles: &mut crate::game_logic::body_particle_runtime::HeadlessBodyParticleUpdate<'_>,
+        damage_fx: &game_engine::common::ini::ini_damage_fx::DamageFXStore,
+        body_particles: &mut crate::game_logic::body_particle_runtime::HeadlessBodyParticleUpdate<
+            '_,
+        >,
     ) {
         match effect {
             BodyStateFx::NativeVisualState(state) => body_particles.update(object, state),
@@ -333,9 +351,9 @@ impl crate::game_logic::GameLogic {
             BodyStateFx::FlammableIgnition { frame } => {
                 Object::complete_flammable_ignition(object, frame, audio, random)
             }
-            effect => {
-                Self::execute_body_state_fx_without_view(object, effect, source, audio, random)
-            }
+            effect => Self::execute_body_state_fx_without_view(
+                object, effect, source, audio, random, damage_fx,
+            ),
         }
     }
 
@@ -350,6 +368,7 @@ impl crate::game_logic::GameLogic {
         particles: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
         audio: &mut crate::game_logic::SessionAudio,
         frame: u32,
+        damage_fx: &game_engine::common::ini::ini_damage_fx::DamageFXStore,
         view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) {
         match effect {
@@ -392,6 +411,7 @@ impl crate::game_logic::GameLogic {
                     secondary,
                     player,
                     shroud,
+                    damage_fx,
                     view,
                 );
             }
@@ -428,14 +448,16 @@ impl crate::game_logic::GameLogic {
         secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
         player: Option<u32>,
         shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        damage_fx: &game_engine::common::ini::ini_damage_fx::DamageFXStore,
         view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) {
-        crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx_with_dispatch(
+        crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx_with_store(
             object,
             damage_type,
             actual_damage,
             frame,
             source,
+            damage_fx,
             &mut |object, name, source| {
                 let primary = Self::observe_host_fx_object(object, player, shroud);
                 let secondary = source.and_then(|source| {

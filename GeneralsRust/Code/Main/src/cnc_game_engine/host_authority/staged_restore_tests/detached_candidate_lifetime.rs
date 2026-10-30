@@ -37,6 +37,7 @@ fn stage_decoded(
             roads_baseline: source.terrain_road_baseline(),
             combat_bonus_baseline: source.combat_bonus_baseline(),
             body_damage_baseline: source.body_damage_baseline(),
+            damage_fx_base: &source.damage_fx_base,
             power_bar_baseline: source.power_bar_baseline(),
             body_auto_particle_baseline: source.body_auto_particle_baseline(),
             session_sell_percentage: source.session_sell_percentage,

@@ -39,6 +39,55 @@ struct Fixture {
     sink: Option<ObjectId>,
     rows: String,
 }
+
+#[test]
+fn projectile_damage_fx_throttle_belongs_to_the_driving_session() {
+    let _guard = SERIAL.lock().unwrap_or_else(|error| error.into_inner());
+    let mut make = |time| {
+        fixture_custom_with_ai(
+            "OwnedArmorFx",
+            150.0,
+            false,
+            30,
+            1,
+            10.0,
+            0.0,
+            "ENEMIES NEUTRALS",
+            "",
+            false,
+            None,
+            Some(time),
+        )
+    };
+    let mut left = make(1000);
+    let mut right = make(2000);
+    assert_eq!(left.victim, right.victim);
+    left.accept();
+    right.accept();
+    for _ in 0..50 {
+        if left.world.host_object(left.victim).unwrap().health.current < 150.0
+            && right
+                .world
+                .host_object(right.victim)
+                .unwrap()
+                .health
+                .current
+                < 150.0
+        {
+            break;
+        }
+        left.world.update();
+        right.world.update();
+    }
+    let left_victim = left.world.host_object(left.victim).unwrap();
+    let right_victim = right.world.host_object(right.victim).unwrap();
+    assert_eq!(left_victim.health.current, 50.0);
+    assert_eq!(right_victim.health.current, 50.0);
+    assert_eq!(
+        right_victim.next_damage_fx_time,
+        left_victim.next_damage_fx_time + 30
+    );
+}
 fn fixture(
     label: &str,
     health: f32,
@@ -71,7 +120,7 @@ fn fixture_custom(
     extra: &str,
 ) -> Fixture {
     fixture_custom_with_ai(
-        label, health, sink, speed, count, threshold, radius, affects, extra, false, None,
+        label, health, sink, speed, count, threshold, radius, affects, extra, false, None, None,
     )
 }
 
@@ -87,6 +136,7 @@ fn fixture_custom_with_ai(
     extra: &str,
     with_ai: bool,
     owned_angle: Option<f32>,
+    owned_throttle_ms: Option<u32>,
 ) -> Fixture {
     let rule = format!("LibraryMoving{label}Weapon");
     let rows = format!("LibraryMoving{label}Rows");
@@ -123,10 +173,8 @@ End
     })
     .unwrap();
     init_global_damage_fx_store();
-    INI::new()
-        .with_inline_source(
-            &format!(
-                r#"
+    let damage_fx_source = format!(
+        r#"
 DamageFX {rows}
  VeterancyMajorFX = REGULAR SMALL_ARMS FX_{rows}_Regular
  VeterancyMajorFX = VETERAN SMALL_ARMS FX_{rows}_Veteran
@@ -154,11 +202,19 @@ FXList FX_{rows}_Elite
  End
 End
 "#
-            ),
-            |ini| ini.parse_current_file(),
-        )
+    );
+    INI::new()
+        .with_inline_source(&damage_fx_source, |ini| ini.parse_current_file())
         .unwrap();
     let mut world = GameLogic::new();
+    world.admit_damage_fx_source(&damage_fx_source).unwrap();
+    if let Some(throttle) = owned_throttle_ms {
+        world
+            .admit_damage_fx_source(&format!(
+                "DamageFX {rows}\n ThrottleTime = SMALL_ARMS {throttle}\nEnd\n"
+            ))
+            .unwrap();
+    }
     for (id, team) in [(0, Team::USA), (1, Team::China)] {
         let mut player = Player::new(id, team, label, id == 0);
         player.alliance_team = id as i32;
@@ -817,6 +873,7 @@ fn moving_area_projectile_default_team_identity_controls_collateral_filter() {
         "",
         true,
         None,
+        None,
     );
     let collateral = f
         .world
@@ -847,6 +904,7 @@ fn moving_area_projectile_default_team_identity_controls_collateral_filter() {
         "",
         true,
         None,
+        None,
     )
     .world;
     builder
@@ -874,6 +932,7 @@ fn moving_directional_splash_uses_projectile_pose_and_receiving_weapon_angle() {
             "",
             true,
             Some(angle),
+            None,
         );
         let behind_impact = f
             .world

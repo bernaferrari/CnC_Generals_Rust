@@ -478,6 +478,14 @@ impl GameLogic {
                     .iter()
                     .map(|(_, text)| text.clone())
                     .collect();
+                let mut damage_fx = self.damage_fx_base.clone();
+                for source in &weapon_overrides {
+                    if let Err(error) = damage_fx.apply_source(source) {
+                        log::error!("Cannot admit receiving map DamageFX definitions: {error}");
+                        return Ok(false);
+                    }
+                }
+                self.damage_fx_definitions = damage_fx;
                 if let Err(error) = self.admit_locomotor_companion_sources(&weapon_overrides) {
                     log::error!("Cannot admit receiving map locomotors: {error}");
                     return Ok(false);

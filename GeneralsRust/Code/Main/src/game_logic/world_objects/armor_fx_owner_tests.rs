@@ -80,6 +80,10 @@ fn install() -> Receiver<Observed> {
 }
 fn world() -> GameLogic {
     let mut world = GameLogic::new();
+    world.admit_fx_definitions();
+    if let Some(definitions) = rules::get_damage_fx_store() {
+        world.damage_fx_definitions = definitions.clone();
+    }
     world.add_player(Player::new(0, Team::Neutral, "Neutral", false));
     world.add_player(Player::new(1, Team::USA, "Owner", true));
     world.add_player(Player::new(2, Team::China, "Attacker", false));
@@ -100,6 +104,22 @@ fn world() -> GameLogic {
     world.objects.insert(SOURCE, source);
     reveal(&world);
     world
+}
+
+#[test]
+fn same_name_damage_fx_uses_the_driving_worlds_definitions() {
+    let mut left = world();
+    let mut right = world();
+    for (world, time) in [(&mut left, 1000), (&mut right, 2000)] {
+        let source = format!("DamageFX {DEFINITION}\n ThrottleTime = SMALL_ARMS {time}\nEnd\n");
+        world.damage_fx_definitions = rules::DamageFXStore::new();
+        world.damage_fx_definitions.apply_source(&source).unwrap();
+        world.frame = 5;
+    }
+    hit(&mut left, 5.0, None, DamageType::Bullet);
+    hit(&mut right, 5.0, None, DamageType::Bullet);
+    assert_eq!(left.objects[&VICTIM].next_damage_fx_time, 35);
+    assert_eq!(right.objects[&VICTIM].next_damage_fx_time, 65);
 }
 fn reveal(world: &GameLogic) {
     let mut shroud = world.world_services.shroud().lock().unwrap();
