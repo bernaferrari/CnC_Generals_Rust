@@ -1577,3 +1577,112 @@ fn native_xfer_restore_defers_constructor_audio_and_restarts_only_permanent_ambi
         1
     );
 }
+
+#[test]
+fn beacon_authored_admission_uses_receiving_logic_frame_and_xfer_restores_it() {
+    use game_client_rust::drawable::BasicDrawable;
+    use game_client_rust::drawable::BeaconClientUpdateModule;
+
+    fn beacon_content() -> (ReceivingModuleContent, Arc<AdmittedReceivingTemplate>) {
+        let mut factory = ModuleFactory::new_receiving(NameKeyNamespace::new());
+        gamelogic::contain_module_overrides::register_native_module_overrides(&mut factory)
+            .unwrap();
+        let mut content = ReceivingModuleContent::new(factory);
+        content.load_ini_text(
+            "Object OwnedBeacon\nClientUpdate = BeaconClientUpdate BeaconTag\nRadarPulseFrequency = 1s\nRadarPulseDuration = 500ms\nEnd\nEnd\n",
+            INILoadType::Overwrite,
+        ).unwrap();
+        let plan = content.admitted_template("OwnedBeacon").unwrap();
+        (content, plan)
+    }
+    fn with_beacon<R>(
+        client: &mut GameClient,
+        operation: impl FnOnce(&mut dyn game_engine::common::thing::module::Module) -> R,
+    ) -> R {
+        let id = client
+            .get_drawable_for_object(77)
+            .expect("receiving object drawable");
+        let draw = client.find_drawable_by_id_mut(id).unwrap();
+        let basic = draw.as_any_mut().downcast_mut::<BasicDrawable>().unwrap();
+        let module = basic
+            .get_draw_modules_mut()
+            .iter_mut()
+            .find_map(|slot| {
+                let module = slot.logic_module_mut()?;
+                if module.as_any().is::<BeaconClientUpdateModule>() {
+                    Some(module)
+                } else {
+                    None
+                }
+            })
+            .expect("actual admitted beacon module");
+        operation(module)
+    }
+    fn snapshot(client: &mut GameClient) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        with_beacon(client, |module| {
+            let mut save = XferSave::new(Cursor::new(&mut bytes), 1);
+            module.xfer(&mut save).unwrap();
+        });
+        bytes
+    }
+    fn saved_pulse(bytes: &[u8]) -> u32 {
+        u32::from_le_bytes(bytes[bytes.len() - 4..].try_into().unwrap())
+    }
+
+    let mut first =
+        GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted).unwrap();
+    let mut peer =
+        GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted).unwrap();
+    first.particle_systems_mut().finish_definition_admission();
+    peer.particle_systems_mut().finish_definition_admission();
+    let (mut content_a, plan_a) = beacon_content();
+    let (mut content_b, plan_b) = beacon_content();
+    let policy = ReceivingDrawablePolicy {
+        time_of_day: Some(game_client_rust::system::TimeOfDay::Night),
+        use_draw_module_lod: true,
+        static_game_lod: StaticGameLodLevel::High,
+        use_tree_sway: true,
+    };
+    let mut a = entry(plan_a);
+    a.visual_template_name = "OwnedBeacon".into();
+    a.template_name = "OwnedBeacon".into();
+    a.draw_logic_frame = 37;
+    let mut b = entry(plan_b);
+    b.visual_template_name = "OwnedBeacon".into();
+    b.template_name = "OwnedBeacon".into();
+    b.draw_logic_frame = 900;
+    first
+        .sync_presentation_drawables_observed_with_content(
+            [a],
+            0,
+            content_a.module_factory_mut(),
+            policy,
+            |_| {},
+        )
+        .unwrap();
+    peer.sync_presentation_drawables_observed_with_content(
+        [b],
+        0,
+        content_b.module_factory_mut(),
+        policy,
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(
+        first.get_drawable_for_object(77),
+        peer.get_drawable_for_object(77)
+    );
+    let saved_a = snapshot(&mut first);
+    let saved_b = snapshot(&mut peer);
+    assert_eq!(saved_a.len(), 11, "versions, particle ID, and pulse frame");
+    assert_eq!(&saved_a[..3], &[1, 1, 1]);
+    assert_eq!(saved_pulse(&saved_a), 37);
+    assert_eq!(saved_pulse(&saved_b), 900);
+    with_beacon(&mut peer, |module| {
+        let mut load = XferLoad::new(Cursor::new(saved_a.as_slice()), 1);
+        module.xfer(&mut load).unwrap();
+    });
+    assert_eq!(saved_pulse(&snapshot(&mut peer)), 37);
+    assert_eq!(saved_pulse(&snapshot(&mut first)), 37);
+}
