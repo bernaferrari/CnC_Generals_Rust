@@ -36,7 +36,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const OXOB_MAGIC: &[u8; 4] = b"OXOB";
-const OXOB_VERSION: u32 = 20;
+const OXOB_VERSION: u32 = 21;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectXferPersistPayload {
@@ -49,6 +49,38 @@ struct ObjectXferPersistPayload {
     open_contain_rallies: Vec<OpenContainRallyPersist>,
     passenger_fire_permissions: Vec<(u32, bool)>,
     weapon_activity: Vec<(u32, bool, bool)>,
+    target_positions: Vec<(u32, bool, [f32; 3])>,
+}
+
+/// Version 20 predates the owned target-position continuation.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectXferPersistPayloadV20 {
+    objects: Vec<ObjectXferPersist>,
+    script_status: Vec<ObjectScriptStatusPersist>,
+    structures: Vec<StructureTopplePersist>,
+    damage_info: Vec<ObjectDamageInfoPersist>,
+    transport: Vec<TransportMovementPersist>,
+    body_history: Vec<body_damage_history_persist::BodyDamageHistoryPersist>,
+    open_contain_rallies: Vec<OpenContainRallyPersist>,
+    passenger_fire_permissions: Vec<(u32, bool)>,
+    weapon_activity: Vec<(u32, bool, bool)>,
+}
+
+impl From<ObjectXferPersistPayloadV20> for ObjectXferPersistPayload {
+    fn from(old: ObjectXferPersistPayloadV20) -> Self {
+        Self {
+            objects: old.objects,
+            script_status: old.script_status,
+            structures: old.structures,
+            damage_info: old.damage_info,
+            transport: old.transport,
+            body_history: old.body_history,
+            open_contain_rallies: old.open_contain_rallies,
+            passenger_fire_permissions: old.passenger_fire_permissions,
+            weapon_activity: old.weapon_activity,
+            target_positions: Vec::new(),
+        }
+    }
 }
 
 /// Version 19 predates the aiming and firing object-status continuation.
@@ -76,6 +108,7 @@ impl From<ObjectXferPersistPayloadV19> for ObjectXferPersistPayload {
             open_contain_rallies: old.open_contain_rallies,
             passenger_fire_permissions: old.passenger_fire_permissions,
             weapon_activity: Vec::new(),
+            target_positions: Vec::new(),
         }
     }
 }
@@ -104,6 +137,7 @@ impl From<ObjectXferPersistPayloadV18> for ObjectXferPersistPayload {
             open_contain_rallies: old.open_contain_rallies,
             passenger_fire_permissions: Vec::new(),
             weapon_activity: Vec::new(),
+            target_positions: Vec::new(),
         }
     }
 }
@@ -1700,6 +1734,10 @@ fn decode_current_payload(version: u32, bytes: &[u8]) -> SaveLoadResult<ObjectXf
         bincode_legacy::deserialize::<ObjectXferPersistPayloadV19>(bytes)
             .map(Into::into)
             .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))
+    } else if version == 20 {
+        bincode_legacy::deserialize::<ObjectXferPersistPayloadV20>(bytes)
+            .map(Into::into)
+            .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))
     } else if version == OXOB_VERSION {
         bincode_legacy::deserialize(bytes)
             .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))
@@ -1710,22 +1748,28 @@ fn decode_current_payload(version: u32, bytes: &[u8]) -> SaveLoadResult<ObjectXf
     }
 }
 
-/// A current world must carry exactly one runtime permission for every saved
-/// object. Check this before replacing any state in the receiving session.
-pub(super) fn validate_passenger_fire_permissions_before_restore(
+/// Validate owned object continuations before replacing the receiving session.
+pub(super) fn validate_owned_object_continuations_before_restore(
     bytes: &[u8],
     snapshot: &super::WorldSnapshot,
 ) -> SaveLoadResult<()> {
-    if snapshot.version < 39 || snapshot.objects.is_empty() {
+    if snapshot.objects.is_empty() {
         return Ok(());
     }
     let Some(mut rest) = find_oxob_suffix(bytes) else {
-        return Err(SaveLoadError::Corrupted(
-            "missing passenger-fire continuation".into(),
-        ));
+        return if snapshot.version < 39 {
+            Ok(())
+        } else {
+            Err(SaveLoadError::Corrupted(
+                "missing passenger-fire continuation".into(),
+            ))
+        };
     };
     let version = take_u32(&mut rest)?;
-    if version != 19 && version != OXOB_VERSION {
+    if version < 19 && snapshot.version < 39 {
+        return Ok(());
+    }
+    if version != 19 && version != 20 && version != OXOB_VERSION {
         return Err(SaveLoadError::Corrupted(
             "missing current passenger-fire continuation".into(),
         ));
@@ -1760,6 +1804,24 @@ pub(super) fn validate_passenger_fire_permissions_before_restore(
         if activity_ids.len() != snapshot.objects.len() {
             return Err(SaveLoadError::Corrupted(
                 "incomplete weapon-activity continuation".into(),
+            ));
+        }
+    }
+    if version >= 21 {
+        let mut target_ids = std::collections::HashSet::new();
+        for (id, _, position) in &payload.target_positions {
+            if !target_ids.insert(*id)
+                || !snapshot.objects.contains_key(&ObjectId(*id))
+                || position.iter().any(|value| !value.is_finite())
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "invalid target-position continuation".into(),
+                ));
+            }
+        }
+        if target_ids.len() != snapshot.objects.len() {
+            return Err(SaveLoadError::Corrupted(
+                "incomplete target-position continuation".into(),
             ));
         }
     }
@@ -1826,6 +1888,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
         && version != 17
         && version != 18
         && version != 19
+        && version != 20
         && version != OXOB_VERSION
     {
         return Err(SaveLoadError::Corrupted(format!(
@@ -1856,6 +1919,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             open_contain_rallies: Vec::new(),
             passenger_fire_permissions: Vec::new(),
             weapon_activity: Vec::new(),
+            target_positions: Vec::new(),
         }
     } else if version == 2 {
         let old: ObjectXferPersistPayloadV2 = bincode_legacy::deserialize(encoded)
@@ -1874,6 +1938,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             open_contain_rallies: Vec::new(),
             passenger_fire_permissions: Vec::new(),
             weapon_activity: Vec::new(),
+            target_positions: Vec::new(),
         }
     } else if version == 3 {
         let old: ObjectXferPersistPayloadV3 = bincode_legacy::deserialize(encoded)
@@ -1892,6 +1957,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             open_contain_rallies: Vec::new(),
             passenger_fire_permissions: Vec::new(),
             weapon_activity: Vec::new(),
+            target_positions: Vec::new(),
         }
     } else if version == 4 {
         let old: ObjectXferPersistPayloadV4 = bincode_legacy::deserialize(encoded)
@@ -1910,6 +1976,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             open_contain_rallies: Vec::new(),
             passenger_fire_permissions: Vec::new(),
             weapon_activity: Vec::new(),
+            target_positions: Vec::new(),
         }
     } else if version == 5 {
         let old: ObjectXferPersistPayloadV5 = bincode_legacy::deserialize(encoded)
@@ -1928,6 +1995,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             open_contain_rallies: Vec::new(),
             passenger_fire_permissions: Vec::new(),
             weapon_activity: Vec::new(),
+            target_positions: Vec::new(),
         }
     } else if version == 6 {
         let old: ObjectXferPersistPayloadV6 = bincode_legacy::deserialize(encoded)
@@ -1946,6 +2014,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             open_contain_rallies: Vec::new(),
             passenger_fire_permissions: Vec::new(),
             weapon_activity: Vec::new(),
+            target_positions: Vec::new(),
         }
     } else if version == 7 {
         let old: ObjectXferPersistPayloadV7 = bincode_legacy::deserialize(encoded)
@@ -1964,6 +2033,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             open_contain_rallies: Vec::new(),
             passenger_fire_permissions: Vec::new(),
             weapon_activity: Vec::new(),
+            target_positions: Vec::new(),
         }
     } else if version == 8 {
         let old: ObjectXferPersistPayloadV8 = bincode_legacy::deserialize(encoded)
@@ -1982,6 +2052,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             open_contain_rallies: Vec::new(),
             passenger_fire_permissions: Vec::new(),
             weapon_activity: Vec::new(),
+            target_positions: Vec::new(),
         }
     } else if version == 9 {
         let old: ObjectXferPersistPayloadV9 = bincode_legacy::deserialize(encoded)
@@ -2000,6 +2071,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             open_contain_rallies: Vec::new(),
             passenger_fire_permissions: Vec::new(),
             weapon_activity: Vec::new(),
+            target_positions: Vec::new(),
         }
     } else if version == 10 {
         let old: ObjectXferPersistPayloadV10 = bincode_legacy::deserialize(encoded)
@@ -2018,6 +2090,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             open_contain_rallies: Vec::new(),
             passenger_fire_permissions: Vec::new(),
             weapon_activity: Vec::new(),
+            target_positions: Vec::new(),
         }
     } else if version == 11 {
         let old: ObjectXferPersistPayloadV11 = bincode_legacy::deserialize(encoded)
@@ -2032,6 +2105,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             open_contain_rallies: Vec::new(),
             passenger_fire_permissions: Vec::new(),
             weapon_activity: Vec::new(),
+            target_positions: Vec::new(),
         }
     } else if version == 12 {
         let old: ObjectXferPersistPayloadV12 = bincode_legacy::deserialize(encoded)
@@ -2046,6 +2120,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             open_contain_rallies: Vec::new(),
             passenger_fire_permissions: Vec::new(),
             weapon_activity: Vec::new(),
+            target_positions: Vec::new(),
         }
     } else if version == 13 {
         let old: ObjectXferPersistPayloadV13 = bincode_legacy::deserialize(encoded)
@@ -2060,6 +2135,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             open_contain_rallies: Vec::new(),
             passenger_fire_permissions: Vec::new(),
             weapon_activity: Vec::new(),
+            target_positions: Vec::new(),
         }
     } else if version == 14 {
         let old: ObjectXferPersistPayloadV14 = bincode_legacy::deserialize(encoded)
@@ -2074,6 +2150,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             open_contain_rallies: Vec::new(),
             passenger_fire_permissions: Vec::new(),
             weapon_activity: Vec::new(),
+            target_positions: Vec::new(),
         }
     } else if version == 15 {
         let old: ObjectXferPersistPayloadV15 = bincode_legacy::deserialize(encoded)
@@ -2088,6 +2165,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             open_contain_rallies: Vec::new(),
             passenger_fire_permissions: Vec::new(),
             weapon_activity: Vec::new(),
+            target_positions: Vec::new(),
         }
     } else if version == 16 {
         let old: ObjectXferPersistPayloadV16 = bincode_legacy::deserialize(encoded)
@@ -2102,6 +2180,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             open_contain_rallies: Vec::new(),
             passenger_fire_permissions: Vec::new(),
             weapon_activity: Vec::new(),
+            target_positions: Vec::new(),
         }
     } else if version == 17 {
         let old: ObjectXferPersistPayloadV17 = bincode_legacy::deserialize(encoded)
@@ -2116,6 +2195,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             open_contain_rallies: Vec::new(),
             passenger_fire_permissions: Vec::new(),
             weapon_activity: Vec::new(),
+            target_positions: Vec::new(),
         }
     } else {
         decode_current_payload(version, encoded)?
@@ -2149,6 +2229,24 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
         if ids.len() != game_logic.host_objects().registered_len() {
             return Err(SaveLoadError::Corrupted(
                 "incomplete saved weapon-activity owners".into(),
+            ));
+        }
+    }
+    if version >= 21 {
+        let mut ids = std::collections::HashSet::new();
+        for (id, _, position) in &payload.target_positions {
+            if !ids.insert(*id)
+                || game_logic.host_object(ObjectId(*id)).is_none()
+                || position.iter().any(|value| !value.is_finite())
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "invalid saved target-position owner or coordinates".into(),
+                ));
+            }
+        }
+        if ids.len() != game_logic.host_objects().registered_len() {
+            return Err(SaveLoadError::Corrupted(
+                "incomplete saved target-position owners".into(),
             ));
         }
     }
@@ -2343,6 +2441,21 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
         })
         .collect();
     weapon_activity.sort_by_key(|entry| entry.0);
+    let mut target_positions: Vec<_> = game_logic
+        .host_objects()
+        .registered()
+        .map(|(id, object)| {
+            (
+                id.0,
+                object.target_location.is_some(),
+                object
+                    .target_location
+                    .unwrap_or(glam::Vec3::ZERO)
+                    .to_array(),
+            )
+        })
+        .collect();
+    target_positions.sort_by_key(|entry| entry.0);
     ObjectXferPersistPayload {
         objects,
         script_status,
@@ -2353,6 +2466,7 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
         open_contain_rallies,
         passenger_fire_permissions,
         weapon_activity,
+        target_positions,
     }
 }
 
@@ -2504,6 +2618,11 @@ fn reset_object_xfer(game_logic: &mut GameLogic) {
 }
 
 fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) {
+    for (id, present, position) in payload.target_positions {
+        if let Some(object) = game_logic.host_objects_mut().get_mut(&ObjectId(id)) {
+            object.target_location = present.then(|| glam::Vec3::from_array(position));
+        }
+    }
     for (id, aiming, firing) in payload.weapon_activity {
         if let Some(object) = game_logic.host_objects_mut().get_mut(&ObjectId(id)) {
             object.status.is_aiming_weapon = aiming;
@@ -3864,7 +3983,7 @@ pub(super) fn validate_base_ai_projection_after_restore(
         return Ok(());
     };
     let version = take_u32(&mut rest)?;
-    if version != 18 && version != 19 && version != OXOB_VERSION {
+    if version != 18 && version != 19 && version != 20 && version != OXOB_VERSION {
         return Err(SaveLoadError::Corrupted(
             "native14 requires current OO projection layout".into(),
         ));
@@ -3901,7 +4020,7 @@ pub(super) fn validate_base_ai_projection_before_restore(
         return Ok(());
     };
     let version = take_u32(&mut rest)?;
-    if version != 18 && version != 19 && version != OXOB_VERSION {
+    if version != 18 && version != 19 && version != 20 && version != OXOB_VERSION {
         return Err(SaveLoadError::Corrupted(
             "native14 requires current OO projection layout".into(),
         ));

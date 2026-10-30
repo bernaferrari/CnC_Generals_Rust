@@ -253,8 +253,7 @@ End
     for source in &shooters {
         if let Some(sink) = sink {
             world
-                .objects
-                .get_mut(source)
+                .host_object_mut(*source)
                 .unwrap()
                 .set_experience_sink(Some(sink));
         }
@@ -374,7 +373,7 @@ impl Fixture {
     fn xp(&self) -> f32 {
         self.shooters
             .iter()
-            .filter_map(|id| self.world.objects.get(id))
+            .filter_map(|id| self.world.host_object(*id))
             .map(|o| o.experience.current)
             .sum()
     }
@@ -473,7 +472,7 @@ fn advance_with_dead_source(
         if let Some(source) = dead_source {
             let next_position = position + shots[0].velocity / 30.0;
             if next_position.distance(f.world.objects[&f.victim].get_position()) <= 5.0 {
-                let object = f.world.objects.get_mut(&source).unwrap();
+                let object = f.world.host_object_mut(source).unwrap();
                 object.health.current = 0.0;
                 assert!(!object.is_alive());
                 assert!(!object.status.destroyed);
@@ -494,7 +493,7 @@ fn moving_direct_lethal_completes_before_fx() {
     assert_eq!(f.world.combat_system().projectiles_snapshot().len(), 1);
     assert_eq!(f.xp(), 0.0);
     advance_to_impact(&mut f, &observer, 100.0);
-    assert!(!f.world.objects.contains_key(&f.victim));
+    assert!(f.world.host_object(f.victim).is_none());
     assert_eq!(f.xp(), 10.0);
     f.expect_fx(&observer, "Veteran", Some(f.shooters[0]));
     f.no_repeat(&observer);
@@ -532,12 +531,12 @@ fn moving_case(
     if missing {
         f.world.destroy_object(source);
         f.world.update();
-        assert!(!f.world.objects.contains_key(&source));
+        assert!(f.world.host_object(source).is_none());
     }
     advance_with_dead_source(&mut f, &observer, health, dead.then_some(source));
     let lethal = health <= 100.0;
     if lethal {
-        assert!(!f.world.objects.contains_key(&f.victim));
+        assert!(f.world.host_object(f.victim).is_none());
     } else {
         let victim = &f.world.objects[&f.victim];
         assert_eq!(victim.health.current, health - 100.0);
@@ -639,8 +638,8 @@ fn moving_area_two_kills_complete_in_encounter_order() {
         .unwrap();
     f.accept();
     advance_to_impact(&mut f, &observer, 100.0);
-    assert!(!f.world.objects.contains_key(&f.victim));
-    assert!(!f.world.objects.contains_key(&other));
+    assert!(f.world.host_object(f.victim).is_none());
+    assert!(f.world.host_object(other).is_none());
     assert_eq!(f.xp(), 20.0);
     assert_eq!(
         f.world.objects[&f.shooters[0]].experience.level,
@@ -779,13 +778,11 @@ fn moving_area_uses_projectile_default_team_identity_not_launcher_custom_team() 
     generals_main::save_load::snapshot::apply_pending_player_team_chunks(&mut f.world, &chunks)
         .unwrap();
     f.world
-        .objects
-        .get_mut(&f.shooters[0])
+        .host_object_mut(f.shooters[0])
         .unwrap()
         .team_instance_name = "LauncherTeam".into();
     f.world
-        .objects
-        .get_mut(&collateral)
+        .host_object_mut(collateral)
         .unwrap()
         .team_instance_name = "CollateralTeam".into();
     assert_eq!(
@@ -826,8 +823,7 @@ fn moving_area_projectile_default_team_identity_controls_collateral_filter() {
         .create_object_for_player("QueuedVictim", 1, Vec3::new(31.0, 0.0, 0.0))
         .unwrap();
     f.world
-        .objects
-        .get_mut(&f.shooters[0])
+        .host_object_mut(f.shooters[0])
         .unwrap()
         .team_instance_name = "LauncherCustomTeam".into();
     set_team_override_for_members(

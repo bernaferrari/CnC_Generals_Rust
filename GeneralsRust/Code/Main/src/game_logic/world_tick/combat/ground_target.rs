@@ -75,11 +75,11 @@ impl GameLogic {
             .and_then(|slot| {
                 self.objects.get(&attacker_id).and_then(|attacker| {
                     attacker.weapon_slot(slot).map(|weapon| {
-                        attacker.can_fire_slot_with_solo_set(
-                            slot,
-                            current_time,
-                            &self.solo_weapon_bonus_set,
-                        ) && attacker.has_max_shots_remaining()
+                        let rof = self
+                            .receiving_weapon_bonus_fields_for_slot(attacker, slot)
+                            .2;
+                        attacker.can_fire_slot_with_owned_rof(slot, current_time, rof)
+                            && attacker.has_max_shots_remaining()
                             && attacker.weapon_allows_target_anti_mask(
                                 weapon,
                                 Some(slot),

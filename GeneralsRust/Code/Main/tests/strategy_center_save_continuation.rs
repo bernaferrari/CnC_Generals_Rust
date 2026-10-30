@@ -340,8 +340,8 @@ fn admit(logic: &mut GameLogic, case: Case, journal: &mut fs::File) -> Ids {
         });
         logic.process_commands();
         let object = logic.host_object(center).unwrap();
-        assert_eq!(object.ai_state, AIState::Attacking);
-        assert_eq!(object.attack_substate, AttackSubState::AimAtTarget);
+        assert_eq!(object.ai_state(), AIState::Attacking);
+        assert_eq!(object.attack_substate(), AttackSubState::AimAtTarget);
         assert_eq!(object.turret_substate, TurretSubState::Aim);
         assert_eq!(object.target, Some(target));
         assert_eq!(object.turret_target_id, Some(target));
@@ -457,7 +457,7 @@ fn observe(logic: &GameLogic, ids: Ids, processed: Option<u32>) -> Value {
             "relationship":format!("{:?}",logic.object_relationship(center,target)),
             "templates":[center.get_template().name,target.get_template().name,ANCHOR],
             "plan":logic.battle_plans(),"host_target":center.target.map(|id|id.0),
-            "ai_state":format!("{:?}",center.ai_state),"attacking":center.status.attacking,
+            "ai_state":format!("{:?}",center.ai_state()),"attacking":center.status.attacking,
             "body_orientation":float(center.get_orientation()),
             "turret":{
                 "goal":center.turret_target_id.map(|id|id.0),"mood":center.turret_mood_target,
@@ -483,7 +483,7 @@ fn observe(logic: &GameLogic, ids: Ids, processed: Option<u32>) -> Value {
             "scatter_unused":center.weapon_scatter_targets_unused,"scatter_inited":center.weapon_scatter_targets_inited
         },
         "body_observations":{
-            "attack_substate":format!("{:?}",center.attack_substate),
+            "attack_substate":format!("{:?}",center.attack_substate()),
             "aiming":center.status.is_aiming_weapon,"firing":center.status.is_firing_weapon,
             "consecutive_shots_at_target":center.consecutive_shots_at_target,
             "weapon_fire_status":format!("{:?}",center.weapon_fire_status),

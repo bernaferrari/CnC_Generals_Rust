@@ -174,6 +174,28 @@ fn contained_weapon_world_with_human_rof(
     shot_delay_frames: i32,
     human_rof: u32,
 ) -> (GameLogic, ObjectId, ObjectId) {
+    contained_weapon_world_with_extra_rof(
+        authored_pass,
+        force_metadata,
+        allow_fire,
+        pre_attack_frames,
+        clip_reload_frames,
+        shot_delay_frames,
+        human_rof,
+        None,
+    )
+}
+
+fn contained_weapon_world_with_extra_rof(
+    authored_pass: bool,
+    force_metadata: bool,
+    allow_fire: Option<bool>,
+    pre_attack_frames: i32,
+    clip_reload_frames: i32,
+    shot_delay_frames: i32,
+    human_rof: u32,
+    extra_rof: Option<f32>,
+) -> (GameLogic, ObjectId, ObjectId) {
     let mut game = GameLogic::new();
     game.admit_combat_bonus_ini_sources([format!("GameData\n WeaponBonus = SOLO_HUMAN_EASY RADIUS 150%\n WeaponBonus = SOLO_HUMAN_EASY RATE_OF_FIRE {human_rof}%\n WeaponBonus = SOLO_AI_EASY RADIUS 200%\n WeaponBonus = SOLO_AI_EASY DAMAGE 150%\n WeaponBonus = SOLO_AI_EASY RANGE 200%\n WeaponBonus = SOLO_AI_EASY PRE_ATTACK 200%\n WeaponBonus = SOLO_AI_EASY RATE_OF_FIRE 200%\n WeaponBonus = GARRISONED RADIUS 125%\n WeaponBonus = FRENZY_ONE RADIUS 125%\n WeaponBonus = FRENZY_THREE RADIUS 175%\n WeaponBonus = VETERAN RADIUS 125%\n WeaponBonus = HERO RADIUS 150%\nEnd\n")]).unwrap();
     let pass = if authored_pass { "Yes" } else { "No" };
@@ -200,6 +222,16 @@ fn contained_weapon_world_with_human_rof(
     weapon.pre_attack_delay = pre_attack_frames;
     weapon.min_delay_between_shots = shot_delay_frames;
     weapon.max_delay_between_shots = shot_delay_frames;
+    if let Some(rof) = extra_rof {
+        use gamelogic::weapon::{
+            WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet,
+        };
+        let mut bonus = WeaponBonus::new();
+        bonus.set_field(WeaponBonusField::RateOfFire, rof);
+        let mut set = WeaponBonusSet::new();
+        set.set_bonus(WeaponBonusConditionType::SoloHumanEasy, bonus);
+        weapon.extra_bonus = Some(set);
+    }
     if clip_reload_frames > 0 {
         weapon.clip_size = 3;
         weapon.clip_reload_time = clip_reload_frames;
@@ -220,6 +252,140 @@ fn contained_weapon_world_with_human_rof(
     game.host_object_mut(passenger).unwrap().contained_by = Some(carrier);
     game.host_object_mut(carrier).unwrap().weapon_bonus_solo = 19;
     (game, passenger, carrier)
+}
+
+#[test]
+fn ground_attack_uses_firing_sessions_weapon_rof() {
+    use generals_main::command_executor::CommandExecutor;
+    use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
+    use std::time::UNIX_EPOCH;
+    let (mut boosted, attacker, _) =
+        contained_weapon_world_with_extra_rof(false, false, None, 0, 0, 30, 100, Some(2.0));
+    let (mut plain, peer, _) =
+        contained_weapon_world_with_extra_rof(false, false, None, 0, 0, 30, 100, Some(1.0));
+    assert_eq!(attacker, peer);
+    for game in [&mut boosted, &mut plain] {
+        game.host_object_mut(attacker).unwrap().contained_by = None;
+        CommandExecutor::new(game, 1)
+            .execute_command(GameCommand {
+                command_type: CommandType::AttackPosition {
+                    location: Some(glam::Vec3::new(40.0, 0.0, 20.0)),
+                    max_shots: 7,
+                },
+                player_id: 1,
+                command_id: 1,
+                timestamp: UNIX_EPOCH,
+                selected_units: vec![attacker],
+                modifier_keys: ModifierKeys::default(),
+            })
+            .unwrap();
+        assert_eq!(game.host_object(attacker).unwrap().target, None);
+    }
+    for _ in 0..80 {
+        boosted.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        plain.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if boosted
+            .host_object(attacker)
+            .unwrap()
+            .weapon
+            .as_ref()
+            .unwrap()
+            .last_fire_time
+            > 0.0
+            && plain
+                .host_object(attacker)
+                .unwrap()
+                .weapon
+                .as_ref()
+                .unwrap()
+                .last_fire_time
+                > 0.0
+        {
+            break;
+        }
+    }
+    let boost_first = boosted
+        .host_object(attacker)
+        .unwrap()
+        .weapon
+        .as_ref()
+        .unwrap()
+        .last_fire_time;
+    let plain_first = plain
+        .host_object(attacker)
+        .unwrap()
+        .weapon
+        .as_ref()
+        .unwrap()
+        .last_fire_time;
+    assert!(boost_first > 0.0 && plain_first > 0.0);
+    use generals_main::save_load::{Snapshot, WorldSnapshot, XferLoad, XferSave};
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let mut snapshot = builder.create_world_snapshot(&boosted).unwrap();
+    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+    let bincode_snapshot: WorldSnapshot = bincode_legacy::deserialize(&bytes).unwrap();
+    let mut stream = std::io::Cursor::new(Vec::new());
+    snapshot.xfer(&mut XferSave::new(&mut stream)).unwrap();
+    let mut xfer_snapshot = WorldSnapshot::default();
+    xfer_snapshot
+        .xfer(&mut XferLoad::new(std::io::Cursor::new(
+            stream.into_inner(),
+        )))
+        .unwrap();
+    let mut restored = Vec::new();
+    for saved in [&snapshot, &bincode_snapshot, &xfer_snapshot] {
+        let (mut world, _, _) =
+            contained_weapon_world_with_extra_rof(false, false, None, 0, 0, 30, 100, Some(2.0));
+        builder.restore_from_snapshot(saved, &mut world).unwrap();
+        assert_eq!(
+            boosted.host_object(attacker).unwrap().target_location,
+            world.host_object(attacker).unwrap().target_location
+        );
+        restored.push(world);
+    }
+    for _ in 0..18 {
+        boosted.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        plain.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        for world in &mut restored {
+            world.tick_logic_frame(1.0 / 30.0, None, Some(1));
+            assert_eq!(
+                boosted
+                    .host_object(attacker)
+                    .unwrap()
+                    .weapon
+                    .as_ref()
+                    .unwrap()
+                    .last_fire_time,
+                world
+                    .host_object(attacker)
+                    .unwrap()
+                    .weapon
+                    .as_ref()
+                    .unwrap()
+                    .last_fire_time,
+            );
+        }
+    }
+    assert!(
+        boosted
+            .host_object(attacker)
+            .unwrap()
+            .weapon
+            .as_ref()
+            .unwrap()
+            .last_fire_time
+            > boost_first
+    );
+    assert_eq!(
+        plain
+            .host_object(attacker)
+            .unwrap()
+            .weapon
+            .as_ref()
+            .unwrap()
+            .last_fire_time,
+        plain_first
+    );
 }
 
 #[test]
@@ -384,6 +550,51 @@ fn weapon_activity_roundtrips_bincode_and_xfer() {
 }
 
 #[test]
+fn version_20_preserves_weapon_activity_without_target_positions() {
+    let (mut source, attacker, _) = contained_weapon_world_with_fire(true, false, Some(false));
+    source
+        .host_object_mut(attacker)
+        .unwrap()
+        .status
+        .is_aiming_weapon = true;
+    source.host_object_mut(attacker).unwrap().target_location =
+        Some(glam::Vec3::new(40.0, 0.0, 20.0));
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let mut snapshot = builder.create_world_snapshot(&source).unwrap();
+    let offset = snapshot
+        .lifecycle_tail
+        .windows(4)
+        .rposition(|tag| tag == b"OXOB")
+        .unwrap();
+    let length = u32::from_le_bytes(
+        snapshot.lifecycle_tail[offset + 8..offset + 12]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    let end = offset + 12 + length;
+    let target_length = 8 + snapshot.objects.len() * 17;
+    snapshot.lifecycle_tail.drain(end - target_length..end);
+    snapshot.lifecycle_tail[offset + 4..offset + 8].copy_from_slice(&20u32.to_le_bytes());
+    snapshot.lifecycle_tail[offset + 8..offset + 12]
+        .copy_from_slice(&((length - target_length) as u32).to_le_bytes());
+    let (mut restored, _, _) = contained_weapon_world_with_fire(true, false, Some(false));
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert!(
+        restored
+            .host_object(attacker)
+            .unwrap()
+            .status
+            .is_aiming_weapon
+    );
+    assert_eq!(
+        restored.host_object(attacker).unwrap().target_location,
+        None
+    );
+}
+
+#[test]
 fn version_19_weapon_activity_defaults_without_losing_passenger_permission() {
     let (mut source, attacker, carrier) =
         contained_weapon_world_with_fire(true, false, Some(false));
@@ -409,7 +620,7 @@ fn version_19_weapon_activity_defaults_without_losing_passenger_permission() {
             .unwrap(),
     ) as usize;
     let end = offset + 12 + length;
-    let activity_length = 8 + snapshot.objects.len() * 6;
+    let activity_length = 16 + snapshot.objects.len() * 23;
     snapshot.lifecycle_tail.drain(end - activity_length..end);
     snapshot.lifecycle_tail[offset + 4..offset + 8].copy_from_slice(&19u32.to_le_bytes());
     snapshot.lifecycle_tail[offset + 8..offset + 12]
@@ -434,6 +645,42 @@ fn version_19_weapon_activity_defaults_without_losing_passenger_permission() {
 }
 
 #[test]
+fn rejected_nonfinite_target_position_leaves_session_unchanged() {
+    let (source, _, _) = contained_weapon_world_with_fire(true, false, Some(false));
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let mut snapshot = builder.create_world_snapshot(&source).unwrap();
+    let offset = snapshot
+        .lifecycle_tail
+        .windows(4)
+        .rposition(|tag| tag == b"OXOB")
+        .unwrap();
+    let length = u32::from_le_bytes(
+        snapshot.lifecycle_tail[offset + 8..offset + 12]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    let end = offset + 12 + length;
+    let start = end - (8 + snapshot.objects.len() * 17);
+    let x = start + 8 + 4 + 1;
+    snapshot.lifecycle_tail[x..x + 4].copy_from_slice(&f32::NAN.to_le_bytes());
+    for version in [snapshot.version, 38] {
+        snapshot.version = version;
+        let (mut running, attacker, _) = contained_weapon_world_with_fire(true, false, Some(false));
+        let before = glam::Vec3::new(3.0, 0.0, 9.0);
+        running.host_object_mut(attacker).unwrap().target_location = Some(before);
+        assert!(
+            builder
+                .restore_from_snapshot(&snapshot, &mut running)
+                .is_err()
+        );
+        assert_eq!(
+            running.host_object(attacker).unwrap().target_location,
+            Some(before)
+        );
+    }
+}
+
+#[test]
 fn rejected_weapon_activity_continuation_leaves_session_unchanged() {
     let (source, _, _) = contained_weapon_world_with_human_rof(false, false, None, 0, 0, 30, 200);
     let builder = generals_main::save_load::SnapshotBuilder::new();
@@ -449,7 +696,7 @@ fn rejected_weapon_activity_continuation_leaves_session_unchanged() {
             .unwrap(),
     ) as usize;
     let end = offset + 12 + length;
-    let missing_length = 8 + snapshot.objects.len() * 6;
+    let missing_length = 16 + snapshot.objects.len() * 23;
     snapshot.lifecycle_tail.drain(end - missing_length..end);
     snapshot.lifecycle_tail[offset + 8..offset + 12]
         .copy_from_slice(&((length - missing_length) as u32).to_le_bytes());
@@ -1154,8 +1401,8 @@ fn prior_object_continuation_uses_authored_permission() {
             .unwrap(),
     ) as usize;
     let end = offset + 12 + length;
-    // Version 18 predates both the passenger permission and weapon activity vectors.
-    let tail_length = 16 + snapshot.objects.len() * 11;
+    // Version 18 predates passenger permissions, weapon activity, and targets.
+    let tail_length = 24 + snapshot.objects.len() * 28;
     let start = end - tail_length;
     assert_eq!(
         u64::from_le_bytes(

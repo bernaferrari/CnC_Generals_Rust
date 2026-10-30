@@ -565,7 +565,7 @@ impl SnapshotBuilder {
             &body_kinds,
         )?;
         let lifecycle_tail = native_die.legacy_tail.as_ref();
-        super::super::object_xfer_persist::validate_passenger_fire_permissions_before_restore(
+        super::super::object_xfer_persist::validate_owned_object_continuations_before_restore(
             lifecycle_tail,
             snapshot,
         )?;

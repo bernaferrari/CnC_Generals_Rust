@@ -650,6 +650,29 @@ impl Object {
         current_time: f32,
         solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
     ) -> bool {
+        self.can_fire_slot_with_rate(slot, current_time, || {
+            solo_set.map_or_else(
+                || self.weapon_bonus_fields().2,
+                |set| self.weapon_bonus_fields_for_slot_with_solo_set(slot, set).2,
+            )
+        })
+    }
+
+    pub(crate) fn can_fire_slot_with_owned_rof(
+        &self,
+        slot: u8,
+        current_time: f32,
+        rof: f32,
+    ) -> bool {
+        self.can_fire_slot_with_rate(slot, current_time, || rof)
+    }
+
+    fn can_fire_slot_with_rate(
+        &self,
+        slot: u8,
+        current_time: f32,
+        rate: impl FnOnce() -> f32,
+    ) -> bool {
         if self.status.weapons_jammed
             || self.is_disabled()
             || self.is_shock_stunned()
@@ -662,11 +685,7 @@ impl Object {
             return false;
         };
         let name = self.weapon_name_for_slot(slot).map(str::to_owned);
-        let rof = solo_set.map_or_else(
-            || self.weapon_bonus_fields().2,
-            |set| self.weapon_bonus_fields_for_slot_with_solo_set(slot, set).2,
-        );
-        let reload = self.live_reload_interval(weapon, name.as_deref(), rof);
+        let reload = self.live_reload_interval(weapon, name.as_deref(), rate());
         Self::weapon_ready_named(weapon, current_time, name.as_deref(), reload)
     }
 
