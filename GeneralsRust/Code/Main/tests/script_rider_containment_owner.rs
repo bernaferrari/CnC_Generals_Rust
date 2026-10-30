@@ -13,12 +13,16 @@ use generals_main::save_load::snapshot::SnapshotBuilder;
 use glam::Vec3;
 
 fn run_toggle(world: &mut GameLogic, action: ScriptActionType) {
+    run_toggle_for(world, action, "OwnerBike");
+}
+
+fn run_toggle_for(world: &mut GameLogic, action: ScriptActionType, template: &str) {
     let mut op = ScriptAction::new(action);
     op.add_parameter(Parameter::with_string(ParameterType::Side, "Owner".into()))
         .unwrap();
     op.add_parameter(Parameter::with_string(
         ParameterType::ObjectType,
-        "OwnerBike".into(),
+        template.into(),
     ))
     .unwrap();
     let mut condition = OrCondition::new();
@@ -64,6 +68,11 @@ fn make_world(path: &std::path::Path, contain_kind: &str) -> (GameLogic, ObjectI
     let mut ini = format!(
         "Object OwnerBike\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL GroundOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n{contain} Behavior = AIUpdateInterface Brain\n End\nEnd\nObject OwnerRider\n KindOf = SELECTABLE INFANTRY\n TransportSlotCount = 1\n Locomotor = SET_NORMAL GroundOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n"
     );
+    if contain_kind == "overlord" {
+        ini = ini.replacen("Object OwnerBike", "Object ChinaTankOverlord", 1);
+        ini = ini.replacen(" Behavior = AIUpdateInterface Brain", " Behavior = GrantUpgradeCreate UpgradeTag\n UpgradeToGrant = Upgrade_ChinaOverlordBattleBunker\n ExemptStatus = UNDER_CONSTRUCTION\n End\n Behavior = AIUpdateInterface Brain", 1);
+        ini.push_str("Object ChinaTankOverlordBattleBunker\n KindOf = PORTABLE_STRUCTURE SELECTABLE STRUCTURE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = TransportContain PayloadContain\n Slots = 5\n End\nEnd\n");
+    }
     if contain_kind == "helix" {
         ini.push_str("Object OwnerPortable\n KindOf = PORTABLE_STRUCTURE SELECTABLE VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n");
     }
@@ -76,9 +85,50 @@ fn make_world(path: &std::path::Path, contain_kind: &str) -> (GameLogic, ObjectI
     world.start_new_game(GameMode::SinglePlayer);
     assert!(world.load_map(path.to_str().unwrap()));
     world.add_player(Player::new(42, Team::USA, "Owner", true).with_script_identity("Owner"));
+    let template = if contain_kind == "overlord" {
+        "ChinaTankOverlord"
+    } else {
+        "OwnerBike"
+    };
     let bike = world
-        .create_object_for_player("OwnerBike", 42, Vec3::new(80.0, 0.0, 80.0))
+        .create_object_for_player(template, 42, Vec3::new(80.0, 0.0, 80.0))
         .unwrap();
+    if contain_kind == "overlord" {
+        assert!(
+            !world
+                .host_object(bike)
+                .unwrap()
+                .thing()
+                .template
+                .grant_upgrade_creates
+                .is_empty(),
+            "authored GrantUpgradeCreate was admitted"
+        );
+        assert!(
+            world
+                .host_object(bike)
+                .unwrap()
+                .thing()
+                .template
+                .grant_upgrade_creates[0]
+                .exempt_under_construction,
+            "onCreate grant is eligible"
+        );
+        assert!(
+            world
+                .host_object(bike)
+                .unwrap()
+                .has_upgrade_tag("Upgrade_ChinaOverlordBattleBunker"),
+            "onCreate granted the object upgrade"
+        );
+        let rider = world
+            .host_object(bike)
+            .unwrap()
+            .overlord_portable_occupant
+            .expect("GrantUpgradeCreate admitted the real portable add-on");
+        assert_eq!(world.host_object(rider).unwrap().contained_by, Some(bike));
+        return (world, bike, rider);
+    }
     let rider = if contain_kind == "helix" {
         world
             .host_object_mut(bike)
@@ -106,14 +156,6 @@ fn make_world(path: &std::path::Path, contain_kind: &str) -> (GameLogic, ObjectI
             Some(rider)
         );
         assert_eq!(world.host_object(rider).unwrap().contained_by, Some(bike));
-        return (world, bike, rider);
-    }
-    if contain_kind == "overlord" {
-        // Overlord riders are portable add-ons, not normal Enter passengers.
-        // Install the reciprocal roster explicitly to exercise the script
-        // callback without pretending infantry can enter the bare hull.
-        world.host_object_mut(bike).unwrap().occupants.push(rider);
-        world.host_object_mut(rider).unwrap().contained_by = Some(bike);
         return (world, bike, rider);
     }
     assert!(world.can_unit_enter_normal_target(rider, bike));
@@ -144,6 +186,11 @@ fn script_toggle_affects_rider_change_rider_not_transport_passenger() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("RiderOwner.map");
     std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
+    std::fs::write(
+        root.path().join("Map.ini"),
+        "Upgrade Upgrade_ChinaOverlordBattleBunker\n Type = OBJECT\nEnd\n",
+    )
+    .unwrap();
 
     let (mut first, bike, rider) = make_world(&path, "rider");
     let (mut peer, peer_bike, passenger) = make_world(&path, "transport");
@@ -236,7 +283,11 @@ fn script_toggle_affects_rider_change_rider_not_transport_passenger() {
             .status
             .disabled_script_disabled
     );
-    run_toggle(&mut overlord, ScriptActionType::PlayerDisableFactories);
+    run_toggle_for(
+        &mut overlord,
+        ScriptActionType::PlayerDisableFactories,
+        "ChinaTankOverlord",
+    );
     assert!(
         overlord
             .host_object(overlord_rider)
@@ -244,7 +295,11 @@ fn script_toggle_affects_rider_change_rider_not_transport_passenger() {
             .status
             .disabled_script_disabled
     );
-    run_toggle(&mut overlord, ScriptActionType::PlayerEnableFactories);
+    run_toggle_for(
+        &mut overlord,
+        ScriptActionType::PlayerEnableFactories,
+        "ChinaTankOverlord",
+    );
     assert!(
         !overlord
             .host_object(overlord_rider)
