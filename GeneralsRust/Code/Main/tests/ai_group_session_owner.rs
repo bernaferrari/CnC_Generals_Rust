@@ -119,13 +119,14 @@ fn world_with_transport(
     path: &std::path::Path,
     with_transport: bool,
 ) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
-    world_with_options(path, with_transport, false)
+    world_with_options(path, with_transport, false, false)
 }
 
 fn world_with_options(
     path: &std::path::Path,
     with_transport: bool,
     armed: bool,
+    mob: bool,
 ) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
     let mut source = "Object GroupUnit\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\nObject GroupInert\n KindOf = SELECTABLE\nEnd\n".to_owned();
@@ -138,6 +139,12 @@ fn world_with_options(
         source = source.replace(" KindOf = SELECTABLE INFANTRY\n", " KindOf = SELECTABLE INFANTRY\n TransportSlotCount = 1\n Locomotor = SET_NORMAL GroupGround\n");
         source.push_str("Object GroupCarrier\n KindOf = SELECTABLE VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = TransportContain ContainTag\n ContainMax = 2\n Slots = 2\n AllowInsideKindOf = INFANTRY\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n");
         source.push_str("Object GroupVisibleGarrison\n KindOf = SELECTABLE STRUCTURE\n Body = ActiveBody BodyTag\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = GarrisonContain ContainTag\n ContainMax = 2\n IsEnclosingContainer = No\n End\nEnd\n");
+    }
+    if mob {
+        source = source.replace(
+            "KindOf = SELECTABLE INFANTRY",
+            "KindOf = SELECTABLE INFANTRY IGNORED_IN_GUI",
+        );
     }
     world
         .admit_object_ini_sources([("AiGroupOwner.ini".into(), source)])
@@ -1160,8 +1167,8 @@ fn firing_publishes_a_team_target_without_overwriting_an_existing_one() {
 
     let root = tempfile::tempdir().unwrap();
     let path = map_file_with_options(root.path(), 0, true);
-    let (mut owner, first, _, _) = world_with_options(&path, false, true);
-    let (mut peer, peer_first, _, _) = world_with_options(&path, false, true);
+    let (mut owner, first, _, _) = world_with_options(&path, false, true, false);
+    let (mut peer, peer_first, _, _) = world_with_options(&path, false, true, false);
     assert_eq!(first, peer_first);
     for session in [&mut owner, &mut peer] {
         let controller = session.get_player_mut(1).unwrap();
@@ -1263,7 +1270,7 @@ fn team_common_target_respects_controller_difficulty_and_peer_reset() {
         human: bool,
         difficulty: AIDifficulty,
     ) -> (GameLogic, ObjectId, ObjectId) {
-        let (mut world, actor, _, _) = world_with_options(path, false, true);
+        let (mut world, actor, _, _) = world_with_options(path, false, true, false);
         let player = world.get_player_mut(1).unwrap();
         player.is_human = human;
         player.alliance_team = 1;
@@ -1327,4 +1334,76 @@ fn team_common_target_respects_controller_difficulty_and_peer_reset() {
             .iter()
             .all(|team| team.common_attack_target.is_none())
     );
+}
+
+#[test]
+fn changed_sleep_mood_is_rechecked_on_firing_except_for_humans_and_mobs() {
+    use generals_main::ai::AIDifficulty;
+    use generals_main::game_logic::host_strategy_center::HostAiAttitude;
+    use generals_main::save_load::snapshot::stamp_player_team_chunks;
+
+    fn setup(path: &std::path::Path, human: bool, mob: bool) -> (GameLogic, ObjectId, ObjectId) {
+        let (mut world, actor, _, _) = world_with_options(path, false, true, mob);
+        let player = world.get_player_mut(1).unwrap();
+        player.is_human = human;
+        player.alliance_team = 1;
+        world.add_ai_opponent(1, Team::USA, AIDifficulty::Hard);
+        let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
+        enemy.alliance_team = 2;
+        world.add_player(enemy);
+        let victim = world
+            .create_object_for_player("GroupUnit", 2, Vec3::new(45.0, 0.0, 40.0))
+            .unwrap();
+        assert!(world.unit_command_attack(actor, victim).unwrap());
+        world
+            .host_object_mut(actor)
+            .unwrap()
+            .set_ai_attitude(HostAiAttitude::Sleep);
+        (world, actor, victim)
+    }
+    fn common_target(world: &GameLogic, actor: ObjectId) -> Option<u32> {
+        stamp_player_team_chunks(world)
+            .unwrap()
+            .teams
+            .unwrap()
+            .teams
+            .into_iter()
+            .find(|team| {
+                team.members
+                    .as_ref()
+                    .is_some_and(|members| members.contains(&actor.0))
+            })
+            .expect("receiving Team")
+            .common_attack_target
+    }
+    let root = tempfile::tempdir().unwrap();
+    let path = map_file_with_options(root.path(), 0, true);
+    let (mut ai, actor, victim) = setup(&path, false, false);
+    let (mut human, human_actor, human_victim) = setup(&path, true, false);
+    let (mut mob, mob_actor, mob_victim) = setup(&path, false, true);
+    assert!(
+        mob.host_object(mob_actor)
+            .unwrap()
+            .is_kind_of(generals_main::game_logic::KindOf::IgnoredInGui),
+        "mob fixture must carry ignored-in-GUI kind"
+    );
+    assert_eq!((actor, victim), (human_actor, human_victim));
+    assert_eq!((actor, victim), (mob_actor, mob_victim));
+    let mut fired = [false; 3];
+    for _ in 0..120 {
+        for (i, world) in [&mut ai, &mut human, &mut mob].into_iter().enumerate() {
+            world.tick_logic_frame(1.0 / 30.0, None, Some(1));
+            fired[i] |= world.host_object(actor).unwrap().status.is_firing_weapon;
+        }
+        if fired[1] && fired[2] {
+            break;
+        }
+    }
+    assert_eq!(
+        fired,
+        [false, true, true],
+        "only the sleeping non-mob AI must refuse firing"
+    );
+    assert_eq!(common_target(&ai, actor), None);
+    assert_eq!(common_target(&mob, actor), Some(victim.0));
 }

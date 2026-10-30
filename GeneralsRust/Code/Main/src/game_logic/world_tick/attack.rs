@@ -588,6 +588,17 @@ impl GameLogic {
                     presentation_effects,
                 )? {
                     AttackAimResult::Success => {
+                        // C++ rechecks the mood after approaching, before firing.
+                        let mood_exempt = self.objects.get(&unit_id).is_some_and(|unit| {
+                            unit.owner_player_id
+                                .and_then(|id| self.players.get(&id))
+                                .is_some_and(|player| player.is_human)
+                                || (unit.is_kind_of(KindOf::Infantry)
+                                    && unit.is_kind_of(KindOf::IgnoredInGui))
+                        });
+                        if !self.mood_allows_attack(unit_id, mood_exempt) {
+                            return Ok(AttackMachineResult::Failure);
+                        }
                         if let Some(u) = self.objects.get_mut(&unit_id) {
                             u.set_attack_substate(AttackSubState::FireWeapon);
                             u.status.is_aiming_weapon = false;
