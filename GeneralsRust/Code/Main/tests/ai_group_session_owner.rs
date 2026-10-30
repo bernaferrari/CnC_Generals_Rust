@@ -25,6 +25,14 @@ fn map_file(root: &std::path::Path) -> std::path::PathBuf {
 }
 
 fn map_file_with_area(root: &std::path::Path, area_start: i32) -> std::path::PathBuf {
+    map_file_with_options(root, area_start, false)
+}
+
+fn map_file_with_options(
+    root: &std::path::Path,
+    area_start: i32,
+    common_target: bool,
+) -> std::path::PathBuf {
     let mut out = DataChunkOutput::new();
     out.open_data_chunk("HeightMapData", 3);
     for value in [41, 41, 1, 1681] {
@@ -53,7 +61,7 @@ fn map_file_with_area(root: &std::path::Path, area_start: i32) -> std::path::Pat
     out.write_int(2);
     for (name, faction, human) in [
         ("", "FactionCivilian", false),
-        ("Owner", "FactionAmerica", true),
+        ("Owner", "FactionAmerica", !common_target),
     ] {
         let mut side = Dict::new();
         side.set_ascii_string(key_player_name(), name);
@@ -68,6 +76,10 @@ fn map_file_with_area(root: &std::path::Path, area_start: i32) -> std::path::Pat
     team.set_ascii_string(key_team_name(), "HuntTeam");
     team.set_ascii_string(key_team_owner(), "Owner");
     team.set_bool(key_team_is_singleton(), false);
+    team.set_bool(
+        game_engine::common::well_known_keys::key_team_attack_common_target(),
+        common_target,
+    );
     out.write_dict(&team);
     out.close_data_chunk();
     out.open_data_chunk("ObjectsList", 3);
@@ -107,6 +119,14 @@ fn world_with_transport(
     path: &std::path::Path,
     with_transport: bool,
 ) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+    world_with_options(path, with_transport, false)
+}
+
+fn world_with_options(
+    path: &std::path::Path,
+    with_transport: bool,
+    armed: bool,
+) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
     let mut source = "Object GroupUnit\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\nObject GroupInert\n KindOf = SELECTABLE\nEnd\n".to_owned();
     source.push_str("Object LockedSpawn\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = SpawnAttacker\n SlavesHaveFreeWill = No\n End\nEnd\nObject FreeSpawn\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = SpawnAttacker\n SlavesHaveFreeWill = Yes\n End\nEnd\nObject SpawnAttacker\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n");
@@ -122,6 +142,16 @@ fn world_with_transport(
     world
         .admit_object_ini_sources([("AiGroupOwner.ini".into(), source)])
         .unwrap();
+    if armed {
+        use generals_main::game_logic::{KindOf, Weapon};
+        let template = world.templates.get_mut("GroupUnit").unwrap();
+        template.add_kind_of(KindOf::Attackable);
+        template.set_primary_weapon(Weapon {
+            damage: 1.0,
+            range: 200.0,
+            ..Weapon::default()
+        });
+    }
     let mut templates = PlayerTemplateStore::new_owned();
     templates.apply_source(
         "PlayerTemplate FactionCivilian\n Side = Civilian\nEnd\nPlayerTemplate FactionAmerica\n Side = America\nEnd\n",
@@ -1120,4 +1150,92 @@ fn same_named_teams_own_independent_targets_through_retaliation_and_restore() {
         .unwrap();
     assert_eq!(targets(&restored), after);
     assert_eq!(targets(&peer), before);
+}
+
+#[test]
+fn firing_publishes_a_team_target_without_overwriting_an_existing_one() {
+    use generals_main::save_load::snapshot::{
+        apply_pending_player_team_chunks, stamp_player_team_chunks,
+    };
+
+    let root = tempfile::tempdir().unwrap();
+    let path = map_file_with_options(root.path(), 0, true);
+    let (mut owner, first, _, _) = world_with_options(&path, false, true);
+    let (mut peer, peer_first, _, _) = world_with_options(&path, false, true);
+    assert_eq!(first, peer_first);
+    for session in [&mut owner, &mut peer] {
+        let controller = session.get_player_mut(1).unwrap();
+        controller.is_human = false;
+        controller.alliance_team = 1;
+        session.add_ai_opponent(1, Team::USA, generals_main::ai::AIDifficulty::Hard);
+        let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
+        enemy.alliance_team = 2;
+        session.add_player(enemy);
+    }
+    let victim = owner
+        .create_object_for_player("GroupUnit", 2, Vec3::new(45.0, 0.0, 40.0))
+        .unwrap();
+    let other = owner
+        .create_object_for_player("GroupUnit", 2, Vec3::new(55.0, 0.0, 40.0))
+        .unwrap();
+    assert_eq!(
+        victim,
+        peer.create_object_for_player("GroupUnit", 2, Vec3::new(45.0, 0.0, 40.0))
+            .unwrap()
+    );
+    assert_eq!(
+        other,
+        peer.create_object_for_player("GroupUnit", 2, Vec3::new(55.0, 0.0, 40.0))
+            .unwrap()
+    );
+    let target = |world: &GameLogic| {
+        stamp_player_team_chunks(world)
+            .unwrap()
+            .teams
+            .unwrap()
+            .teams
+            .into_iter()
+            .find(|team| {
+                team.members
+                    .as_ref()
+                    .is_some_and(|members| members.contains(&first.0))
+            })
+            .unwrap()
+            .common_attack_target
+    };
+    let mut chunks = stamp_player_team_chunks(&peer).unwrap();
+    chunks
+        .teams
+        .as_mut()
+        .unwrap()
+        .teams
+        .iter_mut()
+        .find(|team| {
+            team.members
+                .as_ref()
+                .is_some_and(|members| members.contains(&first.0))
+        })
+        .unwrap()
+        .common_attack_target = Some(other.0);
+    apply_pending_player_team_chunks(&mut peer, &chunks).unwrap();
+    assert!(owner.unit_command_attack(first, victim).unwrap());
+    assert!(peer.unit_command_attack(first, victim).unwrap());
+    assert_eq!(
+        target(&owner),
+        None,
+        "ordering an attack must not publish before the firing state"
+    );
+    for _ in 0..120 {
+        owner.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        peer.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if target(&owner).is_some() {
+            break;
+        }
+    }
+    assert_eq!(target(&owner), Some(victim.0));
+    assert_eq!(
+        target(&peer),
+        Some(other.0),
+        "a valid existing Team target must not be overwritten"
+    );
 }

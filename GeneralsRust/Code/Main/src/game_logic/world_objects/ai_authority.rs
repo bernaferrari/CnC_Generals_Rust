@@ -1038,7 +1038,6 @@ impl GameLogic {
                 target_id,
             } => {
                 let _ = self.apply_engagement_decision_aware(object_id, target_id);
-                self.set_host_team_common_target(object_id, Some(target_id));
             }
             AICommand::StopAttack { object_id } => {
                 // stop_attack_decision_aware clears host + logs.

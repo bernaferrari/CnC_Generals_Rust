@@ -592,6 +592,13 @@ impl GameLogic {
                             u.set_attack_substate(AttackSubState::FireWeapon);
                             u.status.is_aiming_weapon = false;
                         }
+                        // C++ AIAttackFireWeaponState::onEnter: publish only at
+                        // the firing transition, and keep an existing valid target.
+                        if self.team_wants_common_attack(unit_id)
+                            && self.host_team_common_target(unit_id).is_none()
+                        {
+                            self.set_host_team_common_target(unit_id, Some(victim_id));
+                        }
                         let _ = self.attack_fire_weapon_enter(unit_id);
                     }
                     AttackAimResult::Continue => {}
