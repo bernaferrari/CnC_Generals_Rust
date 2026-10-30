@@ -925,7 +925,7 @@ pub(super) fn restore_persist_v18_with_scale_encoding(
         terrain
             .restore_dynamic_water_entries(entries)
             .map_err(SaveLoadError::Corrupted)?;
-        terrain.set_active_boundary(persist.terrain_active_boundary);
+        terrain.restore_active_boundary_from_snapshot(persist.terrain_active_boundary);
     }
 
     game_logic.restore_radar_script_state(!persist.radar_hidden, persist.radar_forced);

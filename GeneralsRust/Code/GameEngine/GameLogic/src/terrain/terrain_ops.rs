@@ -174,6 +174,20 @@ impl TerrainLogic {
         Ok(())
     }
 
+    /// Restore only the terrain value for a detached load candidate. The
+    /// caller must restore that candidate's partition, shroud and objects
+    /// from the same snapshot; no ambient world is notified here.
+    pub fn restore_active_boundary_from_snapshot(&mut self, boundary: i32) {
+        if boundary < 0 {
+            return;
+        }
+        if let Some(candidate) = self.boundaries.get(boundary as usize) {
+            if candidate.x != 0 && candidate.y != 0 {
+                self.active_boundary = boundary;
+            }
+        }
+    }
+
     /// Set active boundary and rebuild partition/shroud/radar like C++ TerrainLogic.
     /// C++ `TerrainLogic::setActiveBoundary` (TerrainLogic.cpp:2545-2615).
     pub fn set_active_boundary(&mut self, new_active_boundary: i32) {

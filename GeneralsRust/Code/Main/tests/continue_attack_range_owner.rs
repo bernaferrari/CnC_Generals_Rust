@@ -708,6 +708,36 @@ fn continuation_uses_authored_active_terrain_boundary() {
     let candidate = session
         .create_object_for_player("ChainVictim", 2, Vec3::new(150.0, 0.0, 20.0))
         .unwrap();
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let mut snapshot = builder.create_world_snapshot(&session).unwrap();
+    snapshot.persist_v18.terrain_active_boundary = 1;
+    let (mut restored, _, _, _) = world(200.0, "MapBoundaryWeapon");
+    assert!(restored.load_map(path.to_str().unwrap()));
+    let mut restored_owner = Player::new(1, Team::USA, "Owner", true);
+    restored_owner.alliance_team = 1;
+    let mut restored_enemy = Player::new(2, Team::GLA, "Enemy", false);
+    restored_enemy.alliance_team = 2;
+    restored.add_player(restored_owner);
+    restored.add_player(restored_enemy);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert_eq!(
+        builder
+            .create_world_snapshot(&restored)
+            .unwrap()
+            .persist_v18
+            .terrain_active_boundary,
+        1
+    );
+    assert_eq!(
+        builder
+            .create_world_snapshot(&session)
+            .unwrap()
+            .persist_v18
+            .terrain_active_boundary,
+        0
+    );
     assert!(session.unit_command_attack(attacker, victim).unwrap());
     for _ in 0..100 {
         session.tick_logic_frame(1.0 / 30.0, None, Some(1));
