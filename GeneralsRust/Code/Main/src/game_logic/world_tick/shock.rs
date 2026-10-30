@@ -1673,21 +1673,20 @@ impl GameLogic {
             || name.map_or(0.0, |name| self.receiving_continue_attack_range(name)),
             |rule| rule.continue_attack_range.max(0.0),
         );
-        let multiplier = name.map_or_else(
-            || {
-                object
-                    .weapon_bonus_fields_for_slot_with_solo_set(slot, &self.solo_weapon_bonus_set)
-                    .4
-            },
-            |name| {
-                object
-                    .weapon_bonus_fields_for_named_weapon_with_solo_set(
-                        name,
-                        &self.solo_weapon_bonus_set,
-                    )
-                    .4
-            },
-        );
+        let definition = native.as_deref().or_else(|| {
+            self.weapon_definitions.as_ref().and_then(|definitions| {
+                name.and_then(|name| definitions.get(&name.trim().to_ascii_lowercase()))
+                    .map(AsRef::as_ref)
+            })
+        });
+        let container = object.contained_by.and_then(|id| self.host_object(id));
+        let multiplier = object
+            .weapon_bonus_fields_with_owned_extra(
+                container,
+                &self.solo_weapon_bonus_set,
+                definition.and_then(|weapon| weapon.extra_bonus.as_ref()),
+            )
+            .4;
         Some(WeaponCursorRadii {
             damage: radii.primary_damage * multiplier,
             scatter: radii.scatter + radii.scatter_target_scalar,

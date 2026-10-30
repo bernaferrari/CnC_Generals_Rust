@@ -1,5 +1,10 @@
 use super::*;
 
+enum ExtraWeaponBonus<'a> {
+    Ambient(Option<&'a str>),
+    Owned(Option<&'a gamelogic::weapon::WeaponBonusSet>),
+}
+
 impl Object {
     /// Whether Frenzy / Rage temporary attack buff residual is active.
     pub fn is_frenzy_buffed(&self) -> bool {
@@ -221,6 +226,34 @@ impl Object {
         container: Option<&Object>,
         weapon_name: Option<&str>,
         session_solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) -> (f32, f32, f32, f32, f32) {
+        self.weapon_bonus_fields_with_extra(
+            container,
+            session_solo_set,
+            ExtraWeaponBonus::Ambient(weapon_name),
+        )
+    }
+
+    /// Use the firing weapon's owned template, including an explicitly absent
+    /// extra set, without consulting the process-wide weapon store.
+    pub(crate) fn weapon_bonus_fields_with_owned_extra(
+        &self,
+        container: Option<&Object>,
+        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        extra: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) -> (f32, f32, f32, f32, f32) {
+        self.weapon_bonus_fields_with_extra(
+            container,
+            Some(solo_set),
+            ExtraWeaponBonus::Owned(extra),
+        )
+    }
+
+    fn weapon_bonus_fields_with_extra(
+        &self,
+        container: Option<&Object>,
+        session_solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        extra: ExtraWeaponBonus<'_>,
     ) -> (f32, f32, f32, f32, f32) {
         use crate::game_logic::VeterancyLevel;
         use crate::game_logic::host_propaganda::{
@@ -495,10 +528,14 @@ impl Object {
                 21 => flags.set(WeaponBonusConditionType::SoloAiHard),
                 _ => {}
             }
-            if let Some(name) = weapon_name {
-                crate::game_logic::weapon_bootstrap::append_extra_weapon_bonus(
-                    name, flags, &mut bonus,
-                );
+            match extra {
+                ExtraWeaponBonus::Ambient(Some(name)) => {
+                    crate::game_logic::weapon_bootstrap::append_extra_weapon_bonus(
+                        name, flags, &mut bonus,
+                    );
+                }
+                ExtraWeaponBonus::Owned(Some(set)) => set.append_bonuses(flags, &mut bonus),
+                ExtraWeaponBonus::Ambient(None) | ExtraWeaponBonus::Owned(None) => {}
             }
         }
 

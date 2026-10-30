@@ -1,7 +1,7 @@
 use gamelogic::weapon::WeaponTemplate;
 use generals_main::game_logic::{GameLogic, ObjectId, Player, Team};
 
-fn world(secondary_radius: f32, bonus: u32) -> (GameLogic, ObjectId) {
+fn world(secondary_radius: f32, bonus: u32, extra_radius: Option<f32>) -> (GameLogic, ObjectId) {
     let mut game = GameLogic::new();
     game.admit_combat_bonus_ini_sources([format!(
         "GameData\n WeaponBonus = SOLO_HUMAN_EASY RADIUS {bonus}%\nEnd\n"
@@ -19,6 +19,16 @@ fn world(secondary_radius: f32, bonus: u32) -> (GameLogic, ObjectId) {
     secondary.scatter_radius = 7.0;
     secondary.scatter_target_scalar = 4.0;
     secondary.continue_attack_range = 90.0;
+    if let Some(radius) = extra_radius {
+        use gamelogic::weapon::{
+            WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet,
+        };
+        let mut bonus = WeaponBonus::new();
+        bonus.set_field(WeaponBonusField::Radius, radius);
+        let mut set = WeaponBonusSet::new();
+        set.set_bonus(WeaponBonusConditionType::SoloHumanEasy, bonus);
+        secondary.extra_bonus = Some(set);
+    }
     game.admit_receiving_weapon_snapshot(vec![
         ("CursorPrimary".into(), primary),
         ("CursorSecondary".into(), secondary),
@@ -34,8 +44,8 @@ fn world(secondary_radius: f32, bonus: u32) -> (GameLogic, ObjectId) {
 
 #[test]
 fn cursor_radii_use_exact_slot_receiving_definitions_and_bonus() {
-    let (owner, id) = world(20.0, 150);
-    let (peer, peer_id) = world(40.0, 100);
+    let (owner, id) = world(20.0, 150, None);
+    let (peer, peer_id) = world(40.0, 100, None);
     assert_eq!(id, peer_id);
     let primary = owner.weapon_cursor_radii(id, 0).unwrap();
     let secondary = owner.weapon_cursor_radii(id, 1).unwrap();
@@ -65,9 +75,28 @@ fn cursor_radii_use_exact_slot_receiving_definitions_and_bonus() {
     let snapshot = generals_main::save_load::SnapshotBuilder::new()
         .create_world_snapshot(&owner)
         .unwrap();
-    let (mut restored, _) = world(20.0, 150);
+    let (mut restored, _) = world(20.0, 150, None);
     generals_main::save_load::SnapshotBuilder::new()
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
     assert_eq!(restored.weapon_cursor_radii(id, 1), Some(secondary));
+}
+
+#[test]
+fn cursor_radius_uses_each_sessions_weapon_extra_bonus() {
+    let (owner, id) = world(20.0, 150, Some(2.0));
+    let (peer, peer_id) = world(20.0, 150, Some(3.0));
+    assert_eq!(id, peer_id);
+    assert_eq!(owner.weapon_cursor_radii(id, 1).unwrap().damage, 50.0);
+    assert_eq!(peer.weapon_cursor_radii(peer_id, 1).unwrap().damage, 70.0);
+    assert_eq!(owner.weapon_cursor_radii(id, 1).unwrap().damage, 50.0);
+    let snapshot = generals_main::save_load::SnapshotBuilder::new()
+        .create_world_snapshot(&owner)
+        .unwrap();
+    let (mut restored, _) = world(20.0, 150, Some(2.0));
+    generals_main::save_load::SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert_eq!(restored.weapon_cursor_radii(id, 1).unwrap().damage, 50.0);
+    assert_eq!(peer.weapon_cursor_radii(peer_id, 1).unwrap().damage, 70.0);
 }
