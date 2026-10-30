@@ -966,3 +966,64 @@ fn repeated_direct_guard_assignment_does_not_save_a_phantom_pending_type() {
         serde_json::json!(["Location", "None"])
     );
 }
+
+#[test]
+fn versioned_guard_continuation_distinguishes_pending_from_old_history() {
+    use generals_main::save_load::snapshot::ModuleSnapshot;
+    use generals_main::save_load::{
+        XferData,
+        xfer::{XferLoad, XferSave},
+    };
+    use std::io::Cursor;
+
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file_with_area(root.path(), 0);
+    let (mut owner, first, _, _) = world(&map);
+    guard_position(&mut owner, "HuntTeam", "OwnedWaypoint");
+    let saved = generals_main::save_load::snapshot::SnapshotBuilder::new()
+        .create_world_snapshot(&owner)
+        .unwrap();
+    let mut json = serde_json::to_value(&saved.objects[&first].modules["ReceivingBaseAI"]).unwrap();
+    json["BaseAi"]["continuation"]["guard_target_types"] =
+        serde_json::json!(["Location", "Object"]);
+    let ModuleSnapshot::BaseAi(mut capsule) = serde_json::from_value(json).unwrap() else {
+        panic!("BaseAI capsule")
+    };
+    let mut buffer = Cursor::new(Vec::new());
+    capsule.xfer(&mut XferSave::new(&mut buffer)).unwrap();
+    let current = buffer.into_inner();
+    assert_eq!(current[0], 3);
+    for (version, expected) in [(3, "Object"), (2, "None")] {
+        let mut bytes = current.clone();
+        // Version 2 and 3 use the same length-prefixed JSON envelope. This
+        // builds an explicit v2 control, not a historical save-file fixture.
+        bytes[0] = version;
+        let mut loaded = capsule.clone();
+        loaded.xfer(&mut XferLoad::new(Cursor::new(bytes))).unwrap();
+        let json = serde_json::to_value(ModuleSnapshot::BaseAi(loaded.clone())).unwrap();
+        assert_eq!(
+            json["BaseAi"]["continuation"]["guard_target_types"],
+            serde_json::json!(["Location", expected])
+        );
+        let mut decoded_world: generals_main::save_load::snapshot::WorldSnapshot =
+            bincode_legacy::deserialize(&bincode_legacy::serialize(&saved).unwrap()).unwrap();
+        decoded_world
+            .objects
+            .get_mut(&first)
+            .unwrap()
+            .modules
+            .insert("ReceivingBaseAI".into(), ModuleSnapshot::BaseAi(loaded));
+        let (mut receiver, _, _, _) = world(&map);
+        let builder = generals_main::save_load::snapshot::SnapshotBuilder::new();
+        builder
+            .restore_from_snapshot(&decoded_world, &mut receiver)
+            .unwrap();
+        let roundtrip = builder.create_world_snapshot(&receiver).unwrap();
+        let json =
+            serde_json::to_value(&roundtrip.objects[&first].modules["ReceivingBaseAI"]).unwrap();
+        assert_eq!(
+            json["BaseAi"]["continuation"]["guard_target_types"],
+            serde_json::json!(["Location", expected])
+        );
+    }
+}
