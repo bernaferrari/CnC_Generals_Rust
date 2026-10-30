@@ -2483,28 +2483,14 @@ impl GameLogic {
             clear_rider_change_runtime_state(container, None);
         }
 
-        // Phase 2: apply the exact parsed RiderN state and publish the sole
-        // contained body.  There are no capacity checks or fallible template
-        // lookups after the preflight.
+        // OpenContain adds the rider to its list before redeployment and
+        // RiderChangeContain::onContaining applies the RiderN state.
         {
             let container = self
                 .objects
                 .get_mut(&container_id)
                 .expect("RiderChange preflight container disappeared");
-            container.model_condition_bits |= plan.rider.model_condition_mask;
-            container.apply_object_status_mask_bits(plan.rider.object_status_mask);
-            container.rider_change_active_slot = Some(plan.rider.slot);
-            container.rider_change_model_condition_mask = plan.rider.model_condition_mask;
-            container.rider_change_object_status_mask = plan.rider.object_status_mask;
-            container.rider_change_weapon_set = Some(plan.rider.weapon_set.clone());
-            container.rider_change_locomotor_set = Some(plan.rider.locomotor_set.clone());
-            container.rider_change_locomotor_name = Some(plan.active_locomotor_name.clone());
-            container.set_command_set_override(Some(plan.rider.command_set.clone()));
-            if container.status.stealthed {
-                container.set_status_detected(true);
-            }
             container.occupants.push(rider_id);
-            apply_rider_change_locomotor_binding(container, &plan.active_locomotor);
         }
         {
             let rider = self
@@ -2542,6 +2528,23 @@ impl GameLogic {
             {
                 return Ok(false);
             }
+            let container = self
+                .objects
+                .get_mut(&container_id)
+                .expect("validated original container");
+            container.model_condition_bits |= plan.rider.model_condition_mask;
+            container.apply_object_status_mask_bits(plan.rider.object_status_mask);
+            container.rider_change_active_slot = Some(plan.rider.slot);
+            container.rider_change_model_condition_mask = plan.rider.model_condition_mask;
+            container.rider_change_object_status_mask = plan.rider.object_status_mask;
+            container.rider_change_weapon_set = Some(plan.rider.weapon_set.clone());
+            container.rider_change_locomotor_set = Some(plan.rider.locomotor_set.clone());
+            container.rider_change_locomotor_name = Some(plan.active_locomotor_name.clone());
+            container.set_command_set_override(Some(plan.rider.command_set.clone()));
+            if container.status.stealthed {
+                container.set_status_detected(true);
+            }
+            apply_rider_change_locomotor_binding(container, &plan.active_locomotor);
             let rider = self
                 .objects
                 .get_mut(&rider_id)
