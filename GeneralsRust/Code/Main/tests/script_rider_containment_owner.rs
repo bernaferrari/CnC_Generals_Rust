@@ -295,6 +295,47 @@ fn script_toggle_affects_rider_change_rider_not_transport_passenger() {
             .status
             .disabled_script_disabled
     );
+    let overlord_snapshot = SnapshotBuilder::new()
+        .create_world_snapshot(&overlord)
+        .unwrap();
+    let (mut restored_overlord, peer_hull, peer_payload) = make_world(&path, "overlord");
+    assert_eq!((peer_hull, peer_payload), (overlord_id, overlord_rider));
+    SnapshotBuilder::new()
+        .restore_from_snapshot(&overlord_snapshot, &mut restored_overlord)
+        .unwrap();
+    assert_eq!(
+        restored_overlord
+            .host_object(overlord_id)
+            .unwrap()
+            .overlord_portable_occupant,
+        Some(overlord_rider)
+    );
+    assert!(
+        restored_overlord
+            .host_object(overlord_rider)
+            .unwrap()
+            .status
+            .disabled_script_disabled
+    );
+    run_toggle_for(
+        &mut restored_overlord,
+        ScriptActionType::PlayerEnableFactories,
+        "ChinaTankOverlord",
+    );
+    assert!(
+        !restored_overlord
+            .host_object(overlord_rider)
+            .unwrap()
+            .status
+            .disabled_script_disabled
+    );
+    assert!(
+        overlord
+            .host_object(overlord_rider)
+            .unwrap()
+            .status
+            .disabled_script_disabled
+    );
     run_toggle_for(
         &mut overlord,
         ScriptActionType::PlayerEnableFactories,
