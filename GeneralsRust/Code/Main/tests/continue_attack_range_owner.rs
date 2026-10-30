@@ -108,7 +108,9 @@ fn world_with_upgrade_damage(
         .unwrap();
     // C++ human-controlled units ignore mood. Disable idle auto-acquisition so
     // these tests observe the explicit attack and its weapon continuation.
-    game.host_object_mut(attacker).unwrap().auto_acquire_idle_bits = 0;
+    game.host_object_mut(attacker)
+        .unwrap()
+        .auto_acquire_idle_bits = 0;
     game.host_object_mut(attacker).unwrap().weapon_bonus_solo = 16;
     game.host_object_mut(attacker)
         .unwrap()
@@ -488,4 +490,90 @@ fn attack_position_selects_nearest_target_or_limits_ground_shots() {
     order(&mut owned, attacker, Vec3::new(150.0, 0.0, 20.0));
     assert_eq!(owned.host_object(attacker).unwrap().target, None);
     assert_eq!(owned.host_object(attacker).unwrap().max_shots_to_fire, 1);
+}
+
+#[test]
+fn continuation_preserves_attack_entry_position_through_save_load() {
+    let (mut source, attacker, victim, next) = world(30.0, "OriginalPositionWeapon");
+    assert!(source.unit_command_attack(attacker, victim).unwrap());
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&source).unwrap();
+    let ai = serde_json::to_value(&saved.objects[&attacker].modules["ReceivingBaseAI"]).unwrap();
+    assert_eq!(
+        ai["BaseAi"]["continuation"]["attack_original_victim_pos"],
+        serde_json::json!([40.0, 0.0, 20.0])
+    );
+    let (mut restored, peer_attacker, peer_victim, peer_next) =
+        world(30.0, "OriginalPositionWeapon");
+    assert_eq!(
+        (attacker, victim, next),
+        (peer_attacker, peer_victim, peer_next)
+    );
+    builder
+        .restore_from_snapshot(&saved, &mut restored)
+        .unwrap();
+    // A detached continuation with a different entry position must search
+    // around that position, even though the current victim is unchanged.
+    let mut shifted_save: generals_main::save_load::snapshot::WorldSnapshot =
+        bincode_legacy::deserialize(&bincode_legacy::serialize(&saved).unwrap()).unwrap();
+    let mut shifted_ai = ai;
+    shifted_ai["BaseAi"]["continuation"]["attack_original_victim_pos"] =
+        serde_json::json!([120.0, 0.0, 20.0]);
+    shifted_save
+        .objects
+        .get_mut(&attacker)
+        .unwrap()
+        .modules
+        .insert(
+            "ReceivingBaseAI".into(),
+            serde_json::from_value(shifted_ai).unwrap(),
+        );
+    let (mut shifted, _, _, _) = world(30.0, "OriginalPositionWeapon");
+    builder
+        .restore_from_snapshot(&shifted_save, &mut shifted)
+        .unwrap();
+    for _ in 0..100 {
+        source.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        restored.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        shifted.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if source.host_object(victim).is_none_or(|o| !o.is_alive())
+            && restored.host_object(victim).is_none_or(|o| !o.is_alive())
+            && shifted.host_object(victim).is_none_or(|o| !o.is_alive())
+        {
+            break;
+        }
+    }
+    assert!(source.host_object(victim).is_none_or(|o| !o.is_alive()));
+    assert!(restored.host_object(victim).is_none_or(|o| !o.is_alive()));
+    assert_eq!(source.host_object(attacker).unwrap().target, Some(next));
+    assert_eq!(restored.host_object(attacker).unwrap().target, Some(next));
+    assert_ne!(shifted.host_object(attacker).unwrap().target, Some(next));
+}
+
+#[test]
+fn continuation_selects_the_victims_player_not_a_same_faction_peer() {
+    let (mut world, attacker, victim, next) = world(100.0, "ContinueOwnerWeapon");
+    let mut other = Player::new(3, Team::GLA, "OtherGLA", false);
+    other.alliance_team = 2;
+    world.add_player(other);
+    let decoy = world
+        .create_object_for_player("ChainVictim", 3, Vec3::new(44.0, 0.0, 20.0))
+        .unwrap();
+    assert!(world.unit_command_attack(attacker, victim).unwrap());
+    for _ in 0..100 {
+        world.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if world
+            .host_object(victim)
+            .is_none_or(|object| !object.is_alive())
+        {
+            break;
+        }
+    }
+    assert!(
+        world
+            .host_object(victim)
+            .is_none_or(|object| !object.is_alive())
+    );
+    assert_eq!(world.host_object(attacker).unwrap().target, Some(next));
+    assert!(world.host_object(decoy).unwrap().is_alive());
 }

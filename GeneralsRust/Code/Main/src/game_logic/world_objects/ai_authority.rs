@@ -132,6 +132,12 @@ impl GameLogic {
                 match AIDecisionSystem::should_attack(self, object_id, current_target_id) {
                     AttackDecision::Attack | AttackDecision::Hold | AttackDecision::Retreat => None,
                     AttackDecision::FindNewTarget => {
+                        // The attack state owns victim completion and its
+                        // ContinueAttackRange transition; do not replace it
+                        // with an unrelated generic nearest-enemy scan.
+                        if ai_state == AIState::Attacking {
+                            return None;
+                        }
                         if !can_attack {
                             return Some(AICommand::StopAttack { object_id });
                         }

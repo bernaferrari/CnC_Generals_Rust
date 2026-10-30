@@ -158,6 +158,8 @@ impl GameLogic {
                 // Parent goals were captured by child admission before this target.
                 u.unit_ai_runtime
                     .set_machine_goal_object(Some((victim_id, goal_position)));
+                u.unit_ai_runtime
+                    .set_attack_original_victim_pos(goal_position);
             }
             {}
             let _ = self.attack_aim_at_target_enter_with_effects(unit_id, presentation_effects)?;
@@ -179,6 +181,7 @@ impl GameLogic {
                 .is_none_or(|o| !o.is_alive() || o.status.destroyed)
         });
         if let Some(u) = self.objects.get_mut(&unit_id) {
+            u.unit_ai_runtime.clear_attack_original_victim_pos();
             u.release_weapon_lock(WeaponLockType::LockedTemporarily);
             u.set_status_attacking(false);
             u.status.is_aiming_weapon = false;
@@ -626,12 +629,68 @@ impl GameLogic {
                     self.attack_approach_compute_path(unit_id, Some(victim_id), None)?;
                     return Ok(AttackMachineResult::Continue);
                 }
+                let continuation = self.objects.get(&unit_id).and_then(|attacker| {
+                    let victim = self.objects.get(&victim_id)?;
+                    let position = attacker
+                        .unit_ai_runtime
+                        .machine()
+                        .attack_original_victim_pos?;
+                    let slot = attacker.selected_weapon_slot()?;
+                    let range = attacker.selected_native_weapon_rule(slot).map_or_else(
+                        || {
+                            attacker
+                                .weapon_name_for_slot(slot)
+                                .map_or(0.0, |name| self.receiving_continue_attack_range(name))
+                        },
+                        |weapon| weapon.continue_attack_range.max(0.0),
+                    );
+                    Some((
+                        position,
+                        range,
+                        std::sync::Arc::downgrade(&attacker.visual_draw_identity_token),
+                        std::sync::Arc::downgrade(&victim.visual_draw_identity_token),
+                        self.visual_world_epoch,
+                    ))
+                });
                 let fire = self.attack_fire_weapon_update_with_effects(
                     unit_id,
                     victim_id,
                     current_time,
                     presentation_effects,
                 );
+                if matches!(fire, AttackFireResult::Success) {
+                    if let Some((position, range, attacker_birth, victim_birth, epoch)) =
+                        continuation
+                    {
+                        let original_attacker = self.visual_world_epoch == epoch
+                            && self.objects.get(&unit_id).is_some_and(|object| {
+                                std::sync::Weak::ptr_eq(
+                                    &attacker_birth,
+                                    &std::sync::Arc::downgrade(&object.visual_draw_identity_token),
+                                )
+                            });
+                        let ended_victim = self.objects.get(&victim_id).is_some_and(|object| {
+                            std::sync::Weak::ptr_eq(
+                                &victim_birth,
+                                &std::sync::Arc::downgrade(&object.visual_draw_identity_token),
+                            ) && (object.status.destroyed
+                                || object.status.effectively_dead
+                                || (object.is_kind_of(KindOf::Mine) && object.status.masked))
+                        });
+                        if original_attacker && ended_victim && range > 0.0 {
+                            if let Some((next_id, next_pos)) = self
+                                .find_continue_attack_target(unit_id, victim_id, position, range)
+                            {
+                                if let Some(attacker) = self.objects.get_mut(&unit_id) {
+                                    attacker.target = Some(next_id);
+                                    attacker
+                                        .unit_ai_runtime
+                                        .set_machine_goal_object(Some((next_id, next_pos)));
+                                }
+                            }
+                        }
+                    }
+                }
                 match fire {
                     AttackFireResult::Continue => {
                         // PRE_ATTACK wind-up — stay in FIRE.

@@ -49,6 +49,9 @@ pub struct BaseAiContinuation {
     pub auto_acquire_when_idle: bool,
     pub approach_timestamp: u32,
     pub prev_victim_pos: Option<Vec3>,
+    /// C++ AIAttackState::m_originalVictimPos, fixed on attack entry.
+    #[serde(default)]
+    pub(crate) attack_original_victim_pos: Option<Vec3>,
     pub face_can_turn_in_place: bool,
     pub face_active: bool,
     pub face_goal_pos: Option<Vec3>,
@@ -84,6 +87,7 @@ impl Default for BaseAiContinuation {
             auto_acquire_when_idle: true,
             approach_timestamp: 0,
             prev_victim_pos: None,
+            attack_original_victim_pos: None,
             face_can_turn_in_place: false,
             face_active: false,
             face_goal_pos: None,
@@ -154,7 +158,10 @@ impl BaseAiContinuation {
         if !self.goals.position.is_finite() || self.goals.path.iter().any(|p| !p.is_finite()) {
             return Err("nonfinite AI machine goal".into());
         }
-        if self.guard_position.is_some_and(|p| !p.is_finite())
+        if self
+            .attack_original_victim_pos
+            .is_some_and(|p| !p.is_finite())
+            || self.guard_position.is_some_and(|p| !p.is_finite())
             || self.temporary_move.as_ref().is_some_and(|m| {
                 !m.goal.is_finite()
                     || m.saved_destination.is_some_and(|p| !p.is_finite())
@@ -188,6 +195,9 @@ impl UnitAiRuntime {
         Ok(())
     }
     pub(crate) fn enter_root(&mut self, state: AIState) {
+        if self.machine.ai_state == AIState::Attacking && state != AIState::Attacking {
+            self.machine.attack_original_victim_pos = None;
+        }
         self.machine.ai_state = state;
         self.machine.parent = None;
     }
@@ -205,6 +215,9 @@ impl UnitAiRuntime {
         if !self.can_enter_child() {
             return false;
         }
+        if self.machine.ai_state == AIState::Attacking && state != AIState::Attacking {
+            self.machine.attack_original_victim_pos = None;
+        }
         if self.machine.parent.is_none() {
             self.machine.parent = Some(ParentMachineContinuation {
                 state: self.machine.ai_state,
@@ -218,6 +231,9 @@ impl UnitAiRuntime {
         let Some(parent) = self.machine.parent.take() else {
             return false;
         };
+        if self.machine.ai_state == AIState::Attacking {
+            self.machine.attack_original_victim_pos = None;
+        }
         self.machine.ai_state = parent.state;
         self.machine.goals = parent.goals;
         true
@@ -258,6 +274,12 @@ impl UnitAiRuntime {
         if !self.machine.locked {
             self.machine.goals.position = pos;
         }
+    }
+    pub(crate) fn set_attack_original_victim_pos(&mut self, pos: Vec3) {
+        self.machine.attack_original_victim_pos = Some(pos);
+    }
+    pub(crate) fn clear_attack_original_victim_pos(&mut self) {
+        self.machine.attack_original_victim_pos = None;
     }
     pub(crate) fn guard_target_type(&self) -> GuardTargetType {
         self.machine.guard_target_types[0]
@@ -394,6 +416,7 @@ impl BaseAiContinuation {
             && self.attack_substate == AttackSubState::AimAtTarget
             && self.approach_timestamp == 0
             && self.prev_victim_pos.is_none()
+            && self.attack_original_victim_pos.is_none()
             && !self.idle_initialized
             && self.goals.object.is_none()
             && self.goals.position == Vec3::ZERO

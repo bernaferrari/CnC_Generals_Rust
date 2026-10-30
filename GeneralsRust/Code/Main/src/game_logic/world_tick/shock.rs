@@ -790,17 +790,20 @@ impl GameLogic {
             host_secondary_damage_radius_for_weapon_name, radius_damage_affects_victim,
         };
         // C++ dealDamageInternal: authored primary/secondary radii, no 1.5x ring.
-        let (damage_mult, radius_mult) = self.objects.lookup(&attacker_id).map_or(
-            (1.0, 1.0),
-            |source| {
-                let bonus = if weapon_name.is_some() {
-                    self.receiving_weapon_bonus_fields(source, native_rule.as_deref())
-                } else {
-                    self.receiving_weapon_bonus_fields_for_slot(source, source.active_weapon_slot)
-                };
-                (bonus.0, bonus.4)
-            },
-        );
+        let (damage_mult, radius_mult) =
+            self.objects
+                .lookup(&attacker_id)
+                .map_or((1.0, 1.0), |source| {
+                    let bonus = if weapon_name.is_some() {
+                        self.receiving_weapon_bonus_fields(source, native_rule.as_deref())
+                    } else {
+                        self.receiving_weapon_bonus_fields_for_slot(
+                            source,
+                            source.active_weapon_slot,
+                        )
+                    };
+                    (bonus.0, bonus.4)
+                });
         let (primary_r, secondary_r, primary_dmg, secondary_dmg) =
             if let Some(rule) = native_rule.as_ref() {
                 (
@@ -1288,26 +1291,22 @@ impl GameLogic {
         )
     }
 
-    pub(crate) fn try_continue_attack_after_kill(
-        &mut self,
+    pub(crate) fn find_continue_attack_target(
+        &self,
         attacker_id: ObjectId,
         dead_victim_id: ObjectId,
         original_victim_pos: glam::Vec3,
         continue_range: f32,
-        victim_team: Team,
-    ) -> bool {
+    ) -> Option<(ObjectId, Vec3)> {
         if continue_range <= 0.0 {
-            return false;
+            return None;
         }
-        let can_air = self
+        let from_player = self
             .objects
             .lookup(&attacker_id)
-            .and_then(|attacker| {
-                attacker.selected_weapon_slot().and_then(|slot| {
-                    attacker
-                        .weapon_slot(slot)
-                        .map(|weapon| weapon.can_target_air)
-                })
+            .map(|attacker| {
+                attacker.last_command_source
+                    == crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_PLAYER
             })
             .unwrap_or(false);
         let attacker_off_map = self
@@ -1323,30 +1322,27 @@ impl GameLogic {
             .objects
             .lookup(&dead_victim_id)
             .and_then(|victim| victim.owner_player_id);
-        // Pure residual acquire: nearest same-team victim near kill position (XZ).
-        let candidates: Vec<_> = self
+        // C++ searches near the original position for the victim's player.
+        let candidates = self
             .objects
             .registered()
             .filter_map(|(&id, obj)| {
                 if id == attacker_id || id == dead_victim_id || !obj.is_alive() {
                     return None;
                 }
-                let same_player = if let Some(owner) = victim_owner {
-                    obj.owner_player_id == Some(owner)
-                } else {
-                    obj.team == victim_team
-                };
-                if !same_player
-                    || obj.is_effectively_stealthed()
-                    || obj.status.under_construction
-                    || obj.is_eject_invulnerable()
-                    || obj.contained_by.is_some()
-                    || (!obj.is_attackable() && !obj.is_disarmable_mine())
+                if obj.owner_player_id != victim_owner
                     || crate::game_logic::host_deliver_payload::is_off_map_default_residual(
                         obj.get_position(),
                     ) != attacker_off_map
-                    || ((obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target)
-                        && !can_air)
+                    || !matches!(
+                        self.get_able_to_attack_specific_object(
+                            attacker_id,
+                            id,
+                            AbleToAttackType::NewTarget,
+                            from_player,
+                        ),
+                        CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                    )
                 {
                     return None;
                 }
@@ -1364,21 +1360,34 @@ impl GameLogic {
                         eject_invulnerable: obj.is_eject_invulnerable(),
                     },
                 )
-            })
-            .collect();
-        let Some((next_id, _, _)) =
+            });
+        let (next_id, _, _) =
             crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
                 Some(attacker_id),
                 (original_victim_pos.x, original_victim_pos.z),
                 candidates,
                 continue_range,
                 |_| true,
-            )
-        else {
+            )?;
+        Some((next_id, self.objects.lookup(&next_id)?.get_position()))
+    }
+
+    pub(crate) fn try_continue_attack_after_kill(
+        &mut self,
+        attacker_id: ObjectId,
+        dead_victim_id: ObjectId,
+        original_victim_pos: glam::Vec3,
+        continue_range: f32,
+        _victim_team: Team,
+    ) -> bool {
+        let Some((next_id, next_pos)) = self.find_continue_attack_target(
+            attacker_id,
+            dead_victim_id,
+            original_victim_pos,
+            continue_range,
+        ) else {
             return false;
         };
-        {}
-        let next_pos = self.objects.lookup(&next_id).map(|obj| obj.get_position());
         let armed = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
             attacker.target = Some(next_id);
             attacker.set_ai_state(
@@ -1391,9 +1400,7 @@ impl GameLogic {
             false
         };
         if armed {
-            if let Some(pos) = next_pos {
-                let _ = self.assign_unit_attack_path(attacker_id, Some(next_id), pos);
-            }
+            let _ = self.assign_unit_attack_path(attacker_id, Some(next_id), next_pos);
         }
         armed
     }
@@ -1559,8 +1566,7 @@ impl GameLogic {
                 ))
             })
             .and_then(|victim| {
-                (!victim.kill_experience_awarded)
-                    .then_some(victim.kill_experience_value())
+                (!victim.kill_experience_awarded).then_some(victim.kill_experience_value())
             });
         if let Some(xp) = award {
             if let Some(victim) = self.objects.get_mut(&victim_id).filter(|victim| {
@@ -1591,11 +1597,7 @@ impl GameLogic {
 
     /// C++ Object::scoreTheKill + getExperienceValue: only ENEMIES, not own/allies.
     /// Also skips non-playable sides and KINDOF_IGNORED_IN_GUI (Object.cpp:2898-2905).
-    fn kill_awards_unit_experience(
-        &self,
-        killer_id: ObjectId,
-        victim_id: ObjectId,
-    ) -> bool {
+    fn kill_awards_unit_experience(&self, killer_id: ObjectId, victim_id: ObjectId) -> bool {
         use gamelogic::common::Relationship;
         let Some(killer) = self.objects.lookup(&killer_id) else {
             return false;
@@ -1675,7 +1677,8 @@ impl GameLogic {
         source: &Object,
     ) -> [f32; 3] {
         std::array::from_fn(|slot| {
-            self.receiving_weapon_bonus_fields_for_slot(source, slot as u8).2
+            self.receiving_weapon_bonus_fields_for_slot(source, slot as u8)
+                .2
         })
     }
 
