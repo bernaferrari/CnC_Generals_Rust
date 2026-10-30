@@ -431,6 +431,18 @@ impl GameLogic {
         ) {
             return Ok(false);
         }
+        if self.game_mode == GameMode::Skirmish {
+            // PlayerList establishes relationships after TeamFactory has
+            // admitted the sides, and before map objects are loaded.
+            let side_dicts: Vec<Dict> = (0..self.prepared_map_sides.get_num_sides())
+                .filter_map(|i| {
+                    self.prepared_map_sides
+                        .get_side_info(i)
+                        .map(|side| side.get_dict().clone())
+                })
+                .collect();
+            self.apply_host_side_relationships(&side_dicts);
+        }
         if !self.uses_lobby_side_foundation() {
             let mut ids = self.players.keys().copied().collect::<Vec<_>>();
             ids.sort_unstable();
@@ -817,6 +829,10 @@ impl GameLogic {
             }
         }
 
+        self.apply_host_side_relationships(side_dicts);
+    }
+
+    pub(in super::super) fn apply_host_side_relationships(&mut self, side_dicts: &[Dict]) {
         let mut by_name: HashMap<String, u32> = HashMap::new();
         for (&id, player) in &self.players {
             if !player.map_side.map_player_name.is_empty() {
