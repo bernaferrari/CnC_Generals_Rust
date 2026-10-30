@@ -7,8 +7,8 @@ use crate::command_system::{
 };
 use crate::game_logic::game_logic::AudioEventRequest;
 use crate::game_logic::{
-    AIState, GameLogic, KindOf, ObjectId, ObjectType, PendingSpecialAbility, Resources, Team,
-    radar_notifications::RadarKind,
+    AIState, AbleToAttackType, CanAttackResult, GameLogic, KindOf, ObjectId, ObjectType,
+    PendingSpecialAbility, Resources, Team, radar_notifications::RadarKind,
 };
 use crate::localization;
 use crate::ui::audio::translate_audio_event;
@@ -370,44 +370,8 @@ impl<'a> CommandExecutor<'a> {
         location: Option<Vec3>,
         max_shots: i32,
     ) -> CommandResult {
-        // Wave 232: attack-ground last-writes via unit_command_attack_ground_ex.
         let mut any = false;
-        let mut extra_passengers: Vec<ObjectId> = Vec::new();
-        let mut hive_ids: Vec<ObjectId> = Vec::new();
-
         for &unit_id in units {
-            let Some(unit) = self.game_logic.host_object(unit_id) else {
-                continue;
-            };
-            // Collect fire-capable passengers (garrison residual).
-            // C++ TransportContain::isPassengerAllowedToFire — infantry only.
-            if unit.passengers_allowed_to_fire {
-                for p in unit.contained_units() {
-                    if self.game_logic.host_object(p).is_some_and(|o| {
-                        gamelogic::object::contain::transport_contain_passenger_kind_allowed_to_fire(
-                            o.is_kind_of(KindOf::Infantry),
-                        )
-                    })
-                    {
-                        extra_passengers.push(p);
-                    }
-                }
-            }
-            // C++ SpawnBehavior && !doSlavesHaveFreedom(): residual hive
-            // slaves are locked (SlavesHaveFreeWill = No).
-            if unit.hive_slave_count > 0 || unit.hive_slaves.iter().any(|s| s.alive) {
-                hive_ids.push(unit_id);
-            }
-        }
-
-        let mut all_units: Vec<ObjectId> = units.to_vec();
-        for p in extra_passengers {
-            if !all_units.contains(&p) {
-                all_units.push(p);
-            }
-        }
-
-        for &unit_id in &all_units {
             let attack_pos = match location {
                 Some(loc) => {
                     if !loc.x.is_finite() || !loc.z.is_finite() {
@@ -420,6 +384,41 @@ impl<'a> CommandExecutor<'a> {
                     _ => continue,
                 },
             };
+
+            // C++ uses the owner's position for every passenger when location
+            // is absent, and invokes passengers before slaves and the owner.
+            let may_fire = self.game_logic.host_object(unit_id).is_some_and(|owner| {
+                if owner.is_garrison_contain() {
+                    !owner.is_subdued_disabled()
+                } else {
+                    owner.passengers_allowed_to_fire
+                        || crate::game_logic::host_passengers_fire_upgrade::overlord_bunker_passengers_may_fire(
+                            owner.overlord_bunker_slot_capacity(), owner.contained_by.is_some())
+                }
+            });
+            if may_fire {
+                for passenger in self.game_logic.contained_units_for_interface(unit_id) {
+                    if self
+                        .game_logic
+                        .host_object(passenger)
+                        .is_some_and(|o| o.has_ai_update_interface())
+                        && matches!(
+                            self.game_logic.get_able_to_use_weapon_against_target(
+                                passenger,
+                                None,
+                                Some(attack_pos),
+                                AbleToAttackType::NewTarget
+                            ),
+                            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                        )
+                        && self
+                            .game_logic
+                            .unit_command_attack_ground_ex(passenger, attack_pos, max_shots)
+                    {
+                        any = true;
+                    }
+                }
+            }
 
             // C++ sends the parent's attack position to each locked spawn in
             // m_spawnIDs order, before ordering the parent itself.
@@ -450,7 +449,9 @@ impl<'a> CommandExecutor<'a> {
             // Older residual-only Stinger instances still use their local hive
             // projection until their physical spawn roster has been admitted.
             if !has_roster
-                && hive_ids.contains(&unit_id)
+                && self.game_logic.host_object(unit_id).is_some_and(|unit| {
+                    unit.hive_slave_count > 0 || unit.hive_slaves.iter().any(|slave| slave.alive)
+                })
                 && self
                     .game_logic
                     .host_object(unit_id)

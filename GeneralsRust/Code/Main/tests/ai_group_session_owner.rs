@@ -315,6 +315,56 @@ fn team_attack_orders_only_spawned_slaves_without_free_will() {
 }
 
 #[test]
+fn attack_own_position_forwards_the_containers_position_to_its_passenger() {
+    use generals_main::game_logic::Weapon;
+    fn setup(path: &std::path::Path) -> (GameLogic, ObjectId, ObjectId) {
+        let (mut game, passenger, _, _) = world_with_transport(path, true);
+        let garrison = game
+            .create_object_for_player("GroupVisibleGarrison", 1, Vec3::new(42.0, 0.0, 40.0))
+            .unwrap();
+        assert!(game.unit_command_order_enter(passenger, garrison));
+        game.try_physics_collide(passenger, garrison, 1.0);
+        let unit = game.host_object_mut(passenger).unwrap();
+        assert_eq!(unit.contained_by, Some(garrison));
+        unit.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 200.0,
+            ..Weapon::default()
+        });
+        (game, garrison, passenger)
+    }
+    let root = tempfile::tempdir().unwrap();
+    let path = map_file(root.path());
+    let (mut owner, garrison, passenger) = setup(&path);
+    let (peer, peer_garrison, peer_passenger) = setup(&path);
+    assert_eq!((garrison, passenger), (peer_garrison, peer_passenger));
+    let position = owner.host_object(garrison).unwrap().get_position();
+    assert_ne!(
+        owner.host_object(passenger).unwrap().get_position(),
+        position
+    );
+    generals_main::command_executor::CommandExecutor::new(&mut owner, 1)
+        .execute_command(GameCommand {
+            command_type: CommandType::AttackPosition {
+                location: None,
+                max_shots: 4,
+            },
+            player_id: 1,
+            command_id: 1,
+            timestamp: UNIX_EPOCH,
+            selected_units: vec![garrison],
+            modifier_keys: ModifierKeys::default(),
+        })
+        .unwrap();
+    assert_eq!(
+        owner.host_object(passenger).unwrap().target_location,
+        Some(position)
+    );
+    assert_eq!(owner.host_object(passenger).unwrap().max_shots_to_fire, 4);
+    assert_eq!(peer.host_object(passenger).unwrap().target_location, None);
+}
+
+#[test]
 fn team_hunt_membership_named_leave_retirement_and_reset_are_session_owned() {
     let root = tempfile::tempdir().unwrap();
     let map = map_file(root.path());
