@@ -14,7 +14,7 @@ fn world_with_scatter(
     weapon_name: &str,
     scatter: f32,
 ) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
-    world_with_weapon_bonus(range, weapon_name, scatter, None)
+    world_with_weapon_bonus(range, weapon_name, scatter, None, None)
 }
 
 fn world_with_weapon_bonus(
@@ -22,6 +22,7 @@ fn world_with_weapon_bonus(
     weapon_name: &str,
     scatter: f32,
     extra_radius: Option<f32>,
+    extra_damage: Option<f32>,
 ) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
     let mut game = GameLogic::new();
     game.admit_object_ini_sources([("ContinueRange.ini".into(),
@@ -42,6 +43,17 @@ fn world_with_weapon_bonus(
         weapon.primary_damage_radius = 5.0;
         let mut bonus = WeaponBonus::new();
         bonus.set_field(WeaponBonusField::Radius, radius);
+        let mut set = WeaponBonusSet::new();
+        set.set_bonus(WeaponBonusConditionType::SoloHumanEasy, bonus);
+        weapon.extra_bonus = Some(set);
+    }
+    if let Some(damage) = extra_damage {
+        use gamelogic::weapon::{
+            WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet,
+        };
+        weapon.primary_damage = 10.0;
+        let mut bonus = WeaponBonus::new();
+        bonus.set_field(WeaponBonusField::Damage, damage);
         let mut set = WeaponBonusSet::new();
         set.set_bonus(WeaponBonusConditionType::SoloHumanEasy, bonus);
         weapon.extra_bonus = Some(set);
@@ -74,9 +86,9 @@ fn world_with_weapon_bonus(
 #[test]
 fn actual_splash_uses_the_firing_sessions_weapon_radius_bonus() {
     let (mut wide, attacker, target, nearby) =
-        world_with_weapon_bonus(0.0, "SharedBonusWeapon", 0.0, Some(3.0));
+        world_with_weapon_bonus(0.0, "SharedBonusWeapon", 0.0, Some(3.0), None);
     let (mut narrow, peer_attacker, peer_target, peer_nearby) =
-        world_with_weapon_bonus(0.0, "SharedBonusWeapon", 0.0, Some(1.0));
+        world_with_weapon_bonus(0.0, "SharedBonusWeapon", 0.0, Some(1.0), None);
     assert_eq!(
         (attacker, target, nearby),
         (peer_attacker, peer_target, peer_nearby)
@@ -120,6 +132,80 @@ fn actual_splash_uses_the_firing_sessions_weapon_radius_bonus() {
         narrow.host_object(peer_nearby).unwrap().health.current,
         10.0
     );
+}
+
+#[test]
+fn actual_weapon_damage_uses_the_firing_sessions_extra_bonus() {
+    let (mut weak, attacker, target, _) =
+        world_with_weapon_bonus(0.0, "SharedDamageWeapon", 0.0, None, Some(0.5));
+    let (mut full, peer_attacker, peer_target, _) =
+        world_with_weapon_bonus(0.0, "SharedDamageWeapon", 0.0, None, Some(1.0));
+    assert_eq!((attacker, target), (peer_attacker, peer_target));
+    assert!(weak.unit_command_attack(attacker, target).unwrap());
+    assert!(full.unit_command_attack(attacker, target).unwrap());
+    for _ in 0..100 {
+        weak.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        full.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if weak
+            .host_object(target)
+            .is_none_or(|object| object.health.current < 10.0)
+            && full
+                .host_object(target)
+                .is_none_or(|object| !object.is_alive())
+        {
+            break;
+        }
+    }
+    assert!(
+        full.host_object(target)
+            .is_none_or(|object| !object.is_alive())
+    );
+    assert_eq!(weak.host_object(target).unwrap().health.current, 5.0);
+}
+
+#[test]
+fn ground_attack_uses_the_firing_sessions_damage_bonus() {
+    let (mut weak, attacker, target, _) =
+        world_with_weapon_bonus(0.0, "SharedGroundDamage", 0.0, None, Some(0.5));
+    let (mut full, peer_attacker, peer_target, _) =
+        world_with_weapon_bonus(0.0, "SharedGroundDamage", 0.0, None, Some(1.0));
+    assert_eq!((attacker, target), (peer_attacker, peer_target));
+    for session in [&mut weak, &mut full] {
+        CommandExecutor::new(session, 1)
+            .execute_command(GameCommand {
+                command_type: CommandType::AttackPosition {
+                    location: Some(Vec3::new(40.0, 0.0, 20.0)),
+                    max_shots: 1,
+                },
+                player_id: 1,
+                command_id: 1,
+                timestamp: UNIX_EPOCH,
+                selected_units: vec![attacker],
+                modifier_keys: ModifierKeys::default(),
+            })
+            .unwrap();
+        let source = session.host_object(attacker).unwrap();
+        assert_eq!(source.target, None);
+        assert_eq!(source.target_location, Some(Vec3::new(40.0, 0.0, 20.0)));
+    }
+    for _ in 0..100 {
+        weak.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        full.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if weak
+            .host_object(target)
+            .is_none_or(|object| object.health.current < 10.0)
+            && full
+                .host_object(target)
+                .is_none_or(|object| !object.is_alive())
+        {
+            break;
+        }
+    }
+    assert!(
+        full.host_object(target)
+            .is_none_or(|object| !object.is_alive())
+    );
+    assert_eq!(weak.host_object(target).unwrap().health.current, 5.0);
 }
 
 #[test]

@@ -505,7 +505,7 @@ impl GameLogic {
                         .or_else(|| name.and_then(crate::game_logic::weapon_bootstrap::host_primary_damage_for_weapon_name))
                         .or_else(|| attacker.weapon_slot(slot).map(|w| w.damage))
                         .unwrap_or(0.0);
-                    attacker.effective_weapon_damage_for_slot_with_solo_set(slot, base, &self.solo_weapon_bonus_set)
+                    base * self.receiving_weapon_bonus_fields_for_slot(attacker, slot).0
                 })
                 .unwrap_or(0.0);
             if overcharge {

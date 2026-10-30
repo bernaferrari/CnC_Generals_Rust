@@ -210,7 +210,7 @@ impl GameLogic {
                             attacker.weapon_slot(ground_slot).map(|weapon| weapon.damage)
                         })
                         .unwrap_or(0.0);
-                    attacker.effective_weapon_damage_for_slot_with_solo_set(ground_slot, base, &self.solo_weapon_bonus_set)
+                    base * self.receiving_weapon_bonus_fields_for_slot(attacker, ground_slot).0
                 })
                 .unwrap_or(0.0);
             if overcharge {
