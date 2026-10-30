@@ -205,7 +205,7 @@ fn team_attack_orders_only_spawned_slaves_without_free_will() {
     use generals_main::game_logic::Weapon;
     use generals_main::save_load::snapshot::capture_lifecycle_tail;
 
-    fn setup(path: &std::path::Path) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+    fn setup(path: &std::path::Path) -> (GameLogic, ObjectId, ObjectId, ObjectId, Vec<ObjectId>) {
         let (mut game, _, _, _) = world(path);
         game.templates
             .get_mut("SpawnAttacker")
@@ -223,12 +223,14 @@ fn team_attack_orders_only_spawned_slaves_without_free_will() {
             .unwrap();
         game.host_object_mut(target).unwrap().name = "SpawnOrderTarget".into();
         let mut children = Vec::new();
+        let mut parents = Vec::new();
         for name in ["LockedSpawn", "FreeSpawn"] {
             let parent = game
                 .create_object_for_player(name, 1, Vec3::new(50.0, 0.0, 40.0))
                 .unwrap();
             game.host_object_mut(parent).unwrap().team_instance_name = "HuntTeam".into();
             game.activate_leftover_team_for_host_object(parent);
+            parents.push(parent);
             let roster = capture_lifecycle_tail(&game)
                 .unwrap()
                 .spawn_behavior_rosters
@@ -246,13 +248,13 @@ fn team_attack_orders_only_spawned_slaves_without_free_will() {
                 .set_status_disabled_held(false);
             children.push(child);
         }
-        (game, target, children[0], children[1])
+        (game, target, children[0], children[1], parents)
     }
 
     let root = tempfile::tempdir().unwrap();
     let path = map_file(root.path());
-    let (mut owner, target, locked, free) = setup(&path);
-    let (peer, peer_target, peer_locked, peer_free) = setup(&path);
+    let (mut owner, target, locked, free, parents) = setup(&path);
+    let (peer, peer_target, peer_locked, peer_free, peer_parents) = setup(&path);
     assert_eq!(
         (target, locked, free),
         (peer_target, peer_locked, peer_free)
@@ -269,6 +271,47 @@ fn team_attack_orders_only_spawned_slaves_without_free_will() {
     assert_eq!(owner.host_object(free).unwrap().target, None);
     assert_eq!(peer.host_object(locked).unwrap().target, None);
     assert_eq!(peer.host_object(free).unwrap().target, None);
+    assert_eq!(parents, peer_parents);
+    let ground = Vec3::new(90.0, 0.0, 60.0);
+    generals_main::command_executor::CommandExecutor::new(&mut owner, 1)
+        .execute_command(GameCommand {
+            command_type: CommandType::AttackPosition {
+                location: Some(ground),
+                max_shots: 3,
+            },
+            player_id: 1,
+            command_id: 1,
+            timestamp: UNIX_EPOCH,
+            selected_units: parents.clone(),
+            modifier_keys: ModifierKeys::default(),
+        })
+        .unwrap();
+    assert_eq!(
+        owner.host_object(locked).unwrap().target_location,
+        Some(ground)
+    );
+    assert_eq!(owner.host_object(free).unwrap().target_location, None);
+    assert_eq!(peer.host_object(locked).unwrap().target_location, None);
+    assert_eq!(owner.host_object(locked).unwrap().max_shots_to_fire, 3);
+    let parent_position = owner.host_object(parents[0]).unwrap().get_position();
+    generals_main::command_executor::CommandExecutor::new(&mut owner, 1)
+        .execute_command(GameCommand {
+            command_type: CommandType::AttackPosition {
+                location: None,
+                max_shots: 7,
+            },
+            player_id: 1,
+            command_id: 2,
+            timestamp: UNIX_EPOCH,
+            selected_units: vec![parents[0]],
+            modifier_keys: ModifierKeys::default(),
+        })
+        .unwrap();
+    assert_eq!(
+        owner.host_object(locked).unwrap().target_location,
+        Some(parent_position)
+    );
+    assert_eq!(owner.host_object(locked).unwrap().max_shots_to_fire, 7);
 }
 
 #[test]

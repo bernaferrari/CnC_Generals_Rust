@@ -421,9 +421,41 @@ impl<'a> CommandExecutor<'a> {
                 },
             };
 
-            // C++ AIGroup::groupAttackPosition: orderSlavesToAttackPosition
-            // before aiAttackPosition (hq-ykxeg).
-            if hive_ids.contains(&unit_id) {
+            // C++ sends the parent's attack position to each locked spawn in
+            // m_spawnIDs order, before ordering the parent itself.
+            let children = self
+                .game_logic
+                .host_object(unit_id)
+                .filter(|owner| GameLogic::spawn_behavior_orders_slaves(owner))
+                .map(|owner| owner.spawn_behavior_children())
+                .unwrap_or_default();
+            let has_roster = !children.is_empty();
+            for (child_id, birth) in children {
+                let admitted = self
+                    .game_logic
+                    .host_object(unit_id)
+                    .zip(self.game_logic.host_object(child_id))
+                    .is_some_and(|(owner, child)| {
+                        owner.spawn_behavior_child_birth_matches(child_id, &birth, child)
+                            && child.has_ai_update_interface()
+                    });
+                if admitted
+                    && self
+                        .game_logic
+                        .unit_command_attack_ground_ex(child_id, attack_pos, max_shots)
+                {
+                    any = true;
+                }
+            }
+            // Older residual-only Stinger instances still use their local hive
+            // projection until their physical spawn roster has been admitted.
+            if !has_roster
+                && hive_ids.contains(&unit_id)
+                && self
+                    .game_logic
+                    .host_object(unit_id)
+                    .is_some_and(GameLogic::spawn_behavior_orders_slaves)
+            {
                 if let Some(site) = self.game_logic.host_object_mut(unit_id) {
                     let n =
                         crate::game_logic::host_base_defense::order_hive_slaves_to_attack_position(

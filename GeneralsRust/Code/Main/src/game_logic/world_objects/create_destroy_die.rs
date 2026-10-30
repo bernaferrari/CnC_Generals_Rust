@@ -623,7 +623,7 @@ impl GameLogic {
         Self::authored_spawn_behavior_template(object.get_template())
     }
 
-    pub(in crate::game_logic) fn spawn_behavior_orders_slaves(object: &Object) -> bool {
+    pub(crate) fn spawn_behavior_orders_slaves(object: &Object) -> bool {
         Self::resolve_host_spawn_behavior_spec(object)
             .is_some_and(|spec| !spec.slaves_have_free_will)
     }
