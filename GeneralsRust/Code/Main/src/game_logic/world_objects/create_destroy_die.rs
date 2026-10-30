@@ -652,21 +652,16 @@ impl GameLogic {
     }
 
     fn ensure_spawn_behavior_unit_template(&mut self, spawn_template: &str) -> bool {
-        if self
-            .templates
-            .get(spawn_template)
-            .is_some_and(|template| template.is_kind_of(KindOf::Infantry))
-        {
+        // SpawnBehavior::createSpawn uses the configured ThingTemplate as-is;
+        // drones and other non-infantry children are valid authored spawns.
+        if self.templates.contains_key(spawn_template) {
             return true;
         }
         if self.receiving_module_content.is_some() {
             return false;
         }
         if self.ensure_host_spawn_template(spawn_template)
-            && self
-                .templates
-                .get(spawn_template)
-                .is_some_and(|template| template.is_kind_of(KindOf::Infantry))
+            && self.templates.contains_key(spawn_template)
         {
             return true;
         }

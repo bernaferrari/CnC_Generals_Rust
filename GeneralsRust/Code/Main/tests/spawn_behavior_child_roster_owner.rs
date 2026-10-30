@@ -1,4 +1,4 @@
-use generals_main::game_logic::{GameLogic, ObjectId, Player, Team};
+use generals_main::game_logic::{GameLogic, KindOf, ObjectId, Player, Team};
 use generals_main::save_load::SnapshotBuilder;
 use generals_main::save_load::snapshot::{
     capture_lifecycle_tail, decode_lifecycle_tail, encode_lifecycle_tail,
@@ -38,7 +38,7 @@ fn spawner_death_stops_surviving_child_slaved_effects_in_its_own_session() {
     fn session() -> (GameLogic, ObjectId) {
         let mut world = GameLogic::new();
         world.admit_object_ini_sources([("SlavedSpawn.ini".into(),
-            "Object Nest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = Child\n SpawnedRequireSpawner = No\n End\nEnd\nObject Child\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SlavedUpdate Slave\n GuardMaxRange = 35\n End\nEnd\n".into())]).unwrap();
+            "Object Nest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = Child\n SpawnedRequireSpawner = No\n End\nEnd\nObject Child\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SlavedUpdate Slave\n GuardMaxRange = 35\n End\nEnd\n".into())]).unwrap();
         world.add_player(Player::new(1, Team::GLA, "Owner", true));
         let parent = world
             .create_object_for_player("Nest", 1, Vec3::ZERO)
@@ -51,6 +51,7 @@ fn spawner_death_stops_surviving_child_slaved_effects_in_its_own_session() {
     assert_eq!(roster(&peer, peer_parent), vec![child.0]);
     for world in [&owner, &peer] {
         let object = world.host_object(child).unwrap();
+        assert!(object.is_kind_of(KindOf::Vehicle));
         assert!(object.status.unselectable, "onEnslave ran at creation");
         assert!(
             object.status.disabled_held,
