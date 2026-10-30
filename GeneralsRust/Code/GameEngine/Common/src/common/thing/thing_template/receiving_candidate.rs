@@ -220,7 +220,8 @@ impl AdmittedReceivingTemplate {
     }
     pub fn reskin_name(&self) -> Option<&str> {
         self.template
-            .reskinned_from.as_ref()
+            .reskinned_from
+            .as_ref()
             .map(|parent| parent.get_name().as_str())
     }
     pub fn is_shrubbery(&self) -> bool {
