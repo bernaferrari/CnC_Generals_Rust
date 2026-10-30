@@ -61,32 +61,58 @@ fn make_world(path: &std::path::Path, contain_kind: &str) -> (GameLogic, ObjectI
             "Behavior = TransportContain TransportTag\n Slots = 1\n ContainMax = 1\n AllowInsideKindOf = INFANTRY\n End\n"
         }
     };
-    let ini = format!(
+    let mut ini = format!(
         "Object OwnerBike\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL GroundOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n{contain} Behavior = AIUpdateInterface Brain\n End\nEnd\nObject OwnerRider\n KindOf = SELECTABLE INFANTRY\n TransportSlotCount = 1\n Locomotor = SET_NORMAL GroundOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n"
     );
+    if contain_kind == "helix" {
+        ini.push_str("Object OwnerPortable\n KindOf = PORTABLE_STRUCTURE SELECTABLE VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n");
+    }
     world
         .admit_object_ini_sources([("RiderOwner.ini".into(), ini)])
         .unwrap();
+    if contain_kind == "helix" {
+        world.admit_object_creation_list_sources(["ObjectCreationList OCL_OwnerPortable\nCreateObject\nObjectNames = OwnerPortable\nCount = 1\nContainInsideSourceObject = Yes\nEnd\nEnd".into()]).unwrap();
+    }
     world.start_new_game(GameMode::SinglePlayer);
     assert!(world.load_map(path.to_str().unwrap()));
     world.add_player(Player::new(42, Team::USA, "Owner", true).with_script_identity("Owner"));
     let bike = world
         .create_object_for_player("OwnerBike", 42, Vec3::new(80.0, 0.0, 80.0))
         .unwrap();
-    let rider = world
-        .create_object_for_player("OwnerRider", 42, Vec3::new(81.0, 0.0, 80.0))
-        .unwrap();
-    if contain_kind == "overlord" || contain_kind == "helix" {
+    let rider = if contain_kind == "helix" {
+        world
+            .host_object_mut(bike)
+            .unwrap()
+            .install_helix_transport();
+        let created = world.execute_parsed_weapon_ocl_at(
+            "OCL_OwnerPortable",
+            Some(bike),
+            Team::USA,
+            generals_main::game_logic::VeterancyLevel::Rookie,
+            0.0,
+            Vec3::ZERO,
+            Vec3::new(80.0, 0.0, 80.0),
+        );
+        assert_eq!(created.len(), 1);
+        created[0]
+    } else {
+        world
+            .create_object_for_player("OwnerRider", 42, Vec3::new(81.0, 0.0, 80.0))
+            .unwrap()
+    };
+    if contain_kind == "helix" {
+        assert_eq!(
+            world.host_object(bike).unwrap().overlord_portable_occupant,
+            Some(rider)
+        );
+        assert_eq!(world.host_object(rider).unwrap().contained_by, Some(bike));
+        return (world, bike, rider);
+    }
+    if contain_kind == "overlord" {
         // Overlord riders are portable add-ons, not normal Enter passengers.
         // Install the reciprocal roster explicitly to exercise the script
         // callback without pretending infantry can enter the bare hull.
         world.host_object_mut(bike).unwrap().occupants.push(rider);
-        if contain_kind == "helix" {
-            world
-                .host_object_mut(bike)
-                .unwrap()
-                .overlord_portable_occupant = Some(rider);
-        }
         world.host_object_mut(rider).unwrap().contained_by = Some(bike);
         return (world, bike, rider);
     }
@@ -151,6 +177,38 @@ fn script_toggle_affects_rider_change_rider_not_transport_passenger() {
             .disabled_script_disabled
     );
     run_toggle(&mut helix, ScriptActionType::PlayerEnableFactories);
+    assert!(
+        !helix
+            .host_object(helix_rider)
+            .unwrap()
+            .status
+            .disabled_script_disabled
+    );
+    let helix_snapshot = SnapshotBuilder::new()
+        .create_world_snapshot(&helix)
+        .unwrap();
+    let (mut restored_helix, _, _) = make_world(&path, "helix");
+    SnapshotBuilder::new()
+        .restore_from_snapshot(&helix_snapshot, &mut restored_helix)
+        .unwrap();
+    assert_eq!(
+        restored_helix
+            .host_object(helix_id)
+            .unwrap()
+            .overlord_portable_occupant,
+        Some(helix_rider)
+    );
+    run_toggle(
+        &mut restored_helix,
+        ScriptActionType::PlayerDisableFactories,
+    );
+    assert!(
+        restored_helix
+            .host_object(helix_rider)
+            .unwrap()
+            .status
+            .disabled_script_disabled
+    );
     assert!(
         !helix
             .host_object(helix_rider)
