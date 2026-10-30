@@ -12,6 +12,8 @@
 
 #[path = "shroud_scalar_queries.rs"]
 mod scalar_queries;
+#[path = "shroud_boundary.rs"]
+mod shroud_boundary;
 use crate::common::{Coord3D, KindOf, ObjectID, ObjectShroudStatus};
 use crate::object_manager::get_object_manager;
 use crate::player::PLAYER_INDEX_INVALID;
@@ -20,6 +22,7 @@ use game_engine::common::system::radar::{CellShroudStatus, get_radar_system};
 use log::{debug, trace};
 pub use scalar_queries::HostScalarGridSnapshot;
 use serde::{Deserialize, Serialize};
+pub use shroud_boundary::BoundaryShroudStore;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
 

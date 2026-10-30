@@ -896,12 +896,12 @@ fn test_partition_cell_threat_values() {
     cell.remove_threat_value(0, 30);
     assert_eq!(cell.get_threat_value(0), 120);
 
-    // Test saturation
+    // C++ unsigned arithmetic wraps in release builds (debug asserts overflow).
     cell.add_threat_value(0, u32::MAX);
-    assert_eq!(cell.get_threat_value(0), u32::MAX);
+    assert_eq!(cell.get_threat_value(0), 119);
 
     cell.remove_threat_value(0, u32::MAX);
-    assert_eq!(cell.get_threat_value(0), 0);
+    assert_eq!(cell.get_threat_value(0), 120);
 }
 
 #[test]
