@@ -421,12 +421,7 @@ impl Object {
                 Some(triggers),
             );
             let extent = terrain.get_extent();
-            let in_map = extent.is_in_region_no_z(self.get_position());
-            if in_map {
-                self.private_status &= !(ObjectPrivateStatusBits::OffMap as u8);
-            } else {
-                self.private_status |= ObjectPrivateStatusBits::OffMap as u8;
-            }
+            self.refresh_off_map_status(&extent);
         }
         Ok(())
     }

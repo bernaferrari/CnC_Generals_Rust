@@ -86,8 +86,12 @@ impl Object {
         self.add_self_to_pathfind_map();
         self.handle_partition_cell_maintenance();
 
-        let in_playable = extent.is_in_region_no_z(self.get_position());
-        if in_playable {
+        self.refresh_off_map_status(extent);
+    }
+
+    /// The saved C++ private bit is updated at transform and boundary phases.
+    pub(super) fn refresh_off_map_status(&mut self, extent: &crate::common::Region3D) {
+        if extent.is_in_region_no_z(self.get_position()) {
             self.private_status &= !(ObjectPrivateStatusBits::OffMap as u8);
         } else {
             self.private_status |= ObjectPrivateStatusBits::OffMap as u8;
