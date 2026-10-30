@@ -67,6 +67,7 @@ impl GameLogic {
             // in admission order and calls aiForceAttackObject synchronously.
             let slaves = self
                 .host_object(id)
+                .filter(|owner| Self::spawn_behavior_orders_slaves(owner))
                 .map(|owner| owner.spawn_behavior_children())
                 .unwrap_or_default();
             for (slave_id, birth) in slaves {
@@ -77,11 +78,9 @@ impl GameLogic {
                         owner.spawn_behavior_child_birth_matches(slave_id, &birth, slave)
                             && slave.has_ai_update_interface()
                     });
-                if admitted_birth && self.unit_command_force_attack_with_effects(
-                    slave_id,
-                    target,
-                    effects,
-                )? {
+                if admitted_birth
+                    && self.unit_command_force_attack_with_effects(slave_id, target, effects)?
+                {
                     self.stinger_slave_order_attack_count =
                         self.stinger_slave_order_attack_count.saturating_add(1);
                 }

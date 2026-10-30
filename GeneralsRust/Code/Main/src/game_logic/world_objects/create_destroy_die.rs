@@ -43,6 +43,7 @@ struct HostSpawnBehaviorSpec {
     replacement_delay: u32,
     one_shot: bool,
     spawned_require_spawner: bool,
+    slaves_have_free_will: bool,
 }
 
 /// C++ `MAX_SPAWN_POINTS` (`SpawnPointProductionExitUpdate.h:20`).
@@ -614,11 +615,17 @@ impl GameLogic {
             replacement_delay: data.spawn_replace_delay_data as u32,
             one_shot: data.is_one_shot_data,
             spawned_require_spawner: data.spawned_require_spawner,
+            slaves_have_free_will: data.slaves_have_free_will,
         })
     }
 
     fn authored_spawn_behavior_spec(object: &Object) -> Option<HostSpawnBehaviorSpec> {
         Self::authored_spawn_behavior_template(object.get_template())
+    }
+
+    pub(in crate::game_logic) fn spawn_behavior_orders_slaves(object: &Object) -> bool {
+        Self::resolve_host_spawn_behavior_spec(object)
+            .is_some_and(|spec| !spec.slaves_have_free_will)
     }
 
     fn fallback_spawn_behavior_spec(template_name: &str) -> Option<HostSpawnBehaviorSpec> {
@@ -633,6 +640,7 @@ impl GameLogic {
                 replacement_delay: 0,
                 one_shot: true,
                 spawned_require_spawner: false,
+                slaves_have_free_will: false,
             });
         }
         if crate::game_logic::host_base_defense::is_stinger_site_structure(template_name) {
@@ -646,6 +654,7 @@ impl GameLogic {
                     crate::game_logic::host_base_defense::STINGER_SPAWN_REPLACE_DELAY_FRAMES,
                 one_shot: false,
                 spawned_require_spawner: true,
+                slaves_have_free_will: false,
             });
         }
         None

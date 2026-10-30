@@ -109,6 +109,7 @@ fn world_with_transport(
 ) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
     let mut source = "Object GroupUnit\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\nObject GroupInert\n KindOf = SELECTABLE\nEnd\n".to_owned();
+    source.push_str("Object LockedSpawn\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = SpawnAttacker\n SlavesHaveFreeWill = No\n End\nEnd\nObject FreeSpawn\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = SpawnAttacker\n SlavesHaveFreeWill = Yes\n End\nEnd\nObject SpawnAttacker\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n");
     let mut locomotors = LocomotorStore::new_owned();
     locomotors.apply_source("Locomotor GroupGround\n Surfaces = GROUND\n Speed = 40\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\nLocomotor GroupHijackerGround\n Surfaces = GROUND\n Speed = 30\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\nLocomotor GroupHijackVehicle\n Surfaces = GROUND\n Speed = 30\n Acceleration = 60\n TurnRate = 120\n Appearance = FOUR_WHEELS\nEnd\n").unwrap();
     world.admit_locomotor_definitions(locomotors).unwrap();
@@ -197,6 +198,77 @@ fn hunt(world: &mut GameLogic) {
         ScriptActionType::TeamHunt,
         Parameter::with_string(ParameterType::Team, "HuntTeam".into()),
     );
+}
+
+#[test]
+fn team_attack_orders_only_spawned_slaves_without_free_will() {
+    use generals_main::game_logic::Weapon;
+    use generals_main::save_load::snapshot::capture_lifecycle_tail;
+
+    fn setup(path: &std::path::Path) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+        let (mut game, _, _, _) = world(path);
+        game.templates
+            .get_mut("SpawnAttacker")
+            .unwrap()
+            .set_primary_weapon(Weapon {
+                damage: 10.0,
+                range: 200.0,
+                ..Weapon::default()
+            });
+        let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
+        enemy.alliance_team = 2;
+        game.add_player(enemy);
+        let target = game
+            .create_object_for_player("GroupUnit", 2, Vec3::new(100.0, 0.0, 40.0))
+            .unwrap();
+        game.host_object_mut(target).unwrap().name = "SpawnOrderTarget".into();
+        let mut children = Vec::new();
+        for name in ["LockedSpawn", "FreeSpawn"] {
+            let parent = game
+                .create_object_for_player(name, 1, Vec3::new(50.0, 0.0, 40.0))
+                .unwrap();
+            game.host_object_mut(parent).unwrap().team_instance_name = "HuntTeam".into();
+            game.activate_leftover_team_for_host_object(parent);
+            let roster = capture_lifecycle_tail(&game)
+                .unwrap()
+                .spawn_behavior_rosters
+                .unwrap();
+            let child = ObjectId(
+                roster
+                    .iter()
+                    .find(|entry| entry.producer_id == parent.0)
+                    .unwrap()
+                    .children[0]
+                    .child_id,
+            );
+            game.host_object_mut(child)
+                .unwrap()
+                .set_status_disabled_held(false);
+            children.push(child);
+        }
+        (game, target, children[0], children[1])
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let path = map_file(root.path());
+    let (mut owner, target, locked, free) = setup(&path);
+    let (peer, peer_target, peer_locked, peer_free) = setup(&path);
+    assert_eq!(
+        (target, locked, free),
+        (peer_target, peer_locked, peer_free)
+    );
+    run_action_with_parameters(
+        &mut owner,
+        ScriptActionType::TeamAttackNamed,
+        [
+            Parameter::with_string(ParameterType::Team, "HuntTeam".into()),
+            Parameter::with_string(ParameterType::Unit, "SpawnOrderTarget".into()),
+        ],
+    );
+    assert_eq!(owner.host_object(locked).unwrap().target, Some(target));
+    assert_eq!(owner.host_object(free).unwrap().target, None);
+    assert_eq!(peer.host_object(locked).unwrap().target, None);
+    assert_eq!(peer.host_object(free).unwrap().target, None);
 }
 
 #[test]
