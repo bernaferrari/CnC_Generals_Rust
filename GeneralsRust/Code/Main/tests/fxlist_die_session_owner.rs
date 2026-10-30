@@ -38,3 +38,101 @@ fn missing_session_death_fx_does_not_play_a_foreign_global_sound() {
             .all(|event| event.event_type != "ForeignDieSound")
     );
 }
+
+#[test]
+fn authored_object_fx_delivers_each_owned_sound_in_order() {
+    use game_client::display::view::View;
+    use game_client::effects::particle_manager::ParticleSystemManager;
+    use game_client::fx_list::{DisplayLightScene, FXListStore, FxExecution, FxInvocation};
+    use game_client::terrain::scorch_mesh::TerrainScorchBuffer;
+    use game_engine::common::audio::audio_event_rts::AudioEventInfo;
+    use game_engine::common::audio::game_audio::{
+        AudioLocalityRelationship, AudioLocalityResolver, AudioManager,
+    };
+    use game_engine::common::global_data::GlobalData;
+    use game_engine::common::random_value::RandomState;
+    use gamelogic::common::{Coord3D, Matrix3D};
+    use gamelogic::helpers::HostFxObjectPose;
+
+    struct Players;
+    impl AudioLocalityResolver for Players {
+        fn get_local_player_index(&self) -> Option<i32> {
+            Some(0)
+        }
+        fn is_player_active(&self, _: i32) -> bool {
+            true
+        }
+        fn player_exists(&self, _: i32) -> bool {
+            true
+        }
+        fn has_default_team(&self, _: i32) -> bool {
+            true
+        }
+        fn get_relationship_to_local_team(&self, _: i32, _: i32) -> AudioLocalityRelationship {
+            AudioLocalityRelationship::Allies
+        }
+    }
+    let mut catalog = FXListStore::new();
+    catalog.apply_source("FXList FX_DeathOwned\n Sound\n Name = DeathFirst\n End\n Sound\n Name = DeathSecond\n End\nEnd\n").unwrap();
+    let mut audio = AudioManager::new();
+    audio.init();
+    for name in ["DeathFirst", "DeathSecond"] {
+        audio.register_audio_event_info(AudioEventInfo {
+            audio_name: name.into(),
+            sounds: vec![format!("{name}.wav")],
+            ..Default::default()
+        });
+    }
+    let mut particles = ParticleSystemManager::new();
+    let mut logic_random = RandomState::default();
+    let mut audio_random = RandomState::default();
+    let mut client_random = RandomState::default();
+    let mut view = View::new();
+    let rules = GlobalData::default();
+    let mut scorches = TerrainScorchBuffer::new();
+    let mut lights = DisplayLightScene::default();
+    let mut ground = |_| Some(0.0);
+    let mut execution = FxExecution {
+        catalog: &catalog,
+        particles: &mut particles,
+        audio: &mut audio,
+        audio_locality: &Players,
+        logic_random: &mut logic_random,
+        audio_random: &mut audio_random,
+        client_random: &mut client_random,
+        ground_height: &mut ground,
+        view: &mut view,
+        rules: &rules,
+        scorches: &mut scorches,
+        lights: &mut lights,
+        drawables: None,
+        frame: 10,
+    };
+    let pose = |id, x| HostFxObjectPose {
+        id,
+        position: Coord3D::new(x, 0.0, 0.0),
+        transform: Matrix3D::IDENTITY,
+        player_index: 0,
+        bounding_circle_radius: 1.0,
+        is_shrouded: false,
+    };
+    execution
+        .execute_named(
+            "FX_DeathOwned",
+            &FxInvocation::on_object(Some(pose(7, 1.0)), Some(pose(8, 2.0))),
+        )
+        .unwrap();
+    let mut shrouded = pose(7, 1.0);
+    shrouded.is_shrouded = true;
+    execution
+        .execute_named(
+            "FX_DeathOwned",
+            &FxInvocation::on_object(Some(shrouded), Some(pose(8, 2.0))),
+        )
+        .unwrap();
+    let sounds: Vec<_> = audio
+        .pending_play_events()
+        .map(|event| event.get_event_name().to_owned())
+        .collect();
+    assert_eq!(sounds, ["DeathFirst", "DeathSecond"]);
+}
