@@ -54,6 +54,9 @@ fn make_world(path: &std::path::Path, contain_kind: &str) -> (GameLogic, ObjectI
         "overlord" => {
             "Behavior = OverlordContain OverlordTag\n Slots = 1\n ContainMax = 1\n AllowInsideKindOf = INFANTRY\n End\n"
         }
+        "helix" => {
+            "Behavior = HelixContain HelixTag\n Slots = 2\n ContainMax = 2\n AllowInsideKindOf = INFANTRY\n End\n"
+        }
         _ => {
             "Behavior = TransportContain TransportTag\n Slots = 1\n ContainMax = 1\n AllowInsideKindOf = INFANTRY\n End\n"
         }
@@ -73,11 +76,17 @@ fn make_world(path: &std::path::Path, contain_kind: &str) -> (GameLogic, ObjectI
     let rider = world
         .create_object_for_player("OwnerRider", 42, Vec3::new(81.0, 0.0, 80.0))
         .unwrap();
-    if contain_kind == "overlord" {
+    if contain_kind == "overlord" || contain_kind == "helix" {
         // Overlord riders are portable add-ons, not normal Enter passengers.
         // Install the reciprocal roster explicitly to exercise the script
         // callback without pretending infantry can enter the bare hull.
         world.host_object_mut(bike).unwrap().occupants.push(rider);
+        if contain_kind == "helix" {
+            world
+                .host_object_mut(bike)
+                .unwrap()
+                .overlord_portable_occupant = Some(rider);
+        }
         world.host_object_mut(rider).unwrap().contained_by = Some(bike);
         return (world, bike, rider);
     }
@@ -113,8 +122,62 @@ fn script_toggle_affects_rider_change_rider_not_transport_passenger() {
     let (mut first, bike, rider) = make_world(&path, "rider");
     let (mut peer, peer_bike, passenger) = make_world(&path, "transport");
     let (mut overlord, overlord_id, overlord_rider) = make_world(&path, "overlord");
+    let (mut helix, helix_id, helix_rider) = make_world(&path, "helix");
     assert_eq!((bike, rider), (peer_bike, passenger));
     assert_eq!((bike, rider), (overlord_id, overlord_rider));
+    assert_eq!((bike, rider), (helix_id, helix_rider));
+    let helix_passenger = helix
+        .create_object_for_player("OwnerRider", 42, Vec3::ZERO)
+        .unwrap();
+    helix
+        .host_object_mut(helix_id)
+        .unwrap()
+        .occupants
+        .insert(0, helix_passenger);
+    helix.host_object_mut(helix_passenger).unwrap().contained_by = Some(helix_id);
+    run_toggle(&mut helix, ScriptActionType::PlayerDisableFactories);
+    assert!(
+        helix
+            .host_object(helix_rider)
+            .unwrap()
+            .status
+            .disabled_script_disabled
+    );
+    assert!(
+        !helix
+            .host_object(helix_passenger)
+            .unwrap()
+            .status
+            .disabled_script_disabled
+    );
+    run_toggle(&mut helix, ScriptActionType::PlayerEnableFactories);
+    assert!(
+        !helix
+            .host_object(helix_rider)
+            .unwrap()
+            .status
+            .disabled_script_disabled
+    );
+    // An ordinary passenger is not a substitute for a missing portable ID.
+    helix
+        .host_object_mut(helix_id)
+        .unwrap()
+        .overlord_portable_occupant = None;
+    run_toggle(&mut helix, ScriptActionType::PlayerDisableFactories);
+    assert!(
+        !helix
+            .host_object(helix_passenger)
+            .unwrap()
+            .status
+            .disabled_script_disabled
+    );
+    assert!(
+        !helix
+            .host_object(helix_rider)
+            .unwrap()
+            .status
+            .disabled_script_disabled
+    );
     run_toggle(&mut overlord, ScriptActionType::PlayerDisableFactories);
     assert!(
         overlord

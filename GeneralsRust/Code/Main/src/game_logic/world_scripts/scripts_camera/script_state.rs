@@ -1295,10 +1295,8 @@ impl GameLogic {
                 .first()
                 .copied()
         };
-        // OpenContain's default friend_getRider returns NULL even when it has
-        // passengers. RiderChange and Overlord expose their first list member
-        // as a rider; a generic transport does not.
-        let rider = self.host_object(id).and_then(|parent| {
+        // Helix identifies its portable structure separately from passengers.
+        let rider_id_for = |parent: &Object| {
             use gamelogic::contain_module_overrides::ContainModuleDataKind;
             let receiving = parent.thing().template.receiving_client_template.as_ref()?;
             let mut contains = receiving
@@ -1307,15 +1305,20 @@ impl GameLogic {
                 .filter_map(|module| ContainModuleDataKind::from_module_data(module.data.as_ref()));
             // Multiple contain interfaces are invalid in C++ and cannot be
             // safely selected through a partial host metadata projection.
-            if !matches!(
-                contains.next(),
-                Some(ContainModuleDataKind::RiderChange(_) | ContainModuleDataKind::Overlord(_))
-            )
-                || contains.next().is_some()
-            {
+            let kind = contains.next()?;
+            if contains.next().is_some() {
                 return None;
             }
-            let rider_id = first_contained(parent)?;
+            match kind {
+                ContainModuleDataKind::RiderChange(_) | ContainModuleDataKind::Overlord(_) => {
+                    first_contained(parent)
+                }
+                ContainModuleDataKind::Helix(_) => parent.overlord_portable_occupant,
+                _ => None,
+            }
+        };
+        let rider = self.host_object(id).and_then(|parent| {
+            let rider_id = rider_id_for(parent)?;
             self.host_object(rider_id)
                 .filter(|rider| rider.contained_by == Some(id))
                 .map(|rider| {
@@ -1329,7 +1332,7 @@ impl GameLogic {
             let matches_births = self.host_object(id).is_some_and(|parent| {
                 birth.ptr_eq(&std::sync::Arc::downgrade(
                     &parent.visual_draw_identity_token,
-                )) && first_contained(parent) == Some(rider_id)
+                )) && rider_id_for(parent) == Some(rider_id)
                     && self.host_object(rider_id).is_some_and(|rider| {
                         rider.contained_by == Some(id)
                             && rider_birth.ptr_eq(&std::sync::Arc::downgrade(
