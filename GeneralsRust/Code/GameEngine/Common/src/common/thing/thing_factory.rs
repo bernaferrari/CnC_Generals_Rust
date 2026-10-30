@@ -82,6 +82,27 @@ pub struct ThingFactory {
     first_template: Option<Arc<ThingTemplate>>,
     next_template_id: UnsignedShort,
     template_hash_map: ThingTemplateHashMap,
+    detached_view: Option<Arc<DetachedTemplateView>>,
+}
+
+/// Immutable namespace shared by a detached factory's template readers.
+pub(super) struct DetachedTemplateView {
+    first_template: Option<Arc<ThingTemplate>>,
+    templates: ThingTemplateHashMap,
+}
+
+impl std::fmt::Debug for DetachedTemplateView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DetachedTemplateView")
+            .field("count", &self.templates.len())
+            .finish()
+    }
+}
+
+impl DetachedTemplateView {
+    pub(super) fn find(&self, name: &AsciiString) -> Option<Arc<ThingTemplate>> {
+        self.templates.get(name).cloned()
+    }
 }
 
 /// Object creator callback to bridge Common ThingFactory -> GameLogic.
@@ -519,6 +540,7 @@ impl ThingFactory {
             first_template: None,
             next_template_id: 1, // Not zero!
             template_hash_map: HashMap::with_capacity(TEMPLATE_HASH_SIZE),
+            detached_view: None,
         }
     }
 
@@ -529,47 +551,43 @@ impl ThingFactory {
         versions: impl IntoIterator<Item = &'a ThingTemplate>,
         next_template_id: UnsignedShort,
     ) -> Self {
-        use std::sync::{OnceLock, Weak};
         let sources = versions.into_iter().collect::<Vec<_>>();
-        // Each slot is initialized exactly once while the factory is private.
-        // Published templates may be shared across threads; weak links avoid a
-        // cycle when a reskin precedes its parent in the master list.
-        let mut identities: HashMap<String, Arc<OnceLock<Weak<ThingTemplate>>>> = HashMap::new();
-        for source in &sources {
-            if let Some(parent) = source.get_reskinned_from() {
-                identities.entry(parent.get_name().to_string()).or_default();
+        // The weak namespace reference exists before any template is built;
+        // it becomes usable only after this private construction is complete.
+        let owner = Arc::new_cyclic(|identity| {
+            let mut first_template = None;
+            let mut templates = ThingTemplateHashMap::with_capacity(TEMPLATE_HASH_SIZE);
+            for source in sources {
+                let mut template = ThingTemplate::new();
+                template.set_template_id(source.get_template_id());
+                template.set_template_name(source.get_name().clone());
+                template.copy_from(source);
+                template.set_next_template(first_template);
+                if let Some(parent) = source.get_reskinned_from() {
+                    template
+                        .set_detached_reskin_parent(identity.clone(), parent.get_name().clone());
+                }
+                let template = Arc::new(template);
+                if templates
+                    .insert(template.get_name().clone(), Arc::clone(&template))
+                    .is_some()
+                {
+                    panic!(
+                        "Duplicate Thing Template name found: {}",
+                        template.get_name()
+                    );
+                }
+                first_template = Some(template);
             }
-        }
+            DetachedTemplateView {
+                first_template,
+                templates,
+            }
+        });
         let mut view = Self::new();
-        for source in sources {
-            let mut template = ThingTemplate::new();
-            template.set_template_id(source.get_template_id());
-            template.set_template_name(source.get_name().clone());
-            template.copy_from(source);
-            template.set_next_template(view.first_template.clone());
-            if let Some(parent) = source.get_reskinned_from()
-                && let Some(identity) = identities.get(parent.get_name().as_str())
-            {
-                template.set_detached_reskin_parent(Arc::clone(identity));
-            }
-            let template = Arc::new(template);
-            if let Some(identity) = identities.get(template.get_name().as_str()) {
-                identity
-                    .set(Arc::downgrade(&template))
-                    .expect("unique template name");
-            }
-            if view
-                .template_hash_map
-                .insert(template.get_name().clone(), Arc::clone(&template))
-                .is_some()
-            {
-                panic!(
-                    "Duplicate Thing Template name found: {}",
-                    template.get_name()
-                );
-            }
-            view.first_template = Some(template);
-        }
+        view.first_template = owner.first_template.clone();
+        view.template_hash_map = owner.templates.clone();
+        view.detached_view = Some(owner);
         view.next_template_id = next_template_id;
         view
     }
@@ -909,6 +927,7 @@ impl ThingFactory {
         // Clear all templates
         self.first_template = None;
         self.template_hash_map.clear();
+        self.detached_view = None;
     }
 
     /// Implementation detail - create object
@@ -990,6 +1009,7 @@ impl SubsystemInterface for ThingFactory {
         // Clean up resources
         self.template_hash_map.clear();
         self.first_template = None;
+        self.detached_view = None;
         Ok(())
     }
 

@@ -2,6 +2,7 @@ use game_engine::common::ini::INILoadType;
 use game_engine::common::name_key_generator::NameKeyNamespace;
 use game_engine::common::thing::module_factory::ModuleFactory;
 use game_engine::common::thing::receiving_module_content::ReceivingModuleContent;
+use game_engine::common::thing::thing_template::ReceivingTemplateKind;
 
 fn owner() -> ReceivingModuleContent {
     let mut owner =
@@ -42,6 +43,30 @@ fn dropping_a_view_releases_its_parent_and_reskin() {
     };
     assert!(parent.upgrade().is_none());
     assert!(skin.upgrade().is_none());
+}
+
+#[test]
+fn admission_from_a_detached_reskin_retains_its_selected_parent() {
+    let content = owner();
+    let view = content.compatibility_template_view();
+    let parent = view.find_template("Parent", false).unwrap();
+    let skin = view.find_template("Skin", false).unwrap();
+    let mut modules = ModuleFactory::new_receiving(NameKeyNamespace::new());
+    let admitted = skin
+        .admit_named_receiving_module_source(
+            "AdmittedSkin",
+            &std::collections::HashMap::new(),
+            INILoadType::Overwrite,
+            ReceivingTemplateKind::Object,
+            &mut modules,
+        )
+        .unwrap();
+    assert_eq!(admitted.reskin_name(), Some("Parent"));
+    drop(view);
+    assert!(std::sync::Arc::ptr_eq(
+        &admitted.template().get_reskinned_from().unwrap(),
+        &parent
+    ));
 }
 
 #[test]

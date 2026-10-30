@@ -88,6 +88,13 @@ impl ThingTemplate {
             );
         }
         let mut template = self.clone();
+        if template.detached_reskin_parent.is_some() {
+            template.reskinned_from = Some(
+                self.get_reskinned_from()
+                    .ok_or("Receiving admission requires the detached reskin's owning view")?,
+            );
+            template.detached_reskin_parent = None;
+        }
         template.next_override = TemplateOverrideLink::Frozen;
         Ok(template)
     }
