@@ -7,6 +7,7 @@ use game_engine::common::random_value::RandomState;
 
 #[derive(Default)]
 pub(crate) struct HostFxState {
+    pub(super) baseline: Option<game_client::fx_list::FXListStore>,
     pub(super) catalog: Option<game_client::fx_list::FXListStore>,
 }
 
@@ -71,8 +72,49 @@ impl crate::game_logic::GameLogic {
     pub(crate) fn admit_fx_catalog(&mut self, catalog: game_client::fx_list::FXListStore) {
         self.session_view.fx.catalog = Some(catalog);
     }
+    pub(crate) fn fx_baseline(&self) -> Option<&game_client::fx_list::FXListStore> {
+        self.session_view.fx.baseline.as_ref()
+    }
+    /// Admit application FX definitions before this session creates objects.
+    pub fn admit_fx_source(&mut self, source: &str) -> Result<usize, String> {
+        if !self.objects.registered_is_empty() {
+            return Err("FX content admission requires an empty receiving world".into());
+        }
+        let mut catalog = self.fx_baseline().cloned().unwrap_or_default();
+        let count = catalog
+            .apply_source(source)
+            .map_err(|error| error.to_string())?;
+        self.admit_fx_baseline(catalog);
+        Ok(count)
+    }
+    /// Inspect ordered authored Sound nuggets in this session's effective list.
+    pub fn fx_list_sound_names(&self, name: &str) -> Vec<String> {
+        self.session_view
+            .fx
+            .catalog
+            .as_ref()
+            .map_or_else(Vec::new, |catalog| catalog.sound_names(name))
+    }
+    pub(crate) fn admit_fx_baseline(&mut self, baseline: game_client::fx_list::FXListStore) {
+        self.session_view.fx.catalog = Some(baseline.clone());
+        self.session_view.fx.baseline = Some(baseline);
+    }
+    pub(crate) fn admit_fx_companion_sources(&mut self, sources: &[String]) -> Result<(), String> {
+        let mut catalog = self.session_view.fx.baseline.clone().unwrap_or_default();
+        for source in sources {
+            catalog
+                .apply_source(source)
+                .map_err(|error| error.to_string())?;
+        }
+        self.session_view.fx.catalog = Some(catalog);
+        Ok(())
+    }
+    pub(crate) fn reset_fx_definitions(&mut self) {
+        self.session_view.fx.catalog = self.session_view.fx.baseline.clone();
+    }
+    #[cfg(test)]
     pub(crate) fn admit_fx_definitions(&mut self) {
-        // Explicit map/content setup only, never called by a runtime lookup.
+        // Compatibility for older test fixtures; native startup admits an owner.
         let catalog = game_client::fx_list::get_fx_list_store().clone();
         self.admit_fx_catalog(catalog);
     }

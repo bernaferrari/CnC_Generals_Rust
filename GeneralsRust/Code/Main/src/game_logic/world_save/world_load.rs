@@ -533,7 +533,10 @@ impl GameLogic {
                     return Ok(false);
                 }
                 #[cfg(feature = "game_client")]
-                self.admit_fx_definitions();
+                if let Err(error) = self.admit_fx_companion_sources(&weapon_overrides) {
+                    log::error!("Cannot admit receiving map FX definitions: {error}");
+                    return Ok(false);
+                }
                 if let Some(chunks) = super::script_loader::inspect_map_chunks_from_chunky(&chunky)
                 {
                     log::debug!(

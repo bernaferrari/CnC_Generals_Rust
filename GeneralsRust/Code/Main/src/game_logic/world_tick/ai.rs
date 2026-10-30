@@ -567,7 +567,11 @@ impl GameLogic {
                             None,
                             presentation_effects,
                         ) {
-                            for sound in crate::game_logic::sound_names_for_fx_list(&fx) {
+                            #[cfg(feature = "game_client")]
+                            let sounds = self.fx_list_sound_names(&fx);
+                            #[cfg(not(feature = "game_client"))]
+                            let sounds = crate::game_logic::sound_names_for_fx_list(&fx);
+                            for sound in sounds {
                                 self.queue_audio_event(
                                     AudioEventRequest::new(&sound)
                                         .with_object(object_id)
@@ -704,6 +708,9 @@ impl GameLogic {
                         death_killer,
                         presentation_effects,
                     ) {
+                        #[cfg(feature = "game_client")]
+                        let mut sounds = self.fx_list_sound_names(&fx);
+                        #[cfg(not(feature = "game_client"))]
                         let mut sounds = crate::game_logic::sound_names_for_fx_list(&fx);
                         if sounds.is_empty() {
                             sounds = heli_fx_fallback_sounds(&fx);

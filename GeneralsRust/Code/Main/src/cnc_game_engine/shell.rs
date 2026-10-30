@@ -1370,6 +1370,9 @@ impl CnCGameEngine {
                     {
                         for fxl_path in ["Data/INI/Default/FXList.ini", "Data/INI/FXList.ini"] {
                             if let Some(content) = extract_ini_text_from_archives(fxl_path)? {
+                                #[cfg(feature = "game_client")]
+                                simulation_rules.admit_fx_ini_text(&content)
+                                    .map_err(|error| format!("Cannot admit FX definitions from {fxl_path}: {error}"))?;
                                 let mut ini = game_engine::common::ini::INI::new();
                                 match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                     Ok(()) => info!("Loaded FX list definitions from {}", fxl_path),

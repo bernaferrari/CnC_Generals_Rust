@@ -458,6 +458,7 @@ End
         .unwrap();
     let mut world = GameLogic::new();
     world.admit_damage_fx_source(&damage_fx_source).unwrap();
+    world.admit_fx_source(&damage_fx_source).unwrap();
     if let Some(throttle) = owned_throttle_ms {
         world
             .admit_damage_fx_source(&format!(

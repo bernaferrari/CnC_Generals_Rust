@@ -38,6 +38,8 @@ fn stage_decoded(
             combat_bonus_baseline: source.combat_bonus_baseline(),
             body_damage_baseline: source.body_damage_baseline(),
             damage_fx_base: &source.damage_fx_base,
+            #[cfg(feature = "game_client")]
+            fx_baseline: source.fx_baseline(),
             power_bar_baseline: source.power_bar_baseline(),
             body_auto_particle_baseline: source.body_auto_particle_baseline(),
             session_sell_percentage: source.session_sell_percentage,

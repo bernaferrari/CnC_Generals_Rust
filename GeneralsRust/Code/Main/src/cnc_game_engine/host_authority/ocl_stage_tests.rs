@@ -277,6 +277,8 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                         combat_bonus_baseline: source.combat_bonus_baseline(),
                         body_damage_baseline: source.body_damage_baseline(),
                         damage_fx_base: &source.damage_fx_base,
+                        #[cfg(feature = "game_client")]
+                        fx_baseline: source.fx_baseline(),
                         power_bar_baseline: source.power_bar_baseline(),
                         body_auto_particle_baseline: source.body_auto_particle_baseline(),
                         session_sell_percentage: 1.0,
@@ -355,6 +357,8 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                             combat_bonus_baseline: source.combat_bonus_baseline(),
                             body_damage_baseline: source.body_damage_baseline(),
                             damage_fx_base: &source.damage_fx_base,
+                            #[cfg(feature = "game_client")]
+                            fx_baseline: source.fx_baseline(),
                             power_bar_baseline: source.power_bar_baseline(),
                             body_auto_particle_baseline: source.body_auto_particle_baseline(),
                             session_sell_percentage: 1.0,
@@ -439,6 +443,8 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                             combat_bonus_baseline: source.combat_bonus_baseline(),
                             body_damage_baseline: source.body_damage_baseline(),
                             damage_fx_base: &source.damage_fx_base,
+                            #[cfg(feature = "game_client")]
+                            fx_baseline: source.fx_baseline(),
                             power_bar_baseline: source.power_bar_baseline(),
                             body_auto_particle_baseline: source.body_auto_particle_baseline(),
                             session_sell_percentage: 1.0,

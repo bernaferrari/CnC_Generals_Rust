@@ -747,14 +747,8 @@ impl DamageFXStore {
                         Self::parse_entry(ini).map_err(|_| INIError::InvalidData)?;
                     candidate.add_damage_fx(name, definition);
                     count += 1;
-                } else if tokens.first().is_some_and(|token| {
-                    ["Object", "ObjectReskin", "ChildObject"]
-                        .iter()
-                        .any(|kind| token.eq_ignore_ascii_case(kind))
-                }) {
-                    let _ = crate::common::thing::thing_factory::consume_ini_properties(ini);
                 } else if !tokens.is_empty() {
-                    super::ini::consume_block_with_nesting(ini)?;
+                    ini.skip_current_definition()?;
                 }
             }
             Ok(count)
