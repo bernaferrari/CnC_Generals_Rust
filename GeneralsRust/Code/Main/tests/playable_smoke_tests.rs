@@ -43,7 +43,54 @@ fn template(
     template
 }
 
-fn install_smoke_templates(game_logic: &mut GameLogic) {
+fn install_smoke_templates(game_logic: &mut GameLogic) -> TempDir {
+    let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+    locomotors.apply_source("Locomotor SmokeDozerLoco\n Surfaces = GROUND\n Speed = 60\n Acceleration = 60\n TurnRate = 120\n Appearance = FOUR_WHEELS\nEnd\n").unwrap();
+    game_logic.admit_locomotor_definitions(locomotors).unwrap();
+    let mut object_source = String::from(
+        "Object SmokeDozer\n KindOf = VEHICLE DOZER HARVESTER SELECTABLE\n VisionRange = 500\n CommandSet = SmokeDozerCommands\n Locomotor = SET_NORMAL SmokeDozerLoco\n Body = ActiveBody SmokeBody\n MaxHealth = 300\n InitialHealth = 300\n End\n Behavior = PhysicsBehavior SmokePhysics\n End\n Behavior = WorkerAIUpdate SmokeAI\n End\nEnd\n",
+    );
+    for (name, kinds, health, cost) in [
+        (
+            "SmokeCommandCenter",
+            "STRUCTURE SELECTABLE COMMANDCENTER MP_COUNT_FOR_VICTORY",
+            2000,
+            2000,
+        ),
+        ("SmokePowerPlant", "STRUCTURE SELECTABLE", 800, 800),
+        ("SmokeBarracks", "STRUCTURE SELECTABLE", 1000, 500),
+        ("SmokeRanger", "INFANTRY SELECTABLE", 120, 100),
+        (
+            "SmokeSupplyDock",
+            "STRUCTURE SELECTABLE SUPPLY_SOURCE",
+            1000,
+            0,
+        ),
+    ] {
+        let weapon_set = if name == "SmokeRanger" {
+            " WeaponSet\n Conditions = NONE\n Weapon = PRIMARY SmokeRangerGun\n End\n Behavior = AIUpdateInterface SmokeAI\n End\n"
+        } else if name == "SmokeCommandCenter" {
+            " Behavior = AIUpdateInterface SmokeStructureAI\n End\n Behavior = SpecialAbility SmokeRadarPower\n SpecialPowerTemplate = SpecialPowerRadarVanScan\n End\n"
+        } else if name == "SmokeSupplyDock" {
+            " Behavior = SupplyWarehouseDockUpdate SmokeDock\n StartingBoxes = 400\n End\n"
+        } else {
+            ""
+        };
+        object_source.push_str(&format!("Object {name}\n KindOf = {kinds}\n VisionRange = 500\n BuildCost = {cost}\n BuildTime = 0.1\n Body = ActiveBody SmokeBody\n MaxHealth = {health}\n InitialHealth = {health}\n End\n{weapon_set}End\n"));
+    }
+    game_logic
+        .admit_object_ini_sources([("SmokeObjects.ini".into(), object_source)])
+        .unwrap();
+    let mut ranger_gun = gamelogic::weapon::WeaponTemplate::new("SmokeRangerGun".into());
+    ranger_gun.primary_damage = 60.0;
+    ranger_gun.attack_range = 200.0;
+    ranger_gun.anti_mask = gamelogic::weapon::WeaponAntiMask::new(
+        gamelogic::weapon::WeaponAntiMask::GROUND
+            | gamelogic::weapon::WeaponAntiMask::AIRBORNE_VEHICLE,
+    );
+    game_logic
+        .admit_receiving_weapon_snapshot(vec![("SmokeRangerGun".into(), ranger_gun)])
+        .unwrap();
     let templates = [
         template(
             "SmokeCommandCenter",
@@ -102,12 +149,41 @@ fn install_smoke_templates(game_logic: &mut GameLogic) {
         ),
     ];
 
-    for mut template in templates {
+    for template in templates {
+        let admitted = game_logic.templates.get_mut(&template.name).unwrap();
+        admitted.kind_of = template.kind_of;
+        admitted.max_health = template.max_health;
+        admitted.build_cost = template.build_cost;
+        admitted.build_time = template.build_time;
         if template.name == "SmokeRanger" {
-            template.set_primary_weapon(smoke_ranger_weapon());
+            admitted.set_primary_weapon(smoke_ranger_weapon());
         }
-        game_logic.templates.insert(template.name.clone(), template);
     }
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("SmokeTerrain.map");
+    let mut out = game_engine::common::system::DataChunkOutput::new();
+    out.open_data_chunk("HeightMapData", 3);
+    for value in [101, 101, 1, 10201] {
+        out.write_int(value);
+    }
+    for _ in 0..10201 {
+        out.write_byte(0);
+    }
+    out.close_data_chunk();
+    out.open_data_chunk("ObjectsList", 3);
+    out.close_data_chunk();
+    out.open_data_chunk("SidesList", 2);
+    out.write_int(0);
+    out.write_int(0);
+    out.close_data_chunk();
+    std::fs::write(&map, out.into_ckmp_bytes()).unwrap();
+    std::fs::write(directory.path().join("Map.ini"), "SpecialPower SpecialPowerRadarVanScan\n Enum = SPECIAL_RADAR_VAN_SCAN\n ReloadTime = 1000\nEnd\nCommandButton SmokeBuildBarracks\n Command = DOZER_CONSTRUCT\n Object = SmokeBarracks\nEnd\nCommandSet SmokeDozerCommands\n 1 = SmokeBuildBarracks\nEnd\n").unwrap();
+    assert!(
+        game_logic.load_map(map.to_str().unwrap()),
+        "admit smoke terrain"
+    );
+    game_logic.clear_all_players();
+    directory
 }
 
 fn smoke_ranger_weapon() -> Weapon {
@@ -135,14 +211,18 @@ fn assert_ranger_admission(game_logic: &GameLogic, ranger_id: ObjectId) {
         .get_object(ranger_id)
         .expect("produced ranger exists");
     assert_eq!(ranger.owner_player_id, Some(0));
-    assert_eq!(ranger.weapon_name_for_slot(0), None);
+    assert_eq!(ranger.weapon_name_for_slot(0), Some("SmokeRangerGun"));
     let weapon = ranger.weapon.as_ref().expect("authored weapon is admitted");
     let expected = smoke_ranger_weapon();
     assert_eq!(
         serde_json::to_value(weapon).unwrap(),
         serde_json::to_value(&expected).unwrap()
     );
-    assert_eq!(weapon.suspend_fx_frame, expected.suspend_fx_frame);
+    assert_eq!(
+        weapon.suspend_fx_frame,
+        game_logic.get_frame().wrapping_sub(1),
+        "the authored zero-delay deadline is the processed installation frame"
+    );
     assert_eq!(ranger.health.current, 120.0);
     assert_eq!(ranger.fire_intent_count, 0);
     assert_eq!(ranger.weapon_discharge_marker().sequence, 0);
@@ -245,7 +325,7 @@ fn run_basic_faction_flow(human_team: Team) {
     let mut game_logic = GameLogic::new();
     game_logic.start_new_game(GameMode::Skirmish);
     game_logic.clear_all_players();
-    install_smoke_templates(&mut game_logic);
+    let _map = install_smoke_templates(&mut game_logic);
     let mut human = Player::new(0, human_team, human_team.get_name(), true);
     let mut enemy = Player::new(1, enemy_team, enemy_team.get_name(), false);
     human.alliance_team = 0;
@@ -254,19 +334,31 @@ fn run_basic_faction_flow(human_team: Team) {
     game_logic.add_player(enemy);
 
     let _command_center = game_logic
-        .create_object("SmokeCommandCenter", human_team, Vec3::ZERO)
+        .create_object(
+            "SmokeCommandCenter",
+            human_team,
+            Vec3::new(200.0, 0.0, 200.0),
+        )
         .expect("human command center should spawn");
     let power_plant = game_logic
-        .create_object("SmokePowerPlant", human_team, Vec3::new(-24.0, 0.0, 0.0))
+        .create_object("SmokePowerPlant", human_team, Vec3::new(176.0, 0.0, 200.0))
         .expect("human power plant should spawn");
     let dozer = game_logic
-        .create_object("SmokeDozer", human_team, Vec3::new(70.0, 0.0, 0.0))
+        .create_object("SmokeDozer", human_team, Vec3::new(270.0, 0.0, 200.0))
         .expect("human dozer should spawn");
     let supply_dock = game_logic
-        .create_object("SmokeSupplyDock", Team::Neutral, Vec3::new(40.0, 0.0, 0.0))
+        .create_object(
+            "SmokeSupplyDock",
+            Team::Neutral,
+            Vec3::new(240.0, 0.0, 200.0),
+        )
         .expect("neutral supply dock should spawn");
     let enemy_command_center = game_logic
-        .create_object("SmokeCommandCenter", enemy_team, Vec3::new(160.0, 0.0, 0.0))
+        .create_object(
+            "SmokeCommandCenter",
+            enemy_team,
+            Vec3::new(360.0, 0.0, 200.0),
+        )
         .expect("enemy command center should spawn");
     assert_smoke_enemies(&game_logic, enemy_command_center);
     assert_eq!(
@@ -278,12 +370,13 @@ fn run_basic_faction_flow(human_team: Team) {
         2000.0
     );
 
+    game_logic.update();
     game_logic.queue_command(command(
         10,
         0,
         CommandType::DozerConstruct {
             template_name: "SmokeBarracks".to_string(),
-            location: Vec3::new(80.0, 0.0, 0.0),
+            location: Vec3::new(280.0, 0.0, 200.0),
             orientation: 0.0,
         },
         vec![dozer],
@@ -331,11 +424,17 @@ fn run_basic_faction_flow(human_team: Team) {
         vec![dozer],
     ));
     game_logic.process_commands();
+    let reached = run_until(&mut game_logic, 200, |world| {
+        world
+            .get_object(dozer)
+            .is_some_and(|object| object.ai_state() == AIState::Gathering)
+    });
+    assert!(reached, "worker must reach the supply gathering state");
     let dozer_state = game_logic
         .get_object(dozer)
         .expect("dozer should exist after gather command");
     assert_eq!(
-        dozer_state.ai_state,
+        dozer_state.ai_state(),
         AIState::Gathering,
         "{} worker should accept gather commands from player slot 0",
         human_team.get_name()
@@ -448,34 +547,62 @@ fn run_basic_faction_flow(human_team: Team) {
 
 #[test]
 fn mini_skirmish_playable_flow_smoke() {
+    use game_engine::common::ini::INILoadType;
+    use game_engine::common::rts::player_template::PlayerTemplateStore;
+    use generals_main::skirmish_config::{
+        SkirmishPlayerTemplateSelection, apply_skirmish_config, golden_skirmish_config,
+    };
     let mut game_logic = GameLogic::new();
     game_logic.start_new_game(GameMode::Skirmish);
     game_logic.clear_all_players();
-    install_smoke_templates(&mut game_logic);
-    let mut human = Player::new(0, Team::USA, "USA", true);
-    let mut enemy = Player::new(1, Team::China, "China", false);
-    human.alliance_team = 0;
-    enemy.alliance_team = 1;
-    game_logic.add_player(human);
-    game_logic.add_player(enemy);
+    let _map = install_smoke_templates(&mut game_logic);
+    let mut definitions = PlayerTemplateStore::new_owned();
+    definitions.apply_source("PlayerTemplate FactionAmerica\n Side = America\n BaseSide = America\n StartingBuilding = SmokeCommandCenter\nEnd\nPlayerTemplate FactionChina\n Side = China\n BaseSide = China\n StartingBuilding = SmokeCommandCenter\nEnd\n", INILoadType::Overwrite).unwrap();
+    let america_index = definitions.find_template_index("FactionAmerica").unwrap() as i32;
+    let china_index = definitions.find_template_index("FactionChina").unwrap() as i32;
+    let loaded_definitions = definitions.clone();
+    game_logic
+        .admit_player_template_definitions(definitions)
+        .unwrap();
+    let map_path = _map.path().join("SmokeTerrain.map");
+    let mut config = golden_skirmish_config(map_path.to_str().unwrap());
+    config.slots[1].faction = "China".into();
+    config.slots[0].player_template = SkirmishPlayerTemplateSelection::Exact {
+        template_name: "FactionAmerica".into(),
+        template_index: america_index,
+    };
+    config.slots[1].player_template = SkirmishPlayerTemplateSelection::Exact {
+        template_name: "FactionChina".into(),
+        template_index: china_index,
+    };
+    apply_skirmish_config(&mut game_logic, &config).unwrap();
+    assert!(game_logic.load_map(map_path.to_str().unwrap()));
 
     let command_center = game_logic
-        .create_object("SmokeCommandCenter", Team::USA, Vec3::ZERO)
+        .create_object(
+            "SmokeCommandCenter",
+            Team::USA,
+            Vec3::new(200.0, 0.0, 200.0),
+        )
         .expect("USA command center should spawn");
     let _power_plant = game_logic
-        .create_object("SmokePowerPlant", Team::USA, Vec3::new(-24.0, 0.0, 0.0))
+        .create_object("SmokePowerPlant", Team::USA, Vec3::new(176.0, 0.0, 200.0))
         .expect("USA power plant should spawn");
     let dozer = game_logic
-        .create_object("SmokeDozer", Team::USA, Vec3::new(70.0, 0.0, 0.0))
+        .create_object("SmokeDozer", Team::USA, Vec3::new(270.0, 0.0, 200.0))
         .expect("USA dozer should spawn");
     let supply_dock = game_logic
-        .create_object("SmokeSupplyDock", Team::Neutral, Vec3::new(40.0, 0.0, 0.0))
+        .create_object(
+            "SmokeSupplyDock",
+            Team::Neutral,
+            Vec3::new(240.0, 0.0, 200.0),
+        )
         .expect("neutral supply dock should spawn");
     let enemy_command_center = game_logic
         .create_object(
             "SmokeCommandCenter",
             Team::China,
-            Vec3::new(160.0, 0.0, 0.0),
+            Vec3::new(360.0, 0.0, 200.0),
         )
         .expect("China command center should spawn");
     assert_smoke_enemies(&game_logic, enemy_command_center);
@@ -494,12 +621,13 @@ fn mini_skirmish_playable_flow_smoke() {
         .resources
         .supplies;
 
+    game_logic.update();
     game_logic.queue_command(command(
         1,
         0,
         CommandType::DozerConstruct {
             template_name: "SmokeBarracks".to_string(),
-            location: Vec3::new(80.0, 0.0, 0.0),
+            location: Vec3::new(280.0, 0.0, 200.0),
             orientation: 0.0,
         },
         vec![dozer],
@@ -597,18 +725,25 @@ fn mini_skirmish_playable_flow_smoke() {
         vec![dozer],
     ));
     game_logic.process_commands();
+    assert!(
+        run_until(&mut game_logic, 200, |world| world
+            .get_object(dozer)
+            .is_some_and(|object| object.ai_state() == AIState::Gathering)),
+        "worker must reach the supply gathering state"
+    );
     let dozer_state = game_logic
         .get_object(dozer)
         .expect("dozer should exist after gather command");
-    assert_eq!(dozer_state.ai_state, AIState::Gathering);
+    assert_eq!(dozer_state.ai_state(), AIState::Gathering);
     assert_eq!(dozer_state.target, Some(supply_dock));
 
+    assert!(game_logic.is_special_power_ready_for(command_center, &SpecialPowerType::RadarScan));
     game_logic.queue_command(command(
         4,
         0,
         CommandType::DoSpecialPower {
             power_type: SpecialPowerType::RadarScan,
-            target: PowerTarget::None,
+            target: PowerTarget::Location(Vec3::new(300.0, 0.0, 200.0)),
         },
         vec![command_center],
     ));
@@ -616,7 +751,20 @@ fn mini_skirmish_playable_flow_smoke() {
     let command_center_state = game_logic
         .get_object(command_center)
         .expect("command center should exist after special power command");
-    assert_eq!(command_center_state.ai_state, AIState::SpecialAbility);
+    assert!(
+        command_center_state
+            .thing()
+            .template
+            .special_power_module_for_command(&SpecialPowerType::RadarScan)
+            .is_some(),
+        "command center must carry the authored radar power"
+    );
+    assert_eq!(
+        game_logic.radar_scans().activations(),
+        1,
+        "radar scan must activate through the command"
+    );
+    assert_eq!(command_center_state.ai_state(), AIState::SpecialAbility);
     assert!(!command_center_state.special_power_ready);
 
     let save_dir = TempDir::new().expect("smoke save temp dir should be created");
@@ -630,11 +778,19 @@ fn mini_skirmish_playable_flow_smoke() {
         .expect("mini skirmish should save");
 
     let mut loaded_game_logic = GameLogic::new();
-    install_smoke_templates(&mut loaded_game_logic);
+    let _loaded_map = install_smoke_templates(&mut loaded_game_logic);
+    loaded_game_logic
+        .admit_player_template_definitions(loaded_definitions)
+        .unwrap();
+    apply_skirmish_config(&mut loaded_game_logic, &config).unwrap();
+    assert!(loaded_game_logic.load_map(map_path.to_str().unwrap()));
     let loaded_info = save_manager
         .load_game("mini_skirmish_smoke", &mut loaded_game_logic)
         .expect("mini skirmish should load");
-    assert_eq!(loaded_info.display_name, save_info.display_name);
+    // The native header stores one description; the reader exposes it as both
+    // the description and display label.
+    assert_eq!(loaded_info.display_name, save_info.description);
+    assert_eq!(loaded_info.description, save_info.description);
     assert_smoke_enemies(&loaded_game_logic, enemy_command_center);
     assert_eq!(
         loaded_game_logic
@@ -654,7 +810,7 @@ fn mini_skirmish_playable_flow_smoke() {
     let loaded_command_center = loaded_game_logic
         .get_object(command_center)
         .expect("loaded command center should exist");
-    assert_eq!(loaded_command_center.ai_state, AIState::SpecialAbility);
+    assert_eq!(loaded_command_center.ai_state(), AIState::SpecialAbility);
     assert!(!loaded_command_center.special_power_ready);
     assert!(loaded_command_center.special_power_cooldown_remaining > 0.0);
     assert_eq!(
@@ -757,20 +913,26 @@ fn dozer_construct_places_barracks_under_construction() {
     let mut game_logic = GameLogic::new();
     game_logic.start_new_game(GameMode::Skirmish);
     game_logic.clear_all_players();
-    install_smoke_templates(&mut game_logic);
+    let _map = install_smoke_templates(&mut game_logic);
     game_logic.add_player(Player::new(0, Team::USA, "USA", true));
     let dozer = game_logic
-        .create_object("SmokeDozer", Team::USA, Vec3::new(70.0, 0.0, 0.0))
+        .create_object("SmokeDozer", Team::USA, Vec3::new(70.0, 0.0, 100.0))
         .expect("dozer");
     let cc = game_logic
         .create_object("SmokeCommandCenter", Team::USA, Vec3::ZERO)
         .expect("cc");
     let _ = cc;
-    let loc = Vec3::new(80.0, 0.0, 0.0);
+    game_logic.update();
+    let loc = Vec3::new(80.0, 0.0, 100.0);
     let code =
         game_logic.legal_build_code_at_for_builder(Team::USA, loc, "SmokeBarracks", Some(dozer));
     assert_eq!(code, LBC_OK, "legal build code {code}");
     let d = game_logic.get_object(dozer).expect("dozer obj");
+    assert_eq!(
+        d.owner_player_id,
+        Some(0),
+        "constructor must have its receiving player"
+    );
     assert!(d.can_construct(), "dozer must can_construct");
     assert!(d.is_worker());
     assert!(d.can_move());
@@ -802,16 +964,40 @@ fn dozer_construct_places_barracks_under_construction() {
         .find(|o| o.template_name == "SmokeBarracks")
         .map(|o| o.id)
         .expect("placed barracks id");
+    assert_eq!(
+        game_logic.get_object(dozer).unwrap().dozer_tasks.requests[0].target,
+        Some(barracks_id),
+        "DozerConstruct queues the admitted scaffold"
+    );
+    assert!(
+        run_until(&mut game_logic, 10, |world| world
+            .get_object(dozer)
+            .is_some_and(|object| object.target == Some(barracks_id))),
+        "dozer must enter its queued construction task"
+    );
     let dozer_state = game_logic.get_object(dozer).expect("dozer after construct");
     assert_eq!(
         dozer_state.target,
         Some(barracks_id),
         "DozerConstruct must retain the placed structure as its order target"
     );
+    use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+    assert!(
+        run_until(&mut game_logic, 90, |world| {
+            world
+                .get_object(dozer)
+                .is_some_and(|object| object.dozer_tasks.current == DozerTask::Build)
+                && world
+                    .get_object(barracks_id)
+                    .is_some_and(|site| site.construction_percent > 0.0)
+        }),
+        "dozer must enter its build task and advance the scaffold"
+    );
+    let dozer_state = game_logic.get_object(dozer).expect("dozer after approach");
     assert_eq!(
-        dozer_state.ai_state,
-        AIState::Constructing,
-        "DozerConstruct must enter the constructing state"
+        dozer_state.dozer_tasks.current,
+        DozerTask::Build,
+        "DozerConstruct must enter the owned build task"
     );
     let supplies = game_logic.get_player(0).unwrap().resources.supplies;
     assert!(
