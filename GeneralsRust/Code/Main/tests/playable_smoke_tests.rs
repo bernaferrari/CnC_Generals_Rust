@@ -48,7 +48,7 @@ fn install_smoke_templates(game_logic: &mut GameLogic) {
     locomotors.apply_source("Locomotor SmokeDozerLoco\n Surfaces = GROUND\n Speed = 60\n Acceleration = 60\n TurnRate = 120\n Appearance = FOUR_WHEELS\nEnd\n").unwrap();
     game_logic.admit_locomotor_definitions(locomotors).unwrap();
     let mut object_source = String::from(
-        "Object SmokeDozer\n KindOf = VEHICLE DOZER HARVESTER SELECTABLE\n CommandSet = SmokeDozerCommands\n Locomotor = SET_NORMAL SmokeDozerLoco\n Body = ActiveBody SmokeBody\n MaxHealth = 300\n InitialHealth = 300\n End\n Behavior = PhysicsBehavior SmokePhysics\n End\n Behavior = DozerAIUpdate SmokeAI\n End\nEnd\n",
+        "Object SmokeDozer\n KindOf = VEHICLE DOZER HARVESTER SELECTABLE\n CommandSet = SmokeDozerCommands\n Locomotor = SET_NORMAL SmokeDozerLoco\n Body = ActiveBody SmokeBody\n MaxHealth = 300\n InitialHealth = 300\n End\n Behavior = PhysicsBehavior SmokePhysics\n End\n Behavior = WorkerAIUpdate SmokeAI\n End\nEnd\n",
     );
     for (name, kinds, health, cost) in [
         (
@@ -62,10 +62,25 @@ fn install_smoke_templates(game_logic: &mut GameLogic) {
         ("SmokeRanger", "INFANTRY SELECTABLE", 120, 100),
         ("SmokeSupplyDock", "SELECTABLE", 1000, 0),
     ] {
-        object_source.push_str(&format!("Object {name}\n KindOf = {kinds}\n BuildCost = {cost}\n BuildTime = 0.1\n Body = ActiveBody SmokeBody\n MaxHealth = {health}\n InitialHealth = {health}\n End\nEnd\n"));
+        let weapon_set = if name == "SmokeRanger" {
+            " WeaponSet\n Conditions = NONE\n Weapon = PRIMARY SmokeRangerGun\n End\n Behavior = AIUpdateInterface SmokeAI\n End\n"
+        } else {
+            ""
+        };
+        object_source.push_str(&format!("Object {name}\n KindOf = {kinds}\n BuildCost = {cost}\n BuildTime = 0.1\n Body = ActiveBody SmokeBody\n MaxHealth = {health}\n InitialHealth = {health}\n End\n{weapon_set}End\n"));
     }
     game_logic
         .admit_object_ini_sources([("SmokeObjects.ini".into(), object_source)])
+        .unwrap();
+    let mut ranger_gun = gamelogic::weapon::WeaponTemplate::new("SmokeRangerGun".into());
+    ranger_gun.primary_damage = 60.0;
+    ranger_gun.attack_range = 200.0;
+    ranger_gun.anti_mask = gamelogic::weapon::WeaponAntiMask::new(
+        gamelogic::weapon::WeaponAntiMask::GROUND
+            | gamelogic::weapon::WeaponAntiMask::AIRBORNE_VEHICLE,
+    );
+    game_logic
+        .admit_receiving_weapon_snapshot(vec![("SmokeRangerGun".into(), ranger_gun)])
         .unwrap();
     let templates = [
         template(
@@ -188,14 +203,18 @@ fn assert_ranger_admission(game_logic: &GameLogic, ranger_id: ObjectId) {
         .get_object(ranger_id)
         .expect("produced ranger exists");
     assert_eq!(ranger.owner_player_id, Some(0));
-    assert_eq!(ranger.weapon_name_for_slot(0), None);
+    assert_eq!(ranger.weapon_name_for_slot(0), Some("SmokeRangerGun"));
     let weapon = ranger.weapon.as_ref().expect("authored weapon is admitted");
     let expected = smoke_ranger_weapon();
     assert_eq!(
         serde_json::to_value(weapon).unwrap(),
         serde_json::to_value(&expected).unwrap()
     );
-    assert_eq!(weapon.suspend_fx_frame, expected.suspend_fx_frame);
+    assert_eq!(
+        weapon.suspend_fx_frame,
+        game_logic.get_frame().wrapping_sub(1),
+        "the authored zero-delay deadline is the processed installation frame"
+    );
     assert_eq!(ranger.health.current, 120.0);
     assert_eq!(ranger.fire_intent_count, 0);
     assert_eq!(ranger.weapon_discharge_marker().sequence, 0);
@@ -397,6 +416,12 @@ fn run_basic_faction_flow(human_team: Team) {
         vec![dozer],
     ));
     game_logic.process_commands();
+    let reached = run_until(&mut game_logic, 200, |world| {
+        world
+            .get_object(dozer)
+            .is_some_and(|object| object.ai_state() == AIState::Gathering)
+    });
+    assert!(reached, "worker must reach the supply gathering state");
     let dozer_state = game_logic
         .get_object(dozer)
         .expect("dozer should exist after gather command");
@@ -672,6 +697,12 @@ fn mini_skirmish_playable_flow_smoke() {
         vec![dozer],
     ));
     game_logic.process_commands();
+    assert!(
+        run_until(&mut game_logic, 200, |world| world
+            .get_object(dozer)
+            .is_some_and(|object| object.ai_state() == AIState::Gathering)),
+        "worker must reach the supply gathering state"
+    );
     let dozer_state = game_logic
         .get_object(dozer)
         .expect("dozer should exist after gather command");
