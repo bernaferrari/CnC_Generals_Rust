@@ -790,27 +790,31 @@ impl GameLogic {
             host_secondary_damage_radius_for_weapon_name, radius_damage_affects_victim,
         };
         // C++ dealDamageInternal: authored primary/secondary radii, no 1.5x ring.
-        let radius_mult = self.objects.lookup(&attacker_id).map_or(1.0, |source| {
-            if weapon_name.is_some() {
-                self.receiving_weapon_bonus_fields(source, native_rule.as_deref()).4
-            } else {
-                self.receiving_weapon_bonus_fields_for_slot(source, source.active_weapon_slot).4
-            }
-        });
+        let (damage_mult, radius_mult) = self.objects.lookup(&attacker_id).map_or(
+            (1.0, 1.0),
+            |source| {
+                let bonus = if weapon_name.is_some() {
+                    self.receiving_weapon_bonus_fields(source, native_rule.as_deref())
+                } else {
+                    self.receiving_weapon_bonus_fields_for_slot(source, source.active_weapon_slot)
+                };
+                (bonus.0, bonus.4)
+            },
+        );
         let (primary_r, secondary_r, primary_dmg, secondary_dmg) =
             if let Some(rule) = native_rule.as_ref() {
                 (
                     rule.primary_damage_radius * radius_mult,
                     rule.secondary_damage_radius * radius_mult,
                     weapon_damage,
-                    rule.secondary_damage,
+                    rule.secondary_damage * damage_mult,
                 )
             } else {
                 match weapon_name {
                     Some(n) => {
                         let pr = host_primary_damage_radius_for_weapon_name(n) * radius_mult;
                         let sr = host_secondary_damage_radius_for_weapon_name(n) * radius_mult;
-                        let sd = host_secondary_damage_for_weapon_name(n);
+                        let sd = host_secondary_damage_for_weapon_name(n) * damage_mult;
                         let primary = if pr > 0.0 {
                             pr
                         } else {

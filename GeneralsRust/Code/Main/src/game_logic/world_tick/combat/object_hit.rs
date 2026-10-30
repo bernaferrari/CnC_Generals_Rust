@@ -1787,24 +1787,26 @@ impl GameLogic {
                             } else {
                                 (0.0, 0.0, 0.0)
                             };
-                            let (splash_weapon, radius_mult) = self
+                            let (splash_weapon, damage_mult, radius_mult) = self
                                 .objects
                                 .get(&attacker_id)
                                 .map(|a| {
+                                    let bonus = self.receiving_weapon_bonus_fields_for_slot(a, slot);
                                     (
                                         a.weapon_slot(slot)
                                             .map(|w| w.splash_radius.max(0.0))
                                             .unwrap_or(0.0),
-                                        self.receiving_weapon_bonus_fields_for_slot(a, slot).4,
+                                        bonus.0,
+                                        bonus.4,
                                     )
                                 })
-                                .unwrap_or((0.0, 1.0));
+                                .unwrap_or((0.0, 1.0, 1.0));
                             // C++ getPrimary/SecondaryDamageRadius — RADIUS field.
                             let primary_r =
                                 (if pr > 0.0 { pr } else { splash_weapon }) * radius_mult;
                             let secondary_r = sr * radius_mult;
                             if primary_r > 0.0 || secondary_r > 0.0 {
-                                let sec_dmg = sd;
+                                let sec_dmg = sd * damage_mult;
                                 let splash_pos = if at_self {
                                     shooter_pos
                                 } else {

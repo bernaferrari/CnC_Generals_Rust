@@ -14,7 +14,7 @@ fn world_with_scatter(
     weapon_name: &str,
     scatter: f32,
 ) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
-    world_with_weapon_bonus(range, weapon_name, scatter, None, None)
+    world_with_weapon_bonus(range, weapon_name, scatter, None, None, false)
 }
 
 fn world_with_weapon_bonus(
@@ -23,6 +23,7 @@ fn world_with_weapon_bonus(
     scatter: f32,
     extra_radius: Option<f32>,
     extra_damage: Option<f32>,
+    secondary_splash: bool,
 ) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
     let mut game = GameLogic::new();
     game.admit_object_ini_sources([("ContinueRange.ini".into(),
@@ -58,6 +59,15 @@ fn world_with_weapon_bonus(
         set.set_bonus(WeaponBonusConditionType::SoloHumanEasy, bonus);
         weapon.extra_bonus = Some(set);
     }
+    if secondary_splash {
+        weapon.primary_damage_radius = 2.0;
+        weapon.secondary_damage_radius = 15.0;
+        weapon.secondary_damage = 4.0;
+        if scatter > 0.0 {
+            weapon.scatter_target_scalar = 1.0;
+            weapon.scatter_targets = vec![gamelogic::weapon::Coord2D::new(20.0, 0.0)];
+        }
+    }
     weapon.projectile_name = "NONE".into();
     game.admit_receiving_weapon_snapshot(vec![(weapon_name.into(), weapon)])
         .unwrap();
@@ -86,9 +96,9 @@ fn world_with_weapon_bonus(
 #[test]
 fn actual_splash_uses_the_firing_sessions_weapon_radius_bonus() {
     let (mut wide, attacker, target, nearby) =
-        world_with_weapon_bonus(0.0, "SharedBonusWeapon", 0.0, Some(3.0), None);
+        world_with_weapon_bonus(0.0, "SharedBonusWeapon", 0.0, Some(3.0), None, false);
     let (mut narrow, peer_attacker, peer_target, peer_nearby) =
-        world_with_weapon_bonus(0.0, "SharedBonusWeapon", 0.0, Some(1.0), None);
+        world_with_weapon_bonus(0.0, "SharedBonusWeapon", 0.0, Some(1.0), None, false);
     assert_eq!(
         (attacker, target, nearby),
         (peer_attacker, peer_target, peer_nearby)
@@ -137,9 +147,9 @@ fn actual_splash_uses_the_firing_sessions_weapon_radius_bonus() {
 #[test]
 fn actual_weapon_damage_uses_the_firing_sessions_extra_bonus() {
     let (mut weak, attacker, target, _) =
-        world_with_weapon_bonus(0.0, "SharedDamageWeapon", 0.0, None, Some(0.5));
+        world_with_weapon_bonus(0.0, "SharedDamageWeapon", 0.0, None, Some(0.5), false);
     let (mut full, peer_attacker, peer_target, _) =
-        world_with_weapon_bonus(0.0, "SharedDamageWeapon", 0.0, None, Some(1.0));
+        world_with_weapon_bonus(0.0, "SharedDamageWeapon", 0.0, None, Some(1.0), false);
     assert_eq!((attacker, target), (peer_attacker, peer_target));
     assert!(weak.unit_command_attack(attacker, target).unwrap());
     assert!(full.unit_command_attack(attacker, target).unwrap());
@@ -164,11 +174,76 @@ fn actual_weapon_damage_uses_the_firing_sessions_extra_bonus() {
 }
 
 #[test]
+fn secondary_splash_damage_uses_the_firing_sessions_bonus() {
+    let (mut weak, attacker, target, nearby) =
+        world_with_weapon_bonus(0.0, "SharedSecondary", 0.0, None, Some(0.5), true);
+    let (mut full, peer_attacker, peer_target, peer_nearby) =
+        world_with_weapon_bonus(0.0, "SharedSecondary", 0.0, None, Some(1.0), true);
+    assert_eq!(
+        (attacker, target, nearby),
+        (peer_attacker, peer_target, peer_nearby)
+    );
+    weak.host_object_mut(nearby).unwrap().selection_radius = 1.0;
+    full.host_object_mut(peer_nearby).unwrap().selection_radius = 1.0;
+    assert!(weak.unit_command_attack(attacker, target).unwrap());
+    assert!(full.unit_command_attack(attacker, target).unwrap());
+    for _ in 0..100 {
+        weak.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        full.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if weak
+            .host_object(target)
+            .is_none_or(|object| object.health.current < 10.0)
+            && full
+                .host_object(target)
+                .is_none_or(|object| !object.is_alive())
+        {
+            break;
+        }
+    }
+    assert_eq!(weak.host_object(target).unwrap().health.current, 5.0);
+    assert!(
+        full.host_object(target)
+            .is_none_or(|object| !object.is_alive())
+    );
+    assert_eq!(weak.host_object(nearby).unwrap().health.current, 8.0);
+    assert_eq!(full.host_object(peer_nearby).unwrap().health.current, 6.0);
+}
+
+#[test]
+fn scattered_secondary_splash_uses_the_firing_sessions_bonus() {
+    let (mut weak, attacker, target, nearby) =
+        world_with_weapon_bonus(0.0, "SharedScatterSecondary", 1.0, None, Some(0.5), true);
+    let (mut full, peer_attacker, peer_target, peer_nearby) =
+        world_with_weapon_bonus(0.0, "SharedScatterSecondary", 1.0, None, Some(1.0), true);
+    assert_eq!(
+        (attacker, target, nearby),
+        (peer_attacker, peer_target, peer_nearby)
+    );
+    weak.host_object_mut(nearby).unwrap().selection_radius = 1.0;
+    full.host_object_mut(peer_nearby).unwrap().selection_radius = 1.0;
+    assert!(weak.unit_command_attack(attacker, target).unwrap());
+    assert!(full.unit_command_attack(attacker, target).unwrap());
+    for _ in 0..100 {
+        weak.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        full.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if weak.host_object(nearby).unwrap().health.current < 10.0
+            && full.host_object(peer_nearby).unwrap().health.current < 10.0
+        {
+            break;
+        }
+    }
+    assert_eq!(weak.host_object(target).unwrap().health.current, 10.0);
+    assert_eq!(full.host_object(peer_target).unwrap().health.current, 10.0);
+    assert_eq!(weak.host_object(nearby).unwrap().health.current, 8.0);
+    assert_eq!(full.host_object(peer_nearby).unwrap().health.current, 6.0);
+}
+
+#[test]
 fn ground_attack_uses_the_firing_sessions_damage_bonus() {
     let (mut weak, attacker, target, _) =
-        world_with_weapon_bonus(0.0, "SharedGroundDamage", 0.0, None, Some(0.5));
+        world_with_weapon_bonus(0.0, "SharedGroundDamage", 0.0, None, Some(0.5), false);
     let (mut full, peer_attacker, peer_target, _) =
-        world_with_weapon_bonus(0.0, "SharedGroundDamage", 0.0, None, Some(1.0));
+        world_with_weapon_bonus(0.0, "SharedGroundDamage", 0.0, None, Some(1.0), false);
     assert_eq!((attacker, target), (peer_attacker, peer_target));
     for session in [&mut weak, &mut full] {
         CommandExecutor::new(session, 1)
