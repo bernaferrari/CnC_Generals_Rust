@@ -43,6 +43,8 @@ pub(super) struct StartupSimulationRules {
     combat_bonus: game_engine::common::ini::ini_game_data::CombatBonusRules,
     upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
     player_templates: Option<game_engine::common::rts::player_template::PlayerTemplateStore>,
+    multiplayer_definitions:
+        Option<std::sync::Arc<game_engine::common::ini::ini_multiplayer::MultiplayerSettings>>,
     locomotors: Option<game_engine::common::ini::ini_locomotor::LocomotorStore>,
 }
 impl StartupSimulationRules {
@@ -63,6 +65,7 @@ impl StartupSimulationRules {
             combat_bonus: world.combat_bonus_baseline().clone(),
             upgrade_definitions: world.upgrade_definitions.clone(),
             player_templates: world.player_template_definitions.clone(),
+            multiplayer_definitions: world.multiplayer_definitions.clone(),
             locomotors: world.locomotor_definition_base.clone(),
         }
     }
@@ -130,6 +133,7 @@ impl StartupSimulationRules {
         if let Some(definitions) = self.player_templates {
             world.admit_player_template_definitions(definitions)?;
         }
+        world.multiplayer_definitions = self.multiplayer_definitions;
         Ok(())
     }
 }

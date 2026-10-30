@@ -108,7 +108,7 @@ impl MultiplayerColorDefinition {
 /// Multiplayer settings container
 /// Matches C++ MultiplayerSettings from MultiplayerSettings.h
 /// Field parse table from MultiplayerSettings.cpp lines 32-44
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MultiplayerSettings {
     pub color_definitions: Vec<MultiplayerColorDefinition>,
     pub starting_money_choices: Vec<MultiplayerStartingMoneySettings>,

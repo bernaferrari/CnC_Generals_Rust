@@ -80,16 +80,27 @@ pub(crate) fn read_for_restore(
     world: &WorldSnapshot,
     definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
 ) -> SaveLoadResult<Option<Box<SavedSkirmishAdmission>>> {
+    read_for_restore_with_settings(world, definitions, None)
+}
+
+pub(crate) fn read_for_restore_with_settings(
+    world: &WorldSnapshot,
+    definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
+    multiplayer: Option<&game_engine::common::ini::ini_multiplayer::MultiplayerSettings>,
+) -> SaveLoadResult<Option<Box<SavedSkirmishAdmission>>> {
     match split(&world.lifecycle_tail)?.1 {
         Some(InitialAdmissionRecord::Native(value)) => Ok(Some(Box::new(value))),
         Some(InitialAdmissionRecord::Original(source)) => {
             let admission = match definitions {
-                Some(store) => SavedSkirmishAdmission::from_original_in(source, store),
+                Some(store) => {
+                    SavedSkirmishAdmission::from_original_with_settings(source, store, multiplayer)
+                }
                 None => {
                     game_engine::common::ini::ensure_player_templates_loaded();
-                    SavedSkirmishAdmission::from_original_in(
+                    SavedSkirmishAdmission::from_original_with_settings(
                         source,
                         &game_engine::common::rts::player_template::get_player_template_store(),
+                        multiplayer,
                     )
                 }
             };

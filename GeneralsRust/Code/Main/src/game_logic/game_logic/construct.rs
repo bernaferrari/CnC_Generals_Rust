@@ -143,6 +143,7 @@ impl GameLogic {
             control_bar_overrides: HashMap::new(),
             player_template_bindings: HashMap::new(),
             player_template_definitions: None,
+            multiplayer_definitions: None,
             initial_skirmish_admission: None,
             next_object_id: ObjectId(1), // Start at 1, 0 is invalid
             next_formation_id: 1,

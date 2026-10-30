@@ -43,6 +43,9 @@ impl ObjectSourceSnapshot {
     }
 }
 
+mod headless_catalogs;
+pub(crate) use headless_catalogs::{HeadlessRetailCatalogs, load_headless_retail_catalogs};
+
 /// Called only from the uniquely owned initialized AssetManager, before it is
 /// published or background audio/render tasks start borrowing it.
 pub(super) fn capture_receiving_object_sources(

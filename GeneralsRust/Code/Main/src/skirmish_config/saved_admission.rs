@@ -5,6 +5,18 @@ use super::*;
 use game_engine::common::system::skirmish_game_info::{SKIRMISH_MAX_SLOTS, SkirmishGameInfo};
 use std::collections::HashSet;
 
+type MultiplayerSettings = game_engine::common::ini::ini_multiplayer::MultiplayerSettings;
+
+fn with_receiving_multiplayer<R>(
+    settings: Option<&MultiplayerSettings>,
+    f: impl FnOnce(&MultiplayerSettings) -> R,
+) -> R {
+    match settings {
+        Some(settings) => f(settings),
+        None => game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(f),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub(crate) struct SavedSkirmishAdmission {
     pub config: SkirmishMatchConfig,
@@ -174,6 +186,14 @@ impl SavedSkirmishAdmission {
         info: SkirmishGameInfo,
         store: &game_engine::common::rts::player_template::PlayerTemplateStore,
     ) -> Result<Self, String> {
+        Self::from_original_with_settings(info, store, None)
+    }
+
+    pub(crate) fn from_original_with_settings(
+        info: SkirmishGameInfo,
+        store: &game_engine::common::rts::player_template::PlayerTemplateStore,
+        multiplayer: Option<&MultiplayerSettings>,
+    ) -> Result<Self, String> {
         let mut slots = Vec::with_capacity(SKIRMISH_MAX_SLOTS);
         for (index, source) in info.slots.iter().enumerate() {
             if !(0..=5).contains(&source.state) {
@@ -207,9 +227,9 @@ impl SavedSkirmishAdmission {
                         source.color
                     ));
                 }
-                let packed = game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(
-                    |settings| settings.get_color_value(source.color),
-                )
+                let packed = with_receiving_multiplayer(multiplayer, |settings| {
+                    settings.get_color_value(source.color)
+                })
                 .ok_or_else(|| {
                     format!(
                         "original saved occupied slot has unresolved or invalid color index {}",
@@ -264,9 +284,7 @@ impl SavedSkirmishAdmission {
         rules.starting_cash = info.starting_cash as i32;
         rules.limit_superweapons = info.superweapon_restriction != 0;
         rules.fog_of_war =
-            game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|settings| {
-                settings.is_shroud_in_multiplayer
-            });
+            with_receiving_multiplayer(multiplayer, |settings| settings.is_shroud_in_multiplayer);
         let result = Self {
             config: SkirmishMatchConfig {
                 source_game_info: None,
@@ -280,7 +298,7 @@ impl SavedSkirmishAdmission {
             local_slot: humans.first().copied(),
             local_slot_from_client: true,
         };
-        result.validate_definitions(Some(store))?;
+        result.validate_definitions_with_settings(Some(store), multiplayer)?;
         Ok(result)
     }
 
@@ -409,27 +427,34 @@ impl SavedSkirmishAdmission {
         &self,
         definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
     ) -> Result<(), String> {
+        self.validate_definitions_with_settings(definitions, None)
+    }
+
+    pub(crate) fn validate_definitions_with_settings(
+        &self,
+        definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
+        multiplayer: Option<&MultiplayerSettings>,
+    ) -> Result<(), String> {
         self.validate()?;
-        let _ = resolve_skirmish_slots_for_owner(
+        let _ = resolve_skirmish_slots_for_owner_with_settings(
             &self.config,
             definitions,
             &mut game_engine::common::random_value::RandomState::default(),
+            multiplayer,
         )?; // all Exact; consumes no random values
         if let Some(info) = &self.source {
             for slot in self.config.slots.iter().filter(|slot| slot.is_active) {
                 let color = info.slots[slot.slot_index].color;
-                let agrees = game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(
-                    |settings| {
-                        resolved_original_color(slot, color)
-                            && settings.get_color_value(color).is_some_and(|packed| {
-                                (
-                                    ((packed >> 16) & 255) as u8,
-                                    ((packed >> 8) & 255) as u8,
-                                    (packed & 255) as u8,
-                                ) == slot.color_rgb
-                            })
-                    },
-                );
+                let agrees = with_receiving_multiplayer(multiplayer, |settings| {
+                    resolved_original_color(slot, color)
+                        && settings.get_color_value(color).is_some_and(|packed| {
+                            (
+                                ((packed >> 16) & 255) as u8,
+                                ((packed >> 8) & 255) as u8,
+                                (packed & 255) as u8,
+                            ) == slot.color_rgb
+                        })
+                });
                 if !agrees {
                     return Err(format!(
                         "saved original slot {} has a receiving palette/RGB disagreement",
@@ -470,18 +495,21 @@ impl SavedSkirmishAdmission {
 
     /// Install the same player admission kernel without reroll/reset/recorder.
     pub(crate) fn admit(&self, world: &mut GameLogic) -> Result<(), String> {
-        self.validate_definitions(world.player_template_definitions.as_ref())?;
-        let mut resolved = resolve_skirmish_slots_for_owner(
+        let multiplayer = world.multiplayer_definitions.clone();
+        self.validate_definitions_with_settings(
+            world.player_template_definitions.as_ref(),
+            multiplayer.as_deref(),
+        )?;
+        let mut resolved = resolve_skirmish_slots_for_owner_with_settings(
             &self.config,
             world.player_template_definitions.as_ref(),
             &mut game_engine::common::random_value::RandomState::default(),
+            multiplayer.as_deref(),
         )?;
         // Saved current indices are admitted exactly, never randomized again.
         if let Some(source) = &self.source {
             let palette =
-                game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|s| {
-                    s.color_definitions.clone()
-                });
+                with_receiving_multiplayer(multiplayer.as_deref(), |s| s.color_definitions.clone());
             for selected in &mut resolved {
                 let index = source.slots[selected.slot.slot_index].color;
                 if index >= 0 {
@@ -504,7 +532,13 @@ impl SavedSkirmishAdmission {
             }
         }
         world.clear_all_players();
-        admit_resolved_slots(world, &self.config, &self.config.slots, resolved, None)?;
+        admit_resolved_slots(
+            world,
+            &self.config,
+            &self.config.slots,
+            resolved,
+            multiplayer.as_deref(),
+        )?;
         self.admit_local_selection(world);
         world.initial_skirmish_admission = Some(Box::new(self.clone()));
         Ok(())

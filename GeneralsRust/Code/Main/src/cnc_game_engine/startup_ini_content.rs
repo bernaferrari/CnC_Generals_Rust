@@ -72,6 +72,20 @@ impl CnCGameEngine {
         Ok(settings)
     }
 
+    /// Admit headless startup catalogs from an independently owned archive.
+    pub(crate) async fn load_headless_retail_catalogs()
+    -> Result<super::object_ini_boot::HeadlessRetailCatalogs, String> {
+        let mut archive = crate::assets::ArchiveFileSystem::new();
+        archive
+            .init()
+            .await
+            .map_err(|error| format!("startup archive admission: {error}"))?;
+        super::object_ini_boot::load_headless_retail_catalogs(
+            &mut archive,
+            &Self::startup_ini_disk_roots(),
+        )
+    }
+
     pub(super) async fn load_startup_multiplayer_definitions(
         application_assets: &Mutex<crate::assets::manager::AssetManager>,
     ) -> Result<i32, String> {

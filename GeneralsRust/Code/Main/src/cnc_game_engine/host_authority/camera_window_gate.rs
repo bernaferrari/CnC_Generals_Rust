@@ -118,6 +118,7 @@ impl CnCGameEngine {
                 upgrade_definition_base: &self.game_logic.upgrade_definition_base,
                 modules: &self.game_logic.receiving_module_content,
                 player_templates: &self.game_logic.player_template_definitions,
+                multiplayer_definitions: &self.game_logic.multiplayer_definitions,
                 object_definitions: &self.game_logic.receiving_object_definitions,
                 locomotors: &self.game_logic.locomotor_definition_base,
                 baseline: &self.game_logic.receiving_template_baseline,

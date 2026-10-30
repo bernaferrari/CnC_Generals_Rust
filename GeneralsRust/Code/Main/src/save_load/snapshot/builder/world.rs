@@ -476,13 +476,17 @@ impl SnapshotBuilder {
             .validate_snapshot_geometry(&snapshot.shroud)
             .map_err(SaveLoadError::Corrupted)?;
         self.validate_receiving_object_templates(&snapshot.objects, game_logic)?;
-        let initial_skirmish = super::super::initial_skirmish::read_for_restore(
+        let initial_skirmish = super::super::initial_skirmish::read_for_restore_with_settings(
             snapshot,
             game_logic.player_template_definitions.as_ref(),
+            game_logic.multiplayer_definitions.as_deref(),
         )?;
         if let Some(initial) = &initial_skirmish {
             initial
-                .validate_definitions(game_logic.player_template_definitions.as_ref())
+                .validate_definitions_with_settings(
+                    game_logic.player_template_definitions.as_ref(),
+                    game_logic.multiplayer_definitions.as_deref(),
+                )
                 .map_err(crate::save_load::SaveLoadError::Corrupted)?;
         }
         let camera_continuation =
