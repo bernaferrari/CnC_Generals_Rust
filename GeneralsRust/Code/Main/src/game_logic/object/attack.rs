@@ -8,6 +8,7 @@ enum WeaponShotRoute {
         origin: Vec3,
         damage_bonus: Option<f32>,
         pre_attack_bonus: Option<f32>,
+        owned_rof: Option<[f32; 3]>,
     },
 }
 
@@ -157,6 +158,7 @@ impl Object {
                 origin: muzzle_origin,
                 damage_bonus: None,
                 pre_attack_bonus: None,
+                owned_rof: None,
             },
             target_id,
             current_time,
@@ -195,6 +197,7 @@ impl Object {
         solo_set: &gamelogic::weapon::WeaponBonusSet,
         damage_bonus: f32,
         pre_attack_bonus: f32,
+        owned_rof: [f32; 3],
         random: &game_engine::common::random_value::SessionRandom,
         projectile_team_id: Option<u32>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
@@ -204,6 +207,7 @@ impl Object {
                 origin: muzzle_origin,
                 damage_bonus: Some(damage_bonus),
                 pre_attack_bonus: Some(pre_attack_bonus),
+                owned_rof: Some(owned_rof),
             },
             target_id,
             current_time,
@@ -398,6 +402,10 @@ impl Object {
         projectile_team_id: Option<u32>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         let autonomous = matches!(route, WeaponShotRoute::Autonomous);
+        let owned_rof = match &route {
+            WeaponShotRoute::Passive { owned_rof, .. } => owned_rof.as_ref(),
+            WeaponShotRoute::Autonomous => None,
+        };
         // C++ Weapon::getMaxShotCount residual — AI burst / scatter limits.
         if !self.has_max_shots_remaining() {
             return None;
@@ -415,7 +423,11 @@ impl Object {
         // C++ setWeaponBonusCondition → onWeaponBonusChange: restart an
         // in-progress wait with the new RATE_OF_FIRE delay before the ready
         // check so mid-reload bonuses cannot fire sooner than C++.
-        self.apply_weapon_bonus_rof_restart_with_optional_solo_set(current_time, solo_set);
+        if let Some(rates) = owned_rof {
+            self.apply_weapon_bonus_rof_restart_with_rates(current_time, rates);
+        } else {
+            self.apply_weapon_bonus_rof_restart_with_optional_solo_set(current_time, solo_set);
+        }
 
         // Prefer an explicit locked/active slot when ready.  The normal
         // fallback remains PRIMARY then SECONDARY; TERTIARY is deliberately
@@ -424,10 +436,14 @@ impl Object {
         let slot = if let WeaponShotRoute::Passive { slot, .. } = route {
             let weapon = self.weapon_slot(slot)?;
             let name = self.weapon_name_for_slot(slot);
-            let mut rof = solo_set.map_or_else(
-                || self.weapon_bonus_fields().2,
-                |set| self.weapon_bonus_fields_with_solo_set(set).2,
-            );
+            let mut rof = owned_rof
+                .map(|rates| rates[slot as usize])
+                .unwrap_or_else(|| {
+                    solo_set.map_or_else(
+                        || self.weapon_bonus_fields().2,
+                        |set| self.weapon_bonus_fields_with_solo_set(set).2,
+                    )
+                });
             if target_has_faerie_fire {
                 rof *= crate::game_logic::host_avenger::FAERIE_FIRE_ROF_MULTIPLIER;
             }
@@ -620,6 +636,7 @@ impl Object {
                 logic_frame,
                 target_has_faerie_fire,
                 solo_set,
+                owned_rof,
             );
         let fire_weapon_name = self.weapon_name_for_slot(slot).map(str::to_owned);
         let name = fire_weapon_name.as_deref();
@@ -893,10 +910,14 @@ impl Object {
                 weapon.reloading_clip = false;
             }
             if let Some(weapon_name) = name {
-                let rof = solo_set.map_or_else(
-                    || self.weapon_bonus_fields().2,
-                    |set| self.weapon_bonus_fields_with_solo_set(set).2,
-                );
+                let rof = owned_rof
+                    .map(|rates| rates[slot as usize])
+                    .unwrap_or_else(|| {
+                        solo_set.map_or_else(
+                            || self.weapon_bonus_fields().2,
+                            |set| self.weapon_bonus_fields_with_solo_set(set).2,
+                        )
+                    });
                 let rolled = native_rule
                     .as_ref()
                     .map(|rule| {
@@ -1046,7 +1067,14 @@ impl Object {
 
         // C++ fireWeaponTemplate LeechRange activate residual.
         self.activate_leech_range_for_slot(slot);
-        if let Some(set) = solo_set {
+        if let Some(rates) = owned_rof {
+            self.record_shot_at_target_with_owned_rof(
+                Some(target_id),
+                logic_frame,
+                possible_next_shot_frame,
+                rates,
+            );
+        } else if let Some(set) = solo_set {
             self.record_shot_at_target_with_solo_set(
                 Some(target_id),
                 logic_frame,
@@ -1058,7 +1086,9 @@ impl Object {
         }
         // C++ --m_maxShotCount residual.
         self.consume_max_shot_count();
-        if let Some(set) = solo_set {
+        if let Some(rates) = owned_rof {
+            self.refresh_weapon_fire_status_with_owned_rof(current_time, rates);
+        } else if let Some(set) = solo_set {
             self.refresh_weapon_fire_status_with_solo_set(current_time, set);
         } else {
             self.refresh_weapon_fire_status(current_time);

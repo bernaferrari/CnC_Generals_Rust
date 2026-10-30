@@ -246,13 +246,26 @@ impl GameLogic {
                 {
                     obj.tick_force_reload_when_idle(self.frame);
                 }
+                let _ = obj;
+                let rates = self.objects.get(&object_id).and_then(|object| {
+                    object
+                        .contained_by
+                        .map(|_| self.receiving_weapon_rates_of_fire(object))
+                });
+                let Some(obj) = self.objects.get_mut(&object_id) else {
+                    continue;
+                };
                 // C++ ObjectWeaponStatusHelper every-frame getStatus:
                 // refill auto-reload clips and flip READY when ClipReloadTime elapses.
                 if [0u8, 1, 2]
                     .iter()
                     .any(|&slot| obj.weapon_slot(slot).is_some())
                 {
-                    obj.refresh_weapon_fire_status(current_time);
+                    if let Some(rates) = rates.as_ref() {
+                        obj.refresh_weapon_fire_status_with_owned_rof(current_time, rates);
+                    } else {
+                        obj.refresh_weapon_fire_status(current_time);
+                    }
                 }
                 obj.tick_spy_vision_disabled(self.frame);
                 if obj.tick_disguise_transition() {

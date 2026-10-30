@@ -136,8 +136,26 @@ fn contained_weapon_world_with_timing(
     pre_attack_frames: i32,
     clip_reload_frames: i32,
 ) -> (GameLogic, ObjectId, ObjectId) {
+    contained_weapon_world_with_shot_delay(
+        authored_pass,
+        force_metadata,
+        allow_fire,
+        pre_attack_frames,
+        clip_reload_frames,
+        0,
+    )
+}
+
+fn contained_weapon_world_with_shot_delay(
+    authored_pass: bool,
+    force_metadata: bool,
+    allow_fire: Option<bool>,
+    pre_attack_frames: i32,
+    clip_reload_frames: i32,
+    shot_delay_frames: i32,
+) -> (GameLogic, ObjectId, ObjectId) {
     let mut game = GameLogic::new();
-    game.admit_combat_bonus_ini_sources(["GameData\n WeaponBonus = SOLO_HUMAN_EASY RADIUS 150%\n WeaponBonus = SOLO_AI_EASY RADIUS 200%\n WeaponBonus = SOLO_AI_EASY DAMAGE 150%\n WeaponBonus = SOLO_AI_EASY RANGE 200%\n WeaponBonus = SOLO_AI_EASY PRE_ATTACK 200%\n WeaponBonus = GARRISONED RADIUS 125%\n WeaponBonus = FRENZY_ONE RADIUS 125%\n WeaponBonus = FRENZY_THREE RADIUS 175%\n WeaponBonus = VETERAN RADIUS 125%\n WeaponBonus = HERO RADIUS 150%\nEnd\n"]).unwrap();
+    game.admit_combat_bonus_ini_sources(["GameData\n WeaponBonus = SOLO_HUMAN_EASY RADIUS 150%\n WeaponBonus = SOLO_AI_EASY RADIUS 200%\n WeaponBonus = SOLO_AI_EASY DAMAGE 150%\n WeaponBonus = SOLO_AI_EASY RANGE 200%\n WeaponBonus = SOLO_AI_EASY PRE_ATTACK 200%\n WeaponBonus = SOLO_AI_EASY RATE_OF_FIRE 200%\n WeaponBonus = GARRISONED RADIUS 125%\n WeaponBonus = FRENZY_ONE RADIUS 125%\n WeaponBonus = FRENZY_THREE RADIUS 175%\n WeaponBonus = VETERAN RADIUS 125%\n WeaponBonus = HERO RADIUS 150%\nEnd\n"]).unwrap();
     let pass = if authored_pass { "Yes" } else { "No" };
     let fire = allow_fire.map_or(String::new(), |allow| {
         format!(
@@ -160,6 +178,8 @@ fn contained_weapon_world_with_timing(
     weapon.primary_damage = 10.0;
     weapon.attack_range = 200.0;
     weapon.pre_attack_delay = pre_attack_frames;
+    weapon.min_delay_between_shots = shot_delay_frames;
+    weapon.max_delay_between_shots = shot_delay_frames;
     if clip_reload_frames > 0 {
         weapon.clip_size = 3;
         weapon.clip_reload_time = clip_reload_frames;
@@ -178,6 +198,138 @@ fn contained_weapon_world_with_timing(
     game.host_object_mut(passenger).unwrap().contained_by = Some(carrier);
     game.host_object_mut(carrier).unwrap().weapon_bonus_solo = 19;
     (game, passenger, carrier)
+}
+
+#[test]
+fn boarded_passenger_shots_use_owning_carrier_rof() {
+    let (mut boosted, passenger, carrier) =
+        contained_weapon_world_with_shot_delay(true, false, Some(true), 0, 0, 30);
+    let (mut plain, peer_passenger, peer_carrier) =
+        contained_weapon_world_with_shot_delay(false, false, Some(true), 0, 0, 30);
+    assert_eq!((passenger, carrier), (peer_passenger, peer_carrier));
+    let mut enemies = Vec::new();
+    for world in [&mut boosted, &mut plain] {
+        world.host_object_mut(passenger).unwrap().contained_by = None;
+        world
+            .templates
+            .get_mut("Enemy")
+            .unwrap()
+            .add_kind_of(generals_main::game_logic::KindOf::Attackable);
+        world.add_player(Player::new(2, Team::GLA, "Enemy", false));
+        enemies.push(
+            world
+                .create_object_for_player("Enemy", 2, glam::Vec3::new(20.0, 0.0, 0.0))
+                .unwrap(),
+        );
+        assert!(world.unit_command_order_enter(passenger, carrier));
+        world.try_physics_collide(passenger, carrier, 1.0);
+        assert_eq!(
+            world.host_object(passenger).unwrap().contained_by,
+            Some(carrier)
+        );
+    }
+    assert_eq!(enemies[0], enemies[1]);
+    for _ in 0..45 {
+        boosted.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        plain.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if boosted.host_object(enemies[0]).unwrap().health.current < 100.0
+            && plain.host_object(enemies[1]).unwrap().health.current < 100.0
+        {
+            break;
+        }
+    }
+    let first_boosted = boosted.host_object(enemies[0]).unwrap().health.current;
+    let first_plain = plain.host_object(enemies[1]).unwrap().health.current;
+    assert!(first_boosted < 100.0 && first_plain < 100.0);
+    for _ in 0..18 {
+        boosted.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        plain.tick_logic_frame(1.0 / 30.0, None, Some(1));
+    }
+    assert!(boosted.host_object(enemies[0]).unwrap().health.current < first_boosted);
+    assert_eq!(
+        plain.host_object(enemies[1]).unwrap().health.current,
+        first_plain
+    );
+}
+
+#[test]
+fn boarded_passenger_reload_uses_owning_carrier_rof() {
+    let (mut boosted, passenger, carrier) =
+        contained_weapon_world_with_timing(true, false, Some(true), 0, 30);
+    let (mut plain, peer_passenger, peer_carrier) =
+        contained_weapon_world_with_timing(false, false, Some(true), 0, 30);
+    assert_eq!((passenger, carrier), (peer_passenger, peer_carrier));
+    for world in [&mut boosted, &mut plain] {
+        world.host_object_mut(passenger).unwrap().contained_by = None;
+        assert!(world.unit_command_order_enter(passenger, carrier));
+        world.try_physics_collide(passenger, carrier, 1.0);
+        assert_eq!(
+            world.host_object(passenger).unwrap().contained_by,
+            Some(carrier)
+        );
+        let weapon = world
+            .host_object_mut(passenger)
+            .unwrap()
+            .weapon
+            .as_mut()
+            .unwrap();
+        weapon.ammo = Some(0);
+        weapon.reloading_clip = true;
+        weapon.last_fire_time = 0.0;
+        weapon.last_bonus_rof = 1.0;
+    }
+    for _ in 0..6 {
+        boosted.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        plain.tick_logic_frame(1.0 / 30.0, None, Some(1));
+    }
+    let snapshot = generals_main::save_load::SnapshotBuilder::new()
+        .create_world_snapshot(&boosted)
+        .unwrap();
+    let (mut restored, _, _) = contained_weapon_world_with_timing(true, false, Some(true), 0, 30);
+    generals_main::save_load::SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    for _ in 0..12 {
+        boosted.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        plain.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        restored.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        assert_eq!(
+            boosted
+                .host_object(passenger)
+                .unwrap()
+                .weapon
+                .as_ref()
+                .unwrap()
+                .ammo,
+            restored
+                .host_object(passenger)
+                .unwrap()
+                .weapon
+                .as_ref()
+                .unwrap()
+                .ammo
+        );
+    }
+    assert_eq!(
+        boosted
+            .host_object(passenger)
+            .unwrap()
+            .weapon
+            .as_ref()
+            .unwrap()
+            .ammo,
+        Some(3)
+    );
+    assert_eq!(
+        plain
+            .host_object(passenger)
+            .unwrap()
+            .weapon
+            .as_ref()
+            .unwrap()
+            .ammo,
+        Some(0)
+    );
 }
 
 #[test]

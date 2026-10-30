@@ -36,11 +36,12 @@ impl GameLogic {
             .get(&source)
             .and_then(|object| object.owner_player_id)
             .and_then(|player_id| self.host_default_team_id(player_id));
-        let Some(bonuses) = self
-            .objects
-            .get(&source)
-            .map(|shooter| self.receiving_weapon_bonus_fields_for_slot(shooter, slot))
-        else {
+        let Some((bonuses, rates)) = self.objects.get(&source).map(|shooter| {
+            (
+                self.receiving_weapon_bonus_fields_for_slot(shooter, slot),
+                self.receiving_weapon_rates_of_fire(shooter),
+            )
+        }) else {
             return false;
         };
         let Some(shooter) = self.objects.get_mut(&source) else {
@@ -65,6 +66,7 @@ impl GameLogic {
             &self.solo_weapon_bonus_set,
             bonuses.0,
             bonuses.3,
+            rates,
             &self.logic_random,
             projectile_team_id,
         ) else {

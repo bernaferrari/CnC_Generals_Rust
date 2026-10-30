@@ -1670,6 +1670,15 @@ impl GameLogic {
         self.receiving_weapon_bonus_fields(source, definition)
     }
 
+    pub(in crate::game_logic) fn receiving_weapon_rates_of_fire(
+        &self,
+        source: &Object,
+    ) -> [f32; 3] {
+        std::array::from_fn(|slot| {
+            self.receiving_weapon_bonus_fields_for_slot(source, slot as u8).2
+        })
+    }
+
     /// C++ InGameUI::setRadiusCursor reads the requested WeaponSet slot from
     /// the selected object. The session owns both its definition and bonuses.
     pub fn weapon_cursor_radii(
