@@ -390,12 +390,12 @@ struct ShroudGrid {
 }
 
 impl ShroudGrid {
-    fn new(
+    fn dimensions_for_extent(
         world_origin_xy: [f32; 2],
         map_width: f32,
         map_height: f32,
         cell_size: f32,
-    ) -> Result<Self, String> {
+    ) -> Result<(usize, usize, f32, usize), String> {
         if world_origin_xy.iter().any(|value| !value.is_finite())
             || !map_width.is_finite()
             || !map_height.is_finite()
@@ -430,6 +430,17 @@ impl ShroudGrid {
             .checked_mul(height)
             .filter(|count| *count <= MAX_SHROUD_GRID_CELLS)
             .ok_or_else(|| "shroud grid exceeds supported cell allocation".to_string())?;
+        Ok((width, height, cell_size, total_cells))
+    }
+
+    fn new(
+        world_origin_xy: [f32; 2],
+        map_width: f32,
+        map_height: f32,
+        cell_size: f32,
+    ) -> Result<Self, String> {
+        let (width, height, cell_size, total_cells) =
+            Self::dimensions_for_extent(world_origin_xy, map_width, map_height, cell_size)?;
         let mut cells = Vec::new();
         cells
             .try_reserve_exact(total_cells)
@@ -1240,6 +1251,29 @@ pub struct ShroudManager {
 }
 
 impl ShroudManager {
+    /// Validate a snapshot against a candidate extent without allocating cells.
+    pub fn validate_snapshot_for_extent(
+        &self,
+        snapshot: &ShroudSnapshot,
+        origin: [f32; 2],
+        width: f32,
+        height: f32,
+        cell_size: f32,
+    ) -> Result<(), String> {
+        // An empty manager checks all payload limits without comparing its grid.
+        ShroudManager::new().validate_snapshot_geometry(snapshot)?;
+        if let Some(grid) = &snapshot.grid {
+            let (expected_width, expected_height, expected_cell_size, _) =
+                ShroudGrid::dimensions_for_extent(origin, width, height, cell_size)?;
+            if grid.width as usize != expected_width
+                || grid.height as usize != expected_height
+                || grid.cell_size != expected_cell_size
+            {
+                return Err("shroud snapshot geometry differs from receiving map grid".into());
+            }
+        }
+        Ok(())
+    }
     pub fn mark_host_vision_ready(&mut self) {
         self.host_vision_ready = true;
     }

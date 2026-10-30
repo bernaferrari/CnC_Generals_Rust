@@ -469,11 +469,10 @@ impl SnapshotBuilder {
             ));
         }
         game_logic
-            .world_services
-            .shroud()
-            .lock()
-            .map_err(|_| SaveLoadError::Corrupted("receiving shroud owner is poisoned".into()))?
-            .validate_snapshot_geometry(&snapshot.shroud)
+            .validate_saved_partition_geometry(
+                &snapshot.shroud,
+                receiving_persist.terrain_active_boundary,
+            )
             .map_err(SaveLoadError::Corrupted)?;
         self.validate_receiving_object_templates(&snapshot.objects, game_logic)?;
         let initial_skirmish = super::super::initial_skirmish::read_for_restore_with_settings(
@@ -844,6 +843,9 @@ impl SnapshotBuilder {
             || !snapshot.shroud.pending_full_reveal_players.is_empty()
             || !snapshot.shroud.pending_permanent_reveal_players.is_empty()
         {
+            game_logic
+                .prepare_saved_partition_boundary(receiving_persist.terrain_active_boundary)
+                .map_err(SaveLoadError::Corrupted)?;
             game_logic
                 .restore_receiving_partition_grid(&snapshot.shroud, snapshot.frame_number as u32)
                 .map_err(SaveLoadError::Corrupted)?;

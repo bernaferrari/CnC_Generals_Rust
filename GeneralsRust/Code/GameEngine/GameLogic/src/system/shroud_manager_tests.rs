@@ -927,6 +927,29 @@ fn test_shroud_grid_initialization() {
 }
 
 #[test]
+fn saved_grid_preflight_uses_candidate_extent_without_changing_current_grid() {
+    let mut owner = ShroudManager::new();
+    owner
+        .init_shroud_grid_at_origin_with_cell_size([0.0, 0.0], 100.0, 100.0, 40.0)
+        .unwrap();
+    let original = owner.snapshot_state();
+    let mut saved_owner = ShroudManager::new();
+    saved_owner
+        .init_shroud_grid_at_origin_with_cell_size([0.0, 0.0], 200.0, 120.0, 40.0)
+        .unwrap();
+    let saved = saved_owner.snapshot_state();
+    owner
+        .validate_snapshot_for_extent(&saved, [0.0, 0.0], 200.0, 120.0, 40.0)
+        .unwrap();
+    assert!(
+        owner
+            .validate_snapshot_for_extent(&original, [0.0, 0.0], 200.0, 120.0, 40.0)
+            .is_err()
+    );
+    assert_eq!(owner.snapshot_state(), original);
+}
+
+#[test]
 fn test_shroud_grid_world_to_grid() {
     let grid = ShroudGrid::new([0.0, 0.0], 1000.0, 1000.0, 50.0).unwrap();
 

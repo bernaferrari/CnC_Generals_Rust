@@ -726,6 +726,27 @@ fn continuation_uses_authored_active_terrain_boundary() {
     restored_enemy.alliance_team = 2;
     restored.add_player(restored_owner);
     restored.add_player(restored_enemy);
+    let before_rejection = builder.create_world_snapshot(&restored).unwrap();
+    assert!(
+        builder
+            .restore_from_snapshot(&snapshot, &mut restored)
+            .is_err()
+    );
+    let after_rejection = builder.create_world_snapshot(&restored).unwrap();
+    assert_eq!(before_rejection.shroud, after_rejection.shroud);
+    assert_eq!(
+        before_rejection.persist_v18.terrain_active_boundary,
+        after_rejection.persist_v18.terrain_active_boundary
+    );
+    assert_eq!(
+        builder
+            .create_world_snapshot(&session)
+            .unwrap()
+            .persist_v18
+            .terrain_active_boundary,
+        0
+    );
+    snapshot.persist_v18.terrain_active_boundary = 0;
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
@@ -735,7 +756,7 @@ fn continuation_uses_authored_active_terrain_boundary() {
             .unwrap()
             .persist_v18
             .terrain_active_boundary,
-        1
+        0
     );
     assert_eq!(
         builder

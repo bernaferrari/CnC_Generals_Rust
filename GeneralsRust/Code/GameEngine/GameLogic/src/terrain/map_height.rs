@@ -226,6 +226,25 @@ impl TerrainLogic {
         )
     }
 
+    /// Resolve a saved boundary without selecting it or mutating a session.
+    pub fn extent_for_saved_boundary(&self, index: i32) -> Option<Region3D> {
+        if index == self.active_boundary {
+            return Some(self.get_extent());
+        }
+        let boundary = self.boundaries.get(usize::try_from(index).ok()?)?;
+        if boundary.x == 0 || boundary.y == 0 {
+            return None;
+        }
+        Some(Region3D::new(
+            Coord3D::new(0.0, 0.0, self.map_min_z),
+            Coord3D::new(
+                boundary.x as f32 * MAP_XY_FACTOR,
+                boundary.y as f32 * MAP_XY_FACTOR,
+                self.map_max_z,
+            ),
+        ))
+    }
+
     /// Initialize the terrain system
     pub fn init(&mut self) {
         // Initialize terrain system

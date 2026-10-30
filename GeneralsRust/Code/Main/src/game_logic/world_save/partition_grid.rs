@@ -2,6 +2,59 @@
 use super::*;
 
 impl GameLogic {
+    /// Validate against the saved boundary without changing the receiving world.
+    pub(crate) fn validate_saved_partition_geometry(
+        &self,
+        snapshot: &gamelogic::system::shroud_manager::ShroudSnapshot,
+        boundary: i32,
+    ) -> Result<(), String> {
+        let terrain = self.world_services.terrain();
+        let terrain = terrain
+            .read()
+            .map_err(|_| "receiving terrain owner is poisoned")?;
+        let shroud = self.world_services.shroud();
+        let shroud = shroud
+            .lock()
+            .map_err(|_| "receiving shroud owner is poisoned")?;
+        if !terrain.has_height_map() || snapshot.grid.is_none() {
+            return shroud.validate_snapshot_geometry(snapshot);
+        }
+        let extent = terrain
+            .extent_for_saved_boundary(boundary)
+            .ok_or("saved terrain boundary does not exist")?;
+        let cell_size = shroud.grid_dimensions().map(|(_, _, size)| size).unwrap_or(
+            self.session_view
+                .camera
+                .movement_policy
+                .current()
+                .partition_cell_size,
+        );
+        shroud.validate_snapshot_for_extent(
+            snapshot,
+            [extent.lo.x, extent.lo.y],
+            extent.hi.x - extent.lo.x,
+            extent.hi.y - extent.lo.y,
+            cell_size,
+        )
+    }
+
+    /// Prepare the saved boundary's grid after preflight and before shroud xfer.
+    pub(crate) fn prepare_saved_partition_boundary(&mut self, boundary: i32) -> Result<(), String> {
+        let terrain = self.world_services.terrain().clone();
+        {
+            let mut terrain = terrain
+                .write()
+                .map_err(|_| "receiving terrain owner is poisoned")?;
+            if !terrain.has_height_map() || terrain.get_active_boundary() == boundary {
+                return Ok(());
+            }
+            terrain
+                .extent_for_saved_boundary(boundary)
+                .ok_or("saved terrain boundary does not exist")?;
+            terrain.restore_active_boundary_from_snapshot(boundary);
+        }
+        self.initialize_receiving_partition_grid()
+    }
     /// The active terrain boundary is distinct from the full map or path grid.
     fn receiving_partition_extent(&self) -> (Vec3, Vec3) {
         let extent = {
