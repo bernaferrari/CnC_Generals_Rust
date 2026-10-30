@@ -1,8 +1,8 @@
 use generals_main::game_logic::{GameLogic, ObjectId, Player, Team};
-use generals_main::save_load::SnapshotBuilder;
 use generals_main::save_load::snapshot::{
     capture_lifecycle_tail, decode_lifecycle_tail, encode_lifecycle_tail,
 };
+use generals_main::save_load::SnapshotBuilder;
 use glam::Vec3;
 
 fn world(child_template: &str) -> GameLogic {
@@ -31,6 +31,48 @@ fn roster(world: &GameLogic, producer: ObjectId) -> Vec<u32> {
         .into_iter()
         .map(|child| child.child_id)
         .collect()
+}
+
+#[test]
+fn required_spawn_children_run_their_own_slow_death_in_the_receiving_world() {
+    fn session() -> (GameLogic, ObjectId) {
+        let mut world = GameLogic::new();
+        world.admit_object_ini_sources([("RequiredSpawn.ini".into(),
+            "Object Nest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 2\n SpawnTemplateName = Child\n SpawnedRequireSpawner = Yes\n End\nEnd\nObject Child\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SlowDeathBehavior Death\n DestructionDelay = 3000\n End\nEnd\n".into())]).unwrap();
+        world.add_player(Player::new(1, Team::GLA, "Owner", true));
+        let parent = world
+            .create_object_for_player("Nest", 1, Vec3::ZERO)
+            .unwrap();
+        (world, parent)
+    }
+    let (mut owner, parent) = session();
+    let (peer, peer_parent) = session();
+    let children = roster(&owner, parent);
+    assert_eq!(children.len(), 2);
+    assert_eq!(children, roster(&peer, peer_parent));
+    let snapshot = SnapshotBuilder::new()
+        .create_world_snapshot(&owner)
+        .unwrap();
+    let (mut restored, _) = session();
+    SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert_eq!(roster(&restored, parent), children);
+    owner.apply_host_damage(parent, 1000.0);
+    restored.apply_host_damage(parent, 1000.0);
+    for child in children {
+        let owner_child = owner
+            .host_object(ObjectId(child))
+            .expect("slow death retains the child");
+        assert!(owner_child.slow_death.is_some(), "child death behavior ran");
+        assert!(owner_child.producer_id.is_none());
+        let restored_child = restored.host_object(ObjectId(child)).unwrap();
+        assert!(restored_child.slow_death.is_some());
+        assert!(restored_child.producer_id.is_none());
+        let peer_child = peer.host_object(ObjectId(child)).unwrap();
+        assert!(peer_child.slow_death.is_none());
+        assert_eq!(peer_child.producer_id, Some(peer_parent));
+    }
 }
 
 #[test]

@@ -1365,11 +1365,16 @@ impl GameLogic {
             if !live_child {
                 continue;
             }
-            if let Some(child) = self.host_object_mut(child_id) {
-                child.internal_change_health(-child.health.current);
-                child.status.effectively_dead = true;
-            }
-            self.mark_object_for_destruction_with_effects(child_id, None, effects);
+            // SpawnBehavior::onDie calls Object::kill(), which sends an
+            // unresistable normal-death damage request through the child's
+            // own Body and Die modules. Do not bypass their callbacks or force
+            // physical removal when a death behavior retains the object.
+            let _ = self.apply_owned_kill_with_effects(
+                child_id,
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                effects,
+            );
         }
     }
 
