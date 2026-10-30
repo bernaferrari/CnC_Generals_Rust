@@ -111,8 +111,17 @@ fn contained_weapon_world_with_fire(
     force_metadata: bool,
     allow_fire: Option<bool>,
 ) -> (GameLogic, ObjectId, ObjectId) {
+    contained_weapon_world_with_pre_attack(authored_pass, force_metadata, allow_fire, 0)
+}
+
+fn contained_weapon_world_with_pre_attack(
+    authored_pass: bool,
+    force_metadata: bool,
+    allow_fire: Option<bool>,
+    pre_attack_frames: i32,
+) -> (GameLogic, ObjectId, ObjectId) {
     let mut game = GameLogic::new();
-    game.admit_combat_bonus_ini_sources(["GameData\n WeaponBonus = SOLO_HUMAN_EASY RADIUS 150%\n WeaponBonus = SOLO_AI_EASY RADIUS 200%\n WeaponBonus = SOLO_AI_EASY DAMAGE 150%\n WeaponBonus = SOLO_AI_EASY RANGE 200%\n WeaponBonus = GARRISONED RADIUS 125%\n WeaponBonus = FRENZY_ONE RADIUS 125%\n WeaponBonus = FRENZY_THREE RADIUS 175%\n WeaponBonus = VETERAN RADIUS 125%\n WeaponBonus = HERO RADIUS 150%\nEnd\n"]).unwrap();
+    game.admit_combat_bonus_ini_sources(["GameData\n WeaponBonus = SOLO_HUMAN_EASY RADIUS 150%\n WeaponBonus = SOLO_AI_EASY RADIUS 200%\n WeaponBonus = SOLO_AI_EASY DAMAGE 150%\n WeaponBonus = SOLO_AI_EASY RANGE 200%\n WeaponBonus = SOLO_AI_EASY PRE_ATTACK 200%\n WeaponBonus = GARRISONED RADIUS 125%\n WeaponBonus = FRENZY_ONE RADIUS 125%\n WeaponBonus = FRENZY_THREE RADIUS 175%\n WeaponBonus = VETERAN RADIUS 125%\n WeaponBonus = HERO RADIUS 150%\nEnd\n"]).unwrap();
     let pass = if authored_pass { "Yes" } else { "No" };
     let fire = allow_fire.map_or(String::new(), |allow| {
         format!(
@@ -134,6 +143,7 @@ fn contained_weapon_world_with_fire(
     weapon.primary_damage_radius = 20.0;
     weapon.primary_damage = 10.0;
     weapon.attack_range = 200.0;
+    weapon.pre_attack_delay = pre_attack_frames;
     weapon.projectile_name = "NONE".into();
     game.admit_receiving_weapon_snapshot(vec![("ContainedWeapon".into(), weapon)])
         .unwrap();
@@ -263,6 +273,74 @@ fn helix_passenger_receives_authored_garrisoned_bonus() {
         world.weapon_cursor_radii(passenger, 0).unwrap().damage,
         30.0
     );
+}
+
+#[test]
+fn passenger_pre_attack_uses_receiving_carrier_bonus() {
+    let (mut delayed, passenger, carrier) =
+        contained_weapon_world_with_pre_attack(true, false, Some(true), 30);
+    let (mut normal, peer_passenger, peer_carrier) =
+        contained_weapon_world_with_pre_attack(false, false, Some(true), 30);
+    assert_eq!((passenger, carrier), (peer_passenger, peer_carrier));
+    let mut enemies = Vec::new();
+    for world in [&mut delayed, &mut normal] {
+        world.host_object_mut(passenger).unwrap().contained_by = None;
+        world
+            .templates
+            .get_mut("Enemy")
+            .unwrap()
+            .add_kind_of(generals_main::game_logic::KindOf::Attackable);
+        world.add_player(Player::new(2, Team::GLA, "Enemy", false));
+        enemies.push(
+            world
+                .create_object_for_player("Enemy", 2, glam::Vec3::new(20.0, 0.0, 0.0))
+                .unwrap(),
+        );
+        assert!(world.unit_command_order_enter(passenger, carrier));
+        world.try_physics_collide(passenger, carrier, 1.0);
+        assert_eq!(
+            world.host_object(passenger).unwrap().contained_by,
+            Some(carrier)
+        );
+    }
+    assert_eq!(enemies[0], enemies[1]);
+    for _ in 0..45 {
+        delayed.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        normal.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if normal.host_object(enemies[1]).unwrap().health.current < 100.0 {
+            break;
+        }
+    }
+    assert!(normal.host_object(enemies[1]).unwrap().health.current < 100.0);
+    assert_eq!(
+        delayed.host_object(enemies[0]).unwrap().health.current,
+        100.0
+    );
+    let snapshot = generals_main::save_load::SnapshotBuilder::new()
+        .create_world_snapshot(&delayed)
+        .unwrap();
+    let (mut restored, _, _) = contained_weapon_world_with_pre_attack(true, false, Some(true), 30);
+    restored
+        .templates
+        .get_mut("Enemy")
+        .unwrap()
+        .add_kind_of(generals_main::game_logic::KindOf::Attackable);
+    restored.add_player(Player::new(2, Team::GLA, "Enemy", false));
+    generals_main::save_load::SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    for _ in 0..40 {
+        delayed.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        restored.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        assert_eq!(
+            delayed.host_object(enemies[0]).unwrap().health.current,
+            restored.host_object(enemies[0]).unwrap().health.current
+        );
+        if delayed.host_object(enemies[0]).unwrap().health.current < 100.0 {
+            break;
+        }
+    }
+    assert!(delayed.host_object(enemies[0]).unwrap().health.current < 100.0);
 }
 
 #[test]

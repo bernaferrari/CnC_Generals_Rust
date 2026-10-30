@@ -7,6 +7,7 @@ enum WeaponShotRoute {
         slot: u8,
         origin: Vec3,
         damage_bonus: Option<f32>,
+        pre_attack_bonus: Option<f32>,
     },
 }
 
@@ -155,6 +156,7 @@ impl Object {
                 slot,
                 origin: muzzle_origin,
                 damage_bonus: None,
+                pre_attack_bonus: None,
             },
             target_id,
             current_time,
@@ -192,6 +194,7 @@ impl Object {
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         solo_set: &gamelogic::weapon::WeaponBonusSet,
         damage_bonus: f32,
+        pre_attack_bonus: f32,
         random: &game_engine::common::random_value::SessionRandom,
         projectile_team_id: Option<u32>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
@@ -200,6 +203,7 @@ impl Object {
                 slot,
                 origin: muzzle_origin,
                 damage_bonus: Some(damage_bonus),
+                pre_attack_bonus: Some(pre_attack_bonus),
             },
             target_id,
             current_time,
@@ -520,10 +524,20 @@ impl Object {
                 .weapon_slot(slot)
                 .map(|w| w.pre_attack_delay.max(0.0))
                 .unwrap_or(0.0);
-            base * solo_set.map_or_else(
-                || self.weapon_bonus_fields().3,
-                |set| self.weapon_bonus_fields_with_solo_set(set).3,
-            )
+            let bonus = match route {
+                WeaponShotRoute::Passive { pre_attack_bonus, .. } => pre_attack_bonus,
+                WeaponShotRoute::Autonomous => None,
+            };
+            if let Some(bonus) = bonus {
+                self.selected_native_weapon_rule(slot).map_or(base * bonus, |rule| {
+                    ((rule.pre_attack_delay.max(0) as f32 * bonus) as u32) as f32 / 30.0
+                })
+            } else {
+                base * solo_set.map_or_else(
+                    || self.weapon_bonus_fields().3,
+                    |set| self.weapon_bonus_fields_with_solo_set(set).3,
+                )
+            }
         };
         let prefire = {
             let name = self.weapon_name_for_slot(slot);

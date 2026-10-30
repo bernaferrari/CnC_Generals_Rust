@@ -36,10 +36,10 @@ impl GameLogic {
             .get(&source)
             .and_then(|object| object.owner_player_id)
             .and_then(|player_id| self.host_default_team_id(player_id));
-        let Some(damage_bonus) = self
+        let Some(bonuses) = self
             .objects
             .get(&source)
-            .map(|shooter| self.receiving_weapon_bonus_fields_for_slot(shooter, slot).0)
+            .map(|shooter| self.receiving_weapon_bonus_fields_for_slot(shooter, slot))
         else {
             return false;
         };
@@ -63,7 +63,8 @@ impl GameLogic {
             self.frame,
             &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
             &self.solo_weapon_bonus_set,
-            damage_bonus,
+            bonuses.0,
+            bonuses.3,
             &self.logic_random,
             projectile_team_id,
         ) else {
