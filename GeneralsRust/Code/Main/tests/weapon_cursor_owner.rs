@@ -99,6 +99,87 @@ fn bonus_conditions_are_appended_in_cpp_order() {
     assert_eq!(result.get_field(WeaponBonusField::Damage), 2.0);
 }
 
+fn contained_weapon_world(
+    authored_pass: bool,
+    force_metadata: bool,
+) -> (GameLogic, ObjectId, ObjectId) {
+    let mut game = GameLogic::new();
+    game.admit_combat_bonus_ini_sources(["GameData\n WeaponBonus = SOLO_HUMAN_EASY RADIUS 150%\n WeaponBonus = SOLO_AI_EASY RADIUS 200%\n WeaponBonus = FRENZY_ONE RADIUS 125%\n WeaponBonus = FRENZY_THREE RADIUS 175%\n WeaponBonus = VETERAN RADIUS 125%\n WeaponBonus = HERO RADIUS 150%\nEnd\n"]).unwrap();
+    let pass = if authored_pass { "Yes" } else { "No" };
+    game.admit_object_ini_sources([("Container.ini".into(), format!(
+        "Object Passenger\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n WeaponSet\n Conditions = NONE\n Weapon = PRIMARY ContainedWeapon\n End\nEnd\nObject Carrier\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = TransportContain Transport\n Slots = 2\n WeaponBonusPassedToPassengers = {pass}\n End\nEnd\n"
+    ))]).unwrap();
+    if force_metadata {
+        game.templates
+            .get_mut("Carrier")
+            .unwrap()
+            .contain_module
+            .weapon_bonus_passed_to_passengers = true;
+    }
+    let mut weapon = WeaponTemplate::new("ContainedWeapon".into());
+    weapon.primary_damage_radius = 20.0;
+    game.admit_receiving_weapon_snapshot(vec![("ContainedWeapon".into(), weapon)])
+        .unwrap();
+    game.add_player(Player::new(1, Team::USA, "Owner", true));
+    let passenger = game
+        .create_object_for_player("Passenger", 1, glam::Vec3::ZERO)
+        .unwrap();
+    let carrier = game
+        .create_object_for_player("Carrier", 1, glam::Vec3::ZERO)
+        .unwrap();
+    game.host_object_mut(passenger).unwrap().weapon_bonus_solo = 16;
+    game.host_object_mut(passenger).unwrap().contained_by = Some(carrier);
+    game.host_object_mut(carrier).unwrap().weapon_bonus_solo = 19;
+    (game, passenger, carrier)
+}
+
+#[test]
+fn authored_container_flag_controls_passenger_weapon_bonus() {
+    let (yes, passenger, carrier) = contained_weapon_world(true, false);
+    let (no, peer_passenger, peer_carrier) = contained_weapon_world(false, false);
+    assert_eq!((passenger, carrier), (peer_passenger, peer_carrier));
+    assert!(
+        yes.host_object(carrier)
+            .unwrap()
+            .passes_weapon_bonus_to_passengers()
+    );
+    assert!(
+        !no.host_object(peer_carrier)
+            .unwrap()
+            .passes_weapon_bonus_to_passengers()
+    );
+    assert_eq!(
+        no.weapon_cursor_radii(peer_passenger, 0).unwrap().damage,
+        30.0
+    );
+    assert_eq!(yes.weapon_cursor_radii(passenger, 0).unwrap().damage, 50.0);
+}
+
+#[test]
+fn contained_weapon_combines_distinct_source_and_carrier_conditions() {
+    let (mut game, passenger, carrier) = contained_weapon_world(false, true);
+    assert!(
+        game.host_object(carrier)
+            .unwrap()
+            .passes_weapon_bonus_to_passengers()
+    );
+    assert_eq!(game.weapon_cursor_radii(passenger, 0).unwrap().damage, 50.0);
+    game.host_object_mut(passenger).unwrap().weapon_bonus_frenzy = true;
+    game.host_object_mut(passenger)
+        .unwrap()
+        .weapon_bonus_frenzy_level = 1;
+    game.host_object_mut(carrier).unwrap().weapon_bonus_frenzy = true;
+    game.host_object_mut(carrier)
+        .unwrap()
+        .weapon_bonus_frenzy_level = 3;
+    assert_eq!(game.weapon_cursor_radii(passenger, 0).unwrap().damage, 70.0);
+    game.host_object_mut(carrier).unwrap().weapon_bonus_solo = 16;
+    assert_eq!(game.weapon_cursor_radii(passenger, 0).unwrap().damage, 50.0);
+    game.host_object_mut(passenger).unwrap().weapon_bonus_veteran = true;
+    game.host_object_mut(carrier).unwrap().weapon_bonus_hero = true;
+    assert_eq!(game.weapon_cursor_radii(passenger, 0).unwrap().damage, 65.0);
+}
+
 #[test]
 fn cursor_radii_use_exact_slot_receiving_definitions_and_bonus() {
     let (owner, id) = world(20.0, 150, None);

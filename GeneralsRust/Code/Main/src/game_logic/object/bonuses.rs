@@ -492,7 +492,17 @@ impl Object {
                     c.weapon_bonus_battle_plan_hold_the_line
                 }),
             );
-            if frenzy {
+            if matches!(extra, ExtraWeaponBonus::Owned(_)) {
+                for source in [Some(self), inherit].into_iter().flatten() {
+                    if source.weapon_bonus_frenzy {
+                        match source.weapon_bonus_frenzy_level {
+                            2 => flags.set(WeaponBonusConditionType::FrenzyTwo),
+                            3 => flags.set(WeaponBonusConditionType::FrenzyThree),
+                            _ => flags.set(WeaponBonusConditionType::FrenzyOne),
+                        }
+                    }
+                }
+            } else if frenzy {
                 match frenzy_level {
                     2 => flags.set(WeaponBonusConditionType::FrenzyTwo),
                     3 => flags.set(WeaponBonusConditionType::FrenzyThree),
@@ -505,33 +515,79 @@ impl Object {
             {
                 flags.set(WeaponBonusConditionType::Garrisoned);
             }
-            match continuous_fire_level {
-                1 => flags.set(WeaponBonusConditionType::ContinuousFireMean),
-                2 => flags.set(WeaponBonusConditionType::ContinuousFireFast),
-                _ => {}
-            }
-            if hero {
-                flags.set(WeaponBonusConditionType::Hero);
-            } else if elite {
-                flags.set(WeaponBonusConditionType::Elite);
-            } else if veteran {
-                flags.set(WeaponBonusConditionType::Veteran);
+            if matches!(extra, ExtraWeaponBonus::Owned(_)) {
+                for source in [Some(self), inherit].into_iter().flatten() {
+                    match source.continuous_fire_level {
+                        1 => flags.set(WeaponBonusConditionType::ContinuousFireMean),
+                        2 => flags.set(WeaponBonusConditionType::ContinuousFireFast),
+                        _ => {}
+                    }
+                    set(
+                        &mut flags,
+                        WeaponBonusConditionType::Hero,
+                        source.weapon_bonus_hero,
+                    );
+                    set(
+                        &mut flags,
+                        WeaponBonusConditionType::Elite,
+                        source.weapon_bonus_elite,
+                    );
+                    set(
+                        &mut flags,
+                        WeaponBonusConditionType::Veteran,
+                        source.weapon_bonus_veteran,
+                    );
+                    if !source.weapon_bonus_hero
+                        && !source.weapon_bonus_elite
+                        && !source.weapon_bonus_veteran
+                    {
+                        match source.experience.level {
+                            VeterancyLevel::Heroic => flags.set(WeaponBonusConditionType::Hero),
+                            VeterancyLevel::Elite => flags.set(WeaponBonusConditionType::Elite),
+                            VeterancyLevel::Veteran => flags.set(WeaponBonusConditionType::Veteran),
+                            VeterancyLevel::Rookie => {}
+                        }
+                    }
+                }
             } else {
-                match self.experience.level {
-                    VeterancyLevel::Heroic => flags.set(WeaponBonusConditionType::Hero),
-                    VeterancyLevel::Elite => flags.set(WeaponBonusConditionType::Elite),
-                    VeterancyLevel::Veteran => flags.set(WeaponBonusConditionType::Veteran),
-                    VeterancyLevel::Rookie => {}
+                match continuous_fire_level {
+                    1 => flags.set(WeaponBonusConditionType::ContinuousFireMean),
+                    2 => flags.set(WeaponBonusConditionType::ContinuousFireFast),
+                    _ => {}
+                }
+                if hero {
+                    flags.set(WeaponBonusConditionType::Hero);
+                } else if elite {
+                    flags.set(WeaponBonusConditionType::Elite);
+                } else if veteran {
+                    flags.set(WeaponBonusConditionType::Veteran);
+                } else {
+                    match self.experience.level {
+                        VeterancyLevel::Heroic => flags.set(WeaponBonusConditionType::Hero),
+                        VeterancyLevel::Elite => flags.set(WeaponBonusConditionType::Elite),
+                        VeterancyLevel::Veteran => flags.set(WeaponBonusConditionType::Veteran),
+                        VeterancyLevel::Rookie => {}
+                    }
                 }
             }
-            match solo {
-                16 => flags.set(WeaponBonusConditionType::SoloHumanEasy),
-                17 => flags.set(WeaponBonusConditionType::SoloHumanNormal),
-                18 => flags.set(WeaponBonusConditionType::SoloHumanHard),
-                19 => flags.set(WeaponBonusConditionType::SoloAiEasy),
-                20 => flags.set(WeaponBonusConditionType::SoloAiNormal),
-                21 => flags.set(WeaponBonusConditionType::SoloAiHard),
-                _ => {}
+            let solo_flags = if matches!(extra, ExtraWeaponBonus::Owned(_)) {
+                [
+                    self.weapon_bonus_solo,
+                    inherit.map_or(0, |source| source.weapon_bonus_solo),
+                ]
+            } else {
+                [solo, 0]
+            };
+            for solo in solo_flags {
+                match solo {
+                    16 => flags.set(WeaponBonusConditionType::SoloHumanEasy),
+                    17 => flags.set(WeaponBonusConditionType::SoloHumanNormal),
+                    18 => flags.set(WeaponBonusConditionType::SoloHumanHard),
+                    19 => flags.set(WeaponBonusConditionType::SoloAiEasy),
+                    20 => flags.set(WeaponBonusConditionType::SoloAiNormal),
+                    21 => flags.set(WeaponBonusConditionType::SoloAiHard),
+                    _ => {}
+                }
             }
             if matches!(extra, ExtraWeaponBonus::Owned(_)) {
                 if let Some(set) = session_solo_set {
