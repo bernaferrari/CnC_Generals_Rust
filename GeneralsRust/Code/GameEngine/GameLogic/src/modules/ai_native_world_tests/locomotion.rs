@@ -672,7 +672,8 @@ pub(crate) fn explicit_goal_moves_canonical_owner_without_path_or_foreign_writes
             .unwrap();
     });
     let physics = physics_handle(&owner);
-    assert!(physics.accumulated_force_acceleration().x > 0.0);
+    let applied_acceleration = physics.accumulated_force_acceleration().x;
+    assert!(applied_acceleration > 0.0);
     let proxy = owner
         .read()
         .unwrap()
@@ -692,7 +693,11 @@ pub(crate) fn explicit_goal_moves_canonical_owner_without_path_or_foreign_writes
             .test_status(crate::common::ObjectStatusTypes::Braking)
     );
     assert_eq!(*owner.read().unwrap().get_position(), before);
-    assert!(physics.access().unwrap().get_velocity().x > 0.0);
+    let first_velocity = physics.access().unwrap().get_velocity().x;
+    assert!(
+        (first_velocity - applied_acceleration).abs() < 1.0e-6,
+        "from rest, Physics must add the locomotor's per-frame acceleration without another time step: acceleration={applied_acceleration}, velocity={first_velocity}"
+    );
     game.operate_with_current(41, Some(ai_proxy(&owner)), |world| {
         ai.lock()
             .unwrap()
