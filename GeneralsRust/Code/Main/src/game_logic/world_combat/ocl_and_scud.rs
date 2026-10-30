@@ -989,18 +989,6 @@ impl GameLogic {
                 }
                 continue;
             }
-            if generic.contain_inside_source_object
-                && !generic.names.iter().all(|name| {
-                    self.templates.get(name.trim()).is_some_and(|template| {
-                        template.is_kind_of(crate::game_logic::KindOf::PortableStructure)
-                    })
-                })
-            {
-                log::warn!(
-                    "receiving OCL `{ocl_name}` skipped ContainInsideSourceObject candidate without authored PORTABLE_STRUCTURE"
-                );
-                continue;
-            }
             if !supports_host_weapon_generic_ocl(generic) {
                 log::warn!(
                     "receiving OCL `{ocl_name}` skipped unsupported GenericObjectCreationNugget configuration"
