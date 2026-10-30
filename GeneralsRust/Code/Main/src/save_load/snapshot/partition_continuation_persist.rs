@@ -8,6 +8,9 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 const TAG: &[u8; 4] = b"PCOI";
 const VERSION: u32 = 3;
+// Match the save container's maximum uncompressed size; populated scalar
+// grids can legitimately exceed the smaller limits used for metadata chunks.
+const MAX_PAYLOAD_BYTES: usize = crate::save_load::compression::MAX_UNCOMPRESSED_SIZE;
 #[derive(Deserialize)]
 struct NativeV1 {
     modules: Vec<(u32, Vec<(i32, i32)>)>,
@@ -34,6 +37,9 @@ pub(super) struct Decoded<'a> {
 pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<()> {
     let state = world.capture_partition_continuation().map_err(corrupted)?;
     let payload = bincode_legacy::serialize(&state).map_err(corrupted)?;
+    if payload.len() > MAX_PAYLOAD_BYTES {
+        return Err(corrupted("payload exceeds save size limit"));
+    }
     let length = u32::try_from(payload.len()).map_err(corrupted)?;
     bytes.extend_from_slice(TAG);
     bytes.extend_from_slice(&VERSION.to_le_bytes());
@@ -61,6 +67,9 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
         return Err(corrupted("unknown version"));
     }
     let length = u32::from_le_bytes(suffix[8..12].try_into().unwrap()) as usize;
+    if length > MAX_PAYLOAD_BYTES {
+        return Err(corrupted("payload exceeds save size limit"));
+    }
     let end = 12usize
         .checked_add(length)
         .ok_or_else(|| corrupted("length overflow"))?;
@@ -70,7 +79,7 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
     let (state, used): (PartitionContinuation, usize) = if version == 1 {
         let (legacy, used): (NativeV1, usize) = bincode::serde::decode_from_slice(
             payload,
-            bincode::config::legacy().with_limit::<67108864>(),
+            bincode::config::legacy().with_limit::<MAX_PAYLOAD_BYTES>(),
         )
         .map_err(corrupted)?;
         (
@@ -80,7 +89,7 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
     } else if version == 2 {
         let (legacy, used): (NativeV2, usize) = bincode::serde::decode_from_slice(
             payload,
-            bincode::config::legacy().with_limit::<67108864>(),
+            bincode::config::legacy().with_limit::<MAX_PAYLOAD_BYTES>(),
         )
         .map_err(corrupted)?;
         (
@@ -96,7 +105,7 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
     } else {
         bincode::serde::decode_from_slice(
             payload,
-            bincode::config::legacy().with_limit::<67108864>(),
+            bincode::config::legacy().with_limit::<MAX_PAYLOAD_BYTES>(),
         )
         .map_err(corrupted)?
     };

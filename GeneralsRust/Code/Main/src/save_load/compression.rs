@@ -7,7 +7,7 @@ const COMPRESSION_MAGIC: &[u8; 4] = b"GZLZ";
 const DEFAULT_COMPRESSION_LEVEL: u32 = 6;
 
 /// Maximum uncompressed size we'll handle (512MB)
-const MAX_UNCOMPRESSED_SIZE: usize = 512 * 1024 * 1024;
+pub(super) const MAX_UNCOMPRESSED_SIZE: usize = 512 * 1024 * 1024;
 
 /// Check if data is compressed by looking for magic header
 pub fn is_compressed(data: &[u8]) -> SaveLoadResult<bool> {
