@@ -668,3 +668,63 @@ fn continuation_uses_each_worlds_off_map_status_after_boundary_change_and_restor
         Some(candidate)
     );
 }
+
+#[test]
+fn continuation_uses_authored_active_terrain_boundary() {
+    use game_engine::common::system::DataChunkOutput;
+
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("boundary.map");
+    let mut map = DataChunkOutput::new();
+    map.open_data_chunk("HeightMapData", 4);
+    // The active boundary is 100 x 100 while the full map is 990 x 990.
+    for value in [101, 101, 1, 2, 10, 10, 99, 99, 10201] {
+        map.write_int(value);
+    }
+    for _ in 0..10201 {
+        map.write_byte(0);
+    }
+    map.close_data_chunk();
+    std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
+
+    let (mut session, _, _, _) = world(200.0, "MapBoundaryWeapon");
+    assert!(session.load_map(path.to_str().unwrap()));
+    let mut owner = Player::new(1, Team::USA, "Owner", true);
+    owner.alliance_team = 1;
+    let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
+    enemy.alliance_team = 2;
+    session.add_player(owner);
+    session.add_player(enemy);
+    let attacker = session
+        .create_object_for_player("ChainAttacker", 1, Vec3::new(20.0, 0.0, 20.0))
+        .unwrap();
+    session
+        .host_object_mut(attacker)
+        .unwrap()
+        .auto_acquire_idle_bits = 0;
+    let victim = session
+        .create_object_for_player("ChainVictim", 2, Vec3::new(30.0, 0.0, 20.0))
+        .unwrap();
+    let candidate = session
+        .create_object_for_player("ChainVictim", 2, Vec3::new(150.0, 0.0, 20.0))
+        .unwrap();
+    assert!(session.unit_command_attack(attacker, victim).unwrap());
+    for _ in 0..100 {
+        session.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if session
+            .host_object(victim)
+            .is_none_or(|object| !object.is_alive())
+        {
+            break;
+        }
+    }
+    assert!(
+        session
+            .host_object(victim)
+            .is_none_or(|object| !object.is_alive())
+    );
+    assert_ne!(
+        session.host_object(attacker).unwrap().target,
+        Some(candidate)
+    );
+}

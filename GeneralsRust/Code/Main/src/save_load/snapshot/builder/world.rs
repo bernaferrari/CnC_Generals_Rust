@@ -1002,6 +1002,9 @@ impl SnapshotBuilder {
             game_logic,
             snapshot.version < 30,
         )?;
+        // Terrain's saved active boundary is restored after the shroud grid.
+        // Preserve saved object bits while making future pose changes use it.
+        game_logic.sync_receiving_map_extent();
         // Historical native saves may carry a stale global adapter in v18.
         // NLFC already owns the receiving native value and takes precedence.
         if let Some(value) = native_lifecycle.hulk_max_lifetime_override {

@@ -2,10 +2,25 @@
 use super::*;
 
 impl GameLogic {
+    /// The active terrain boundary is distinct from the full map or path grid.
+    pub(crate) fn sync_receiving_map_extent(&mut self) {
+        let extent = {
+            let terrain = self.world_services.terrain();
+            let terrain = terrain.read().unwrap_or_else(|error| error.into_inner());
+            terrain.has_height_map().then(|| terrain.get_extent())
+        };
+        let (min, max) = extent.map_or((self.world_min, self.world_max), |extent| {
+            (
+                Vec3::new(extent.lo.x, extent.lo.z, extent.lo.y),
+                Vec3::new(extent.hi.x, extent.hi.z, extent.hi.y),
+            )
+        });
+        self.partition_manager.set_map_extent(min, max);
+    }
+
     /// C++ Object::friend_notifyOfNewMapBoundary refreshes every live object.
     pub(crate) fn refresh_receiving_object_map_status(&mut self) {
-        self.partition_manager
-            .set_map_extent(self.world_min, self.world_max);
+        self.sync_receiving_map_extent();
         for (_, object) in self.objects.registered_mut() {
             self.partition_manager.refresh_object_map_status(object);
         }
@@ -53,8 +68,7 @@ impl GameLogic {
         shroud.replace_state_owned(snapshot, frame)?;
         self.partition_manager.configure_grid_from_shroud(&shroud);
         drop(shroud);
-        self.partition_manager
-            .set_map_extent(self.world_min, self.world_max);
+        self.sync_receiving_map_extent();
         Ok(())
     }
 }
