@@ -48,6 +48,28 @@ pub use reload_aim::*;
 mod historic_speed;
 pub use historic_speed::*;
 mod scatter;
+pub(crate) use scatter::{seed_scatter_radius_for, seed_scatter_radius_vs_infantry_for};
+
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ReceivingWeaponRadii {
+    pub primary_damage: f32,
+    pub secondary_damage: f32,
+    pub scatter: f32,
+    pub scatter_infantry: f32,
+    pub scatter_target_scalar: f32,
+}
+
+impl ReceivingWeaponRadii {
+    pub fn from_template(weapon: &gamelogic::weapon::WeaponTemplate) -> Self {
+        Self {
+            primary_damage: weapon.primary_damage_radius,
+            secondary_damage: weapon.secondary_damage_radius,
+            scatter: weapon.scatter_radius,
+            scatter_infantry: weapon.infantry_inaccuracy_dist,
+            scatter_target_scalar: weapon.scatter_target_scalar,
+        }
+    }
+}
 pub(crate) use scatter::scatter_aim_offset_logic;
 pub use scatter::*;
 mod collide;
@@ -55,6 +77,7 @@ pub(in crate::game_logic) use collide::receiving_splash_templates_equivalent;
 pub use collide::*;
 mod shock_damage;
 pub use shock_damage::*;
+pub(crate) use shock_damage::{seed_primary_damage_radius_for, seed_secondary_damage_radius_for};
 mod fx;
 pub use fx::*;
 mod projectile_sound;

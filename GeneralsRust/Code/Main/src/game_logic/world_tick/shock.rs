@@ -1620,6 +1620,45 @@ impl GameLogic {
             && self.object_relationship(killer, victim) == Relationship::Enemies
     }
 
+    /// Effective radii from this session's immutable catalog. Missing entries
+    /// in an admitted catalog are not supplied by another world's store.
+    pub(crate) fn receiving_weapon_radii(
+        &self,
+        name: &str,
+    ) -> crate::game_logic::weapon_bootstrap::ReceivingWeaponRadii {
+        use crate::game_logic::weapon_bootstrap::ReceivingWeaponRadii;
+        match self.weapon_definitions.as_ref() {
+            Some(definitions) => definitions
+                .get(&name.trim().to_ascii_lowercase())
+                .map_or_else(ReceivingWeaponRadii::default, |weapon| {
+                    ReceivingWeaponRadii::from_template(weapon)
+                }),
+            None => ReceivingWeaponRadii {
+                primary_damage: crate::game_logic::weapon_bootstrap::seed_primary_damage_radius_for(
+                    name,
+                ),
+                secondary_damage:
+                    crate::game_logic::weapon_bootstrap::seed_secondary_damage_radius_for(name),
+                scatter: crate::game_logic::weapon_bootstrap::seed_scatter_radius_for(name),
+                scatter_infantry:
+                    crate::game_logic::weapon_bootstrap::seed_scatter_radius_vs_infantry_for(name),
+                scatter_target_scalar: 0.0,
+            },
+        }
+    }
+
+    pub(crate) fn receiving_cursor_damage_radius(&self, id: Option<ObjectId>, name: &str) -> f32 {
+        let radius = self.receiving_weapon_radii(name).primary_damage;
+        let multiplier = id
+            .and_then(|id| self.host_object(id))
+            .map_or(1.0, |object| {
+                object
+                    .weapon_bonus_fields_for_slot_with_solo_set(0, &self.solo_weapon_bonus_set)
+                    .4
+            });
+        radius * multiplier
+    }
+
     /// Resolve the effective definition in this session. An admitted zero is
     /// authoritative; seed data is only for sessions without a catalog.
     pub(crate) fn receiving_continue_attack_range(&self, name: &str) -> f32 {

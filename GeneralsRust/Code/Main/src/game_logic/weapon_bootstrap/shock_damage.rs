@@ -201,7 +201,7 @@ pub fn host_primary_damage_radius_for_weapon_name(name: &str) -> f32 {
     seed_primary_damage_radius_for(name)
 }
 
-pub(super) fn seed_primary_damage_radius_for(name: &str) -> f32 {
+pub(crate) fn seed_primary_damage_radius_for(name: &str) -> f32 {
     let n = name.to_ascii_lowercase();
     if n.contains("howitzer") || n.contains("firebase") || n.contains("artillery") {
         return 25.0;
@@ -255,7 +255,7 @@ pub(super) fn seed_secondary_damage_for(name: &str) -> f32 {
     0.0
 }
 
-pub(super) fn seed_secondary_damage_radius_for(name: &str) -> f32 {
+pub(crate) fn seed_secondary_damage_radius_for(name: &str) -> f32 {
     let n = name.to_ascii_lowercase();
     if n.contains("scudstorm") || (n.contains("scud") && n.contains("damage")) {
         return 200.0;

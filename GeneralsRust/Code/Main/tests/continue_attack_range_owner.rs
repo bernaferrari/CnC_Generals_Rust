@@ -6,6 +6,14 @@ use glam::Vec3;
 use std::time::UNIX_EPOCH;
 
 fn world(range: f32, weapon_name: &str) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+    world_with_scatter(range, weapon_name, 0.0)
+}
+
+fn world_with_scatter(
+    range: f32,
+    weapon_name: &str,
+    scatter: f32,
+) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
     let mut game = GameLogic::new();
     game.admit_object_ini_sources([("ContinueRange.ini".into(),
         format!("Object ChainAttacker\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface AI\n End\n WeaponSet\n Conditions = NONE\n Weapon = PRIMARY {weapon_name}\n End\nEnd\nObject ChainVictim\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 10\n InitialHealth = 10\n End\nEnd\n"))]).unwrap();
@@ -17,6 +25,7 @@ fn world(range: f32, weapon_name: &str) -> (GameLogic, ObjectId, ObjectId, Objec
     weapon.primary_damage = 100.0;
     weapon.attack_range = 200.0;
     weapon.continue_attack_range = range;
+    weapon.scatter_radius = scatter;
     weapon.projectile_name = "NONE".into();
     game.admit_receiving_weapon_snapshot(vec![(weapon_name.into(), weapon)])
         .unwrap();
@@ -39,6 +48,33 @@ fn world(range: f32, weapon_name: &str) -> (GameLogic, ObjectId, ObjectId, Objec
         .create_object_for_player("ChainVictim", 2, Vec3::new(50.0, 0.0, 20.0))
         .unwrap();
     (game, attacker, first, next)
+}
+
+#[test]
+fn instant_shot_scatter_uses_the_receiving_weapon_definition() {
+    let (mut scattered, attacker, target, _) =
+        world_with_scatter(0.0, "SharedScatterWeapon", 10_000.0);
+    let (mut accurate, peer_attacker, peer_target, _) =
+        world_with_scatter(0.0, "SharedScatterWeapon", 0.0);
+    assert_eq!((attacker, target), (peer_attacker, peer_target));
+    assert!(scattered.unit_command_attack(attacker, target).unwrap());
+    assert!(accurate.unit_command_attack(attacker, target).unwrap());
+    for _ in 0..100 {
+        scattered.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        accurate.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if accurate
+            .host_object(target)
+            .is_none_or(|victim| !victim.is_alive())
+        {
+            break;
+        }
+    }
+    assert!(
+        accurate
+            .host_object(target)
+            .is_none_or(|victim| !victim.is_alive())
+    );
+    assert_eq!(scattered.host_object(target).unwrap().health.current, 10.0);
 }
 
 #[test]

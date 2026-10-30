@@ -720,15 +720,16 @@ impl CnCGameEngine {
         let Some(name) = weapon_name.filter(|n| !n.is_empty()) else {
             return 0.0;
         };
-        crate::game_logic::weapon_bootstrap::host_primary_damage_radius_for_weapon_name(name)
+        self.game_logic
+            .receiving_cursor_damage_radius(self.ui_selection_seed_id(), name)
     }
 
     fn radius_cursor_scatter(&self, weapon_name: Option<&str>) -> f32 {
         let Some(name) = weapon_name.filter(|n| !n.is_empty()) else {
             return 0.0;
         };
-        crate::game_logic::weapon_bootstrap::host_scatter_radius_for_weapon_name(name)
-            + crate::game_logic::weapon_bootstrap::host_scatter_target_scalar_for_weapon_name(name)
+        let radii = self.game_logic.receiving_weapon_radii(name);
+        radii.scatter + radii.scatter_target_scalar
     }
 
     fn radius_cursor_continue_attack(&self, weapon_name: Option<&str>) -> f32 {

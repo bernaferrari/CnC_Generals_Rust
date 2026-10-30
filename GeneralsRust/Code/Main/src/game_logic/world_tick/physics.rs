@@ -28,12 +28,10 @@ impl GameLogic {
         table_offset: Option<glam::Vec2>,
     ) -> (bool, glam::Vec3, f32) {
         use crate::game_logic::weapon_bootstrap::{
-            DEFAULT_SCATTER_HIT_RADIUS, host_effective_scatter_radius,
-            host_primary_damage_radius_for_weapon_name,
-            host_secondary_damage_radius_for_weapon_name, scatter_impact_offset,
-            scatter_misses_intended_target, scatter_seed_for_shot,
+            DEFAULT_SCATTER_HIT_RADIUS, scatter_impact_offset, scatter_misses_intended_target,
+            scatter_seed_for_shot,
         };
-        let (wname, tgt_inf, hit_r, weapon_splash, radius_mult) = {
+        let (wname, native_radii, tgt_inf, hit_r, weapon_splash, radius_mult) = {
             let attacker = match self.objects.get(&attacker_id) {
                 Some(a) => a,
                 None => return (false, target_pos, 0.0),
@@ -54,6 +52,9 @@ impl GameLogic {
                 .unwrap_or(0.0);
             (
                 wname,
+                attacker.selected_native_weapon_rule(slot).map(|rule| {
+                    crate::game_logic::weapon_bootstrap::ReceivingWeaponRadii::from_template(&rule)
+                }),
                 target.is_kind_of(KindOf::Infantry),
                 hit_r,
                 splash,
@@ -62,17 +63,17 @@ impl GameLogic {
                     .4,
             )
         };
-        let splash_r = {
-            let primary_r = wname
-                .as_deref()
-                .map(host_primary_damage_radius_for_weapon_name)
-                .unwrap_or(0.0);
-            let secondary_r = wname
-                .as_deref()
-                .map(host_secondary_damage_radius_for_weapon_name)
-                .unwrap_or(0.0);
-            weapon_splash.max(primary_r).max(secondary_r) * radius_mult
-        };
+        let radii = native_radii
+            .or_else(|| {
+                wname
+                    .as_deref()
+                    .map(|name| self.receiving_weapon_radii(name))
+            })
+            .unwrap_or_default();
+        let splash_r = weapon_splash
+            .max(radii.primary_damage)
+            .max(radii.secondary_damage)
+            * radius_mult;
         if let Some(offset) = table_offset {
             let mut impact = target_pos;
             impact.x += offset.x;
@@ -85,10 +86,12 @@ impl GameLogic {
             // C++ nulls victimObj — treat as a position shot / intended miss.
             return (true, impact, splash_r);
         }
-        let Some(name) = wname else {
-            return (false, target_pos, splash_r);
-        };
-        let scatter = host_effective_scatter_radius(&name, tgt_inf);
+        let scatter = radii.scatter.max(0.0)
+            + if tgt_inf {
+                radii.scatter_infantry.max(0.0)
+            } else {
+                0.0
+            };
         if scatter <= 0.0 {
             return (false, target_pos, splash_r);
         }

@@ -77,7 +77,7 @@ pub fn host_scatter_target_scalar_for_weapon_name(name: &str) -> f32 {
     .unwrap_or(0.0)
 }
 
-pub(super) fn seed_scatter_radius_for(name: &str) -> f32 {
+pub(crate) fn seed_scatter_radius_for(name: &str) -> f32 {
     let n = name.to_ascii_lowercase();
     // Most combat shells use ScatterRadius 0 + ScatterRadiusVsInfantry only.
     if n.contains("scudstorm") && n.contains("weapon") && !n.contains("damage") {
@@ -94,7 +94,7 @@ pub(super) fn seed_scatter_radius_for(name: &str) -> f32 {
     0.0
 }
 
-pub(super) fn seed_scatter_radius_vs_infantry_for(name: &str) -> f32 {
+pub(crate) fn seed_scatter_radius_vs_infantry_for(name: &str) -> f32 {
     let n = name.to_ascii_lowercase();
     if n.contains("laser") || n.contains("machinegun") || n.contains("minigun") {
         return 0.0;
