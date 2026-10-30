@@ -108,3 +108,77 @@ fn presentation_freezes_each_sessions_fx_sounds() {
     let restored: PresentationFrame = bincode_legacy::deserialize(&bytes).unwrap();
     assert_eq!(names(&restored), ["FirstSound"]);
 }
+
+#[test]
+fn map_fx_overrides_and_failed_peer_load_are_session_owned() {
+    use game_engine::common::system::DataChunkOutput;
+    use generals_main::game_logic::GameMode;
+
+    fn map(root: &std::path::Path, name: &str, source: &str) -> std::path::PathBuf {
+        let directory = root.join(name);
+        std::fs::create_dir(&directory).unwrap();
+        let mut chunks = DataChunkOutput::new();
+        chunks.open_data_chunk("HeightMapData", 3);
+        for value in [21, 21, 1, 441] {
+            chunks.write_int(value);
+        }
+        for _ in 0..441 {
+            chunks.write_byte(8);
+        }
+        chunks.close_data_chunk();
+        chunks.open_data_chunk("ObjectsList", 3);
+        chunks.close_data_chunk();
+        let path = directory.join("FxOwner.map");
+        std::fs::write(&path, chunks.into_ckmp_bytes()).unwrap();
+        std::fs::write(directory.join("Map.ini"), source).unwrap();
+        path
+    }
+    let definition = |sound: &str| format!("FXList Shared\n Sound\n Name = {sound}\n End\nEnd\n");
+    let directory = tempfile::tempdir().unwrap();
+    let first_map = map(directory.path(), "first", &definition("FirstMap"));
+    let second_map = map(directory.path(), "second", &definition("SecondMap"));
+    let bad_map = map(
+        directory.path(),
+        "bad",
+        "FXList Shared\n UnknownNugget\n End\nEnd\n",
+    );
+    let mut first = GameLogic::new();
+    let mut second = GameLogic::new();
+    for (world, sound) in [(&mut first, "FirstBase"), (&mut second, "SecondBase")] {
+        world.start_new_game(GameMode::SinglePlayer);
+        world.admit_fx_source(&definition(sound)).unwrap();
+    }
+    assert!(first.load_map(first_map.to_str().unwrap()));
+    assert!(second.load_map(second_map.to_str().unwrap()));
+    assert_eq!(first.fx_list_sound_names("Shared"), ["FirstMap"]);
+    assert_eq!(second.fx_list_sound_names("Shared"), ["SecondMap"]);
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&first).unwrap();
+    let encoded = bincode_legacy::serialize(&saved).unwrap();
+    let decoded = bincode_legacy::deserialize(&encoded).unwrap();
+    let mut loaded = GameLogic::new();
+    loaded.start_new_game(GameMode::SinglePlayer);
+    loaded.admit_fx_source(&definition("FirstBase")).unwrap();
+    assert!(loaded.load_map(first_map.to_str().unwrap()));
+    builder
+        .restore_from_snapshot(&decoded, &mut loaded)
+        .unwrap();
+    assert_eq!(loaded.fx_list_sound_names("Shared"), ["FirstMap"]);
+    let mut invalid = builder.create_world_snapshot(&first).unwrap();
+    invalid.version = u32::MAX;
+    assert!(
+        builder
+            .restore_from_snapshot(&invalid, &mut loaded)
+            .is_err()
+    );
+    assert_eq!(loaded.fx_list_sound_names("Shared"), ["FirstMap"]);
+    first.reset();
+    assert_eq!(first.fx_list_sound_names("Shared"), ["FirstBase"]);
+    assert_eq!(second.fx_list_sound_names("Shared"), ["SecondMap"]);
+    assert!(first.load_map(first_map.to_str().unwrap()));
+    assert!(!second.load_map(bad_map.to_str().unwrap()));
+    assert_eq!(first.fx_list_sound_names("Shared"), ["FirstMap"]);
+    assert_eq!(loaded.fx_list_sound_names("Shared"), ["FirstMap"]);
+    second.reset();
+    assert_eq!(second.fx_list_sound_names("Shared"), ["SecondBase"]);
+}
