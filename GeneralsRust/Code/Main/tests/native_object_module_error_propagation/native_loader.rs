@@ -13,14 +13,17 @@ const SECOND_ID: u32 = ID + 1;
 
 // Supplies only the trait-object boundary required by the real System loader.
 // Both this adapter and the production registered bridge call the same facade.
-struct LocalSnapshot<'a>(&'a mut NativeLogic);
+struct LocalSnapshot<'a>(
+    &'a mut NativeLogic,
+    &'a mut game_engine::System::CampaignManagerXferState,
+);
 
 impl NativeSnapshot for LocalSnapshot<'_> {
     fn crc(&mut self, _: &mut dyn NativeXfer) -> Result<(), NativeStatus> {
         Ok(())
     }
     fn xfer(&mut self, xfer: &mut dyn NativeXfer) -> Result<(), NativeStatus> {
-        self.0.xfer_native_snapshot(xfer)
+        self.0.xfer_native_snapshot_with_campaign(xfer, self.1)
     }
     fn load_post_process(&mut self) -> Result<(), NativeStatus> {
         panic!("fixture observes deferred registration, not execution of native postprocessing")
@@ -98,8 +101,7 @@ fn assert_admitted(object: &Arc<RwLock<Object>>, expected_id: u32) {
         .with_module(|m| m.xfer(&mut XferSave::new(Cursor::new(&mut ai), 1)))
         .unwrap();
     assert_eq!(
-        ai,
-        [4],
+        ai, AI_PAYLOAD,
         "no-neutral-team fixture requires matching runtime-free AI envelopes"
     );
     assert!(
@@ -187,10 +189,20 @@ pub(super) fn execute(case: &str) {
         .probe
         .clone();
     assert_eq!(probe.created.load(Ordering::SeqCst), 0);
-    let first =
-        Object::new_with_id(template.clone(), ID, ObjectStatusMaskType::NONE, None).unwrap();
+    let team = gamelogic::team::get_team_factory()
+        .lock()
+        .unwrap()
+        .find_team_by_id(91311)
+        .unwrap();
+    let first = Object::new_with_id(
+        template.clone(),
+        ID,
+        ObjectStatusMaskType::NONE,
+        Some(team.clone()),
+    )
+    .unwrap();
     let second =
-        Object::new_with_id(template, SECOND_ID, ObjectStatusMaskType::NONE, None).unwrap();
+        Object::new_with_id(template, SECOND_ID, ObjectStatusMaskType::NONE, Some(team)).unwrap();
     assert_admitted(&first, ID);
     assert_admitted(&second, SECOND_ID);
     let mut writer = NativeLogic::new();
@@ -222,8 +234,11 @@ pub(super) fn execute(case: &str) {
         .iter()
         .map(|row| {
             let size = row + ai_prefix.len();
-            assert_eq!(&valid[size..size + 4], &1i32.to_le_bytes());
-            assert_eq!(valid[size + 4], 4);
+            assert_eq!(
+                &valid[size..size + 4],
+                &(AI_PAYLOAD.len() as i32).to_le_bytes()
+            );
+            assert_eq!(&valid[size + 4..size + 4 + AI_PAYLOAD.len()], &AI_PAYLOAD);
             size + 4
         })
         .collect();
@@ -284,7 +299,8 @@ pub(super) fn execute(case: &str) {
     load.set_post_process_snapshot_callback(Some(Box::new(move || {
         queued_callback.fetch_add(1, Ordering::SeqCst);
     })));
-    let result = load.xfer_snapshot(&mut LocalSnapshot(&mut receiver));
+    let mut campaign = game_engine::System::CampaignManagerXferState::default();
+    let result = load.xfer_snapshot(&mut LocalSnapshot(&mut receiver, &mut campaign));
     if malformed {
         assert_eq!(result, Err(NativeStatus::ReadError));
         assert_eq!(

@@ -1,5 +1,6 @@
 //! Actual Object/module error propagation, deliberately limited to the runtime-free
-//! AIUpdateInterface wrapper. Its complete payload is the version byte [4].
+//! AIUpdateInterface wrapper. Its runtime-free payload contains the version,
+//! inherited module versions, and the update scheduling clock.
 //! This does not exercise nested AI state machines, old pickup saves, the native
 //! GameLogic registration bridge, or whole-load rollback. C++ Object.cpp:4264-4356
 //! supplies the tagged module framing; Common/System/Xfer.cpp rejects newer versions.
@@ -42,6 +43,7 @@ const MODULE_SENTINEL: u32 = 0x62D4_A731;
 const OUTER_SENTINEL: u32 = 0xE145_B92C;
 const CHILD_ENV: &str = "GENERALS_NATIVE_MODULE_ERROR_CHILD";
 const CATALOG_SENTINEL: &str = "NativeErrorUnusedCatalogSentinel";
+const AI_PAYLOAD: [u8; 9] = [4, 1, 1, 1, 1, 0, 0, 0, 0];
 
 #[path = "native_object_module_error_propagation/native_loader.rs"]
 mod native_loader;
@@ -310,8 +312,13 @@ fn assert_catalog(template: &dyn ThingTemplate) {
 fn object(template: &Arc<dyn ThingTemplate>) -> Arc<RwLock<Object>> {
     assert_catalog(template.as_ref());
     assert!(OBJECT_REGISTRY.get_object(ID).is_none());
+    let team = gamelogic::team::get_team_factory()
+        .lock()
+        .unwrap()
+        .find_team_by_id(91311)
+        .unwrap();
     let object =
-        Object::new_with_id(template.clone(), ID, ObjectStatusMaskType::NONE, None).unwrap();
+        Object::new_with_id(template.clone(), ID, ObjectStatusMaskType::NONE, Some(team)).unwrap();
     assert!(Arc::ptr_eq(
         &OBJECT_REGISTRY.get_object(ID).unwrap(),
         &object
@@ -388,8 +395,7 @@ fn object(template: &Arc<dyn ThingTemplate>) -> Arc<RwLock<Object>> {
             .with_module(|module| module.xfer(&mut XferSave::new(Cursor::new(&mut ai_bytes), 1)))
             .unwrap();
         assert_eq!(
-            ai_bytes,
-            [4],
+            ai_bytes, AI_PAYLOAD,
             "explicit admission: no runtime AI or nested machine payload"
         );
     }
@@ -437,33 +443,44 @@ fn direct_control(object: &Arc<RwLock<Object>>) {
         .module_by_tag(&AI_TAG.into())
         .unwrap();
     for version in [4, 5] {
-        let mut bytes = vec![version];
+        let mut bytes = AI_PAYLOAD.to_vec();
+        bytes[0] = version;
         bytes.extend_from_slice(&OUTER_SENTINEL.to_le_bytes());
         let mut cursor = Cursor::new(bytes);
         let result = {
             let mut xfer = XferLoad::new(&mut cursor, 1);
             module.with_module(|module| module.xfer(&mut xfer))
         };
-        assert_eq!(cursor.position(), 1);
         if version == 4 {
             assert!(result.is_ok());
+            assert_eq!(cursor.position(), AI_PAYLOAD.len() as u64);
         } else {
             assert!(result.is_err(), "real AI wrapper must reject v5");
+            assert_eq!(cursor.position(), 1);
+            assert_eq!(&cursor.get_ref()[1..AI_PAYLOAD.len()], &AI_PAYLOAD[1..]);
+            cursor.set_position(AI_PAYLOAD.len() as u64);
         }
         let mut sentinel = 0;
         XferLoad::new(&mut cursor, 1)
             .xfer_unsigned_int(&mut sentinel)
             .unwrap();
         assert_eq!(sentinel, OUTER_SENTINEL);
-        assert_eq!(cursor.position(), 5);
-        println!(
-            "direct_wrapper version={version} result={result:?} bytes_consumed=1 sentinel={sentinel:#x}"
-        );
+        assert_eq!(cursor.position(), (AI_PAYLOAD.len() + 4) as u64);
+        println!("direct_wrapper version={version} result={result:?} sentinel={sentinel:#x}");
     }
 }
 
 fn execute(case: &str) {
     let _ = env_logger::builder().is_test(true).try_init();
+    {
+        let mut teams = gamelogic::team::get_team_factory().lock().unwrap();
+        let prototype = teams
+            .init_team_owned("NativeXferFixture".into(), "".into(), false, None, None)
+            .unwrap();
+        teams
+            .create_team_on_prototype_with_id(&prototype, 91311)
+            .unwrap();
+    }
     if case.starts_with("native_loader::") {
         native_loader::execute(case);
         return;
@@ -475,11 +492,11 @@ fn execute(case: &str) {
         return;
     }
     let valid = save(&writer);
-    let (ai_row, ai_payload) = row(&valid, AI_TAG, &[4]);
+    let (ai_row, ai_payload) = row(&valid, AI_TAG, &AI_PAYLOAD);
     let (sentinel_row, _) = row(&valid, SENTINEL_TAG, &MODULE_SENTINEL.to_le_bytes());
     assert_eq!(
         sentinel_row,
-        ai_payload + 1,
+        ai_payload + AI_PAYLOAD.len(),
         "sentinel is the next module row"
     );
     drop(writer);
@@ -601,7 +618,7 @@ fn execute(case: &str) {
         .unwrap();
     assert_catalog(template.as_ref());
     println!(
-        "object_case={case} ai_payload_offset={ai_payload} ai_payload_length=1 input_version={} following_module_loads={} following_module_value={:#x} object_end={object_end} expected_object_end={} outer_sentinel={outer:#x} total_bytes={}",
+        "object_case={case} ai_payload_offset={ai_payload} ai_payload_length=9 input_version={} following_module_loads={} following_module_value={:#x} object_end={object_end} expected_object_end={} outer_sentinel={outer:#x} total_bytes={}",
         bytes[ai_payload],
         sentinel.0,
         sentinel.1,

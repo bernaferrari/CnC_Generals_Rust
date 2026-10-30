@@ -1140,6 +1140,11 @@ pub fn apply_stored_locomotors_to_all_templates() {
         return;
     };
     for template in factory.template_hash_map.values_mut() {
+        // Avoid detaching the lookup entry from the master list for a replay
+        // that has nothing to apply.
+        if template.locomotor_sets().is_empty() {
+            continue;
+        }
         let template = Arc::make_mut(template);
         if let Err(err) = template.apply_stored_locomotors_to_ai_module() {
             warn!("Failed to apply stored locomotors: {err}");
