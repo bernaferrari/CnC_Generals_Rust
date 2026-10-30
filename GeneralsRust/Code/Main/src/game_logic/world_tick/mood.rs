@@ -394,6 +394,60 @@ impl GameLogic {
         self.team_factory.lock().ok()?.find_team_by_id(identity)
     }
 
+    #[cfg(test)]
+    pub(crate) fn bind_common_target_fixture(&mut self, actor: ObjectId, name: &str) {
+        use game_engine::common::dict::Dict;
+        use game_engine::common::well_known_keys::{
+            key_team_attack_common_target, key_team_is_singleton, key_team_name, key_team_owner,
+        };
+
+        let mut dict = Dict::new();
+        dict.set_ascii_string(key_team_name(), name);
+        dict.set_ascii_string(key_team_owner(), "");
+        dict.set_bool(key_team_is_singleton(), false);
+        dict.set_bool(key_team_attack_common_target(), true);
+        let mut factory = self.team_factory.lock().expect("session TeamFactory");
+        if factory.find_team_prototype(name).is_none() {
+            factory
+                .init_team_owned(name.into(), "".into(), false, Some(&dict), None)
+                .expect("Team prototype");
+        }
+        let team = factory.create_inactive_team(name).expect("Team instance");
+        let mut team = team.write().expect("Team");
+        let object = self.objects.get_mut(&actor).expect("actor");
+        team.set_controlling_player_id_for_owned_members(object.owner_player_id);
+        team.restore_owned_members(&[actor.0]);
+        object.team_instance_id = Some(team.get_id());
+        object.team_instance_name = name.into();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fixture_common_target(&self, actor: ObjectId) -> Option<ObjectId> {
+        let team = self
+            .receiving_common_target_team(actor)
+            .expect("actor Team");
+        let raw = team.read().expect("Team").receiving_common_target();
+        (raw != gamelogic::common::INVALID_ID).then_some(ObjectId(raw))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_fixture_common_target(&self, actor: ObjectId, target: ObjectId) {
+        self.receiving_common_target_team(actor)
+            .expect("actor Team")
+            .write()
+            .expect("Team")
+            .set_receiving_common_target(target.0);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_fixture_team_controller(&self, actor: ObjectId, player: u32) {
+        self.receiving_common_target_team(actor)
+            .expect("actor Team")
+            .write()
+            .expect("Team")
+            .set_controlling_player_id_for_owned_members(Some(player));
+    }
+
     pub(crate) fn team_wants_common_attack(&self, object_id: ObjectId) -> bool {
         let Some(team) = self.receiving_common_target_team(object_id) else {
             return false;
@@ -1478,10 +1532,11 @@ mod common_target_parity {
             .create_object("W21Ranger", Team::GLA, glam::Vec3::new(12.0, 0.0, 0.0))
             .expect("vic");
 
+        logic.bind_common_target_fixture(attacker, "USA_AttackSquad");
         logic.admit_session_difficulty(0);
         logic.set_host_team_common_target(attacker, Some(victim));
         assert!(
-            logic.team_common_attack_targets.is_empty(),
+            logic.fixture_common_target(attacker).is_none(),
             "Easy must not seed a shared victim"
         );
 
@@ -1489,19 +1544,21 @@ mod common_target_parity {
         if let Some(o) = logic.host_object_mut(attacker) {
             o.owner_player_id = Some(2);
         }
+        logic.set_fixture_team_controller(attacker, 2);
         logic.set_host_team_common_target(attacker, Some(victim));
         assert!(
-            logic.team_common_attack_targets.is_empty(),
+            logic.fixture_common_target(attacker).is_none(),
             "human teams must not seed a shared victim"
         );
 
         if let Some(o) = logic.host_object_mut(attacker) {
             o.owner_player_id = Some(1);
         }
+        logic.set_fixture_team_controller(attacker, 1);
         logic.set_host_team_common_target(attacker, Some(victim));
         assert_eq!(
-            logic.team_common_attack_targets.get("USA_AttackSquad"),
-            Some(&victim),
+            logic.fixture_common_target(attacker),
+            Some(victim),
             "computer Medium may share a victim"
         );
     }
@@ -1526,10 +1583,11 @@ mod common_target_parity {
             .create_object("W26RangerCtrl", Team::GLA, glam::Vec3::new(12.0, 0.0, 0.0))
             .expect("vic");
 
+        logic.bind_common_target_fixture(attacker, "USA_AttackSquad");
         logic.admit_session_difficulty(2);
         logic.set_host_team_common_target(attacker, Some(victim));
         assert!(
-            logic.team_common_attack_targets.is_empty(),
+            logic.fixture_common_target(attacker).is_none(),
             "Easy controller in a Hard session must not seed a shared victim"
         );
 
@@ -1537,8 +1595,8 @@ mod common_target_parity {
         logic.admit_session_difficulty(0);
         logic.set_host_team_common_target(attacker, Some(victim));
         assert_eq!(
-            logic.team_common_attack_targets.get("USA_AttackSquad"),
-            Some(&victim),
+            logic.fixture_common_target(attacker),
+            Some(victim),
             "Hard controller in an Easy session may share a victim"
         );
     }
@@ -1566,14 +1624,11 @@ mod common_target_parity {
         let plane = logic
             .create_object("W21Jet", Team::GLA, glam::Vec3::new(20.0, 40.0, 0.0))
             .expect("plane");
-        logic
-            .team_common_attack_targets
-            .insert("USA_AttackSquad2".into(), plane);
+        logic.bind_common_target_fixture(attacker, "USA_AttackSquad2");
+        logic.set_fixture_common_target(attacker, plane);
         assert!(logic.host_team_common_target(attacker).is_none());
         assert!(
-            !logic
-                .team_common_attack_targets
-                .contains_key("USA_AttackSquad2"),
+            logic.fixture_common_target(attacker).is_none(),
             "aircraft common target must be cleared"
         );
 
@@ -1583,14 +1638,10 @@ mod common_target_parity {
         if let Some(o) = logic.host_object_mut(garrisoned) {
             o.contained_by = Some(crate::game_logic::ObjectId(99));
         }
-        logic
-            .team_common_attack_targets
-            .insert("USA_AttackSquad2".into(), garrisoned);
+        logic.set_fixture_common_target(attacker, garrisoned);
         assert!(logic.host_team_common_target(attacker).is_none());
         assert!(
-            !logic
-                .team_common_attack_targets
-                .contains_key("USA_AttackSquad2"),
+            logic.fixture_common_target(attacker).is_none(),
             "garrisoned common target must be cleared"
         );
     }

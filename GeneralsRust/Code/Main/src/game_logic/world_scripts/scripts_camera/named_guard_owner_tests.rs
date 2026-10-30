@@ -366,20 +366,12 @@ fn guard_reentry_clears_only_its_own_inner_common_target() {
         let unit = world.host_object_mut(id).unwrap();
         unit.team_instance_name = "OwnedGuardTeam".into();
         unit.guard_chase_phase = 1;
-        world
-            .team_common_attack_targets
-            .insert("OwnedGuardTeam".into(), target);
+        world.bind_common_target_fixture(id, "OwnedGuardTeam");
+        world.set_fixture_common_target(id, target);
     }
     guard(&mut first, "NamedUnit");
-    assert!(
-        !first
-            .team_common_attack_targets
-            .contains_key("OwnedGuardTeam")
-    );
-    assert_eq!(
-        other.team_common_attack_targets.get("OwnedGuardTeam"),
-        Some(&target)
-    );
+    assert_eq!(first.fixture_common_target(id), None);
+    assert_eq!(other.fixture_common_target(id), Some(target));
 }
 
 #[test]

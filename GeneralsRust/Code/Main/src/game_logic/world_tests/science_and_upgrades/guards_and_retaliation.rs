@@ -1071,20 +1071,16 @@ fn end_guard_chase_attack_clears_team_attack_common_target() {
     logic.objects.insert(eid, e);
 
     logic.objects.get_mut(&gid).unwrap().target = Some(eid);
-    logic
-        .team_common_attack_targets
-        .insert("China_GuardSquad".into(), eid);
+    logic.bind_common_target_fixture(gid, "China_GuardSquad");
+    logic.set_fixture_common_target(gid, eid);
 
     // Authored AI outer range is 200 * 2.2 * 1.5 = 660.
     // Victim left the outer ring: chase-exit must drop the shared victim.
     logic.set_fixture_object_position(eid, glam::Vec3::new(800.0, 0.0, 0.0));
     logic.update_support_states(&[gid, eid], 1.0 / 30.0);
     assert!(
-        !logic
-            .team_common_attack_targets
-            .contains_key("China_GuardSquad"),
-        "inner/aggressor exit must setTeamTargetObject(NULL); map={:?}",
-        logic.team_common_attack_targets
+        logic.fixture_common_target(gid).is_none(),
+        "inner/aggressor exit must setTeamTargetObject(NULL)"
     );
 }
 
@@ -1132,19 +1128,15 @@ fn retaliate_chase_exit_clears_team_attack_common_target() {
         o.target = Some(eid);
     }
     logic.frame = 10;
-    logic
-        .team_common_attack_targets
-        .insert("USA_RetSquad".into(), eid);
+    logic.bind_common_target_fixture(gid, "USA_RetSquad");
+    logic.set_fixture_common_target(gid, eid);
 
     logic
         .tick_guard_retaliate_states()
         .expect("valid guard retaliation fixture");
     assert!(
-        !logic
-            .team_common_attack_targets
-            .contains_key("USA_RetSquad"),
-        "retaliate chase-exit must setTeamTargetObject(NULL); map={:?}",
-        logic.team_common_attack_targets
+        logic.fixture_common_target(gid).is_none(),
+        "retaliate chase-exit must setTeamTargetObject(NULL)"
     );
 }
 
@@ -1203,9 +1195,8 @@ fn guarding_object_prefers_team_attack_common_target() {
     team_v.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
     logic.objects.insert(team_id, team_v);
 
-    logic
-        .team_common_attack_targets
-        .insert("USA_DozerGuard".into(), team_id);
+    logic.bind_common_target_fixture(gid, "USA_DozerGuard");
+    logic.set_fixture_common_target(gid, team_id);
     mark_guard_scan_due(&mut logic, gid);
     logic.update_support_states(&[gid, did, close_id, team_id], 1.0 / 30.0);
     assert_eq!(

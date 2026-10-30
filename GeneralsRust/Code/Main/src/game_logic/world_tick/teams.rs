@@ -2910,9 +2910,8 @@ mod tests {
             Team::GLA,
             glam::Vec3::new(60.0, 0.0, 0.0),
         );
-        logic
-            .team_common_attack_targets
-            .insert("USA_RetaliateSquad".into(), shared);
+        logic.bind_common_target_fixture(id, "USA_RetaliateSquad");
+        logic.set_fixture_common_target(id, shared);
         let scan_deadline = logic.frame;
         logic
             .unit_ai_runtime_mut(id)

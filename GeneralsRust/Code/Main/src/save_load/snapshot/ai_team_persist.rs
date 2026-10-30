@@ -1478,25 +1478,43 @@ mod tests {
             obj.team_instance_name = "USA_AttackSquad".into();
             obj.owner_player_id = Some(0);
         }
-        source
-            .team_common_attack_targets
-            .insert("USA_AttackSquad".into(), victim);
+        source.bind_common_target_fixture(attacker, "USA_AttackSquad");
+        source.set_fixture_common_target(attacker, victim);
 
         let builder = SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+        let teams = super::super::player_team_chunks::stamp_from_live(&source)
+            .expect("capture TeamFactory")
+            .teams
+            .expect("TeamFactory chunk");
         assert!(
-            find_tmai_suffix(&snapshot.lifecycle_tail).is_some(),
-            "TMAI suffix must be appended when a team has a common target"
+            teams
+                .teams
+                .iter()
+                .any(|team| team.team_name == "USA_AttackSquad"
+                    && team.common_attack_target == Some(victim.0))
         );
 
         let mut restored = ranger_logic();
         restored.templates = source.templates.clone();
+        let restored_victim = restored
+            .create_object("USASupplyDepot", Team::China, Vec3::new(80.0, 0.0, 20.0))
+            .expect("victim fixture");
+        let restored_attacker = restored
+            .create_object("Ranger", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+            .expect("attacker fixture");
+        assert_eq!((restored_victim, restored_attacker), (victim, attacker));
+        restored
+            .host_object_mut(restored_attacker)
+            .unwrap()
+            .owner_player_id = Some(0);
+        restored.bind_common_target_fixture(restored_attacker, "USA_AttackSquad");
         builder
             .restore_from_snapshot(&snapshot, &mut restored)
             .expect("restore");
         assert_eq!(
-            restored.team_common_attack_targets.get("USA_AttackSquad"),
-            Some(&victim),
+            restored.fixture_common_target(attacker),
+            Some(victim),
             "team common-attack target must survive load"
         );
     }
