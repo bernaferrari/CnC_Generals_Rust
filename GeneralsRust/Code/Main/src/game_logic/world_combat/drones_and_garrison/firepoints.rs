@@ -1,9 +1,6 @@
 use super::super::super::*;
 
 pub(super) const MAX_GARRISON_FIRE_POINTS: usize = 40;
-/// C++ GameData `WeaponBonus = GARRISONED RANGE 133%`.
-/// GarrisonContain / HelixContain `onContaining` set `WEAPONBONUSCONDITION_GARRISONED`.
-pub(super) const GARRISONED_WEAPON_RANGE_MULT: f32 = 1.33;
 /// C++ `HelixContain::redeployOccupants` (`HelixContain.cpp:115`) `firePos.z += 8`.
 /// Leftover `helix_contain.rs` already matches. Host Y-up maps C++ Z → Y.
 pub(super) const HELIX_OCCUPANT_FIRE_HEIGHT: f32 = 8.0;

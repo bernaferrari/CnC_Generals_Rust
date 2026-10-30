@@ -88,18 +88,7 @@ impl GameLogic {
         let is_combat_chinook = container.is_combat_chinook_style_container();
         let is_listening_outpost = container.is_listening_outpost_style_container();
         let team = attacker.team;
-        // HelixContain::onContaining sets WEAPONBONUSCONDITION_GARRISONED.
-        // Occupants stay Docked, so Object::weapon_bonus_fields never applies
-        // the Garrisoned AIState 133% path used by bunker occupants.
-        let mut range_bonus = attacker
-            .weapon_bonus_fields_for_slot_with_solo_set(0, &self.solo_weapon_bonus_set)
-            .1;
-        if container.is_helix_transport {
-            // WeaponBonus::appendBonuses adds (field - 1) for each active
-            // condition, so preserve Helix's explicit GARRISONED condition
-            // alongside the receiving session's SOLO bonus fields.
-            range_bonus += GARRISONED_WEAPON_RANGE_MULT - 1.0;
-        }
+        let range_bonus = self.receiving_weapon_bonus_fields_for_slot(attacker, 0).1;
         let range = weapon.range * range_bonus;
         let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
         let range = (range - under).max(0.0);

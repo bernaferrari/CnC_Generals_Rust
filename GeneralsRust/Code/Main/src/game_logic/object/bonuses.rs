@@ -509,10 +509,17 @@ impl Object {
                     _ => flags.set(WeaponBonusConditionType::FrenzyOne),
                 }
             }
-            if self.contained_by.is_some()
-                && self.is_kind_of(KindOf::Infantry)
-                && matches!(self.ai_state(), AIState::Garrisoned)
-            {
+            let garrisoned = if matches!(extra, ExtraWeaponBonus::Owned(_)) {
+                self.contained_by.is_some()
+                    && container.is_some_and(|owner| {
+                        owner.is_helix_transport || owner.is_garrison_contain()
+                    })
+            } else {
+                self.contained_by.is_some()
+                    && self.is_kind_of(KindOf::Infantry)
+                    && matches!(self.ai_state(), AIState::Garrisoned)
+            };
+            if garrisoned {
                 flags.set(WeaponBonusConditionType::Garrisoned);
             }
             if matches!(extra, ExtraWeaponBonus::Owned(_)) {

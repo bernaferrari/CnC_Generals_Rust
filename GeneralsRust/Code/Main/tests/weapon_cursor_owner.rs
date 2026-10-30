@@ -112,7 +112,7 @@ fn contained_weapon_world_with_fire(
     allow_fire: Option<bool>,
 ) -> (GameLogic, ObjectId, ObjectId) {
     let mut game = GameLogic::new();
-    game.admit_combat_bonus_ini_sources(["GameData\n WeaponBonus = SOLO_HUMAN_EASY RADIUS 150%\n WeaponBonus = SOLO_AI_EASY RADIUS 200%\n WeaponBonus = SOLO_AI_EASY DAMAGE 150%\n WeaponBonus = FRENZY_ONE RADIUS 125%\n WeaponBonus = FRENZY_THREE RADIUS 175%\n WeaponBonus = VETERAN RADIUS 125%\n WeaponBonus = HERO RADIUS 150%\nEnd\n"]).unwrap();
+    game.admit_combat_bonus_ini_sources(["GameData\n WeaponBonus = SOLO_HUMAN_EASY RADIUS 150%\n WeaponBonus = SOLO_AI_EASY RADIUS 200%\n WeaponBonus = SOLO_AI_EASY DAMAGE 150%\n WeaponBonus = SOLO_AI_EASY RANGE 200%\n WeaponBonus = GARRISONED RADIUS 125%\n WeaponBonus = FRENZY_ONE RADIUS 125%\n WeaponBonus = FRENZY_THREE RADIUS 175%\n WeaponBonus = VETERAN RADIUS 125%\n WeaponBonus = HERO RADIUS 150%\nEnd\n"]).unwrap();
     let pass = if authored_pass { "Yes" } else { "No" };
     let fire = allow_fire.map_or(String::new(), |allow| {
         format!(
@@ -244,6 +244,65 @@ fn authored_passenger_fire_permission_controls_actual_firing() {
         disabled.host_object(enemy_ids[1]).unwrap().health.current,
         100.0
     );
+}
+
+#[test]
+fn helix_passenger_receives_authored_garrisoned_bonus() {
+    let (mut world, passenger, carrier) = contained_weapon_world(true, false);
+    assert_eq!(
+        world.weapon_cursor_radii(passenger, 0).unwrap().damage,
+        50.0
+    );
+    world.host_object_mut(carrier).unwrap().is_helix_transport = true;
+    assert_eq!(
+        world.weapon_cursor_radii(passenger, 0).unwrap().damage,
+        55.0
+    );
+    world.host_object_mut(passenger).unwrap().contained_by = None;
+    assert_eq!(
+        world.weapon_cursor_radii(passenger, 0).unwrap().damage,
+        30.0
+    );
+}
+
+#[test]
+fn passenger_acquisition_uses_carriers_receiving_range_bonus() {
+    let (mut boosted, passenger, carrier) =
+        contained_weapon_world_with_fire(true, false, Some(true));
+    let (mut plain, peer_passenger, peer_carrier) =
+        contained_weapon_world_with_fire(false, false, Some(true));
+    assert_eq!((passenger, carrier), (peer_passenger, peer_carrier));
+    let mut targets = Vec::new();
+    for world in [&mut boosted, &mut plain] {
+        world.host_object_mut(passenger).unwrap().contained_by = None;
+        world
+            .templates
+            .get_mut("Enemy")
+            .unwrap()
+            .add_kind_of(generals_main::game_logic::KindOf::Attackable);
+        world.add_player(Player::new(2, Team::GLA, "Enemy", false));
+        targets.push(
+            world
+                .create_object_for_player("Enemy", 2, glam::Vec3::new(300.0, 0.0, 0.0))
+                .unwrap(),
+        );
+        assert!(world.unit_command_order_enter(passenger, carrier));
+        world.try_physics_collide(passenger, carrier, 1.0);
+        assert_eq!(
+            world.host_object(passenger).unwrap().contained_by,
+            Some(carrier)
+        );
+    }
+    assert_eq!(targets[0], targets[1]);
+    for _ in 0..100 {
+        boosted.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        plain.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if boosted.host_object(targets[0]).unwrap().health.current < 100.0 {
+            break;
+        }
+    }
+    assert!(boosted.host_object(targets[0]).unwrap().health.current < 100.0);
+    assert_eq!(plain.host_object(targets[1]).unwrap().health.current, 100.0);
 }
 
 #[test]
