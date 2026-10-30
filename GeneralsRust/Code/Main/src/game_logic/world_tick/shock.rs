@@ -790,27 +790,13 @@ impl GameLogic {
             host_secondary_damage_radius_for_weapon_name, radius_damage_affects_victim,
         };
         // C++ dealDamageInternal: authored primary/secondary radii, no 1.5x ring.
-        let radius_mult = self
-            .objects
-            .lookup(&attacker_id)
-            .map(|source| {
-                weapon_name.map_or_else(
-                    || {
-                        source
-                            .weapon_bonus_fields_with_solo_set(&self.solo_weapon_bonus_set)
-                            .4
-                    },
-                    |name| {
-                        source
-                            .weapon_bonus_fields_for_named_weapon_with_solo_set(
-                                name,
-                                &self.solo_weapon_bonus_set,
-                            )
-                            .4
-                    },
-                )
-            })
-            .unwrap_or(1.0);
+        let radius_mult = self.objects.lookup(&attacker_id).map_or(1.0, |source| {
+            if weapon_name.is_some() {
+                self.receiving_weapon_bonus_fields(source, native_rule.as_deref()).4
+            } else {
+                self.receiving_weapon_bonus_fields_for_slot(source, source.active_weapon_slot).4
+            }
+        });
         let (primary_r, secondary_r, primary_dmg, secondary_dmg) =
             if let Some(rule) = native_rule.as_ref() {
                 (
@@ -1647,6 +1633,39 @@ impl GameLogic {
         }
     }
 
+    /// Append this weapon's extra set after the receiving world's SOLO bonuses
+    /// and existing condition handling, including container conditions.
+    pub(in crate::game_logic) fn receiving_weapon_bonus_fields(
+        &self,
+        source: &Object,
+        definition: Option<&gamelogic::weapon::WeaponTemplate>,
+    ) -> (f32, f32, f32, f32, f32) {
+        let container = source.contained_by.and_then(|id| self.host_object(id));
+        source.weapon_bonus_fields_with_owned_extra(
+            container,
+            &self.solo_weapon_bonus_set,
+            definition.and_then(|weapon| weapon.extra_bonus.as_ref()),
+        )
+    }
+
+    pub(in crate::game_logic) fn receiving_weapon_bonus_fields_for_slot(
+        &self,
+        source: &Object,
+        slot: u8,
+    ) -> (f32, f32, f32, f32, f32) {
+        let native = source.selected_native_weapon_rule(slot);
+        let name = source
+            .selected_weapon_name(slot)
+            .or_else(|| source.authored_weapon_name_for_slot(slot));
+        let definition = native.as_deref().or_else(|| {
+            self.weapon_definitions.as_ref().and_then(|definitions| {
+                name.and_then(|name| definitions.get(&name.trim().to_ascii_lowercase()))
+                    .map(AsRef::as_ref)
+            })
+        });
+        self.receiving_weapon_bonus_fields(source, definition)
+    }
+
     /// C++ InGameUI::setRadiusCursor reads the requested WeaponSet slot from
     /// the selected object. The session owns both its definition and bonuses.
     pub fn weapon_cursor_radii(
@@ -1673,20 +1692,7 @@ impl GameLogic {
             || name.map_or(0.0, |name| self.receiving_continue_attack_range(name)),
             |rule| rule.continue_attack_range.max(0.0),
         );
-        let definition = native.as_deref().or_else(|| {
-            self.weapon_definitions.as_ref().and_then(|definitions| {
-                name.and_then(|name| definitions.get(&name.trim().to_ascii_lowercase()))
-                    .map(AsRef::as_ref)
-            })
-        });
-        let container = object.contained_by.and_then(|id| self.host_object(id));
-        let multiplier = object
-            .weapon_bonus_fields_with_owned_extra(
-                container,
-                &self.solo_weapon_bonus_set,
-                definition.and_then(|weapon| weapon.extra_bonus.as_ref()),
-            )
-            .4;
+        let multiplier = self.receiving_weapon_bonus_fields_for_slot(object, slot).4;
         Some(WeaponCursorRadii {
             damage: radii.primary_damage * multiplier,
             scatter: radii.scatter + radii.scatter_target_scalar,

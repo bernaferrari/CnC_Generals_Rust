@@ -14,6 +14,15 @@ fn world_with_scatter(
     weapon_name: &str,
     scatter: f32,
 ) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+    world_with_weapon_bonus(range, weapon_name, scatter, None)
+}
+
+fn world_with_weapon_bonus(
+    range: f32,
+    weapon_name: &str,
+    scatter: f32,
+    extra_radius: Option<f32>,
+) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
     let mut game = GameLogic::new();
     game.admit_object_ini_sources([("ContinueRange.ini".into(),
         format!("Object ChainAttacker\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface AI\n End\n WeaponSet\n Conditions = NONE\n Weapon = PRIMARY {weapon_name}\n End\nEnd\nObject ChainVictim\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 10\n InitialHealth = 10\n End\nEnd\n"))]).unwrap();
@@ -26,6 +35,17 @@ fn world_with_scatter(
     weapon.attack_range = 200.0;
     weapon.continue_attack_range = range;
     weapon.scatter_radius = scatter;
+    if let Some(radius) = extra_radius {
+        use gamelogic::weapon::{
+            WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet,
+        };
+        weapon.primary_damage_radius = 5.0;
+        let mut bonus = WeaponBonus::new();
+        bonus.set_field(WeaponBonusField::Radius, radius);
+        let mut set = WeaponBonusSet::new();
+        set.set_bonus(WeaponBonusConditionType::SoloHumanEasy, bonus);
+        weapon.extra_bonus = Some(set);
+    }
     weapon.projectile_name = "NONE".into();
     game.admit_receiving_weapon_snapshot(vec![(weapon_name.into(), weapon)])
         .unwrap();
@@ -41,6 +61,7 @@ fn world_with_scatter(
     game.host_object_mut(attacker)
         .unwrap()
         .set_ai_attitude(generals_main::game_logic::host_strategy_center::HostAiAttitude::Sleep);
+    game.host_object_mut(attacker).unwrap().weapon_bonus_solo = 16;
     let first = game
         .create_object_for_player("ChainVictim", 2, Vec3::new(40.0, 0.0, 20.0))
         .unwrap();
@@ -48,6 +69,57 @@ fn world_with_scatter(
         .create_object_for_player("ChainVictim", 2, Vec3::new(50.0, 0.0, 20.0))
         .unwrap();
     (game, attacker, first, next)
+}
+
+#[test]
+fn actual_splash_uses_the_firing_sessions_weapon_radius_bonus() {
+    let (mut wide, attacker, target, nearby) =
+        world_with_weapon_bonus(0.0, "SharedBonusWeapon", 0.0, Some(3.0));
+    let (mut narrow, peer_attacker, peer_target, peer_nearby) =
+        world_with_weapon_bonus(0.0, "SharedBonusWeapon", 0.0, Some(1.0));
+    assert_eq!(
+        (attacker, target, nearby),
+        (peer_attacker, peer_target, peer_nearby)
+    );
+    // Keep the victim's bounding sphere smaller than the five-unit base radius
+    // so only the expanded radius reaches the victim ten units from impact.
+    wide.host_object_mut(nearby).unwrap().selection_radius = 1.0;
+    narrow
+        .host_object_mut(peer_nearby)
+        .unwrap()
+        .selection_radius = 1.0;
+    assert!(wide.unit_command_attack(attacker, target).unwrap());
+    assert!(narrow.unit_command_attack(attacker, target).unwrap());
+    for _ in 0..100 {
+        wide.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        narrow.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if wide
+            .host_object(target)
+            .is_none_or(|object| !object.is_alive())
+            && narrow
+                .host_object(target)
+                .is_none_or(|object| !object.is_alive())
+        {
+            break;
+        }
+    }
+    assert!(
+        wide.host_object(target)
+            .is_none_or(|object| !object.is_alive())
+    );
+    assert!(
+        narrow
+            .host_object(target)
+            .is_none_or(|object| !object.is_alive())
+    );
+    assert!(
+        wide.host_object(nearby)
+            .is_none_or(|object| !object.is_alive())
+    );
+    assert_eq!(
+        narrow.host_object(peer_nearby).unwrap().health.current,
+        10.0
+    );
 }
 
 #[test]
