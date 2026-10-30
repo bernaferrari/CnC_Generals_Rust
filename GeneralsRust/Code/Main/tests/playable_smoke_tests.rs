@@ -50,21 +50,23 @@ fn install_smoke_templates(game_logic: &mut GameLogic) {
     let mut object_source = String::from(
         "Object SmokeDozer\n KindOf = VEHICLE DOZER HARVESTER SELECTABLE\n CommandSet = SmokeDozerCommands\n Locomotor = SET_NORMAL SmokeDozerLoco\n Body = ActiveBody SmokeBody\n MaxHealth = 300\n InitialHealth = 300\n End\n Behavior = PhysicsBehavior SmokePhysics\n End\n Behavior = DozerAIUpdate SmokeAI\n End\nEnd\n",
     );
-    for name in [
-        "SmokeCommandCenter",
-        "SmokePowerPlant",
-        "SmokeBarracks",
-        "SmokeRanger",
-        "SmokeSupplyDock",
+    for (name, kinds, health, cost) in [
+        (
+            "SmokeCommandCenter",
+            "STRUCTURE SELECTABLE COMMANDCENTER MP_COUNT_FOR_VICTORY",
+            2000,
+            2000,
+        ),
+        ("SmokePowerPlant", "STRUCTURE SELECTABLE", 800, 800),
+        ("SmokeBarracks", "STRUCTURE SELECTABLE", 1000, 500),
+        ("SmokeRanger", "INFANTRY SELECTABLE", 120, 100),
+        ("SmokeSupplyDock", "SELECTABLE", 1000, 0),
     ] {
-        object_source.push_str(&format!("Object {name}\n Body = ActiveBody SmokeBody\n MaxHealth = 1000\n InitialHealth = 1000\n End\nEnd\n"));
+        object_source.push_str(&format!("Object {name}\n KindOf = {kinds}\n BuildCost = {cost}\n BuildTime = 0.1\n Body = ActiveBody SmokeBody\n MaxHealth = {health}\n InitialHealth = {health}\n End\nEnd\n"));
     }
     game_logic
         .admit_object_ini_sources([("SmokeObjects.ini".into(), object_source)])
         .unwrap();
-    game_logic.admit_fixture_command_action_source(
-        "CommandButton SmokeBuildBarracks\n Command = DOZER_CONSTRUCT\n Object = SmokeBarracks\nEnd\nCommandSet SmokeDozerCommands\n 1 = SmokeBuildBarracks\nEnd\n",
-    ).unwrap();
     let templates = [
         template(
             "SmokeCommandCenter",
@@ -156,6 +158,9 @@ fn install_smoke_templates(game_logic: &mut GameLogic) {
         "admit smoke terrain"
     );
     game_logic.clear_all_players();
+    game_logic.admit_fixture_command_action_source(
+        "CommandButton SmokeBuildBarracks\n Command = DOZER_CONSTRUCT\n Object = SmokeBarracks\nEnd\nCommandSet SmokeDozerCommands\n 1 = SmokeBuildBarracks\nEnd\n",
+    ).unwrap();
 }
 
 fn smoke_ranger_weapon() -> Weapon {
@@ -302,19 +307,31 @@ fn run_basic_faction_flow(human_team: Team) {
     game_logic.add_player(enemy);
 
     let _command_center = game_logic
-        .create_object("SmokeCommandCenter", human_team, Vec3::ZERO)
+        .create_object(
+            "SmokeCommandCenter",
+            human_team,
+            Vec3::new(200.0, 0.0, 200.0),
+        )
         .expect("human command center should spawn");
     let power_plant = game_logic
-        .create_object("SmokePowerPlant", human_team, Vec3::new(-24.0, 0.0, 0.0))
+        .create_object("SmokePowerPlant", human_team, Vec3::new(176.0, 0.0, 200.0))
         .expect("human power plant should spawn");
     let dozer = game_logic
-        .create_object("SmokeDozer", human_team, Vec3::new(70.0, 0.0, 0.0))
+        .create_object("SmokeDozer", human_team, Vec3::new(270.0, 0.0, 200.0))
         .expect("human dozer should spawn");
     let supply_dock = game_logic
-        .create_object("SmokeSupplyDock", Team::Neutral, Vec3::new(40.0, 0.0, 0.0))
+        .create_object(
+            "SmokeSupplyDock",
+            Team::Neutral,
+            Vec3::new(240.0, 0.0, 200.0),
+        )
         .expect("neutral supply dock should spawn");
     let enemy_command_center = game_logic
-        .create_object("SmokeCommandCenter", enemy_team, Vec3::new(160.0, 0.0, 0.0))
+        .create_object(
+            "SmokeCommandCenter",
+            enemy_team,
+            Vec3::new(360.0, 0.0, 200.0),
+        )
         .expect("enemy command center should spawn");
     assert_smoke_enemies(&game_logic, enemy_command_center);
     assert_eq!(
@@ -326,12 +343,13 @@ fn run_basic_faction_flow(human_team: Team) {
         2000.0
     );
 
+    game_logic.update();
     game_logic.queue_command(command(
         10,
         0,
         CommandType::DozerConstruct {
             template_name: "SmokeBarracks".to_string(),
-            location: Vec3::new(80.0, 0.0, 0.0),
+            location: Vec3::new(280.0, 0.0, 200.0),
             orientation: 0.0,
         },
         vec![dozer],
@@ -508,22 +526,30 @@ fn mini_skirmish_playable_flow_smoke() {
     game_logic.add_player(enemy);
 
     let command_center = game_logic
-        .create_object("SmokeCommandCenter", Team::USA, Vec3::ZERO)
+        .create_object(
+            "SmokeCommandCenter",
+            Team::USA,
+            Vec3::new(200.0, 0.0, 200.0),
+        )
         .expect("USA command center should spawn");
     let _power_plant = game_logic
-        .create_object("SmokePowerPlant", Team::USA, Vec3::new(-24.0, 0.0, 0.0))
+        .create_object("SmokePowerPlant", Team::USA, Vec3::new(176.0, 0.0, 200.0))
         .expect("USA power plant should spawn");
     let dozer = game_logic
-        .create_object("SmokeDozer", Team::USA, Vec3::new(70.0, 0.0, 0.0))
+        .create_object("SmokeDozer", Team::USA, Vec3::new(270.0, 0.0, 200.0))
         .expect("USA dozer should spawn");
     let supply_dock = game_logic
-        .create_object("SmokeSupplyDock", Team::Neutral, Vec3::new(40.0, 0.0, 0.0))
+        .create_object(
+            "SmokeSupplyDock",
+            Team::Neutral,
+            Vec3::new(240.0, 0.0, 200.0),
+        )
         .expect("neutral supply dock should spawn");
     let enemy_command_center = game_logic
         .create_object(
             "SmokeCommandCenter",
             Team::China,
-            Vec3::new(160.0, 0.0, 0.0),
+            Vec3::new(360.0, 0.0, 200.0),
         )
         .expect("China command center should spawn");
     assert_smoke_enemies(&game_logic, enemy_command_center);
@@ -542,12 +568,13 @@ fn mini_skirmish_playable_flow_smoke() {
         .resources
         .supplies;
 
+    game_logic.update();
     game_logic.queue_command(command(
         1,
         0,
         CommandType::DozerConstruct {
             template_name: "SmokeBarracks".to_string(),
-            location: Vec3::new(80.0, 0.0, 0.0),
+            location: Vec3::new(280.0, 0.0, 200.0),
             orientation: 0.0,
         },
         vec![dozer],
@@ -873,17 +900,23 @@ fn dozer_construct_places_barracks_under_construction() {
         Some(barracks_id),
         "DozerConstruct must retain the placed structure as its order target"
     );
+    use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
     assert!(
-        run_until(&mut game_logic, 90, |world| world
-            .get_object(dozer)
-            .is_some_and(|object| object.ai_state() == AIState::Constructing)),
-        "dozer must reach its construction task"
+        run_until(&mut game_logic, 90, |world| {
+            world
+                .get_object(dozer)
+                .is_some_and(|object| object.dozer_tasks.current == DozerTask::Build)
+                && world
+                    .get_object(barracks_id)
+                    .is_some_and(|site| site.construction_percent > 0.0)
+        }),
+        "dozer must enter its build task and advance the scaffold"
     );
     let dozer_state = game_logic.get_object(dozer).expect("dozer after approach");
     assert_eq!(
-        dozer_state.ai_state(),
-        AIState::Constructing,
-        "DozerConstruct must enter the constructing state"
+        dozer_state.dozer_tasks.current,
+        DozerTask::Build,
+        "DozerConstruct must enter the owned build task"
     );
     let supplies = game_logic.get_player(0).unwrap().resources.supplies;
     assert!(
