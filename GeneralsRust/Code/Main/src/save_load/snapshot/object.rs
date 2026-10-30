@@ -361,6 +361,8 @@ pub enum ModuleSnapshot {
     Upgrade(UpgradeModuleSnapshot),
     DozerTasks(DozerTaskObjectSnapshot),
     BaseAi(super::base_ai_machine_persist::BaseAiObjectSnapshot),
+    /// Current host projection; C++ keeps this independently per Weapon.
+    ActiveWeaponStatus(WeaponFireStatus),
 }
 
 /// AI update module snapshot
@@ -1631,6 +1633,7 @@ impl XferData for ModuleSnapshot {
             ModuleSnapshot::Upgrade(_) => 7,
             ModuleSnapshot::DozerTasks(_) => 10,
             ModuleSnapshot::BaseAi(_) => 14,
+            ModuleSnapshot::ActiveWeaponStatus(_) => 16,
         };
         xfer.xfer_u32(&mut disc)?;
         if xfer.get_mode() == XferMode::Save {
@@ -1645,6 +1648,10 @@ impl XferData for ModuleSnapshot {
                 ModuleSnapshot::Upgrade(d) => d.xfer(xfer)?,
                 ModuleSnapshot::DozerTasks(d) => d.xfer(xfer)?,
                 ModuleSnapshot::BaseAi(d) => d.xfer(xfer)?,
+                ModuleSnapshot::ActiveWeaponStatus(status) => {
+                    let mut value = *status as u8;
+                    xfer.xfer_u8(&mut value)?;
+                }
             }
         } else {
             *self = match disc {
@@ -1738,6 +1745,22 @@ impl XferData for ModuleSnapshot {
                     let mut d = super::base_ai_machine_persist::BaseAiObjectSnapshot::default();
                     d.xfer(xfer)?;
                     ModuleSnapshot::BaseAi(d)
+                }
+                16 => {
+                    let mut value = 0;
+                    xfer.xfer_u8(&mut value)?;
+                    ModuleSnapshot::ActiveWeaponStatus(match value {
+                        0 => WeaponFireStatus::ReadyToFire,
+                        1 => WeaponFireStatus::OutOfAmmo,
+                        2 => WeaponFireStatus::BetweenFiringShots,
+                        3 => WeaponFireStatus::ReloadingClip,
+                        4 => WeaponFireStatus::PreAttack,
+                        _ => {
+                            return Err(SaveLoadError::Corrupted(format!(
+                                "Invalid active weapon status: {value}"
+                            )));
+                        }
+                    })
                 }
                 _ => {
                     return Err(SaveLoadError::Corrupted(format!(

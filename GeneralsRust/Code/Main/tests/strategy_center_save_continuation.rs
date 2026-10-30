@@ -525,6 +525,7 @@ fn observe(logic: &GameLogic, ids: Ids, processed: Option<u32>) -> Value {
                 "recentering":center.turret_idle_recentering
             },
             "weapons":weapons,"selected_slot":center.selected_weapon_slot(),
+            "weapon_fire_status":format!("{:?}",center.weapon_fire_status),
             "lock_type":format!("{:?}",center.weapon_lock_type),"lock_slot":center.weapon_lock_slot,
             "barrel_configuration":center.weapon_barrel_states.iter().map(|b|json!({
                 "shots_per_barrel":b.shots_per_barrel,"barrel_count":b.barrel_count})).collect::<Vec<_>>(),

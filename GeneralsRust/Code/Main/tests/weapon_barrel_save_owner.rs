@@ -1,7 +1,8 @@
 //! C++ Weapon::xfer saves the raw barrel cursor, and privateFireWeapon
 //! checks it against the current Drawable barrel count before the next shot.
+use generals_main::game_logic::object::WeaponFireStatus;
 use generals_main::game_logic::{GameLogic, Team, ThingTemplate, Weapon};
-use generals_main::save_load::SnapshotBuilder;
+use generals_main::save_load::{SnapshotBuilder, snapshot::ModuleSnapshot};
 use glam::Vec3;
 
 fn world() -> GameLogic {
@@ -10,6 +11,33 @@ fn world() -> GameLogic {
         .templates
         .insert("BarrelOwner".into(), ThingTemplate::new("BarrelOwner"));
     world
+}
+
+#[test]
+fn misplaced_weapon_status_is_rejected_before_replacing_receiver() {
+    let mut source = world();
+    let id = source
+        .create_object("BarrelOwner", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let builder = SnapshotBuilder::new();
+    let mut saved = builder.create_world_snapshot(&source).unwrap();
+    saved.objects.get_mut(&id).unwrap().modules.insert(
+        "ForeignWeaponStatus".into(),
+        ModuleSnapshot::ActiveWeaponStatus(WeaponFireStatus::ReloadingClip),
+    );
+    let mut receiver = world();
+    let receiver_id = receiver
+        .create_object("BarrelOwner", Team::USA, Vec3::new(8., 0., 0.))
+        .unwrap();
+    assert!(
+        builder
+            .restore_from_snapshot(&saved, &mut receiver)
+            .is_err()
+    );
+    assert_eq!(
+        receiver.host_object(receiver_id).unwrap().get_position(),
+        Vec3::new(8., 0., 0.)
+    );
 }
 
 #[test]
@@ -29,6 +57,7 @@ fn restored_cursor_survives_until_receiving_draw_topology_and_next_shot() {
         assert!(object.set_weapon_barrel_count_for_slot(0, 3));
     }
     let object = source.host_object_mut(id).unwrap();
+    object.weapon_fire_status = WeaponFireStatus::BetweenFiringShots;
     assert_eq!(object.fired_barrel_for_slot(0), Some(0));
     object.advance_weapon_barrel_after_shot(0);
     assert_eq!(object.fired_barrel_for_slot(0), Some(1));
@@ -39,6 +68,14 @@ fn restored_cursor_survives_until_receiving_draw_topology_and_next_shot() {
     let saved = builder.create_world_snapshot(&source).unwrap();
     let mut loaded = world();
     builder.restore_from_snapshot(&saved, &mut loaded).unwrap();
+    assert_eq!(
+        loaded.host_object(id).unwrap().weapon_fire_status,
+        WeaponFireStatus::BetweenFiringShots
+    );
+    assert_eq!(
+        peer.host_object(id).unwrap().weapon_fire_status,
+        WeaponFireStatus::ReadyToFire
+    );
     assert_eq!(
         loaded
             .host_object(id)

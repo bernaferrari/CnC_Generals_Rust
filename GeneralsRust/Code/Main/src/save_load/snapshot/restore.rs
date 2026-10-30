@@ -239,6 +239,18 @@ impl SnapshotBuilder {
         }
         for (id, object) in objects {
             super::dozer_task_module::validate(object, game_logic)?;
+            if object.modules.iter().any(|(key, value)| {
+                matches!(value, ModuleSnapshot::ActiveWeaponStatus(_))
+                    && key != "ActiveWeaponStatus"
+            }) || object
+                .modules
+                .get("ActiveWeaponStatus")
+                .is_some_and(|value| !matches!(value, ModuleSnapshot::ActiveWeaponStatus(_)))
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "Invalid active weapon status owner".into(),
+                ));
+            }
             if id.0 == 0 || *id != object.id {
                 return Err(SaveLoadError::Corrupted(
                     "saved Object roster key must equal its nonzero identity".into(),
@@ -716,6 +728,7 @@ impl SnapshotBuilder {
             match module_snapshot {
                 ModuleSnapshot::BaseAi(_) => {}
                 ModuleSnapshot::DozerTasks(_) => {}
+                ModuleSnapshot::ActiveWeaponStatus(status) => object.weapon_fire_status = *status,
                 ModuleSnapshot::AIUpdate(snapshot) => {
                     if matches!(
                         snapshot.current_state.as_str(),

@@ -259,6 +259,11 @@ impl SnapshotBuilder {
     ) -> SaveLoadResult<HashMap<String, ModuleSnapshot>> {
         let mut modules = HashMap::new();
 
+        modules.insert(
+            "ActiveWeaponStatus".to_owned(),
+            ModuleSnapshot::ActiveWeaponStatus(object.weapon_fire_status),
+        );
+
         if object.ai_state() == crate::game_logic::AIState::Panic && object.panic_runtime.is_none()
         {
             return Err(SaveLoadError::Corrupted(
