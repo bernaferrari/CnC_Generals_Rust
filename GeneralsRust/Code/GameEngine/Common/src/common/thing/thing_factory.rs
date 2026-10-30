@@ -551,34 +551,100 @@ impl ThingFactory {
         versions: impl IntoIterator<Item = &'a ThingTemplate>,
         next_template_id: UnsignedShort,
     ) -> Self {
+        fn historical_parent(
+            source: &Arc<ThingTemplate>,
+            copies: &mut HashMap<*const ThingTemplate, Arc<ThingTemplate>>,
+        ) -> Arc<ThingTemplate> {
+            let mut chain = Vec::new();
+            let mut cursor = Some(Arc::clone(source));
+            while let Some(template) = cursor {
+                if copies.contains_key(&Arc::as_ptr(&template)) {
+                    break;
+                }
+                cursor = template.get_reskinned_from().cloned();
+                chain.push(template);
+            }
+            for source in chain.into_iter().rev() {
+                let mut copy = ThingTemplate::new();
+                copy.set_template_id(source.get_template_id());
+                copy.set_template_name(source.get_name().clone());
+                copy.copy_from(&source);
+                if let Some(parent) = source.get_reskinned_from() {
+                    copy.set_detached_reskin_parent(Arc::clone(&copies[&Arc::as_ptr(parent)]));
+                }
+                copies.insert(Arc::as_ptr(&source), Arc::new(copy));
+            }
+            Arc::clone(&copies[&Arc::as_ptr(source)])
+        }
         let sources = versions.into_iter().collect::<Vec<_>>();
         // The weak namespace reference exists before any template is built;
         // it becomes usable only after this private construction is complete.
         let owner = Arc::new_cyclic(|identity| {
-            let mut first_template = None;
             let mut templates = ThingTemplateHashMap::with_capacity(TEMPLATE_HASH_SIZE);
-            for source in sources {
-                let mut template = ThingTemplate::new();
-                template.set_template_id(source.get_template_id());
-                template.set_template_name(source.get_name().clone());
-                template.copy_from(source);
-                template.set_next_template(first_template);
-                if let Some(parent) = source.get_reskinned_from() {
-                    template
-                        .set_detached_reskin_parent(identity.clone(), parent.get_name().clone());
-                }
-                let template = Arc::new(template);
-                if templates
-                    .insert(template.get_name().clone(), Arc::clone(&template))
-                    .is_some()
-                {
-                    panic!(
-                        "Duplicate Thing Template name found: {}",
-                        template.get_name()
+            let mut historical = HashMap::new();
+            let mut pending: Vec<usize> = (0..sources.len()).collect();
+            while !pending.is_empty() {
+                let before = pending.len();
+                pending.retain(|&index| {
+                    let source = sources[index];
+                    let parent = match source.get_reskinned_from() {
+                        Some(parent) => match templates.get(parent.get_name()) {
+                            Some(parent) => Some(Arc::clone(parent)),
+                            None => return true,
+                        },
+                        None => None,
+                    };
+                    let mut template = ThingTemplate::new();
+                    template.set_template_id(source.get_template_id());
+                    template.set_template_name(source.get_name().clone());
+                    template.copy_from(source);
+                    if index > 0 {
+                        template.set_detached_next(
+                            identity.clone(),
+                            sources[index - 1].get_name().clone(),
+                        );
+                    }
+                    if let Some(parent) = parent {
+                        template.set_detached_reskin_parent(parent);
+                    }
+                    let name = template.get_name().clone();
+                    assert!(
+                        templates.insert(name.clone(), Arc::new(template)).is_none(),
+                        "Duplicate Thing Template name found: {name}"
+                    );
+                    false
+                });
+                if pending.len() == before {
+                    // An override may reskin from an older version of a name
+                    // that is also current in this view. Break the apparent
+                    // name cycle with an owner-local copy of that older chain.
+                    let index = pending.remove(0);
+                    let source = sources[index];
+                    let parent = historical_parent(
+                        source.get_reskinned_from().expect("unresolved parent"),
+                        &mut historical,
+                    );
+                    let mut template = ThingTemplate::new();
+                    template.set_template_id(source.get_template_id());
+                    template.set_template_name(source.get_name().clone());
+                    template.copy_from(source);
+                    if index > 0 {
+                        template.set_detached_next(
+                            identity.clone(),
+                            sources[index - 1].get_name().clone(),
+                        );
+                    }
+                    template.set_detached_reskin_parent(parent);
+                    let name = template.get_name().clone();
+                    assert!(
+                        templates.insert(name.clone(), Arc::new(template)).is_none(),
+                        "Duplicate Thing Template name found: {name}"
                     );
                 }
-                first_template = Some(template);
             }
+            let first_template = sources
+                .last()
+                .and_then(|source| templates.get(source.get_name()).cloned());
             DetachedTemplateView {
                 first_template,
                 templates,
@@ -687,12 +753,12 @@ impl ThingFactory {
 
     /// Find template by ID
     pub fn find_by_template_id(&self, id: UnsignedShort) -> Option<Arc<ThingTemplate>> {
-        let mut current = self.first_template.as_ref();
+        let mut current = self.first_template.clone();
         while let Some(template) = current {
             if template.get_template_id() == id {
                 return Some(template.clone());
             }
-            current = template.get_next_template().as_ref();
+            current = template.get_next_template();
         }
         None
     }
@@ -2322,17 +2388,15 @@ mod tests {
         assert_eq!(
             first_from_head
                 .get_next_template()
-                .as_ref()
-                .map(|template| template.get_name().as_str()),
-            Some("SecondObject")
+                .map(|template| template.get_name().to_string()),
+            Some("SecondObject".to_string())
         );
         assert_eq!(
             first_from_head
                 .get_next_template()
-                .as_ref()
-                .and_then(|template| template.get_next_template().as_ref())
-                .map(|template| template.get_name().as_str()),
-            Some("FirstObject")
+                .and_then(|template| template.get_next_template())
+                .map(|template| template.get_name().to_string()),
+            Some("FirstObject".to_string())
         );
 
         assert_eq!(

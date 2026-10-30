@@ -1396,13 +1396,13 @@ pub struct ThingTemplate {
     template_id: UnsignedShort,
     name_string: AsciiString,
     next_thing_template: Option<Arc<ThingTemplate>>,
-    next_override: TemplateOverrideLink,
-    is_override: bool,
-    reskinned_from: Option<Arc<ThingTemplate>>,
-    detached_reskin_parent: Option<(
+    detached_next: Option<(
         Weak<super::thing_factory::DetachedTemplateView>,
         AsciiString,
     )>,
+    next_override: TemplateOverrideLink,
+    is_override: bool,
+    reskinned_from: Option<Arc<ThingTemplate>>,
 
     // Display properties
     display_name: UnicodeString,
@@ -1537,10 +1537,10 @@ impl ThingTemplate {
             template_id: 0,
             name_string: AsciiString::new(),
             next_thing_template: None,
+            detached_next: None,
             next_override,
             is_override: false,
             reskinned_from: None,
-            detached_reskin_parent: None,
 
             display_name: UnicodeString::new(),
             display_color: Color::white(),
@@ -2529,11 +2529,23 @@ impl ThingTemplate {
     pub fn set_template_name(&mut self, name: AsciiString) {
         self.name_string = name;
     }
-    pub fn get_next_template(&self) -> &Option<Arc<ThingTemplate>> {
-        &self.next_thing_template
+    pub fn get_next_template(&self) -> Option<Arc<ThingTemplate>> {
+        match &self.detached_next {
+            Some((owner, name)) => owner.upgrade().and_then(|owner| owner.find(name)),
+            None => self.next_thing_template.clone(),
+        }
     }
     pub fn set_next_template(&mut self, template: Option<Arc<ThingTemplate>>) {
         self.next_thing_template = template;
+        self.detached_next = None;
+    }
+    pub(super) fn set_detached_next(
+        &mut self,
+        owner: Weak<super::thing_factory::DetachedTemplateView>,
+        name: AsciiString,
+    ) {
+        self.next_thing_template = None;
+        self.detached_next = Some((owner, name));
     }
 
     /// Get the default radar priority level for this template.
@@ -2548,6 +2560,7 @@ impl ThingTemplate {
         let id = self.template_id;
         let name = self.name_string.clone();
         let next = self.next_thing_template.clone();
+        let detached_next = self.detached_next.clone();
         // A source's static data does not choose this destination's owner or
         // override capability (ThingTemplate.cpp:1195 preserves identity).
         let next_override = self.next_override.clone();
@@ -2560,6 +2573,7 @@ impl ThingTemplate {
         self.template_id = id;
         self.name_string = name;
         self.next_thing_template = next;
+        self.detached_next = detached_next;
         self.next_override = next_override;
         self.is_override = is_override;
     }
@@ -2577,21 +2591,12 @@ impl ThingTemplate {
         self.reskinned_from = Some(template);
     }
 
-    pub fn get_reskinned_from(&self) -> Option<Arc<ThingTemplate>> {
-        match &self.detached_reskin_parent {
-            Some((owner, name)) => owner.upgrade().and_then(|owner| owner.find(name)),
-            None => self.reskinned_from.clone(),
-        }
+    pub(super) fn set_detached_reskin_parent(&mut self, parent: Arc<ThingTemplate>) {
+        self.reskinned_from = Some(parent);
     }
 
-    pub(super) fn set_detached_reskin_parent(
-        &mut self,
-        owner: Weak<super::thing_factory::DetachedTemplateView>,
-        name: AsciiString,
-    ) {
-        // The detached view must not retain the receiving catalog's parent.
-        self.reskinned_from = None;
-        self.detached_reskin_parent = Some((owner, name));
+    pub fn get_reskinned_from(&self) -> Option<&Arc<ThingTemplate>> {
+        self.reskinned_from.as_ref()
     }
 
     /// C++ ThingTemplate::isEquivalentTo (ThingTemplate.cpp:1454).
@@ -2615,7 +2620,7 @@ impl ThingTemplate {
             }
         }
         if let (Some(a), Some(b)) = (self.get_reskinned_from(), other.get_reskinned_from()) {
-            if Arc::ptr_eq(&a, &b) {
+            if Arc::ptr_eq(a, b) {
                 return true;
             }
         }

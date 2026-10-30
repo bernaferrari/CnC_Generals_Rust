@@ -44,6 +44,50 @@ fn detached_reskin_retains_parent_after_factory_view_is_dropped() {
 }
 
 #[test]
+fn detached_reskin_keeps_parent_alive_without_another_parent_handle() {
+    let content = owner();
+    let skin = {
+        let view = content.compatibility_template_view();
+        view.find_template("Skin", false).unwrap()
+    };
+    assert_eq!(
+        skin.get_reskinned_from().unwrap().get_name().as_str(),
+        "Parent"
+    );
+}
+
+#[test]
+fn self_reskin_override_does_not_make_view_construction_fail() {
+    let mut content =
+        ReceivingModuleContent::new(ModuleFactory::new_receiving(NameKeyNamespace::new()));
+    content
+        .load_ini_text(
+            "Object Parent\nBuildCost = 50\nEnd\n",
+            INILoadType::Overwrite,
+        )
+        .unwrap();
+    content
+        .load_ini_text(
+            "ObjectReskin Parent Parent\nEnd\n",
+            INILoadType::CreateOverrides,
+        )
+        .unwrap();
+    let view = content.compatibility_template_view();
+    let peer = content.compatibility_template_view();
+    let parent = view.find_template("Parent", false).unwrap();
+    let peer_parent = peer.find_template("Parent", false).unwrap();
+    assert_eq!(parent.get_build_cost(), 50);
+    assert!(parent.is_equivalent_to(&parent));
+    assert_eq!(
+        parent.get_reskinned_from().unwrap().get_name().as_str(),
+        "Parent"
+    );
+    assert!(!parent.is_equivalent_to(&peer_parent));
+    drop(view);
+    assert_eq!(parent.get_reskinned_from().unwrap().get_build_cost(), 50);
+}
+
+#[test]
 fn dropping_a_view_releases_its_parent_and_reskin() {
     let content = owner();
     let (parent, skin) = {

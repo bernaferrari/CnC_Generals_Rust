@@ -55,8 +55,8 @@ fn assert_catalog_pair(
     ));
     assert_eq!(native.get_name().as_str(), NATIVE_NAME);
     assert_eq!(native.get_template_id(), 2);
-    let marker = native.get_next_template().as_ref().unwrap();
-    assert!(Arc::ptr_eq(marker, &authored.catalog_sentinel));
+    let marker = native.get_next_template().unwrap();
+    assert!(Arc::ptr_eq(&marker, &authored.catalog_sentinel));
     assert_eq!(marker.get_name().as_str(), CATALOG_SENTINEL);
     assert!(marker.get_next_template().is_none());
     assert!(Arc::ptr_eq(
