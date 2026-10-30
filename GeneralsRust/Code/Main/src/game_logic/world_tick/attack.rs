@@ -99,7 +99,7 @@ impl GameLogic {
             }
             // C++ getMoodMatrixActionAdjustment(MM_Action_Attack) residual.
             // AI-controlled sleep mood refuses attack (→ idle).
-            if !self.mood_allows_attack(unit_id, false) {
+            if !self.mood_allows_attack(unit_id, self.mood_controller_is_human(unit_id)) {
                 return Ok(AttackMachineResult::Failure);
             }
             // C++ cannotPossiblyAttackObject residual on enter.
@@ -589,14 +589,8 @@ impl GameLogic {
                 )? {
                     AttackAimResult::Success => {
                         // C++ rechecks the mood after approaching, before firing.
-                        let mood_exempt = self.objects.get(&unit_id).is_some_and(|unit| {
-                            unit.owner_player_id
-                                .and_then(|id| self.players.get(&id))
-                                .is_some_and(|player| player.is_human)
-                                || (unit.is_kind_of(KindOf::Infantry)
-                                    && unit.is_kind_of(KindOf::IgnoredInGui))
-                        });
-                        if !self.mood_allows_attack(unit_id, mood_exempt) {
+                        if !self.mood_allows_attack(unit_id, self.mood_controller_is_human(unit_id))
+                        {
                             return Ok(AttackMachineResult::Failure);
                         }
                         if let Some(u) = self.objects.get_mut(&unit_id) {
@@ -1013,11 +1007,12 @@ impl GameLogic {
             return;
         }
         use mood_action_adjust::AFFECT_RANGE_IGNORE_ALL;
-        let adj = self.get_mood_matrix_action_adjustment(unit_id, MoodMatrixAction::Idle, false);
+        let is_human = self.mood_controller_is_human(unit_id);
+        let adj = self.get_mood_matrix_action_adjustment(unit_id, MoodMatrixAction::Idle, is_human);
         if adj & AFFECT_RANGE_IGNORE_ALL != 0 {
             return;
         }
-        let Some(enemy) = self.get_next_mood_target(unit_id, true, true, false) else {
+        let Some(enemy) = self.get_next_mood_target(unit_id, true, true, is_human) else {
             return;
         };
         // Leftover: choose_best_weapon_for_target PreferMostDamage FromAi, then
@@ -2241,11 +2236,12 @@ impl GameLogic {
             u.set_status_attacking(true);
             {}
         }
-        let Some(rates) = self
-            .objects
-            .get(&unit_id)
-            .map(|unit| self.receiving_weapon_rates_of_fire(unit))
-        else {
+        let Some((rates, bonuses)) = self.objects.get(&unit_id).map(|unit| {
+            let bonuses = std::array::from_fn(|slot| {
+                self.receiving_weapon_bonus_fields_for_slot(unit, slot as u8)
+            });
+            (bonuses.map(|fields| fields.2), bonuses)
+        }) else {
             return AttackFireResult::Failure;
         };
         let prepared = {
@@ -2269,6 +2265,7 @@ impl GameLogic {
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                 &self.solo_weapon_bonus_set,
                 rates,
+                bonuses,
                 &self.logic_random,
                 projectile_team_id,
             )

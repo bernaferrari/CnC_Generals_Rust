@@ -106,9 +106,9 @@ fn world_with_upgrade_damage(
     let attacker = game
         .create_object_for_player("ChainAttacker", 1, Vec3::new(20.0, 0.0, 20.0))
         .unwrap();
-    game.host_object_mut(attacker)
-        .unwrap()
-        .set_ai_attitude(generals_main::game_logic::host_strategy_center::HostAiAttitude::Sleep);
+    // C++ human-controlled units ignore mood. Disable idle auto-acquisition so
+    // these tests observe the explicit attack and its weapon continuation.
+    game.host_object_mut(attacker).unwrap().auto_acquire_idle_bits = 0;
     game.host_object_mut(attacker).unwrap().weapon_bonus_solo = 16;
     game.host_object_mut(attacker)
         .unwrap()

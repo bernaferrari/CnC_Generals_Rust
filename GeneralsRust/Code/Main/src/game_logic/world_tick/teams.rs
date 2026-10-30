@@ -104,15 +104,10 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         for &id in object_ids {
-            let (is_player_local, do_check) = {
+            let do_check = {
                 let Some(o) = self.objects.get(&id) else {
                     continue;
                 };
-                let is_local = self
-                    .player_id_for_team(o.team)
-                    .and_then(|pid| self.players.get(&pid))
-                    .map(|p| self.is_local_player(p.id))
-                    .unwrap_or(false);
                 // C++ attack-move auto-acquire: Idle OR AttackMoving/is_attack_path.
                 let idle = matches!(o.ai_state(), AIState::Idle) && o.target.is_none();
                 let attack_moving =
@@ -122,13 +117,13 @@ impl GameLogic {
                     && o.is_alive()
                     && o.can_attack()
                     && o.target.is_none();
-                (is_local, want)
+                want
             };
             if do_check {
                 // C++ AutoAcquireEnemiesWhenIdle applies to player and AI units.
                 let _ = self.try_mood_auto_acquire_with_effects(
                     id,
-                    is_player_local,
+                    self.mood_controller_is_human(id),
                     presentation_effects,
                 )?;
             }

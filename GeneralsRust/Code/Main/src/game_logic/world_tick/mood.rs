@@ -2,6 +2,14 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 impl GameLogic {
+    /// C++ AIUpdateInterface::getMoodMatrixValue uses the object's controller.
+    pub(crate) fn mood_controller_is_human(&self, unit_id: ObjectId) -> bool {
+        self.objects
+            .get(&unit_id)
+            .and_then(|unit| unit.owner_player_id)
+            .and_then(|id| self.players.get(&id))
+            .is_some_and(|player| player.is_human)
+    }
     pub fn sync_attack_priority_from_script_engine(&mut self) {
         self.with_owned_script_engine(|engine, world| {
             world.sync_attack_priority_from_receiving_interpreter(engine);
@@ -884,8 +892,10 @@ impl GameLogic {
         let Some(obj) = self.objects.get(&unit_id) else {
             return ACTION_OK;
         };
-        // Mob member residual: IGNORED_IN_GUI KindOf not fully ported.
-        if is_player_controlled {
+        // C++ exempts infantry mob members, as well as human controllers.
+        if is_player_controlled
+            || (obj.is_kind_of(KindOf::Infantry) && obj.is_kind_of(KindOf::IgnoredInGui))
+        {
             return ACTION_OK;
         }
         // Attitude ordinals: -2 Sleep, -1 Passive, 0 Normal, 1 Alert, 2 Aggressive.
@@ -922,12 +932,7 @@ impl GameLogic {
         if state != AIState::Moving {
             return state;
         }
-        let is_player = self
-            .objects
-            .get(&unit_id)
-            .and_then(|o| o.owner_player_id)
-            .and_then(|pid| self.players.get(&pid))
-            .is_some_and(|p| self.is_local_player(p.id));
+        let is_player = self.mood_controller_is_human(unit_id);
         let adj =
             self.get_mood_matrix_action_adjustment(unit_id, MoodMatrixAction::Move, is_player);
         if (adj & mood_action_adjust::ACTION_TO_ATTACK_MOVE) != 0 {

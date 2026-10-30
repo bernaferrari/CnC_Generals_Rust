@@ -4,6 +4,7 @@ use super::*;
 enum WeaponShotRoute {
     Autonomous {
         owned_rof: Option<[f32; 3]>,
+        owned_bonuses: Option<[(f32, f32, f32, f32, f32); 3]>,
     },
     Passive {
         slot: u8,
@@ -89,7 +90,10 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> Option<u8> {
         let (slot, pending) = self.prepare_weapon_shot(
-            WeaponShotRoute::Autonomous { owned_rof: None },
+            WeaponShotRoute::Autonomous {
+                owned_rof: None,
+                owned_bonuses: None,
+            },
             target_id,
             current_time,
             target_is_infantry,
@@ -270,7 +274,10 @@ impl Object {
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         self.prepare_weapon_shot_with_operation(
-            WeaponShotRoute::Autonomous { owned_rof: None },
+            WeaponShotRoute::Autonomous {
+                owned_rof: None,
+                owned_bonuses: None,
+            },
             target,
             time,
             infantry,
@@ -306,12 +313,14 @@ impl Object {
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         solo_set: &gamelogic::weapon::WeaponBonusSet,
         owned_rof: [f32; 3],
+        owned_bonuses: [(f32, f32, f32, f32, f32); 3],
         random: &game_engine::common::random_value::SessionRandom,
         projectile_team_id: Option<u32>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         self.prepare_weapon_shot_with_operation(
             WeaponShotRoute::Autonomous {
                 owned_rof: Some(owned_rof),
+                owned_bonuses: Some(owned_bonuses),
             },
             target,
             time,
@@ -409,7 +418,7 @@ impl Object {
         let autonomous = matches!(route, WeaponShotRoute::Autonomous { .. });
         let owned_rof = match &route {
             WeaponShotRoute::Passive { owned_rof, .. } => owned_rof.as_ref(),
-            WeaponShotRoute::Autonomous { owned_rof } => owned_rof.as_ref(),
+            WeaponShotRoute::Autonomous { owned_rof, .. } => owned_rof.as_ref(),
         };
         // C++ Weapon::getMaxShotCount residual — AI burst / scatter limits.
         if !self.has_max_shots_remaining() {
@@ -553,13 +562,18 @@ impl Object {
                 .map(|w| w.pre_attack_delay.max(0.0))
                 .unwrap_or(0.0);
             let bonus = match route {
-                WeaponShotRoute::Passive { pre_attack_bonus, .. } => pre_attack_bonus,
-                WeaponShotRoute::Autonomous { .. } => None,
+                WeaponShotRoute::Passive {
+                    pre_attack_bonus, ..
+                } => pre_attack_bonus,
+                WeaponShotRoute::Autonomous { owned_bonuses, .. } => {
+                    owned_bonuses.map(|values| values[slot as usize].3)
+                }
             };
             if let Some(bonus) = bonus {
-                self.selected_native_weapon_rule(slot).map_or(base * bonus, |rule| {
-                    ((rule.pre_attack_delay.max(0) as f32 * bonus) as u32) as f32 / 30.0
-                })
+                self.selected_native_weapon_rule(slot)
+                    .map_or(base * bonus, |rule| {
+                        ((rule.pre_attack_delay.max(0) as f32 * bonus) as u32) as f32 / 30.0
+                    })
             } else {
                 base * solo_set.map_or_else(
                     || self.weapon_bonus_fields().3,
@@ -675,7 +689,9 @@ impl Object {
             });
         let damage_bonus = match route {
             WeaponShotRoute::Passive { damage_bonus, .. } => damage_bonus,
-            WeaponShotRoute::Autonomous { .. } => None,
+            WeaponShotRoute::Autonomous { owned_bonuses, .. } => {
+                owned_bonuses.map(|values| values[slot as usize].0)
+            }
         };
         let weapon_damage = damage_bonus.map_or_else(
             || {
@@ -778,7 +794,13 @@ impl Object {
             },
             |bonus| secondary_base * bonus,
         );
-        let secondary_damage_radius = native_rule.as_ref().map(|rule| rule.secondary_damage_radius).unwrap_or_else(||
+        let radius_bonus = match route {
+            WeaponShotRoute::Autonomous { owned_bonuses, .. } => {
+                owned_bonuses.map_or(1.0, |values| values[slot as usize].4)
+            }
+            WeaponShotRoute::Passive { .. } => 1.0,
+        };
+        let secondary_damage_radius = radius_bonus * native_rule.as_ref().map(|rule| rule.secondary_damage_radius).unwrap_or_else(||
             name.map(crate::game_logic::weapon_bootstrap::host_secondary_damage_radius_for_weapon_name).unwrap_or(0.0));
         let shock_wave_amount = native_rule
             .as_ref()
@@ -1021,7 +1043,7 @@ impl Object {
             damage: weapon_damage,
             speed: weapon_speed,
             speed_unit: super::combat::ProjectileSpeedUnit::DistancePerLogicFrame,
-            splash_radius: weapon_splash,
+            splash_radius: weapon_splash * radius_bonus,
             is_homing: weapon_homing,
             damage_type: weapon_dtype,
             death_type: if let Some(rule) = native_rule.as_ref() {

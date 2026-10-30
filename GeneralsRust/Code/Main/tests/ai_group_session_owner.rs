@@ -1407,3 +1407,57 @@ fn changed_sleep_mood_is_rechecked_on_firing_except_for_humans_and_mobs() {
     assert_eq!(common_target(&ai, actor), None);
     assert_eq!(common_target(&mob, actor), Some(victim.0));
 }
+
+#[test]
+fn move_mood_uses_the_controlling_player_not_the_local_player() {
+    use generals_main::game_logic::{AIState, host_strategy_center::HostAiAttitude};
+    let root = tempfile::tempdir().unwrap();
+    let path = map_file(root.path());
+    let (mut owner, _, _, _) = world(&path);
+    let (mut peer, _, _, _) = world(&path);
+    for session in [&mut owner, &mut peer] {
+        session.add_player(Player::new(2, Team::USA, "RemoteHuman", true));
+        session.add_player(Player::new(3, Team::USA, "Computer", false));
+    }
+    let human = owner
+        .create_object_for_player("GroupUnit", 2, Vec3::ZERO)
+        .unwrap();
+    let computer = owner
+        .create_object_for_player("GroupUnit", 3, Vec3::ZERO)
+        .unwrap();
+    assert_eq!(
+        human,
+        peer.create_object_for_player("GroupUnit", 2, Vec3::ZERO)
+            .unwrap()
+    );
+    assert_eq!(
+        computer,
+        peer.create_object_for_player("GroupUnit", 3, Vec3::ZERO)
+            .unwrap()
+    );
+    for session in [&mut owner, &mut peer] {
+        for id in [human, computer] {
+            session
+                .host_object_mut(id)
+                .unwrap()
+                .set_ai_attitude(HostAiAttitude::Alert);
+        }
+    }
+    assert_eq!(
+        owner.mood_adjusted_move_state(human, AIState::Moving),
+        AIState::Moving
+    );
+    assert_eq!(
+        owner.mood_adjusted_move_state(computer, AIState::Moving),
+        AIState::AttackMoving
+    );
+    peer.get_player_mut(2).unwrap().is_human = false;
+    assert_eq!(
+        peer.mood_adjusted_move_state(human, AIState::Moving),
+        AIState::AttackMoving
+    );
+    assert_eq!(
+        owner.mood_adjusted_move_state(human, AIState::Moving),
+        AIState::Moving
+    );
+}

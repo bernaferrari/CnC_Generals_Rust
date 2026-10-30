@@ -79,12 +79,7 @@ impl GameLogic {
                 .get(&object_id)
                 .is_some_and(|o| o.next_mood_check_time == 0);
             if can_attack && !ai_auto_engage_paused && (should_scan(20) || force_mood) {
-                let is_player = self
-                    .objects
-                    .get(&object_id)
-                    .and_then(|o| o.owner_player_id)
-                    .map(|pid| self.is_local_player(pid))
-                    .unwrap_or(false);
+                let is_player = self.mood_controller_is_human(object_id);
                 if let Some(enemy_id) = self.get_next_mood_target(object_id, true, false, is_player)
                 {
                     // C++ AIAttackMoveToState::update: friend_endingMove +
