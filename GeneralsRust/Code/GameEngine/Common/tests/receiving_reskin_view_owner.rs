@@ -30,6 +30,20 @@ fn detached_reskins_belong_to_their_own_view() {
 }
 
 #[test]
+fn detached_reskin_retains_parent_after_factory_view_is_dropped() {
+    let content = owner();
+    let view = content.compatibility_template_view();
+    let skin = view.find_template("Skin", false).unwrap();
+    let parent = view.find_template("Parent", false).unwrap();
+    drop(view);
+    assert!(skin.is_equivalent_to(&parent));
+    assert!(std::sync::Arc::ptr_eq(
+        &skin.get_reskinned_from().unwrap(),
+        &parent
+    ));
+}
+
+#[test]
 fn dropping_a_view_releases_its_parent_and_reskin() {
     let content = owner();
     let (parent, skin) = {
