@@ -988,7 +988,10 @@ impl AIUpdateInterface {
         }
 
         let now = TheGameLogic::get_frame();
-        if self.path_timestamp_is_recent(now) && self.path.is_some() && self.is_blocked_and_stuck {
+        if (now < 3 || self.path_timestamp > now - 3)
+            && self.path.is_some()
+            && self.is_blocked_and_stuck
+        {
             self.set_ignore_collision_time(LOGICFRAMES_PER_SECOND * 2);
             self.blocked_frames = 0;
             self.is_blocked = false;
@@ -1463,7 +1466,7 @@ impl AIUpdateInterface {
     }
 
     fn path_timestamp_is_recent(&self, now: UnsignedInt) -> bool {
-        now < 3 || self.path_timestamp > now - 3
+        self.path_timestamp > now.wrapping_sub(3)
     }
 
     // -----------------------------------------------------------------------
@@ -3048,6 +3051,15 @@ mod tests {
 
     #[test]
     fn request_path_uses_cpp_repath_delay_when_path_is_fresh() {
+        if !legacy_ai_fixture_child(concat!(
+            module_path!(),
+            "::request_path_uses_cpp_repath_delay_when_path_is_fresh"
+        )) {
+            return;
+        }
+        crate::system::game_logic::lock_game_logic()
+            .unwrap()
+            .set_current_frame(10);
         let mut ai = ai_update();
         ai.path_timestamp = TheGameLogic::get_frame();
         ai.path = Some(vec![

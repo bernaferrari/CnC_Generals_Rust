@@ -494,7 +494,7 @@ impl UnitAiRuntime {
         }
         self.data.waiting_for_path = true;
         let now = TheGameLogic::get_frame();
-        if self.data.path_timestamp > now.saturating_sub(3) {
+        if self.data.path_timestamp > now.wrapping_sub(3) {
             self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND);
             if self.data.blocked_and_stuck {
                 self.set_ignore_collision_time(LOGICFRAMES_PER_SECOND * 2);
@@ -1023,7 +1023,7 @@ impl UnitAiRuntime {
         }
         self.data.repulsor1 = repulsor_id;
         let now = TheGameLogic::get_frame();
-        if self.data.path_timestamp > now.saturating_sub(3) {
+        if self.data.path_timestamp > now.wrapping_sub(3) {
             self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND * 2);
             return Ok(false);
         }
@@ -2200,7 +2200,7 @@ impl AiStateRuntime for UnitAiStateRuntime<'_, '_> {
         data.is_safe_path = false;
         data.waiting_for_path = true;
         data.ignore_obstacle_id = victim;
-        if data.path_timestamp > now.saturating_sub(3) {
+        if data.path_timestamp > now.wrapping_sub(3) {
             world.shorten_ai_queue_wake(self.runtime.unit_id, LOGICFRAMES_PER_SECOND * 2)?;
             data.queue_for_path_frame = now.wrapping_add(LOGICFRAMES_PER_SECOND * 2);
             self.runtime.set_locomotor_goal_none();
@@ -2438,7 +2438,7 @@ impl AiStateRuntime for UnitAiStateRuntime<'_, '_> {
             return Ok(());
         }
         self.runtime.data.waiting_for_path = true;
-        if self.runtime.data.path_timestamp > now.saturating_sub(3) {
+        if self.runtime.data.path_timestamp > now.wrapping_sub(3) {
             world.shorten_ai_queue_wake(self.runtime.unit_id, LOGICFRAMES_PER_SECOND)?;
             self.runtime.data.queue_for_path_frame = now.wrapping_add(LOGICFRAMES_PER_SECOND);
             if self.runtime.data.blocked_and_stuck {

@@ -431,3 +431,57 @@ fn factory_authored_locomotor_attack_request_publishes_state_only() {
         "request publication only; no pathfinder completion claim"
     );
 }
+
+#[test]
+fn startup_repath_requests_use_unsigned_frame_subtraction() {
+    if !child(concat!(
+        module_path!(),
+        "::startup_repath_requests_use_unsigned_frame_subtraction"
+    )) {
+        return;
+    }
+    let _serial = crate::test_sync::lock();
+    definitions();
+    let actual = AttackRuntime::new(true);
+    let target_id = actual.target.read().unwrap().get_id();
+    let target_pos = *actual.target.read().unwrap().get_position();
+    let mut cached = actual.ai.lock().unwrap();
+    let ai = cached
+        .unit_ai_for_test()
+        .expect("factory-cached UnitAIUpdate");
+    for (frame, should_delay) in [(1, false), (2, false), (3, true), (10, false)] {
+        let _frame = RestoreAmbientFrame::set(frame);
+        ai.runtime.data.path_timestamp = 1;
+        ai.request_path(&target_pos, true).unwrap();
+        assert_eq!(
+            ai.runtime.data.queue_for_path_frame,
+            if should_delay { frame as u32 + 30 } else { 0 },
+            "move frame {frame}"
+        );
+        ai.runtime.data.path_timestamp = 1;
+        ai.request_attack_path(target_id, &target_pos).unwrap();
+        assert_eq!(
+            ai.runtime.data.queue_for_path_frame,
+            if should_delay { frame as u32 + 60 } else { 0 },
+            "attack frame {frame}"
+        );
+        ai.runtime.data.path_timestamp = 1;
+        ai.request_approach_path(&target_pos).unwrap();
+        assert_eq!(
+            ai.runtime.data.queue_for_path_frame,
+            if should_delay { frame as u32 + 60 } else { 0 },
+            "approach frame {frame}"
+        );
+        ai.runtime.data.path_timestamp = 1;
+        assert_eq!(
+            ai.request_safe_path(target_id).unwrap(),
+            !should_delay,
+            "safe frame {frame}"
+        );
+        assert_eq!(
+            ai.runtime.data.queue_for_path_frame,
+            if should_delay { frame as u32 + 60 } else { 0 },
+            "safe queue frame {frame}"
+        );
+    }
+}

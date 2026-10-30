@@ -867,7 +867,7 @@ impl UnitAIUpdate {
                 .and_then(|a| a.read().ok().map(|g| g.get_id())),
         );
         let now = TheGameLogic::get_frame();
-        if self.runtime.data.path_timestamp > now.saturating_sub(3) {
+        if self.runtime.data.path_timestamp > now.wrapping_sub(3) {
             self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND * 2);
             self.set_locomotor_goal_none();
             return Ok(());
@@ -889,7 +889,7 @@ impl UnitAIUpdate {
         self.runtime.data.is_safe_path = false;
         self.runtime.data.waiting_for_path = true;
         let now = TheGameLogic::get_frame();
-        if self.runtime.data.path_timestamp > now.saturating_sub(3) {
+        if self.runtime.data.path_timestamp > now.wrapping_sub(3) {
             self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND * 2);
             return Ok(());
         }
