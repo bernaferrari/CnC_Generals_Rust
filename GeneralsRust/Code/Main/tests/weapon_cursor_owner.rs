@@ -107,7 +107,7 @@ fn contained_weapon_world(
     game.admit_combat_bonus_ini_sources(["GameData\n WeaponBonus = SOLO_HUMAN_EASY RADIUS 150%\n WeaponBonus = SOLO_AI_EASY RADIUS 200%\n WeaponBonus = FRENZY_ONE RADIUS 125%\n WeaponBonus = FRENZY_THREE RADIUS 175%\n WeaponBonus = VETERAN RADIUS 125%\n WeaponBonus = HERO RADIUS 150%\nEnd\n"]).unwrap();
     let pass = if authored_pass { "Yes" } else { "No" };
     game.admit_object_ini_sources([("Container.ini".into(), format!(
-        "Object Passenger\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n WeaponSet\n Conditions = NONE\n Weapon = PRIMARY ContainedWeapon\n End\nEnd\nObject Carrier\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = TransportContain Transport\n Slots = 2\n WeaponBonusPassedToPassengers = {pass}\n End\nEnd\n"
+        "Object Passenger\n KindOf = INFANTRY SELECTABLE\n TransportSlotCount = 1\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n WeaponSet\n Conditions = NONE\n Weapon = PRIMARY ContainedWeapon\n End\nEnd\nObject Carrier\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = TransportContain Transport\n ContainMax = 2\n Slots = 2\n AllowInsideKindOf = INFANTRY\n WeaponBonusPassedToPassengers = {pass}\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n"
     ))]).unwrap();
     if force_metadata {
         game.templates
@@ -175,9 +175,69 @@ fn contained_weapon_combines_distinct_source_and_carrier_conditions() {
     assert_eq!(game.weapon_cursor_radii(passenger, 0).unwrap().damage, 70.0);
     game.host_object_mut(carrier).unwrap().weapon_bonus_solo = 16;
     assert_eq!(game.weapon_cursor_radii(passenger, 0).unwrap().damage, 50.0);
-    game.host_object_mut(passenger).unwrap().weapon_bonus_veteran = true;
+    game.host_object_mut(passenger)
+        .unwrap()
+        .weapon_bonus_veteran = true;
     game.host_object_mut(carrier).unwrap().weapon_bonus_hero = true;
     assert_eq!(game.weapon_cursor_radii(passenger, 0).unwrap().damage, 65.0);
+}
+
+#[test]
+fn boarding_save_and_evacuation_preserve_session_bonus_ownership() {
+    let (mut owner, passenger, carrier) = contained_weapon_world(true, false);
+    let (mut peer, peer_passenger, peer_carrier) = contained_weapon_world(false, false);
+    assert_eq!((passenger, carrier), (peer_passenger, peer_carrier));
+    for world in [&mut owner, &mut peer] {
+        world.host_object_mut(passenger).unwrap().contained_by = None;
+        assert!(world.can_unit_enter_normal_target(passenger, carrier));
+        assert!(world.unit_command_order_enter(passenger, carrier));
+        world.try_physics_collide(passenger, carrier, 1.0);
+        assert_eq!(
+            world.host_object(passenger).unwrap().contained_by,
+            Some(carrier)
+        );
+    }
+    assert_eq!(
+        owner.weapon_cursor_radii(passenger, 0).unwrap().damage,
+        50.0
+    );
+    assert_eq!(
+        peer.weapon_cursor_radii(peer_passenger, 0).unwrap().damage,
+        30.0
+    );
+    let snapshot = generals_main::save_load::SnapshotBuilder::new()
+        .create_world_snapshot(&owner)
+        .unwrap();
+    let (mut restored, _, _) = contained_weapon_world(true, false);
+    generals_main::save_load::SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert_eq!(
+        restored.host_object(passenger).unwrap().contained_by,
+        Some(carrier)
+    );
+    assert_eq!(
+        restored.weapon_cursor_radii(passenger, 0).unwrap().damage,
+        50.0
+    );
+    assert!(owner.evacuate_container_now(carrier, false));
+    assert_eq!(owner.host_object(passenger).unwrap().contained_by, None);
+    assert_eq!(
+        owner.weapon_cursor_radii(passenger, 0).unwrap().damage,
+        30.0
+    );
+    assert_eq!(
+        peer.host_object(peer_passenger).unwrap().contained_by,
+        Some(peer_carrier)
+    );
+    assert_eq!(
+        peer.weapon_cursor_radii(peer_passenger, 0).unwrap().damage,
+        30.0
+    );
+    assert_eq!(
+        restored.weapon_cursor_radii(passenger, 0).unwrap().damage,
+        50.0
+    );
 }
 
 #[test]
