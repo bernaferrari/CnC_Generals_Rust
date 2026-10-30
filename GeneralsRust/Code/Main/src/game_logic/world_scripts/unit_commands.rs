@@ -802,30 +802,27 @@ impl GameLogic {
         ) {
             return true;
         }
+        // Ordinary guard publishes its command source only after exit.
+        // The special AI overrides above retain their existing admission path.
+        if let (Some(unit), Some((source, goal))) = (self.objects.get_mut(&id), prior) {
+            unit.last_command_source = source;
+            unit.set_movement_goal_object(goal);
+        }
         let was_retaliating = self
             .objects
             .get(&id)
             .is_some_and(|unit| unit.ai_state() == AIState::GuardRetaliating);
         if was_retaliating {
             if !matches!(self.clear_base_ai_machine_owned(id, effects), Ok(true)) {
-                if let (Some(unit), Some((source, goal))) = (self.objects.get_mut(&id), prior) {
-                    unit.last_command_source = source;
-                    unit.set_movement_goal_object(goal);
-                }
                 return false;
             }
         }
         if !self.objects.get(&id).is_some_and(|unit| {
             unit.is_mobile_for_ai_command() && !unit.is_kind_of(KindOf::Projectile)
         }) {
-            if let (Some(unit), Some((source, goal))) = (self.objects.get_mut(&id), prior) {
-                unit.last_command_source = source;
-                if !was_retaliating {
-                    unit.set_movement_goal_object(goal);
-                }
-            }
             return false;
         }
+        self.stamp_player_command_source(id);
         {
             let Some(unit) = self.objects.get_mut(&id) else {
                 return false;
@@ -911,25 +908,7 @@ impl GameLogic {
     }
 
     pub fn unit_command_guard_object(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
-        let prior = self
-            .objects
-            .get(&id)
-            .map(|unit| (unit.last_command_source, unit.movement_goal_object()));
-        let was_retaliating = self
-            .objects
-            .get(&id)
-            .is_some_and(|unit| unit.ai_state() == AIState::GuardRetaliating);
-        self.stamp_player_command_source(id);
-        let accepted = self.unit_command_guard_object_owned(id, target_id);
-        if !accepted {
-            if let (Some(unit), Some((source, goal))) = (self.objects.get_mut(&id), prior) {
-                unit.last_command_source = source;
-                if !was_retaliating {
-                    unit.set_movement_goal_object(goal);
-                }
-            }
-        }
-        accepted
+        self.unit_command_guard_object_owned(id, target_id, true)
     }
 
     pub(crate) fn unit_command_script_guard_object(
@@ -937,26 +916,34 @@ impl GameLogic {
         id: ObjectId,
         target_id: ObjectId,
     ) -> bool {
-        let prior = self.objects.get(&id).map(|unit| unit.last_command_source);
-        if let Some(object) = self.objects.get_mut(&id) {
-            object.last_command_source =
-                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
-        }
-        let accepted = self.unit_command_guard_object_owned(id, target_id);
-        if !accepted {
-            if let (Some(unit), Some(source)) = (self.objects.get_mut(&id), prior) {
-                unit.last_command_source = source;
-            }
-        }
-        accepted
+        self.unit_command_guard_object_owned(id, target_id, false)
     }
 
-    fn unit_command_guard_object_owned(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
+    fn unit_command_guard_object_owned(
+        &mut self,
+        id: ObjectId,
+        target_id: ObjectId,
+        player: bool,
+    ) -> bool {
+        let prior = self
+            .objects
+            .get(&id)
+            .map(|unit| (unit.last_command_source, unit.movement_goal_object()));
+        if player {
+            self.stamp_player_command_source(id);
+        } else if let Some(unit) = self.objects.get_mut(&id) {
+            unit.last_command_source =
+                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
+        }
         if self.note_hacker_ai_command(
             id,
             crate::game_logic::host_hacker_income::PendingHackerCommand::Stop,
         ) {
             return true;
+        }
+        if let (Some(unit), Some((source, goal))) = (self.objects.get_mut(&id), prior) {
+            unit.last_command_source = source;
+            unit.set_movement_goal_object(goal);
         }
         if self
             .objects
@@ -973,6 +960,12 @@ impl GameLogic {
             unit.is_mobile_for_ai_command() && !unit.is_kind_of(KindOf::Projectile)
         }) {
             return false;
+        }
+        if player {
+            self.stamp_player_command_source(id);
+        } else if let Some(unit) = self.objects.get_mut(&id) {
+            unit.last_command_source =
+                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
         }
         {
             let Some(unit) = self.objects.get_mut(&id) else {
