@@ -421,11 +421,7 @@ impl Object {
                 Some(triggers),
             );
             let extent = terrain.get_extent();
-            let position = self.get_position();
-            let in_map = position.x >= extent.lo.x
-                && position.x <= extent.hi.x
-                && position.y >= extent.lo.y
-                && position.y <= extent.hi.y;
+            let in_map = extent.is_in_region_no_z(self.get_position());
             if in_map {
                 self.private_status &= !(ObjectPrivateStatusBits::OffMap as u8);
             } else {
@@ -1318,6 +1314,43 @@ mod trigger_identity_tests {
     use crate::system::game_logic::get_game_logic;
     use crate::terrain::get_terrain_logic;
     use std::sync::{Arc, RwLock};
+
+    #[test]
+    fn owned_transform_uses_strict_active_terrain_edges_for_off_map() {
+        let mut map = crate::system::map_loader::MapData::new();
+        map.width = 10;
+        map.height = 10;
+        map.heightmap = vec![0; 100];
+        map.boundaries = vec![crate::common::ICoord2D::new(10, 10)];
+        let mut terrain = crate::terrain::TerrainLogic::new();
+        terrain.load_map_data(map);
+        let mut object = Object::new_test(0x00B0_1B01, 100.0);
+        for (x, y, expected) in [
+            (0.0, 50.0, true),
+            (50.0, 50.0, false),
+            (100.0, 50.0, true),
+            (50.0, 100.0, true),
+        ] {
+            object.geometry_info.position = Coord3D::new(x, y, 0.0);
+            object
+                .finish_owned_transform_with_services(
+                    OwnedObjectTransform {
+                        position_changed: true,
+                        pose_changed: true,
+                    },
+                    &terrain,
+                    0,
+                    &mut |_| {},
+                    &mut |_| {},
+                )
+                .unwrap();
+            assert_eq!(
+                object.private_status & (ObjectPrivateStatusBits::OffMap as u8) != 0,
+                expected,
+                "position ({x}, {y})"
+            );
+        }
+    }
 
     fn square(id: i32, name: &str) -> PolygonTrigger {
         PolygonTrigger::new(

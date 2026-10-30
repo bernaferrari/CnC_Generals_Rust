@@ -271,10 +271,11 @@ impl TerrainLogic {
             ghosts.set_lock_ghost_objects(true);
         }
 
+        let extent = self.get_extent();
         for object_id in &object_ids {
             if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(*object_id) {
                 if let Ok(mut guard) = obj.write() {
-                    guard.friend_notify_of_new_map_boundary();
+                    guard.friend_notify_of_new_map_boundary(&extent);
                 }
             }
         }

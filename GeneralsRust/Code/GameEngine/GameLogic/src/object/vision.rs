@@ -49,7 +49,7 @@ impl Object {
     }
 
     /// C++ `Object::friend_notifyOfNewMapBoundary` (Object.cpp:2799-2813).
-    pub fn friend_notify_of_new_map_boundary(&mut self) {
+    pub(crate) fn friend_notify_of_new_map_boundary(&mut self, extent: &crate::common::Region3D) {
         if let Some(partition) = crate::helpers::ThePartitionManager::get() {
             partition.register_object_at(self.id, *self.get_position());
         }
@@ -86,16 +86,7 @@ impl Object {
         self.add_self_to_pathfind_map();
         self.handle_partition_cell_maintenance();
 
-        let in_playable = crate::helpers::TheTerrainLogic::get()
-            .map(|terrain| {
-                let extent = terrain.get_extent();
-                let pos = self.get_position();
-                pos.x >= extent.lo.x
-                    && pos.x <= extent.hi.x
-                    && pos.y >= extent.lo.y
-                    && pos.y <= extent.hi.y
-            })
-            .unwrap_or(true);
+        let in_playable = extent.is_in_region_no_z(self.get_position());
         if in_playable {
             self.private_status &= !(ObjectPrivateStatusBits::OffMap as u8);
         } else {
