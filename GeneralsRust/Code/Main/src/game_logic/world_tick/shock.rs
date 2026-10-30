@@ -1632,9 +1632,12 @@ impl GameLogic {
         // The owned damage executor scores before onDie/FX. Retain once-only
         // credit for residual callers that have not migrated to that executor.
         self.award_score_the_kill_experience(attacker_id, dead_victim_id);
-        let cont = weapon_name
-            .map(crate::game_logic::weapon_bootstrap::host_continue_attack_range_for_weapon_name)
-            .unwrap_or(0.0);
+        let cont = weapon_name.map_or(0.0, |name| match self.weapon_definitions.as_ref() {
+            Some(definitions) => definitions
+                .get(&name.trim().to_ascii_lowercase())
+                .map_or(0.0, |weapon| weapon.continue_attack_range.max(0.0)),
+            None => crate::game_logic::weapon_bootstrap::seed_continue_attack_range_for(name),
+        });
         if self.try_continue_attack_after_kill(
             attacker_id,
             dead_victim_id,
