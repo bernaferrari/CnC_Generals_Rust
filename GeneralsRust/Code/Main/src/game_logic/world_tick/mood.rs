@@ -480,7 +480,8 @@ impl GameLogic {
         let reject = match self.objects.get(&target_id) {
             None => true,
             Some(target) => {
-                !target.is_alive()
+                // Team::getTeamTargetObject checks the original lifetime bit.
+                target.status.effectively_dead
                     || (target.status.stealthed
                         && !target.status.detected
                         && !target.status.disguised)

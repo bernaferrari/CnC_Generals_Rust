@@ -1188,6 +1188,15 @@ fn firing_publishes_a_team_target_without_overwriting_an_existing_one() {
         peer.create_object_for_player("GroupUnit", 2, Vec3::new(55.0, 0.0, 40.0))
             .unwrap()
     );
+    // Team.cpp checks EFFECTIVELY_DEAD, not the host's broader is_alive().
+    // A retained rubble object without that bit is still a Team target.
+    peer.host_object_mut(other).unwrap().status.keep_as_rubble = true;
+    assert!(!peer.host_object(other).unwrap().status.effectively_dead);
+    owner
+        .host_object_mut(other)
+        .unwrap()
+        .status
+        .effectively_dead = true;
     let target = |world: &GameLogic| {
         stamp_player_team_chunks(world)
             .unwrap()
@@ -1203,36 +1212,40 @@ fn firing_publishes_a_team_target_without_overwriting_an_existing_one() {
             .unwrap()
             .common_attack_target
     };
-    let mut chunks = stamp_player_team_chunks(&peer).unwrap();
-    chunks
-        .teams
-        .as_mut()
-        .unwrap()
-        .teams
-        .iter_mut()
-        .find(|team| {
-            team.members
-                .as_ref()
-                .is_some_and(|members| members.contains(&first.0))
-        })
-        .unwrap()
-        .common_attack_target = Some(other.0);
-    apply_pending_player_team_chunks(&mut peer, &chunks).unwrap();
+    for session in [&mut owner, &mut peer] {
+        let mut chunks = stamp_player_team_chunks(session).unwrap();
+        chunks
+            .teams
+            .as_mut()
+            .unwrap()
+            .teams
+            .iter_mut()
+            .find(|team| {
+                team.members
+                    .as_ref()
+                    .is_some_and(|members| members.contains(&first.0))
+            })
+            .unwrap()
+            .common_attack_target = Some(other.0);
+        apply_pending_player_team_chunks(session, &chunks).unwrap();
+    }
     assert!(owner.unit_command_attack(first, victim).unwrap());
     assert!(peer.unit_command_attack(first, victim).unwrap());
     assert_eq!(
         target(&owner),
-        None,
+        Some(other.0),
         "ordering an attack must not publish before the firing state"
     );
     for _ in 0..120 {
         owner.tick_logic_frame(1.0 / 30.0, None, Some(1));
         peer.tick_logic_frame(1.0 / 30.0, None, Some(1));
-        if target(&owner).is_some() {
+        if target(&owner) == Some(victim.0) {
             break;
         }
     }
+    assert!(owner.host_object(other).unwrap().status.effectively_dead);
     assert_eq!(target(&owner), Some(victim.0));
+    assert!(peer.host_object(first).unwrap().status.is_firing_weapon);
     assert_eq!(
         target(&peer),
         Some(other.0),
