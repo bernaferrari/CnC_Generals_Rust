@@ -817,6 +817,10 @@ impl GameLogic {
                         .attribute("WeaponBonusPassedToPassengers")
                         .and_then(parse_bool)
                         .unwrap_or(false),
+                    passengers_allowed_to_fire: module
+                        .attribute("PassengersAllowedToFire")
+                        .and_then(parse_bool)
+                        .unwrap_or(false),
                     enter_sound: parse_contain_audio_event(module, "EnterSound"),
                     exit_sound: parse_contain_audio_event(module, "ExitSound"),
                     allow_inside_kind_of: parse_leftover_allow_inside_kind_of(module),

@@ -103,11 +103,25 @@ fn contained_weapon_world(
     authored_pass: bool,
     force_metadata: bool,
 ) -> (GameLogic, ObjectId, ObjectId) {
+    contained_weapon_world_with_fire(authored_pass, force_metadata, None)
+}
+
+fn contained_weapon_world_with_fire(
+    authored_pass: bool,
+    force_metadata: bool,
+    allow_fire: Option<bool>,
+) -> (GameLogic, ObjectId, ObjectId) {
     let mut game = GameLogic::new();
     game.admit_combat_bonus_ini_sources(["GameData\n WeaponBonus = SOLO_HUMAN_EASY RADIUS 150%\n WeaponBonus = SOLO_AI_EASY RADIUS 200%\n WeaponBonus = SOLO_AI_EASY DAMAGE 150%\n WeaponBonus = FRENZY_ONE RADIUS 125%\n WeaponBonus = FRENZY_THREE RADIUS 175%\n WeaponBonus = VETERAN RADIUS 125%\n WeaponBonus = HERO RADIUS 150%\nEnd\n"]).unwrap();
     let pass = if authored_pass { "Yes" } else { "No" };
+    let fire = allow_fire.map_or(String::new(), |allow| {
+        format!(
+            " PassengersAllowedToFire = {}\n",
+            if allow { "Yes" } else { "No" }
+        )
+    });
     game.admit_object_ini_sources([("Container.ini".into(), format!(
-        "Object Passenger\n KindOf = INFANTRY SELECTABLE\n TransportSlotCount = 1\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n WeaponSet\n Conditions = NONE\n Weapon = PRIMARY ContainedWeapon\n End\nEnd\nObject Carrier\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = TransportContain Transport\n ContainMax = 2\n Slots = 2\n AllowInsideKindOf = INFANTRY\n WeaponBonusPassedToPassengers = {pass}\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\nObject Enemy\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"
+        "Object Passenger\n KindOf = INFANTRY SELECTABLE\n TransportSlotCount = 1\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n WeaponSet\n Conditions = NONE\n Weapon = PRIMARY ContainedWeapon\n End\nEnd\nObject Carrier\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = TransportContain Transport\n ContainMax = 2\n Slots = 2\n AllowInsideKindOf = INFANTRY\n WeaponBonusPassedToPassengers = {pass}\n{fire} End\n Behavior = AIUpdateInterface Brain\n End\nEnd\nObject Enemy\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"
     ))]).unwrap();
     if force_metadata {
         game.templates
@@ -137,17 +151,116 @@ fn contained_weapon_world(
 }
 
 #[test]
+fn authored_passenger_fire_permission_controls_actual_firing() {
+    let (mut enabled, passenger, carrier) =
+        contained_weapon_world_with_fire(true, false, Some(true));
+    let (mut disabled, peer_passenger, peer_carrier) =
+        contained_weapon_world_with_fire(true, false, Some(false));
+    let (default, _, default_carrier) = contained_weapon_world(true, false);
+    assert_eq!((passenger, carrier), (peer_passenger, peer_carrier));
+    assert!(
+        !default
+            .host_object(default_carrier)
+            .unwrap()
+            .passengers_allowed_to_fire
+    );
+    assert!(
+        enabled
+            .host_object(carrier)
+            .unwrap()
+            .passengers_allowed_to_fire
+    );
+    assert!(
+        !disabled
+            .host_object(peer_carrier)
+            .unwrap()
+            .passengers_allowed_to_fire
+    );
+    let mut enemy_ids = Vec::new();
+    for world in [&mut enabled, &mut disabled] {
+        world.host_object_mut(passenger).unwrap().contained_by = None;
+        world
+            .templates
+            .get_mut("Enemy")
+            .unwrap()
+            .add_kind_of(generals_main::game_logic::KindOf::Attackable);
+        world.add_player(Player::new(2, Team::GLA, "Enemy", false));
+        enemy_ids.push(
+            world
+                .create_object_for_player("Enemy", 2, glam::Vec3::new(20.0, 0.0, 0.0))
+                .unwrap(),
+        );
+        assert!(world.unit_command_order_enter(passenger, carrier));
+        world.try_physics_collide(passenger, carrier, 1.0);
+        assert_eq!(
+            world.host_object(passenger).unwrap().contained_by,
+            Some(carrier)
+        );
+    }
+    assert_eq!(enemy_ids[0], enemy_ids[1]);
+    let snapshot = generals_main::save_load::SnapshotBuilder::new()
+        .create_world_snapshot(&enabled)
+        .unwrap();
+    let (mut restored, _, _) = contained_weapon_world_with_fire(true, false, Some(true));
+    restored.add_player(Player::new(2, Team::GLA, "Enemy", false));
+    generals_main::save_load::SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert!(
+        restored
+            .host_object(carrier)
+            .unwrap()
+            .passengers_allowed_to_fire
+    );
+    assert_eq!(
+        restored.host_object(passenger).unwrap().contained_by,
+        Some(carrier)
+    );
+    enabled.host_object_mut(carrier).unwrap().subdual_damage = 100.0;
+    enabled
+        .host_object_mut(carrier)
+        .unwrap()
+        .status
+        .disabled_subdued = true;
+    for _ in 0..3 {
+        enabled.tick_logic_frame(1.0 / 30.0, None, Some(1));
+    }
+    assert_eq!(
+        enabled.host_object(enemy_ids[0]).unwrap().health.current,
+        100.0
+    );
+    enabled.host_object_mut(carrier).unwrap().subdual_damage = 0.0;
+    enabled
+        .host_object_mut(carrier)
+        .unwrap()
+        .status
+        .disabled_subdued = false;
+    for _ in 0..30 {
+        enabled.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        disabled.tick_logic_frame(1.0 / 30.0, None, Some(1));
+    }
+    assert!(enabled.host_object(enemy_ids[0]).unwrap().health.current < 100.0);
+    assert_eq!(
+        disabled.host_object(enemy_ids[1]).unwrap().health.current,
+        100.0
+    );
+}
+
+#[test]
 fn passenger_firing_inherits_the_receiving_carriers_damage_bonus() {
-    let (mut owner, passenger, carrier) = contained_weapon_world(true, false);
-    let (mut peer, peer_passenger, peer_carrier) = contained_weapon_world(false, false);
+    let (mut owner, passenger, carrier) = contained_weapon_world_with_fire(true, false, Some(true));
+    let (mut peer, peer_passenger, peer_carrier) =
+        contained_weapon_world_with_fire(false, false, Some(true));
     assert_eq!((passenger, carrier), (peer_passenger, peer_carrier));
     let mut enemy_ids = Vec::new();
     for world in [&mut owner, &mut peer] {
         world.host_object_mut(passenger).unwrap().contained_by = None;
-        world
-            .host_object_mut(carrier)
-            .unwrap()
-            .passengers_allowed_to_fire = true;
+        assert!(
+            world
+                .host_object(carrier)
+                .unwrap()
+                .passengers_allowed_to_fire
+        );
         world
             .templates
             .get_mut("Enemy")

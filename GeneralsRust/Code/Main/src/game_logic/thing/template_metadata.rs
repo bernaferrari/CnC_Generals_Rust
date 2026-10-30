@@ -310,6 +310,9 @@ pub struct ContainModuleMetadata {
     /// C++ OpenContain::isWeaponBonusPassedToPassengers residual.
     #[serde(default)]
     pub weapon_bonus_passed_to_passengers: bool,
+    /// Immutable OpenContain module default; the runtime permission is separate.
+    #[serde(skip)]
+    pub passengers_allowed_to_fire: bool,
     /// C++ `OpenContainModuleData::m_enterSound` (INI `EnterSound`).
     #[serde(default)]
     pub enter_sound: String,
@@ -447,6 +450,7 @@ impl Default for ContainModuleMetadata {
             initial_roster_template: String::new(),
             initial_roster_count: 0,
             weapon_bonus_passed_to_passengers: false,
+            passengers_allowed_to_fire: false,
             enter_sound: String::new(),
             exit_sound: String::new(),
             allow_inside_kind_of: 0,

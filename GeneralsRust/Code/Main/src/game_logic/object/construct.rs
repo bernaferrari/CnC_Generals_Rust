@@ -301,6 +301,7 @@ impl Object {
         .or(template.railed_transport_slots)
         .unwrap_or(0);
         let authored_helix_contain = template.contain_module.is_helix_contain;
+        let authored_passengers_allowed_to_fire = template.contain_module.passengers_allowed_to_fire;
 
         // Determine object type from template
         let object_type = if template.is_kind_of(KindOf::Infantry) {
@@ -1020,7 +1021,7 @@ impl Object {
 
             max_transport: authored_transport_slots,
             overlord_bunker_capacity: None,
-            passengers_allowed_to_fire: false,
+            passengers_allowed_to_fire: authored_passengers_allowed_to_fire,
             armed_riders_upgrade_weapon_set: false,
             weapon_set_player_upgrade: false,
             weapon_bonus_player_upgrade: false,
