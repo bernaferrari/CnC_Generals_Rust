@@ -707,6 +707,9 @@ fn switched_boundary_worlds() -> (GameLogic, GameLogic, ObjectId, ObjectId, Obje
     enemy.alliance_team = 2;
     session.add_player(owner);
     session.add_player(enemy);
+    // Map admission can create a default local player before these fixture
+    // players. Make the command issuer the receiving session's local player.
+    assert!(session.select_local_player(Some(1)));
     let attacker = session
         .create_object_for_player("ChainAttacker", 1, Vec3::new(20.0, 0.0, 20.0))
         .unwrap();
@@ -747,6 +750,7 @@ fn switched_boundary_worlds() -> (GameLogic, GameLogic, ObjectId, ObjectId, Obje
     restored_enemy.alliance_team = 2;
     restored.add_player(restored_owner);
     restored.add_player(restored_enemy);
+    assert!(restored.select_local_player(Some(1)));
     let before_rejection = builder.create_world_snapshot(&restored).unwrap();
     assert!(
         builder
@@ -805,6 +809,33 @@ fn switched_boundary_worlds() -> (GameLogic, GameLogic, ObjectId, ObjectId, Obje
     assert_ne!(
         restored.host_object(attacker).unwrap().target,
         Some(candidate)
+    );
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    // Positive control on the same admitted map and original boundary: the
+    // candidate outside the boundary remains excluded, but this one is on-map.
+    let on_map_candidate = restored
+        .create_object_for_player("ChainVictim", 2, Vec3::new(50.0, 0.0, 20.0))
+        .unwrap();
+    assert!(restored.unit_command_attack(attacker, victim).unwrap());
+    for _ in 0..100 {
+        restored.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if restored
+            .host_object(victim)
+            .is_none_or(|object| !object.is_alive())
+        {
+            break;
+        }
+    }
+    assert!(
+        restored
+            .host_object(victim)
+            .is_none_or(|object| !object.is_alive())
+    );
+    assert_eq!(
+        restored.host_object(attacker).unwrap().target,
+        Some(on_map_candidate)
     );
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
