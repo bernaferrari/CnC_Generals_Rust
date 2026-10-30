@@ -29,6 +29,9 @@ pub(super) fn read_optional_text(
 /// Map overrides are applied by the receiving candidate after this transfer.
 pub(super) struct StartupSimulationRules {
     body: crate::game_logic::body_damage_rules::BodyDamagePolicy,
+    damage_fx: game_engine::common::ini::ini_damage_fx::DamageFXStore,
+    #[cfg(feature = "game_client")]
+    fx_catalog: Option<game_client::fx_list::FXListStore>,
     body_auto_particles: game_engine::common::ini::ini_game_data::BodyAutoParticleRules,
     lighting: game_engine::common::ini::ini_game_data::LightingContentRules,
     static_lod_level: Option<game_engine::common::ini::ini_game_lod::StaticGameLODLevel>,
@@ -51,6 +54,9 @@ impl StartupSimulationRules {
     pub(super) fn capture(world: &crate::game_logic::GameLogic) -> Self {
         Self {
             body: world.body_damage_baseline(),
+            damage_fx: world.damage_fx_base.clone(),
+            #[cfg(feature = "game_client")]
+            fx_catalog: world.fx_baseline().cloned(),
             body_auto_particles: world.body_auto_particle_baseline().clone(),
             lighting: world.lighting_rules_baseline().clone(),
             static_lod_level: world.current_static_lod_level(),
@@ -111,8 +117,28 @@ impl StartupSimulationRules {
             text,
         )
     }
+    pub(super) fn admit_damage_fx_ini_text(&mut self, text: &str) -> Result<usize, String> {
+        self.damage_fx
+            .apply_source(text)
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(feature = "game_client")]
+    pub(super) fn admit_fx_ini_text(&mut self, text: &str) -> Result<usize, String> {
+        let mut catalog = self.fx_catalog.clone().unwrap_or_default();
+        let count = catalog
+            .apply_source(text)
+            .map_err(|error| error.to_string())?;
+        self.fx_catalog = Some(catalog);
+        Ok(count)
+    }
     pub(super) fn admit(self, world: &mut crate::game_logic::GameLogic) -> Result<(), String> {
         world.admit_body_damage_baseline(self.body);
+        world.damage_fx_base = self.damage_fx.clone();
+        world.damage_fx_definitions = self.damage_fx;
+        #[cfg(feature = "game_client")]
+        if let Some(catalog) = self.fx_catalog {
+            world.admit_fx_baseline(catalog);
+        }
         world.admit_body_auto_particle_baseline(self.body_auto_particles);
         world.admit_lighting_rules_base(self.lighting);
         world.admit_static_lod_level(self.static_lod_level);

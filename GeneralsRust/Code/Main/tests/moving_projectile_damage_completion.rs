@@ -39,6 +39,305 @@ struct Fixture {
     sink: Option<ObjectId>,
     rows: String,
 }
+
+#[test]
+fn projectile_damage_fx_throttle_belongs_to_the_driving_session() {
+    let _guard = SERIAL.lock().unwrap_or_else(|error| error.into_inner());
+    let mut make = |time| {
+        fixture_custom_with_ai(
+            "OwnedArmorFx",
+            150.0,
+            false,
+            30,
+            1,
+            10.0,
+            0.0,
+            "ENEMIES NEUTRALS",
+            "",
+            false,
+            None,
+            Some(time),
+        )
+    };
+    let mut left = make(1000);
+    let mut right = make(2000);
+    assert_eq!(left.victim, right.victim);
+    left.accept();
+    right.accept();
+    for _ in 0..50 {
+        if left.world.host_object(left.victim).unwrap().health.current < 150.0
+            && right
+                .world
+                .host_object(right.victim)
+                .unwrap()
+                .health
+                .current
+                < 150.0
+        {
+            break;
+        }
+        left.world.update();
+        right.world.update();
+    }
+    let left_victim = left.world.host_object(left.victim).unwrap();
+    let right_victim = right.world.host_object(right.victim).unwrap();
+    assert_eq!(left_victim.health.current, 50.0);
+    assert_eq!(right_victim.health.current, 50.0);
+    assert_eq!(
+        right_victim.next_damage_fx_time,
+        left_victim.next_damage_fx_time + 30
+    );
+}
+
+#[test]
+fn projectile_damage_fx_continues_after_restore_and_peer_reset() {
+    let _guard = SERIAL.lock().unwrap_or_else(|error| error.into_inner());
+    let make = |time| {
+        fixture_custom_with_ai(
+            "OwnedArmorFxSave",
+            2000.0,
+            false,
+            30,
+            1,
+            10.0,
+            0.0,
+            "ENEMIES NEUTRALS",
+            "DelayBetweenShots = 100",
+            true,
+            None,
+            Some(time),
+        )
+    };
+    let mut running = make(1000);
+    running.accept();
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&running.world).unwrap();
+    let encoded = bincode_legacy::serialize(&snapshot).unwrap();
+    let decoded = bincode_legacy::deserialize(&encoded).unwrap();
+    let mut restored = make(1000);
+    builder
+        .restore_from_snapshot(&decoded, &mut restored.world)
+        .unwrap();
+
+    let mut peer = make(2000);
+    peer.world.reset();
+    peer.world
+        .admit_damage_fx_source(&format!(
+            "DamageFX {}\n ThrottleTime = SMALL_ARMS 5000\nEnd\n",
+            peer.rows
+        ))
+        .unwrap();
+    let mut invalid = builder.create_world_snapshot(&running.world).unwrap();
+    invalid.version = u32::MAX;
+    let before = restored.world.get_current_frame();
+    assert!(
+        builder
+            .restore_from_snapshot(&invalid, &mut restored.world)
+            .is_err()
+    );
+    assert_eq!(restored.world.get_current_frame(), before);
+
+    for _ in 0..50 {
+        if running
+            .world
+            .host_object(running.victim)
+            .unwrap()
+            .health
+            .current
+            < 2000.0
+            && restored
+                .world
+                .host_object(restored.victim)
+                .unwrap()
+                .health
+                .current
+                < 2000.0
+        {
+            break;
+        }
+        running.world.update();
+        restored.world.update();
+    }
+    let original = running.world.host_object(running.victim).unwrap();
+    let loaded = restored.world.host_object(restored.victim).unwrap();
+    assert_eq!(original.health.current, 1900.0);
+    assert_eq!(loaded.health.current, original.health.current);
+    assert_eq!(loaded.next_damage_fx_time, original.next_damage_fx_time);
+    assert_ne!(original.next_damage_fx_time, 0);
+    let deadline = original.next_damage_fx_time;
+    let damage_type = original.last_damage_fx_done;
+    let after_impact = builder.create_world_snapshot(&running.world).unwrap();
+    let encoded = bincode_legacy::serialize(&after_impact).unwrap();
+    let decoded = bincode_legacy::deserialize(&encoded).unwrap();
+    let mut after_load = make(1000);
+    builder
+        .restore_from_snapshot(&decoded, &mut after_load.world)
+        .unwrap();
+    let loaded = after_load.world.host_object(after_load.victim).unwrap();
+    assert_eq!(loaded.next_damage_fx_time, deadline);
+    assert_eq!(loaded.last_damage_fx_done, damage_type);
+    let mut different_type = make(1000);
+    builder
+        .restore_from_snapshot(&decoded, &mut different_type.world)
+        .unwrap();
+    let (hits, _) = different_type.world.apply_scud_area_at(
+        Vec3::new(30.0, 0.0, 0.0),
+        Some(different_type.shooters[0]),
+        Team::USA,
+        false,
+    );
+    assert!(hits > 0);
+    let victim = different_type
+        .world
+        .host_object(different_type.victim)
+        .unwrap();
+    assert_eq!(
+        victim.last_damage_fx_done,
+        Some(generals_main::game_logic::combat::DamageType::Explosive)
+    );
+    assert!(
+        victim.next_damage_fx_time < deadline,
+        "a different damage type is not throttled"
+    );
+    {
+        use generals_main::save_load::{Snapshot, WorldSnapshot, XferLoad, XferSave};
+        let mut xfer_source = builder.create_world_snapshot(&running.world).unwrap();
+        let mut stream = std::io::Cursor::new(Vec::new());
+        xfer_source.xfer(&mut XferSave::new(&mut stream)).unwrap();
+        let mut xfer_snapshot = WorldSnapshot::default();
+        xfer_snapshot
+            .xfer(&mut XferLoad::new(std::io::Cursor::new(
+                stream.into_inner(),
+            )))
+            .unwrap();
+        let mut xfer_receiver = make(1000);
+        builder
+            .restore_from_snapshot(&xfer_snapshot, &mut xfer_receiver.world)
+            .unwrap();
+        let loaded = xfer_receiver
+            .world
+            .host_object(xfer_receiver.victim)
+            .unwrap();
+        assert_eq!(loaded.next_damage_fx_time, deadline);
+        assert_eq!(loaded.last_damage_fx_done, damage_type);
+    }
+    for _ in 0..20 {
+        if running
+            .world
+            .host_object(running.victim)
+            .unwrap()
+            .health
+            .current
+            < 1900.0
+            && after_load
+                .world
+                .host_object(after_load.victim)
+                .unwrap()
+                .health
+                .current
+                < 1900.0
+        {
+            break;
+        }
+        running.world.update();
+        after_load.world.update();
+    }
+    let original = running.world.host_object(running.victim).unwrap();
+    let loaded = after_load.world.host_object(after_load.victim).unwrap();
+    assert!(
+        original.health.current < 1900.0,
+        "a second hit must occur inside the FX throttle"
+    );
+    assert_eq!(loaded.health.current, original.health.current);
+    assert_eq!(original.next_damage_fx_time, deadline);
+    assert_eq!(loaded.next_damage_fx_time, deadline);
+    for _ in 0..100 {
+        if running
+            .world
+            .host_object(running.victim)
+            .unwrap()
+            .next_damage_fx_time
+            != deadline
+            && after_load
+                .world
+                .host_object(after_load.victim)
+                .unwrap()
+                .next_damage_fx_time
+                != deadline
+        {
+            break;
+        }
+        running.world.update();
+        after_load.world.update();
+    }
+    let original = running.world.host_object(running.victim).unwrap();
+    let loaded = after_load.world.host_object(after_load.victim).unwrap();
+    assert!(
+        original.next_damage_fx_time > deadline,
+        "the next hit after expiry must admit FX again"
+    );
+    assert_eq!(loaded.health.current, original.health.current);
+    assert_eq!(loaded.next_damage_fx_time, original.next_damage_fx_time);
+    let deadline = original.next_damage_fx_time;
+
+    // Version 21 had the same payload without the trailing FX-throttle rows.
+    // Build that exact encoding from the captured version 22 record and check
+    // that a receiving session resets fields absent from the older format.
+    let mut legacy = builder.create_world_snapshot(&running.world).unwrap();
+    let mut rows: Vec<_> = legacy
+        .objects
+        .keys()
+        .map(|id| {
+            let object = running.world.host_object(*id).unwrap();
+            (id.0, object.next_damage_fx_time, object.last_damage_fx_done)
+        })
+        .collect();
+    rows.sort_by_key(|entry| entry.0);
+    let encoded_rows = bincode_legacy::serialize(&rows).unwrap();
+    let marker = legacy
+        .lifecycle_tail
+        .windows(4)
+        .rposition(|window| window == b"OXOB")
+        .unwrap();
+    let length = u32::from_le_bytes(
+        legacy.lifecycle_tail[marker + 8..marker + 12]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    let end = marker + 12 + length;
+    assert_eq!(
+        &legacy.lifecycle_tail[end - encoded_rows.len()..end],
+        &encoded_rows
+    );
+    let mut bad = builder.create_world_snapshot(&running.world).unwrap();
+    rows[0].0 = u32::MAX;
+    let bad_rows = bincode_legacy::serialize(&rows).unwrap();
+    assert_eq!(bad_rows.len(), encoded_rows.len());
+    bad.lifecycle_tail[end - bad_rows.len()..end].copy_from_slice(&bad_rows);
+    assert!(
+        builder
+            .restore_from_snapshot(&bad, &mut after_load.world)
+            .is_err()
+    );
+    assert_eq!(
+        after_load
+            .world
+            .host_object(after_load.victim)
+            .unwrap()
+            .next_damage_fx_time,
+        deadline
+    );
+    legacy.lifecycle_tail.drain(end - encoded_rows.len()..end);
+    legacy.lifecycle_tail[marker + 4..marker + 8].copy_from_slice(&21u32.to_le_bytes());
+    legacy.lifecycle_tail[marker + 8..marker + 12]
+        .copy_from_slice(&((length - encoded_rows.len()) as u32).to_le_bytes());
+    builder
+        .restore_from_snapshot(&legacy, &mut after_load.world)
+        .unwrap();
+    let legacy_victim = after_load.world.host_object(after_load.victim).unwrap();
+    assert_eq!(legacy_victim.next_damage_fx_time, 0);
+    assert_eq!(legacy_victim.last_damage_fx_done, None);
+}
 fn fixture(
     label: &str,
     health: f32,
@@ -71,7 +370,7 @@ fn fixture_custom(
     extra: &str,
 ) -> Fixture {
     fixture_custom_with_ai(
-        label, health, sink, speed, count, threshold, radius, affects, extra, false, None,
+        label, health, sink, speed, count, threshold, radius, affects, extra, false, None, None,
     )
 }
 
@@ -87,6 +386,7 @@ fn fixture_custom_with_ai(
     extra: &str,
     with_ai: bool,
     owned_angle: Option<f32>,
+    owned_throttle_ms: Option<u32>,
 ) -> Fixture {
     let rule = format!("LibraryMoving{label}Weapon");
     let rows = format!("LibraryMoving{label}Rows");
@@ -123,10 +423,8 @@ End
     })
     .unwrap();
     init_global_damage_fx_store();
-    INI::new()
-        .with_inline_source(
-            &format!(
-                r#"
+    let damage_fx_source = format!(
+        r#"
 DamageFX {rows}
  VeterancyMajorFX = REGULAR SMALL_ARMS FX_{rows}_Regular
  VeterancyMajorFX = VETERAN SMALL_ARMS FX_{rows}_Veteran
@@ -154,11 +452,20 @@ FXList FX_{rows}_Elite
  End
 End
 "#
-            ),
-            |ini| ini.parse_current_file(),
-        )
+    );
+    INI::new()
+        .with_inline_source(&damage_fx_source, |ini| ini.parse_current_file())
         .unwrap();
     let mut world = GameLogic::new();
+    world.admit_damage_fx_source(&damage_fx_source).unwrap();
+    world.admit_fx_source(&damage_fx_source).unwrap();
+    if let Some(throttle) = owned_throttle_ms {
+        world
+            .admit_damage_fx_source(&format!(
+                "DamageFX {rows}\n ThrottleTime = SMALL_ARMS {throttle}\nEnd\n"
+            ))
+            .unwrap();
+    }
     for (id, team) in [(0, Team::USA), (1, Team::China)] {
         let mut player = Player::new(id, team, label, id == 0);
         player.alliance_team = id as i32;
@@ -817,6 +1124,7 @@ fn moving_area_projectile_default_team_identity_controls_collateral_filter() {
         "",
         true,
         None,
+        None,
     );
     let collateral = f
         .world
@@ -847,6 +1155,7 @@ fn moving_area_projectile_default_team_identity_controls_collateral_filter() {
         "",
         true,
         None,
+        None,
     )
     .world;
     builder
@@ -874,6 +1183,7 @@ fn moving_directional_splash_uses_projectile_pose_and_receiving_weapon_angle() {
             "",
             true,
             Some(angle),
+            None,
         );
         let behind_impact = f
             .world

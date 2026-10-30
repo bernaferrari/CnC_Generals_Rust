@@ -90,6 +90,8 @@ impl GameLogic {
                 crate::game_logic::host_gamedata_lobby_residual::MP_MAX_BEACONS_PER_PLAYER_RESIDUAL,
             projectile_definitions: Default::default(),
             body_damage_definitions: Default::default(),
+            damage_fx_base: Default::default(),
+            damage_fx_definitions: Default::default(),
             lighting_definitions: Default::default(),
             physics_definitions: Default::default(),
             object_lifecycle_callback_depth: 0,
@@ -968,6 +970,9 @@ impl GameLogic {
         self.restore_projectile_definition_base()
             .expect("previously admitted projectile base must remain valid across reset");
         self.body_damage_definitions.effective = self.body_damage_definitions.base;
+        self.damage_fx_definitions = self.damage_fx_base.clone();
+        #[cfg(feature = "game_client")]
+        self.reset_fx_definitions();
         self.combat_particles.reset_body_auto_particle_map_rules();
         self.lighting_definitions.effective = self.lighting_definitions.base.clone();
         self.terrain_road_definitions.effective = self.terrain_road_definitions.base.clone();

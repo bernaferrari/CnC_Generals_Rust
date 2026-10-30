@@ -633,6 +633,7 @@ impl GameLogic {
                             &mut self.combat_particles,
                             &mut self.queued_audio_events,
                             frame,
+                            &self.damage_fx_definitions,
                             view,
                         );
                     },
@@ -684,6 +685,7 @@ impl GameLogic {
                             source,
                             &mut self.queued_audio_events,
                             &self.logic_random,
+                            &self.damage_fx_definitions,
                             &mut body_particles,
                         )
                     },
@@ -774,6 +776,7 @@ impl GameLogic {
                                     &mut self.combat_particles,
                                     &mut self.queued_audio_events,
                                     frame,
+                                    &self.damage_fx_definitions,
                                     view,
                                 );
                             },
@@ -810,6 +813,7 @@ impl GameLogic {
                                 source,
                                 &mut self.queued_audio_events,
                                 &self.logic_random,
+                                &self.damage_fx_definitions,
                                 &mut body_particles,
                             )
                         },
@@ -958,6 +962,7 @@ impl GameLogic {
                                 &mut self.combat_particles,
                                 &mut self.queued_audio_events,
                                 self.frame,
+                                &self.damage_fx_definitions,
                                 view,
                             );
                         },
@@ -1011,6 +1016,7 @@ impl GameLogic {
                                     &mut self.combat_particles,
                                     &mut self.queued_audio_events,
                                     self.frame,
+                                    &self.damage_fx_definitions,
                                     view,
                                 );
                             },
@@ -1050,6 +1056,7 @@ impl GameLogic {
                         source,
                         &mut self.queued_audio_events,
                         &self.logic_random,
+                        &self.damage_fx_definitions,
                         &mut body_particles,
                     )
                 },
@@ -1104,6 +1111,7 @@ impl GameLogic {
                                 source,
                                 &mut self.queued_audio_events,
                                 &self.logic_random,
+                                &self.damage_fx_definitions,
                                 &mut body_particles,
                             )
                         },
@@ -1217,6 +1225,7 @@ impl GameLogic {
                             &mut self.combat_particles,
                             &mut self.queued_audio_events,
                             self.frame,
+                            &self.damage_fx_definitions,
                             view,
                         )
                     },
@@ -1255,6 +1264,7 @@ impl GameLogic {
                         source,
                         &mut self.queued_audio_events,
                         &self.logic_random,
+                        &self.damage_fx_definitions,
                         &mut body_particles,
                     )
                 },
@@ -1319,6 +1329,7 @@ impl GameLogic {
                             &mut self.combat_particles,
                             &mut self.queued_audio_events,
                             self.frame,
+                            &self.damage_fx_definitions,
                             view,
                         )
                     },
@@ -1346,6 +1357,7 @@ impl GameLogic {
                         source,
                         &mut self.queued_audio_events,
                         &self.logic_random,
+                        &self.damage_fx_definitions,
                         &mut body_particles,
                     )
                 },

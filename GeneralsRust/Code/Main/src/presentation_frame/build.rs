@@ -1995,6 +1995,22 @@ impl PresentationFrame {
             })
             .map(|object| object.id.0)
             .collect();
+        let fx_sound_names = events
+            .iter()
+            .filter_map(|event| {
+                let PresentationEvent::ParticleSystemSpawned { template_name, .. } = event else {
+                    return None;
+                };
+                if !(template_name.starts_with("FX_") || template_name.starts_with("WeaponFX_")) {
+                    return None;
+                }
+                #[cfg(feature = "game_client")]
+                let sounds = logic.fx_list_sound_names(template_name);
+                #[cfg(not(feature = "game_client"))]
+                let sounds = crate::game_logic::sound_names_for_fx_list(template_name);
+                Some((template_name.clone(), sounds))
+            })
+            .collect();
         let mut frame = Self {
             frame: LogicFrame(logic.get_frame()),
             money_audio_receipts: logic.economy_events.take_money_audio(),
@@ -2057,6 +2073,7 @@ impl PresentationFrame {
             local_queued_upgrades,
             selected,
             events,
+            fx_sound_names,
             match_over: false,
             victory_label: None,
             defeated_player_ids: Vec::new(),

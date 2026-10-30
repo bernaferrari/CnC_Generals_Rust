@@ -232,7 +232,6 @@ impl HostTransitionDamageFxData {
             self.attached_ids[idx] = ids;
         }
     }
-
 }
 
 /// One transition residual event (presentation/audio consumers).
@@ -424,26 +423,34 @@ pub(crate) fn transition_damage_fx_config_for_template(
     is_vehicle: bool,
 ) -> Option<HostTransitionDamageFxData> {
     let n = template.name.to_ascii_lowercase();
-    let fallback = || if n.contains("toxic") && n.contains("bunker") {
-        HostTransitionDamageFxData::toxic_bunker_residual()
-    } else if is_structure {
-        HostTransitionDamageFxData::generic_structure_residual()
-    } else if is_vehicle
-        || n.contains("tank")
-        || n.contains("vehicle")
-        || n.contains("truck")
-        || n.contains("dozer")
-    {
-        HostTransitionDamageFxData::vehicle_residual()
-    } else {
-        // Infantry / everything else: still emit template SoundOnDamaged.
-        HostTransitionDamageFxData::infantry_audio_residual()
+    let fallback = || {
+        if n.contains("toxic") && n.contains("bunker") {
+            HostTransitionDamageFxData::toxic_bunker_residual()
+        } else if is_structure {
+            HostTransitionDamageFxData::generic_structure_residual()
+        } else if is_vehicle
+            || n.contains("tank")
+            || n.contains("vehicle")
+            || n.contains("truck")
+            || n.contains("dozer")
+        {
+            HostTransitionDamageFxData::vehicle_residual()
+        } else {
+            // Infantry / everything else: still emit template SoundOnDamaged.
+            HostTransitionDamageFxData::infantry_audio_residual()
+        }
     };
-    let mut data = template.transition_damage_definition.clone().unwrap_or_else(fallback);
+    let mut data = template
+        .transition_damage_definition
+        .clone()
+        .unwrap_or_else(fallback);
     if let Some(typed) = &template.receiving_client_template {
-        for (state, sound) in [HostBodyDamageType::Damaged, HostBodyDamageType::ReallyDamaged]
-            .into_iter()
-            .zip(typed.damage_sounds())
+        for (state, sound) in [
+            HostBodyDamageType::Damaged,
+            HostBodyDamageType::ReallyDamaged,
+        ]
+        .into_iter()
+        .zip(typed.damage_sounds())
         {
             data.audio_for_state[state.ordinal() as usize] = sound.map(str::to_owned);
         }
@@ -1294,28 +1301,53 @@ pub fn dispatch_armor_damage_fx(
         actual_damage,
         now,
         source,
-        &mut |obj, name, source| {
-            // Standalone compatibility retains its registered Common runtime
-            // and fallback, but neither definition guard spans this callback.
-            crate::game_logic::publish_host_fx_object_ex(
-                obj.id.0,
-                obj.get_position(),
-                obj.get_orientation(),
-                obj.owner_player_id.map(|p| p as i32).unwrap_or(-1),
-                crate::game_logic::host_supply_gather::host_bounding_circle_radius(
-                    (*obj.geometry_info()).authored,
-                    (*obj.geometry_info()).bounding_circle_radius(),
-                    obj.thing().geometry.radius.max(obj.selection_radius),
-                ),
-            );
-            let victim = snapshot_damage_fx_source(obj);
-            game_engine::common::ini::ini_damage_fx::DamageFX::execute_selected_fx_list(
-                name,
-                source.map(|value| value as &dyn game_engine::common::ini::ini_damage_fx::Object),
-                Some(&victim),
-            );
-        },
+        &mut dispatch_standalone_armor_fx,
     )
+}
+
+pub(crate) fn dispatch_owned_armor_damage_fx(
+    obj: &mut crate::game_logic::Object,
+    damage_type: crate::game_logic::combat::DamageType,
+    actual_damage: f32,
+    now: u32,
+    source: Option<&HostDamageFxVictim>,
+    store: &game_engine::common::ini::ini_damage_fx::DamageFXStore,
+) -> Option<String> {
+    dispatch_armor_damage_fx_with_store(
+        obj,
+        damage_type,
+        actual_damage,
+        now,
+        source,
+        store,
+        &mut dispatch_standalone_armor_fx,
+    )
+}
+
+fn dispatch_standalone_armor_fx(
+    obj: &mut crate::game_logic::Object,
+    name: &str,
+    source: Option<&HostDamageFxVictim>,
+) {
+    // Standalone compatibility retains its registered Common runtime
+    // and fallback, but neither definition guard spans this callback.
+    crate::game_logic::publish_host_fx_object_ex(
+        obj.id.0,
+        obj.get_position(),
+        obj.get_orientation(),
+        obj.owner_player_id.map(|p| p as i32).unwrap_or(-1),
+        crate::game_logic::host_supply_gather::host_bounding_circle_radius(
+            (*obj.geometry_info()).authored,
+            (*obj.geometry_info()).bounding_circle_radius(),
+            obj.thing().geometry.radius.max(obj.selection_radius),
+        ),
+    );
+    let victim = snapshot_damage_fx_source(obj);
+    game_engine::common::ini::ini_damage_fx::DamageFX::execute_selected_fx_list(
+        name,
+        source.map(|value| value as &dyn game_engine::common::ini::ini_damage_fx::Object),
+        Some(&victim),
+    );
 }
 
 /// Select from immutable authored definitions, commit the original throttle,
@@ -1329,17 +1361,44 @@ pub(crate) fn dispatch_armor_damage_fx_with_dispatch(
     source: Option<&HostDamageFxVictim>,
     dispatch: &mut dyn FnMut(&mut crate::game_logic::Object, &str, Option<&HostDamageFxVictim>),
 ) -> Option<String> {
+    game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store();
+    let selected = {
+        let store = game_engine::common::ini::ini_damage_fx::get_damage_fx_store()?;
+        select_armor_damage_fx(obj, damage_type, actual_damage, now, source, &store)?
+    };
+    finish_armor_damage_fx(obj, source, dispatch, selected)
+}
+
+pub(crate) fn dispatch_armor_damage_fx_with_store(
+    obj: &mut crate::game_logic::Object,
+    damage_type: crate::game_logic::combat::DamageType,
+    actual_damage: f32,
+    now: u32,
+    source: Option<&HostDamageFxVictim>,
+    store: &game_engine::common::ini::ini_damage_fx::DamageFXStore,
+    dispatch: &mut dyn FnMut(&mut crate::game_logic::Object, &str, Option<&HostDamageFxVictim>),
+) -> Option<String> {
+    let selected = select_armor_damage_fx(obj, damage_type, actual_damage, now, source, store)?;
+    finish_armor_damage_fx(obj, source, dispatch, selected)
+}
+
+fn select_armor_damage_fx(
+    obj: &mut crate::game_logic::Object,
+    damage_type: crate::game_logic::combat::DamageType,
+    actual_damage: f32,
+    now: u32,
+    source: Option<&HostDamageFxVictim>,
+    store: &game_engine::common::ini::ini_damage_fx::DamageFXStore,
+) -> Option<(String, Option<String>)> {
     let flags = crate::game_logic::host_armor_residual::live_armor_set_flags(obj);
     let dfx_name = find_best_armor_set_damage_fx(&obj.thing().template.armor_sets, flags)?;
     if obj.last_damage_fx_done == Some(damage_type) && now < obj.next_damage_fx_time {
         return None;
     }
-    game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store();
     let ini_dt = host_to_ini_damage_type(damage_type);
     let source_ref =
         source.map(|value| value as &dyn game_engine::common::ini::ini_damage_fx::Object);
     let (list_name, throttle) = {
-        let store = game_engine::common::ini::ini_damage_fx::get_damage_fx_store()?;
         let dfx = store.find_damage_fx(&dfx_name)?;
         (
             dfx.get_damage_fx_list(ini_dt, actual_damage, source_ref),
@@ -1350,6 +1409,15 @@ pub(crate) fn dispatch_armor_damage_fx_with_dispatch(
     // addition wraps; saturating here would change near-wrap expiry behavior.
     obj.last_damage_fx_done = Some(damage_type);
     obj.next_damage_fx_time = now.wrapping_add(throttle);
+    Some((dfx_name, list_name))
+}
+
+fn finish_armor_damage_fx(
+    obj: &mut crate::game_logic::Object,
+    source: Option<&HostDamageFxVictim>,
+    dispatch: &mut dyn FnMut(&mut crate::game_logic::Object, &str, Option<&HostDamageFxVictim>),
+    (dfx_name, list_name): (String, Option<String>),
+) -> Option<String> {
     if let Some(name) = list_name.as_deref() {
         dispatch(obj, name, source);
     }
@@ -1503,8 +1571,13 @@ mod tests {
     fn template_sound_on_damaged_not_invented_names() {
         // C++ ActiveBody.cpp:605-621 getSoundOnDamaged / getSoundOnReallyDamaged.
         let mut definition = crate::assets::ObjectDefinition::new("AmericaInfantryRanger".into());
-        definition.attributes.insert("SoundOnDamaged".into(), "RangerVoiceDamaged".into());
-        definition.attributes.insert("SoundOnReallyDamaged".into(), "RangerVoiceReallyDamaged".into());
+        definition
+            .attributes
+            .insert("SoundOnDamaged".into(), "RangerVoiceDamaged".into());
+        definition.attributes.insert(
+            "SoundOnReallyDamaged".into(),
+            "RangerVoiceReallyDamaged".into(),
+        );
         let cfg = transition_damage_fx_config_for_definition(&definition);
         let e = transition_event(
             &cfg,

@@ -2925,6 +2925,9 @@ impl GameLogic {
                                 Some(object_id),
                                 effects,
                             ) {
+                                #[cfg(feature = "game_client")]
+                                let sounds = self.fx_list_sound_names(fx);
+                                #[cfg(not(feature = "game_client"))]
                                 let sounds = crate::game_logic::sound_names_for_fx_list(fx);
                                 if sounds.is_empty() {
                                     self.queue_audio_event(

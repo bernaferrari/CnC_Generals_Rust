@@ -128,6 +128,9 @@ impl CnCGameEngine {
                 roads_baseline: self.game_logic.terrain_road_baseline(),
                 combat_bonus_baseline: self.game_logic.combat_bonus_baseline(),
                 body_damage_baseline: self.game_logic.body_damage_baseline(),
+                damage_fx_base: &self.game_logic.damage_fx_base,
+                #[cfg(feature = "game_client")]
+                fx_baseline: self.game_logic.fx_baseline(),
                 power_bar_baseline: self.game_logic.power_bar_baseline(),
                 body_auto_particle_baseline: self.game_logic.body_auto_particle_baseline(),
                 session_sell_percentage: self.game_logic.session_sell_percentage,

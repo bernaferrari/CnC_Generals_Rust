@@ -37,19 +37,63 @@ const LOCOMOTOR_PATH: &str = "windows_game/extracted_big_files/INIZH/Data/INI/Lo
 // Exact fields produced for these two names by seed_known_host_locomotors.
 // They are the only locomotors referenced by the restore-required GLA catalog.
 const LOCOMOTOR_INI: &str = "Locomotor BasicHumanLocomotor\nSurfaces = GROUND\nSpeed = 20\nAcceleration = 100\nTurnRate = 500\nAppearance = TWO_LEGS\nWanderWidthFactor = 1.0\nWanderLengthFactor = 1.0\nSpeedDamaged = 10\nAccelerationDamaged = 50\nEnd\nLocomotor TechnicalLocomotor\nSurfaces = GROUND\nSpeed = 90\nAcceleration = 100\nTurnRate = 180\nEnd\n";
-const GLA_SUPPORT: [&str; 12] = [
-    "GLA_CommandCenter",
-    "GLACommandCenter",
-    "GLA_SupplyStash",
-    "GLASupplyStash",
-    "GLA_ArmsDealer",
+const EXPECTED_TEMPLATES: &[&str] = &[
+    "AmericaStrategyCenter",
+    "Barracks",
+    "ChinaVehicleInfernoCannon",
+    "China_Barracks",
+    "China_BattlemasterTank",
+    "China_CommandCenter",
+    "China_GattlingCannon",
+    "China_Helix",
+    "China_InfernoCannon",
+    "China_MiG",
+    "China_OverlordTank",
+    "China_PowerPlant",
+    "China_RedGuard",
+    "China_SupplyCenter",
+    "China_TankHunter",
+    "China_WarFactory",
+    "CommandCenter",
     "GLAArmsDealer",
-    "GLA_Barracks",
     "GLABarracks",
-    "GLA_Soldier",
+    "GLACommandCenter",
     "GLAInfantryRebel",
-    "GLA_Technical",
+    "GLAInfantryStingerSoldier",
+    "GLAInfantryTerrorist",
+    "GLAInfantryTunnelDefender",
     "GLAInfantryWorker",
+    "GLASupplyStash",
+    "GLAVehicleCombatBike",
+    "GLA_ArmsDealer",
+    "GLA_Barracks",
+    "GLA_Command",
+    "GLA_CommandCenter",
+    "GLA_MarauderTank",
+    "GLA_RPGTrooper",
+    "GLA_ScorpionTank",
+    "GLA_Soldier",
+    "GLA_StingerSite",
+    "GLA_SupplyStash",
+    "GLA_Technical",
+    "GLA_TunnelNetwork",
+    "PowerPlant",
+    "StrategySaveEnemyAnchor",
+    "StrategySaveGroundTarget",
+    "SupplyCenter",
+    "USA_Barracks",
+    "USA_CommandCenter",
+    "USA_CrusaderTank",
+    "USA_Humvee",
+    "USA_MissileDefender",
+    "USA_PaladinTank",
+    "USA_Patriot",
+    "USA_PowerPlant",
+    "USA_Ranger",
+    "USA_Raptor",
+    "USA_SupplyCenter",
+    "USA_WarFactory",
+    "WarFactory",
 ];
 const CHILD_TEST: &str = "strategy_save_process";
 
@@ -124,29 +168,38 @@ fn catalog_world() -> GameLogic {
     }
     let mut logic = GameLogic::new();
     assert!(logic.templates.is_empty());
+    // BattlePlanUpdate::onObjectCreated disables the selected turret in C++.
+    // This bounded fixture admits that initial state explicitly; it does not
+    // claim to exercise the original BattlePlanUpdate creation callback.
+    let objects = format!(
+        "Object {CENTER}\n KindOf = STRUCTURE FS_STRATEGY_CENTER SELECTABLE IMMOBILE\n Body = ActiveBody Body\n  MaxHealth = 1500\n  InitialHealth = 1500\n End\n Behavior = AIUpdateInterface Brain\n  Turret\n   TurretTurnRate = 60\n   TurretPitchRate = 60\n   NaturalTurretAngle = -90\n   NaturalTurretPitch = 45\n   InitiallyDisabled = Yes\n  End\n End\nEnd\n\
+         Object {GROUND}\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n  MaxHealth = 1000\n  InitialHealth = 1000\n End\nEnd\n\
+         Object {ANCHOR}\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n  MaxHealth = 1000\n  InitialHealth = 1000\n End\nEnd\n"
+    );
+    logic
+        .admit_object_ini_sources([("StrategySaveObjects.ini".into(), objects)])
+        .unwrap();
     logic.ensure_ai_faction_templates(Team::GLA);
     assert_eq!(
         logic.host_ai_player_count(),
         0,
         "definitions must not manufacture controllers"
     );
-    let mut center = ThingTemplate::new(CENTER);
+    let center = logic.templates.get_mut(CENTER).unwrap();
     center
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSStrategyCenter)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Immobile)
         .set_health(1500.0);
-    logic.templates.insert(CENTER.into(), center);
     for (name, kind) in [(GROUND, KindOf::Vehicle), (ANCHOR, KindOf::Structure)] {
-        let mut template = ThingTemplate::new(name);
+        let template = logic.templates.get_mut(name).unwrap();
         template
             .add_kind_of(kind)
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
             .set_health(1000.0)
             .set_primary_weapon_none();
-        logic.templates.insert(name.into(), template);
     }
     assert_catalog(&logic);
     logic
@@ -169,21 +222,21 @@ fn assert_catalog(logic: &GameLogic) {
     })
     .unwrap();
     assert_eq!(TheArmorStore::read().len(), 1);
-    let mut expected: Vec<_> = GLA_SUPPORT
-        .into_iter()
-        .chain([CENTER, GROUND, ANCHOR])
-        .collect();
-    expected.sort_unstable();
     let mut names: Vec<_> = logic.templates.keys().map(String::as_str).collect();
     names.sort_unstable();
-    assert_eq!(names, expected);
+    assert_eq!(names, EXPECTED_TEMPLATES);
     for name in [CENTER, GROUND, ANCHOR] {
         let t = &logic.templates[name];
         assert!(t.primary_weapon_name.is_none());
         assert!(t.secondary_weapon_name.is_none());
         assert!(t.tertiary_weapon_name.is_none());
         assert!(t.locomotor_name.is_none() && t.locomotor_set_names.is_empty());
-        assert!(t.authored_locomotor_sets.is_none() && t.armor_sets.is_empty());
+        assert!(
+            t.authored_locomotor_sets
+                .as_ref()
+                .is_some_and(Vec::is_empty)
+                && t.armor_sets.is_empty()
+        );
     }
     assert_eq!(fs::read_to_string(LOCOMOTOR_PATH).unwrap(), LOCOMOTOR_INI);
     let manager = get_particle_system_manager().unwrap();
@@ -709,6 +762,11 @@ fn strategy_save_process() {
         // No source-world state or trace is read by this process. All IDs are
         // discovered from the restored roster, not imposed by the driver.
         assert!(logic.host_objects().registered_is_empty() && logic.get_players().is_empty());
+        // As with map startup, admit the receiving player/team identities
+        // before validating and applying the saved roster.
+        for (id, team) in [(0, Team::USA), (1, Team::GLA)] {
+            logic.add_player(Player::new(id, team, "Strategy save fixture", id == 0));
+        }
         let loaded = manager.load_game("strategy", &mut logic);
         write_json(
             &dir.join("reader-load.json"),

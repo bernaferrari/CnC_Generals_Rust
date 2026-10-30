@@ -784,6 +784,47 @@ impl FXListStore {
     pub fn add_fx_list(&mut self, name: String, fx_list: FXList) {
         self.fx_map.insert(name, Arc::new(fx_list));
     }
+    /// Return Sound nuggets in authored order from this catalog.
+    pub fn sound_names(&self, name: &str) -> Vec<String> {
+        self.find_fx_list(name).map_or_else(Vec::new, |fx| {
+            fx.nuggets
+                .iter()
+                .filter_map(|nugget| nugget.sound_name().map(str::to_string))
+                .collect()
+        })
+    }
+
+    /// Apply a mixed INI source to this catalog without publishing it globally.
+    /// C++ clears an existing list before parsing its replacement. A parse
+    /// failure in an FXList leaves this receiving catalog unchanged.
+    pub fn apply_source(&mut self, source: &str) -> INIResult<usize> {
+        let mut candidate = self.clone();
+        let mut ini = INI::new();
+        let count = ini.with_inline_source(source, |ini| {
+            let mut count = 0;
+            loop {
+                ini.read_line()?;
+                if ini.is_eof() {
+                    break;
+                }
+                let tokens = ini.get_line_tokens();
+                if tokens
+                    .first()
+                    .is_some_and(|key| key.eq_ignore_ascii_case("FXList"))
+                    && tokens.get(1) != Some(&"=")
+                {
+                    let (name, definition) = parse_fx_list_entry(ini)?;
+                    candidate.add_fx_list(name, FXList::from_definition(&definition));
+                    count += 1;
+                } else if !tokens.is_empty() {
+                    ini.skip_current_definition()?;
+                }
+            }
+            Ok(count)
+        })?;
+        *self = candidate;
+        Ok(count)
+    }
 }
 
 impl Default for FXListStore {
@@ -811,16 +852,7 @@ pub fn get_fx_list_store_mut() -> std::sync::RwLockWriteGuard<'static, FXListSto
 
 /// C++ `SoundFXNugget::m_soundName` values authored inside `name`.
 pub fn sound_names_for_fx_list(name: &str) -> Vec<String> {
-    if name.is_empty() || name.eq_ignore_ascii_case("None") {
-        return Vec::new();
-    }
-    let Some(fx) = get_fx_list_store().find_fx_list(name) else {
-        return Vec::new();
-    };
-    fx.nuggets
-        .iter()
-        .filter_map(|nugget| nugget.sound_name().map(str::to_string))
-        .collect()
+    get_fx_list_store().sound_names(name)
 }
 
 pub fn init_fx_list_store() -> Result<(), Box<dyn std::error::Error>> {
@@ -840,7 +872,9 @@ pub fn init_fx_list_store() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn parse_fx_list_definition(ini: &mut INI) -> INIResult<()> {
+fn parse_fx_list_entry(
+    ini: &mut INI,
+) -> INIResult<(String, game_engine::common::ini::ini_fx_list::FXList)> {
     let tokens = ini.get_line_tokens();
     let name = tokens
         .iter()
@@ -879,7 +913,12 @@ fn parse_fx_list_definition(ini: &mut INI) -> INIResult<()> {
             parse_fx_nugget_definition(&kind, &fields).map_err(|_| INIError::InvalidData)?;
         definition.add_nugget(nugget);
     }
-    // Common owns authored definitions; this store is the derived client backend.
+    Ok((name, definition))
+}
+
+fn parse_fx_list_definition(ini: &mut INI) -> INIResult<()> {
+    let (name, definition) = parse_fx_list_entry(ini)?;
+    // Compatibility parser publishes both legacy registries.
     let fx_list = FXList::from_definition(&definition);
     game_engine::common::ini::ini_fx_list::get_fx_list_store_mut().add_fx_list(definition);
     get_fx_list_store_mut().add_fx_list(name, fx_list);

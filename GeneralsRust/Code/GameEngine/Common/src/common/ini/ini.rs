@@ -1188,6 +1188,21 @@ fn archive_virtual_ini_name(path: &Path) -> String {
 }
 
 impl INI {
+    /// Skip an unrelated top-level definition while parsing a mixed source
+    /// into one explicit content owner.
+    pub fn skip_current_definition(&mut self) -> INIResult<()> {
+        let is_object = self.get_line_tokens().first().is_some_and(|kind| {
+            ["Object", "ObjectReskin", "ChildObject"]
+                .iter()
+                .any(|candidate| kind.eq_ignore_ascii_case(candidate))
+        });
+        if is_object {
+            let _ = crate::common::thing::thing_factory::consume_ini_properties(self);
+            Ok(())
+        } else {
+            consume_block_with_nesting(self).map(|_| ())
+        }
+    }
     /// Create a new INI reader
     /// Resolve an authored name in this receiving parse's namespace.
     /// Standalone INI entry points preserve their existing compatibility registry.

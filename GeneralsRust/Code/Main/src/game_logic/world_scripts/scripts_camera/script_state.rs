@@ -119,6 +119,9 @@ impl GameLogic {
 
         let pending = self.queued_audio_events.drain_requests();
         for event in pending {
+            #[cfg(feature = "game_client")]
+            let names = self.resolve_owned_audio_event_names(&event.event_type);
+            #[cfg(not(feature = "game_client"))]
             let names = crate::game_logic::resolve_audio_event_names(&event.event_type);
             for name in names {
                 let mut event = event.clone();

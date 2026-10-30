@@ -1,12 +1,12 @@
 //! Mechanical split from `game_logic/game_logic.rs`. No behavior change.
 #![allow(non_snake_case, unused_imports, dead_code)]
+use super::HostHeliTakeoffOrLanding;
 use super::authority::*;
 use super::construct::*;
 use super::crate_tick::*;
 use super::player::*;
 use super::prelude::*;
 use super::script_camera::*;
-use super::HostHeliTakeoffOrLanding;
 use super::*;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -70,6 +70,9 @@ pub struct GameLogic {
         Option<std::sync::Arc<gamelogic::object::armor::ArmorDefinitions>>,
     pub(crate) object_lifecycle_callback_depth: u32,
     pub(crate) body_damage_definitions: crate::game_logic::body_damage_rules::BodyDamageDefinitions,
+    /// Application and effective map DamageFX definitions for this session.
+    pub(crate) damage_fx_base: game_engine::common::ini::ini_damage_fx::DamageFXStore,
+    pub(crate) damage_fx_definitions: game_engine::common::ini::ini_damage_fx::DamageFXStore,
     pub(crate) lighting_definitions: crate::game_logic::lighting_rules::LightingDefinitions,
     pub(crate) physics_definitions: crate::game_logic::physics_rules::PhysicsDefinitions,
     pub(super) weapon_effect_definitions:

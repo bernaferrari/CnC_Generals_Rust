@@ -52,6 +52,20 @@ pub(crate) struct BodyDamageDefinitions {
     pub(crate) effective: BodyDamagePolicy,
 }
 impl super::GameLogic {
+    /// Admit application DamageFX before any objects are created. Map-specific
+    /// definitions are derived separately from this receiving baseline.
+    pub fn admit_damage_fx_source(&mut self, source: &str) -> Result<usize, String> {
+        if !self.objects.registered_is_empty() {
+            return Err("DamageFX content admission requires an empty receiving world".into());
+        }
+        let mut definitions = self.damage_fx_base.clone();
+        let count = definitions
+            .apply_source(source)
+            .map_err(|error| error.to_string())?;
+        self.damage_fx_base = definitions.clone();
+        self.damage_fx_definitions = definitions;
+        Ok(count)
+    }
     pub(crate) fn body_damage_policy(&self) -> BodyDamagePolicy {
         self.body_damage_definitions.effective
     }

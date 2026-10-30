@@ -147,6 +147,9 @@ fn staged_restore_rejects_unavailable_map_before_snapshot_restore() {
                     roads_baseline: source.terrain_road_baseline(),
                     combat_bonus_baseline: source.combat_bonus_baseline(),
                     body_damage_baseline: source.body_damage_baseline(),
+                    damage_fx_base: &source.damage_fx_base,
+                    #[cfg(feature = "game_client")]
+                    fx_baseline: source.fx_baseline(),
                     power_bar_baseline: source.power_bar_baseline(),
                     body_auto_particle_baseline: source.body_auto_particle_baseline(),
                     session_sell_percentage: 1.0,
@@ -214,6 +217,9 @@ fn malformed_client_chunk_rejects_candidate_before_touching_live_client() {
                     roads_baseline: logic.terrain_road_baseline(),
                     combat_bonus_baseline: logic.combat_bonus_baseline(),
                     body_damage_baseline: logic.body_damage_baseline(),
+                    damage_fx_base: &logic.damage_fx_base,
+                    #[cfg(feature = "game_client")]
+                    fx_baseline: logic.fx_baseline(),
                     power_bar_baseline: logic.power_bar_baseline(),
                     body_auto_particle_baseline: logic.body_auto_particle_baseline(),
                     session_sell_percentage: 1.0,
@@ -357,6 +363,9 @@ fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
                     roads_baseline: source.terrain_road_baseline(),
                     combat_bonus_baseline: source.combat_bonus_baseline(),
                     body_damage_baseline: source.body_damage_baseline(),
+                    damage_fx_base: &source.damage_fx_base,
+                    #[cfg(feature = "game_client")]
+                    fx_baseline: source.fx_baseline(),
                     power_bar_baseline: source.power_bar_baseline(),
                     body_auto_particle_baseline: source.body_auto_particle_baseline(),
                     session_sell_percentage: 1.0,
@@ -672,6 +681,9 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
                     roads_baseline: source.terrain_road_baseline(),
                     combat_bonus_baseline: source.combat_bonus_baseline(),
                     body_damage_baseline: source.body_damage_baseline(),
+                    damage_fx_base: &source.damage_fx_base,
+                    #[cfg(feature = "game_client")]
+                    fx_baseline: source.fx_baseline(),
                     power_bar_baseline: source.power_bar_baseline(),
                     body_auto_particle_baseline: source.body_auto_particle_baseline(),
                     session_sell_percentage: 1.0,
@@ -1015,6 +1027,9 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
                             roads_baseline: source.terrain_road_baseline(),
                             combat_bonus_baseline: source.combat_bonus_baseline(),
                             body_damage_baseline: source.body_damage_baseline(),
+                            damage_fx_base: &source.damage_fx_base,
+                            #[cfg(feature = "game_client")]
+                            fx_baseline: source.fx_baseline(),
                             power_bar_baseline: source.power_bar_baseline(),
                             body_auto_particle_baseline: source.body_auto_particle_baseline(),
                             session_sell_percentage: 1.0,
@@ -1246,6 +1261,9 @@ fn staged_restore_continues_logic_rng_stream_from_save_point() {
                     roads_baseline: source.terrain_road_baseline(),
                     combat_bonus_baseline: source.combat_bonus_baseline(),
                     body_damage_baseline: source.body_damage_baseline(),
+                    damage_fx_base: &source.damage_fx_base,
+                    #[cfg(feature = "game_client")]
+                    fx_baseline: source.fx_baseline(),
                     power_bar_baseline: source.power_bar_baseline(),
                     body_auto_particle_baseline: source.body_auto_particle_baseline(),
                     session_sell_percentage: 1.0,
@@ -1847,6 +1865,9 @@ End
                         roads_baseline: source.terrain_road_baseline(),
                         combat_bonus_baseline: source.combat_bonus_baseline(),
                         body_damage_baseline: source.body_damage_baseline(),
+                        damage_fx_base: &source.damage_fx_base,
+                        #[cfg(feature = "game_client")]
+                        fx_baseline: source.fx_baseline(),
                         power_bar_baseline: source.power_bar_baseline(),
                         body_auto_particle_baseline: source.body_auto_particle_baseline(),
                         session_sell_percentage: 1.0,
@@ -1977,6 +1998,9 @@ End
                         roads_baseline: source.terrain_road_baseline(),
                         combat_bonus_baseline: source.combat_bonus_baseline(),
                         body_damage_baseline: source.body_damage_baseline(),
+                        damage_fx_base: &source.damage_fx_base,
+                        #[cfg(feature = "game_client")]
+                        fx_baseline: source.fx_baseline(),
                         power_bar_baseline: source.power_bar_baseline(),
                         body_auto_particle_baseline: source.body_auto_particle_baseline(),
                         session_sell_percentage: 1.0,
