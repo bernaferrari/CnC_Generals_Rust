@@ -1,6 +1,6 @@
 //! Weapon masks, enums, and bonus types extracted from weapon/mod.rs.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use crate::common::Coord3D;
@@ -384,28 +384,30 @@ impl Default for WeaponBonus {
 /// Weapon bonus set for different conditions
 #[derive(Debug, Clone)]
 pub struct WeaponBonusSet {
-    bonuses: HashMap<WeaponBonusConditionType, WeaponBonus>,
+    bonuses: [Option<WeaponBonus>; WEAPON_BONUS_CONDITION_COUNT],
 }
 
 impl WeaponBonusSet {
     pub fn new() -> Self {
         Self {
-            bonuses: HashMap::new(),
+            bonuses: std::array::from_fn(|_| None),
         }
     }
 
     pub fn set_bonus(&mut self, condition: WeaponBonusConditionType, bonus: WeaponBonus) {
-        self.bonuses.insert(condition, bonus);
+        self.bonuses[condition as usize] = Some(bonus);
     }
 
     pub fn get_bonus(&self, condition: WeaponBonusConditionType) -> Option<&WeaponBonus> {
-        self.bonuses.get(&condition)
+        self.bonuses[condition as usize].as_ref()
     }
 
     pub fn append_bonuses(&self, flags: WeaponBonusConditionFlags, bonus: &mut WeaponBonus) {
-        for (&condition, weapon_bonus) in &self.bonuses {
-            if flags.has(condition) {
-                bonus.append_bonuses(weapon_bonus);
+        for (index, weapon_bonus) in self.bonuses.iter().enumerate() {
+            if flags.0 & (1 << index) != 0 {
+                if let Some(weapon_bonus) = weapon_bonus {
+                    bonus.append_bonuses(weapon_bonus);
+                }
             }
         }
     }

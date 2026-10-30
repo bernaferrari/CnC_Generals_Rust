@@ -2,9 +2,21 @@ use gamelogic::weapon::WeaponTemplate;
 use generals_main::game_logic::{GameLogic, ObjectId, Player, Team};
 
 fn world(secondary_radius: f32, bonus: u32, extra_radius: Option<f32>) -> (GameLogic, ObjectId) {
+    world_with_upgrade_bonus(secondary_radius, bonus, extra_radius, None)
+}
+
+fn world_with_upgrade_bonus(
+    secondary_radius: f32,
+    bonus: u32,
+    extra_radius: Option<f32>,
+    upgrade_radius: Option<u32>,
+) -> (GameLogic, ObjectId) {
     let mut game = GameLogic::new();
+    let upgrade_row = upgrade_radius
+        .map(|percent| format!(" WeaponBonus = PLAYER_UPGRADE RADIUS {percent}%\n"))
+        .unwrap_or_default();
     game.admit_combat_bonus_ini_sources([format!(
-        "GameData\n WeaponBonus = SOLO_HUMAN_EASY RADIUS {bonus}%\nEnd\n"
+        "GameData\n WeaponBonus = SOLO_HUMAN_EASY RADIUS {bonus}%\n{upgrade_row}End\n"
     )])
     .unwrap();
     game.admit_object_ini_sources([("Cursor.ini".into(),
@@ -39,7 +51,52 @@ fn world(secondary_radius: f32, bonus: u32, extra_radius: Option<f32>) -> (GameL
         .create_object_for_player("CursorUnit", 1, glam::Vec3::ZERO)
         .unwrap();
     game.host_object_mut(id).unwrap().weapon_bonus_solo = 16;
+    game.host_object_mut(id)
+        .unwrap()
+        .weapon_bonus_player_upgrade = upgrade_radius.is_some();
     (game, id)
+}
+
+#[test]
+fn cursor_uses_each_sessions_authored_upgrade_bonus() {
+    let (owner, id) = world_with_upgrade_bonus(20.0, 100, None, Some(50));
+    let (peer, peer_id) = world_with_upgrade_bonus(20.0, 100, None, Some(200));
+    assert_eq!(id, peer_id);
+    assert_eq!(owner.weapon_cursor_radii(id, 1).unwrap().damage, 10.0);
+    assert_eq!(peer.weapon_cursor_radii(peer_id, 1).unwrap().damage, 40.0);
+    assert_eq!(owner.weapon_cursor_radii(id, 1).unwrap().damage, 10.0);
+    let snapshot = generals_main::save_load::SnapshotBuilder::new()
+        .create_world_snapshot(&owner)
+        .unwrap();
+    let (mut restored, _) = world_with_upgrade_bonus(20.0, 100, None, Some(50));
+    generals_main::save_load::SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert_eq!(restored.weapon_cursor_radii(id, 1).unwrap().damage, 10.0);
+    assert_eq!(peer.weapon_cursor_radii(peer_id, 1).unwrap().damage, 40.0);
+}
+
+#[test]
+fn bonus_conditions_are_appended_in_cpp_order() {
+    use gamelogic::weapon::{
+        WeaponBonus, WeaponBonusConditionFlags, WeaponBonusConditionType as Condition,
+        WeaponBonusField, WeaponBonusSet,
+    };
+    let mut set = WeaponBonusSet::new();
+    let mut flags = WeaponBonusConditionFlags::new();
+    for (condition, value) in [
+        (Condition::PlayerUpgrade, 3.0),
+        (Condition::Nationalism, -1.0e20),
+        (Condition::Horde, 1.0e20),
+    ] {
+        let mut bonus = WeaponBonus::new();
+        bonus.set_field(WeaponBonusField::Damage, value);
+        set.set_bonus(condition, bonus);
+        flags.set(condition);
+    }
+    let mut result = WeaponBonus::new();
+    set.append_bonuses(flags, &mut result);
+    assert_eq!(result.get_field(WeaponBonusField::Damage), 2.0);
 }
 
 #[test]

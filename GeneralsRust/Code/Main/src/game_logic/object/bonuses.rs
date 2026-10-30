@@ -1,5 +1,6 @@
 use super::*;
 
+#[derive(Clone, Copy)]
 enum ExtraWeaponBonus<'a> {
     Ambient(Option<&'a str>),
     Owned(Option<&'a gamelogic::weapon::WeaponBonusSet>),
@@ -320,109 +321,111 @@ impl Object {
 
         let mut bonus = WeaponBonus::new();
 
-        if enthusiastic {
-            append_field(&mut bonus, RateOfFire, ENTHUSIASTIC_RATE_OF_FIRE_MULT);
-        }
-        if subliminal {
-            append_field(&mut bonus, RateOfFire, SUBLIMINAL_RATE_OF_FIRE_MULT);
-        }
-        if horde {
-            append_field(&mut bonus, RateOfFire, INFANTRY_HORDE_ROF_MULT);
-        }
-        if nationalism {
-            append_field(&mut bonus, RateOfFire, INFANTRY_NATIONALISM_ROF_MULT);
-        }
-        // C++ WEAPONBONUSCONDITION_FANATICISM (GameData RATE_OF_FIRE 125%).
-        // evaluateMoraleBonus nests this under NATIONALISM; the stored flag
-        // is already gated that way. Stacks extra ROF on Infantry General.
-        if fanaticism {
-            append_field(&mut bonus, RateOfFire, INFANTRY_FANATICISM_ROF_MULT);
-        }
-        // C++ WEAPONBONUSCONDITION_PLAYER_UPGRADE (GameData DAMAGE 125%).
-        // Uranium Shells / AP Bullets / Chain Guns / AP Rockets.
-        if player_upgrade {
-            append_field(&mut bonus, Damage, 1.25);
-        }
-        if frenzy {
-            append_field(
-                &mut bonus,
-                Damage,
-                crate::game_logic::host_frenzy::HostFrenzyLevel::from_u8(frenzy_level)
-                    .damage_multiplier(),
-            );
-        }
-        if bombardment {
-            append_field(&mut bonus, Damage, BOMBARDMENT_DAMAGE_MULT);
-        }
-        if search_and_destroy {
-            append_field(&mut bonus, Range, SEARCH_AND_DESTROY_RANGE_MULT);
-        }
-        // C++ WEAPONBONUSCONDITION_DRONE_SPOTTING residual (GameData RANGE 150%).
-        if drone_spotting {
-            append_field(
-                &mut bonus,
-                Range,
-                crate::game_logic::host_slave_drones::DRONE_SPOTTING_RANGE_MULT,
-            );
-        }
-        // C++ WEAPONBONUSCONDITION_GARRISONED (GameData RANGE 133%).
-        // GarrisonContain / HelixContain onContaining set the flag; OpenContain
-        // (Humvee, Chinook, hospital, tunnel, prison) does not.
-        if self.contained_by.is_some()
-            && self.is_kind_of(KindOf::Infantry)
-            && matches!(self.ai_state(), AIState::Garrisoned)
-        {
-            append_field(&mut bonus, Range, 1.33);
-        }
-        // C++ CONTINUOUS_FIRE_MEAN / FAST WeaponBonus ROF residual
-        // (GameData defaults MEAN 200%, FAST 300%). Level set by FiringTracker
-        // / gattling ramp residuals on Object::continuous_fire_level.
-        match continuous_fire_level {
-            1 => append_field(&mut bonus, RateOfFire, 2.0),
-            2 => append_field(&mut bonus, RateOfFire, 3.0),
-            _ => {}
-        }
-        // C++ Object::setWeaponBonusCondition VETERAN/ELITE/HERO + computeBonus
-        // every fire (Weapon.cpp:1797-1816). Flags are exclusive; fall back to
-        // experience.level when a test assigns rank without going through
-        // apply_veterancy_bonuses.
-        let (vet_damage, vet_rof) = if hero {
-            (
-                Some(VETERANCY_DAMAGE_BONUS_HEROIC),
-                Some(VETERANCY_ROF_BONUS_HEROIC),
-            )
-        } else if elite {
-            (
-                Some(VETERANCY_DAMAGE_BONUS_ELITE),
-                Some(VETERANCY_ROF_BONUS_ELITE),
-            )
-        } else if veteran {
-            (
-                Some(VETERANCY_DAMAGE_BONUS_VETERAN),
-                Some(VETERANCY_ROF_BONUS_VETERAN),
-            )
-        } else {
-            match self.experience.level {
-                VeterancyLevel::Veteran => (
-                    Some(VETERANCY_DAMAGE_BONUS_VETERAN),
-                    Some(VETERANCY_ROF_BONUS_VETERAN),
-                ),
-                VeterancyLevel::Elite => (
-                    Some(VETERANCY_DAMAGE_BONUS_ELITE),
-                    Some(VETERANCY_ROF_BONUS_ELITE),
-                ),
-                VeterancyLevel::Heroic => (
+        if matches!(extra, ExtraWeaponBonus::Ambient(_)) {
+            if enthusiastic {
+                append_field(&mut bonus, RateOfFire, ENTHUSIASTIC_RATE_OF_FIRE_MULT);
+            }
+            if subliminal {
+                append_field(&mut bonus, RateOfFire, SUBLIMINAL_RATE_OF_FIRE_MULT);
+            }
+            if horde {
+                append_field(&mut bonus, RateOfFire, INFANTRY_HORDE_ROF_MULT);
+            }
+            if nationalism {
+                append_field(&mut bonus, RateOfFire, INFANTRY_NATIONALISM_ROF_MULT);
+            }
+            // C++ WEAPONBONUSCONDITION_FANATICISM (GameData RATE_OF_FIRE 125%).
+            // evaluateMoraleBonus nests this under NATIONALISM; the stored flag
+            // is already gated that way. Stacks extra ROF on Infantry General.
+            if fanaticism {
+                append_field(&mut bonus, RateOfFire, INFANTRY_FANATICISM_ROF_MULT);
+            }
+            // C++ WEAPONBONUSCONDITION_PLAYER_UPGRADE (GameData DAMAGE 125%).
+            // Uranium Shells / AP Bullets / Chain Guns / AP Rockets.
+            if player_upgrade {
+                append_field(&mut bonus, Damage, 1.25);
+            }
+            if frenzy {
+                append_field(
+                    &mut bonus,
+                    Damage,
+                    crate::game_logic::host_frenzy::HostFrenzyLevel::from_u8(frenzy_level)
+                        .damage_multiplier(),
+                );
+            }
+            if bombardment {
+                append_field(&mut bonus, Damage, BOMBARDMENT_DAMAGE_MULT);
+            }
+            if search_and_destroy {
+                append_field(&mut bonus, Range, SEARCH_AND_DESTROY_RANGE_MULT);
+            }
+            // C++ WEAPONBONUSCONDITION_DRONE_SPOTTING residual (GameData RANGE 150%).
+            if drone_spotting {
+                append_field(
+                    &mut bonus,
+                    Range,
+                    crate::game_logic::host_slave_drones::DRONE_SPOTTING_RANGE_MULT,
+                );
+            }
+            // C++ WEAPONBONUSCONDITION_GARRISONED (GameData RANGE 133%).
+            // GarrisonContain / HelixContain onContaining set the flag; OpenContain
+            // (Humvee, Chinook, hospital, tunnel, prison) does not.
+            if self.contained_by.is_some()
+                && self.is_kind_of(KindOf::Infantry)
+                && matches!(self.ai_state(), AIState::Garrisoned)
+            {
+                append_field(&mut bonus, Range, 1.33);
+            }
+            // C++ CONTINUOUS_FIRE_MEAN / FAST WeaponBonus ROF residual
+            // (GameData defaults MEAN 200%, FAST 300%). Level set by FiringTracker
+            // / gattling ramp residuals on Object::continuous_fire_level.
+            match continuous_fire_level {
+                1 => append_field(&mut bonus, RateOfFire, 2.0),
+                2 => append_field(&mut bonus, RateOfFire, 3.0),
+                _ => {}
+            }
+            // C++ Object::setWeaponBonusCondition VETERAN/ELITE/HERO + computeBonus
+            // every fire (Weapon.cpp:1797-1816). Flags are exclusive; fall back to
+            // experience.level when a test assigns rank without going through
+            // apply_veterancy_bonuses.
+            let (vet_damage, vet_rof) = if hero {
+                (
                     Some(VETERANCY_DAMAGE_BONUS_HEROIC),
                     Some(VETERANCY_ROF_BONUS_HEROIC),
-                ),
-                VeterancyLevel::Rookie => (None, None),
+                )
+            } else if elite {
+                (
+                    Some(VETERANCY_DAMAGE_BONUS_ELITE),
+                    Some(VETERANCY_ROF_BONUS_ELITE),
+                )
+            } else if veteran {
+                (
+                    Some(VETERANCY_DAMAGE_BONUS_VETERAN),
+                    Some(VETERANCY_ROF_BONUS_VETERAN),
+                )
+            } else {
+                match self.experience.level {
+                    VeterancyLevel::Veteran => (
+                        Some(VETERANCY_DAMAGE_BONUS_VETERAN),
+                        Some(VETERANCY_ROF_BONUS_VETERAN),
+                    ),
+                    VeterancyLevel::Elite => (
+                        Some(VETERANCY_DAMAGE_BONUS_ELITE),
+                        Some(VETERANCY_ROF_BONUS_ELITE),
+                    ),
+                    VeterancyLevel::Heroic => (
+                        Some(VETERANCY_DAMAGE_BONUS_HEROIC),
+                        Some(VETERANCY_ROF_BONUS_HEROIC),
+                    ),
+                    VeterancyLevel::Rookie => (None, None),
+                }
+            };
+            if let Some(value) = vet_damage {
+                append_field(&mut bonus, Damage, value);
             }
-        };
-        if let Some(value) = vet_damage {
-            append_field(&mut bonus, Damage, value);
-        }
-        if let Some(value) = vet_rof {
-            append_field(&mut bonus, RateOfFire, value);
+            if let Some(value) = vet_rof {
+                append_field(&mut bonus, RateOfFire, value);
+            }
         }
         // C++ WEAPONBONUSCONDITION_SOLO_HUMAN_*/SOLO_AI_* from
         // Player::friend_applyDifficultyBonusesForObject. INI WeaponBonusSet
@@ -432,10 +435,12 @@ impl Object {
             let inherited = inherit.map(|c| c.weapon_bonus_solo).unwrap_or(0);
             if own != 0 { own } else { inherited }
         };
-        if let Some(set) = session_solo_set {
-            append_solo_bonus_from_set(&mut bonus, set, solo);
-        } else {
-            leftover_append_solo_weapon_bonus(&mut bonus, solo);
+        if matches!(extra, ExtraWeaponBonus::Ambient(_)) {
+            if let Some(set) = session_solo_set {
+                append_solo_bonus_from_set(&mut bonus, set, solo);
+            } else {
+                leftover_append_solo_weapon_bonus(&mut bonus, solo);
+            }
         }
 
         // C++ Weapon::computeBonus (Weapon.cpp:1814-1816): template m_extraBonus.
@@ -527,6 +532,11 @@ impl Object {
                 20 => flags.set(WeaponBonusConditionType::SoloAiNormal),
                 21 => flags.set(WeaponBonusConditionType::SoloAiHard),
                 _ => {}
+            }
+            if matches!(extra, ExtraWeaponBonus::Owned(_)) {
+                if let Some(set) = session_solo_set {
+                    set.append_bonuses(flags, &mut bonus);
+                }
             }
             match extra {
                 ExtraWeaponBonus::Ambient(Some(name)) => {

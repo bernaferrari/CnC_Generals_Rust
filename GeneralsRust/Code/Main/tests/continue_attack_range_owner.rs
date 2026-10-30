@@ -25,7 +25,33 @@ fn world_with_weapon_bonus(
     extra_damage: Option<f32>,
     secondary_splash: bool,
 ) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+    world_with_upgrade_damage(
+        range,
+        weapon_name,
+        scatter,
+        extra_radius,
+        extra_damage,
+        secondary_splash,
+        None,
+    )
+}
+
+fn world_with_upgrade_damage(
+    range: f32,
+    weapon_name: &str,
+    scatter: f32,
+    extra_radius: Option<f32>,
+    extra_damage: Option<f32>,
+    secondary_splash: bool,
+    upgrade_damage: Option<u32>,
+) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
     let mut game = GameLogic::new();
+    if let Some(percent) = upgrade_damage {
+        game.admit_combat_bonus_ini_sources([format!(
+            "GameData\n WeaponBonus = PLAYER_UPGRADE DAMAGE {percent}%\nEnd\n"
+        )])
+        .unwrap();
+    }
     game.admit_object_ini_sources([("ContinueRange.ini".into(),
         format!("Object ChainAttacker\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface AI\n End\n WeaponSet\n Conditions = NONE\n Weapon = PRIMARY {weapon_name}\n End\nEnd\nObject ChainVictim\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 10\n InitialHealth = 10\n End\nEnd\n"))]).unwrap();
     game.templates
@@ -84,6 +110,9 @@ fn world_with_weapon_bonus(
         .unwrap()
         .set_ai_attitude(generals_main::game_logic::host_strategy_center::HostAiAttitude::Sleep);
     game.host_object_mut(attacker).unwrap().weapon_bonus_solo = 16;
+    game.host_object_mut(attacker)
+        .unwrap()
+        .weapon_bonus_player_upgrade = upgrade_damage.is_some();
     let first = game
         .create_object_for_player("ChainVictim", 2, Vec3::new(40.0, 0.0, 20.0))
         .unwrap();
@@ -91,6 +120,49 @@ fn world_with_weapon_bonus(
         .create_object_for_player("ChainVictim", 2, Vec3::new(50.0, 0.0, 20.0))
         .unwrap();
     (game, attacker, first, next)
+}
+
+#[test]
+fn actual_damage_uses_each_sessions_authored_upgrade_bonus() {
+    let (mut weak, attacker, target, _) = world_with_upgrade_damage(
+        0.0,
+        "SharedUpgradeWeapon",
+        0.0,
+        None,
+        Some(1.0),
+        false,
+        Some(50),
+    );
+    let (mut full, peer_attacker, peer_target, _) = world_with_upgrade_damage(
+        0.0,
+        "SharedUpgradeWeapon",
+        0.0,
+        None,
+        Some(1.0),
+        false,
+        Some(200),
+    );
+    assert_eq!((attacker, target), (peer_attacker, peer_target));
+    assert!(weak.unit_command_attack(attacker, target).unwrap());
+    assert!(full.unit_command_attack(attacker, target).unwrap());
+    for _ in 0..100 {
+        weak.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        full.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if weak
+            .host_object(target)
+            .is_none_or(|object| object.health.current < 10.0)
+            && full
+                .host_object(target)
+                .is_none_or(|object| !object.is_alive())
+        {
+            break;
+        }
+    }
+    assert_eq!(weak.host_object(target).unwrap().health.current, 5.0);
+    assert!(
+        full.host_object(target)
+            .is_none_or(|object| !object.is_alive())
+    );
 }
 
 #[test]

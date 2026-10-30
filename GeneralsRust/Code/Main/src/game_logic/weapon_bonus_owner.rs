@@ -1,4 +1,4 @@
-//! Session-owned snapshot of GameData's SOLO weapon bonus rows.
+//! Session-owned snapshot of GameData's weapon bonus rows.
 //!
 //! C++ `Weapon::computeBonus` reads `TheGlobalData->m_weaponBonusSet` on each
 //! fire. Main admits the immutable GameData rows with its weapon content and
@@ -6,14 +6,35 @@
 
 use gamelogic::weapon::{WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet};
 
-fn solo_condition(value: &str) -> Option<WeaponBonusConditionType> {
+fn bonus_condition(value: &str) -> Option<WeaponBonusConditionType> {
     match value.trim().to_ascii_uppercase().as_str() {
+        "GARRISONED" => Some(WeaponBonusConditionType::Garrisoned),
+        "HORDE" => Some(WeaponBonusConditionType::Horde),
+        "CONTINUOUS_FIRE_MEAN" => Some(WeaponBonusConditionType::ContinuousFireMean),
+        "CONTINUOUS_FIRE_FAST" => Some(WeaponBonusConditionType::ContinuousFireFast),
+        "NATIONALISM" => Some(WeaponBonusConditionType::Nationalism),
+        "PLAYER_UPGRADE" => Some(WeaponBonusConditionType::PlayerUpgrade),
+        "DRONE_SPOTTING" => Some(WeaponBonusConditionType::DroneSpotting),
+        "DEMORALIZED" | "DEMORALIZED_OBSOLETE" => Some(WeaponBonusConditionType::Demoralized),
+        "ENTHUSIASTIC" => Some(WeaponBonusConditionType::Enthusiastic),
+        "VETERAN" => Some(WeaponBonusConditionType::Veteran),
+        "ELITE" => Some(WeaponBonusConditionType::Elite),
+        "HERO" => Some(WeaponBonusConditionType::Hero),
+        "BATTLEPLAN_BOMBARDMENT" => Some(WeaponBonusConditionType::BattleplanBombardment),
+        "BATTLEPLAN_HOLDTHELINE" => Some(WeaponBonusConditionType::BattleplanHoldtheLine),
+        "BATTLEPLAN_SEARCHANDDESTROY" => Some(WeaponBonusConditionType::BattleplanSearchAndDestroy),
+        "SUBLIMINAL" => Some(WeaponBonusConditionType::Subliminal),
         "SOLO_HUMAN_EASY" => Some(WeaponBonusConditionType::SoloHumanEasy),
         "SOLO_HUMAN_NORMAL" => Some(WeaponBonusConditionType::SoloHumanNormal),
         "SOLO_HUMAN_HARD" => Some(WeaponBonusConditionType::SoloHumanHard),
         "SOLO_AI_EASY" => Some(WeaponBonusConditionType::SoloAiEasy),
         "SOLO_AI_NORMAL" => Some(WeaponBonusConditionType::SoloAiNormal),
         "SOLO_AI_HARD" => Some(WeaponBonusConditionType::SoloAiHard),
+        "TARGET_FAERIE_FIRE" => Some(WeaponBonusConditionType::TargetFaerieFire),
+        "FANATICISM" => Some(WeaponBonusConditionType::Fanaticism),
+        "FRENZY_ONE" => Some(WeaponBonusConditionType::FrenzyOne),
+        "FRENZY_TWO" => Some(WeaponBonusConditionType::FrenzyTwo),
+        "FRENZY_THREE" => Some(WeaponBonusConditionType::FrenzyThree),
         _ => None,
     }
 }
@@ -35,7 +56,7 @@ pub(crate) fn from_entries(
     let mut set = WeaponBonusSet::new();
     for entry in entries {
         let (Some(condition), Some(field)) =
-            (solo_condition(&entry.condition), bonus_field(&entry.field))
+            (bonus_condition(&entry.condition), bonus_field(&entry.field))
         else {
             continue;
         };
