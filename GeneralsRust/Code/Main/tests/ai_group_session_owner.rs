@@ -293,6 +293,7 @@ fn team_attack_orders_only_spawned_slaves_without_free_will() {
     assert_eq!(owner.host_object(free).unwrap().target_location, None);
     assert_eq!(peer.host_object(locked).unwrap().target_location, None);
     assert_eq!(owner.host_object(locked).unwrap().max_shots_to_fire, 3);
+    assert!(!owner.host_object(locked).unwrap().force_attack);
     let parent_position = owner.host_object(parents[0]).unwrap().get_position();
     generals_main::command_executor::CommandExecutor::new(&mut owner, 1)
         .execute_command(GameCommand {
@@ -331,6 +332,7 @@ fn attack_own_position_forwards_the_containers_position_to_its_passenger() {
             range: 200.0,
             ..Weapon::default()
         });
+        unit.set_force_attack(true);
         (game, garrison, passenger)
     }
     let root = tempfile::tempdir().unwrap();
@@ -361,6 +363,7 @@ fn attack_own_position_forwards_the_containers_position_to_its_passenger() {
         Some(position)
     );
     assert_eq!(owner.host_object(passenger).unwrap().max_shots_to_fire, 4);
+    assert!(!owner.host_object(passenger).unwrap().force_attack);
     assert_eq!(peer.host_object(passenger).unwrap().target_location, None);
 }
 

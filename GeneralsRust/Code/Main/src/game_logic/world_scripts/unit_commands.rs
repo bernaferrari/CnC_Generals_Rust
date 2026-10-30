@@ -1668,6 +1668,29 @@ impl GameLogic {
         ) {
             return false;
         }
+        self.apply_owned_attack_position(id, location, max_shots, true)
+    }
+
+    /// C++ AIUpdateInterface::aiAttackPosition enters the non-forced attack
+    /// state. The group checks passenger eligibility before this call; owners
+    /// and spawned children receive the command directly.
+    pub(crate) fn unit_command_attack_position(
+        &mut self,
+        id: ObjectId,
+        location: glam::Vec3,
+        max_shots: i32,
+    ) -> bool {
+        self.stamp_player_command_source(id);
+        self.apply_owned_attack_position(id, location, max_shots, false)
+    }
+
+    fn apply_owned_attack_position(
+        &mut self,
+        id: ObjectId,
+        location: glam::Vec3,
+        max_shots: i32,
+        forced: bool,
+    ) -> bool {
         self.drop_jet_targeters_on_attack_exit(id);
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
@@ -1678,8 +1701,7 @@ impl GameLogic {
         end_hunt_on_player_parent_order(unit);
         unit.target = None;
 
-        unit.set_force_attack(true);
-        unit.set_max_shots_to_fire(max_shots);
+        unit.set_force_attack(forced);
         unit.leftover_choose_best_reset_primary_for_ground();
         unit.set_target_location(
             Some(location),
@@ -1689,6 +1711,8 @@ impl GameLogic {
             AIState::AttackingGround,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
+        // AIUpdate.cpp sets the shot limit after the attack state's onEnter.
+        unit.set_max_shots_to_fire(max_shots);
         drop(unit);
         self.set_turret_target_position(id, Some(location));
         true

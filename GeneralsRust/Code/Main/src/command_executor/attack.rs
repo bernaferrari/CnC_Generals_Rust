@@ -413,7 +413,7 @@ impl<'a> CommandExecutor<'a> {
                         )
                         && self
                             .game_logic
-                            .unit_command_attack_ground_ex(passenger, attack_pos, max_shots)
+                            .unit_command_attack_position(passenger, attack_pos, max_shots)
                     {
                         any = true;
                     }
@@ -441,7 +441,7 @@ impl<'a> CommandExecutor<'a> {
                 if admitted
                     && self
                         .game_logic
-                        .unit_command_attack_ground_ex(child_id, attack_pos, max_shots)
+                        .unit_command_attack_position(child_id, attack_pos, max_shots)
                 {
                     any = true;
                 }
@@ -472,11 +472,11 @@ impl<'a> CommandExecutor<'a> {
             let has_ai = self
                 .game_logic
                 .host_object(unit_id)
-                .is_some_and(|unit| unit.is_mobile() || unit.can_attack());
+                .is_some_and(|unit| unit.has_ai_update_interface());
             if has_ai
                 && self
                     .game_logic
-                    .unit_command_attack_ground_ex(unit_id, attack_pos, max_shots)
+                    .unit_command_attack_position(unit_id, attack_pos, max_shots)
             {
                 any = true;
             }
