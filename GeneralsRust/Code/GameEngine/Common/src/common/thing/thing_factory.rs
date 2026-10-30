@@ -529,13 +529,41 @@ impl ThingFactory {
         versions: impl IntoIterator<Item = &'a ThingTemplate>,
         next_template_id: UnsignedShort,
     ) -> Self {
+        use std::sync::{OnceLock, Weak};
+        let sources = versions.into_iter().collect::<Vec<_>>();
+        // Each slot is initialized exactly once while the factory is private.
+        // Published templates may be shared across threads; weak links avoid a
+        // cycle when a reskin precedes its parent in the master list.
+        let mut identities: HashMap<String, Arc<OnceLock<Weak<ThingTemplate>>>> = HashMap::new();
+        for source in &sources {
+            if let Some(parent) = source.get_reskinned_from() {
+                identities.entry(parent.get_name().to_string()).or_default();
+            }
+        }
         let mut view = Self::new();
-        for source in versions {
+        for source in sources {
             let mut template = ThingTemplate::new();
             template.set_template_id(source.get_template_id());
             template.set_template_name(source.get_name().clone());
             template.copy_from(source);
-            view.add_template(Arc::new(template));
+            template.set_next_template(view.first_template.clone());
+            if let Some(parent) = source.get_reskinned_from()
+                && let Some(identity) = identities.get(parent.get_name().as_str())
+            {
+                template.set_detached_reskin_parent(Arc::clone(identity));
+            }
+            let template = Arc::new(template);
+            if let Some(identity) = identities.get(template.get_name().as_str()) {
+                identity.set(Arc::downgrade(&template)).expect("unique template name");
+            }
+            if view
+                .template_hash_map
+                .insert(template.get_name().clone(), Arc::clone(&template))
+                .is_some()
+            {
+                panic!("Duplicate Thing Template name found: {}", template.get_name());
+            }
+            view.first_template = Some(template);
         }
         view.next_template_id = next_template_id;
         view

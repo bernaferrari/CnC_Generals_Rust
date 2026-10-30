@@ -46,7 +46,7 @@ use crate::common::{
 };
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::{Arc, RwLock},
+    sync::{Arc, OnceLock, RwLock, Weak},
 };
 
 #[path = "thing_template_snapshot.rs"]
@@ -1399,6 +1399,7 @@ pub struct ThingTemplate {
     next_override: TemplateOverrideLink,
     is_override: bool,
     reskinned_from: Option<Arc<ThingTemplate>>,
+    detached_reskin_parent: Option<Arc<OnceLock<Weak<ThingTemplate>>>>,
 
     // Display properties
     display_name: UnicodeString,
@@ -1536,6 +1537,7 @@ impl ThingTemplate {
             next_override,
             is_override: false,
             reskinned_from: None,
+            detached_reskin_parent: None,
 
             display_name: UnicodeString::new(),
             display_color: Color::white(),
@@ -2572,8 +2574,17 @@ impl ThingTemplate {
         self.reskinned_from = Some(template);
     }
 
-    pub fn get_reskinned_from(&self) -> Option<&Arc<ThingTemplate>> {
-        self.reskinned_from.as_ref()
+    pub fn get_reskinned_from(&self) -> Option<Arc<ThingTemplate>> {
+        match &self.detached_reskin_parent {
+            Some(parent) => parent.get().and_then(Weak::upgrade),
+            None => self.reskinned_from.clone(),
+        }
+    }
+
+    pub(super) fn set_detached_reskin_parent(&mut self, parent: Arc<OnceLock<Weak<ThingTemplate>>>) {
+        // The detached view must not retain the receiving catalog's parent.
+        self.reskinned_from = None;
+        self.detached_reskin_parent = Some(parent);
     }
 
     /// C++ ThingTemplate::isEquivalentTo (ThingTemplate.cpp:1454).
@@ -2597,7 +2608,7 @@ impl ThingTemplate {
             }
         }
         if let (Some(a), Some(b)) = (self.get_reskinned_from(), other.get_reskinned_from()) {
-            if Arc::ptr_eq(a, b) {
+            if Arc::ptr_eq(&a, &b) {
                 return true;
             }
         }
