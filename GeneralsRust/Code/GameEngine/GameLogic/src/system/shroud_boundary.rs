@@ -18,7 +18,7 @@ pub struct BoundaryShroudStore {
 }
 
 impl ShroudManager {
-    /// First pass, before objects and their lookers are detached.
+    /// First pass, before objects are detached from the partition.
     pub fn store_boundary_fogged_cells(&self) -> Result<BoundaryShroudStore, String> {
         let grid = self
             .shroud_grid
@@ -39,8 +39,10 @@ impl ShroudManager {
         })
     }
 
-    /// Second pass, after object lookers have been detached. A changed grid
-    /// here indicates a broken boundary transaction, not an empty result.
+    /// Second pass, after objects are detached and their look receipts reset.
+    /// The original does not remove those existing lookers at this point, so
+    /// currently clear cells are captured even if an object made them clear.
+    /// A changed grid indicates a broken transaction, not an empty result.
     pub fn store_boundary_permanently_revealed_cells(
         &self,
         store: &mut BoundaryShroudStore,
@@ -118,7 +120,9 @@ mod tests {
         let grid = shroud.shroud_grid.as_mut().unwrap();
         grid.cells[0].add_looker(0);
         grid.cells[0].remove_looker(0); // fogged before detachment
-        grid.cells[1].add_looker(0); // a permanent looker survives detachment
+        // An object looker is still in the grid when its receipt is reset.
+        // C++ stores this clear cell as permanently revealed on the second pass.
+        grid.cells[1].add_looker(0);
         grid.cells[2].add_looker(1); // clipped by the smaller grid
         let mut saved = shroud.store_boundary_fogged_cells().unwrap();
         shroud
