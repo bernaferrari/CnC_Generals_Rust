@@ -28,7 +28,16 @@ impl GameLogic {
             states.push(parent);
         }
         for state in states {
-            if matches!(state, AIState::Attacking | AIState::AttackingGround) {
+            let retaliate_phase = (state == AIState::GuardRetaliating)
+                .then(|| self.objects.get(&id).map(|unit| unit.guard_chase_phase))
+                .flatten();
+            let retaliate_attack = retaliate_phase.is_some_and(|phase| {
+                matches!(
+                    phase,
+                    1 | 2 | crate::game_logic::GUARD_CHASE_PHASE_RETALIATE
+                )
+            });
+            if matches!(state, AIState::Attacking | AIState::AttackingGround) || retaliate_attack {
                 self.drop_jet_targeters_on_attack_exit(id);
             }
             if crate::game_logic::host_supply_gather::is_live_dock_ai_state(&state) {
@@ -93,14 +102,16 @@ impl GameLogic {
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
-            if matches!(state, AIState::Attacking | AIState::AttackingGround) {
+            if matches!(state, AIState::Attacking | AIState::AttackingGround) || retaliate_attack {
                 unit.exit_base_ai_attack_owned();
             }
-            if matches!(
-                state,
-                AIState::GuardingArea | AIState::GuardingObject | AIState::GuardRetaliating
-            ) {
+            if matches!(state, AIState::GuardingArea | AIState::GuardingObject) {
                 unit.exit_base_ai_guard_owned();
+            }
+            if state == AIState::GuardRetaliating {
+                unit.guard_retaliate_victim = None;
+                unit.guard_retaliate_anchor = None;
+                unit.clear_guard_chase();
             }
             if state == AIState::Hunting {
                 unit.unit_ai_runtime.clear_hunt();
@@ -111,6 +122,23 @@ impl GameLogic {
             if crate::game_logic::host_supply_gather::is_live_dock_ai_state(&state) {
                 unit.can_path_through_units = false;
                 unit.ignored_obstacle_id = None;
+            }
+            // Inner and AttackAggressor clear the Team target after the child exits.
+            if retaliate_phase.is_some_and(|phase| {
+                matches!(phase, 1 | crate::game_logic::GUARD_CHASE_PHASE_RETALIATE)
+            }) {
+                self.set_host_team_common_target(id, None);
+            }
+            if state == AIState::GuardRetaliating {
+                self.objects
+                    .get_mut(&id)
+                    .filter(|u| std::sync::Arc::ptr_eq(&u.visual_draw_identity_token, &birth))
+                    .ok_or_else(|| {
+                        GameLogicError::Configuration(
+                            "AI clear lost its receiving actor after retaliation exit".into(),
+                        )
+                    })?
+                    .exit_base_ai_guard_owned();
             }
             // AIFaceState::onExit is empty. Do not clear independent locomotor state.
         }
