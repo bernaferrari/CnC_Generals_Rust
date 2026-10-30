@@ -710,6 +710,13 @@ fn continuation_uses_authored_active_terrain_boundary() {
         .unwrap();
     let builder = generals_main::save_load::SnapshotBuilder::new();
     let mut snapshot = builder.create_world_snapshot(&session).unwrap();
+    let grid = snapshot
+        .shroud
+        .grid
+        .as_ref()
+        .expect("admitted partition grid");
+    let expected_cells = (100.0 / grid.cell_size).ceil() as u32;
+    assert_eq!((grid.width, grid.height), (expected_cells, expected_cells));
     snapshot.persist_v18.terrain_active_boundary = 1;
     let (mut restored, _, _, _) = world(200.0, "MapBoundaryWeapon");
     assert!(restored.load_map(path.to_str().unwrap()));

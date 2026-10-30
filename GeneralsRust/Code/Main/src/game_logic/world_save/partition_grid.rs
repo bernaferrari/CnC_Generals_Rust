@@ -3,18 +3,22 @@ use super::*;
 
 impl GameLogic {
     /// The active terrain boundary is distinct from the full map or path grid.
-    pub(crate) fn sync_receiving_map_extent(&mut self) {
+    fn receiving_partition_extent(&self) -> (Vec3, Vec3) {
         let extent = {
             let terrain = self.world_services.terrain();
             let terrain = terrain.read().unwrap_or_else(|error| error.into_inner());
             terrain.has_height_map().then(|| terrain.get_extent())
         };
-        let (min, max) = extent.map_or((self.world_min, self.world_max), |extent| {
+        extent.map_or((self.world_min, self.world_max), |extent| {
             (
                 Vec3::new(extent.lo.x, extent.lo.z, extent.lo.y),
                 Vec3::new(extent.hi.x, extent.hi.z, extent.hi.y),
             )
-        });
+        })
+    }
+
+    pub(crate) fn sync_receiving_map_extent(&mut self) {
+        let (min, max) = self.receiving_partition_extent();
         self.partition_manager.set_map_extent(min, max);
     }
 
@@ -36,15 +40,16 @@ impl GameLogic {
             .movement_policy
             .current()
             .partition_cell_size;
+        let (min, max) = self.receiving_partition_extent();
         let mut shroud = self
             .world_services
             .shroud()
             .lock()
             .map_err(|_| "receiving shroud owner is poisoned".to_string())?;
         shroud.init_shroud_grid_at_origin_with_cell_size(
-            [self.world_min.x, self.world_min.z],
-            self.world_width,
-            self.world_height,
+            [min.x, min.z],
+            max.x - min.x,
+            max.z - min.z,
             cell_size,
         )?;
         self.partition_manager.configure_grid_from_shroud(&shroud);
