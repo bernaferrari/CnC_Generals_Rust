@@ -720,45 +720,63 @@ impl GameLogic {
         if !self.ensure_spawn_behavior_unit_template(spawn_template) {
             return Ok(None);
         }
-        let (team, owner) = {
+        let (team, owner, parent_birth) = {
             let Some(parent) = self.host_object(parent_id) else {
                 return Ok(None);
             };
-            (parent.team, parent.owner_player_id)
+            (
+                parent.team,
+                parent.owner_player_id,
+                std::sync::Arc::downgrade(&parent.visual_draw_identity_token),
+            )
         };
-        let Some(spawned_id) = self.create_object_for_owner_or_team_with_effects_checked(
+        let creation = self.create_object_for_owner_or_team_with_birth_checked(
             spawn_template,
             team,
             owner,
             position,
             interpreter,
             ui,
-        )?
-        else {
-            return Ok(None);
+        );
+        let (spawned_id, child_birth) = match creation {
+            Ok(Some(child)) => child,
+            Ok(None) => return Ok(None),
+            Err(error) => {
+                if let Some((id, birth)) = error.committed {
+                    self.destroy_object_if_birth_matches_with_effects(id, &birth, ui)?;
+                }
+                return Err(error.error);
+            }
         };
+        if !self.object_birth_matches(parent_id, &parent_birth) {
+            self.destroy_object_if_birth_matches_with_effects(spawned_id, &child_birth, ui)?;
+            return Err(gamelogic::GameLogicError::InvalidObject(parent_id.0));
+        }
+        if !self.object_birth_matches(spawned_id, &child_birth) {
+            return Err(gamelogic::GameLogicError::InvalidObject(spawned_id.0));
+        }
         if let Some((spawned, partition)) = self.host_object_and_partition_mut(spawned_id) {
             spawned.producer_id = Some(parent_id);
             spawned.set_orientation_with_partition_owner(orientation, partition);
         }
+        if self
+            .host_object(spawned_id)
+            .is_some_and(|child| child.slaved_update.is_some())
+            && !self.enslave_owned_drone(spawned_id, parent_id, &parent_birth)
+        {
+            self.destroy_object_if_birth_matches_with_effects(spawned_id, &child_birth, ui)?;
+            return Err(gamelogic::GameLogicError::InvalidObject(parent_id.0));
+        }
         // C++ SpawnBehavior::createSpawn appends the child ID after assigning
         // its producer/slaved state and before the exit callback can observe it.
-        let child_identity = self.host_object(spawned_id).map(|child| {
-            (
-                child.id,
-                std::sync::Arc::downgrade(&child.visual_draw_identity_token),
-            )
+        let admitted = self.host_object_mut(parent_id).is_some_and(|parent| {
+            parent.remember_spawn_behavior_child(spawned_id, child_birth.clone(), slot)
         });
-        let admitted = child_identity
-            .zip(self.host_object_mut(parent_id))
-            .is_some_and(|((child_id, birth), parent)| {
-                parent.remember_spawn_behavior_child(child_id, birth, slot)
-            });
         if !admitted {
             // Never leave an admitted child whose producer cannot own its
             // roster identity. This is an invariant failure, not a fallback
             // to deriving order from the world registry.
-            self.destroy_object_with_effects(spawned_id, ui)?;
+            self.destroy_object_if_birth_matches_with_effects(spawned_id, &child_birth, ui)?;
             return Ok(None);
         }
         // C++ SpawnBehavior::createSpawn appends the ID before

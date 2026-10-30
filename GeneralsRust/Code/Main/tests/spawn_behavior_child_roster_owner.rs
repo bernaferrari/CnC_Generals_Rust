@@ -1,8 +1,8 @@
 use generals_main::game_logic::{GameLogic, ObjectId, Player, Team};
+use generals_main::save_load::SnapshotBuilder;
 use generals_main::save_load::snapshot::{
     capture_lifecycle_tail, decode_lifecycle_tail, encode_lifecycle_tail,
 };
-use generals_main::save_load::SnapshotBuilder;
 use glam::Vec3;
 
 fn world(child_template: &str) -> GameLogic {
@@ -46,19 +46,34 @@ fn spawner_death_stops_surviving_child_slaved_effects_in_its_own_session() {
         (world, parent)
     }
     let (mut owner, parent) = session();
-    let (mut peer, peer_parent) = session();
+    let (peer, peer_parent) = session();
     let child = ObjectId(roster(&owner, parent)[0]);
     assert_eq!(roster(&peer, peer_parent), vec![child.0]);
-    for world in [&mut owner, &mut peer] {
-        let object = world.host_object_mut(child).unwrap();
-        object.set_status_unselectable(true);
-        object.set_status_disabled_held(true);
+    for world in [&owner, &peer] {
+        let object = world.host_object(child).unwrap();
+        assert!(object.status.unselectable, "onEnslave ran at creation");
+        assert!(
+            object.status.disabled_held,
+            "the spawn exit holds the child"
+        );
     }
+    let snapshot = SnapshotBuilder::new()
+        .create_world_snapshot(&owner)
+        .unwrap();
+    let (mut restored, _) = session();
+    SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
     owner.apply_host_damage(parent, 1000.0);
+    restored.apply_host_damage(parent, 1000.0);
     let survivor = owner.host_object(child).unwrap();
     assert!(!survivor.status.unselectable);
     assert!(!survivor.status.disabled_held);
     assert_eq!(survivor.producer_id, None);
+    let restored_child = restored.host_object(child).unwrap();
+    assert!(!restored_child.status.unselectable);
+    assert!(!restored_child.status.disabled_held);
+    assert_eq!(restored_child.producer_id, None);
     let peer_child = peer.host_object(child).unwrap();
     assert!(peer_child.status.unselectable);
     assert!(peer_child.status.disabled_held);
