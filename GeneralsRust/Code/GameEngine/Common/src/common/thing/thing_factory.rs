@@ -554,14 +554,19 @@ impl ThingFactory {
             }
             let template = Arc::new(template);
             if let Some(identity) = identities.get(template.get_name().as_str()) {
-                identity.set(Arc::downgrade(&template)).expect("unique template name");
+                identity
+                    .set(Arc::downgrade(&template))
+                    .expect("unique template name");
             }
             if view
                 .template_hash_map
                 .insert(template.get_name().clone(), Arc::clone(&template))
                 .is_some()
             {
-                panic!("Duplicate Thing Template name found: {}", template.get_name());
+                panic!(
+                    "Duplicate Thing Template name found: {}",
+                    template.get_name()
+                );
             }
             view.first_template = Some(template);
         }

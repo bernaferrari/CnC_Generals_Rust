@@ -2581,7 +2581,10 @@ impl ThingTemplate {
         }
     }
 
-    pub(super) fn set_detached_reskin_parent(&mut self, parent: Arc<OnceLock<Weak<ThingTemplate>>>) {
+    pub(super) fn set_detached_reskin_parent(
+        &mut self,
+        parent: Arc<OnceLock<Weak<ThingTemplate>>>,
+    ) {
         // The detached view must not retain the receiving catalog's parent.
         self.reskinned_from = None;
         self.detached_reskin_parent = Some(parent);
