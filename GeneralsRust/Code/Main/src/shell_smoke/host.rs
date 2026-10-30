@@ -46,12 +46,6 @@ pub(super) fn run_host_session(frames: u32) -> gamelogic::GameLogicResult<HostSe
         })?;
     }
     logic.admit_camera_application_movement(movement);
-    let catalogs =
-        pollster::block_on(crate::cnc_game_engine::CnCGameEngine::load_headless_retail_catalogs())
-            .map_err(gamelogic::GameLogicError::Configuration)?;
-    logic
-        .admit_receiving_module_content_with_weapons(catalogs.objects, Some(catalogs.weapons))
-        .map_err(gamelogic::GameLogicError::Configuration)?;
 
     let resolved = super::maps::resolve_host_map();
     let map_resolved = resolved.is_some();

@@ -221,11 +221,6 @@ impl ArchiveFileSystem {
         self.live_asset_resolver.set_roots(ordered);
     }
 
-    /// Ordered local roots owned by this archive, used for source inventory.
-    pub(crate) fn local_search_roots(&self) -> &[PathBuf] {
-        self.live_asset_resolver.roots()
-    }
-
     /// Resolve a local/extracted file with Windows-style case-insensitive path
     /// matching. This is the local side of C++ FileSystem::openFile dispatch.
     pub fn resolve_local_file(&self, filename: &str) -> Option<PathBuf> {
