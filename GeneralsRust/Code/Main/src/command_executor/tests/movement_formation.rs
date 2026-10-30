@@ -1295,7 +1295,7 @@ fn attack_position_own_location_and_max_shots() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
-            exec.execute_attack_ground(&[id], None, 3),
+            exec.execute_attack_ground(&[id], None, 3).unwrap(),
             CommandResult::Success
         );
     }
@@ -1341,7 +1341,7 @@ fn attack_ground_orders_locked_hive_slaves() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
-            exec.execute_attack_ground(&[site], Some(dest), -1),
+            exec.execute_attack_ground(&[site], Some(dest), -1).unwrap(),
             CommandResult::Success
         );
     }

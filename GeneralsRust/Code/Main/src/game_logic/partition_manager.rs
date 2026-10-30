@@ -309,6 +309,54 @@ impl PartitionManager {
         result
     }
 
+    /// CPP getClosestObject scans the closest occupied radius first, visits
+    /// the whole radius, and keeps the first strictly closest allowed object.
+    pub(in crate::game_logic) fn closest_in_radius(
+        &self,
+        x: f32,
+        z: f32,
+        radius: f32,
+        mut distance_if_allowed: impl FnMut(u32) -> Option<f32>,
+    ) -> Option<u32> {
+        let (cx, cz) = self.receiving_cell_coords(x, z);
+        let query = radius_query::RadiusCellQuery::new(
+            [cx, cz],
+            self.grid
+                .map_or(PARTITION_CELL_SIZE_RESIDUAL, |grid| grid.cell_size),
+            self.grid.map(|grid| grid.dimensions),
+            radius,
+        );
+        let mut cells: Vec<_> = self
+            .cells
+            .iter()
+            .filter(|(cell, _)| query.accepts([cell.0, cell.1]))
+            .collect();
+        cells.sort_by_key(|(cell, _)| query.traversal_key([cell.0, cell.1]));
+        let mut seen = HashSet::new();
+        let mut closest = None;
+        let mut best_distance = radius * radius;
+        let mut found_radius = None;
+        for (cell, occupants) in cells {
+            let ring = query.traversal_key([cell.0, cell.1]).0;
+            if found_radius.is_some_and(|found| ring > found) {
+                break;
+            }
+            for id in occupants.iter().rev().copied() {
+                if !seen.insert(id) {
+                    continue;
+                }
+                if let Some(distance) = distance_if_allowed(id) {
+                    if distance < best_distance {
+                        best_distance = distance;
+                        closest = Some(id);
+                        found_radius = Some(ring);
+                    }
+                }
+            }
+        }
+        closest
+    }
+
     pub fn registered_count(&self) -> usize {
         self.object_cells.len()
     }

@@ -369,7 +369,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         location: Option<Vec3>,
         max_shots: i32,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let mut any = false;
         for &unit_id in units {
             let attack_pos = match location {
@@ -413,7 +413,7 @@ impl<'a> CommandExecutor<'a> {
                         )
                         && self
                             .game_logic
-                            .unit_command_attack_position(passenger, attack_pos, max_shots)
+                            .unit_command_attack_position(passenger, attack_pos, max_shots)?
                     {
                         any = true;
                     }
@@ -441,7 +441,7 @@ impl<'a> CommandExecutor<'a> {
                 if admitted
                     && self
                         .game_logic
-                        .unit_command_attack_position(child_id, attack_pos, max_shots)
+                        .unit_command_attack_position(child_id, attack_pos, max_shots)?
                 {
                     any = true;
                 }
@@ -473,15 +473,20 @@ impl<'a> CommandExecutor<'a> {
                 .game_logic
                 .host_object(unit_id)
                 .is_some_and(|unit| unit.has_ai_update_interface());
-            if has_ai
+            let ordered = has_ai
                 && self
                     .game_logic
-                    .unit_command_attack_position(unit_id, attack_pos, max_shots)
-            {
+                    .unit_command_attack_position(unit_id, attack_pos, max_shots)?;
+            if ordered {
                 any = true;
             }
             // Face/path residual: movable units approach the ground point if far.
-            let need_approach = if !has_ai {
+            let target_is_object = ordered
+                && self
+                    .game_logic
+                    .host_object(unit_id)
+                    .is_some_and(|unit| unit.target.is_some());
+            let need_approach = if !has_ai || target_is_object {
                 None
             } else {
                 self.game_logic.host_object(unit_id).and_then(|unit| {
@@ -503,7 +508,7 @@ impl<'a> CommandExecutor<'a> {
             }
         }
 
-        if any {
+        Ok(if any {
             // C++ CommandXlat.cpp:460-508 MSG_DO_FORCE_ATTACK_GROUND:
             // PerUnitSound VoiceBombard when valid, else ThingTemplate VoiceAttack.
             // MSG_DO_WEAPON_AT_LOCATION / AttackPosition also start from VoiceAttack.
@@ -525,7 +530,7 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     pub(crate) fn execute_stop(&mut self, units: &[ObjectId]) -> CommandResult {

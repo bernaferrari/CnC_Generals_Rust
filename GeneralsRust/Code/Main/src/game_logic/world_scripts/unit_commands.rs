@@ -375,7 +375,7 @@ impl GameLogic {
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<bool> {
         self.stamp_player_command_source(id);
-        self.unit_command_attack_with_source(id, target_id, true, &mut Default::default())
+        self.unit_command_attack_with_source(id, target_id, true, false, &mut Default::default())
     }
 
     /// SCRIPT uses the same owned attack algorithm without player shroud gates.
@@ -388,7 +388,7 @@ impl GameLogic {
             unit.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
         }
-        self.unit_command_attack_with_source(id, target_id, false, &mut Default::default())
+        self.unit_command_attack_with_source(id, target_id, false, false, &mut Default::default())
     }
 
     pub(crate) fn unit_command_attack_with_effects(
@@ -398,7 +398,7 @@ impl GameLogic {
         effects: &mut ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
         self.stamp_player_command_source(id);
-        self.unit_command_attack_with_source(id, target_id, true, effects)
+        self.unit_command_attack_with_source(id, target_id, true, false, effects)
     }
     pub(crate) fn unit_command_script_attack_with_effects(
         &mut self,
@@ -410,7 +410,7 @@ impl GameLogic {
             unit.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
         }
-        self.unit_command_attack_with_source(id, target_id, false, effects)
+        self.unit_command_attack_with_source(id, target_id, false, false, effects)
     }
 
     fn unit_command_attack_with_source(
@@ -418,6 +418,7 @@ impl GameLogic {
         id: ObjectId,
         target_id: ObjectId,
         from_player: bool,
+        prevalidated: bool,
         effects: &mut ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
         if self.note_hacker_ai_command(
@@ -430,15 +431,17 @@ impl GameLogic {
         // Do not merely stamp `target`: C++ WeaponSet validates the concrete
         // target relationship/status and every available Weapon.ini Anti*
         // mask before an attack state is allowed to begin.
-        if !matches!(
-            self.get_able_to_attack_specific_object(
-                id,
-                target_id,
-                AbleToAttackType::NewTarget,
-                from_player,
-            ),
-            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-        ) {
+        if !prevalidated
+            && !matches!(
+                self.get_able_to_attack_specific_object(
+                    id,
+                    target_id,
+                    AbleToAttackType::NewTarget,
+                    from_player,
+                ),
+                CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+            )
+        {
             return Ok(false);
         }
         let (can_attack, switch_away) = {
@@ -1679,9 +1682,86 @@ impl GameLogic {
         id: ObjectId,
         location: glam::Vec3,
         max_shots: i32,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.stamp_player_command_source(id);
-        self.apply_owned_attack_position(id, location, max_shots, false)
+        let Some((range, source_birth, source_position)) = self.host_object(id).map(|source| {
+            let range = source.selected_weapon_slot().map_or(0.0, |slot| {
+                source.selected_native_weapon_rule(slot).map_or_else(
+                    || {
+                        source
+                            .weapon_name_for_slot(slot)
+                            .map_or(0.0, |name| self.receiving_continue_attack_range(name))
+                    },
+                    |weapon| weapon.continue_attack_range.max(0.0),
+                )
+            });
+            (
+                range,
+                std::sync::Arc::downgrade(&source.visual_draw_identity_token),
+                source.get_position(),
+            )
+        }) else {
+            return Ok(false);
+        };
+        let mut shot_limit = max_shots;
+        if range > 0.0 {
+            let (world_min, world_max) = self.world_bounds();
+            let off_map = |pos| {
+                crate::game_logic::host_deliver_payload::is_off_map_residual(
+                    pos,
+                    world_min.x,
+                    world_min.z,
+                    world_max.x,
+                    world_max.z,
+                )
+            };
+            let source_off_map = off_map(source_position);
+            if let Some(source) = self.host_object_mut(id) {
+                source.set_status_ignoring_stealth(true);
+            }
+            let best = self
+                .partition_manager
+                .closest_in_radius(location.x, location.z, range, |raw| {
+                    let candidate_id = ObjectId(raw);
+                    let candidate = self.host_object(candidate_id)?;
+                    let pos = candidate.get_position();
+                    let dist = (pos.x - location.x).powi(2) + (pos.z - location.z).powi(2);
+                    if source_off_map != off_map(pos) {
+                        return None;
+                    }
+                    matches!(
+                        self.get_able_to_attack_specific_object(
+                            id,
+                            candidate_id,
+                            AbleToAttackType::NewTarget,
+                            true
+                        ),
+                        CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                    )
+                    .then_some(dist)
+                })
+                .map(ObjectId);
+            if let Some(source) = self.host_object_mut(id) {
+                source.set_status_ignoring_stealth(false);
+            }
+            if let Some(target) = best {
+                let accepted = self.unit_command_attack_with_source(
+                    id,
+                    target,
+                    true,
+                    true,
+                    &mut Default::default(),
+                )?;
+                if accepted && self.object_birth_matches(id, &source_birth) {
+                    if let Some(source) = self.host_object_mut(id) {
+                        source.set_max_shots_to_fire(max_shots);
+                    }
+                }
+                return Ok(accepted);
+            }
+            shot_limit = 1;
+        }
+        Ok(self.apply_owned_attack_position(id, location, shot_limit, false))
     }
 
     fn apply_owned_attack_position(

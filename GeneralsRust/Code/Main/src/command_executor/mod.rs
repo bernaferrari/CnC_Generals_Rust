@@ -202,11 +202,13 @@ impl<'a> CommandExecutor<'a> {
                 .map_err(|error| error.to_string())?,
             CommandType::ForceAttackGround { location } => {
                 self.execute_attack_ground(&command.selected_units, Some(*location), -1)
+                    .map_err(|error| error.to_string())?
             }
             CommandType::AttackPosition {
                 location,
                 max_shots,
-            } => self.execute_attack_ground(&command.selected_units, *location, *max_shots),
+            } => self.execute_attack_ground(&command.selected_units, *location, *max_shots)
+                .map_err(|error| error.to_string())?,
             CommandType::Stop => self.execute_stop(&command.selected_units),
             CommandType::Guard { target, mode } => {
                 self.execute_guard(&command.selected_units, target, *mode)

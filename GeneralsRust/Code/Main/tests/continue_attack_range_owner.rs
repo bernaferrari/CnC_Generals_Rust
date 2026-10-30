@@ -1,6 +1,9 @@
 use gamelogic::weapon::WeaponTemplate;
+use generals_main::command_executor::CommandExecutor;
+use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
 use generals_main::game_logic::{GameLogic, KindOf, ObjectId, Player, Team};
 use glam::Vec3;
+use std::time::UNIX_EPOCH;
 
 fn world(range: f32, weapon_name: &str) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
     let mut game = GameLogic::new();
@@ -96,4 +99,52 @@ fn authored_zero_overrides_seeded_continue_range() {
         );
         assert_ne!(session.host_object(attacker).unwrap().target, Some(next));
     }
+}
+
+#[test]
+fn attack_position_selects_nearest_target_or_limits_ground_shots() {
+    fn order(game: &mut GameLogic, attacker: ObjectId, position: Vec3) {
+        CommandExecutor::new(game, 1)
+            .execute_command(GameCommand {
+                command_type: CommandType::AttackPosition {
+                    location: Some(position),
+                    max_shots: 7,
+                },
+                player_id: 1,
+                command_id: 1,
+                timestamp: UNIX_EPOCH,
+                selected_units: vec![attacker],
+                modifier_keys: ModifierKeys::default(),
+            })
+            .unwrap();
+    }
+    let (mut owned, attacker, first, next) = world(100.0, "SharedChainWeapon");
+    let (mut peer, peer_attacker, peer_first, peer_next) = world(0.0, "SharedChainWeapon");
+    owned.tick_logic_frame(1.0 / 30.0, None, Some(1));
+    peer.tick_logic_frame(1.0 / 30.0, None, Some(1));
+    assert_eq!(
+        (attacker, first, next),
+        (peer_attacker, peer_first, peer_next)
+    );
+    assert!(
+        owned
+            .object_ids_near(Vec3::new(43.0, 0.0, 20.0), 100.0)
+            .contains(&first),
+        "target registered in receiving partition"
+    );
+    owned.host_object_mut(first).unwrap().status.stealthed = true;
+    order(&mut owned, attacker, Vec3::new(43.0, 0.0, 20.0));
+    assert_eq!(owned.host_object(attacker).unwrap().target, Some(first));
+    assert!(!owned.host_object(attacker).unwrap().status.ignoring_stealth);
+    assert_eq!(owned.host_object(attacker).unwrap().max_shots_to_fire, 7);
+    assert!(!owned.host_object(attacker).unwrap().force_attack);
+    assert_eq!(peer.host_object(attacker).unwrap().target, None);
+    order(&mut peer, attacker, Vec3::new(43.0, 0.0, 20.0));
+    assert_eq!(peer.host_object(attacker).unwrap().target, None);
+    assert_eq!(peer.host_object(attacker).unwrap().max_shots_to_fire, 7);
+    // The nearest candidate is exactly at the 100-unit boundary; C++ uses
+    // a strict distance comparison and therefore falls through to one shot.
+    order(&mut owned, attacker, Vec3::new(150.0, 0.0, 20.0));
+    assert_eq!(owned.host_object(attacker).unwrap().target, None);
+    assert_eq!(owned.host_object(attacker).unwrap().max_shots_to_fire, 1);
 }
