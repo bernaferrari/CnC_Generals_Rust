@@ -34,6 +34,38 @@ fn roster(world: &GameLogic, producer: ObjectId) -> Vec<u32> {
 }
 
 #[test]
+fn spawner_death_stops_surviving_child_slaved_effects_in_its_own_session() {
+    fn session() -> (GameLogic, ObjectId) {
+        let mut world = GameLogic::new();
+        world.admit_object_ini_sources([("SlavedSpawn.ini".into(),
+            "Object Nest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = Child\n SpawnedRequireSpawner = No\n End\nEnd\nObject Child\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SlavedUpdate Slave\n GuardMaxRange = 35\n End\nEnd\n".into())]).unwrap();
+        world.add_player(Player::new(1, Team::GLA, "Owner", true));
+        let parent = world
+            .create_object_for_player("Nest", 1, Vec3::ZERO)
+            .unwrap();
+        (world, parent)
+    }
+    let (mut owner, parent) = session();
+    let (mut peer, peer_parent) = session();
+    let child = ObjectId(roster(&owner, parent)[0]);
+    assert_eq!(roster(&peer, peer_parent), vec![child.0]);
+    for world in [&mut owner, &mut peer] {
+        let object = world.host_object_mut(child).unwrap();
+        object.set_status_unselectable(true);
+        object.set_status_disabled_held(true);
+    }
+    owner.apply_host_damage(parent, 1000.0);
+    let survivor = owner.host_object(child).unwrap();
+    assert!(!survivor.status.unselectable);
+    assert!(!survivor.status.disabled_held);
+    assert_eq!(survivor.producer_id, None);
+    let peer_child = peer.host_object(child).unwrap();
+    assert!(peer_child.status.unselectable);
+    assert!(peer_child.status.disabled_held);
+    assert_eq!(peer_child.producer_id, Some(peer_parent));
+}
+
+#[test]
 fn required_spawn_children_run_their_own_slow_death_in_the_receiving_world() {
     fn session() -> (GameLogic, ObjectId) {
         let mut world = GameLogic::new();

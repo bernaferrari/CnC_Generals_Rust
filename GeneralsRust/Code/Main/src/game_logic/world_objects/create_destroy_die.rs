@@ -1337,8 +1337,8 @@ impl GameLogic {
         }
         // C++ SpawnBehavior::onDie first notifies each slaved child and clears
         // its producer in m_spawnIDs order, then performs the optional kill
-        // pass over that same list. Main has not yet ported onSlaverDie; keep
-        // identity selection and producer-clear ordering faithful here.
+        // pass over that same list. Resolve each original child birth before
+        // invoking its SlavedUpdate and clearing its producer.
         for (child_id, birth) in &children {
             let still_owned_birth = self
                 .host_object(parent_id)
@@ -1347,6 +1347,7 @@ impl GameLogic {
                     parent.spawn_behavior_child_birth_matches(*child_id, birth, child)
                 });
             if still_owned_birth {
+                self.stop_owned_slaved_effects(*child_id);
                 if let Some(child) = self.host_object_mut(*child_id) {
                     child.producer_id = None;
                 }
@@ -1359,8 +1360,7 @@ impl GameLogic {
             let live_child = self.host_object(child_id).is_some_and(|child| {
                 birth.ptr_eq(&std::sync::Arc::downgrade(
                     &child.visual_draw_identity_token,
-                )) && child.is_alive()
-                    && !child.status.effectively_dead
+                )) && !child.status.effectively_dead
             });
             if !live_child {
                 continue;

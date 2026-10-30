@@ -5,6 +5,21 @@ use crate::game_logic::host_slave_drones::{
 };
 
 impl GameLogic {
+    /// SlavedUpdate::onSlaverDie calls stopSlavedEffects synchronously,
+    /// before SpawnBehavior clears the child's producer.
+    pub(in crate::game_logic) fn stop_owned_slaved_effects(&mut self, id: ObjectId) {
+        let Some(object) = self.objects.get_mut(&id) else {
+            return;
+        };
+        let Some(state) = object.slaved_update.as_mut() else {
+            return;
+        };
+        state.master = None;
+        state.guard_offset = Vec3::ZERO;
+        object.set_status_unselectable(false);
+        object.set_status_disabled_held(false);
+    }
+
     pub(in crate::game_logic) fn enslave_owned_drone(
         &mut self,
         drone: ObjectId,
