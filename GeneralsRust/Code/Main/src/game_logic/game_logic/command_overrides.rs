@@ -16,7 +16,10 @@ pub(crate) fn control_bar_override_key(set: &str, slot: i32) -> Option<String> {
 
 impl GameLogic {
     /// Extend the owning action catalog with source-authored fixture definitions.
-    pub fn admit_fixture_command_action_source(&mut self, source: &str) -> Result<(), String> {
+    pub(crate) fn admit_fixture_command_action_source(
+        &mut self,
+        source: &str,
+    ) -> Result<(), String> {
         if let Some(content) = self.receiving_module_content.as_mut() {
             return content.admit_action_overrides(&[source.to_string()]);
         }

@@ -28,7 +28,7 @@ fn oversized_partition_frame_is_rejected_before_reading_its_body() {
     assert!(
         error
             .to_string()
-            .contains("payload exceeds save size limit"),
+            .contains("lifecycle record payload truncated"),
         "{error}"
     );
     assert_eq!(receiver.get_frame(), receiver_frame);

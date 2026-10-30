@@ -43,12 +43,12 @@ fn template(
     template
 }
 
-fn install_smoke_templates(game_logic: &mut GameLogic) {
+fn install_smoke_templates(game_logic: &mut GameLogic) -> TempDir {
     let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
     locomotors.apply_source("Locomotor SmokeDozerLoco\n Surfaces = GROUND\n Speed = 60\n Acceleration = 60\n TurnRate = 120\n Appearance = FOUR_WHEELS\nEnd\n").unwrap();
     game_logic.admit_locomotor_definitions(locomotors).unwrap();
     let mut object_source = String::from(
-        "Object SmokeDozer\n KindOf = VEHICLE DOZER HARVESTER SELECTABLE\n CommandSet = SmokeDozerCommands\n Locomotor = SET_NORMAL SmokeDozerLoco\n Body = ActiveBody SmokeBody\n MaxHealth = 300\n InitialHealth = 300\n End\n Behavior = PhysicsBehavior SmokePhysics\n End\n Behavior = WorkerAIUpdate SmokeAI\n End\nEnd\n",
+        "Object SmokeDozer\n KindOf = VEHICLE DOZER HARVESTER SELECTABLE\n VisionRange = 500\n CommandSet = SmokeDozerCommands\n Locomotor = SET_NORMAL SmokeDozerLoco\n Body = ActiveBody SmokeBody\n MaxHealth = 300\n InitialHealth = 300\n End\n Behavior = PhysicsBehavior SmokePhysics\n End\n Behavior = WorkerAIUpdate SmokeAI\n End\nEnd\n",
     );
     for (name, kinds, health, cost) in [
         (
@@ -60,14 +60,23 @@ fn install_smoke_templates(game_logic: &mut GameLogic) {
         ("SmokePowerPlant", "STRUCTURE SELECTABLE", 800, 800),
         ("SmokeBarracks", "STRUCTURE SELECTABLE", 1000, 500),
         ("SmokeRanger", "INFANTRY SELECTABLE", 120, 100),
-        ("SmokeSupplyDock", "SELECTABLE", 1000, 0),
+        (
+            "SmokeSupplyDock",
+            "STRUCTURE SELECTABLE SUPPLY_SOURCE",
+            1000,
+            0,
+        ),
     ] {
         let weapon_set = if name == "SmokeRanger" {
             " WeaponSet\n Conditions = NONE\n Weapon = PRIMARY SmokeRangerGun\n End\n Behavior = AIUpdateInterface SmokeAI\n End\n"
+        } else if name == "SmokeCommandCenter" {
+            " Behavior = AIUpdateInterface SmokeStructureAI\n End\n Behavior = SpecialAbility SmokeRadarPower\n SpecialPowerTemplate = SpecialPowerRadarVanScan\n End\n"
+        } else if name == "SmokeSupplyDock" {
+            " Behavior = SupplyWarehouseDockUpdate SmokeDock\n StartingBoxes = 400\n End\n"
         } else {
             ""
         };
-        object_source.push_str(&format!("Object {name}\n KindOf = {kinds}\n BuildCost = {cost}\n BuildTime = 0.1\n Body = ActiveBody SmokeBody\n MaxHealth = {health}\n InitialHealth = {health}\n End\n{weapon_set}End\n"));
+        object_source.push_str(&format!("Object {name}\n KindOf = {kinds}\n VisionRange = 500\n BuildCost = {cost}\n BuildTime = 0.1\n Body = ActiveBody SmokeBody\n MaxHealth = {health}\n InitialHealth = {health}\n End\n{weapon_set}End\n"));
     }
     game_logic
         .admit_object_ini_sources([("SmokeObjects.ini".into(), object_source)])
@@ -168,14 +177,13 @@ fn install_smoke_templates(game_logic: &mut GameLogic) {
     out.write_int(0);
     out.close_data_chunk();
     std::fs::write(&map, out.into_ckmp_bytes()).unwrap();
+    std::fs::write(directory.path().join("Map.ini"), "SpecialPower SpecialPowerRadarVanScan\n Enum = SPECIAL_RADAR_VAN_SCAN\n ReloadTime = 1000\nEnd\nCommandButton SmokeBuildBarracks\n Command = DOZER_CONSTRUCT\n Object = SmokeBarracks\nEnd\nCommandSet SmokeDozerCommands\n 1 = SmokeBuildBarracks\nEnd\n").unwrap();
     assert!(
         game_logic.load_map(map.to_str().unwrap()),
         "admit smoke terrain"
     );
     game_logic.clear_all_players();
-    game_logic.admit_fixture_command_action_source(
-        "CommandButton SmokeBuildBarracks\n Command = DOZER_CONSTRUCT\n Object = SmokeBarracks\nEnd\nCommandSet SmokeDozerCommands\n 1 = SmokeBuildBarracks\nEnd\n",
-    ).unwrap();
+    directory
 }
 
 fn smoke_ranger_weapon() -> Weapon {
@@ -317,7 +325,7 @@ fn run_basic_faction_flow(human_team: Team) {
     let mut game_logic = GameLogic::new();
     game_logic.start_new_game(GameMode::Skirmish);
     game_logic.clear_all_players();
-    install_smoke_templates(&mut game_logic);
+    let _map = install_smoke_templates(&mut game_logic);
     let mut human = Player::new(0, human_team, human_team.get_name(), true);
     let mut enemy = Player::new(1, enemy_team, enemy_team.get_name(), false);
     human.alliance_team = 0;
@@ -539,16 +547,36 @@ fn run_basic_faction_flow(human_team: Team) {
 
 #[test]
 fn mini_skirmish_playable_flow_smoke() {
+    use game_engine::common::ini::INILoadType;
+    use game_engine::common::rts::player_template::PlayerTemplateStore;
+    use generals_main::skirmish_config::{
+        SkirmishPlayerTemplateSelection, apply_skirmish_config, golden_skirmish_config,
+    };
     let mut game_logic = GameLogic::new();
     game_logic.start_new_game(GameMode::Skirmish);
     game_logic.clear_all_players();
-    install_smoke_templates(&mut game_logic);
-    let mut human = Player::new(0, Team::USA, "USA", true);
-    let mut enemy = Player::new(1, Team::China, "China", false);
-    human.alliance_team = 0;
-    enemy.alliance_team = 1;
-    game_logic.add_player(human);
-    game_logic.add_player(enemy);
+    let _map = install_smoke_templates(&mut game_logic);
+    let mut definitions = PlayerTemplateStore::new_owned();
+    definitions.apply_source("PlayerTemplate FactionAmerica\n Side = America\n BaseSide = America\n StartingBuilding = SmokeCommandCenter\nEnd\nPlayerTemplate FactionChina\n Side = China\n BaseSide = China\n StartingBuilding = SmokeCommandCenter\nEnd\n", INILoadType::Overwrite).unwrap();
+    let america_index = definitions.find_template_index("FactionAmerica").unwrap() as i32;
+    let china_index = definitions.find_template_index("FactionChina").unwrap() as i32;
+    let loaded_definitions = definitions.clone();
+    game_logic
+        .admit_player_template_definitions(definitions)
+        .unwrap();
+    let map_path = _map.path().join("SmokeTerrain.map");
+    let mut config = golden_skirmish_config(map_path.to_str().unwrap());
+    config.slots[1].faction = "China".into();
+    config.slots[0].player_template = SkirmishPlayerTemplateSelection::Exact {
+        template_name: "FactionAmerica".into(),
+        template_index: america_index,
+    };
+    config.slots[1].player_template = SkirmishPlayerTemplateSelection::Exact {
+        template_name: "FactionChina".into(),
+        template_index: china_index,
+    };
+    apply_skirmish_config(&mut game_logic, &config).unwrap();
+    assert!(game_logic.load_map(map_path.to_str().unwrap()));
 
     let command_center = game_logic
         .create_object(
@@ -709,12 +737,13 @@ fn mini_skirmish_playable_flow_smoke() {
     assert_eq!(dozer_state.ai_state(), AIState::Gathering);
     assert_eq!(dozer_state.target, Some(supply_dock));
 
+    assert!(game_logic.is_special_power_ready_for(command_center, &SpecialPowerType::RadarScan));
     game_logic.queue_command(command(
         4,
         0,
         CommandType::DoSpecialPower {
             power_type: SpecialPowerType::RadarScan,
-            target: PowerTarget::None,
+            target: PowerTarget::Location(Vec3::new(300.0, 0.0, 200.0)),
         },
         vec![command_center],
     ));
@@ -722,6 +751,19 @@ fn mini_skirmish_playable_flow_smoke() {
     let command_center_state = game_logic
         .get_object(command_center)
         .expect("command center should exist after special power command");
+    assert!(
+        command_center_state
+            .thing()
+            .template
+            .special_power_module_for_command(&SpecialPowerType::RadarScan)
+            .is_some(),
+        "command center must carry the authored radar power"
+    );
+    assert_eq!(
+        game_logic.radar_scans().activations(),
+        1,
+        "radar scan must activate through the command"
+    );
     assert_eq!(command_center_state.ai_state(), AIState::SpecialAbility);
     assert!(!command_center_state.special_power_ready);
 
@@ -736,11 +778,19 @@ fn mini_skirmish_playable_flow_smoke() {
         .expect("mini skirmish should save");
 
     let mut loaded_game_logic = GameLogic::new();
-    install_smoke_templates(&mut loaded_game_logic);
+    let _loaded_map = install_smoke_templates(&mut loaded_game_logic);
+    loaded_game_logic
+        .admit_player_template_definitions(loaded_definitions)
+        .unwrap();
+    apply_skirmish_config(&mut loaded_game_logic, &config).unwrap();
+    assert!(loaded_game_logic.load_map(map_path.to_str().unwrap()));
     let loaded_info = save_manager
         .load_game("mini_skirmish_smoke", &mut loaded_game_logic)
         .expect("mini skirmish should load");
-    assert_eq!(loaded_info.display_name, save_info.display_name);
+    // The native header stores one description; the reader exposes it as both
+    // the description and display label.
+    assert_eq!(loaded_info.display_name, save_info.description);
+    assert_eq!(loaded_info.description, save_info.description);
     assert_smoke_enemies(&loaded_game_logic, enemy_command_center);
     assert_eq!(
         loaded_game_logic
@@ -863,7 +913,7 @@ fn dozer_construct_places_barracks_under_construction() {
     let mut game_logic = GameLogic::new();
     game_logic.start_new_game(GameMode::Skirmish);
     game_logic.clear_all_players();
-    install_smoke_templates(&mut game_logic);
+    let _map = install_smoke_templates(&mut game_logic);
     game_logic.add_player(Player::new(0, Team::USA, "USA", true));
     let dozer = game_logic
         .create_object("SmokeDozer", Team::USA, Vec3::new(70.0, 0.0, 100.0))
