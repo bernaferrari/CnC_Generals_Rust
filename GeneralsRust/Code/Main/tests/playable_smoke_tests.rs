@@ -335,7 +335,7 @@ fn run_basic_faction_flow(human_team: Team) {
         .get_object(dozer)
         .expect("dozer should exist after gather command");
     assert_eq!(
-        dozer_state.ai_state,
+        dozer_state.ai_state(),
         AIState::Gathering,
         "{} worker should accept gather commands from player slot 0",
         human_team.get_name()
@@ -600,7 +600,7 @@ fn mini_skirmish_playable_flow_smoke() {
     let dozer_state = game_logic
         .get_object(dozer)
         .expect("dozer should exist after gather command");
-    assert_eq!(dozer_state.ai_state, AIState::Gathering);
+    assert_eq!(dozer_state.ai_state(), AIState::Gathering);
     assert_eq!(dozer_state.target, Some(supply_dock));
 
     game_logic.queue_command(command(
@@ -616,7 +616,7 @@ fn mini_skirmish_playable_flow_smoke() {
     let command_center_state = game_logic
         .get_object(command_center)
         .expect("command center should exist after special power command");
-    assert_eq!(command_center_state.ai_state, AIState::SpecialAbility);
+    assert_eq!(command_center_state.ai_state(), AIState::SpecialAbility);
     assert!(!command_center_state.special_power_ready);
 
     let save_dir = TempDir::new().expect("smoke save temp dir should be created");
@@ -654,7 +654,7 @@ fn mini_skirmish_playable_flow_smoke() {
     let loaded_command_center = loaded_game_logic
         .get_object(command_center)
         .expect("loaded command center should exist");
-    assert_eq!(loaded_command_center.ai_state, AIState::SpecialAbility);
+    assert_eq!(loaded_command_center.ai_state(), AIState::SpecialAbility);
     assert!(!loaded_command_center.special_power_ready);
     assert!(loaded_command_center.special_power_cooldown_remaining > 0.0);
     assert_eq!(
@@ -809,7 +809,7 @@ fn dozer_construct_places_barracks_under_construction() {
         "DozerConstruct must retain the placed structure as its order target"
     );
     assert_eq!(
-        dozer_state.ai_state,
+        dozer_state.ai_state(),
         AIState::Constructing,
         "DozerConstruct must enter the constructing state"
     );
