@@ -149,6 +149,17 @@ impl Team {
         count
     }
 
+    /// Read the stored target without consulting an ambient object registry.
+    /// The receiving world validates the returned identity against its own objects.
+    pub fn receiving_common_target(&self) -> ObjectID {
+        self.common_attack_target.load(Ordering::Relaxed)
+    }
+
+    /// Commit a target already admitted by the receiving world's policy.
+    pub fn set_receiving_common_target(&mut self, target: ObjectID) {
+        self.common_attack_target.store(target, Ordering::Relaxed);
+    }
+
     /// Set team target object
     pub fn set_team_target_object(&mut self, target: ObjectID) {
         if target == INVALID_ID {

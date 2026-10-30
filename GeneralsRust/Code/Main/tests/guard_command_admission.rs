@@ -10,6 +10,41 @@ fn make_world(kind: KindOf) -> GameLogic {
     world
 }
 
+fn bind_team_target(world: &mut GameLogic, id: generals_main::game_logic::ObjectId) {
+    use generals_main::game_logic::Player;
+    use generals_main::save_load::snapshot::{
+        apply_pending_player_team_chunks, stamp_player_team_chunks,
+    };
+    world.add_player(Player::new(1, Team::USA, "Local", true));
+    let mut chunks = stamp_player_team_chunks(world).unwrap();
+    let team = chunks
+        .teams
+        .as_mut()
+        .unwrap()
+        .teams
+        .iter_mut()
+        .find(|team| team.controller == Some(1))
+        .unwrap();
+    team.members = Some(vec![id.0]);
+    team.common_attack_target = Some(id.0);
+    apply_pending_player_team_chunks(world, &chunks).unwrap();
+}
+fn team_target(world: &GameLogic, id: generals_main::game_logic::ObjectId) -> Option<u32> {
+    generals_main::save_load::snapshot::stamp_player_team_chunks(world)
+        .unwrap()
+        .teams
+        .unwrap()
+        .teams
+        .into_iter()
+        .find(|team| {
+            team.members
+                .as_ref()
+                .is_some_and(|members| members.contains(&id.0))
+        })
+        .expect("actor's real receiving Team")
+        .common_attack_target
+}
+
 #[test]
 fn ordinary_guard_commands_reject_ineligible_actor_without_changing_peer() {
     for kind in [KindOf::Immobile, KindOf::Projectile] {
@@ -146,7 +181,6 @@ fn replacing_retaliation_exits_its_active_attack_without_touching_peer() {
     let mut attacks = AttackEvents::default();
     for world in [&mut owner, &mut peer] {
         let actor = world.host_object_mut(id).unwrap();
-        actor.team_instance_name = "RetaliationTeam".into();
         actor.begin_guard_retaliate(
             id,
             Some(Vec3::ZERO),
@@ -157,9 +191,7 @@ fn replacing_retaliation_exits_its_active_attack_without_touching_peer() {
         actor.set_status_firing_weapon(true);
         actor.set_status_aiming_weapon(true);
         assert_eq!(actor.ai_state(), AIState::GuardRetaliating);
-        world
-            .team_common_attack_targets
-            .insert("RetaliationTeam".into(), id);
+        bind_team_target(world, id);
     }
     assert!(owner.unit_command_guard_position(id, Vec3::new(10., 0., 20.)));
     let actor = owner.host_object(id).unwrap();
@@ -177,15 +209,8 @@ fn replacing_retaliation_exits_its_active_attack_without_touching_peer() {
     assert!(
         other.status.attacking && other.status.is_firing_weapon && other.status.is_aiming_weapon
     );
-    assert!(
-        !owner
-            .team_common_attack_targets
-            .contains_key("RetaliationTeam")
-    );
-    assert_eq!(
-        peer.team_common_attack_targets.get("RetaliationTeam"),
-        Some(&id)
-    );
+    assert_eq!(team_target(&owner, id), None);
+    assert_eq!(team_target(&peer, id), Some(id.0));
 }
 
 #[test]
@@ -198,7 +223,6 @@ fn outer_retaliation_exit_keeps_the_team_common_target() {
     let mut audio = SessionAudio::default();
     let mut attacks = AttackEvents::default();
     let actor = world.host_object_mut(id).unwrap();
-    actor.team_instance_name = "OuterRetaliationTeam".into();
     actor.begin_guard_retaliate(
         id,
         Some(Vec3::ZERO),
@@ -207,14 +231,9 @@ fn outer_retaliation_exit_keeps_the_team_common_target() {
         &mut ObjectAudio::queue(&mut audio),
     );
     actor.guard_chase_phase = 2;
-    world
-        .team_common_attack_targets
-        .insert("OuterRetaliationTeam".into(), id);
+    bind_team_target(&mut world, id);
     assert!(world.unit_command_guard_position(id, Vec3::new(10., 0., 20.)));
-    assert_eq!(
-        world.team_common_attack_targets.get("OuterRetaliationTeam"),
-        Some(&id)
-    );
+    assert_eq!(team_target(&world, id), Some(id.0));
     assert_eq!(world.host_object(id).unwrap().target, None);
 }
 
@@ -228,7 +247,6 @@ fn inner_retaliation_exit_clears_the_team_common_target() {
     let mut audio = SessionAudio::default();
     let mut attacks = AttackEvents::default();
     let actor = world.host_object_mut(id).unwrap();
-    actor.team_instance_name = "InnerRetaliationTeam".into();
     actor.begin_guard_retaliate(
         id,
         Some(Vec3::ZERO),
@@ -237,14 +255,8 @@ fn inner_retaliation_exit_clears_the_team_common_target() {
         &mut ObjectAudio::queue(&mut audio),
     );
     actor.guard_chase_phase = 1;
-    world
-        .team_common_attack_targets
-        .insert("InnerRetaliationTeam".into(), id);
+    bind_team_target(&mut world, id);
     assert!(world.unit_command_guard_position(id, Vec3::new(10., 0., 20.)));
-    assert!(
-        !world
-            .team_common_attack_targets
-            .contains_key("InnerRetaliationTeam")
-    );
+    assert_eq!(team_target(&world, id), None);
     assert_eq!(world.host_object(id).unwrap().target, None);
 }

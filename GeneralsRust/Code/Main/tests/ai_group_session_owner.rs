@@ -1027,3 +1027,97 @@ fn versioned_guard_continuation_distinguishes_pending_from_old_history() {
         );
     }
 }
+
+#[test]
+fn same_named_teams_own_independent_targets_through_retaliation_and_restore() {
+    use generals_main::game_logic::{ObjectAudio, SessionAudio, host_attack_log::AttackEvents};
+    use generals_main::save_load::snapshot::{
+        apply_pending_player_team_chunks, stamp_player_team_chunks,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file_with_area(root.path(), 0);
+    let (mut owner, first, second, inert) = world(&map);
+    let (mut peer, peer_first, peer_second, peer_inert) = world(&map);
+    assert_eq!(
+        (first, second, inert),
+        (peer_first, peer_second, peer_inert)
+    );
+    for session in [&mut owner, &mut peer] {
+        let mut chunks = stamp_player_team_chunks(session).unwrap();
+        let teams = chunks.teams.as_mut().unwrap();
+        let original = teams
+            .teams
+            .iter_mut()
+            .find(|team| team.team_name == "HuntTeam")
+            .unwrap();
+        original.members = Some(vec![first.0]);
+        original.common_attack_target = Some(inert.0);
+        let mut other = original.clone();
+        other.team_id = 99999;
+        other.members = Some(vec![second.0]);
+        other.common_attack_target = Some(first.0);
+        teams.teams.push(other);
+        teams.unique_team_id = teams.unique_team_id.max(100000);
+        apply_pending_player_team_chunks(session, &chunks).unwrap();
+    }
+    let targets = |session: &GameLogic| {
+        let mut teams: Vec<_> = stamp_player_team_chunks(session)
+            .unwrap()
+            .teams
+            .unwrap()
+            .teams
+            .into_iter()
+            .filter(|team| team.team_name == "HuntTeam")
+            .collect();
+        teams.sort_by_key(|team| team.team_id);
+        assert_eq!(teams.len(), 2);
+        assert_ne!(teams[0].team_id, teams[1].team_id);
+        teams
+            .into_iter()
+            .map(|team| (team.members.unwrap(), team.common_attack_target))
+            .collect::<Vec<_>>()
+    };
+    let before = targets(&owner);
+    assert!(
+        before
+            .iter()
+            .any(|(members, target)| members == &[first.0] && *target == Some(inert.0))
+    );
+    assert!(
+        before
+            .iter()
+            .any(|(members, target)| members == &[second.0] && *target == Some(first.0))
+    );
+    let mut audio = SessionAudio::default();
+    let mut attacks = AttackEvents::default();
+    owner.host_object_mut(first).unwrap().begin_guard_retaliate(
+        inert,
+        None,
+        None,
+        &mut attacks,
+        &mut ObjectAudio::queue(&mut audio),
+    );
+    assert!(owner.unit_command_guard_position(first, Vec3::new(10., 0., 20.)));
+    let after = targets(&owner);
+    assert!(
+        after
+            .iter()
+            .any(|(members, target)| members == &[first.0] && target.is_none())
+    );
+    assert!(
+        after
+            .iter()
+            .any(|(members, target)| members == &[second.0] && *target == Some(first.0))
+    );
+    assert_eq!(targets(&peer), before);
+    let builder = generals_main::save_load::snapshot::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&owner).unwrap();
+    let bytes = bincode_legacy::serialize(&saved).unwrap();
+    let decoded = bincode_legacy::deserialize(&bytes).unwrap();
+    let (mut restored, _, _, _) = world(&map);
+    builder
+        .restore_from_snapshot(&decoded, &mut restored)
+        .unwrap();
+    assert_eq!(targets(&restored), after);
+    assert_eq!(targets(&peer), before);
+}

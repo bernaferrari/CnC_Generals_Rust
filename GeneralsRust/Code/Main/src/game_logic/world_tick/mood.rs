@@ -385,43 +385,44 @@ impl GameLogic {
         }
     }
 
-    pub(crate) fn host_team_instance_key(object: &crate::game_logic::Object) -> String {
-        if !object.team_instance_name.is_empty() {
-            object.team_instance_name.clone()
-        } else {
-            format!("team{}", object.team.get_name())
-        }
+    /// Resolve the actor's admitted Team identity within this session.
+    fn receiving_common_target_team(
+        &self,
+        object_id: ObjectId,
+    ) -> Option<std::sync::Arc<std::sync::RwLock<gamelogic::team::Team>>> {
+        let identity = self.objects.get(&object_id)?.team_instance_id?;
+        self.team_factory.lock().ok()?.find_team_by_id(identity)
     }
 
-    /// C++ `TeamPrototype::m_attackCommonTarget` (default true when proto missing).
     pub(crate) fn team_wants_common_attack(&self, object_id: ObjectId) -> bool {
-        let Some(object) = self.objects.get(&object_id) else {
+        let Some(team) = self.receiving_common_target_team(object_id) else {
             return false;
         };
-        let name = Self::host_team_instance_key(object);
-        if let Ok(factory) = self.team_factory.lock() {
-            if let Some(proto) = factory.find_team_prototype(&name) {
-                return proto.attack_common_target();
-            }
-            if let Some(team) = factory.find_team_instances(&name).into_iter().next() {
-                drop(factory);
-                if let Ok(tg) = team.read() {
-                    return tg.attack_common_target();
-                }
-            }
-        }
-        !object.team_instance_name.is_empty()
+        let name = match team.read() {
+            Ok(team) => team.get_name().to_string(),
+            Err(_) => return false,
+        };
+        self.team_factory
+            .lock()
+            .ok()
+            .and_then(|factory| {
+                factory
+                    .find_team_prototype(&name)
+                    .map(|p| p.attack_common_target())
+            })
+            .unwrap_or(false)
     }
 
     pub(crate) fn host_team_common_target(&mut self, object_id: ObjectId) -> Option<ObjectId> {
         if !self.team_wants_common_attack(object_id) {
             return None;
         }
-        let name = {
-            let object = self.objects.get(&object_id)?;
-            Self::host_team_instance_key(object)
-        };
-        let target_id = *self.team_common_attack_targets.get(&name)?;
+        let team = self.receiving_common_target_team(object_id)?;
+        let raw = team.read().ok()?.receiving_common_target();
+        if raw == gamelogic::common::INVALID_ID {
+            return None;
+        }
+        let target_id = ObjectId(raw);
         let reject = match self.objects.get(&target_id) {
             None => true,
             Some(target) => {
@@ -434,8 +435,9 @@ impl GameLogic {
             }
         };
         if reject {
-            // C++ Team::getTeamTargetObject clears m_commonAttackTarget.
-            self.team_common_attack_targets.remove(&name);
+            team.write()
+                .ok()?
+                .set_receiving_common_target(gamelogic::common::INVALID_ID);
             return None;
         }
         Some(target_id)
@@ -446,29 +448,23 @@ impl GameLogic {
         object_id: ObjectId,
         target: Option<ObjectId>,
     ) {
-        let Some(object) = self.objects.get(&object_id) else {
+        let Some(team) = self.receiving_common_target_team(object_id) else {
             return;
         };
-        let name = Self::host_team_instance_key(object);
-        // C++ Team::setTeamTargetObject: NULL always clears, even for humans.
         if target.is_none() {
-            self.team_common_attack_targets.remove(&name);
+            if let Ok(mut team) = team.write() {
+                team.set_receiving_common_target(gamelogic::common::INVALID_ID);
+            }
             return;
         }
-        if !self.team_wants_common_attack(object_id) {
-            return;
-        }
-        let Some(object) = self.objects.get(&object_id) else {
-            return;
-        };
-        // C++ PLAYER_COMPUTER only; Easy never shares a victim.
-        // C++ getPlayerDifficulty() is the controller, not session dominant.
-        let owner_pid = object.owner_player_id;
-        let is_computer = owner_pid
+        let owner_pid = team
+            .read()
+            .ok()
+            .and_then(|team| team.get_controlling_player_id());
+        if !owner_pid
             .and_then(|pid| self.players.get(&pid))
-            .map(|p| !self.is_local_player(p.id))
-            .unwrap_or(false);
-        if !is_computer {
+            .is_some_and(|p| !p.is_human && !p.is_observer)
+        {
             return;
         }
         let controller_diff = owner_pid
@@ -477,8 +473,8 @@ impl GameLogic {
         if controller_diff == crate::ai::AIDifficulty::Easy {
             return;
         }
-        if let Some(id) = target {
-            self.team_common_attack_targets.insert(name, id);
+        if let Ok(mut team) = team.write() {
+            team.set_receiving_common_target(target.unwrap().0);
         }
     }
 

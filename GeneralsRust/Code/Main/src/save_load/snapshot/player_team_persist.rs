@@ -22,7 +22,7 @@ pub const CHUNK_PLAYERS: &str = "CHUNK_Players";
 pub const CHUNK_TEAM_FACTORY: &str = "CHUNK_TeamFactory";
 
 const PLAYERS_CHUNK_VERSION: u8 = 9;
-const TEAM_FACTORY_CHUNK_VERSION: u8 = 7;
+const TEAM_FACTORY_CHUNK_VERSION: u8 = 8;
 const MAX_ATTACKED_BY: usize = 16;
 const MAX_GENERIC_SCRIPTS: usize = 16;
 
@@ -127,6 +127,8 @@ pub struct TeamRuntimePersist {
     /// Some only for v5 owned continuation; None retains historical admission.
     pub members: Option<Vec<u32>>,
     pub controller: Option<u32>,
+    /// Session-local Object identity owned by this Team, not its prototype name.
+    pub common_attack_target: Option<u32>,
     pub created: bool,
     pub active: bool,
     pub see_enemy: bool,
@@ -154,6 +156,7 @@ impl Default for TeamRuntimePersist {
             team_id: 0,
             members: None,
             controller: None,
+            common_attack_target: None,
             created: false,
             active: false,
             see_enemy: false,
@@ -745,6 +748,8 @@ pub fn write_team_factory_block<W: Write + Seek>(
         if let Some(mut id) = team.controller {
             map_xfer(xfer.xfer_unsigned_int(&mut id))?;
         }
+        let mut target = team.common_attack_target.unwrap_or(0);
+        map_xfer(xfer.xfer_unsigned_int(&mut target))?;
     }
     let mut proto_count = persist.prototypes.len() as u16;
     map_xfer(xfer.xfer_unsigned_short(&mut proto_count))?;
@@ -878,6 +883,11 @@ pub fn parse_team_factory_block(payload: &[u8]) -> SaveLoadResult<TeamFactoryChu
                 map_xfer(xfer.xfer_unsigned_int(&mut id))?;
                 team.controller = Some(id);
             }
+        }
+        if version >= 8 {
+            let mut target = 0;
+            map_xfer(xfer.xfer_unsigned_int(&mut target))?;
+            team.common_attack_target = (target != 0).then_some(target);
         }
         teams.push(team);
     }
@@ -1072,6 +1082,7 @@ pub(super) fn capture_team_factory_chunk(
             team_id: team.get_id(),
             members: Some(team.get_members().to_vec()),
             controller: team.get_controlling_player_id(),
+            common_attack_target: Some(team.receiving_common_target()).filter(|id| *id != 0),
             created: team.is_created(),
             active: team.is_active(),
             see_enemy: team.get_see_enemy(),
@@ -1420,6 +1431,7 @@ pub(super) fn apply_teams_to_leftover(
         let mut team = team_arc
             .write()
             .map_err(|e| SaveLoadError::Corrupted(e.to_string()))?;
+        team.set_receiving_common_target(team_persist.common_attack_target.unwrap_or(0));
         let waypoint = if team_persist.current_waypoint_id == 0 {
             None
         } else {

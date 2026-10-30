@@ -1,8 +1,8 @@
 //! Persist live team common-attack targets and AI waypoint / order state.
 //!
-//! C++ `Team::xfer` (`Team.cpp:2666`) writes `m_commonAttackTarget`. Live
-//! host stores that residual in `GameLogic.team_common_attack_targets`
-//! (`world_tick/mood.rs`). C++ `AIUpdateInterface::xfer`
+//! C++ `Team::xfer` (`Team.cpp:2666`) writes `m_commonAttackTarget`.
+//! The receiving TeamFactory chunk owns that target per Team instance.
+//! C++ `AIUpdateInterface::xfer`
 //! (`AIUpdate.cpp:4995-5105`) writes waypoint IDs, the waypoint queue,
 //! `m_path`, `m_requestedDestination`, `m_currentVictimID`, path flags,
 //! `m_lastCommandSource`, `m_ignoreObstacleID`, `m_finalPosition` /
@@ -1155,6 +1155,11 @@ pub(super) fn prepare_from_lifecycle_tail(
         bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("TMAI payload decode: {err}")))?
     };
+    if !payload.team_targets.is_empty() {
+        return Err(SaveLoadError::Corrupted(
+            "Legacy name-keyed Team targets cannot identify a Team instance".into(),
+        ));
+    }
     Ok(Some(PreparedAiTeam {
         payload,
         movement_runtime,
@@ -1207,15 +1212,7 @@ pub(super) fn apply_prepared(
 }
 
 fn capture(game_logic: &GameLogic) -> AiTeamPersistPayload {
-    let mut team_targets: Vec<TeamCommonAttackPersist> = game_logic
-        .team_common_attack_targets
-        .iter()
-        .map(|(team, id)| TeamCommonAttackPersist {
-            team: team.clone(),
-            target_id: id.0,
-        })
-        .collect();
-    team_targets.sort_by(|a, b| a.team.cmp(&b.team));
+    let team_targets = Vec::new();
 
     let pending: std::collections::HashMap<u32, PendingHostPath> = game_logic
         .snapshot_pending_host_paths()
@@ -1314,16 +1311,6 @@ fn apply_payload(
     payload: AiTeamPersistPayload,
     object_records: Option<&std::collections::HashSet<ObjectId>>,
 ) {
-    game_logic.team_common_attack_targets.clear();
-    for entry in payload.team_targets {
-        if entry.team.is_empty() || entry.target_id == 0 {
-            continue;
-        }
-        game_logic
-            .team_common_attack_targets
-            .insert(entry.team, ObjectId(entry.target_id));
-    }
-
     let mut pending = Vec::new();
     for order in payload.orders {
         let id = ObjectId(order.object_id);

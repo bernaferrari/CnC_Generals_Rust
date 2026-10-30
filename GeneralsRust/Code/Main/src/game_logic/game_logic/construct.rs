@@ -124,7 +124,6 @@ impl GameLogic {
             host_physics_visuals: Default::default(),
             drawable_tint_envelopes: crate::game_logic::DrawableTintEnvelopes::default(),
             attack_priority_sets: std::collections::HashMap::new(),
-            team_common_attack_targets: std::collections::HashMap::new(),
 
             enable_repulsors: false,
             retaliate_friends_radius: 120.0,
