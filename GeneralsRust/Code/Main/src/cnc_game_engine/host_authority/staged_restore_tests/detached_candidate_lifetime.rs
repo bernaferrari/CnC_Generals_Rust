@@ -29,6 +29,7 @@ fn stage_decoded(
             upgrade_definition_base: &source.upgrade_definition_base,
             modules: &source.receiving_module_content,
             player_templates: &source.player_template_definitions,
+            multiplayer_definitions: &source.multiplayer_definitions,
             object_definitions: &source.receiving_object_definitions,
             locomotors: &source.locomotor_definition_base,
             baseline: &source.receiving_template_baseline,

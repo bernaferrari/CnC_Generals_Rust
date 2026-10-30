@@ -154,6 +154,8 @@ pub(super) struct RestoreTemplateCatalog<'a> {
     combat_bonus_baseline: &'a game_engine::common::ini::ini_game_data::CombatBonusRules,
     templates: &'a std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
     player_templates: &'a Option<game_engine::common::rts::player_template::PlayerTemplateStore>,
+    multiplayer_definitions:
+        &'a Option<Arc<game_engine::common::ini::ini_multiplayer::MultiplayerSettings>>,
     modules:
         &'a Option<game_engine::common::thing::receiving_module_content::ReceivingModuleContent>,
     object_definitions: &'a Option<crate::assets::ReceivingObjectDefinitions>,
@@ -167,6 +169,7 @@ impl<'a> RestoreTemplateCatalog<'a> {
             templates: &world.templates,
             modules: &world.receiving_module_content,
             player_templates: &world.player_template_definitions,
+            multiplayer_definitions: &world.multiplayer_definitions,
             object_definitions: &world.receiving_object_definitions,
             locomotors: &world.locomotor_definition_base,
             baseline: &world.receiving_template_baseline,
@@ -2339,6 +2342,7 @@ impl CnCGameEngine {
                 upgrade_definition_base: &live.upgrade_definition_base,
                 modules: &live.receiving_module_content,
                 player_templates: &live.player_template_definitions,
+                multiplayer_definitions: &live.multiplayer_definitions,
                 object_definitions: &live.receiving_object_definitions,
                 locomotors: &live.locomotor_definition_base,
                 baseline: &live.receiving_template_baseline,
@@ -2486,6 +2490,7 @@ impl CnCGameEngine {
             if let Some(definitions) = &live.player_template_definitions {
                 candidate.admit_player_template_definitions(definitions.clone())?;
             }
+            candidate.multiplayer_definitions = live.multiplayer_definitions.clone();
             candidate.receiving_module_content = live.receiving_module_content.clone();
             candidate.receiving_object_definitions = live.receiving_object_definitions.clone();
             candidate.locomotor_definition_base = live.locomotor_definition_base.clone();
@@ -2722,14 +2727,19 @@ impl CnCGameEngine {
         {
             return Err("initial Skirmish admission supplied for another game mode".into());
         }
-        let initial_skirmish = crate::save_load::snapshot::initial_skirmish::read_for_restore(
-            snapshot,
-            template_catalog.player_templates.as_ref(),
-        )
-        .map_err(|error| error.to_string())?;
+        let initial_skirmish =
+            crate::save_load::snapshot::initial_skirmish::read_for_restore_with_settings(
+                snapshot,
+                template_catalog.player_templates.as_ref(),
+                template_catalog.multiplayer_definitions.as_deref(),
+            )
+            .map_err(|error| error.to_string())?;
         if mode == crate::game_logic::GameMode::Skirmish {
             let initial = initial_skirmish.as_ref().ok_or("Missing saved initial SkirmishGameInfo and native resolved admission; cannot reconstruct participant definitions")?;
-            initial.validate_definitions(template_catalog.player_templates.as_ref())?;
+            initial.validate_definitions_with_settings(
+                template_catalog.player_templates.as_ref(),
+                template_catalog.multiplayer_definitions.as_deref(),
+            )?;
         } else if initial_skirmish.is_some() {
             return Err("initial Skirmish admission supplied for another game mode".into());
         }
@@ -2796,6 +2806,7 @@ impl CnCGameEngine {
         if let Some(definitions) = template_catalog.player_templates {
             staged.admit_player_template_definitions(definitions.clone())?;
         }
+        staged.multiplayer_definitions = template_catalog.multiplayer_definitions.clone();
         staged.seed_ocl_application_definitions(Arc::clone(ocl_application_base));
         staged.set_ai_definition_base(ai_definition_base.clone());
         staged.admit_production_energy_base(production_energy_base);
@@ -3071,6 +3082,7 @@ impl CnCGameEngine {
                     upgrade_definition_base: &self.game_logic.upgrade_definition_base,
                     modules: &self.game_logic.receiving_module_content,
                     player_templates: &self.game_logic.player_template_definitions,
+                    multiplayer_definitions: &self.game_logic.multiplayer_definitions,
                     object_definitions: &self.game_logic.receiving_object_definitions,
                     locomotors: &self.game_logic.locomotor_definition_base,
                     baseline: &self.game_logic.receiving_template_baseline,
@@ -3123,6 +3135,7 @@ impl CnCGameEngine {
                 upgrade_definition_base: &self.game_logic.upgrade_definition_base,
                 modules: &self.game_logic.receiving_module_content,
                 player_templates: &self.game_logic.player_template_definitions,
+                multiplayer_definitions: &self.game_logic.multiplayer_definitions,
                 object_definitions: &self.game_logic.receiving_object_definitions,
                 locomotors: &self.game_logic.locomotor_definition_base,
                 baseline: &self.game_logic.receiving_template_baseline,

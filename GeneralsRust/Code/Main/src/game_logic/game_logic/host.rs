@@ -172,6 +172,9 @@ pub struct GameLogic {
     /// Immutable PlayerTemplate definitions loaded for this application/session.
     pub(crate) player_template_definitions:
         Option<game_engine::common::rts::player_template::PlayerTemplateStore>,
+    /// Immutable application definitions used by this session's skirmish admission.
+    pub(crate) multiplayer_definitions:
+        Option<std::sync::Arc<game_engine::common::ini::ini_multiplayer::MultiplayerSettings>>,
     /// Immutable once-resolved initial admission, distinct from current players.
     pub(crate) initial_skirmish_admission:
         Option<Box<crate::skirmish_config::saved_admission::SavedSkirmishAdmission>>,

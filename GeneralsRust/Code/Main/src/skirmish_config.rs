@@ -842,11 +842,16 @@ pub(crate) fn apply_skirmish_config_for_mode(
     config: &SkirmishMatchConfig,
     mode: GameMode,
 ) -> Result<(), String> {
-    apply_skirmish_config_for_mode_with_settings(logic, config, mode, None)
+    let settings = logic.multiplayer_definitions.clone();
+    apply_skirmish_config_for_mode_with_settings(logic, config, mode, settings.as_deref())
 }
 
-/// Apply a headless skirmish using the setup's own authored multiplayer data.
-pub(crate) fn apply_skirmish_config_with_multiplayer_settings(
+/// Apply a skirmish using the setup's own authored multiplayer settings.
+///
+/// The receiving world should also have its own player-template definitions
+/// admitted before this call. This supplies the multiplayer settings for
+/// admission; it does not replace the other engine startup services.
+pub fn apply_skirmish_config_with_multiplayer_settings(
     logic: &mut GameLogic,
     config: &SkirmishMatchConfig,
     multiplayer: &game_engine::common::ini::ini_multiplayer::MultiplayerSettings,
@@ -903,6 +908,8 @@ fn apply_skirmish_config_for_mode_with_settings(
         admit_resolved_slots(logic, config, &assigned, resolved_slots, multiplayer)?;
         admission.admit_local_selection(logic);
         logic.initial_skirmish_admission = Some(Box::new(admission));
+        logic.multiplayer_definitions =
+            multiplayer.map(|settings| std::sync::Arc::new(settings.clone()));
         if mode == GameMode::Replay {
             logic.apply_replay_observer_as_local_player();
         }

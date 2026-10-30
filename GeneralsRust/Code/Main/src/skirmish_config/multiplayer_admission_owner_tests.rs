@@ -137,3 +137,38 @@ fn receiving_palette_controls_actual_admission_and_retained_original_record() {
         },
     );
 }
+
+#[test]
+fn original_game_info_import_uses_receiving_palette_and_shroud() {
+    use game_engine::common::ini::INILoadType;
+    use game_engine::common::rts::player_template::PlayerTemplateStore;
+    let mut store = PlayerTemplateStore::new_owned();
+    store
+        .apply_source(
+            "PlayerTemplate FactionAmerica\n Side = America\n StartingBuilding = AmericaCommandCenter\nEnd\n",
+            INILoadType::Overwrite,
+        )
+        .unwrap();
+    let mut settings = palette(&[(0x123456, 0xabcdef)]);
+    settings.is_shroud_in_multiplayer = false;
+    let mut source = SkirmishGameInfo::default();
+    source.in_game = true;
+    source.in_progress = true;
+    source.map_name = "OriginalOwned.map".into();
+    source.slots[0].state = 5;
+    source.slots[0].player_template = store.find_template_index("FactionAmerica").unwrap() as i32;
+    source.slots[0].color = 0;
+    let imported = saved_admission::SavedSkirmishAdmission::from_original_with_settings(
+        source,
+        &store,
+        Some(&settings),
+    )
+    .unwrap();
+    assert_eq!(imported.config.slots[0].color_rgb, (0x12, 0x34, 0x56));
+    assert!(!imported.config.rules.fog_of_war);
+    assert!(
+        imported
+            .validate_definitions_with_settings(Some(&store), Some(&palette(&[(0x010203, 0)])))
+            .is_err()
+    );
+}
