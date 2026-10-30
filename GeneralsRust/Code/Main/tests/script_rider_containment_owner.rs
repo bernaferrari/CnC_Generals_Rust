@@ -39,7 +39,7 @@ fn run_toggle(world: &mut GameLogic, action: ScriptActionType) {
         .unwrap();
 }
 
-fn make_world(path: &std::path::Path, is_rider_change: bool) -> (GameLogic, ObjectId, ObjectId) {
+fn make_world(path: &std::path::Path, contain_kind: &str) -> (GameLogic, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
     let mut players = PlayerTemplateStore::new_owned();
     players.apply_source("PlayerTemplate FactionCivilian\n Side = Civilian\nEnd\nPlayerTemplate FactionAmerica\n Side = America\nEnd\n", INILoadType::Overwrite).unwrap();
@@ -47,10 +47,16 @@ fn make_world(path: &std::path::Path, is_rider_change: bool) -> (GameLogic, Obje
     let mut locos = LocomotorStore::new_owned();
     locos.apply_source("Locomotor GroundOwnerLoco\n Surfaces = GROUND\n Speed = 40\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\n").unwrap();
     world.admit_locomotor_definitions(locos).unwrap();
-    let contain = if is_rider_change {
-        "Behavior = RiderChangeContain RiderTag\n Slots = 1\n Rider1 = OwnerRider RIDER1 WEAPON_RIDER1 STATUS_RIDER1 BikeSet SET_NORMAL\n End\n"
-    } else {
-        "Behavior = TransportContain TransportTag\n Slots = 1\n ContainMax = 1\n AllowInsideKindOf = INFANTRY\n End\n"
+    let contain = match contain_kind {
+        "rider" => {
+            "Behavior = RiderChangeContain RiderTag\n Slots = 1\n Rider1 = OwnerRider RIDER1 WEAPON_RIDER1 STATUS_RIDER1 BikeSet SET_NORMAL\n End\n"
+        }
+        "overlord" => {
+            "Behavior = OverlordContain OverlordTag\n Slots = 1\n ContainMax = 1\n AllowInsideKindOf = INFANTRY\n End\n"
+        }
+        _ => {
+            "Behavior = TransportContain TransportTag\n Slots = 1\n ContainMax = 1\n AllowInsideKindOf = INFANTRY\n End\n"
+        }
     };
     let ini = format!(
         "Object OwnerBike\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL GroundOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n{contain} Behavior = AIUpdateInterface Brain\n End\nEnd\nObject OwnerRider\n KindOf = SELECTABLE INFANTRY\n TransportSlotCount = 1\n Locomotor = SET_NORMAL GroundOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n"
@@ -67,6 +73,14 @@ fn make_world(path: &std::path::Path, is_rider_change: bool) -> (GameLogic, Obje
     let rider = world
         .create_object_for_player("OwnerRider", 42, Vec3::new(81.0, 0.0, 80.0))
         .unwrap();
+    if contain_kind == "overlord" {
+        // Overlord riders are portable add-ons, not normal Enter passengers.
+        // Install the reciprocal roster explicitly to exercise the script
+        // callback without pretending infantry can enter the bare hull.
+        world.host_object_mut(bike).unwrap().occupants.push(rider);
+        world.host_object_mut(rider).unwrap().contained_by = Some(bike);
+        return (world, bike, rider);
+    }
     assert!(world.can_unit_enter_normal_target(rider, bike));
     assert!(world.unit_command_order_enter(rider, bike));
     for _ in 0..20 {
@@ -96,9 +110,27 @@ fn script_toggle_affects_rider_change_rider_not_transport_passenger() {
     let path = root.path().join("RiderOwner.map");
     std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
 
-    let (mut first, bike, rider) = make_world(&path, true);
-    let (mut peer, peer_bike, passenger) = make_world(&path, false);
+    let (mut first, bike, rider) = make_world(&path, "rider");
+    let (mut peer, peer_bike, passenger) = make_world(&path, "transport");
+    let (mut overlord, overlord_id, overlord_rider) = make_world(&path, "overlord");
     assert_eq!((bike, rider), (peer_bike, passenger));
+    assert_eq!((bike, rider), (overlord_id, overlord_rider));
+    run_toggle(&mut overlord, ScriptActionType::PlayerDisableFactories);
+    assert!(
+        overlord
+            .host_object(overlord_rider)
+            .unwrap()
+            .status
+            .disabled_script_disabled
+    );
+    run_toggle(&mut overlord, ScriptActionType::PlayerEnableFactories);
+    assert!(
+        !overlord
+            .host_object(overlord_rider)
+            .unwrap()
+            .status
+            .disabled_script_disabled
+    );
     run_toggle(&mut first, ScriptActionType::PlayerDisableFactories);
     assert!(first.host_object(bike).unwrap().is_script_disabled());
     assert!(
@@ -129,7 +161,7 @@ fn script_toggle_affects_rider_change_rider_not_transport_passenger() {
 
     let builder = SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&first).unwrap();
-    let (mut restored, _, _) = make_world(&path, true);
+    let (mut restored, _, _) = make_world(&path, "rider");
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();

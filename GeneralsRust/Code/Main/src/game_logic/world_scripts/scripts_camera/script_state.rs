@@ -1250,7 +1250,7 @@ impl GameLogic {
         self.propagate_script_disabled_mask(id, disabled, effects, &mut Vec::new())
     }
 
-    /// `RiderChangeContain::friend_getRider` uses the first contained Object.
+    /// RiderChangeContain and OverlordContain return their first contained Object.
     /// SpawnBehavior then visits ordered spawn IDs, calling aiIdle before
     /// setDisabledUntil; clear visits the same order without idle. Retain
     /// each object's birth across reentrant callbacks.
@@ -1296,8 +1296,8 @@ impl GameLogic {
                 .copied()
         };
         // OpenContain's default friend_getRider returns NULL even when it has
-        // passengers. Only the admitted RiderChange interface owns this list
-        // as a rider; never treat a generic transport's first passenger as one.
+        // passengers. RiderChange and Overlord expose their first list member
+        // as a rider; a generic transport does not.
         let rider = self.host_object(id).and_then(|parent| {
             use gamelogic::contain_module_overrides::ContainModuleDataKind;
             let receiving = parent.thing().template.receiving_client_template.as_ref()?;
@@ -1307,7 +1307,10 @@ impl GameLogic {
                 .filter_map(|module| ContainModuleDataKind::from_module_data(module.data.as_ref()));
             // Multiple contain interfaces are invalid in C++ and cannot be
             // safely selected through a partial host metadata projection.
-            if !matches!(contains.next(), Some(ContainModuleDataKind::RiderChange(_)))
+            if !matches!(
+                contains.next(),
+                Some(ContainModuleDataKind::RiderChange(_) | ContainModuleDataKind::Overlord(_))
+            )
                 || contains.next().is_some()
             {
                 return None;
