@@ -1252,3 +1252,79 @@ fn firing_publishes_a_team_target_without_overwriting_an_existing_one() {
         "a valid existing Team target must not be overwritten"
     );
 }
+
+#[test]
+fn team_common_target_respects_controller_difficulty_and_peer_reset() {
+    use generals_main::ai::AIDifficulty;
+    use generals_main::save_load::snapshot::stamp_player_team_chunks;
+
+    fn setup(
+        path: &std::path::Path,
+        human: bool,
+        difficulty: AIDifficulty,
+    ) -> (GameLogic, ObjectId, ObjectId) {
+        let (mut world, actor, _, _) = world_with_options(path, false, true);
+        let player = world.get_player_mut(1).unwrap();
+        player.is_human = human;
+        player.alliance_team = 1;
+        world.add_ai_opponent(1, Team::USA, difficulty);
+        let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
+        enemy.alliance_team = 2;
+        world.add_player(enemy);
+        let victim = world
+            .create_object_for_player("GroupUnit", 2, Vec3::new(45.0, 0.0, 40.0))
+            .unwrap();
+        assert!(world.unit_command_attack(actor, victim).unwrap());
+        (world, actor, victim)
+    }
+    fn team_target(world: &GameLogic, actor: ObjectId) -> Option<u32> {
+        stamp_player_team_chunks(world)
+            .unwrap()
+            .teams
+            .unwrap()
+            .teams
+            .into_iter()
+            .find(|team| {
+                team.members
+                    .as_ref()
+                    .is_some_and(|members| members.contains(&actor.0))
+            })
+            .expect("receiving Team")
+            .common_attack_target
+    }
+    let root = tempfile::tempdir().unwrap();
+    let path = map_file_with_options(root.path(), 0, true);
+    let (mut hard, actor, victim) = setup(&path, false, AIDifficulty::Hard);
+    let (mut easy, easy_actor, easy_victim) = setup(&path, false, AIDifficulty::Easy);
+    let (mut human, human_actor, human_victim) = setup(&path, true, AIDifficulty::Hard);
+    assert_eq!((actor, victim), (easy_actor, easy_victim));
+    assert_eq!((actor, victim), (human_actor, human_victim));
+    let mut fired = [false; 3];
+    for _ in 0..120 {
+        for (i, session) in [&mut hard, &mut easy, &mut human].into_iter().enumerate() {
+            session.tick_logic_frame(1.0 / 30.0, None, Some(1));
+            fired[i] |= session.host_object(actor).unwrap().status.is_firing_weapon;
+        }
+        if fired.iter().all(|value| *value) {
+            break;
+        }
+    }
+    assert_eq!(fired, [true; 3], "all three attacks must reach firing");
+    assert_eq!(team_target(&hard, actor), Some(victim.0));
+    assert_eq!(team_target(&easy, actor), None);
+    assert_eq!(team_target(&human, actor), None);
+    easy.reset();
+    human.reset();
+    assert_eq!(team_target(&hard, actor), Some(victim.0));
+    hard.reset();
+    assert!(hard.host_object(actor).is_none());
+    assert!(
+        stamp_player_team_chunks(&hard)
+            .unwrap()
+            .teams
+            .unwrap()
+            .teams
+            .iter()
+            .all(|team| team.common_attack_target.is_none())
+    );
+}
