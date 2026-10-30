@@ -229,23 +229,6 @@ pub fn is_goal_pos_within_attack_range(
     dist * dist <= max_delta * max_delta
 }
 
-pub fn host_continue_attack_range_for_weapon_name(name: &str) -> f32 {
-    use super::with_host_weapon_store as with_weapon_store;
-    let from_store = with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
-            .map(|wt| wt.continue_attack_range.max(0.0))
-    })
-    .ok()
-    .flatten();
-    if let Some(v) = from_store {
-        if v > 0.0 {
-            return v;
-        }
-    }
-    seed_continue_attack_range_for(name)
-}
-
 pub fn seed_continue_attack_range_for(name: &str) -> f32 {
     let n = name.to_ascii_lowercase();
     // Worker / Dozer mine disarm residual (ContinueAttackRange = 100).

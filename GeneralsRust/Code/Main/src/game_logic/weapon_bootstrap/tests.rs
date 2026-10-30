@@ -1366,7 +1366,6 @@ fn continue_attack_range_seed_residual() {
         seed_continue_attack_range_for("RangerAdvancedCombatRifle"),
         0.0
     );
-    assert!(host_continue_attack_range_for_weapon_name("DozerMineDisarmingWeapon") >= 100.0 - 1e-3);
 }
 
 #[test]

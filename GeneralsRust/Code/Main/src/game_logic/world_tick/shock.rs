@@ -1620,6 +1620,17 @@ impl GameLogic {
             && self.object_relationship(killer, victim) == Relationship::Enemies
     }
 
+    /// Resolve the effective definition in this session. An admitted zero is
+    /// authoritative; seed data is only for sessions without a catalog.
+    pub(crate) fn receiving_continue_attack_range(&self, name: &str) -> f32 {
+        match self.weapon_definitions.as_ref() {
+            Some(definitions) => definitions
+                .get(&name.trim().to_ascii_lowercase())
+                .map_or(0.0, |weapon| weapon.continue_attack_range.max(0.0)),
+            None => crate::game_logic::weapon_bootstrap::seed_continue_attack_range_for(name),
+        }
+    }
+
     /// After a combat kill: grant XP, ContinueAttackRange retarget, else stop.
     pub(crate) fn continue_or_stop_after_kill(
         &mut self,
@@ -1632,12 +1643,7 @@ impl GameLogic {
         // The owned damage executor scores before onDie/FX. Retain once-only
         // credit for residual callers that have not migrated to that executor.
         self.award_score_the_kill_experience(attacker_id, dead_victim_id);
-        let cont = weapon_name.map_or(0.0, |name| match self.weapon_definitions.as_ref() {
-            Some(definitions) => definitions
-                .get(&name.trim().to_ascii_lowercase())
-                .map_or(0.0, |weapon| weapon.continue_attack_range.max(0.0)),
-            None => crate::game_logic::weapon_bootstrap::seed_continue_attack_range_for(name),
-        });
+        let cont = weapon_name.map_or(0.0, |name| self.receiving_continue_attack_range(name));
         if self.try_continue_attack_after_kill(
             attacker_id,
             dead_victim_id,

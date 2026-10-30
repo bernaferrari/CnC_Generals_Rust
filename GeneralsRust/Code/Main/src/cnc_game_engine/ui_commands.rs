@@ -735,7 +735,7 @@ impl CnCGameEngine {
         let Some(name) = weapon_name.filter(|n| !n.is_empty()) else {
             return 0.0;
         };
-        crate::game_logic::weapon_bootstrap::host_continue_attack_range_for_weapon_name(name)
+        self.game_logic.receiving_continue_attack_range(name)
     }
 
     fn radius_cursor_guard_range(&self, seed: Option<crate::game_logic::ObjectId>) -> f32 {
