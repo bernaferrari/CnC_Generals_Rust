@@ -3,7 +3,11 @@ use super::*;
 #[derive(Clone, Copy)]
 enum WeaponShotRoute {
     Autonomous,
-    Passive { slot: u8, origin: Vec3 },
+    Passive {
+        slot: u8,
+        origin: Vec3,
+        damage_bonus: Option<f32>,
+    },
 }
 
 impl Object {
@@ -150,6 +154,7 @@ impl Object {
             WeaponShotRoute::Passive {
                 slot,
                 origin: muzzle_origin,
+                damage_bonus: None,
             },
             target_id,
             current_time,
@@ -186,6 +191,7 @@ impl Object {
         operation_frame: u32,
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         solo_set: &gamelogic::weapon::WeaponBonusSet,
+        damage_bonus: f32,
         random: &game_engine::common::random_value::SessionRandom,
         projectile_team_id: Option<u32>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
@@ -193,6 +199,7 @@ impl Object {
             WeaponShotRoute::Passive {
                 slot,
                 origin: muzzle_origin,
+                damage_bonus: Some(damage_bonus),
             },
             target_id,
             current_time,
@@ -623,9 +630,18 @@ impl Object {
                 )
                 .unwrap_or(fallback_damage)
             });
-        let weapon_damage = solo_set.map_or_else(
-            || self.effective_weapon_damage(template_damage),
-            |set| self.effective_weapon_damage_with_solo_set(template_damage, set),
+        let damage_bonus = match route {
+            WeaponShotRoute::Passive { damage_bonus, .. } => damage_bonus,
+            WeaponShotRoute::Autonomous => None,
+        };
+        let weapon_damage = damage_bonus.map_or_else(
+            || {
+                solo_set.map_or_else(
+                    || self.effective_weapon_damage(template_damage),
+                    |set| self.effective_weapon_damage_with_solo_set(template_damage, set),
+                )
+            },
+            |bonus| template_damage * bonus,
         );
 
         // Resolve immutable Weapon.ini peels before borrowing the live slot.
@@ -703,32 +719,21 @@ impl Object {
             })
             .unwrap_or_default());
         // C++ getSecondaryDamage(bonus) — WeaponBonus::DAMAGE at fire time.
-        let secondary_damage = solo_set.map_or_else(
-            || self.effective_weapon_damage(
-                native_rule
-                .as_ref()
-                .map(|rule| rule.secondary_damage)
-                .unwrap_or_else(|| {
-                    name.map(
-                        crate::game_logic::weapon_bootstrap::host_secondary_damage_for_weapon_name,
-                    )
+        let secondary_base = native_rule
+            .as_ref()
+            .map(|rule| rule.secondary_damage)
+            .unwrap_or_else(|| {
+                name.map(crate::game_logic::weapon_bootstrap::host_secondary_damage_for_weapon_name)
                     .unwrap_or(0.0)
-                }),
-            ),
-            |set| {
-                self.effective_weapon_damage_with_solo_set(
-                    native_rule
-                        .as_ref()
-                        .map(|rule| rule.secondary_damage)
-                        .unwrap_or_else(|| {
-                            name.map(
-                                crate::game_logic::weapon_bootstrap::host_secondary_damage_for_weapon_name,
-                            )
-                            .unwrap_or(0.0)
-                        }),
-                    set,
+            });
+        let secondary_damage = damage_bonus.map_or_else(
+            || {
+                solo_set.map_or_else(
+                    || self.effective_weapon_damage(secondary_base),
+                    |set| self.effective_weapon_damage_with_solo_set(secondary_base, set),
                 )
             },
+            |bonus| secondary_base * bonus,
         );
         let secondary_damage_radius = native_rule.as_ref().map(|rule| rule.secondary_damage_radius).unwrap_or_else(||
             name.map(crate::game_logic::weapon_bootstrap::host_secondary_damage_radius_for_weapon_name).unwrap_or(0.0));

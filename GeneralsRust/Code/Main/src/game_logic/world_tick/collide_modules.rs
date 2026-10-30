@@ -42,6 +42,24 @@ impl super::super::GameLogic {
                 .get_mut(&other_id)
                 .is_some_and(|c| c.add_occupant(self_id));
             if boarded {
+                let state = self
+                    .objects
+                    .get(&other_id)
+                    .map_or(AIState::Docked, |container| {
+                        if container.is_kind_of(crate::game_logic::KindOf::Structure)
+                            && !container
+                                .thing()
+                                .template
+                                .contain_module
+                                .kind
+                                .is_heal_contain()
+                            && !container.is_tunnel_network_style_container()
+                        {
+                            AIState::Garrisoned
+                        } else {
+                            AIState::Docked
+                        }
+                    });
                 // OpenContain removes a rider from its group and the world only
                 // when this particular passenger is enclosed by the container.
                 let enclosing = self
@@ -59,7 +77,7 @@ impl super::super::GameLogic {
                 );
                 if let Some(us) = self.objects.get_mut(&self_id) {
                     us.set_ai_state(
-                        AIState::Garrisoned,
+                        state,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     us.status.moving = false;

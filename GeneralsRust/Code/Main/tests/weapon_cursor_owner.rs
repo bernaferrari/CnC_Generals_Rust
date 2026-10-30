@@ -104,10 +104,10 @@ fn contained_weapon_world(
     force_metadata: bool,
 ) -> (GameLogic, ObjectId, ObjectId) {
     let mut game = GameLogic::new();
-    game.admit_combat_bonus_ini_sources(["GameData\n WeaponBonus = SOLO_HUMAN_EASY RADIUS 150%\n WeaponBonus = SOLO_AI_EASY RADIUS 200%\n WeaponBonus = FRENZY_ONE RADIUS 125%\n WeaponBonus = FRENZY_THREE RADIUS 175%\n WeaponBonus = VETERAN RADIUS 125%\n WeaponBonus = HERO RADIUS 150%\nEnd\n"]).unwrap();
+    game.admit_combat_bonus_ini_sources(["GameData\n WeaponBonus = SOLO_HUMAN_EASY RADIUS 150%\n WeaponBonus = SOLO_AI_EASY RADIUS 200%\n WeaponBonus = SOLO_AI_EASY DAMAGE 150%\n WeaponBonus = FRENZY_ONE RADIUS 125%\n WeaponBonus = FRENZY_THREE RADIUS 175%\n WeaponBonus = VETERAN RADIUS 125%\n WeaponBonus = HERO RADIUS 150%\nEnd\n"]).unwrap();
     let pass = if authored_pass { "Yes" } else { "No" };
     game.admit_object_ini_sources([("Container.ini".into(), format!(
-        "Object Passenger\n KindOf = INFANTRY SELECTABLE\n TransportSlotCount = 1\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n WeaponSet\n Conditions = NONE\n Weapon = PRIMARY ContainedWeapon\n End\nEnd\nObject Carrier\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = TransportContain Transport\n ContainMax = 2\n Slots = 2\n AllowInsideKindOf = INFANTRY\n WeaponBonusPassedToPassengers = {pass}\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n"
+        "Object Passenger\n KindOf = INFANTRY SELECTABLE\n TransportSlotCount = 1\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n WeaponSet\n Conditions = NONE\n Weapon = PRIMARY ContainedWeapon\n End\nEnd\nObject Carrier\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = TransportContain Transport\n ContainMax = 2\n Slots = 2\n AllowInsideKindOf = INFANTRY\n WeaponBonusPassedToPassengers = {pass}\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\nObject Enemy\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"
     ))]).unwrap();
     if force_metadata {
         game.templates
@@ -118,6 +118,9 @@ fn contained_weapon_world(
     }
     let mut weapon = WeaponTemplate::new("ContainedWeapon".into());
     weapon.primary_damage_radius = 20.0;
+    weapon.primary_damage = 10.0;
+    weapon.attack_range = 200.0;
+    weapon.projectile_name = "NONE".into();
     game.admit_receiving_weapon_snapshot(vec![("ContainedWeapon".into(), weapon)])
         .unwrap();
     game.add_player(Player::new(1, Team::USA, "Owner", true));
@@ -131,6 +134,67 @@ fn contained_weapon_world(
     game.host_object_mut(passenger).unwrap().contained_by = Some(carrier);
     game.host_object_mut(carrier).unwrap().weapon_bonus_solo = 19;
     (game, passenger, carrier)
+}
+
+#[test]
+fn passenger_firing_inherits_the_receiving_carriers_damage_bonus() {
+    let (mut owner, passenger, carrier) = contained_weapon_world(true, false);
+    let (mut peer, peer_passenger, peer_carrier) = contained_weapon_world(false, false);
+    assert_eq!((passenger, carrier), (peer_passenger, peer_carrier));
+    let mut enemy_ids = Vec::new();
+    for world in [&mut owner, &mut peer] {
+        world.host_object_mut(passenger).unwrap().contained_by = None;
+        world
+            .host_object_mut(carrier)
+            .unwrap()
+            .passengers_allowed_to_fire = true;
+        world
+            .templates
+            .get_mut("Enemy")
+            .unwrap()
+            .add_kind_of(generals_main::game_logic::KindOf::Attackable);
+        world.add_player(Player::new(2, Team::GLA, "Enemy", false));
+        enemy_ids.push(
+            world
+                .create_object_for_player("Enemy", 2, glam::Vec3::new(20.0, 0.0, 0.0))
+                .unwrap(),
+        );
+        assert!(world.can_unit_enter_normal_target(passenger, carrier));
+        assert!(world.unit_command_order_enter(passenger, carrier));
+        world.try_physics_collide(passenger, carrier, 1.0);
+        assert_eq!(
+            world.host_object(passenger).unwrap().contained_by,
+            Some(carrier)
+        );
+        assert_eq!(
+            world.host_object(passenger).unwrap().ai_state(),
+            generals_main::game_logic::AIState::Docked
+        );
+    }
+    assert_eq!(enemy_ids[0], enemy_ids[1]);
+    let enemy = enemy_ids[0];
+    for _ in 0..100 {
+        owner.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        peer.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if owner.host_object(enemy).unwrap().health.current < 100.0
+            && peer.host_object(enemy).unwrap().health.current < 100.0
+        {
+            break;
+        }
+    }
+    assert_eq!(
+        owner.host_object(enemy).unwrap().health.current,
+        85.0,
+        "source={:?} weapon={:?} carrier={:?} target={:?}",
+        owner.host_object(passenger).unwrap().ai_state(),
+        owner.host_object(passenger).unwrap().weapon,
+        owner
+            .host_object(carrier)
+            .unwrap()
+            .passengers_allowed_to_fire,
+        owner.host_object(enemy).unwrap().health.current
+    );
+    assert_eq!(peer.host_object(enemy).unwrap().health.current, 90.0);
 }
 
 #[test]
