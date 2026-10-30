@@ -904,3 +904,65 @@ fn script_guard_exits_attack_move_in_the_receiving_world() {
     assert_eq!(other.ai_state(), AIState::AttackMoving);
     assert!(!other.randomly_offset_mood_check);
 }
+
+#[test]
+fn guard_replacement_saves_only_the_active_type_in_each_session() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file_with_area(root.path(), 0);
+    let (mut owner, first, _, inert) = world(&map);
+    let (mut peer, peer_first, _, _) = world(&map);
+    assert_eq!(first, peer_first);
+    guard_position(&mut owner, "HuntTeam", "OwnedWaypoint");
+    guard_area(&mut peer, "HuntTeam", "InnerPerimeter1");
+    guard_object(&mut owner, "HuntTeam", "Inert");
+    assert_eq!(
+        owner.host_object(first).unwrap().guard_target(),
+        Some(inert)
+    );
+    let builder = generals_main::save_load::snapshot::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&owner).unwrap();
+    let peer_saved = builder.create_world_snapshot(&peer).unwrap();
+    let types = |snapshot: &generals_main::save_load::snapshot::WorldSnapshot| {
+        let payload =
+            serde_json::to_value(&snapshot.objects[&first].modules["ReceivingBaseAI"]).unwrap();
+        payload["BaseAi"]["continuation"]["guard_target_types"].clone()
+    };
+    assert_eq!(types(&saved), serde_json::json!(["Object", "None"]));
+    assert_eq!(types(&peer_saved), serde_json::json!(["Area", "None"]));
+    let (mut loaded, _, _, _) = world(&map);
+    builder.restore_from_snapshot(&saved, &mut loaded).unwrap();
+    assert_eq!(
+        loaded.host_object(first).unwrap().guard_target(),
+        Some(inert)
+    );
+    assert_eq!(
+        types(&builder.create_world_snapshot(&loaded).unwrap()),
+        serde_json::json!(["Object", "None"])
+    );
+}
+
+#[test]
+fn repeated_direct_guard_assignment_does_not_save_a_phantom_pending_type() {
+    use generals_main::game_logic::{ObjectAudio, SessionAudio};
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file_with_area(root.path(), 0);
+    let (mut owner, first, _, _) = world(&map);
+    let mut audio = SessionAudio::default();
+    let actor = owner.host_object_mut(first).unwrap();
+    actor.set_guard_position(
+        Some(Vec3::new(10., 0., 20.)),
+        &mut ObjectAudio::queue(&mut audio),
+    );
+    actor.set_guard_position(
+        Some(Vec3::new(30., 0., 40.)),
+        &mut ObjectAudio::queue(&mut audio),
+    );
+    let saved = generals_main::save_load::snapshot::SnapshotBuilder::new()
+        .create_world_snapshot(&owner)
+        .unwrap();
+    let payload = serde_json::to_value(&saved.objects[&first].modules["ReceivingBaseAI"]).unwrap();
+    assert_eq!(
+        payload["BaseAi"]["continuation"]["guard_target_types"],
+        serde_json::json!(["Location", "None"])
+    );
+}

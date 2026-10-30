@@ -46,8 +46,7 @@ impl Object {
     pub(crate) fn exit_base_ai_guard_owned(&mut self) {
         // Child lifetime is ended before the parent clears its discriminator.
         self.unit_ai_runtime.clear_guard();
-        self.unit_ai_runtime
-            .set_guard_target_type(GuardTargetType::None);
+        self.unit_ai_runtime.exit_guard_target_type();
     }
     pub(crate) fn clear_base_ai_control_after_exit(&mut self) {
         self.unit_ai_runtime.clear_machine_after_exit();

@@ -92,9 +92,9 @@ impl BaseAiObjectSnapshot {
 
 impl XferData for BaseAiObjectSnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
-        let mut version = 2u8;
+        let mut version = 3u8;
         xfer.xfer_u8(&mut version)?;
-        if !(1..=2).contains(&version) {
+        if !(1..=3).contains(&version) {
             return Err(bad("unsupported module version"));
         }
         let mut present = self.source.is_some();
@@ -128,7 +128,10 @@ impl XferData for BaseAiObjectSnapshot {
             super::xfer_helpers::xfer_ai_continuation_string(xfer, &mut body)?;
         }
         if xfer.get_mode() == XferMode::Load {
-            let value: BaseAiContinuation = serde_json::from_str(&body).map_err(bad)?;
+            let mut value: BaseAiContinuation = serde_json::from_str(&body).map_err(bad)?;
+            if version < 3 {
+                value.discard_legacy_guard_history();
+            }
             value.validate().map_err(bad)?;
             // Commit only a completely decoded detached value.
             self.source = Some((ordinal, tag, class));

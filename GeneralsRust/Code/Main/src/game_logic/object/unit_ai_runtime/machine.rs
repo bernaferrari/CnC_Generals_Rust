@@ -263,8 +263,18 @@ impl UnitAiRuntime {
         self.machine.guard_target_types[0]
     }
     pub(crate) fn set_guard_target_type(&mut self, kind: GuardTargetType) {
-        self.machine.guard_target_types[1] = self.machine.guard_target_types[0];
         self.machine.guard_target_types[0] = kind;
+        self.machine.guard_target_types[1] = GuardTargetType::None;
+    }
+    /// C++ uses slot 1 for the active type and slot 0 for a pending type.
+    /// This owner stores them in the reverse order: active, then pending.
+    pub(crate) fn stage_guard_target_type(&mut self, kind: GuardTargetType) {
+        let slot = usize::from(self.machine.guard_target_types[0] != GuardTargetType::None);
+        self.machine.guard_target_types[slot] = kind;
+    }
+    pub(crate) fn exit_guard_target_type(&mut self) {
+        self.machine.guard_target_types[0] = self.machine.guard_target_types[1];
+        self.machine.guard_target_types[1] = GuardTargetType::None;
     }
     pub(crate) fn set_raw_guard_position(&mut self, pos: Option<Vec3>) {
         self.machine.guard_position = pos;
@@ -362,6 +372,11 @@ impl UnitAiRuntime {
 }
 
 impl BaseAiContinuation {
+    /// Before the staged-target contract slot 1 held a previous value, not
+    /// an in-flight transition. Never promote it when restoring that format.
+    pub(crate) fn discard_legacy_guard_history(&mut self) {
+        self.guard_target_types[1] = GuardTargetType::None;
+    }
     pub(crate) fn is_inert(&self) -> bool {
         matches!(self.ai_state, AIState::Idle | AIState::Uninitialized)
             && self.parent.is_none()
@@ -369,6 +384,7 @@ impl BaseAiContinuation {
             && self.temporary_move.is_none()
             && self.normal_move_goal.is_none()
             && self.guard_target_types[0] == GuardTargetType::None
+            && self.guard_target_types[1] == GuardTargetType::None
             && self.guard.phase.is_none()
             && self.guard.scan.is_none()
             && self.hunt_scan.is_none()

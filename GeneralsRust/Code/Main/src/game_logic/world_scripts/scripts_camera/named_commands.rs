@@ -238,10 +238,28 @@ impl GameLogic {
         {
             return;
         }
+        // aiDoCommand clears GuardRetaliate before privateGuard stages a new
+        // target; ordinary guard replacement stages before its own clear.
+        if self
+            .host_object(id)
+            .is_some_and(|unit| unit.ai_state() == AIState::GuardRetaliating)
+            && !matches!(
+                self.clear_base_ai_machine_owned(id, &mut Default::default()),
+                Ok(true)
+            )
+        {
+            return;
+        }
         {
             // Both privateGuardPosition and privateGuardArea install their
             // new guard data before the old state machine exits.
             let unit = self.host_object_mut(id).expect("admitted Guard unit");
+            unit.unit_ai_runtime
+                .stage_guard_target_type(if area.is_some() {
+                    crate::game_logic::object::GuardTargetType::Area
+                } else {
+                    crate::game_logic::object::GuardTargetType::Location
+                });
             unit.unit_ai_runtime.set_raw_guard_position(Some(position));
             unit.set_guard_mode(GuardMode::Normal);
             if let Some(area) = area {

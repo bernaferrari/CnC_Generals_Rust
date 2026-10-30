@@ -822,10 +822,11 @@ impl GameLogic {
         }) {
             return false;
         }
-        // privateGuardPosition publishes its destination before clearing the
-        // outgoing machine. The actual type-staging slots remain a separate
-        // migration; retain the previous discriminator until that exit runs.
+        // privateGuardPosition stages both its type and destination before
+        // clearing the outgoing machine.
         if let Some(unit) = self.objects.get_mut(&id) {
+            unit.unit_ai_runtime
+                .stage_guard_target_type(crate::game_logic::object::GuardTargetType::Location);
             unit.unit_ai_runtime.set_raw_guard_position(Some(pos));
         }
         if !matches!(self.clear_base_ai_machine_owned(id, effects), Ok(true)) {
@@ -971,6 +972,8 @@ impl GameLogic {
             return false;
         }
         if let Some(unit) = self.objects.get_mut(&id) {
+            unit.unit_ai_runtime
+                .stage_guard_target_type(crate::game_logic::object::GuardTargetType::Object);
             unit.unit_ai_runtime.set_raw_guard_target(Some(target_id));
         }
         if !matches!(
