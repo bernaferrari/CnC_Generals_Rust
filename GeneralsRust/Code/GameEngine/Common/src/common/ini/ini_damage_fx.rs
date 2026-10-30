@@ -704,7 +704,7 @@ pub const FIELD_PARSE_TABLE: &[FieldParse<DamageFX>] = &[
 /// The "store" used to hold all DamageFXs in existence. Usually used when creating
 /// an Object (actually, a Body module), but can be used at any time after that.
 /// It is explicitly OK to swap an Object's DamageFX out at any given time.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DamageFXStore {
     /// Map of DamageFX instances by name
     damage_fx_map: HashMap<String, DamageFX>,
@@ -722,6 +722,45 @@ impl DamageFXStore {
         Self {
             damage_fx_map: HashMap::new(),
         }
+    }
+
+    /// Apply authored rows to this catalog without publishing a global store.
+    /// Each redefinition starts cleared, as in DamageFXStore::parseDamageFXDefinition.
+    /// A malformed DamageFX definition leaves the receiving catalog unchanged.
+    pub fn apply_source(&mut self, source: &str) -> INIResult<usize> {
+        let mut candidate = self.clone();
+        let mut ini = INI::new();
+        let count = ini.with_inline_source(source, |ini| {
+            let mut count = 0;
+            loop {
+                ini.read_line()?;
+                if ini.is_eof() {
+                    break;
+                }
+                let tokens = ini.get_line_tokens();
+                if tokens
+                    .first()
+                    .is_some_and(|key| key.eq_ignore_ascii_case("DamageFX"))
+                    && tokens.get(1) != Some(&"=")
+                {
+                    let (name, definition) =
+                        Self::parse_entry(ini).map_err(|_| INIError::InvalidData)?;
+                    candidate.add_damage_fx(name, definition);
+                    count += 1;
+                } else if tokens.first().is_some_and(|token| {
+                    ["Object", "ObjectReskin", "ChildObject"]
+                        .iter()
+                        .any(|kind| token.eq_ignore_ascii_case(kind))
+                }) {
+                    let _ = crate::common::thing::thing_factory::consume_ini_properties(ini);
+                } else if !tokens.is_empty() {
+                    super::ini::consume_block_with_nesting(ini)?;
+                }
+            }
+            Ok(count)
+        })?;
+        *self = candidate;
+        Ok(count)
     }
 
     /// C++ DamageFXStore::init is empty — parsed definitions survive.
@@ -761,8 +800,7 @@ impl DamageFXStore {
         self.damage_fx_map.keys().collect()
     }
 
-    /// Parse DamageFX definition from INI
-    pub fn parse_damage_fx_definition(ini: &mut INI) -> Result<(), String> {
+    fn parse_entry(ini: &mut INI) -> Result<(String, DamageFX), String> {
         let tokens = ini.get_line_tokens();
         let name = tokens
             .iter()
@@ -774,6 +812,13 @@ impl DamageFXStore {
         let mut damage_fx = DamageFX::new();
         damage_fx.clear();
         damage_fx.parse_from_ini(ini)?;
+
+        Ok((name, damage_fx))
+    }
+
+    /// Parse DamageFX definition from INI into the compatibility registry.
+    pub fn parse_damage_fx_definition(ini: &mut INI) -> Result<(), String> {
+        let (name, damage_fx) = Self::parse_entry(ini)?;
 
         if DAMAGE_FX_STORE.get().is_none() {
             init_global_damage_fx_store();
