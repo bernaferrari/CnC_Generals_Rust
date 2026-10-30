@@ -577,3 +577,94 @@ fn continuation_selects_the_victims_player_not_a_same_faction_peer() {
     assert_eq!(world.host_object(attacker).unwrap().target, Some(next));
     assert!(world.host_object(decoy).unwrap().is_alive());
 }
+
+#[test]
+fn continuation_uses_each_worlds_off_map_status_after_boundary_change_and_restore() {
+    let (mut small, attacker, victim, candidate) = world(100.0, "MapStatusWeapon");
+    let (mut large, peer_attacker, peer_victim, peer_candidate) = world(100.0, "MapStatusWeapon");
+    assert_eq!(
+        (attacker, victim, candidate),
+        (peer_attacker, peer_victim, peer_candidate)
+    );
+    // The candidate is exactly at x=50: outside the C++ strict extent for the
+    // 100-wide world, but inside the independently owned 200-wide world.
+    small.override_world_size(100.0, 100.0);
+    large.override_world_size(200.0, 200.0);
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&small).unwrap();
+    let (mut restored, _, _, _) = world(100.0, "MapStatusWeapon");
+    restored.override_world_size(100.0, 100.0);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    // A sub-threshold position change can leave the saved bit different from
+    // the current position. Model that valid continuation in the capsule and
+    // check that loading restores the bit instead of recomputing it.
+    let mut transient: generals_main::save_load::snapshot::WorldSnapshot =
+        bincode_legacy::deserialize(&bincode_legacy::serialize(&snapshot).unwrap()).unwrap();
+    let bytes = &mut transient.lifecycle_tail;
+    let footer = bytes.windows(4).rposition(|tag| tag == b"OXFE").unwrap();
+    let size = u32::from_le_bytes(bytes[footer - 4..footer].try_into().unwrap()) as usize;
+    let end = footer - 4;
+    let start = end - size;
+    assert_eq!(&bytes[start - 12..start - 8], b"OXFR");
+    assert_eq!(
+        u32::from_le_bytes(bytes[start - 8..start - 4].try_into().unwrap()),
+        11
+    );
+    let count = transient.objects.len();
+    let rows = end - (1 + 8 + count * 5);
+    assert_eq!(bytes[rows], 1);
+    assert_eq!(
+        u64::from_le_bytes(bytes[rows + 1..rows + 9].try_into().unwrap()),
+        count as u64
+    );
+    let row = (0..count)
+        .map(|i| rows + 9 + i * 5)
+        .find(|&at| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap()) == candidate.0)
+        .unwrap();
+    assert_eq!(bytes[row + 4], 1);
+    bytes[row + 4] = 0;
+    let (mut restored_transient, _, _, _) = world(100.0, "MapStatusWeapon");
+    restored_transient.override_world_size(100.0, 100.0);
+    builder
+        .restore_from_snapshot(&transient, &mut restored_transient)
+        .unwrap();
+    for session in [
+        &mut small,
+        &mut large,
+        &mut restored,
+        &mut restored_transient,
+    ] {
+        assert!(session.unit_command_attack(attacker, victim).unwrap());
+    }
+    for _ in 0..100 {
+        for session in [
+            &mut small,
+            &mut large,
+            &mut restored,
+            &mut restored_transient,
+        ] {
+            session.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        }
+        if [&small, &large, &restored, &restored_transient]
+            .into_iter()
+            .all(|session| session.host_object(victim).is_none_or(|o| !o.is_alive()))
+        {
+            break;
+        }
+    }
+    for session in [&small, &large, &restored, &restored_transient] {
+        assert!(session.host_object(victim).is_none_or(|o| !o.is_alive()));
+    }
+    assert_ne!(small.host_object(attacker).unwrap().target, Some(candidate));
+    assert_eq!(large.host_object(attacker).unwrap().target, Some(candidate));
+    assert_eq!(
+        restored_transient.host_object(attacker).unwrap().target,
+        Some(candidate)
+    );
+    assert_ne!(
+        restored.host_object(attacker).unwrap().target,
+        Some(candidate)
+    );
+}

@@ -368,6 +368,8 @@ impl GameLogic {
             crate::game_logic::partition_manager::PartitionManager::with_scalar_owner(
                 self.world_services.shroud(),
             );
+        self.partition_manager
+            .set_map_extent(self.world_min, self.world_max);
         self.world_services
             .shroud()
             .lock()
@@ -1207,6 +1209,7 @@ impl GameLogic {
                     self.refresh_pathfinding_ai_definitions();
                 }
 
+                self.refresh_receiving_object_map_status();
                 report_progress(
                     &mut self.session_view.audio_random,
                     self.queued_audio_events.policy(),

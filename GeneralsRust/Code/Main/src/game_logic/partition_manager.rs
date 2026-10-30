@@ -39,6 +39,8 @@ pub struct HostPartitionLookStamp {
 /// Minimal partition manager mirroring WW3D map reveal + collide broadphase residual.
 #[derive(Debug, Default)]
 pub struct PartitionManager {
+    /// Receiving terrain extent, independent of the padded partition grid.
+    map_extent: Option<(glam::Vec3, glam::Vec3)>,
     /// Immutable receiving map geometry; mapless programmatic values retain the
     /// retail fixture grid until a real map is admitted.
     grid: Option<PartitionGrid>,
@@ -63,6 +65,7 @@ struct PartitionGrid {
 impl PartitionManager {
     pub fn new() -> Self {
         Self {
+            map_extent: None,
             grid: None,
             revealed_players: HashSet::new(),
             cells: HashMap::new(),
@@ -70,6 +73,23 @@ impl PartitionManager {
             dirty: Vec::new(),
             namespace: std::sync::Arc::new(()),
             scalar_owner: None,
+        }
+    }
+
+    pub(crate) fn set_map_extent(&mut self, min: glam::Vec3, max: glam::Vec3) {
+        self.map_extent = Some((min, max));
+    }
+
+    pub(in crate::game_logic) fn refresh_object_map_status(
+        &self,
+        object: &mut crate::game_logic::Object,
+    ) {
+        if let Some((min, max)) = self.map_extent {
+            let position = object.get_position();
+            object.status.off_map = !(min.x < position.x
+                && position.x < max.x
+                && min.z < position.z
+                && position.z < max.z);
         }
     }
 

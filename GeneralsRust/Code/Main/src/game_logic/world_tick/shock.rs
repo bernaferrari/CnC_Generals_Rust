@@ -1312,55 +1312,46 @@ impl GameLogic {
         let attacker_off_map = self
             .objects
             .lookup(&attacker_id)
-            .map(|attacker| {
-                crate::game_logic::host_deliver_payload::is_off_map_default_residual(
-                    attacker.get_position(),
-                )
-            })
+            .map(|attacker| attacker.status.off_map)
             .unwrap_or(false);
         let victim_owner = self
             .objects
             .lookup(&dead_victim_id)
             .and_then(|victim| victim.owner_player_id);
         // C++ searches near the original position for the victim's player.
-        let candidates = self
-            .objects
-            .registered()
-            .filter_map(|(&id, obj)| {
-                if id == attacker_id || id == dead_victim_id || !obj.is_alive() {
-                    return None;
-                }
-                if obj.owner_player_id != victim_owner
-                    || crate::game_logic::host_deliver_payload::is_off_map_default_residual(
-                        obj.get_position(),
-                    ) != attacker_off_map
-                    || !matches!(
-                        self.get_able_to_attack_specific_object(
-                            attacker_id,
-                            id,
-                            AbleToAttackType::NewTarget,
-                            from_player,
-                        ),
-                        CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-                    )
-                {
-                    return None;
-                }
-                Some(
-                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+        let candidates = self.objects.registered().filter_map(|(&id, obj)| {
+            if id == attacker_id || id == dead_victim_id || !obj.is_alive() {
+                return None;
+            }
+            if obj.owner_player_id != victim_owner
+                || obj.status.off_map != attacker_off_map
+                || !matches!(
+                    self.get_able_to_attack_specific_object(
+                        attacker_id,
                         id,
-                        team: obj.team,
-                        position: obj.get_position(),
-                        is_alive: true,
-                        is_neutral: obj.team == Team::Neutral,
-                        under_construction: obj.status.under_construction,
-                        combat_kind: true,
-                        effectively_stealthed: obj.is_effectively_stealthed(),
-                        is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
-                        eject_invulnerable: obj.is_eject_invulnerable(),
-                    },
+                        AbleToAttackType::NewTarget,
+                        from_player,
+                    ),
+                    CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
                 )
-            });
+            {
+                return None;
+            }
+            Some(
+                crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                    id,
+                    team: obj.team,
+                    position: obj.get_position(),
+                    is_alive: true,
+                    is_neutral: obj.team == Team::Neutral,
+                    under_construction: obj.status.under_construction,
+                    combat_kind: true,
+                    effectively_stealthed: obj.is_effectively_stealthed(),
+                    is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                    eject_invulnerable: obj.is_eject_invulnerable(),
+                },
+            )
+        });
         let (next_id, _, _) =
             crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
                 Some(attacker_id),

@@ -488,6 +488,9 @@ impl KindOf {
 /// Object status flags
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ObjectStatus {
+    /// C++ Object::OFF_MAP private status; persisted by the object continuation.
+    #[serde(skip)]
+    pub(crate) off_map: bool,
     /// `Object::m_scriptStatus` is distinct from the disabled mask, which may
     /// also be changed by a containing object or its SpawnBehavior owner.
     /// The ODIS continuation carries this without changing positional saves.

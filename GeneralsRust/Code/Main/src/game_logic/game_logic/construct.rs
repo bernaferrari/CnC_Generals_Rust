@@ -636,7 +636,11 @@ impl GameLogic {
             pending_special_abilities: HashMap::new(),
             selected_objects: Vec::new(),
             selection_changed_frame: 0,
-            partition_manager: PartitionManager::with_scalar_owner(world_services.shroud()),
+            partition_manager: {
+                let mut manager = PartitionManager::with_scalar_owner(world_services.shroud());
+                manager.set_map_extent(world_min, world_max);
+                manager
+            },
             radar_notifications: RadarNotifications::new(),
             last_radar_kind_time: [-10.0; 3],
             last_radar_audio_time: -10.0,
@@ -827,6 +831,7 @@ impl GameLogic {
         self.world_height = height;
         self.world_min = Vec3::new(-width * 0.5, 0.0, -height * 0.5);
         self.world_max = Vec3::new(width * 0.5, 0.0, height * 0.5);
+        self.refresh_receiving_object_map_status();
         let mut replacement = PathfindingSystem::new_with_origin(self.world_min, width, height);
         replacement
             .grid
@@ -1008,6 +1013,8 @@ impl GameLogic {
         self.objects.clear();
         self.ai_groups.reset();
         self.partition_manager = PartitionManager::with_scalar_owner(self.world_services.shroud());
+        self.partition_manager
+            .set_map_extent(self.world_min, self.world_max);
         self.beacon_client.clear();
         self.named_script_cache.clear();
         self.objects_receive_difficulty_bonus = true;

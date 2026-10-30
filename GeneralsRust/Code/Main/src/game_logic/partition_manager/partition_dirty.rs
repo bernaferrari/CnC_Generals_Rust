@@ -107,11 +107,17 @@ impl super::PartitionManager {
     }
     pub(in crate::game_logic) fn receiving_transform_changed(
         &mut self,
-        object: &crate::game_logic::Object,
+        object: &mut crate::game_logic::Object,
         old: glam::Vec3,
         old_angle: f32,
     ) {
         let current = object.get_position();
+        if (old.x - current.x).abs() > 0.01
+            || (old.y - current.y).abs() > 0.01
+            || (old.z - current.z).abs() > 0.01
+        {
+            self.refresh_object_map_status(object);
+        }
         if (old.x - current.x).abs() > 0.01
             || (old.y - current.y).abs() > 0.01
             || (old.z - current.z).abs() > 0.01
