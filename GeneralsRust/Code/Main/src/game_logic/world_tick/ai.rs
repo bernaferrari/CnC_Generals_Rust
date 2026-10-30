@@ -247,11 +247,8 @@ impl GameLogic {
                     obj.tick_force_reload_when_idle(self.frame);
                 }
                 let _ = obj;
-                let rates = self.objects.get(&object_id).and_then(|object| {
-                    object
-                        .contained_by
-                        .map(|_| self.receiving_weapon_rates_of_fire(object))
-                });
+                let rates = self.objects.get(&object_id)
+                    .map(|object| self.receiving_weapon_rates_of_fire(object));
                 let Some(obj) = self.objects.get_mut(&object_id) else {
                     continue;
                 };

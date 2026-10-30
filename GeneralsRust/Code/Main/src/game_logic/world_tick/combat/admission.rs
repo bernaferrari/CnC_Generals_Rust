@@ -227,17 +227,27 @@ impl GameLogic {
             let tertiary_explicit = attacker.active_weapon_slot == 2
                 || (attacker.weapon_lock_type != WeaponLockType::NotLocked
                     && attacker.weapon_lock_slot == 2);
-            let any_ready = attacker.weapon_slot(0).is_some_and(|w| {
-                Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
-            }) || ((secondary_explicit
+            let rates = self.receiving_weapon_rates_of_fire(attacker);
+            let any_ready = attacker.weapon_ready_vs_target_with_owned_rof(
+                0,
+                current_time,
+                target_has_faerie,
+                rates[0],
+            ) || ((secondary_explicit
                 || attacker.thing().template.slot_allows_auto_choose(1))
-                && attacker.secondary_weapon.as_ref().is_some_and(|w| {
-                    Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
-                }))
+                && attacker.weapon_ready_vs_target_with_owned_rof(
+                    1,
+                    current_time,
+                    target_has_faerie,
+                    rates[1],
+                ))
                 || (tertiary_explicit
-                    && attacker.tertiary_weapon.as_ref().is_some_and(|w| {
-                        Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
-                    }));
+                    && attacker.weapon_ready_vs_target_with_owned_rof(
+                        2,
+                        current_time,
+                        target_has_faerie,
+                        rates[2],
+                    ));
             if !any_ready {
                 return Ok(None);
             }

@@ -1633,6 +1633,22 @@ impl Object {
         )
     }
 
+    pub(crate) fn possible_next_shot_frame_for_slot_with_owned_rof(
+        &self,
+        slot: u8,
+        frame: u32,
+        target_has_faerie_fire: bool,
+        rates: &[f32; 3],
+    ) -> u32 {
+        self.possible_next_shot_frame_for_slot_with_optional_solo_set(
+            slot,
+            frame,
+            target_has_faerie_fire,
+            None,
+            Some(rates),
+        )
+    }
+
     pub(super) fn possible_next_shot_frame_for_slot_with_optional_solo_set(
         &self,
         slot: u8,
@@ -1701,7 +1717,7 @@ impl Object {
         );
     }
 
-    pub(super) fn record_shot_at_target_with_owned_rof(
+    pub(crate) fn record_shot_at_target_with_owned_rof(
         &mut self,
         target_id: Option<ObjectId>,
         logic_frame: u32,
@@ -1747,6 +1763,13 @@ impl Object {
         solo_set: &gamelogic::weapon::WeaponBonusSet,
     ) {
         self.finish_shot_engagement_with_optional_solo_set(Some(solo_set), None);
+    }
+
+    pub(crate) fn finish_shot_after_specialized_tracker_with_owned_rof(
+        &mut self,
+        rates: &[f32; 3],
+    ) {
+        self.finish_shot_engagement_with_optional_solo_set(None, Some(rates));
     }
 
     fn finish_shot_engagement(&mut self) {

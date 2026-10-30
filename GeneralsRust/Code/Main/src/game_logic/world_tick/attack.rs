@@ -2198,7 +2198,7 @@ impl GameLogic {
             .get(&unit_id)
             .and_then(|object| object.owner_player_id)
             .and_then(|player_id| self.host_default_team_id(player_id));
-        let prepared = {
+        {
             let Some(u) = self.objects.get_mut(&unit_id) else {
                 return AttackFireResult::Failure;
             };
@@ -2222,6 +2222,18 @@ impl GameLogic {
             }
             u.set_status_attacking(true);
             {}
+        }
+        let Some(rates) = self
+            .objects
+            .get(&unit_id)
+            .map(|unit| self.receiving_weapon_rates_of_fire(unit))
+        else {
+            return AttackFireResult::Failure;
+        };
+        let prepared = {
+            let Some(u) = self.objects.get_mut(&unit_id) else {
+                return AttackFireResult::Failure;
+            };
             // TARGET_FAERIE_FIRE ROF residual when victim is painted.
             u.prepare_autonomous_weapon_shot_with_operation_and_solo_set(
                 victim_id,
@@ -2238,6 +2250,7 @@ impl GameLogic {
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                 &self.solo_weapon_bonus_set,
+                rates,
                 &self.logic_random,
                 projectile_team_id,
             )

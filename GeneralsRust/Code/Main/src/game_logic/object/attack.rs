@@ -2,7 +2,9 @@ use super::*;
 
 #[derive(Clone, Copy)]
 enum WeaponShotRoute {
-    Autonomous,
+    Autonomous {
+        owned_rof: Option<[f32; 3]>,
+    },
     Passive {
         slot: u8,
         origin: Vec3,
@@ -87,7 +89,7 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> Option<u8> {
         let (slot, pending) = self.prepare_weapon_shot(
-            WeaponShotRoute::Autonomous,
+            WeaponShotRoute::Autonomous { owned_rof: None },
             target_id,
             current_time,
             target_is_infantry,
@@ -268,7 +270,7 @@ impl Object {
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         self.prepare_weapon_shot_with_operation(
-            WeaponShotRoute::Autonomous,
+            WeaponShotRoute::Autonomous { owned_rof: None },
             target,
             time,
             infantry,
@@ -303,11 +305,14 @@ impl Object {
         operation_frame: u32,
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         solo_set: &gamelogic::weapon::WeaponBonusSet,
+        owned_rof: [f32; 3],
         random: &game_engine::common::random_value::SessionRandom,
         projectile_team_id: Option<u32>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         self.prepare_weapon_shot_with_operation(
-            WeaponShotRoute::Autonomous,
+            WeaponShotRoute::Autonomous {
+                owned_rof: Some(owned_rof),
+            },
             target,
             time,
             infantry,
@@ -401,10 +406,10 @@ impl Object {
         random: Option<&game_engine::common::random_value::SessionRandom>,
         projectile_team_id: Option<u32>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
-        let autonomous = matches!(route, WeaponShotRoute::Autonomous);
+        let autonomous = matches!(route, WeaponShotRoute::Autonomous { .. });
         let owned_rof = match &route {
             WeaponShotRoute::Passive { owned_rof, .. } => owned_rof.as_ref(),
-            WeaponShotRoute::Autonomous => None,
+            WeaponShotRoute::Autonomous { owned_rof } => owned_rof.as_ref(),
         };
         // C++ Weapon::getMaxShotCount residual — AI burst / scatter limits.
         if !self.has_max_shots_remaining() {
@@ -459,17 +464,24 @@ impl Object {
             }
             slot
         } else {
-            let mut rof = solo_set.map_or_else(
-                || self.weapon_bonus_fields().2,
-                |set| self.weapon_bonus_fields_with_solo_set(set).2,
-            );
-            if target_has_faerie_fire {
-                rof *= crate::game_logic::host_avenger::FAERIE_FIRE_ROF_MULTIPLIER;
-            }
+            let rates = owned_rof.copied().unwrap_or_else(|| {
+                [solo_set.map_or_else(
+                    || self.weapon_bonus_fields().2,
+                    |set| self.weapon_bonus_fields_with_solo_set(set).2,
+                ); 3]
+            });
+            let rof = |slot: usize| {
+                rates[slot]
+                    * if target_has_faerie_fire {
+                        crate::game_logic::host_avenger::FAERIE_FIRE_ROF_MULTIPLIER
+                    } else {
+                        1.0
+                    }
+            };
             let primary_name = self.primary_weapon_name().map(|s| s.to_string());
             let secondary_name = self.secondary_weapon_name().map(|s| s.to_string());
             let primary_ready = self.weapon_slot(0).is_some_and(|w| {
-                let reload = self.live_reload_interval(w, primary_name.as_deref(), rof);
+                let reload = self.live_reload_interval(w, primary_name.as_deref(), rof(0));
                 Self::weapon_ready_selected(
                     w,
                     current_time,
@@ -479,7 +491,7 @@ impl Object {
                 )
             });
             let secondary_ready = self.secondary_weapon.as_ref().is_some_and(|w| {
-                let reload = self.live_reload_interval(w, secondary_name.as_deref(), rof);
+                let reload = self.live_reload_interval(w, secondary_name.as_deref(), rof(1));
                 Self::weapon_ready_selected(
                     w,
                     current_time,
@@ -490,7 +502,7 @@ impl Object {
             });
             let tertiary_name = self.tertiary_weapon_name().map(str::to_owned);
             let tertiary_ready = self.tertiary_weapon.as_ref().is_some_and(|w| {
-                let reload = self.live_reload_interval(w, tertiary_name.as_deref(), rof);
+                let reload = self.live_reload_interval(w, tertiary_name.as_deref(), rof(2));
                 Self::weapon_ready_selected(
                     w,
                     current_time,
@@ -542,7 +554,7 @@ impl Object {
                 .unwrap_or(0.0);
             let bonus = match route {
                 WeaponShotRoute::Passive { pre_attack_bonus, .. } => pre_attack_bonus,
-                WeaponShotRoute::Autonomous => None,
+                WeaponShotRoute::Autonomous { .. } => None,
             };
             if let Some(bonus) = bonus {
                 self.selected_native_weapon_rule(slot).map_or(base * bonus, |rule| {
@@ -663,7 +675,7 @@ impl Object {
             });
         let damage_bonus = match route {
             WeaponShotRoute::Passive { damage_bonus, .. } => damage_bonus,
-            WeaponShotRoute::Autonomous => None,
+            WeaponShotRoute::Autonomous { .. } => None,
         };
         let weapon_damage = damage_bonus.map_or_else(
             || {
@@ -954,7 +966,7 @@ impl Object {
         }
         let shooter_id = self.id;
         let shooter_pos = match route {
-            WeaponShotRoute::Autonomous => self.get_position(),
+            WeaponShotRoute::Autonomous { .. } => self.get_position(),
             WeaponShotRoute::Passive { origin, .. } => origin,
         };
         self.target = Some(target_id);

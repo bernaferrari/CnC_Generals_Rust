@@ -120,15 +120,10 @@ impl GameLogic {
                 (self.objects.get(&attacker_id), self.objects.get(&target_id))
             {
                 let faerie = target.is_faerie_fire();
-                let ready = attacker.weapon_slot(slot).is_some_and(|w| {
-                    attacker.weapon_ready_vs_target_bonused_for_slot_with_solo_set(
-                        slot,
-                        w,
-                        current_time,
-                        faerie,
-                        &self.solo_weapon_bonus_set,
-                    )
-                });
+                let rof = self.receiving_weapon_bonus_fields_for_slot(attacker, slot).2;
+                let ready = attacker.weapon_ready_vs_target_with_owned_rof(
+                    slot, current_time, faerie, rof,
+                );
                 let in_range = attacker.weapon_slot(slot).is_some_and(|w| {
                     attacker.can_target_with_slot_and_solo_set(
                         target,

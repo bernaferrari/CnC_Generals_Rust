@@ -787,6 +787,25 @@ impl Object {
         )
     }
 
+    /// Read this slot's admitted template with the receiving session's rate.
+    pub(crate) fn weapon_ready_vs_target_with_owned_rof(
+        &self,
+        slot: u8,
+        current_time: f32,
+        target_has_faerie_fire: bool,
+        rof: f32,
+    ) -> bool {
+        let Some(weapon) = self.weapon_slot(slot) else {
+            return false;
+        };
+        let base = self.live_reload_interval(weapon, self.weapon_name_for_slot(slot), rof);
+        let effective = crate::game_logic::host_avenger::effective_reload_vs_target(
+            base,
+            target_has_faerie_fire,
+        );
+        current_time - weapon.last_fire_time >= effective
+    }
+
     /// Ready check with this slot's admitted SOLO set and target FAERIE_FIRE ROF.
     pub(crate) fn weapon_ready_vs_target_bonused_for_slot_with_solo_set(
         &self,

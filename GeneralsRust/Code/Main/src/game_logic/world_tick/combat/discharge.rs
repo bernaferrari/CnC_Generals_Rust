@@ -44,11 +44,12 @@ impl GameLogic {
             self.objects
                 .get(&attacker_id)
                 .map_or(self.frame, |attacker| {
-                    attacker.possible_next_shot_frame_for_slot_with_solo_set(
+                    let rates = self.receiving_weapon_rates_of_fire(attacker);
+                    attacker.possible_next_shot_frame_for_slot_with_owned_rof(
                         slot,
                         self.frame,
                         target_has_faerie_fire,
-                        &self.solo_weapon_bonus_set,
+                        &rates,
                     )
                 });
         // Pathfinder residual sniper honesty (any successful fire from residual).
@@ -277,7 +278,11 @@ impl GameLogic {
             .objects
             .get(&attacker_id)
             .and_then(|attacker| attacker.weapon_name_for_slot(slot).map(str::to_owned));
-        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+        let rates = self
+            .objects
+            .get(&attacker_id)
+            .map(|attacker| self.receiving_weapon_rates_of_fire(attacker));
+        if let (Some(attacker), Some(rates)) = (self.objects.get_mut(&attacker_id), rates) {
             let auto_reloaded_clip = if let Some(weapon) = attacker.weapon_slot_mut(slot) {
                 Object::consume_ammo_on_fire_named(weapon, current_time, fire_wname.as_deref());
                 Object::auto_reloaded_clip_after_firing(weapon, fire_wname.as_deref())
@@ -306,15 +311,13 @@ impl GameLogic {
                     &attacker.template_name,
                 );
             if specialized_lane {
-                attacker.finish_shot_after_specialized_tracker_with_solo_set(
-                    &self.solo_weapon_bonus_set,
-                );
+                attacker.finish_shot_after_specialized_tracker_with_owned_rof(&rates);
             } else {
-                attacker.record_shot_at_target_with_solo_set(
+                attacker.record_shot_at_target_with_owned_rof(
                     target_id,
                     fire_frame,
                     possible_next_shot_frame,
-                    &self.solo_weapon_bonus_set,
+                    &rates,
                 );
             }
             attacker.stamp_auto_reload_when_idle_from_slot(slot, fire_frame);
