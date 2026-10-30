@@ -787,11 +787,19 @@ fn common_ini_particle_names(name: &str) -> Vec<String> {
 /// FXList template names expand to their Sound nuggets. Unknown FXList
 /// templates produce no events (never play the template name).
 pub fn resolve_audio_event_names(event_type: &str) -> Vec<String> {
+    resolve_audio_event_names_with(event_type, sound_names_for_fx_list)
+}
+
+/// Resolve one queued request using its receiving session's definition owner.
+pub(crate) fn resolve_audio_event_names_with(
+    event_type: &str,
+    sounds_for_list: impl FnOnce(&str) -> Vec<String>,
+) -> Vec<String> {
     let raw = strip_fx_list_prefix(event_type);
     if is_none_fx_list(raw) {
         return Vec::new();
     }
-    let sounds = sound_names_for_fx_list(raw);
+    let sounds = sounds_for_list(raw);
     if !sounds.is_empty() {
         return sounds;
     }

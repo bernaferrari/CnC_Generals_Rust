@@ -279,10 +279,7 @@ impl PresentationFrame {
                     let owner = self
                         .objects
                         .iter()
-                        .find(|o| {
-                            o.is_beacon
-                                && (o.position - *p).length() <= 3.0
-                        })
+                        .find(|o| o.is_beacon && (o.position - *p).length() <= 3.0)
                         .and_then(|o| o.owner_player_id)
                         .unwrap_or(self.local_player_id);
                     MinimapDot::normalized(nx, ny, color_for_player(owner.min(255) as u8), 4.0)
@@ -819,7 +816,7 @@ impl PresentationFrame {
                     if t.is_empty() {
                         vec!["Explosion".to_string()]
                     } else if t.starts_with("FX_") || t.starts_with("WeaponFX_") {
-                        let sounds = crate::game_logic::sound_names_for_fx_list(t);
+                        let sounds = self.fx_sound_names.get(t).cloned().unwrap_or_default();
                         if sounds.is_empty() {
                             vec!["Explosion".to_string()]
                         } else {

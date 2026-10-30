@@ -344,6 +344,9 @@ pub struct PresentationFrame {
     /// True when objects were rebuilt from GameWorld (Wave 196 engine primary path).
     #[serde(default)]
     pub gameworld_primary_objects: bool,
+    /// Authored FX-list sounds frozen from the producing session with the frame.
+    #[serde(default)]
+    pub(crate) fx_sound_names: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 impl PresentationFrame {

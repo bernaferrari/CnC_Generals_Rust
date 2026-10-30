@@ -95,6 +95,10 @@ impl crate::game_logic::GameLogic {
             .as_ref()
             .map_or_else(Vec::new, |catalog| catalog.sound_names(name))
     }
+    /// Resolve an audio request using only this session's effective FX lists.
+    pub fn resolve_owned_audio_event_names(&self, event_type: &str) -> Vec<String> {
+        super::resolve_audio_event_names_with(event_type, |name| self.fx_list_sound_names(name))
+    }
     pub(crate) fn admit_fx_baseline(&mut self, baseline: game_client::fx_list::FXListStore) {
         self.session_view.fx.catalog = Some(baseline.clone());
         self.session_view.fx.baseline = Some(baseline);
