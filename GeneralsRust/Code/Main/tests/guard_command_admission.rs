@@ -146,6 +146,7 @@ fn replacing_retaliation_exits_its_active_attack_without_touching_peer() {
     let mut attacks = AttackEvents::default();
     for world in [&mut owner, &mut peer] {
         let actor = world.host_object_mut(id).unwrap();
+        actor.team_instance_name = "RetaliationTeam".into();
         actor.begin_guard_retaliate(
             id,
             Some(Vec3::ZERO),
@@ -156,6 +157,9 @@ fn replacing_retaliation_exits_its_active_attack_without_touching_peer() {
         actor.set_status_firing_weapon(true);
         actor.set_status_aiming_weapon(true);
         assert_eq!(actor.ai_state(), AIState::GuardRetaliating);
+        world
+            .team_common_attack_targets
+            .insert("RetaliationTeam".into(), id);
     }
     assert!(owner.unit_command_guard_position(id, Vec3::new(10., 0., 20.)));
     let actor = owner.host_object(id).unwrap();
@@ -173,4 +177,74 @@ fn replacing_retaliation_exits_its_active_attack_without_touching_peer() {
     assert!(
         other.status.attacking && other.status.is_firing_weapon && other.status.is_aiming_weapon
     );
+    assert!(
+        !owner
+            .team_common_attack_targets
+            .contains_key("RetaliationTeam")
+    );
+    assert_eq!(
+        peer.team_common_attack_targets.get("RetaliationTeam"),
+        Some(&id)
+    );
+}
+
+#[test]
+fn outer_retaliation_exit_keeps_the_team_common_target() {
+    use generals_main::game_logic::{ObjectAudio, SessionAudio, host_attack_log::AttackEvents};
+    let mut world = make_world(KindOf::Selectable);
+    let id = world
+        .create_object("GuardAdmission", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let mut audio = SessionAudio::default();
+    let mut attacks = AttackEvents::default();
+    let actor = world.host_object_mut(id).unwrap();
+    actor.team_instance_name = "OuterRetaliationTeam".into();
+    actor.begin_guard_retaliate(
+        id,
+        Some(Vec3::ZERO),
+        None,
+        &mut attacks,
+        &mut ObjectAudio::queue(&mut audio),
+    );
+    actor.guard_chase_phase = 2;
+    world
+        .team_common_attack_targets
+        .insert("OuterRetaliationTeam".into(), id);
+    assert!(world.unit_command_guard_position(id, Vec3::new(10., 0., 20.)));
+    assert_eq!(
+        world.team_common_attack_targets.get("OuterRetaliationTeam"),
+        Some(&id)
+    );
+    assert_eq!(world.host_object(id).unwrap().target, None);
+}
+
+#[test]
+fn inner_retaliation_exit_clears_the_team_common_target() {
+    use generals_main::game_logic::{ObjectAudio, SessionAudio, host_attack_log::AttackEvents};
+    let mut world = make_world(KindOf::Selectable);
+    let id = world
+        .create_object("GuardAdmission", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let mut audio = SessionAudio::default();
+    let mut attacks = AttackEvents::default();
+    let actor = world.host_object_mut(id).unwrap();
+    actor.team_instance_name = "InnerRetaliationTeam".into();
+    actor.begin_guard_retaliate(
+        id,
+        Some(Vec3::ZERO),
+        None,
+        &mut attacks,
+        &mut ObjectAudio::queue(&mut audio),
+    );
+    actor.guard_chase_phase = 1;
+    world
+        .team_common_attack_targets
+        .insert("InnerRetaliationTeam".into(), id);
+    assert!(world.unit_command_guard_position(id, Vec3::new(10., 0., 20.)));
+    assert!(
+        !world
+            .team_common_attack_targets
+            .contains_key("InnerRetaliationTeam")
+    );
+    assert_eq!(world.host_object(id).unwrap().target, None);
 }
