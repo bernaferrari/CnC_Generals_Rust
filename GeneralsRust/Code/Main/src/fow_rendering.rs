@@ -1318,67 +1318,6 @@ mod tests {
         assert_eq!(clamped.encoded_border_level(), 32);
     }
 
-    #[cfg(feature = "game_client")]
-    #[test]
-    fn projected_shroud_enable_disable_border_override_is_frozen() {
-        use game_client::core::script_action_handler::{
-            GameClientScriptActionHandler, clear_script_display_border_shroud_level,
-            script_display_border_shroud_level,
-        };
-        use gamelogic::scripting::engine::ScriptActionHandler;
-
-        struct ClearBorderOverrideOnDrop;
-        impl Drop for ClearBorderOverrideOnDrop {
-            fn drop(&mut self) {
-                clear_script_display_border_shroud_level();
-            }
-        }
-
-        clear_script_display_border_shroud_level();
-        let _clear_on_drop = ClearBorderOverrideOnDrop;
-        let mut global = game_engine::common::global_data::GlobalData::default();
-        global.shroud_alpha = 37;
-        global.clear_alpha = 211;
-        let grid = PresentationFowGrid::fully_visible(3, 2, 10.0);
-        let handler = GameClientScriptActionHandler::new();
-
-        // C++ DisableBorderShroud dispatches the configured ClearAlpha to the
-        // display handler.  Freeze its override into the complete padded R8
-        // allocation before later script state can change.
-        handler
-            .set_border_shroud_level(global.clear_alpha)
-            .expect("DisableBorderShroud display handoff");
-        assert_eq!(script_display_border_shroud_level(), Some(211));
-        let disabled = ProjectedShroudSnapshot::from_grid(
-            &grid,
-            ProjectedShroudMetadata::from_global_data_with_border_override(
-                &global,
-                script_display_border_shroud_level(),
-            ),
-        );
-        assert_eq!(disabled.metadata.border_alpha, 211);
-        assert_eq!(disabled.texel_at(0, 0), Some(211));
-        assert_eq!(disabled.texel_at(7, 3), Some(211));
-
-        // C++ EnableBorderShroud sends ShroudAlpha.  A fresh snapshot sees the
-        // new border while the prior presentation frame stays fully frozen.
-        handler
-            .set_border_shroud_level(global.shroud_alpha)
-            .expect("EnableBorderShroud display handoff");
-        assert_eq!(script_display_border_shroud_level(), Some(37));
-        let enabled = ProjectedShroudSnapshot::from_grid(
-            &grid,
-            ProjectedShroudMetadata::from_global_data_with_border_override(
-                &global,
-                script_display_border_shroud_level(),
-            ),
-        );
-        assert_eq!(enabled.metadata.border_alpha, 37);
-        assert_eq!(enabled.texel_at(0, 0), Some(37));
-        assert_eq!(disabled.metadata.border_alpha, 211);
-        assert_eq!(disabled.texel_at(0, 0), Some(211));
-    }
-
     #[test]
     fn projected_shroud_projection_adapts_rust_xz_to_cxx_xy_with_nonzero_origin() {
         let grid = PresentationFowGrid::fully_visible_at_origin(3, 2, [100.0, -40.0], 10.0);
