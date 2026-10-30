@@ -862,19 +862,10 @@ impl Object {
         );
         for hit in hits {
             if let Some(name) = hit.death_fx {
-                let played = dispatch(&name, self, hit.orient_to_object);
-                // Match the existing missing-client sound fallback without
-                // requeueing a successfully delivered authored FX list.
-                if !played {
-                    for sound in crate::game_logic::sound_names_for_fx_list(&name) {
-                        self.pending_transition_damage_fx.push(
-                            crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent {
-                                audio_name: Some(sound),
-                                ..Default::default()
-                            },
-                        );
-                    }
-                }
+                // FXListDie.cpp invokes the authored list once at this point.
+                // An absent receiving list does not authorize another catalog
+                // to synthesize a replacement sound.
+                let _ = dispatch(&name, self, hit.orient_to_object);
             }
             if self.pending_death_audio.is_none() {
                 self.pending_death_audio = hit.death_audio;
