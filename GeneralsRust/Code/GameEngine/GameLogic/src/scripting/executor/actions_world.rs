@@ -705,9 +705,17 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_map_switch_border(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let border_index = self.get_int_param(action, 0)?;
         log::debug!("Switching map border to '{}'", border_index);
+
+        if let Some(result) = driver
+            .world(crate::scripting::engine::ScriptWorldRequest::MapSwitchBoundary(border_index))
+        {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+            return Ok(ScriptActionResult::Success);
+        }
 
         let mut observer_player_index: Option<u32> = None;
         if let Ok(players) = player_list().read() {
@@ -745,9 +753,9 @@ impl ScriptActionDispatcher<'_> {
         driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Refreshing radar");
-        if let Some(result) = driver.world(
-            crate::scripting::engine::ScriptWorldRequest::RadarRefreshTerrain,
-        ) {
+        if let Some(result) =
+            driver.world(crate::scripting::engine::ScriptWorldRequest::RadarRefreshTerrain)
+        {
             result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
             return Ok(ScriptActionResult::Success);
         }
@@ -1451,10 +1459,9 @@ impl ScriptActionDispatcher<'_> {
         action: &ScriptAction,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let Some(player_name) = self.resolve_player_name_token_with_driver(
-            &self.get_string_param(action, 0)?,
-            driver,
-        ) else {
+        let Some(player_name) =
+            self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver)
+        else {
             return Ok(ScriptActionResult::Success);
         };
         let delay_seconds = self.get_int_param(action, 1)?;

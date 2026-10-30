@@ -669,8 +669,7 @@ fn continuation_uses_each_worlds_off_map_status_after_boundary_change_and_restor
     );
 }
 
-#[test]
-fn continuation_uses_authored_active_terrain_boundary() {
+fn switched_boundary_worlds() -> (GameLogic, GameLogic, ObjectId, ObjectId, ObjectId) {
     use game_engine::common::system::DataChunkOutput;
 
     let root = tempfile::tempdir().unwrap();
@@ -689,6 +688,19 @@ fn continuation_uses_authored_active_terrain_boundary() {
 
     let (mut session, _, _, _) = world(200.0, "MapBoundaryWeapon");
     assert!(session.load_map(path.to_str().unwrap()));
+    session
+        .templates
+        .get_mut("ChainVictim")
+        .unwrap()
+        .add_kind_of(KindOf::Attackable);
+    let mut weapon = WeaponTemplate::new("MapBoundaryWeapon".into());
+    weapon.primary_damage = 100.0;
+    weapon.attack_range = 200.0;
+    weapon.continue_attack_range = 200.0;
+    weapon.projectile_name = "NONE".into();
+    session
+        .admit_receiving_weapon_snapshot(vec![("MapBoundaryWeapon".into(), weapon.clone())])
+        .unwrap();
     let mut owner = Player::new(1, Team::USA, "Owner", true);
     owner.alliance_team = 1;
     let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
@@ -702,6 +714,7 @@ fn continuation_uses_authored_active_terrain_boundary() {
         .host_object_mut(attacker)
         .unwrap()
         .auto_acquire_idle_bits = 0;
+    session.host_object_mut(attacker).unwrap().weapon_bonus_solo = 16;
     let victim = session
         .create_object_for_player("ChainVictim", 2, Vec3::new(30.0, 0.0, 20.0))
         .unwrap();
@@ -720,6 +733,14 @@ fn continuation_uses_authored_active_terrain_boundary() {
     snapshot.persist_v18.terrain_active_boundary = 1;
     let (mut restored, _, _, _) = world(200.0, "MapBoundaryWeapon");
     assert!(restored.load_map(path.to_str().unwrap()));
+    restored
+        .templates
+        .get_mut("ChainVictim")
+        .unwrap()
+        .add_kind_of(KindOf::Attackable);
+    restored
+        .admit_receiving_weapon_snapshot(vec![("MapBoundaryWeapon".into(), weapon)])
+        .unwrap();
     let mut restored_owner = Player::new(1, Team::USA, "Owner", true);
     restored_owner.alliance_team = 1;
     let mut restored_enemy = Player::new(2, Team::GLA, "Enemy", false);
@@ -766,7 +787,134 @@ fn continuation_uses_authored_active_terrain_boundary() {
             .terrain_active_boundary,
         0
     );
+    assert!(restored.unit_command_attack(attacker, victim).unwrap());
+    for _ in 0..100 {
+        restored.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if restored
+            .host_object(victim)
+            .is_none_or(|object| !object.is_alive())
+        {
+            break;
+        }
+    }
+    assert!(
+        restored
+            .host_object(victim)
+            .is_none_or(|object| !object.is_alive())
+    );
+    assert_ne!(
+        restored.host_object(attacker).unwrap().target,
+        Some(candidate)
+    );
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    // Run the authored action through the receiving script driver, then save
+    // its real boundary and partition continuation for the other session.
+    use gamelogic::scripting::core::{
+        Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+        ScriptActionType, ScriptList,
+    };
+    let mut action = ScriptAction::new(ScriptActionType::MapSwitchBorder);
+    action
+        .add_parameter(Parameter::with_int(ParameterType::Boundary, 1))
+        .unwrap();
+    let mut condition = OrCondition::new();
+    condition.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    let mut script = Script::new();
+    script.script_name = "SwitchBoundary".into();
+    script.is_one_shot = true;
+    script.condition = Some(Box::new(condition));
+    script.action = Some(Box::new(action));
+    let mut scripts = ScriptList::new();
+    scripts.append_script(Box::new(script));
+    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    engine
+        .set_script_list_for_player(0, Some(Box::new(scripts)))
+        .unwrap();
+    session
+        .update_local_script_engine_with_owner(&engine)
+        .unwrap();
+    let switched = builder.create_world_snapshot(&session).unwrap();
+    assert_eq!(switched.persist_v18.terrain_active_boundary, 1);
+    let data = &switched.lifecycle_tail;
+    let footer = data.windows(4).rposition(|tag| tag == b"OXFE").unwrap();
+    let len = u32::from_le_bytes(data[footer - 4..footer].try_into().unwrap()) as usize;
+    let end = footer - 4;
+    let start = end - len;
+    assert_eq!(&data[start - 12..start - 8], b"OXFR");
+    let rows = end - (1 + 8 + switched.objects.len() * 5);
+    let row = (0..switched.objects.len())
+        .map(|index| rows + 9 + index * 5)
+        .find(|&offset| {
+            u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap()) == candidate.0
+        })
+        .unwrap();
+    assert_eq!(data[row + 4], 0, "candidate must be on the expanded map");
+    for id in [attacker, victim] {
+        let row = (0..switched.objects.len())
+            .map(|index| rows + 9 + index * 5)
+            .find(|&offset| {
+                u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap()) == id.0
+            })
+            .unwrap();
+        assert_eq!(
+            data[row + 4],
+            0,
+            "attacker and victim must be on the expanded map"
+        );
+    }
+    let grid = switched.shroud.grid.as_ref().unwrap();
+    let large_cells = (990.0 / grid.cell_size).ceil() as u32;
+    assert_eq!((grid.width, grid.height), (large_cells, large_cells));
+    assert_eq!(
+        builder
+            .create_world_snapshot(&restored)
+            .unwrap()
+            .persist_v18
+            .terrain_active_boundary,
+        0
+    );
+    builder
+        .restore_from_snapshot(&switched, &mut restored)
+        .unwrap();
+    let loaded = builder.create_world_snapshot(&restored).unwrap();
+    assert_eq!(loaded.persist_v18.terrain_active_boundary, 1);
+    assert_eq!(loaded.shroud.grid.as_ref().unwrap().width, large_cells);
+    (session, restored, attacker, victim, candidate)
+}
+
+#[test]
+fn continuation_uses_authored_active_terrain_boundary() {
+    let _ = switched_boundary_worlds();
+}
+
+#[test]
+fn attack_continues_after_authored_boundary_switch() {
+    let (mut session, _restored, attacker, victim, candidate) = switched_boundary_worlds();
+    let can_attack = session.get_able_to_attack_specific_object(
+        attacker,
+        candidate,
+        generals_main::game_logic::AbleToAttackType::NewTarget,
+        true,
+    );
+    assert!(
+        matches!(
+            can_attack,
+            generals_main::game_logic::CanAttackResult::Possible
+                | generals_main::game_logic::CanAttackResult::PossibleAfterMoving
+        ),
+        "candidate attackability: {can_attack:?}"
+    );
     assert!(session.unit_command_attack(attacker, victim).unwrap());
+    let actor = session.host_object(attacker).unwrap();
+    let selected = actor
+        .selected_weapon_slot()
+        .expect("attacker has a selected weapon");
+    assert_eq!(
+        actor.weapon_name_for_slot(selected),
+        Some("MapBoundaryWeapon")
+    );
     for _ in 0..100 {
         session.tick_logic_frame(1.0 / 30.0, None, Some(1));
         if session
@@ -781,7 +929,7 @@ fn continuation_uses_authored_active_terrain_boundary() {
             .host_object(victim)
             .is_none_or(|object| !object.is_alive())
     );
-    assert_ne!(
+    assert_eq!(
         session.host_object(attacker).unwrap().target,
         Some(candidate)
     );

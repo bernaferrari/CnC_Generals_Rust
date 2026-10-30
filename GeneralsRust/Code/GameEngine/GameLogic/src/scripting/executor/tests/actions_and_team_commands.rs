@@ -3008,6 +3008,7 @@ impl ScriptExecutionDriver for BorrowedWorldOwner<'_> {
     ) -> Option<GameLogicResult<()>> {
         use crate::scripting::engine::ScriptWorldRequest;
         let call = match request {
+            ScriptWorldRequest::MapSwitchBoundary(_) => panic!("unexpected boundary effect"),
             ScriptWorldRequest::MovieFullscreen(name) => format!("movie:{name}"),
             ScriptWorldRequest::RadarForced(forced) => format!("radar:{forced}"),
             ScriptWorldRequest::RadarRefreshTerrain => "radar_refresh_terrain".into(),

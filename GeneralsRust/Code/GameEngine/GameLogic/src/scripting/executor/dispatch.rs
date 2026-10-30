@@ -2281,7 +2281,7 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::MapUndoRevealPermanentlyAtWaypoint => {
                 self.do_map_undo_reveal_permanently_at_waypoint(action)
             }
-            ScriptActionType::MapSwitchBorder => self.do_map_switch_border(action),
+            ScriptActionType::MapSwitchBorder => self.do_map_switch_border(action, driver),
             ScriptActionType::RefreshRadar => self.do_refresh_radar(driver),
             ScriptActionType::ObjectCreateRadarEvent => self.do_object_create_radar_event(action),
             ScriptActionType::DisableBorderShroud => self.do_disable_border_shroud(),

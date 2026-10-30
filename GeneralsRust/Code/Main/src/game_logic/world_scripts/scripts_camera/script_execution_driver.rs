@@ -921,9 +921,10 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        Some(self.world.apply_owned_team_guard_position(
-            team, waypoint, calling, condition,
-        ))
+        Some(
+            self.world
+                .apply_owned_team_guard_position(team, waypoint, calling, condition),
+        )
     }
     fn team_guard_area(
         &mut self,
@@ -936,9 +937,10 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         let Some(area) = self.qualified_area(area, current_player) else {
             return Some(Ok(()));
         };
-        Some(self.world.apply_owned_team_guard_area(
-            team, &area, calling, condition,
-        ))
+        Some(
+            self.world
+                .apply_owned_team_guard_area(team, &area, calling, condition),
+        )
     }
     fn team_guard_object(
         &mut self,
@@ -2591,6 +2593,13 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         // interpreter/service adapter invoked it. The existing after_action
         // drain makes them observable before the next authored statement.
         match request {
+            ScriptWorldRequest::MapSwitchBoundary(boundary) => {
+                return Some(
+                    self.world
+                        .switch_owned_map_boundary(boundary, &mut self.ui)
+                        .map_err(gamelogic::GameLogicError::Configuration),
+                );
+            }
             ScriptWorldRequest::RadarRefreshTerrain => {
                 self.world.host_radar_refresh_terrain();
                 return Some(Ok(()));
@@ -2676,6 +2685,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 ScriptWorldRequest::RadarRefreshTerrain => {
                     unreachable!("already admitted above")
                 }
+                ScriptWorldRequest::MapSwitchBoundary(_) => unreachable!("already admitted above"),
                 ScriptWorldRequest::Timer {
                     name,
                     text,

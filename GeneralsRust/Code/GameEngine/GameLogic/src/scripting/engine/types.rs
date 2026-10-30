@@ -403,6 +403,8 @@ pub struct ScriptObjectCreation<'a> {
 /// Synchronous presentation/native effects of the driving script owner.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ScriptWorldRequest<'a> {
+    /// Switch the driving match's authored terrain boundary synchronously.
+    MapSwitchBoundary(i32),
     Input {
         enabled: bool,
     },

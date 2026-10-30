@@ -2,6 +2,106 @@
 use super::*;
 
 impl GameLogic {
+    /// TerrainLogic::setActiveBoundary, driven by this session's owners.
+    pub(crate) fn switch_owned_map_boundary(
+        &mut self,
+        boundary: i32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Result<(), String> {
+        let terrain_owner = self.world_services.terrain().clone();
+        let should_switch = {
+            let terrain = terrain_owner
+                .read()
+                .map_err(|_| "receiving terrain owner is poisoned")?;
+            boundary != terrain.get_active_boundary()
+                && terrain.extent_for_saved_boundary(boundary).is_some()
+        };
+        let shroud_owner = self.world_services.shroud().clone();
+        let observer = self
+            .players
+            .values()
+            .find(|player| player.name == "ReplayObserver")
+            .map(|player| player.id);
+        if let Some(observer) = observer {
+            shroud_owner
+                .lock()
+                .map_err(|_| "receiving shroud owner is poisoned")?
+                .undo_reveal_map_for_player_permanently(observer)?;
+        }
+        if should_switch {
+            let mut saved = {
+                let mut shroud = shroud_owner
+                    .lock()
+                    .map_err(|_| "receiving shroud owner is poisoned")?;
+                shroud.process_entire_pending_undo_shroud_reveal_queue();
+                shroud.store_boundary_fogged_cells()?
+            };
+            terrain_owner
+                .write()
+                .map_err(|_| "receiving terrain owner is poisoned")?
+                .restore_active_boundary_from_snapshot(boundary);
+            self.w3d_ghosts.release_partition_data();
+            let ids = self.objects.ordered_ids().to_vec();
+            for id in &ids {
+                self.host_radar_remove_object(*id);
+                self.partition_manager.unregister_object(id.0);
+                self.objects
+                    .get_mut(id)
+                    .expect("registered boundary object")
+                    .forget_retired_partition_scalar_receipt();
+            }
+            self.vision_last_looks.clear();
+            self.vision_last_reveal_all.clear();
+            self.vision_last_shroud.clear();
+            shroud_owner
+                .lock()
+                .map_err(|_| "receiving shroud owner is poisoned")?
+                .store_boundary_permanently_revealed_cells(&mut saved)?;
+            self.initialize_receiving_partition_grid()?;
+            let (min, max) = self.receiving_partition_extent();
+            if !self.host_radar_new_map_with_extent(min, max) {
+                return Err("boundary has invalid radar extent".into());
+            }
+            shroud_owner
+                .lock()
+                .map_err(|_| "receiving shroud owner is poisoned")?
+                .restore_boundary_permanently_revealed_cells(&saved)?;
+            self.w3d_ghosts.set_lock_ghost_objects(true);
+            for id in &ids {
+                let object = self
+                    .objects
+                    .get_mut(id)
+                    .expect("registered boundary object");
+                self.partition_manager.attach_receiving_object(object);
+                object.handle_partition_cell_maintenance_with_partition_owner(
+                    &mut self.partition_manager,
+                );
+                self.host_radar_add_object_with_effects(*id, effects);
+            }
+            self.update_main_crate_vision();
+            let fog_result = shroud_owner
+                .lock()
+                .map_err(|_| "receiving shroud owner is poisoned".to_owned())
+                .and_then(|mut shroud| shroud.restore_boundary_fogged_cells(&saved));
+            self.w3d_ghosts.restore_partition_data();
+            self.w3d_ghosts.set_lock_ghost_objects(false);
+            fog_result?;
+            self.session_view.camera.constraints.invalidate();
+        }
+        if let Some(observer) = observer {
+            shroud_owner
+                .lock()
+                .map_err(|_| "receiving shroud owner is poisoned")?
+                .reveal_map_for_player_permanently(observer)?;
+        }
+        if let Some(player) = self.local_player_id() {
+            let mut shroud = shroud_owner
+                .lock()
+                .map_err(|_| "receiving shroud owner is poisoned")?;
+            shroud.refresh_radar_shroud_for_player_into(player, self.frame, &mut self.radar);
+        }
+        Ok(())
+    }
     /// Validate against the saved boundary without changing the receiving world.
     pub(crate) fn validate_saved_partition_geometry(
         &self,

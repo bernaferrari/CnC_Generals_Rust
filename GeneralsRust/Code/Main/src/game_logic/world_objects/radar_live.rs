@@ -457,6 +457,17 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        if !self.host_radar_new_map_with_extent(self.world_min, self.world_max) {
+            return;
+        }
+        let ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
+        for id in ids {
+            self.host_radar_add_object_with_effects(id, effects);
+        }
+    }
+
+    /// C++ Radar::newMap precedes the per-object boundary notifications.
+    pub(crate) fn host_radar_new_map_with_extent(&mut self, min: Vec3, max: Vec3) -> bool {
         self.rebuild_host_radar_provider_admission();
         self.radar_map.colors.clear();
         self.radar_map.bridges.clear();
@@ -467,10 +478,8 @@ impl GameLogic {
             .radar_water_color;
         self.radar_map
             .admit_effective_definitions(water_color, &self.terrain_road_definitions.effective);
-        let Some((lo, hi)) =
-            store_radar_map_extent(&mut self.radar_map, self.world_min, self.world_max)
-        else {
-            return;
+        let Some((lo, hi)) = store_radar_map_extent(&mut self.radar_map, min, max) else {
+            return false;
         };
         self.host_radar_rescan_terrain();
         let (lo, hi) = self.radar_map.map_extent().expect("admitted radar extent");
@@ -480,10 +489,7 @@ impl GameLogic {
         self.radar.new_map_owned(lo, hi, &heights);
         self.radar
             .refresh_owned_terrain_with_source(&self.radar_map, self.radar_map.water_color);
-        let ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
-        for id in ids {
-            self.host_radar_add_object_with_effects(id, effects);
-        }
+        true
     }
 
     /// Sample leftover TerrainLogic + live height into the 128x128 radar cache.
