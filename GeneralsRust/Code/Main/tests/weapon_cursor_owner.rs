@@ -120,6 +120,22 @@ fn contained_weapon_world_with_pre_attack(
     allow_fire: Option<bool>,
     pre_attack_frames: i32,
 ) -> (GameLogic, ObjectId, ObjectId) {
+    contained_weapon_world_with_timing(
+        authored_pass,
+        force_metadata,
+        allow_fire,
+        pre_attack_frames,
+        0,
+    )
+}
+
+fn contained_weapon_world_with_timing(
+    authored_pass: bool,
+    force_metadata: bool,
+    allow_fire: Option<bool>,
+    pre_attack_frames: i32,
+    clip_reload_frames: i32,
+) -> (GameLogic, ObjectId, ObjectId) {
     let mut game = GameLogic::new();
     game.admit_combat_bonus_ini_sources(["GameData\n WeaponBonus = SOLO_HUMAN_EASY RADIUS 150%\n WeaponBonus = SOLO_AI_EASY RADIUS 200%\n WeaponBonus = SOLO_AI_EASY DAMAGE 150%\n WeaponBonus = SOLO_AI_EASY RANGE 200%\n WeaponBonus = SOLO_AI_EASY PRE_ATTACK 200%\n WeaponBonus = GARRISONED RADIUS 125%\n WeaponBonus = FRENZY_ONE RADIUS 125%\n WeaponBonus = FRENZY_THREE RADIUS 175%\n WeaponBonus = VETERAN RADIUS 125%\n WeaponBonus = HERO RADIUS 150%\nEnd\n"]).unwrap();
     let pass = if authored_pass { "Yes" } else { "No" };
@@ -144,6 +160,10 @@ fn contained_weapon_world_with_pre_attack(
     weapon.primary_damage = 10.0;
     weapon.attack_range = 200.0;
     weapon.pre_attack_delay = pre_attack_frames;
+    if clip_reload_frames > 0 {
+        weapon.clip_size = 3;
+        weapon.clip_reload_time = clip_reload_frames;
+    }
     weapon.projectile_name = "NONE".into();
     game.admit_receiving_weapon_snapshot(vec![("ContainedWeapon".into(), weapon)])
         .unwrap();
@@ -158,6 +178,25 @@ fn contained_weapon_world_with_pre_attack(
     game.host_object_mut(passenger).unwrap().contained_by = Some(carrier);
     game.host_object_mut(carrier).unwrap().weapon_bonus_solo = 19;
     (game, passenger, carrier)
+}
+
+#[test]
+fn bonused_clip_reload_uses_original_integer_frame_floor() {
+    let (mut world, passenger, _) = contained_weapon_world_with_timing(false, false, None, 0, 7);
+    let object = world.host_object_mut(passenger).unwrap();
+    object.contained_by = None;
+    object.weapon_bonus_solo = 0;
+    object.weapon_bonus_horde = true;
+    let weapon = object.weapon.as_mut().unwrap();
+    weapon.ammo = Some(0);
+    weapon.reloading_clip = true;
+    weapon.last_fire_time = 1.0;
+    weapon.last_bonus_rof = 1.5;
+
+    object.refresh_weapon_fire_status(1.0 + 3.0 / 30.0);
+    assert_eq!(object.weapon.as_ref().unwrap().ammo, Some(0));
+    object.refresh_weapon_fire_status(1.0 + 4.0 / 30.0);
+    assert_eq!(object.weapon.as_ref().unwrap().ammo, Some(3));
 }
 
 #[test]

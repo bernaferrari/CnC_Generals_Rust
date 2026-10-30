@@ -1430,7 +1430,10 @@ impl Object {
             let waiting_clip = weapon.reloading_clip
                 || (rule.get_auto_reloads_clip() && weapon.clip_size > 0 && weapon.ammo == Some(0));
             if waiting_clip {
-                return (weapon.clip_reload_time / rof.max(0.01)).max(0.0);
+                // WeaponTemplate::getClipReloadTime floors the bonused delay
+                // in logic frames before it becomes a deadline.
+                return ((rule.clip_reload_time.max(0) as f32 / rof.max(0.01)).floor() / 30.0)
+                    .max(0.0);
             }
             return ((rule.min_delay_between_shots as f32 / rof.max(0.01)).floor() / 30.0).max(0.0);
         }
