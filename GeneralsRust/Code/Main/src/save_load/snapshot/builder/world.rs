@@ -565,6 +565,10 @@ impl SnapshotBuilder {
             &body_kinds,
         )?;
         let lifecycle_tail = native_die.legacy_tail.as_ref();
+        super::super::object_xfer_persist::validate_passenger_fire_permissions_before_restore(
+            lifecycle_tail,
+            snapshot,
+        )?;
         super::super::object_xfer_persist::validate_base_ai_projection_before_restore(
             lifecycle_tail,
             snapshot,

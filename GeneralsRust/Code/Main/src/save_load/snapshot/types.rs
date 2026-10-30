@@ -38,14 +38,15 @@ use std::time::SystemTime;
 /// attempting to restore a lifecycle tail they cannot interpret.
 pub const WORLD_SNAPSHOT_OBJECT_COMPLETION_VERSION: u32 = 37;
 pub const WORLD_SNAPSHOT_PARTICLE_DRIVE_SETTINGS_VERSION: u32 = 38;
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 38;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 38;
+/// Version39 requires OpenContain's runtime passenger-fire permission.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 39;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 39;
 /// Version36 introduced mandatory exact original-Garrison-Team continuation.
 pub const WORLD_SNAPSHOT_GARRISON_TEAM_VERSION: u32 = 36;
 
 /// Validate the Rust outer envelope before consuming or restoring its body.
 pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadResult<()> {
-    if matches!(version, 34 | 35 | 36 | 37) || version == WORLD_SNAPSHOT_DIRECT_XFER_VERSION {
+    if matches!(version, 34 | 35 | 36 | 37 | 38) || version == WORLD_SNAPSHOT_DIRECT_XFER_VERSION {
         Ok(())
     } else {
         Err(crate::save_load::SaveLoadError::VersionMismatch {

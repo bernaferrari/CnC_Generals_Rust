@@ -418,6 +418,168 @@ fn boarding_save_and_evacuation_preserve_session_bonus_ownership() {
 }
 
 #[test]
+fn passenger_fire_runtime_override_survives_save_formats_and_peer_interleaving() {
+    use generals_main::save_load::{Snapshot, SnapshotBuilder, WorldSnapshot, XferLoad, XferSave};
+    for (authored, changed) in [(false, true), (true, false)] {
+        let (mut source, passenger, carrier) =
+            contained_weapon_world_with_fire(true, false, Some(authored));
+        let (peer, peer_passenger, peer_carrier) =
+            contained_weapon_world_with_fire(true, false, Some(!authored));
+        assert_eq!((passenger, carrier), (peer_passenger, peer_carrier));
+        source.host_object_mut(passenger).unwrap().contained_by = None;
+        assert!(source.unit_command_order_enter(passenger, carrier));
+        source.try_physics_collide(passenger, carrier, 1.0);
+        assert_eq!(
+            source.host_object(passenger).unwrap().contained_by,
+            Some(carrier)
+        );
+        source
+            .host_object_mut(carrier)
+            .unwrap()
+            .passengers_allowed_to_fire = changed;
+        source
+            .templates
+            .get_mut("Enemy")
+            .unwrap()
+            .add_kind_of(generals_main::game_logic::KindOf::Attackable);
+        source.add_player(Player::new(2, Team::GLA, "Enemy", false));
+        let enemy = source
+            .create_object_for_player("Enemy", 2, glam::Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+        let builder = SnapshotBuilder::new();
+        let mut snapshot = builder.create_world_snapshot(&source).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let bincode_snapshot: WorldSnapshot = bincode_legacy::deserialize(&bytes).unwrap();
+        let mut stream = std::io::Cursor::new(Vec::new());
+        snapshot.xfer(&mut XferSave::new(&mut stream)).unwrap();
+        let mut xfer_snapshot = WorldSnapshot::default();
+        xfer_snapshot
+            .xfer(&mut XferLoad::new(std::io::Cursor::new(
+                stream.into_inner(),
+            )))
+            .unwrap();
+        for decoded in [&bincode_snapshot, &xfer_snapshot] {
+            let (mut restored, _, _) =
+                contained_weapon_world_with_fire(true, false, Some(authored));
+            restored
+                .templates
+                .get_mut("Enemy")
+                .unwrap()
+                .add_kind_of(generals_main::game_logic::KindOf::Attackable);
+            restored.add_player(Player::new(2, Team::GLA, "Enemy", false));
+            builder
+                .restore_from_snapshot(decoded, &mut restored)
+                .unwrap();
+            assert_eq!(
+                restored
+                    .host_object(carrier)
+                    .unwrap()
+                    .passengers_allowed_to_fire,
+                changed
+            );
+            assert_eq!(
+                restored.host_object(passenger).unwrap().contained_by,
+                Some(carrier)
+            );
+            assert_eq!(
+                peer.host_object(peer_carrier)
+                    .unwrap()
+                    .passengers_allowed_to_fire,
+                !authored
+            );
+            for _ in 0..30 {
+                restored.tick_logic_frame(1.0 / 30.0, None, Some(1));
+            }
+            let health = restored.host_object(enemy).unwrap().health.current;
+            if changed {
+                assert!(health < 100.0);
+            } else {
+                assert_eq!(health, 100.0);
+            }
+        }
+    }
+}
+
+#[test]
+fn rejected_passenger_fire_continuation_preserves_running_session() {
+    let (mut source, passenger, carrier) =
+        contained_weapon_world_with_fire(true, false, Some(false));
+    source
+        .host_object_mut(carrier)
+        .unwrap()
+        .passengers_allowed_to_fire = true;
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let mut snapshot = builder.create_world_snapshot(&source).unwrap();
+    let offset = snapshot
+        .lifecycle_tail
+        .windows(4)
+        .rposition(|tag| tag == b"OXOB")
+        .unwrap();
+    snapshot.lifecycle_tail[offset + 4..offset + 8].copy_from_slice(&18u32.to_le_bytes());
+    let (mut running, _, _) = contained_weapon_world_with_fire(true, false, Some(false));
+    let before = running.weapon_cursor_radii(passenger, 0).unwrap();
+    assert!(
+        builder
+            .restore_from_snapshot(&snapshot, &mut running)
+            .is_err()
+    );
+    assert!(
+        !running
+            .host_object(carrier)
+            .unwrap()
+            .passengers_allowed_to_fire
+    );
+    assert_eq!(running.weapon_cursor_radii(passenger, 0).unwrap(), before);
+}
+
+#[test]
+fn prior_object_continuation_uses_authored_permission() {
+    let (mut source, _, carrier) = contained_weapon_world_with_fire(true, false, Some(false));
+    source
+        .host_object_mut(carrier)
+        .unwrap()
+        .passengers_allowed_to_fire = true;
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let mut snapshot = builder.create_world_snapshot(&source).unwrap();
+    let offset = snapshot
+        .lifecycle_tail
+        .windows(4)
+        .rposition(|tag| tag == b"OXOB")
+        .unwrap();
+    let length = u32::from_le_bytes(
+        snapshot.lifecycle_tail[offset + 8..offset + 12]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    let end = offset + 12 + length;
+    let tail_length = 8 + snapshot.objects.len() * 5;
+    let start = end - tail_length;
+    assert_eq!(
+        u64::from_le_bytes(
+            snapshot.lifecycle_tail[start..start + 8]
+                .try_into()
+                .unwrap()
+        ) as usize,
+        snapshot.objects.len()
+    );
+    snapshot.lifecycle_tail.drain(start..end);
+    snapshot.lifecycle_tail[offset + 4..offset + 8].copy_from_slice(&18u32.to_le_bytes());
+    snapshot.lifecycle_tail[offset + 8..offset + 12]
+        .copy_from_slice(&((length - tail_length) as u32).to_le_bytes());
+    snapshot.version = 38;
+    let (mut restored, _, _) = contained_weapon_world_with_fire(true, false, Some(false));
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert!(
+        !restored
+            .host_object(carrier)
+            .unwrap()
+            .passengers_allowed_to_fire
+    );
+}
+
+#[test]
 fn cursor_radii_use_exact_slot_receiving_definitions_and_bonus() {
     let (owner, id) = world(20.0, 150, None);
     let (peer, peer_id) = world(40.0, 100, None);
