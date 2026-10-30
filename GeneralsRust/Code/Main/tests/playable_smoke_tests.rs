@@ -44,6 +44,27 @@ fn template(
 }
 
 fn install_smoke_templates(game_logic: &mut GameLogic) {
+    let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+    locomotors.apply_source("Locomotor SmokeDozerLoco\n Surfaces = GROUND\n Speed = 60\n Acceleration = 60\n TurnRate = 120\n Appearance = FOUR_WHEELS\nEnd\n").unwrap();
+    game_logic.admit_locomotor_definitions(locomotors).unwrap();
+    let mut object_source = String::from(
+        "Object SmokeDozer\n KindOf = VEHICLE DOZER HARVESTER SELECTABLE\n CommandSet = SmokeDozerCommands\n Locomotor = SET_NORMAL SmokeDozerLoco\n Body = ActiveBody SmokeBody\n MaxHealth = 300\n InitialHealth = 300\n End\n Behavior = PhysicsBehavior SmokePhysics\n End\n Behavior = DozerAIUpdate SmokeAI\n End\nEnd\n",
+    );
+    for name in [
+        "SmokeCommandCenter",
+        "SmokePowerPlant",
+        "SmokeBarracks",
+        "SmokeRanger",
+        "SmokeSupplyDock",
+    ] {
+        object_source.push_str(&format!("Object {name}\n Body = ActiveBody SmokeBody\n MaxHealth = 1000\n InitialHealth = 1000\n End\nEnd\n"));
+    }
+    game_logic
+        .admit_object_ini_sources([("SmokeObjects.ini".into(), object_source)])
+        .unwrap();
+    game_logic.admit_fixture_command_action_source(
+        "CommandButton SmokeBuildBarracks\n Command = DOZER_CONSTRUCT\n Object = SmokeBarracks\nEnd\nCommandSet SmokeDozerCommands\n 1 = SmokeBuildBarracks\nEnd\n",
+    ).unwrap();
     let templates = [
         template(
             "SmokeCommandCenter",
@@ -102,12 +123,39 @@ fn install_smoke_templates(game_logic: &mut GameLogic) {
         ),
     ];
 
-    for mut template in templates {
+    for template in templates {
+        let admitted = game_logic.templates.get_mut(&template.name).unwrap();
+        admitted.kind_of = template.kind_of;
+        admitted.max_health = template.max_health;
+        admitted.build_cost = template.build_cost;
+        admitted.build_time = template.build_time;
         if template.name == "SmokeRanger" {
-            template.set_primary_weapon(smoke_ranger_weapon());
+            admitted.set_primary_weapon(smoke_ranger_weapon());
         }
-        game_logic.templates.insert(template.name.clone(), template);
     }
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("SmokeTerrain.map");
+    let mut out = game_engine::common::system::DataChunkOutput::new();
+    out.open_data_chunk("HeightMapData", 3);
+    for value in [101, 101, 1, 10201] {
+        out.write_int(value);
+    }
+    for _ in 0..10201 {
+        out.write_byte(0);
+    }
+    out.close_data_chunk();
+    out.open_data_chunk("ObjectsList", 3);
+    out.close_data_chunk();
+    out.open_data_chunk("SidesList", 2);
+    out.write_int(0);
+    out.write_int(0);
+    out.close_data_chunk();
+    std::fs::write(&map, out.into_ckmp_bytes()).unwrap();
+    assert!(
+        game_logic.load_map(map.to_str().unwrap()),
+        "admit smoke terrain"
+    );
+    game_logic.clear_all_players();
 }
 
 fn smoke_ranger_weapon() -> Weapon {
@@ -760,17 +808,23 @@ fn dozer_construct_places_barracks_under_construction() {
     install_smoke_templates(&mut game_logic);
     game_logic.add_player(Player::new(0, Team::USA, "USA", true));
     let dozer = game_logic
-        .create_object("SmokeDozer", Team::USA, Vec3::new(70.0, 0.0, 0.0))
+        .create_object("SmokeDozer", Team::USA, Vec3::new(70.0, 0.0, 100.0))
         .expect("dozer");
     let cc = game_logic
         .create_object("SmokeCommandCenter", Team::USA, Vec3::ZERO)
         .expect("cc");
     let _ = cc;
-    let loc = Vec3::new(80.0, 0.0, 0.0);
+    game_logic.update();
+    let loc = Vec3::new(80.0, 0.0, 100.0);
     let code =
         game_logic.legal_build_code_at_for_builder(Team::USA, loc, "SmokeBarracks", Some(dozer));
     assert_eq!(code, LBC_OK, "legal build code {code}");
     let d = game_logic.get_object(dozer).expect("dozer obj");
+    assert_eq!(
+        d.owner_player_id,
+        Some(0),
+        "constructor must have its receiving player"
+    );
     assert!(d.can_construct(), "dozer must can_construct");
     assert!(d.is_worker());
     assert!(d.can_move());
@@ -802,12 +856,30 @@ fn dozer_construct_places_barracks_under_construction() {
         .find(|o| o.template_name == "SmokeBarracks")
         .map(|o| o.id)
         .expect("placed barracks id");
+    assert_eq!(
+        game_logic.get_object(dozer).unwrap().dozer_tasks.requests[0].target,
+        Some(barracks_id),
+        "DozerConstruct queues the admitted scaffold"
+    );
+    assert!(
+        run_until(&mut game_logic, 10, |world| world
+            .get_object(dozer)
+            .is_some_and(|object| object.target == Some(barracks_id))),
+        "dozer must enter its queued construction task"
+    );
     let dozer_state = game_logic.get_object(dozer).expect("dozer after construct");
     assert_eq!(
         dozer_state.target,
         Some(barracks_id),
         "DozerConstruct must retain the placed structure as its order target"
     );
+    assert!(
+        run_until(&mut game_logic, 90, |world| world
+            .get_object(dozer)
+            .is_some_and(|object| object.ai_state() == AIState::Constructing)),
+        "dozer must reach its construction task"
+    );
+    let dozer_state = game_logic.get_object(dozer).expect("dozer after approach");
     assert_eq!(
         dozer_state.ai_state(),
         AIState::Constructing,
