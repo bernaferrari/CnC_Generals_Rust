@@ -1428,8 +1428,9 @@ impl GameLogic {
         }
 
         let is_cave = target.is_cave_style_container();
+        let is_tunnel = target.is_tunnel_network_style_container();
         let relationship = self.normal_enter_relationship(unit, target);
-        if !is_cave && !target.allows_normal_enter_for_relationship(relationship) {
+        if !is_cave && !is_tunnel && !target.allows_normal_enter_for_relationship(relationship) {
             return false;
         }
         let same_controller = self.normal_enter_controller_matches(unit, target);
@@ -1446,14 +1447,15 @@ impl GameLogic {
             {
                 return false;
             }
-        } else if target.is_tunnel_network_style_container() {
-            if unit.is_kind_of(KindOf::Aircraft) {
-                return false;
-            }
-            // C++ ActionManager.cpp:662-670 — faction structure rejects a
-            // different controlling player. Same-faction allies/enemies cannot
-            // board another player's Tunnel Network.
-            if !same_controller {
+        } else if is_tunnel {
+            if unit.is_kind_of(KindOf::Aircraft)
+                || (!same_controller
+                    && (self
+                        .tunnel_network
+                        .contain_count(target.tunnel_system_key())
+                        > 0
+                        || target.is_faction_structure()))
+            {
                 return false;
             }
         } else {

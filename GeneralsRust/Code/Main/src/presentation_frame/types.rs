@@ -1300,6 +1300,9 @@ impl RenderableObject {
 
     /// C++ `TunnelContain` and `CombatChinookContain` reject aircraft.
     pub fn normal_enter_forbids_aircraft(&self) -> bool {
+        if self.contain_module_kind == crate::game_logic::ContainModuleKind::Cave {
+            return true;
+        }
         if self.contain_module_present {
             return matches!(
                 self.contain_admission,

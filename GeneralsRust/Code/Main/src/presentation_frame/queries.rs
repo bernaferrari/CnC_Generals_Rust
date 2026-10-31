@@ -45,11 +45,26 @@ impl PresentationFrame {
             return None;
         };
 
+        let same_controller = self.normal_enter_controller_matches_local(target);
+        let shared_tracker = target.is_tunnel_network
+            || matches!(
+                target.contain_module_kind,
+                crate::game_logic::ContainModuleKind::Cave
+                    | crate::game_logic::ContainModuleKind::Tunnel
+            );
+        if shared_tracker {
+            // ActionManager's foreign-controller rule precedes the tracker
+            // eligibility check; Cave/Tunnel do not use OpenContain masks.
+            let occupied = target.normal_enter_occupant_count();
+            if !same_controller && (occupied > 0 || target.is_faction_structure) {
+                return None;
+            }
+            return capacity.checked_sub(occupied);
+        }
         let relationship = self.normal_enter_relationship_for_local(target);
         if !target.normal_enter_allows_relationship(relationship) {
             return None;
         }
-        let same_controller = self.normal_enter_controller_matches_local(target);
         if target.normal_enter_requires_exact_controller() && !same_controller {
             return None;
         }
@@ -59,17 +74,6 @@ impl PresentationFrame {
             // input translator.  Do not use the occupied one-seat count here:
             // a legal RiderChange command replaces that payload atomically.
             return (!target.rider_change_allowed_templates.is_empty()).then_some(usize::MAX);
-        }
-
-        if target.is_tunnel_network {
-            // TunnelContain keeps its own friendly/team body pool.  Unlike
-            // TransportContain it does not share an owner's vehicle seats.
-            if target.team != self.local_team && target.team != Team::Neutral {
-                return None;
-            }
-            // Every entrance already publishes the same player-owned
-            // TunnelTracker roster; summing entrances counts it repeatedly.
-            return capacity.checked_sub(target.normal_enter_occupant_count());
         }
 
         // C++ ActionManager.cpp:656-675: non-owner may Enter a non-faction

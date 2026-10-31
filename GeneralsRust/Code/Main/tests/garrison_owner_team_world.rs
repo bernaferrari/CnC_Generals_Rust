@@ -158,6 +158,37 @@ Object OwnedCave\n\
   CaveIndex = 7\n\
  End\n\
 End\n\
+Object RestrictedTunnel\n\
+ KindOf = STRUCTURE SELECTABLE\n\
+ Body = ActiveBody BodyTag\n\
+  MaxHealth = 1000\n\
+  InitialHealth = 1000\n\
+ End\n\
+ Behavior = TunnelContain TunnelTag\n\
+  AllowInsideKindOf = VEHICLE\n\
+  ForbidInsideKindOf = INFANTRY\n\
+  AllowAlliesInside = No\n\
+ End\n\
+End\n\
+Object FactionCave\n\
+ KindOf = STRUCTURE FS_BARRACKS SELECTABLE\n\
+ Body = ActiveBody BodyTag\n\
+  MaxHealth = 1000\n\
+  InitialHealth = 1000\n\
+ End\n\
+ Behavior = CaveContain CaveTag\n\
+  CaveIndex = 9\n\
+ End\n\
+End\n\
+Object FactionTunnel\n\
+ KindOf = STRUCTURE FS_BARRACKS SELECTABLE\n\
+ Body = ActiveBody BodyTag\n\
+  MaxHealth = 1000\n\
+  InitialHealth = 1000\n\
+ End\n\
+ Behavior = TunnelContain TunnelTag\n\
+ End\n\
+End\n\
 Object RestrictedCave\n\
  KindOf = STRUCTURE SELECTABLE\n\
  Body = ActiveBody BodyTag\n\
@@ -2928,4 +2959,162 @@ fn full_shared_pools_do_not_readmit_a_contained_passenger_at_another_entrance() 
         assert_eq!(game.host_object(rider).unwrap().contained_by, None);
         assert!(game.host_authoritative_contained_units(b).is_empty());
     }
+}
+
+#[test]
+fn cave_and_tunnel_entry_eligibility_matches_shared_tracker() {
+    use generals_main::gameworld_shadow::GameWorldShadow;
+    use generals_main::presentation_frame::PresentationFrame;
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, _, owner_rider) = world_with_tunnel_capacity(&map, false, Some(2));
+    let ally = game
+        .create_object_for_player("OwnedGarrisonRider", 1, Vec3::new(50., 0., 50.))
+        .unwrap();
+    let cave = game
+        .create_object_for_player("RestrictedCave", 2, Vec3::new(50., 0., 50.))
+        .unwrap();
+    let tunnel = game
+        .create_object_for_player("RestrictedTunnel", 2, Vec3::new(60., 0., 50.))
+        .unwrap();
+    let faction_cave = game
+        .create_object_for_player("FactionCave", 2, Vec3::new(70., 0., 50.))
+        .unwrap();
+    let faction_tunnel = game
+        .create_object_for_player("FactionTunnel", 2, Vec3::new(80., 0., 50.))
+        .unwrap();
+    for (id, index) in [(cave, 8), (faction_cave, 9)] {
+        game.host_object_mut(id)
+            .unwrap()
+            .install_cave_contain_residual(index);
+        game.cave_system_residual_mut()
+            .register_cave(id, index, Team::USA);
+    }
+    for id in [tunnel, faction_tunnel] {
+        game.host_object_mut(id)
+            .unwrap()
+            .install_tunnel_network_residual();
+    }
+    game.add_player(Player::new(3, Team::GLA, "Enemy", false).with_script_identity("Enemy"));
+    let enemy = game
+        .create_object_for_player("OwnedGarrisonRider", 3, Vec3::new(50., 0., 50.))
+        .unwrap();
+    let mut shadow = GameWorldShadow::new(256);
+    shadow.sync_from_host(&game);
+    let direct = PresentationFrame::build_from_logic(&mut game, 1);
+    let shadow_frame = PresentationFrame::build_from_gameworld(&shadow, 1, Some(&mut game));
+    for frame in [&direct, &shadow_frame] {
+        for id in [cave, tunnel] {
+            let target = frame.objects.iter().find(|o| o.id == id).unwrap();
+            assert_eq!(
+                frame.normal_enter_available_capacity_for_local(target),
+                Some(2),
+                "target={id:?}"
+            );
+            assert!(target.normal_enter_forbids_aircraft());
+        }
+        for id in [faction_cave, faction_tunnel] {
+            let target = frame.objects.iter().find(|o| o.id == id).unwrap();
+            assert_eq!(
+                frame.normal_enter_available_capacity_for_local(target),
+                None,
+                "target={id:?}"
+            );
+        }
+    }
+    let owner_direct = PresentationFrame::build_from_logic(&mut game, 2);
+    let owner_shadow = PresentationFrame::build_from_gameworld(&shadow, 2, Some(&mut game));
+    for frame in [&owner_direct, &owner_shadow] {
+        for id in [cave, tunnel, faction_cave, faction_tunnel] {
+            let target = frame.objects.iter().find(|o| o.id == id).unwrap();
+            assert_eq!(
+                frame.normal_enter_available_capacity_for_local(target),
+                Some(2),
+                "owner target={id:?}"
+            );
+        }
+    }
+    let enemy_direct = PresentationFrame::build_from_logic(&mut game, 3);
+    let enemy_shadow = PresentationFrame::build_from_gameworld(&shadow, 3, Some(&mut game));
+    for frame in [&enemy_direct, &enemy_shadow] {
+        for id in [cave, tunnel] {
+            let target = frame.objects.iter().find(|o| o.id == id).unwrap();
+            assert_eq!(
+                frame.normal_enter_available_capacity_for_local(target),
+                Some(2),
+                "enemy target={id:?}"
+            );
+        }
+        for id in [faction_cave, faction_tunnel] {
+            let target = frame.objects.iter().find(|o| o.id == id).unwrap();
+            assert_eq!(
+                frame.normal_enter_available_capacity_for_local(target),
+                None,
+                "enemy faction target={id:?}"
+            );
+        }
+    }
+    for id in [cave, tunnel] {
+        assert!(
+            game.can_unit_enter_normal_target(enemy, id),
+            "enemy target={id:?}"
+        );
+    }
+    for id in [faction_cave, faction_tunnel] {
+        assert!(!game.can_unit_enter_normal_target(enemy, id));
+    }
+    for id in [cave, tunnel] {
+        assert!(
+            game.can_unit_enter_normal_target(ally, id),
+            "ally target={id:?}"
+        );
+        assert!(
+            game.can_unit_enter_normal_target(owner_rider, id),
+            "owner target={id:?}"
+        );
+    }
+    for id in [faction_cave, faction_tunnel] {
+        assert!(
+            !game.can_unit_enter_normal_target(ally, id),
+            "faction target={id:?}"
+        );
+    }
+    let aircraft = game
+        .create_object_for_player("TunnelAircraft", 1, Vec3::new(50., 0., 50.))
+        .unwrap();
+    for id in [cave, tunnel] {
+        assert!(!game.can_unit_enter_normal_target(aircraft, id));
+    }
+    assert_eq!(
+        CommandExecutor::new(&mut game, 1)
+            .execute_command(GameCommand {
+                command_type: CommandType::Enter { target_id: tunnel },
+                player_id: 1,
+                command_id: 97,
+                timestamp: std::time::UNIX_EPOCH,
+                selected_units: vec![ally],
+                modifier_keys: ModifierKeys::default(),
+            })
+            .unwrap(),
+        CommandResult::Success
+    );
+    game.try_physics_collide(ally, tunnel, 1.0).unwrap();
+    assert_eq!(game.host_object(ally).unwrap().contained_by, Some(tunnel));
+    let extra = game
+        .create_object_for_player("OwnedGarrisonRider", 1, Vec3::new(50., 0., 50.))
+        .unwrap();
+    assert!(!game.can_unit_enter_normal_target(extra, tunnel));
+    let frame = PresentationFrame::build_from_logic(&mut game, 1);
+    let target = frame.objects.iter().find(|o| o.id == tunnel).unwrap();
+    assert_eq!(
+        frame.normal_enter_available_capacity_for_local(target),
+        None
+    );
+    assert!(game.can_unit_enter_normal_target(owner_rider, tunnel));
+    let owner_frame = PresentationFrame::build_from_logic(&mut game, 2);
+    let owner_target = owner_frame.objects.iter().find(|o| o.id == tunnel).unwrap();
+    assert_eq!(
+        owner_frame.normal_enter_available_capacity_for_local(owner_target),
+        Some(1)
+    );
 }
