@@ -43,6 +43,15 @@ impl GameLogic {
             None
         };
         let shroud_owner = self.world_services.shroud().clone();
+        let prepared = if let Some(grid) = prepared_grid {
+            let store = shroud_owner
+                .lock()
+                .map_err(|_| "receiving shroud owner is poisoned")?
+                .prepare_boundary_shroud_store()?;
+            Some((grid, store))
+        } else {
+            None
+        };
         let observer = self
             .players
             .values()
@@ -54,14 +63,14 @@ impl GameLogic {
                 .map_err(|_| "receiving shroud owner is poisoned")?
                 .undo_reveal_map_for_player_permanently(observer)?;
         }
-        if let Some(prepared_grid) = prepared_grid {
-            let mut saved = {
+        if let Some((prepared_grid, mut saved)) = prepared {
+            {
                 let mut shroud = shroud_owner
                     .lock()
                     .map_err(|_| "receiving shroud owner is poisoned")?;
                 shroud.process_entire_pending_undo_shroud_reveal_queue();
-                shroud.store_boundary_fogged_cells()?
-            };
+                shroud.capture_boundary_fogged_cells(&mut saved)?;
+            }
             terrain_owner
                 .write()
                 .map_err(|_| "receiving terrain owner is poisoned")?

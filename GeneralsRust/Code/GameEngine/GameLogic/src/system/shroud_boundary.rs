@@ -18,25 +18,46 @@ pub struct BoundaryShroudStore {
 }
 
 impl ShroudManager {
-    /// First pass, before objects are detached from the partition.
-    pub fn store_boundary_fogged_cells(&self) -> Result<BoundaryShroudStore, String> {
+    /// Allocate capture storage before the boundary operation changes its owner.
+    /// The actual fog values are read later, after pending unlooks are flushed.
+    pub fn prepare_boundary_shroud_store(&self) -> Result<BoundaryShroudStore, String> {
         let grid = self
             .shroud_grid
             .as_ref()
             .ok_or("boundary change requires a shroud grid")?;
-        let mut cells = vec![[StoredCell::Untouched; MAX_PLAYER_COUNT]; grid.cells.len()];
-        for (saved, cell) in cells.iter_mut().zip(&grid.cells) {
+        let mut cells = Vec::new();
+        cells
+            .try_reserve_exact(grid.cells.len())
+            .map_err(|_| "cannot allocate boundary shroud capture".to_string())?;
+        cells.resize(grid.cells.len(), [StoredCell::Untouched; MAX_PLAYER_COUNT]);
+        Ok(BoundaryShroudStore {
+            width: grid.width,
+            height: grid.height,
+            cells,
+        })
+    }
+
+    /// First pass, after pending unlooks and before objects are detached.
+    pub fn capture_boundary_fogged_cells(
+        &self,
+        store: &mut BoundaryShroudStore,
+    ) -> Result<(), String> {
+        let grid = self
+            .shroud_grid
+            .as_ref()
+            .ok_or("boundary change requires a shroud grid")?;
+        if grid.width != store.width || grid.height != store.height {
+            return Err("shroud grid changed during boundary capture".into());
+        }
+        for (saved, cell) in store.cells.iter_mut().zip(&grid.cells) {
+            *saved = [StoredCell::Untouched; MAX_PLAYER_COUNT];
             for (player, level) in cell.shroud_levels.iter().enumerate() {
                 if level.get_shroud_status() == ShroudState::Explored {
                     saved[player] = StoredCell::Fogged;
                 }
             }
         }
-        Ok(BoundaryShroudStore {
-            width: grid.width,
-            height: grid.height,
-            cells,
-        })
+        Ok(())
     }
 
     /// Second pass, after objects are detached and their look receipts reset.
@@ -112,6 +133,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn preparation_is_inert_and_fog_is_captured_only_at_the_ordered_phase() {
+        let mut owner = ShroudManager::new();
+        owner.reveal_map_for_player_permanently(1).unwrap();
+        let pending = owner.snapshot_state();
+        assert!(owner.prepare_boundary_shroud_store().is_err());
+        assert_eq!(owner.snapshot_state(), pending);
+
+        owner
+            .init_shroud_grid_at_origin_with_cell_size([0.0, 0.0], 80.0, 40.0, 40.0)
+            .unwrap();
+        owner.undo_reveal_map_for_player_permanently(1).unwrap();
+        let before = owner.snapshot_state();
+        let mut store = owner.prepare_boundary_shroud_store().unwrap();
+        assert_eq!(owner.snapshot_state(), before);
+        let cell = &mut owner.shroud_grid.as_mut().unwrap().cells[0];
+        cell.add_looker(0);
+        cell.remove_looker(0);
+        owner.capture_boundary_fogged_cells(&mut store).unwrap();
+        assert!(store.cells[0][0] == StoredCell::Fogged);
+        let captured = store.cells.clone();
+        owner
+            .init_shroud_grid_at_origin_with_cell_size([0.0, 0.0], 40.0, 40.0, 40.0)
+            .unwrap();
+        assert!(owner.capture_boundary_fogged_cells(&mut store).is_err());
+        assert!(
+            store.cells == captured,
+            "shape rejection must not alter the capture"
+        );
+    }
+
+    #[test]
     fn ordered_capture_and_restore_clips_without_touching_other_players() {
         let mut shroud = ShroudManager::new();
         shroud
@@ -124,7 +176,8 @@ mod tests {
         // C++ stores this clear cell as permanently revealed on the second pass.
         grid.cells[1].add_looker(0);
         grid.cells[2].add_looker(1); // clipped by the smaller grid
-        let mut saved = shroud.store_boundary_fogged_cells().unwrap();
+        let mut saved = shroud.prepare_boundary_shroud_store().unwrap();
+        shroud.capture_boundary_fogged_cells(&mut saved).unwrap();
         shroud
             .store_boundary_permanently_revealed_cells(&mut saved)
             .unwrap();
