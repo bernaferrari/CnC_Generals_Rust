@@ -497,6 +497,22 @@ fn ensure_control_bar_layout_with_count_with_owner(
     effects: &mut game_client::gui::game_window::WindowEventEffects<'_>,
 ) -> (GameplayLayoutStatus, usize) {
     let Some(path) = resolve_control_bar_path() else {
+        // The receiving WindowManager also resolves configured asset roots.
+        // A successful parse there is authoritative even when the legacy
+        // working-directory search above cannot see the same file.
+        if attempt_window_load {
+            if let Ok(count) =
+                try_load_control_bar_via_window_manager_with_owner("ControlBar.wnd", effects)
+            {
+                return (
+                    GameplayLayoutStatus::Ready {
+                        path: "ControlBar.wnd".into(),
+                        loaded: true,
+                    },
+                    count,
+                );
+            }
+        }
         return (
             GameplayLayoutStatus::AssetsUnavailable {
                 searched: CONTROL_BAR_CANDIDATES
