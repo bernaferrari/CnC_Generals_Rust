@@ -488,6 +488,38 @@ fn previous_upgrade_snapshot_can_be_saved_and_loaded_again() {
 
     let (mut restored, restored_id) = ordered_mux_world(root.path(), "Legacy", true);
     assert_eq!(source_id, restored_id);
+    // A current-version snapshot promises completion provenance; an old
+    // payload under that version is corrupt and must not change the session.
+    let before_frame = restored.get_current_frame();
+    let error = builder
+        .restore_from_snapshot(&legacy, &mut restored)
+        .expect_err("current-version snapshots must contain completion provenance");
+    assert!(error.to_string().contains("missing OXFR object-completion"));
+    assert_eq!(restored.get_current_frame(), before_frame);
+    assert!(restored.host_object(restored_id).is_some());
+
+    // OXFR v5 predates the world-v37 completion-provenance contract.
+    legacy.version = 36;
+    let error = builder
+        .restore_from_snapshot(&legacy, &mut restored)
+        .expect_err("old saves with active upgrades lack owner provenance");
+    assert!(
+        error
+            .to_string()
+            .contains("ambiguous Object/player upgrade completion")
+    );
+    assert_eq!(restored.get_current_frame(), before_frame);
+    assert!(restored.host_object(restored_id).is_some());
+
+    // Exercise conversion only when the old state does not require guessing
+    // whether any active upgrade belongs to an Object or a Player.
+    for object in legacy.objects.values_mut() {
+        if let Some(generals_main::save_load::snapshot::ModuleSnapshot::Upgrade(upgrades)) =
+            object.modules.get_mut("Upgrade")
+        {
+            upgrades.active_upgrades.clear();
+        }
+    }
     builder
         .restore_from_snapshot(&legacy, &mut restored)
         .unwrap();
@@ -496,4 +528,12 @@ fn previous_upgrade_snapshot_can_be_saved_and_loaded_again() {
     builder
         .restore_from_snapshot(&resaved, &mut continued)
         .expect("re-saving a v5 upgrade payload must produce a valid current payload");
+    assert_eq!(continued.get_current_frame(), restored.get_current_frame());
+    assert!(continued.host_object(restored_id).is_some());
+    let money_before = continued.get_player(1).unwrap().resources.supplies;
+    continued.update();
+    assert_eq!(
+        continued.get_player(1).unwrap().resources.supplies,
+        money_before + 1
+    );
 }
