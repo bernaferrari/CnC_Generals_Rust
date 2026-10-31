@@ -1139,6 +1139,8 @@ impl GameLogic {
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
         self.tunnel_network.clear();
+        // CaveSystem::reset retires the per-index trackers after Object callbacks.
+        self.cave_system.clear();
         self.railroad_registry_reset();
         self.railed_waypoints.clear();
         self.combat_chinook.clear();

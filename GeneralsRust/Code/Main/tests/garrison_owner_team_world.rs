@@ -624,6 +624,66 @@ fn cave_enter_queries_use_shared_capacity_and_occupants() {
 }
 
 #[test]
+fn reset_retires_only_the_receiving_worlds_cave_trackers() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, _, rider) = world(&map, false);
+    let (mut peer, _, peer_rider) = world(&map, false);
+    let make_cave = |world: &mut GameLogic| {
+        let cave = world
+            .create_object_for_player("OwnedCave", 2, Vec3::new(50., 0., 50.))
+            .unwrap();
+        world
+            .host_object_mut(cave)
+            .unwrap()
+            .install_cave_contain_residual(7);
+        world
+            .cave_system_residual_mut()
+            .register_cave(cave, 7, Team::USA);
+        cave
+    };
+    let cave = make_cave(&mut game);
+    let peer_cave = make_cave(&mut peer);
+    assert_eq!((cave, rider), (peer_cave, peer_rider));
+    for (world, unit, entrance) in [(&mut game, rider, cave), (&mut peer, peer_rider, peer_cave)] {
+        assert!(
+            world
+                .unit_command_set_ai_state(unit, AIState::Entering)
+                .unwrap()
+        );
+        world.host_object_mut(unit).unwrap().target = Some(entrance);
+        world.try_physics_collide(unit, entrance, 1.0).unwrap();
+        assert_eq!(
+            world.cave_system_residual().contained_for_index(7),
+            vec![unit]
+        );
+    }
+    game.reset();
+    assert!(game.cave_system_residual().network(7).is_none());
+    assert_eq!(game.cave_system_residual().index_of(cave), None);
+    assert_eq!(game.cave_system_residual().original_team_of(cave), None);
+    assert_eq!(
+        peer.cave_system_residual().contained_for_index(7),
+        vec![peer_rider]
+    );
+    assert_eq!(peer.cave_system_residual().index_of(peer_cave), Some(7));
+    assert!(game.load_map(map.to_str().unwrap()));
+    game.add_player(
+        Player::new(2, Team::USA, "GarrisonRider", true).with_script_identity("GarrisonRider"),
+    );
+    let replacement = make_cave(&mut game);
+    assert!(
+        game.cave_system_residual()
+            .contained_for_index(7)
+            .is_empty()
+    );
+    assert_eq!(
+        game.cave_system_residual().cave_ids_for_index(7),
+        vec![replacement]
+    );
+}
+
+#[test]
 fn unregistered_cave_preserves_its_index_across_snapshot() {
     let root = tempfile::tempdir().unwrap();
     let map = map_file(root.path());
