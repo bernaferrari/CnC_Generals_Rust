@@ -1,6 +1,25 @@
 use super::*;
 use crate::fow_rendering::{ProjectedShroudMetadata, ProjectedShroudSnapshot};
 
+/// Keep the host visibility decision identical in direct and shadow-backed frames.
+pub(super) fn hide_garrison_from_local(
+    logic: &GameLogic,
+    object: &crate::game_logic::Object,
+    local_team: crate::game_logic::Team,
+    contained: &[crate::game_logic::ObjectId],
+) -> bool {
+    let first_detected = contained
+        .first()
+        .and_then(|id| logic.host_object(*id))
+        .is_some_and(|occupant| occupant.status.detected);
+    object
+        .building_data
+        .as_ref()
+        .is_some_and(|building| building.hide_garrisoned_state)
+        && !first_detected
+        && object.team != local_team
+}
+
 /// Per-frame frozen FOW runtime facts for the direct-drawable shroud freeze.
 ///
 /// Uses the frame's shroud borrow and hoists the runtime-active probe out of the
@@ -432,6 +451,9 @@ impl PresentationFrame {
                     )
             });
             let auth_occupants = logic.host_authoritative_occupant_count(obj.id);
+            let authoritative_contained = logic.host_authoritative_contained_units(obj.id);
+            let shared_containment =
+                obj.is_tunnel_network_style_container() || obj.is_cave_style_container();
             let _auth_attack_sub = logic.host_authoritative_attack_substate(obj.id);
             let (auth_construction_percent, auth_under_construction) = logic
                 .host_authoritative_construction(obj.id)
@@ -516,18 +538,8 @@ impl PresentationFrame {
                 });
             // C++ GarrisonContain.cpp:1231-1236 — MODELCONDITION_GARRISONED if
             // first occupant is DETECTED or local player is apparent controller.
-            let first_occupant_detected = obj
-                .contained_units()
-                .first()
-                .and_then(|id| logic.host_object(*id))
-                .is_some_and(|o| o.status.detected);
-            let local_is_apparent_controller = obj.team == local_team;
-            let garrison_hide_from_local = obj
-                .building_data
-                .as_ref()
-                .is_some_and(|b| b.hide_garrisoned_state)
-                && !first_occupant_detected
-                && !local_is_apparent_controller;
+            let garrison_hide_from_local =
+                hide_garrison_from_local(logic, obj, local_team, &authoritative_contained);
             let garrison_apparent_team = if garrison_hide_from_local {
                 obj.building_data
                     .as_ref()
@@ -685,29 +697,35 @@ impl PresentationFrame {
                 garrisoned_units: if garrison_hide_from_local {
                     Vec::new()
                 } else {
-                    logic
-                        .host_authoritative_contained_units(obj.id)
-                        .into_iter()
-                        .take(32)
-                        .collect()
+                    if shared_containment {
+                        authoritative_contained.clone()
+                    } else {
+                        authoritative_contained.iter().copied().take(32).collect()
+                    }
                 },
 
-                stealth_garrison_occupant_count: obj
-                    .contained_units()
-                    .iter()
-                    .filter(|id| {
-                        logic
-                            .host_object(**id)
-                            .is_some_and(|occupant| occupant.is_kind_of(KindOf::StealthGarrison))
-                    })
-                    .count()
-                    .min(u16::MAX as usize) as u16,
+                stealth_garrison_occupant_count: if shared_containment {
+                    0
+                } else {
+                    obj.contained_units()
+                        .iter()
+                        .filter(|id| {
+                            logic.host_object(**id).is_some_and(|occupant| {
+                                occupant.is_kind_of(KindOf::StealthGarrison)
+                            })
+                        })
+                        .count()
+                        .min(u16::MAX as usize) as u16
+                },
 
-                max_garrison: obj
-                    .building_data
-                    .as_ref()
-                    .map(|b| b.max_garrison)
-                    .unwrap_or(0),
+                max_garrison: if shared_containment {
+                    logic.effective_tunnel_capacity()
+                } else {
+                    obj.building_data
+                        .as_ref()
+                        .map(|b| b.max_garrison)
+                        .unwrap_or(0)
+                },
                 power_provided: obj.power_provided,
                 power_consumed: obj.power_consumed,
                 stored_supplies: obj.stored_resources.supplies,

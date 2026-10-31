@@ -2616,3 +2616,195 @@ fn full_shared_cave_rejects_docking_before_touching_local_roster() {
         vec![ObjectId(99_999)]
     );
 }
+
+#[test]
+fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
+    use generals_main::gameworld_shadow::GameWorldShadow;
+    use generals_main::presentation_frame::PresentationFrame;
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut first, ordinary_garrison, cave_rider) =
+        world_with_tunnel_capacity(&map, false, Some(2));
+    let (mut peer, _, peer_cave_rider) = world_with_tunnel_capacity(&map, false, Some(4));
+    let setup = |game: &mut GameLogic| {
+        let ca = game
+            .create_object_for_player("OwnedCave", 2, Vec3::new(50., 0., 50.))
+            .unwrap();
+        let cb = game
+            .create_object_for_player("OwnedCave", 2, Vec3::new(70., 0., 50.))
+            .unwrap();
+        for cave in [ca, cb] {
+            game.host_object_mut(cave)
+                .unwrap()
+                .install_cave_contain_residual(7);
+            game.cave_system_residual_mut()
+                .register_cave(cave, 7, Team::USA);
+        }
+        let ta = game
+            .create_object_for_player("OwnedTunnel", 2, Vec3::new(50., 0., 70.))
+            .unwrap();
+        let tb = game
+            .create_object_for_player("OwnedTunnel", 2, Vec3::new(70., 0., 70.))
+            .unwrap();
+        for tunnel in [ta, tb] {
+            game.host_object_mut(tunnel)
+                .unwrap()
+                .install_tunnel_network_residual();
+        }
+        let tunnel_rider = game
+            .create_object_for_player("OwnedGarrisonRider", 2, Vec3::new(50., 0., 70.))
+            .unwrap();
+        (ca, cb, ta, tb, tunnel_rider)
+    };
+    let (ca, cb, ta, tb, tunnel_rider) = setup(&mut first);
+    assert_eq!((ca, cb, ta, tb, tunnel_rider), setup(&mut peer));
+    assert_eq!(cave_rider, peer_cave_rider);
+    for (rider, entrance) in [(cave_rider, ca), (tunnel_rider, ta)] {
+        assert!(
+            first
+                .unit_command_set_ai_state(rider, AIState::Entering)
+                .unwrap()
+        );
+        first.host_object_mut(rider).unwrap().target = Some(entrance);
+        first.try_physics_collide(rider, entrance, 1.0).unwrap();
+        assert_eq!(
+            first.host_object(rider).unwrap().contained_by,
+            Some(entrance)
+        );
+    }
+    let check = |frame: &PresentationFrame,
+                 expected_cave: Vec<ObjectId>,
+                 expected_tunnel: Vec<ObjectId>,
+                 cap| {
+        for (id, expected) in [
+            (ca, expected_cave),
+            (cb, vec![cave_rider]),
+            (ta, expected_tunnel),
+            (tb, vec![tunnel_rider]),
+        ] {
+            let object = frame.objects.iter().find(|object| object.id == id).unwrap();
+            assert_eq!(object.garrisoned_units, expected, "object {:?}", id);
+            assert_eq!(object.occupant_count, expected.len() as u16);
+            assert_eq!(object.max_garrison, cap);
+        }
+    };
+    let direct = PresentationFrame::build_from_logic(&mut first, 2);
+    check(&direct, vec![cave_rider], vec![tunnel_rider], 2);
+    let mut shadow = GameWorldShadow::new(256);
+    shadow.sync_from_host(&first);
+    let frame = PresentationFrame::build_from_gameworld(&shadow, 2, Some(&mut first));
+    check(&frame, vec![cave_rider], vec![tunnel_rider], 2);
+    let mut peer_shadow = GameWorldShadow::new(256);
+    peer_shadow.sync_from_host(&peer);
+    let peer_frame = PresentationFrame::build_from_gameworld(&peer_shadow, 2, Some(&mut peer));
+    for id in [ca, cb, ta, tb] {
+        let object = peer_frame
+            .objects
+            .iter()
+            .find(|object| object.id == id)
+            .unwrap();
+        assert!(object.garrisoned_units.is_empty());
+        assert_eq!(object.occupant_count, 0);
+        assert_eq!(object.max_garrison, 4);
+    }
+
+    // A shadow-backed frame must respect the same hidden-garrison decision
+    // as the direct frame when the local player is not the apparent owner.
+    first.add_player(Player::new(3, Team::GLA, "Observer", true));
+    let ordinary_rider = first
+        .create_object_for_player("OwnedGarrisonRider", 2, Vec3::new(50., 0., 50.))
+        .unwrap();
+    assert!(
+        first
+            .host_object_mut(ordinary_garrison)
+            .unwrap()
+            .add_occupant(ordinary_rider)
+    );
+    for id in [cb, tb, ordinary_garrison] {
+        first
+            .host_object_mut(id)
+            .unwrap()
+            .building_data
+            .as_mut()
+            .unwrap()
+            .hide_garrisoned_state = true;
+    }
+    for id in [cave_rider, tunnel_rider, ordinary_rider] {
+        first.host_object_mut(id).unwrap().status.detected = false;
+    }
+    let direct_hidden = PresentationFrame::build_from_logic(&mut first, 3);
+    let mut hidden_shadow = GameWorldShadow::new(256);
+    hidden_shadow.sync_from_host(&first);
+    let shadow_hidden =
+        PresentationFrame::build_from_gameworld(&hidden_shadow, 3, Some(&mut first));
+    for (name, frame) in [("direct", &direct_hidden), ("shadow", &shadow_hidden)] {
+        for id in [cb, tb, ordinary_garrison] {
+            let object = frame.objects.iter().find(|object| object.id == id).unwrap();
+            assert!(
+                object.garrisoned_units.is_empty(),
+                "{name} object {id:?}: {:?}",
+                object.garrisoned_units
+            );
+            assert_eq!(object.occupant_count, 0, "{name} object {id:?}");
+        }
+    }
+    for id in [cave_rider, tunnel_rider, ordinary_rider] {
+        first.host_object_mut(id).unwrap().status.detected = true;
+    }
+    let direct_revealed = PresentationFrame::build_from_logic(&mut first, 3);
+    hidden_shadow.sync_from_host(&first);
+    let shadow_revealed =
+        PresentationFrame::build_from_gameworld(&hidden_shadow, 3, Some(&mut first));
+    for frame in [&direct_revealed, &shadow_revealed] {
+        for (id, expected) in [
+            (cb, cave_rider),
+            (tb, tunnel_rider),
+            (ordinary_garrison, ordinary_rider),
+        ] {
+            let object = frame.objects.iter().find(|object| object.id == id).unwrap();
+            assert_eq!(object.garrisoned_units, vec![expected]);
+            assert_eq!(object.occupant_count, 1);
+        }
+    }
+}
+
+#[test]
+fn presentation_keeps_shared_inventory_above_thirty_two_items() {
+    use generals_main::gameworld_shadow::GameWorldShadow;
+    use generals_main::presentation_frame::PresentationFrame;
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, _, _) = world_with_tunnel_capacity(&map, false, Some(40));
+    let tunnel = game
+        .create_object_for_player("OwnedTunnel", 2, Vec3::new(50., 0., 50.))
+        .unwrap();
+    game.host_object_mut(tunnel)
+        .unwrap()
+        .install_tunnel_network_residual();
+    let key = game.host_object(tunnel).unwrap().tunnel_system_key();
+    let mut riders = Vec::new();
+    for _ in 0..33 {
+        let id = game
+            .create_object_for_player("OwnedGarrisonRider", 2, Vec3::new(50., 0., 50.))
+            .unwrap();
+        assert!(
+            game.tunnel_network_residual_mut()
+                .record_enter(key, id, tunnel)
+        );
+        riders.push(id);
+    }
+    let direct = PresentationFrame::build_from_logic(&mut game, 2);
+    let mut shadow = GameWorldShadow::new(256);
+    shadow.sync_from_host(&game);
+    let shadow_frame = PresentationFrame::build_from_gameworld(&shadow, 2, Some(&mut game));
+    for frame in [&direct, &shadow_frame] {
+        let object = frame
+            .objects
+            .iter()
+            .find(|object| object.id == tunnel)
+            .unwrap();
+        assert_eq!(object.garrisoned_units, riders);
+        assert_eq!(object.occupant_count, 33);
+        assert_eq!(object.max_garrison, 40);
+    }
+}

@@ -2191,7 +2191,44 @@ impl PresentationFrame {
                 ro.is_faction_structure = faction_structure;
                 dirty = true;
             }
-            let contained = obj.contained_units();
+            let shared_containment =
+                obj.is_tunnel_network_style_container() || obj.is_cave_style_container();
+            let contained = if shared_containment {
+                let contained = logic.host_authoritative_contained_units(obj.id);
+                let visibility_team =
+                    super::live_draw_source::receiving_local_team(logic, self.local_player_id);
+                let hidden =
+                    super::build::hide_garrison_from_local(logic, obj, visibility_team, &contained);
+                let count = if hidden {
+                    0
+                } else {
+                    contained.len().min(u16::MAX as usize) as u16
+                };
+                if ro.occupant_count != count {
+                    ro.occupant_count = count;
+                    dirty = true;
+                }
+                // CaveContain and TunnelContain add directly to TunnelTracker;
+                // OpenContain's local stealth counter is not incremented.
+                if ro.stealth_garrison_occupant_count != 0 {
+                    ro.stealth_garrison_occupant_count = 0;
+                    dirty = true;
+                }
+                if hidden { Vec::new() } else { contained }
+            } else {
+                let contained = obj.contained_units();
+                let visibility_team =
+                    super::live_draw_source::receiving_local_team(logic, self.local_player_id);
+                if super::build::hide_garrison_from_local(logic, obj, visibility_team, &contained) {
+                    if ro.occupant_count != 0 {
+                        ro.occupant_count = 0;
+                        dirty = true;
+                    }
+                    Vec::new()
+                } else {
+                    contained
+                }
+            };
             if ro.garrisoned_units != contained {
                 ro.garrisoned_units = contained;
                 dirty = true;
