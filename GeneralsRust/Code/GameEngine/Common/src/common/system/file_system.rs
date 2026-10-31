@@ -11,7 +11,6 @@ use std::time::Duration;
 
 use crate::common::{
     ascii_string::AsciiString,
-    name_key_generator::{NameKeyGenerator, NameKeyType},
     system::{
         file::{File, FileAccess},
         subsystem_interface::{SubsystemInterface, SubsystemResult, SubsystemState},
@@ -151,7 +150,7 @@ pub struct FileSystem {
     state: SubsystemState,
 
     /// Cache for file existence checks
-    file_exist_cache: Arc<RwLock<HashMap<NameKeyType, bool>>>,
+    file_exist_cache: Arc<RwLock<HashMap<String, bool>>>,
 
     /// Registered file system backends in priority order
     backends: Vec<Box<dyn FileSystemBackend>>,
@@ -235,8 +234,9 @@ impl FileSystem {
     ///
     /// This method implements caching to avoid repeated file system queries.
     pub fn does_file_exist(&self, filename: &str) -> bool {
-        // Generate a simple hash key for the filename
-        let key = self.filename_to_key(filename);
+        // The cache is shared across threads; a thread-local NameKey namespace
+        // cannot identify the same path consistently in this owner.
+        let key = Self::filename_cache_key(filename);
 
         // Check cache first
         {
@@ -303,8 +303,8 @@ impl FileSystem {
     /// Simple hash function for filename caching
     ///
     /// This converts a filename to a simple hash key for caching purposes.
-    fn filename_to_key(&self, filename: &str) -> NameKeyType {
-        NameKeyGenerator::name_to_key_lowercase(filename)
+    fn filename_cache_key(filename: &str) -> String {
+        filename.to_ascii_lowercase()
     }
 
     /// Clear the file existence cache
@@ -592,13 +592,10 @@ mod tests {
     }
 
     #[test]
-    fn test_filename_to_key() {
-        NameKeyGenerator::reset();
-        let fs = FileSystem::new();
-
-        let key1 = fs.filename_to_key("test.txt");
-        let key2 = fs.filename_to_key("TEST.TXT");
-        let key3 = fs.filename_to_key("different.txt");
+    fn test_filename_cache_key() {
+        let key1 = FileSystem::filename_cache_key("test.txt");
+        let key2 = FileSystem::filename_cache_key("TEST.TXT");
+        let key3 = FileSystem::filename_cache_key("different.txt");
 
         // Same filename (case insensitive) should produce same key
         assert_eq!(key1, key2);
