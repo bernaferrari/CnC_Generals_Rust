@@ -123,6 +123,26 @@ Object PlainNonContainer\n\
   InitialHealth = 100\n\
  End\n\
 End\n\
+Object OwnedTunnel\n\
+ KindOf = STRUCTURE SELECTABLE\n\
+ Body = ActiveBody BodyTag\n\
+  MaxHealth = 1000\n\
+  InitialHealth = 1000\n\
+ End\n\
+ Behavior = TunnelContain TunnelTag\n\
+  ContainMax = 10\n\
+ End\n\
+End\n\
+Object TunnelAircraft\n\
+ KindOf = AIRCRAFT VEHICLE SELECTABLE\n\
+ TransportSlotCount = 1\n\
+ Body = ActiveBody BodyTag\n\
+  MaxHealth = 100\n\
+  InitialHealth = 100\n\
+ End\n\
+ Behavior = AIUpdateInterface Brain\n\
+ End\n\
+End\n\
 Object AuthoredParachute\n\
  KindOf = PARACHUTE\n\
  Body = ActiveBody BodyTag\n\
@@ -448,6 +468,81 @@ fn collision_transport_rechecks_slot_capacity_and_controller() {
         peer.host_object(peer_heavy).unwrap().contained_by,
         None,
         "TransportContain requires the same controlling player at collision"
+    );
+}
+
+#[test]
+fn tunnel_collision_uses_session_shared_pool_and_releases_held_state() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, _, rider) = world(&map, false);
+    let (mut peer, _, peer_rider) = world(&map, false);
+    let setup = |world: &mut GameLogic| {
+        let first = world
+            .create_object_for_player("OwnedTunnel", 2, Vec3::new(50., 0., 50.))
+            .unwrap();
+        let second = world
+            .create_object_for_player("OwnedTunnel", 2, Vec3::new(70., 0., 50.))
+            .unwrap();
+        world
+            .host_object_mut(first)
+            .unwrap()
+            .install_tunnel_network_residual();
+        world
+            .host_object_mut(second)
+            .unwrap()
+            .install_tunnel_network_residual();
+        (first, second)
+    };
+    let (first, second) = setup(&mut game);
+    let (peer_first, peer_second) = setup(&mut peer);
+    assert_eq!(
+        (first, second, rider),
+        (peer_first, peer_second, peer_rider)
+    );
+    let enter = |world: &mut GameLogic, unit: ObjectId, tunnel: ObjectId| {
+        assert!(
+            world
+                .unit_command_set_ai_state(unit, AIState::Entering)
+                .unwrap()
+        );
+        world.host_object_mut(unit).unwrap().target = Some(tunnel);
+        world.try_physics_collide(unit, tunnel, 1.0).unwrap();
+    };
+    let aircraft = game
+        .create_object_for_player("TunnelAircraft", 2, Vec3::new(50., 0., 50.))
+        .unwrap();
+    enter(&mut game, aircraft, first);
+    assert_eq!(game.host_object(aircraft).unwrap().contained_by, None);
+    enter(&mut game, rider, first);
+    let key = game.host_object(first).unwrap().tunnel_system_key();
+    assert!(game.tunnel_network_residual().is_in_network(key, rider));
+    assert!(game.host_object(rider).unwrap().status.disabled_held);
+    assert_eq!(game.host_authoritative_contained_units(second), vec![rider]);
+    assert!(
+        peer.host_authoritative_contained_units(peer_second)
+            .is_empty()
+    );
+
+    for _ in 1..10 {
+        let unit = game
+            .create_object_for_player("OwnedGarrisonRider", 2, Vec3::new(50., 0., 50.))
+            .unwrap();
+        enter(&mut game, unit, first);
+        assert_eq!(game.host_object(unit).unwrap().contained_by, Some(first));
+    }
+    let overflow = game
+        .create_object_for_player("OwnedGarrisonRider", 2, Vec3::new(70., 0., 50.))
+        .unwrap();
+    enter(&mut game, overflow, second);
+    assert_eq!(game.host_object(overflow).unwrap().contained_by, None);
+    assert_eq!(game.host_authoritative_contained_units(second).len(), 10);
+    assert!(game.exit_tunnel_network_unit(rider, second));
+    assert!(!game.host_object(rider).unwrap().status.disabled_held);
+    assert!(!game.tunnel_network_residual().is_in_network(key, rider));
+    assert!(
+        peer.host_authoritative_contained_units(peer_first)
+            .is_empty()
     );
 }
 

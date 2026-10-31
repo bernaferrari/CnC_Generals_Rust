@@ -2060,6 +2060,7 @@ impl GameLogic {
         }
         // C++ TunnelContain::onRemoving setSafeOcclusionFrame(frame + OcclusionDelay).
         if let Some(unit) = self.objects.get_mut(&unit_id) {
+            unit.set_status_disabled_held(false);
             unit.stamp_safe_occlusion_frame(self.frame);
         }
 

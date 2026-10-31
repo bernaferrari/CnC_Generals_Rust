@@ -37,10 +37,16 @@ impl super::super::GameLogic {
             (entering, is_crate)
         };
         if entering_other {
-            let is_garrison = self
-                .objects
-                .get(&other_id)
-                .is_some_and(|c| c.is_garrison_contain());
+            let tunnel_key = self.objects.get(&other_id).and_then(|container| {
+                container
+                    .is_tunnel_network_style_container()
+                    .then(|| container.tunnel_system_key())
+            });
+            let is_garrison = tunnel_key.is_none()
+                && self
+                    .objects
+                    .get(&other_id)
+                    .is_some_and(|c| c.is_garrison_contain());
             let is_transport = self.objects.get(&other_id).is_some_and(|container| {
                 container.normal_enter_uses_transport_slots()
                     && matches!(
@@ -56,7 +62,12 @@ impl super::super::GameLogic {
                     other_id, self_id, effects,
                 );
             }
-            let eligible = if is_garrison {
+            let eligible = if let Some(key) = tunnel_key {
+                self.objects
+                    .get(&self_id)
+                    .is_some_and(|rider| !rider.is_kind_of(crate::game_logic::KindOf::Aircraft))
+                    && self.tunnel_network.has_capacity(key)
+            } else if is_garrison {
                 self.objects
                     .get(&self_id)
                     .zip(self.objects.get(&other_id))
@@ -110,7 +121,7 @@ impl super::super::GameLogic {
                 true
             };
             let cancelled = eligible
-                && (is_garrison || is_transport)
+                && (is_garrison || is_transport || tunnel_key.is_some())
                 && self.should_cancel_containment_after_booby_trap_with_effects(
                     other_id, self_id, effects,
                 );
@@ -121,13 +132,27 @@ impl super::super::GameLogic {
             if eligible && !cancelled && uncontained && is_garrison {
                 self.validate_garrison_owner_team_transfer(other_id, self_id)?;
             }
-            let boarded = eligible
+            let mut boarded = eligible
                 && !cancelled
                 && uncontained
                 && self
                     .objects
                     .get_mut(&other_id)
                     .is_some_and(|c| c.add_occupant(self_id));
+            if boarded && let Some(key) = tunnel_key {
+                if self.tunnel_network.record_enter(key, self_id, other_id) {
+                    self.stamp_contained_by_frame(self_id, self.frame);
+                } else {
+                    if let Some(container) = self.objects.get_mut(&other_id) {
+                        container.remove_occupant_with_partition_owner(
+                            self_id,
+                            &mut self.ownership_events,
+                            &mut self.partition_manager,
+                        );
+                    }
+                    boarded = false;
+                }
+            }
             if boarded {
                 // OpenContain::addToContain records the controlling player
                 // immediately after adding the rider to its roster.
@@ -171,6 +196,9 @@ impl super::super::GameLogic {
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     us.status.moving = false;
+                    if tunnel_key.is_some() {
+                        us.set_status_disabled_held(true);
+                    }
                 }
                 self.admit_object_drawable_deselection(self_id);
                 if is_garrison {
@@ -186,6 +214,8 @@ impl super::super::GameLogic {
                         }
                     }
                     self.admit_local_drawable_deselected(self_id);
+                    self.play_container_enter_sound(other_id, effects);
+                } else if tunnel_key.is_some() {
                     self.play_container_enter_sound(other_id, effects);
                 }
             }
