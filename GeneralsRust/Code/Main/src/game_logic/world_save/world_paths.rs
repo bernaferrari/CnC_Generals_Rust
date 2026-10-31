@@ -2,6 +2,12 @@
 #![allow(unused_imports, non_snake_case)]
 use super::*;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PathRequestKind {
+    Move,
+    Approach,
+}
+
 impl GameLogic {
     /// C++ ActiveBody::setIndestructible + TerrainLogic.cpp:181 tower inherit.
     pub fn set_object_indestructible(&mut self, id: ObjectId, indestructible: bool) {
@@ -152,6 +158,30 @@ impl GameLogic {
         waypoints: &[Vec3],
         ignore_obstacle: Option<ObjectId>,
     ) -> bool {
+        self.assign_unit_path_ignoring_kind(
+            unit_id, destination, waypoints, ignore_obstacle, PathRequestKind::Move,
+        )
+    }
+
+    pub(in crate::game_logic) fn assign_unit_approach_path(
+        &mut self,
+        unit_id: ObjectId,
+        destination: Vec3,
+    ) -> bool {
+        let ignore = self.objects.lookup(&unit_id).and_then(|unit| unit.ignored_obstacle_id);
+        self.assign_unit_path_ignoring_kind(
+            unit_id, destination, &[], ignore, PathRequestKind::Approach,
+        )
+    }
+
+    fn assign_unit_path_ignoring_kind(
+        &mut self,
+        unit_id: ObjectId,
+        destination: Vec3,
+        waypoints: &[Vec3],
+        ignore_obstacle: Option<ObjectId>,
+        kind: PathRequestKind,
+    ) -> bool {
         // C++ AIUpdateInterface::ignoreObstacle stores the ID on the unit.
         // Its deferred doPathfind reads that live field, not a temporary
         // Pathfinder flag restored before the queue is processed.
@@ -163,7 +193,7 @@ impl GameLogic {
             .lookup(&unit_id)
             .and_then(Object::movement_goal_object);
         self.pathfinding_system.set_ignore_obstacle(ignore_obstacle);
-        let ok = self.assign_unit_path_inner(unit_id, destination, waypoints, false);
+        let ok = self.assign_unit_path_inner(unit_id, destination, waypoints, false, kind);
         // Clearing solver path bookkeeping is not a new AI parent command.
         // Keep the selected identity through queued search/repath admission.
         if let Some(unit) = self.objects.get_mut(&unit_id) {
@@ -178,14 +208,17 @@ impl GameLogic {
         self.map_loaded = loaded;
     }
 
-    pub(in super::super) fn assign_unit_path_inner(
+    fn assign_unit_path_inner(
         &mut self,
         unit_id: ObjectId,
         destination: Vec3,
         waypoints: &[Vec3],
         compute_now: bool,
+        kind: PathRequestKind,
     ) -> bool {
-        if self.try_install_flying_quick_path(unit_id, destination) {
+        if kind == PathRequestKind::Move
+            && self.try_install_flying_quick_path(unit_id, destination)
+        {
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 unit.retry_path = false;
             }
@@ -286,10 +319,14 @@ impl GameLogic {
 
         let delayed = if waypoints.is_empty() {
             if let Some(unit) = self.objects.get_mut(&unit_id) {
-                let keep_final = unit.is_final_goal;
-                let delayed = !unit.begin_request_move_path(destination, self.frame);
-                unit.is_final_goal = keep_final;
-                delayed
+                if kind == PathRequestKind::Approach {
+                    !unit.begin_request_approach_path(destination, self.frame)
+                } else {
+                    let keep_final = unit.is_final_goal;
+                    let delayed = !unit.begin_request_move_path(destination, self.frame);
+                    unit.is_final_goal = keep_final;
+                    delayed
+                }
             } else {
                 return false;
             }
@@ -313,7 +350,7 @@ impl GameLogic {
             // Only the empty-waypoint request above can install a quick path.
             // An explicit route may replace another order in this same frame;
             // its predecessor's timestamp does not validate the new route.
-            waypoints.is_empty()
+            kind == PathRequestKind::Move && waypoints.is_empty()
                 && unit.path_timestamp == self.frame
                 && !unit.waiting_for_path
                 && !unit.movement.path.is_empty()
@@ -418,6 +455,24 @@ impl GameLogic {
             {}
             self.start_move_sound(unit_id);
             return true;
+        }
+
+        if kind == PathRequestKind::Approach {
+            let Some(request) = self.initialized_path_request(unit_id) else {
+                return false;
+            };
+            return match self.resolve_initialized_path_request(request) {
+                Ok(true) => {
+                    self.note_successful_move_path(unit_id);
+                    self.start_move_sound(unit_id);
+                    true
+                }
+                Ok(false) => false,
+                Err(error) => {
+                    log::error!("approach path failed for {unit_id:?}: {error}");
+                    false
+                }
+            };
         }
 
         let Some((full_path, ground_search)) = self.compute_assigned_unit_path(
@@ -1511,25 +1566,18 @@ impl GameLogic {
                         && unit.adjust_destinations();
                 }
             }
-            let ok = if ignore.is_some() {
+            let ok = if approach_path && ignore.is_none() {
+                self.assign_unit_approach_path(id, dest)
+            } else if approach_path {
+                self.assign_unit_path_ignoring_kind(
+                    id, dest, &[], ignore, PathRequestKind::Approach,
+                )
+            } else if ignore.is_some() {
                 self.assign_unit_path_ignoring(id, dest, &[], ignore)
             } else {
                 self.assign_unit_path(id, dest, &[])
             };
             if ok {
-                if approach_path {
-                    // AIUpdate Xfer persists m_isApproachPath. Reissuing the
-                    // pending request goes through requestPath, which clears
-                    // that bit; restore the saved request kind after enqueue
-                    // so doPathfind performs its single findClosestPath call.
-                    if let Some(unit) = self.objects.get_mut(&id) {
-                        unit.is_final_goal = true;
-                        unit.is_approach_path = true;
-                        unit.is_attack_path = false;
-                        unit.is_safe_path = false;
-                        unit.requested_victim_id = None;
-                    }
-                }
                 let set_state = matches!(
                     task,
                     AIState::Constructing
@@ -1864,22 +1912,29 @@ impl GameLogic {
                 self.register_ground_path_goal(unit_id, last);
             }
         } else {
-            let old = unit.pathfind_goal_cell;
-            let radius = unit.selection_radius;
-            let id = unit.id.0;
-            let player = unit.owner_player_id.unwrap_or(unit.team as u32);
-            self.pathfinding_system
-                .grid
-                .clear_ground_goal_square(id, player, radius, old);
-            if let Some(unit) = self.objects.get_mut(&unit_id) {
-                unit.pathfind_goal_cell = (-1, -1);
-            }
+            self.remove_registered_ground_path_goal(unit_id);
         }
         if let Some(unit) = self.objects.get_mut(&unit_id) {
             unit.path_goal_position = goal.or(unit.path_goal_position);
             unit.waiting_for_path = false;
         }
         self.settle_try_one_more_repath(unit_id);
+    }
+
+    /// Pathfinder::removeGoal clears the actor's registered destination.
+    pub(in crate::game_logic) fn remove_registered_ground_path_goal(&mut self, unit_id: ObjectId) {
+        let Some(unit) = self.objects.get(&unit_id) else {
+            return;
+        };
+        let old = unit.pathfind_goal_cell;
+        let radius = unit.selection_radius;
+        let player = unit.owner_player_id.unwrap_or(unit.team as u32);
+        self.pathfinding_system
+            .grid
+            .clear_ground_goal_square(unit_id.0, player, radius, old);
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            unit.pathfind_goal_cell = (-1, -1);
+        }
     }
 
     pub(super) fn settle_try_one_more_repath(&mut self, unit_id: ObjectId) {
@@ -1898,7 +1953,9 @@ impl GameLogic {
         destination: Vec3,
         waypoints: &[Vec3],
     ) -> bool {
-        self.assign_unit_path_inner(unit_id, destination, waypoints, true)
+        self.assign_unit_path_inner(
+            unit_id, destination, waypoints, true, PathRequestKind::Move,
+        )
     }
 
     /// Pathfind to goal then set AI state. Falls back to set_destination if A* fails.

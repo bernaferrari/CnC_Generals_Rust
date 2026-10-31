@@ -1558,6 +1558,7 @@ impl GameLogic {
         }
         let destination = self.clip_player_goal(id, destination);
         self.drop_jet_targeters_on_attack_exit(id);
+        self.remove_registered_ground_path_goal(id);
         let cannot_path_yet = self
             .objects
             .get(&id)
@@ -1565,6 +1566,8 @@ impl GameLogic {
         if cannot_path_yet {
             if let Some(unit) = self.objects.get_mut(&id) {
                 unit.set_adjust_destinations(false);
+                unit.is_approach_path = true;
+                unit.is_final_goal = true;
                 Self::accept_tighten_order(
                     unit,
                     destination,
@@ -1581,7 +1584,7 @@ impl GameLogic {
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.set_adjust_destinations(false);
         }
-        if !self.assign_unit_path(id, destination, &[]) {
+        if !self.assign_unit_approach_path(id, destination) {
             return false;
         }
         if let Some(unit) = self.objects.get_mut(&id) {

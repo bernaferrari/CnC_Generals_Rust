@@ -230,12 +230,126 @@ fn tighten_continuation_is_actor_owned_and_survives_pending_save() {
         .create_object_for_player("RetryWalker", 1, start)
         .unwrap();
     assert_eq!(id, peer_id);
+    original.host_object_mut(id).unwrap().pathfind_goal_cell = (3, 3);
     assert!(original.unit_command_tighten_to(id, Vec3::new(100.0, 0.0, 150.0)));
     assert!(original.host_object(id).unwrap().waiting_for_path);
+    assert!(
+        original.host_object(id).unwrap().is_approach_path,
+        "C++ tighten starts with requestApproachPath"
+    );
+    assert_eq!(
+        original.host_object(id).unwrap().pathfind_goal_cell,
+        (-1, -1)
+    );
     assert!(!original.host_object(id).unwrap().adjust_destinations());
     assert!(original.host_object(id).unwrap().is_final_goal);
     assert!(peer.host_object(peer_id).unwrap().adjust_destinations());
     let builder = SnapshotBuilder::new();
+    let mut throttled = world(&map);
+    let throttled_id = throttled
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    throttled.set_current_frame(10);
+    throttled
+        .host_object_mut(throttled_id)
+        .unwrap()
+        .path_timestamp = 10;
+    assert!(throttled.unit_command_tighten_to(throttled_id, Vec3::new(100.0, 0.0, 150.0)));
+    let actor = throttled.host_object(throttled_id).unwrap();
+    assert!(actor.is_approach_path);
+    assert_eq!(
+        actor.queue_for_path_frame, 70,
+        "C++ approach retries wait two seconds"
+    );
+    assert!(throttled.snapshot_pending_host_paths().is_empty());
+    let delayed_save = builder.create_world_snapshot(&throttled).unwrap();
+    let mut delayed_restore = world(&map);
+    builder
+        .restore_from_snapshot(&delayed_save, &mut delayed_restore)
+        .unwrap();
+    let actor = delayed_restore.host_object(throttled_id).unwrap();
+    assert!(actor.is_approach_path);
+    assert_eq!(actor.queue_for_path_frame, 70);
+    for world in [&mut throttled, &mut delayed_restore] {
+        world.set_current_frame(70);
+        world.update_with_dt(1.0 / 30.0);
+        let actor = world.host_object(throttled_id).unwrap();
+        assert!(!actor.waiting_for_path);
+        assert!(actor.is_approach_path);
+        assert!(!actor.movement.path.is_empty());
+    }
+    assert_eq!(
+        throttled.host_object(throttled_id).unwrap().movement.path,
+        delayed_restore
+            .host_object(throttled_id)
+            .unwrap()
+            .movement
+            .path
+    );
+
+    // requestApproachPath queues even when this actor can later take a quick
+    // flying path. The switch happens when doPathfind resolves the actor.
+    let mut flying = world(&map);
+    let flying_id = flying
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    let aircraft = flying.host_object_mut(flying_id).unwrap();
+    aircraft.object_type = generals_main::game_logic::ObjectType::Aircraft;
+    aircraft.locomotor_surfaces = gamelogic::ai::pathfind_complete::SURFACE_AIR;
+    assert!(flying.unit_command_tighten_to(flying_id, Vec3::new(100.0, 0.0, 150.0)));
+    let aircraft = flying.host_object(flying_id).unwrap();
+    assert!(aircraft.waiting_for_path && aircraft.is_approach_path);
+    assert_eq!(flying.snapshot_pending_host_paths().len(), 1);
+    flying.update_with_dt(1.0 / 30.0);
+    let aircraft = flying.host_object(flying_id).unwrap();
+    assert!(!aircraft.waiting_for_path);
+    assert!(!aircraft.is_approach_path);
+    assert!(!aircraft.movement.path.is_empty());
+
+    // A disabled unit retains the request kind until it can move, including
+    // across save/load; waking it must not turn the approach into a move.
+    let mut disabled = world(&map);
+    let disabled_id = disabled
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    disabled
+        .host_object_mut(disabled_id)
+        .unwrap()
+        .set_status_disabled_emp(true);
+    let ignored_obstacle = disabled
+        .create_object_for_player("RetryWalker", 1, Vec3::new(250.0, 0.0, 250.0))
+        .unwrap();
+    disabled
+        .host_object_mut(disabled_id)
+        .unwrap()
+        .ignored_obstacle_id = Some(ignored_obstacle);
+    assert!(disabled.unit_command_tighten_to(disabled_id, Vec3::new(100.0, 0.0, 150.0)));
+    let actor = disabled.host_object(disabled_id).unwrap();
+    assert!(actor.pending_move.is_some() && actor.is_approach_path);
+    let disabled_save = builder.create_world_snapshot(&disabled).unwrap();
+    let mut disabled_restore = world(&map);
+    builder
+        .restore_from_snapshot(&disabled_save, &mut disabled_restore)
+        .unwrap();
+    for world in [&mut disabled, &mut disabled_restore] {
+        world
+            .host_object_mut(disabled_id)
+            .unwrap()
+            .set_status_disabled_emp(false);
+        world.update_with_dt(1.0 / 30.0);
+        let actor = world.host_object(disabled_id).unwrap();
+        assert!(actor.is_approach_path);
+        assert_eq!(actor.ignored_obstacle_id, Some(ignored_obstacle));
+        assert!(!actor.waiting_for_path && !actor.movement.path.is_empty());
+    }
+    assert_eq!(
+        disabled.host_object(disabled_id).unwrap().movement.path,
+        disabled_restore
+            .host_object(disabled_id)
+            .unwrap()
+            .movement
+            .path
+    );
     // Reject duplicate V16 final-goal receivers before mutating the peer.
     let mut malformed = builder.create_world_snapshot(&original).unwrap();
     let tag = malformed
