@@ -213,6 +213,10 @@ pub(in super::super) mod residual_gate_seam {
 }
 
 impl GameLogic {
+    pub(crate) fn reset_recurring_updates(&mut self) {
+        self.host_sleepy = super::HostSleepyHeap::new();
+    }
+
     /// Main update loop with delta time
     pub fn update_with_dt(&mut self, dt: f32) -> SimTimingSnapshot {
         self.step_simulation(dt, None);

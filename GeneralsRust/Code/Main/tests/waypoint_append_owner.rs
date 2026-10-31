@@ -127,6 +127,7 @@ fn waypoints_are_traversed_in_order_by_the_owning_world() {
     };
     let mut world = make_world();
     let mut restored = make_world();
+    let mut reloaded = make_world();
     let id = world
         .create_object_for_player("WaypointWalker", 1, Vec3::new(100.0, 0.0, 100.0))
         .unwrap();
@@ -183,7 +184,7 @@ fn waypoints_are_traversed_in_order_by_the_owning_world() {
         saved_motion,
         "restore must preserve motion before stepping"
     );
-    for expected_step in expected {
+    for &expected_step in &expected {
         let timing = restored.update_with_dt(1.0 / 30.0);
         let unit = restored.host_object(id).expect("restored unit survives");
         assert_eq!(
@@ -198,6 +199,83 @@ fn waypoints_are_traversed_in_order_by_the_owning_world() {
             "saved route must continue with the same movement state"
         );
     }
+
+    builder
+        .restore_from_snapshot(&snapshot, &mut reloaded)
+        .expect("prepare active session");
+    for _ in 0..10 {
+        reloaded.update_with_dt(1.0 / 30.0);
+    }
+    builder
+        .restore_from_snapshot(&snapshot, &mut reloaded)
+        .expect("reload active session");
+    let mut after_reload = builder.create_world_snapshot(&reloaded).unwrap();
+    assert_eq!(
+        after_reload.logic_rng_seed_words,
+        snapshot.logic_rng_seed_words
+    );
+    for expected_step in expected {
+        let timing = reloaded.update_with_dt(1.0 / 30.0);
+        let unit = reloaded.host_object(id).expect("reloaded unit survives");
+        assert_eq!(
+            (
+                timing.frame,
+                timing.steps_run,
+                unit.get_position(),
+                unit.movement.target_position,
+                unit.movement.current_path_index
+            ),
+            expected_step,
+            "reloading an advanced session must preserve route continuation"
+        );
+    }
+
+    let before_rejection = (
+        reloaded.get_frame(),
+        reloaded.host_object(id).unwrap().get_position(),
+        reloaded.host_object(id).unwrap().movement.target_position,
+    );
+    let peer_before = restored.host_object(id).unwrap().get_position();
+    after_reload.version = 0;
+    assert!(
+        builder
+            .restore_from_snapshot(&after_reload, &mut reloaded)
+            .is_err()
+    );
+    assert_eq!(
+        (
+            reloaded.get_frame(),
+            reloaded.host_object(id).unwrap().get_position(),
+            reloaded.host_object(id).unwrap().movement.target_position,
+        ),
+        before_rejection,
+        "invalid snapshot must fail before changing the receiving timeline"
+    );
+    assert_eq!(
+        restored.host_object(id).unwrap().get_position(),
+        peer_before
+    );
+
+    reloaded.reset();
+    reloaded.start_new_game(GameMode::SinglePlayer);
+    assert!(reloaded.load_map(map.to_str().unwrap()));
+    reloaded.add_player(Player::new(1, Team::USA, "Owner", true));
+    let restarted = reloaded
+        .create_object_for_player("WaypointWalker", 1, Vec3::new(100.0, 0.0, 100.0))
+        .unwrap();
+    assert!(reloaded.append_unit_waypoint(restarted, first));
+    for _ in 0..10 {
+        reloaded.update_with_dt(1.0 / 30.0);
+    }
+    assert!(
+        reloaded
+            .host_object(restarted)
+            .unwrap()
+            .get_position()
+            .distance(Vec3::new(100.0, 0.0, 100.0))
+            > 0.1,
+        "reset must not postpone the restarted world's recurring movement pass"
+    );
 
     let mut reached_first = false;
     let mut reached_second = false;

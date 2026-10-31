@@ -1053,6 +1053,7 @@ impl GameLogic {
         self.next_object_id = ObjectId(1);
         self.next_formation_id = 1;
         self.frame = 0;
+        self.reset_recurring_updates();
         // C++ GameLogic::reset (GameLogic.cpp:431).
         self.frame_objects_changed_trigger_areas.set(0);
         self.host_guard_area_occupancy.get_mut().clear();

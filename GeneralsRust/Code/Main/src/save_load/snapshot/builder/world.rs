@@ -762,6 +762,9 @@ impl SnapshotBuilder {
 
         // Restore frame number
         game_logic.set_current_frame(snapshot.frame_number);
+        // These host-wide residual passes recur every frame. Their heap belongs
+        // to the receiving timeline, so old wake frames cannot survive a rewind.
+        game_logic.reset_recurring_updates();
         // Restore before Objects are reconstructed and invoke creation callbacks.
         let debris_mask = game_logic.current_dynamic_debris_skip_mask();
         game_logic
