@@ -255,8 +255,14 @@ fn building_entered_observes_receiving_player_identity() {
     peer.host_object_mut(peer_host).unwrap().name = "EnteredHost".into();
     renamed.get_player_mut(1).unwrap().name = "Shared display name".into();
     renamed.get_player_mut(2).unwrap().name = "Shared display name".into();
-    assert_eq!(renamed.get_player(1).unwrap().map_side.map_player_name, "GarrisonHost");
-    assert_eq!(renamed.get_player(2).unwrap().map_side.map_player_name, "GarrisonRider");
+    assert_eq!(
+        renamed.get_player(1).unwrap().map_side.map_player_name,
+        "GarrisonHost"
+    );
+    assert_eq!(
+        renamed.get_player(2).unwrap().map_side.map_player_name,
+        "GarrisonRider"
+    );
     enter(&mut renamed, host, rider);
     assert!(observe_building_entered(&mut renamed, "GarrisonRider"));
     assert!(!observe_building_entered(&mut peer, "GarrisonRider"));
@@ -736,4 +742,97 @@ fn empty_uninitialized_garrison_keeps_its_current_team_after_last_rider_exit() {
     assert!(building.garrison_guns.is_empty());
     assert!(building.garrison_point_occupant.is_empty());
     assert_eq!(building.original_team_instance_id, current_team);
+}
+
+#[test]
+fn entrant_pulse_survives_bincode_and_direct_xfer_then_clears() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut original, host, rider) = world(&map, false);
+    original.host_object_mut(host).unwrap().name = "EnteredHost".into();
+    enter(&mut original, host, rider);
+    assert_eq!(
+        original.host_object(host).unwrap().player_who_entered,
+        Some(2)
+    );
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&original).unwrap();
+
+    let mut invalid_player = clone_bincode_snapshot(&snapshot);
+    invalid_player
+        .objects
+        .get_mut(&host)
+        .unwrap()
+        .modules
+        .insert(
+            "OpenContainEntered".into(),
+            generals_main::save_load::snapshot::ModuleSnapshot::OpenContainEntered(u32::MAX),
+        );
+    let (mut unchanged, unchanged_host, _) = world(&map, false);
+    let before = unchanged
+        .host_object(unchanged_host)
+        .unwrap()
+        .health
+        .current;
+    assert!(
+        builder
+            .restore_from_snapshot(&invalid_player, &mut unchanged)
+            .is_err()
+    );
+    assert_eq!(
+        unchanged
+            .host_object(unchanged_host)
+            .unwrap()
+            .health
+            .current,
+        before
+    );
+
+    let mut invalid_container = clone_bincode_snapshot(&snapshot);
+    invalid_container
+        .objects
+        .get_mut(&rider)
+        .unwrap()
+        .modules
+        .insert(
+            "OpenContainEntered".into(),
+            generals_main::save_load::snapshot::ModuleSnapshot::OpenContainEntered(2),
+        );
+    assert!(
+        builder
+            .restore_from_snapshot(&invalid_container, &mut unchanged)
+            .is_err()
+    );
+    assert_eq!(
+        unchanged
+            .host_object(unchanged_host)
+            .unwrap()
+            .health
+            .current,
+        before
+    );
+
+    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+    let binary: WorldSnapshot = bincode_legacy::deserialize(&bytes).unwrap();
+    let mut direct_source = clone_bincode_snapshot(&snapshot);
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    direct_source.xfer(&mut XferSave::new(&mut bytes)).unwrap();
+    let mut direct = WorldSnapshot::default();
+    direct
+        .xfer(&mut XferLoad::new(std::io::Cursor::new(bytes.into_inner())))
+        .unwrap();
+
+    let (mut first, first_host, _) = world(&map, false);
+    let (mut second, second_host, _) = world(&map, false);
+    assert_eq!((host, host), (first_host, second_host));
+    builder.restore_from_snapshot(&binary, &mut first).unwrap();
+    builder.restore_from_snapshot(&direct, &mut second).unwrap();
+    for game in [&mut first, &mut second] {
+        assert_eq!(game.host_object(host).unwrap().player_who_entered, Some(2));
+        assert!(observe_building_entered(game, "GarrisonRider"));
+        assert!(!observe_building_entered(game, "GarrisonHost"));
+    }
+    first.update();
+    assert!(!observe_building_entered(&mut first, "GarrisonRider"));
+    assert!(observe_building_entered(&mut second, "GarrisonRider"));
 }

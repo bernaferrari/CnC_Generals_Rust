@@ -363,6 +363,8 @@ pub enum ModuleSnapshot {
     BaseAi(super::base_ai_machine_persist::BaseAiObjectSnapshot),
     /// Current host projection; C++ keeps this independently per Weapon.
     ActiveWeaponStatus(WeaponFireStatus),
+    /// C++ OpenContain::m_playerEnteredMask, represented by its one player ID.
+    OpenContainEntered(u32),
 }
 
 /// AI update module snapshot
@@ -1634,6 +1636,7 @@ impl XferData for ModuleSnapshot {
             ModuleSnapshot::DozerTasks(_) => 10,
             ModuleSnapshot::BaseAi(_) => 14,
             ModuleSnapshot::ActiveWeaponStatus(_) => 16,
+            ModuleSnapshot::OpenContainEntered(_) => 17,
         };
         xfer.xfer_u32(&mut disc)?;
         if xfer.get_mode() == XferMode::Save {
@@ -1652,6 +1655,7 @@ impl XferData for ModuleSnapshot {
                     let mut value = *status as u8;
                     xfer.xfer_u8(&mut value)?;
                 }
+                ModuleSnapshot::OpenContainEntered(player_id) => xfer.xfer_u32(player_id)?,
             }
         } else {
             *self = match disc {
@@ -1761,6 +1765,11 @@ impl XferData for ModuleSnapshot {
                             )));
                         }
                     })
+                }
+                17 => {
+                    let mut player_id = 0;
+                    xfer.xfer_u32(&mut player_id)?;
+                    ModuleSnapshot::OpenContainEntered(player_id)
                 }
                 _ => {
                     return Err(SaveLoadError::Corrupted(format!(

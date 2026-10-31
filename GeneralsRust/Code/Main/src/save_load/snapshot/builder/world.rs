@@ -470,6 +470,17 @@ impl SnapshotBuilder {
                 }
             }
         }
+        for object in snapshot.objects.values() {
+            for module in object.modules.values() {
+                if let ModuleSnapshot::OpenContainEntered(player_id) = module {
+                    if !snapshot.players.iter().any(|player| player.id == *player_id) {
+                        return Err(SaveLoadError::Corrupted(format!(
+                            "OpenContain entrant references absent player {player_id}"
+                        )));
+                    }
+                }
+            }
+        }
         self.validate_object_restore_admission(&snapshot.objects, game_logic)?;
         if game_logic.object_lifecycle_callback_depth != 0
             || game_logic.host_objects().registered_values().any(|object| {

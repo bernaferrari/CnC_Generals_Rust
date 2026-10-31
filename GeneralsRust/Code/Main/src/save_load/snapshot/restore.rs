@@ -240,6 +240,30 @@ impl SnapshotBuilder {
         for (id, object) in objects {
             super::dozer_task_module::validate(object, game_logic)?;
             if object.modules.iter().any(|(key, value)| {
+                matches!(value, ModuleSnapshot::OpenContainEntered(_))
+                    && key != "OpenContainEntered"
+            }) || object
+                .modules
+                .get("OpenContainEntered")
+                .is_some_and(|value| !matches!(value, ModuleSnapshot::OpenContainEntered(_)))
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "Invalid OpenContain entrant module owner".into(),
+                ));
+            }
+            if object.modules.contains_key("OpenContainEntered")
+                && game_logic
+                    .templates
+                    .get(&object.template_name)
+                    .is_some_and(|template| {
+                        template.contain_module.kind == crate::game_logic::ContainModuleKind::None
+                    })
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "OpenContain entrant is attached to a non-container template".into(),
+                ));
+            }
+            if object.modules.iter().any(|(key, value)| {
                 matches!(value, ModuleSnapshot::ActiveWeaponStatus(_))
                     && key != "ActiveWeaponStatus"
             }) || object
@@ -726,6 +750,17 @@ impl SnapshotBuilder {
         let mut restored_panic = None;
         for module_snapshot in modules.values() {
             match module_snapshot {
+                ModuleSnapshot::OpenContainEntered(player_id) => {
+                    if game_logic.get_player(*player_id).is_none()
+                        || object.get_template().contain_module.kind
+                            == crate::game_logic::ContainModuleKind::None
+                    {
+                        return Err(SaveLoadError::Corrupted(
+                            "OpenContain entrant has no receiving player or container".into(),
+                        ));
+                    }
+                    object.player_who_entered = Some(*player_id);
+                }
                 ModuleSnapshot::BaseAi(_) => {}
                 ModuleSnapshot::DozerTasks(_) => {}
                 ModuleSnapshot::ActiveWeaponStatus(status) => object.weapon_fire_status = *status,

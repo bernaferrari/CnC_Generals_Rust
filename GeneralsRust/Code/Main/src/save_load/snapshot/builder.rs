@@ -101,7 +101,7 @@ impl SnapshotBuilder {
             weapons,
             contained_objects: object.occupants.clone(),
             container_object: object.contained_by,
-            modules: self.snapshot_object_modules(object)?,
+            modules: self.snapshot_object_modules(game_logic, object)?,
             object_type,
             hacker_disable_channel: object.hacker_disable_channel,
             weapon_barrel_states: std::array::from_fn(|slot| {
@@ -255,9 +255,25 @@ impl SnapshotBuilder {
     #[allow(dead_code)] // Save system: will be wired to full save/load integration
     fn snapshot_object_modules(
         &self,
+        game_logic: &GameLogic,
         object: &Object,
     ) -> SaveLoadResult<HashMap<String, ModuleSnapshot>> {
         let mut modules = HashMap::new();
+
+        if let Some(player_id) = object.player_who_entered {
+            if game_logic.get_player(player_id).is_none()
+                || object.get_template().contain_module.kind
+                    == crate::game_logic::ContainModuleKind::None
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "OpenContain entrant has no receiving player or container".into(),
+                ));
+            }
+            modules.insert(
+                "OpenContainEntered".to_owned(),
+                ModuleSnapshot::OpenContainEntered(player_id),
+            );
+        }
 
         modules.insert(
             "ActiveWeaponStatus".to_owned(),
