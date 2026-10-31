@@ -467,13 +467,53 @@ fn public_capture_ejection_marks_only_the_receiving_team_synchronously() {
         (&mut peer, peer_bunker, peer_unit),
     ] {
         assert!(world.host_object_mut(bunker).unwrap().add_occupant(unit));
-        world.host_object_mut(unit).unwrap().contained_by = Some(bunker);
+        let occupant = world.host_object_mut(unit).unwrap();
+        occupant.contained_by = Some(bunker);
+        // C++ capture can clear a garrison only when its enemy passenger is
+        // stealthed; visible defenders make the capture attempt illegal.
+        occupant.status.stealthed = true;
         world.inject_host_script_query_snapshot();
     }
 
-    // This public capture path ejects the owner passenger horizontally from
-    // outside into the trigger. The peer's same-ID passenger stays contained.
-    owner.on_capture_kick_passengers(owner_bunker, Team::China, Team::USA);
+    // SpecialAbilityUpdate.cpp clears a garrison at the capture trigger,
+    // without defecting the structure on that use. Drive the real ability.
+    owner.add_player(Player::new(3, Team::GLA, "Captor", false).with_script_identity("Captor"));
+    for id in [1, 2, 3] {
+        owner.get_player_mut(id).unwrap().alliance_team = id as i32;
+    }
+    owner.add_ai_opponent(3, Team::GLA, generals_main::ai::AIDifficulty::Easy);
+    let captor_template = owner.templates.get_mut("OwnedTeamEdgeUnit").unwrap();
+    captor_template.capture_power = generals_main::game_logic::thing::CapturePowerKind::Ranger;
+    captor_template.capture_start_ability_range = Some(100.0);
+    captor_template.capture_unpack_time_ms = Some(0);
+    captor_template.capture_preparation_time_ms = Some(0);
+    captor_template.capture_pack_time_ms = Some(0);
+    captor_template.capture_pack_unpack_variation_factor = 0.0;
+    let captor = owner
+        .create_object_for_player("OwnedTeamEdgeUnit", 3, glam::Vec3::new(20.0, 0.0, 20.0))
+        .unwrap();
+    assert!(owner.can_unit_capture_building(captor, owner_bunker, false));
+    assert!(owner.unit_command_begin_capture(captor, owner_bunker));
+    for _ in 0..30 {
+        owner.update_with_dt(1.0 / 30.0);
+        if owner
+            .host_object(owner_unit)
+            .unwrap()
+            .contained_by
+            .is_none()
+        {
+            break;
+        }
+    }
+    assert_eq!(owner.host_object(owner_unit).unwrap().contained_by, None);
+    assert_eq!(
+        owner.host_object(owner_bunker).unwrap().owner_player_id,
+        Some(2)
+    );
+    assert_eq!(
+        peer.host_object(peer_unit).unwrap().contained_by,
+        Some(peer_bunker)
+    );
     owner.inject_host_script_query_snapshot();
     peer.inject_host_script_query_snapshot();
     let cases = || {
