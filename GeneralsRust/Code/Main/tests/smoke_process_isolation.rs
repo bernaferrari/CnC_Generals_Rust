@@ -34,7 +34,7 @@ fn smoke_owns_only_its_child_and_preserves_an_unrelated_runtime() {
     let control_log = dir.path().join("smoke-control-paths");
     fs::write(
         &fake,
-        b"#!/bin/sh\nprintf '%s\\n' $$ >> \"$SMOKE_CHILD_PID_LOG\"\nfor arg in \"$@\"; do case \"$arg\" in -gpui_control=*) printf '%s\\n' \"$arg\" >> \"$SMOKE_CONTROL_LOG\";; esac; done\nexec sleep 30\n",
+        b"#!/bin/sh\nprintf '%s\\n' $$ >> \"$SMOKE_CHILD_PID_LOG\"\ncontrol= profile= private=\nfor arg in \"$@\"; do case \"$arg\" in -gpui_control=*) control=${arg#*=};; -userdata=*) profile=${arg#*=};; -runtime_host_private_profile=*) private=${arg#*=};; esac; done\nprintf '%s|%s|%s\\n' \"$control\" \"$profile\" \"$private\" >> \"$SMOKE_CONTROL_LOG\"\nexec sleep 30\n",
     )
     .unwrap();
     fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
@@ -79,6 +79,18 @@ fn smoke_owns_only_its_child_and_preserves_an_unrelated_runtime() {
         paths.iter().collect::<std::collections::HashSet<_>>().len(),
         paths.len()
     );
+    for line in &paths {
+        let parts: Vec<_> = line.split('|').collect();
+        assert_eq!(parts.len(), 3);
+        let control = std::path::Path::new(parts[0]);
+        let run_dir = control.parent().unwrap();
+        assert_eq!(std::path::Path::new(parts[1]), run_dir.join("UserData"));
+        assert_eq!(parts[2], "1");
+        assert!(
+            !run_dir.exists(),
+            "run directory retained after child cleanup"
+        );
+    }
     for pid in pids.lines() {
         let pid: libc::pid_t = pid.parse().unwrap();
         // Signal 0 checks for the process without sending a signal.

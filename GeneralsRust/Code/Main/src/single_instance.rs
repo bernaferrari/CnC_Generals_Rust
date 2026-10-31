@@ -37,7 +37,10 @@ impl SingleInstanceGuard {
     /// Returns Ok(guard) if this is the only instance, Err if another instance exists
     pub fn new(application_name: &str) -> Result<Self> {
         let lock_file_path = Self::get_lock_file_path(application_name)?;
+        Self::from_lock_file_path(lock_file_path)
+    }
 
+    fn from_lock_file_path(lock_file_path: PathBuf) -> Result<Self> {
         // The OS lock is the authority, as with C++ CreateMutex. Never unlink
         // a supposedly stale file: another process may already lock its inode.
         let mut lock_file = Self::create_lock_file(&lock_file_path)?;
@@ -216,6 +219,46 @@ pub fn initialize_single_instance_protection_with_copy_protection() -> Result<Si
 /// point owns the returned guard through game execution and cleanup.
 pub fn create_generals_mutex() -> Result<SingleInstanceGuard> {
     initialize_single_instance_protection()
+}
+
+/// Smoke hosts opt into an isolated, temporary profile. Normal launches keep
+/// the original process-wide lock. A profile lock prevents two isolated hosts
+/// from writing the same profile even when their path spellings differ.
+pub fn create_startup_instance_guard(
+    args: &crate::command_line::CommandLineArgs,
+) -> Result<SingleInstanceGuard> {
+    if !args.has_option("runtime_host_private_profile") {
+        return create_generals_mutex();
+    }
+    anyhow::ensure!(
+        args.get_option_value("runtime_host_private_profile")
+            .map(String::as_str)
+            == Some("1"),
+        "private runtime profile flag must be 1"
+    );
+    anyhow::ensure!(
+        args.has_option("runtime_host"),
+        "private profile requires a runtime host"
+    );
+    let root = args
+        .get_option_value("userdata")
+        .ok_or_else(|| anyhow::anyhow!("private runtime profile requires -userdata"))?;
+    let root = std::path::Path::new(root);
+    anyhow::ensure!(
+        root.is_absolute(),
+        "private runtime profile must be absolute"
+    );
+    let root = root
+        .canonicalize()
+        .context("Failed to resolve private runtime profile")?;
+    let temp = std::env::temp_dir()
+        .canonicalize()
+        .context("Failed to resolve temporary directory")?;
+    anyhow::ensure!(
+        root != temp && root.starts_with(&temp),
+        "private runtime profile must be inside the temporary directory"
+    );
+    SingleInstanceGuard::from_lock_file_path(root.join(".generals-instance.lock"))
 }
 
 #[cfg(test)]

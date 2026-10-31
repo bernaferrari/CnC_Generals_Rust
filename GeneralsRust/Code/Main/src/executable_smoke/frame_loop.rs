@@ -272,6 +272,8 @@ fn run_executable_smoke_once(
     }
 
     append_smoke_failure_diagnostics(&mut result, &st, &tmp);
+    // The profile lock and writable data must remain until our child is gone.
+    drop(child);
     let _ = fs::remove_dir_all(&tmp);
 
     // Lifecycle: shutdown — merge latched poll residuals, then the gates.

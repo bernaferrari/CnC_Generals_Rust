@@ -56,6 +56,13 @@ fn bootstrap_smoke_child(
     let control_path = tmp.join("control.txt");
     let status_path = tmp.join("status.txt");
     let frame_path = tmp.join("frame.png");
+    let user_data_path = tmp.join("UserData");
+    if let Err(error) = fs::create_dir(&user_data_path) {
+        result.status = "temp_dir_failed".into();
+        result.detail = format!("cannot create smoke user-data directory: {error}");
+        let _ = fs::remove_dir_all(&tmp);
+        return None;
+    }
     let _ = fs::write(&control_path, b"");
     let _ = fs::write(&status_path, b"");
 
@@ -81,6 +88,8 @@ fn bootstrap_smoke_child(
     let mut child = match Command::new(&exe)
         .current_dir(&workspace_cwd)
         .arg(runtime_host_arg)
+        .arg("-runtime_host_private_profile=1")
+        .arg(format!("-userdata={}", user_data_path.display()))
         .arg("-windowed")
         .arg("-width=640")
         .arg("-height=480")

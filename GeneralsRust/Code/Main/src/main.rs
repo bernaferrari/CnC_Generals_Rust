@@ -288,7 +288,9 @@ async fn main() {
     // =========================================================================
     // PHASE 7: SINGLE INSTANCE CHECK (matches WinMain.cpp:1001-1026)
     // =========================================================================
-    let _instance_guard = match generals_main::single_instance::create_generals_mutex() {
+    let _instance_guard = match generals_main::single_instance::create_startup_instance_guard(
+        &cmd_args,
+    ) {
         Ok(guard) => guard,
         Err(err) => {
             warn!("Could not acquire Generals single-instance lock: {err}");
