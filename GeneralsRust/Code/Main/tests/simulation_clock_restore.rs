@@ -117,6 +117,7 @@ fn older_snapshot_uses_frame_derived_time_and_no_partial_step() {
 
 #[test]
 fn simulation_clock_follows_logic_steps_not_presentation_timestamps() {
+    use generals_main::game_logic::{Player, Team};
     use std::time::{Duration, Instant};
     use ww3d_engine::FrameTiming;
 
@@ -131,6 +132,13 @@ fn simulation_clock_follows_logic_steps_not_presentation_timestamps() {
     };
     let mut first = GameLogic::new();
     let mut second = GameLogic::new();
+    for world in [&mut first, &mut second] {
+        world.add_player(Player::new(0, Team::USA, "Human", true));
+        world.add_player(Player::new(1, Team::GLA, "AI", false));
+        world.setup_skirmish_ai(0);
+        assert_eq!(world.host_ai_player_count(), 1);
+    }
+    let mut saw_ai_update = false;
     for _ in 0..12 {
         let a = first.update_with_timing(&timing(10));
         let b = second.update_with_timing(&timing(100));
@@ -142,5 +150,43 @@ fn simulation_clock_follows_logic_steps_not_presentation_timestamps() {
         assert!(
             (first.update_ui_state(0).current_game_time - a.frame as f32 / 30.0).abs() < 0.00001
         );
+        let first_ai = first.capture_ai_player_queue_persist();
+        let second_ai = second.capture_ai_player_queue_persist();
+        assert_eq!(first_ai.len(), 1);
+        assert_eq!(second_ai.len(), 1);
+        assert_eq!(first_ai[0].last_update_time, second_ai[0].last_update_time);
+        if a.frame > 1 {
+            assert!((first_ai[0].last_update_time - (a.frame - 1) as f32 / 30.0).abs() < 0.00001);
+            saw_ai_update = true;
+        }
+    }
+    assert!(saw_ai_update, "the owned AI must actually update");
+
+    let builder = SnapshotBuilder::new();
+    let mut snapshot = builder.create_world_snapshot(&first).unwrap();
+    let mut bytes = Cursor::new(Vec::new());
+    snapshot.xfer(&mut XferSave::new(&mut bytes)).unwrap();
+    let mut snapshot = WorldSnapshot::default();
+    snapshot
+        .xfer(&mut XferLoad::new(Cursor::new(bytes.into_inner())))
+        .unwrap();
+    let mut restored = GameLogic::new();
+    restored.add_player(Player::new(0, Team::USA, "Human", true));
+    restored.add_player(Player::new(1, Team::GLA, "AI", false));
+    restored.setup_skirmish_ai(0);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    for _ in 0..12 {
+        let a = first.update_with_timing(&timing(10));
+        let b = restored.update_with_timing(&timing(1000));
+        assert_eq!((a.frame, a.steps_run), (b.frame, b.steps_run));
+        let a_ai = first.capture_ai_player_queue_persist();
+        let b_ai = restored.capture_ai_player_queue_persist();
+        assert_eq!(a_ai.len(), 1);
+        assert_eq!(b_ai.len(), 1);
+        assert_eq!(a_ai[0].last_update_time, b_ai[0].last_update_time);
+        assert_eq!(a_ai[0].next_team_time, b_ai[0].next_team_time);
+        assert_eq!(a_ai[0].next_building_time, b_ai[0].next_building_time);
     }
 }
