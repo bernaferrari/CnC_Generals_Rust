@@ -704,6 +704,7 @@ impl PresentationFrame {
                     }
                 },
 
+                normal_enter_authoritative_occupant_count: Some(authoritative_contained.len()),
                 stealth_garrison_occupant_count: if shared_containment {
                     0
                 } else {

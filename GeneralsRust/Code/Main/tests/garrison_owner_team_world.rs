@@ -110,6 +110,17 @@ Object OwnedGarrisonRider\n\
  Behavior = AIUpdateInterface Brain\n\
  End\n\
 End\n\
+Object StealthGarrisonRider\n\
+ KindOf = INFANTRY STEALTH_GARRISON SELECTABLE\n\
+ TransportSlotCount = 1\n\
+ Locomotor = SET_NORMAL BasicHumanLocomotor\n\
+ Body = ActiveBody BodyTag\n\
+  MaxHealth = 100\n\
+  InitialHealth = 100\n\
+ End\n\
+ Behavior = AIUpdateInterface Brain\n\
+ End\n\
+End\n\
 Object BlockedGarrisonRider\n\
  KindOf = INFANTRY SELECTABLE NO_GARRISON\n\
  TransportSlotCount = 1\n\
@@ -2790,6 +2801,13 @@ fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
                 object.garrisoned_units
             );
             assert_eq!(object.occupant_count, 0, "{name} object {id:?}");
+            if id == cb || id == tb {
+                assert_eq!(
+                    frame.normal_enter_available_capacity_for_local(object),
+                    None,
+                    "{name} hidden occupied object {id:?}"
+                );
+            }
         }
     }
     for id in [cave_rider, tunnel_rider, ordinary_rider] {
@@ -3117,4 +3135,51 @@ fn cave_and_tunnel_entry_eligibility_matches_shared_tracker() {
         owner_frame.normal_enter_available_capacity_for_local(owner_target),
         Some(1)
     );
+}
+
+#[test]
+fn hidden_garrison_entry_uses_true_stealth_and_nonstealth_counts() {
+    use generals_main::gameworld_shadow::GameWorldShadow;
+    use generals_main::presentation_frame::PresentationFrame;
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, host, _) = world(&map, false);
+    game.add_player(Player::new(3, Team::GLA, "Enemy", false).with_script_identity("Enemy"));
+    let enemy = game
+        .create_object_for_player("OwnedGarrisonRider", 3, Vec3::new(50., 0., 50.))
+        .unwrap();
+    let stealth = game
+        .create_object_for_player("StealthGarrisonRider", 1, Vec3::new(50., 0., 50.))
+        .unwrap();
+    game.host_object_mut(stealth).unwrap().status.detected = false;
+    game.host_object_mut(host)
+        .unwrap()
+        .building_data
+        .as_mut()
+        .unwrap()
+        .hide_garrisoned_state = true;
+    assert!(game.host_object_mut(host).unwrap().add_occupant(stealth));
+    assert!(game.can_unit_enter_normal_target(enemy, host));
+    let check = |game: &mut GameLogic, expected: Option<usize>| {
+        let direct = PresentationFrame::build_from_logic(game, 3);
+        let mut shadow = GameWorldShadow::new(256);
+        shadow.sync_from_host(game);
+        let shadow_frame = PresentationFrame::build_from_gameworld(&shadow, 3, Some(game));
+        for frame in [&direct, &shadow_frame] {
+            let target = frame.objects.iter().find(|o| o.id == host).unwrap();
+            assert!(target.garrisoned_units.is_empty());
+            assert_eq!(target.occupant_count, 0);
+            assert_eq!(
+                frame.normal_enter_available_capacity_for_local(target),
+                expected
+            );
+        }
+    };
+    check(&mut game, Some(usize::MAX));
+    let ordinary = game
+        .create_object_for_player("OwnedGarrisonRider", 1, Vec3::new(50., 0., 50.))
+        .unwrap();
+    assert!(game.host_object_mut(host).unwrap().add_occupant(ordinary));
+    assert!(!game.can_unit_enter_normal_target(enemy, host));
+    check(&mut game, None);
 }

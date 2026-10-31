@@ -1522,6 +1522,7 @@ impl PresentationFrame {
                 .map(crate::game_logic::ObjectId)
                 .collect(),
             stealth_garrison_occupant_count: 0,
+            normal_enter_authoritative_occupant_count: None,
 
             max_garrison: ent.max_garrison as usize,
             power_provided: ent.power_provided,
@@ -2193,8 +2194,26 @@ impl PresentationFrame {
             }
             let shared_containment =
                 obj.is_tunnel_network_style_container() || obj.is_cave_style_container();
+            let authoritative_contained = logic.host_authoritative_contained_units(obj.id);
+            let authoritative_count = Some(authoritative_contained.len());
+            if ro.normal_enter_authoritative_occupant_count != authoritative_count {
+                ro.normal_enter_authoritative_occupant_count = authoritative_count;
+                dirty = true;
+            }
+            let stealth_count = if shared_containment {
+                0
+            } else {
+                logic
+                    .stealth_garrison_occupant_counts(obj)
+                    .0
+                    .min(u16::MAX as usize) as u16
+            };
+            if ro.stealth_garrison_occupant_count != stealth_count {
+                ro.stealth_garrison_occupant_count = stealth_count;
+                dirty = true;
+            }
             let contained = if shared_containment {
-                let contained = logic.host_authoritative_contained_units(obj.id);
+                let contained = authoritative_contained;
                 let visibility_team =
                     super::live_draw_source::receiving_local_team(logic, self.local_player_id);
                 let hidden =
@@ -2206,12 +2225,6 @@ impl PresentationFrame {
                 };
                 if ro.occupant_count != count {
                     ro.occupant_count = count;
-                    dirty = true;
-                }
-                // CaveContain and TunnelContain add directly to TunnelTracker;
-                // OpenContain's local stealth counter is not incremented.
-                if ro.stealth_garrison_occupant_count != 0 {
-                    ro.stealth_garrison_occupant_count = 0;
                     dirty = true;
                 }
                 if hidden { Vec::new() } else { contained }

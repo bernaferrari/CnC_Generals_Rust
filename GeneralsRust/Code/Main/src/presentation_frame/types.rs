@@ -508,6 +508,10 @@ pub struct RenderableObject {
     /// so RMB `canEnterObject` can allow a stealth-only civilian garrison.
     #[serde(default)]
     pub stealth_garrison_occupant_count: u16,
+    /// Authoritative count for input decisions, separate from a hidden UI roster.
+    /// Shadow-only frames have no such fact and use their visible count.
+    #[serde(skip)]
+    pub(crate) normal_enter_authoritative_occupant_count: Option<usize>,
 
     /// Max garrison slots (0 = not a container).
     pub max_garrison: usize,
