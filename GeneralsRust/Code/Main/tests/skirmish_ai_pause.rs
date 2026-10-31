@@ -724,3 +724,73 @@ fn passive_target_selection_uses_the_receiving_controlling_player() {
         Some(human_target)
     );
 }
+
+#[test]
+fn mood_scan_scheduling_wraps_and_remains_session_owned() {
+    use gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
+
+    let mut first = world();
+    let mut peer = world();
+    let id = create(&mut first, UNIT, 1, 0.0);
+    let peer_id = create(&mut peer, UNIT, 1, 0.0);
+    assert_eq!(id, peer_id);
+    for session in [&mut first, &mut peer] {
+        let object = session.host_object_mut(id).unwrap();
+        object.auto_acquire_idle_bits = AUTO_ACQUIRE_IDLE;
+        object.next_mood_check_time = 1;
+        object.mood_attack_check_rate = 5;
+        object.randomly_offset_mood_check = false;
+    }
+    first.set_current_frame(u64::from(u32::MAX - 2));
+    assert_eq!(first.get_next_mood_target(id, true, true), None);
+    assert_eq!(first.host_object(id).unwrap().next_mood_check_time, 2);
+    assert_eq!(peer.host_object(peer_id).unwrap().next_mood_check_time, 1);
+
+    // The original uses an ordinary unsigned comparison, so a wrapped low
+    // deadline is already due while the current frame is still high.
+    first.set_current_frame(u64::from(u32::MAX - 1));
+    assert_eq!(first.get_next_mood_target(id, true, true), None);
+    assert_eq!(first.host_object(id).unwrap().next_mood_check_time, 3);
+    first.set_current_frame(0);
+    assert_eq!(first.get_next_mood_target(id, true, true), None);
+    assert_eq!(first.host_object(id).unwrap().next_mood_check_time, 3);
+    first.set_current_frame(3);
+    assert_eq!(first.get_next_mood_target(id, true, true), None);
+    assert_eq!(first.host_object(id).unwrap().next_mood_check_time, 8);
+
+    let object = first.host_object_mut(id).unwrap();
+    object.next_mood_check_time = 1;
+    object.mood_attack_check_rate = 0;
+    first.set_current_frame(100);
+    first.get_next_mood_target(id, true, true);
+    assert_eq!(first.host_object(id).unwrap().next_mood_check_time, 100);
+
+    let object = first.host_object_mut(id).unwrap();
+    object.next_mood_check_time = 1;
+    object.mood_attack_check_rate = 6;
+    object.randomly_offset_mood_check = true;
+    first.set_current_frame(u64::from(u32::MAX - 2));
+    first.get_next_mood_target(id, true, true);
+    let object = first.host_object(id).unwrap();
+    assert!(!object.randomly_offset_mood_check);
+    assert!(
+        object.next_mood_check_time <= 6,
+        "jitter stays within the wrapped 0..=6 window"
+    );
+    assert_eq!(peer.host_object(peer_id).unwrap().next_mood_check_time, 1);
+
+    // AIUpdate converts the authored unsigned interval to Int before shifting.
+    // Its signed range remains meaningful even when the high bit is set.
+    let object = first.host_object_mut(id).unwrap();
+    object.next_mood_check_time = 1;
+    object.mood_attack_check_rate = 0x8000_0000;
+    object.randomly_offset_mood_check = true;
+    first.set_current_frame(1000);
+    first.get_next_mood_target(id, true, true);
+    let next = first.host_object(id).unwrap().next_mood_check_time;
+    let jitter = next.wrapping_sub(1000_u32.wrapping_add(0x8000_0000)) as i32;
+    assert!(
+        jitter.unsigned_abs() >= 0x4000_0000,
+        "signed half-range: {jitter}"
+    );
+}

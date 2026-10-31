@@ -681,7 +681,7 @@ impl GameLogic {
                 o.last_damage_info_type == Some(crate::game_logic::combat::DamageType::Healing),
                 o.get_position(),
                 o.team,
-                o.mood_attack_check_rate.max(1),
+                o.mood_attack_check_rate,
                 o.next_mood_check_time,
             )
         };
@@ -737,10 +737,10 @@ impl GameLogic {
             }
             // Schedule next check.
             if let Some(o) = self.objects.get_mut(&unit_id) {
-                let mut next = now.saturating_add(rate);
+                let mut next = now.wrapping_add(rate);
                 // C++ AIUpdate.cpp:4548-4552. One draw, then the flag clears.
                 if o.randomly_offset_mood_check {
-                    let half = (rate >> 1) as i32;
+                    let half = (rate as i32) >> 1;
                     let jitter = self.logic_random.next_int(-half, half);
                     next = (next as i32).wrapping_add(jitter) as u32;
                     o.randomly_offset_mood_check = false;
