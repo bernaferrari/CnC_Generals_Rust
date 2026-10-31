@@ -105,6 +105,17 @@ Object BlockedGarrisonRider\n\
  Behavior = AIUpdateInterface Brain\n\
  End\n\
 End\n\
+Object HeavyTransportRider\n\
+ KindOf = INFANTRY SELECTABLE\n\
+ TransportSlotCount = 4\n\
+ Locomotor = SET_NORMAL BasicHumanLocomotor\n\
+ Body = ActiveBody BodyTag\n\
+  MaxHealth = 100\n\
+  InitialHealth = 100\n\
+ End\n\
+ Behavior = AIUpdateInterface Brain\n\
+ End\n\
+End\n\
 Object PlainNonContainer\n\
  KindOf = STRUCTURE SELECTABLE\n\
  Body = ActiveBody BodyTag\n\
@@ -338,6 +349,92 @@ fn collision_entry_records_receiving_player_without_touching_peer() {
             .unwrap()
             .team_instance_identity(),
         peer_team
+    );
+}
+
+#[test]
+fn collision_transport_rechecks_slot_capacity_and_controller() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, _, small) = world(&map, false);
+    let (mut peer, _, peer_small) = world(&map, false);
+    let setup = |world: &mut GameLogic| {
+        let transport = world
+            .create_object_for_player("SnapshotDoorTransport", 2, Vec3::new(50., 0., 50.))
+            .unwrap();
+        let heavy = world
+            .create_object_for_player("HeavyTransportRider", 2, Vec3::new(50., 0., 50.))
+            .unwrap();
+        (transport, heavy)
+    };
+    let (transport, heavy) = setup(&mut game);
+    let (peer_transport, peer_heavy) = setup(&mut peer);
+    assert_eq!(
+        (transport, heavy, small),
+        (peer_transport, peer_heavy, peer_small)
+    );
+    for rider in [heavy, small] {
+        assert_eq!(
+            CommandExecutor::new(&mut game, 2)
+                .execute_command(GameCommand {
+                    command_type: CommandType::Enter {
+                        target_id: transport
+                    },
+                    player_id: 2,
+                    command_id: rider.0,
+                    timestamp: std::time::UNIX_EPOCH,
+                    selected_units: vec![rider],
+                    modifier_keys: ModifierKeys::default(),
+                })
+                .unwrap(),
+            CommandResult::Success
+        );
+    }
+    game.try_physics_collide(small, transport, 1.0).unwrap();
+    assert_eq!(
+        game.host_object(small).unwrap().contained_by,
+        Some(transport)
+    );
+    game.try_physics_collide(heavy, transport, 1.0).unwrap();
+    assert_eq!(
+        game.host_object(heavy).unwrap().contained_by,
+        None,
+        "four-slot rider cannot board after a one-slot rider fills part of a four-slot transport"
+    );
+    assert_eq!(
+        game.host_object(transport).unwrap().contained_units(),
+        vec![small]
+    );
+    assert!(
+        peer.host_object(peer_transport)
+            .unwrap()
+            .contained_units()
+            .is_empty()
+    );
+
+    // A valid order can become invalid before arrival if ownership changes.
+    assert_eq!(
+        CommandExecutor::new(&mut peer, 2)
+            .execute_command(GameCommand {
+                command_type: CommandType::Enter {
+                    target_id: peer_transport
+                },
+                player_id: 2,
+                command_id: 100,
+                timestamp: std::time::UNIX_EPOCH,
+                selected_units: vec![peer_heavy],
+                modifier_keys: ModifierKeys::default(),
+            })
+            .unwrap(),
+        CommandResult::Success
+    );
+    peer.host_object_mut(peer_heavy).unwrap().owner_player_id = Some(1);
+    peer.try_physics_collide(peer_heavy, peer_transport, 1.0)
+        .unwrap();
+    assert_eq!(
+        peer.host_object(peer_heavy).unwrap().contained_by,
+        None,
+        "TransportContain requires the same controlling player at collision"
     );
 }
 

@@ -41,7 +41,15 @@ impl super::super::GameLogic {
                 .objects
                 .get(&other_id)
                 .is_some_and(|c| c.is_garrison_contain());
-            if is_garrison {
+            let is_transport = self.objects.get(&other_id).is_some_and(|container| {
+                container.normal_enter_uses_transport_slots()
+                    && matches!(
+                        container.thing().template.contain_module.kind,
+                        crate::game_logic::ContainModuleKind::Transport
+                            | crate::game_logic::ContainModuleKind::RailedTransport
+                    )
+            });
+            if is_garrison || is_transport {
                 // OpenContain::onCollide orders opposing riders out before its
                 // final isValidContainerFor check.
                 self.kick_other_controller_occupants_for_enter_with_effects(
@@ -64,11 +72,39 @@ impl super::super::GameLogic {
                             && container.allows_normal_enter_for_relationship(relationship)
                             && container.has_capacity_for(1)
                     })
+            } else if is_transport {
+                self.objects
+                    .get(&self_id)
+                    .zip(self.objects.get(&other_id))
+                    .is_some_and(|(rider, container)| {
+                        // ParachuteContain's zero-slot wrapper needs its contained
+                        // rider resolved before applying the transport rules.
+                        // Preserve its existing path until that migration is done.
+                        if rider.thing().template.contain_module.kind
+                            == crate::game_logic::ContainModuleKind::Parachute
+                        {
+                            return true;
+                        }
+                        let slots = rider.transport_slot_count();
+                        slots > 0
+                            && container
+                                .thing()
+                                .template
+                                .contain_module
+                                .leftover_kind_masks_admit(rider.kind_of_cpp_mask())
+                            && container.allows_normal_enter_for_relationship(
+                                self.normal_enter_relationship(rider, container),
+                            )
+                            && self.normal_enter_controller_matches(rider, container)
+                            && self
+                                .normal_enter_available_capacity_for(self_id, other_id)
+                                .is_some_and(|available| available >= slots)
+                    })
             } else {
                 true
             };
             let cancelled = eligible
-                && is_garrison
+                && (is_garrison || is_transport)
                 && self.should_cancel_containment_after_booby_trap_with_effects(
                     other_id, self_id, effects,
                 );
