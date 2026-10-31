@@ -423,7 +423,7 @@ impl GameLogic {
     }
 
     /// C++ OpenContain::addToContain `m_playerEnteredMask = rider->getControllingPlayer()`.
-    /// One-frame pulse: `OpenContain::update` zeros it next logic frame.
+    /// The normal-phase `OpenContain::update` clears it when that module runs.
     pub(in crate::game_logic) fn stamp_player_who_entered(
         &mut self,
         container_id: ObjectId,
@@ -446,7 +446,11 @@ impl GameLogic {
     /// C++ OpenContain::update `m_playerEnteredMask = 0`.
     pub(in crate::game_logic) fn clear_open_contain_player_who_entered(&mut self) {
         for obj in self.objects.registered_values_mut() {
-            obj.player_who_entered = None;
+            // UpdateModule's default disabled mask is empty: GameLogic skips
+            // OpenContain::update while any disabled flag is present.
+            if !obj.has_disabled_type() {
+                obj.player_who_entered = None;
+            }
         }
     }
 

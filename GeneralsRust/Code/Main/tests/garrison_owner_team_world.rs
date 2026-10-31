@@ -252,6 +252,34 @@ fn observe_building_entered(world: &mut GameLogic, player: &str) -> bool {
 }
 
 #[test]
+fn ai_entry_clears_pulse_in_normal_phase_and_disabled_container_retains_it() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, host, rider) = world(&map, false);
+    enter(&mut game, host, rider);
+    assert_eq!(
+        game.host_object(host).unwrap().player_who_entered,
+        None,
+        "AIUpdate runs before OpenContain::update in the same frame"
+    );
+
+    let container = game.host_object_mut(host).unwrap();
+    container.player_who_entered = Some(2);
+    container.set_status_disabled_script_disabled(true);
+    game.update();
+    assert_eq!(
+        game.host_object(host).unwrap().player_who_entered,
+        Some(2),
+        "disabled OpenContain updates are deferred by the C++ scheduler"
+    );
+    game.host_object_mut(host)
+        .unwrap()
+        .set_status_disabled_script_disabled(false);
+    game.update();
+    assert_eq!(game.host_object(host).unwrap().player_who_entered, None);
+}
+
+#[test]
 fn building_entered_observes_receiving_player_identity() {
     let root = tempfile::tempdir().unwrap();
     let map = map_file(root.path());
@@ -271,10 +299,13 @@ fn building_entered_observes_receiving_player_identity() {
         "GarrisonRider"
     );
     enter(&mut renamed, host, rider);
+    // Model a pulse produced after this frame's OpenContain update.
+    renamed.host_object_mut(host).unwrap().player_who_entered = Some(2);
     assert!(observe_building_entered(&mut renamed, "GarrisonRider"));
     assert!(!observe_building_entered(&mut peer, "GarrisonRider"));
     assert!(!observe_building_entered(&mut renamed, "GarrisonHost"));
     enter(&mut peer, peer_host, peer_rider);
+    peer.host_object_mut(peer_host).unwrap().player_who_entered = Some(2);
     assert!(observe_building_entered(&mut peer, "GarrisonRider"));
     assert!(observe_building_entered(&mut renamed, "GarrisonRider"));
     renamed.update();
@@ -291,6 +322,11 @@ fn named_garrison_uses_entering_player_identity_not_display_name() {
     assert_eq!((host, rider), (peer_host, peer_rider));
     enter(&mut aliased, host, rider);
     enter(&mut distinct, peer_host, peer_rider);
+    aliased.host_object_mut(host).unwrap().player_who_entered = Some(2);
+    distinct
+        .host_object_mut(peer_host)
+        .unwrap()
+        .player_who_entered = Some(2);
     assert_eq!(
         aliased.host_object(host).unwrap().player_who_entered,
         Some(2)
@@ -758,6 +794,8 @@ fn entrant_pulse_survives_bincode_and_direct_xfer_then_clears() {
     let (mut original, host, rider) = world(&map, false);
     original.host_object_mut(host).unwrap().name = "EnteredHost".into();
     enter(&mut original, host, rider);
+    // Save an unconsumed pulse, as can be produced after the container's update.
+    original.host_object_mut(host).unwrap().player_who_entered = Some(2);
     let plain = original
         .create_object_for_player("PlainNonContainer", 1, Vec3::new(70.0, 0.0, 70.0))
         .unwrap();
