@@ -1831,12 +1831,25 @@ impl GameLogic {
             if obj.id == unit_id {
                 continue;
             }
-            if !self.host_script_is_garrison_nearest_candidate(
-                obj,
-                unit_off_map,
-                unit_is_hacker,
-                player_id,
-            ) {
+            // ScriptActions::doUnitGarrisonNearestBuilding filters structure
+            // and map status first, then checks the actual contain interface
+            // and its entering player. Unlike the team action, it does not
+            // filter by free capacity before issuing aiEnter.
+            if !obj.is_kind_of(KindOf::Structure)
+                || obj.status.off_map != unit_off_map
+                || obj.is_kind_of(KindOf::FSInternetCenter) != unit_is_hacker
+                || obj.get_template().contain_module.kind
+                    == crate::game_logic::ContainModuleKind::None
+            {
+                continue;
+            }
+            if !obj.player_who_entered.is_empty()
+                && !player_id
+                    .and_then(|id| self.players.get(&id))
+                    .is_some_and(|player| {
+                        obj.player_who_entered.eq_ignore_ascii_case(&player.name)
+                    })
+            {
                 continue;
             }
             let pos = obj.get_position();

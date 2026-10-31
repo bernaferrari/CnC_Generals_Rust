@@ -126,7 +126,7 @@ fn world_with_roster(
     )
     .unwrap();
     let mut game = GameLogic::new();
-    game.admit_object_ini_sources([("Objects.ini".into(), "Object AmericaInfantryMissileDefender\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n Behavior = SpecialAbility Laser\n SpecialPowerTemplate = SpecialAbilityMissileDefenderLaserGuidedMissiles\n End\nEnd\nObject OwnedNoAiInfantry\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject OwnedVehicle\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\nObject OwnedNearestGarrison\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = GarrisonContain GarrisonTag\n ContainMax = 1\n End\nEnd\n".into())]).unwrap();
+    game.admit_object_ini_sources([("Objects.ini".into(), "Object AmericaInfantryMissileDefender\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n Behavior = SpecialAbility Laser\n SpecialPowerTemplate = SpecialAbilityMissileDefenderLaserGuidedMissiles\n End\nEnd\nObject OwnedNoAiInfantry\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject OwnedVehicle\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\nObject OwnedNearestGarrison\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = GarrisonContain GarrisonTag\n ContainMax = 1\n End\nEnd\nObject OwnedZeroSlotGarrison\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = GarrisonContain GarrisonTag\n ContainMax = 0\n End\nEnd\nObject OwnedNoContainer\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\nEnd\n".into())]).unwrap();
     let mut definitions = PlayerTemplateStore::new_owned();
     definitions.apply_source("PlayerTemplate FactionCivilian\n Side = Civilian\nEnd\nPlayerTemplate FactionAmerica\n Side = America\nEnd\n", INILoadType::Overwrite).unwrap();
     game.admit_player_template_definitions(definitions).unwrap();
@@ -422,4 +422,34 @@ fn named_and_team_garrison_use_receiving_map_status() {
             "positive off-map case, team={by_team}"
         );
     }
+}
+
+#[test]
+fn named_and_team_garrison_use_different_capacity_rules() {
+    let named_root = tempfile::tempdir().unwrap();
+    let team_root = tempfile::tempdir().unwrap();
+    let (mut named, named_unit, _) = world(named_root.path(), 20, true);
+    let (mut team, team_unit, _) = world(team_root.path(), 20, true);
+    assert_eq!(named_unit, team_unit);
+    let mut ids = Vec::new();
+    for game in [&mut named, &mut team] {
+        let no_container = game
+            .create_object_for_player("OwnedNoContainer", 1, glam::Vec3::new(90.0, 0.0, 90.0))
+            .unwrap();
+        let zero_capacity = game
+            .create_object_for_player("OwnedZeroSlotGarrison", 1, glam::Vec3::new(80.0, 0.0, 80.0))
+            .unwrap();
+        let available = game
+            .create_object_for_player("OwnedNearestGarrison", 1, glam::Vec3::new(50.0, 0.0, 50.0))
+            .unwrap();
+        ids.push((no_container, zero_capacity, available));
+    }
+    assert_eq!(ids[0], ids[1]);
+    execute_garrison(&mut team, true);
+    assert_eq!(team.host_object(team_unit).unwrap().target, Some(ids[1].2));
+    execute_garrison(&mut named, false);
+    assert_eq!(
+        named.host_object(named_unit).unwrap().target,
+        Some(ids[0].1)
+    );
 }
