@@ -1490,8 +1490,9 @@ impl AudioEventRts {
                 }
                 Some(&self.position_of_audio)
             }
-            OwnerType::Dead => Some(&self.position_of_audio),
-            OwnerType::Invalid => None,
+            // C++ getCurrentPosition returns NULL after the owner has become
+            // dead; the first failed lookup above still returns the last pose.
+            OwnerType::Dead | OwnerType::Invalid => None,
         }
     }
 
