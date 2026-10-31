@@ -1374,6 +1374,11 @@ impl PresentationFrame {
                                 .is_some_and(|candidate| candidate == power)
                         })
                         .collect();
+                    // C++ registers public timers from a living structure's
+                    // SpecialPowerModule, never from an unlocked science alone.
+                    if matching_modules.is_empty() {
+                        continue;
+                    }
                     let science_ok = if structure_bound {
                         matching_modules.iter().any(|(_, module)| {
                             module
@@ -2737,9 +2742,7 @@ mod sw_hud_tests {
             "local row must stay unadorned: {}",
             local_row.name
         );
-        // The strip also carries science-unlocked non-structure rows (Carpet
-        // Bomb / Cruise Missile) for both players, so select the enemy nuke
-        // row by its unique power key, not by display-name substring.
+        // Select the enemy nuke row by its player-specific power key.
         let enemy_row = frame
             .superweapon_timers
             .iter()
