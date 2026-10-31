@@ -72,12 +72,6 @@ impl GameLogic {
         members: &[u32],
         needs_enemy_sighting: bool,
     ) -> TeamStateObservation {
-        let (min, max) = self.world_bounds();
-        let off_map = |position: Vec3| {
-            crate::game_logic::host_deliver_payload::is_off_map_residual(
-                position, min.x, min.z, max.x, max.z,
-            )
-        };
         let mut observation = TeamStateObservation {
             member_count: members.len() as i32,
             all_ai_idle: true,
@@ -111,14 +105,14 @@ impl GameLogic {
                             if candidate_id.0 == *id
                                 || !candidate.is_alive()
                                 || candidate.status.effectively_dead
-                                || off_map(candidate.get_position()) != off_map(position)
+                                || candidate.status.off_map != object.status.off_map
                                 || self.script_sighting_relationship(object, candidate)
                                     != gamelogic::common::Relationship::Enemies
                             {
                                 return false;
                             }
                             let delta = candidate.get_position() - position;
-                            delta.x * delta.x + delta.z * delta.z <= radius_sq
+                            delta.x * delta.x + delta.z * delta.z < radius_sq
                         });
             }
         }

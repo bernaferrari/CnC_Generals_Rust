@@ -4,8 +4,8 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::player_template::PlayerTemplateStore;
 use game_engine::common::system::DataChunkOutput;
 use game_engine::common::well_known_keys::{
-    key_player_faction, key_player_is_human, key_player_name, key_team_is_singleton, key_team_name,
-    key_team_owner,
+    key_player_faction, key_player_is_human, key_player_name, key_team_enemy_sighted_script,
+    key_team_is_singleton, key_team_name, key_team_owner,
 };
 use gamelogic::scripting::chunk_codec::ScriptTemplateLookup;
 use gamelogic::scripting::core::{
@@ -21,6 +21,20 @@ fn world(
     boundary: i32,
     button_admitted: bool,
 ) -> (GameLogic, ObjectId, ObjectId) {
+    world_with_target(
+        root,
+        boundary,
+        button_admitted,
+        glam::Vec3::new(80.0, 0.0, 80.0),
+    )
+}
+
+fn world_with_target(
+    root: &std::path::Path,
+    boundary: i32,
+    button_admitted: bool,
+    target_position: glam::Vec3,
+) -> (GameLogic, ObjectId, ObjectId) {
     let mut sides = SidesList::new();
     let mut player = Dict::new();
     player.set_ascii_string(key_player_name(), "Owner");
@@ -31,7 +45,29 @@ fn world(
     team.set_ascii_string(key_team_name(), "OwnedTeam");
     team.set_ascii_string(key_team_owner(), "Owner");
     team.set_bool(key_team_is_singleton(), true);
+    team.set_ascii_string(key_team_enemy_sighted_script(), "OnOwnedEnemySighted");
     sides.add_team(&team);
+    let mut action = ScriptAction::new(ScriptActionType::PlayerGiveMoney);
+    action
+        .add_parameter(Parameter::with_string(ParameterType::Side, "Owner".into()))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_int(ParameterType::Int, 17))
+        .unwrap();
+    let mut condition = OrCondition::new();
+    condition.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    let mut hook = Script::new();
+    hook.script_name = "OnOwnedEnemySighted".into();
+    hook.is_active = true;
+    hook.is_subroutine = true;
+    hook.condition = Some(Box::new(condition));
+    hook.action = Some(Box::new(action));
+    let mut scripts = ScriptList::new();
+    scripts.append_script(Box::new(hook));
+    sides
+        .get_side_info_mut(0)
+        .unwrap()
+        .set_script_list(Some(Box::new(scripts)));
     let engine = ScriptEngine::new().unwrap();
     let mut map = DataChunkOutput::new();
     map.open_data_chunk("HeightMapData", 4);
@@ -101,7 +137,7 @@ fn world(
             0.0,
         );
     let target = game
-        .create_object_for_player("OwnedVehicle", 2, glam::Vec3::new(80.0, 0.0, 80.0))
+        .create_object_for_player("OwnedVehicle", 2, target_position)
         .unwrap();
     (game, source, target)
 }
@@ -166,4 +202,70 @@ fn nearest_button_uses_receiving_definitions_and_map_status() {
         missing.host_object(fourth).unwrap().ai_state(),
         AIState::Idle
     );
+}
+
+#[test]
+fn team_sighting_hook_uses_receiving_map_status() {
+    let small_root = tempfile::tempdir().unwrap();
+    let large_root = tempfile::tempdir().unwrap();
+    let off_root = tempfile::tempdir().unwrap();
+    let (mut small, source, _) = world(small_root.path(), 10, true);
+    let (mut large, peer, _) = world(large_root.path(), 20, true);
+    let (mut both_off, third, _) = world(off_root.path(), 8, true);
+    assert_eq!((source, source), (peer, third));
+    for (world, id) in [
+        (&mut small, source),
+        (&mut large, peer),
+        (&mut both_off, third),
+    ] {
+        world.host_object_mut(id).unwrap().vision_range = 100.0;
+    }
+    let initial_small = small.get_player(1).unwrap().resources.supplies;
+    let initial_large = large.get_player(1).unwrap().resources.supplies;
+    let initial_off = both_off.get_player(1).unwrap().resources.supplies;
+    large.update();
+    large.update();
+    assert_eq!(
+        large.get_player(1).unwrap().resources.supplies,
+        initial_large + 17
+    );
+    assert_eq!(
+        small.get_player(1).unwrap().resources.supplies,
+        initial_small
+    );
+    small.update();
+    small.update();
+    assert_eq!(
+        small.get_player(1).unwrap().resources.supplies,
+        initial_small
+    );
+    both_off.update();
+    both_off.update();
+    assert_eq!(
+        both_off.get_player(1).unwrap().resources.supplies,
+        initial_off + 17
+    );
+}
+
+#[test]
+fn team_sighting_hook_requires_strictly_inside_vision_range() {
+    let edge_root = tempfile::tempdir().unwrap();
+    let inside_root = tempfile::tempdir().unwrap();
+    let target_position = glam::Vec3::new(80.0, 0.0, 100.0);
+    let (mut edge, source, _) = world_with_target(edge_root.path(), 20, true, target_position);
+    let (mut inside, peer, _) = world_with_target(inside_root.path(), 20, true, target_position);
+    assert_eq!(source, peer);
+    edge.host_object_mut(source).unwrap().vision_range = 20.0;
+    inside.host_object_mut(peer).unwrap().vision_range = 20.01;
+    let edge_before = edge.get_player(1).unwrap().resources.supplies;
+    let inside_before = inside.get_player(1).unwrap().resources.supplies;
+    inside.update();
+    inside.update();
+    assert_eq!(
+        inside.get_player(1).unwrap().resources.supplies,
+        inside_before + 17
+    );
+    edge.update();
+    edge.update();
+    assert_eq!(edge.get_player(1).unwrap().resources.supplies, edge_before);
 }
