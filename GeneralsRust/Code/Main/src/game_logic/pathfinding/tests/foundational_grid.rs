@@ -386,6 +386,7 @@ fn host_path_queue_defers_until_taken() {
         is_crusher: false,
         ignore_obstacle: None,
         adjust_destinations: true,
+        follow_path_appends: Vec::new(),
         restore_adjust_on_install: false,
     });
     assert_eq!(sys.pending_path_count(), 1);

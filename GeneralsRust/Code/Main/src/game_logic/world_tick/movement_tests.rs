@@ -1907,6 +1907,7 @@ fn safe_queue_one_repulsor_clears_the_old_path() {
             is_crusher: false,
             ignore_obstacle: None,
             adjust_destinations: true,
+            follow_path_appends: Vec::new(),
             restore_adjust_on_install: false,
         });
     logic.process_pathfind_queue();
@@ -1963,6 +1964,7 @@ fn airborne_approach_request_drops_the_approach_flag() {
             is_crusher: false,
             ignore_obstacle: None,
             adjust_destinations: true,
+            follow_path_appends: Vec::new(),
             restore_adjust_on_install: false,
         });
     logic.process_pathfind_queue();

@@ -951,6 +951,18 @@ impl PathfindingSystem {
         true
     }
 
+    pub(crate) fn append_to_pending_follow_path(&mut self, unit: ObjectId, goal: Vec3) -> bool {
+        let Some(request) = self
+            .pending_paths
+            .iter_mut()
+            .find(|request| request.unit_id == unit)
+        else {
+            return false;
+        };
+        request.follow_path_appends.push(goal);
+        true
+    }
+
     pub fn take_pending_paths(&mut self) -> Vec<PendingHostPath> {
         self.pending_paths.drain(..).collect()
     }

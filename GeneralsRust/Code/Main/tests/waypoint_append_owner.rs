@@ -92,6 +92,132 @@ fn first_waypoint_starts_on_the_first_path_segment() {
 }
 
 #[test]
+fn append_while_waiting_survives_the_pending_path_result() {
+    use game_engine::common::{ini::ini_locomotor::LocomotorStore, system::DataChunkOutput};
+    use generals_main::game_logic::GameMode;
+    use generals_main::save_load::{Snapshot, WorldSnapshot, XferLoad, XferSave};
+    use std::io::Cursor;
+
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("QueuedWaypoint.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+
+    let make_world = || {
+        let mut world = GameLogic::new();
+        let mut locomotors = LocomotorStore::new_owned();
+        locomotors.apply_source("Locomotor WaypointWalk\n Surfaces = GROUND\n Speed = 30\n Acceleration = 60\n TurnRate = 360\n Appearance = TWO_LEGS\nEnd\n").unwrap();
+        world.admit_locomotor_definitions(locomotors).unwrap();
+        world.admit_object_ini_sources([("WaypointWalk.ini".into(), "Object WaypointWalker\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL WaypointWalk\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into())]).unwrap();
+        world.start_new_game(GameMode::SinglePlayer);
+        assert!(world.load_map(map.to_str().unwrap()));
+        world.add_player(Player::new(1, Team::USA, "Owner", true));
+        world
+    };
+    let mut world = make_world();
+    let mut restored = make_world();
+    let id = world
+        .create_object_for_player("WaypointWalker", 1, Vec3::new(100.0, 0.0, 100.0))
+        .unwrap();
+    let intermediate = Vec3::new(100.0, 0.0, 125.0);
+    let first = Vec3::new(100.0, 0.0, 150.0);
+    let second = Vec3::new(150.0, 0.0, 150.0);
+    let third = Vec3::new(150.0, 0.0, 200.0);
+    assert!(world.assign_unit_path(id, first, &[intermediate]));
+    assert!(world.host_object(id).unwrap().waiting_for_path);
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let mut v12 = builder.create_world_snapshot(&world).unwrap();
+    let tag = v12
+        .lifecycle_tail
+        .windows(4)
+        .position(|v| v == b"TMAI")
+        .unwrap();
+    let version = tag + 4;
+    let length = tag + 8;
+    assert_eq!(
+        u32::from_le_bytes(v12.lifecycle_tail[version..version + 4].try_into().unwrap()),
+        13
+    );
+    let size =
+        u32::from_le_bytes(v12.lifecycle_tail[length..length + 4].try_into().unwrap()) as usize;
+    let end = tag + 12 + size;
+    assert_eq!(&v12.lifecycle_tail[end - 8..end], &[0; 8]);
+    v12.lifecycle_tail.drain(end - 8..end);
+    v12.lifecycle_tail[version..version + 4].copy_from_slice(&12_u32.to_le_bytes());
+    v12.lifecycle_tail[length..length + 4].copy_from_slice(&((size - 8) as u32).to_le_bytes());
+    let mut legacy = make_world();
+    builder.restore_from_snapshot(&v12, &mut legacy).unwrap();
+    assert_eq!(legacy.snapshot_pending_host_paths().len(), 1);
+    assert!(world.append_unit_waypoint(id, second));
+    assert!(world.append_unit_waypoint(id, third));
+    let mut snapshot = builder.create_world_snapshot(&world).unwrap();
+    let mut bytes = Cursor::new(Vec::new());
+    snapshot.xfer(&mut XferSave::new(&mut bytes)).unwrap();
+    let mut snapshot = WorldSnapshot::default();
+    snapshot
+        .xfer(&mut XferLoad::new(Cursor::new(bytes.into_inner())))
+        .unwrap();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    world.update_with_dt(1.0 / 30.0);
+    restored.update_with_dt(1.0 / 30.0);
+    let unit = world.host_object(id).unwrap();
+    let peer = restored.host_object(id).unwrap();
+    assert_eq!(
+        unit.movement.path, peer.movement.path,
+        "pending append survives restore"
+    );
+    assert!(!unit.waiting_for_path, "the queued search must run");
+    assert_eq!(unit.movement.path.last().copied(), Some(third));
+    assert!(
+        unit.movement
+            .path
+            .iter()
+            .any(|point| point.distance(first) < 0.1)
+    );
+    assert!(
+        unit.movement
+            .path
+            .iter()
+            .any(|point| point.distance(second) < 0.1)
+    );
+    let mut reached = [false; 3];
+    for _ in 0..600 {
+        world.update_with_dt(1.0 / 30.0);
+        restored.update_with_dt(1.0 / 30.0);
+        let unit = world.host_object(id).unwrap();
+        let peer = restored.host_object(id).unwrap();
+        assert_eq!(unit.get_position(), peer.get_position());
+        for (index, goal) in [first, second, third].into_iter().enumerate() {
+            if unit.get_position().distance(goal) < 15.0 {
+                if index > 0 {
+                    assert!(
+                        reached[index - 1],
+                        "reached goal {index} before its predecessor"
+                    );
+                }
+                reached[index] = true;
+            }
+        }
+        if reached[2] {
+            break;
+        }
+    }
+    assert_eq!(reached, [true; 3]);
+}
+
+#[test]
 fn waypoints_are_traversed_in_order_by_the_owning_world() {
     use game_engine::common::ini::ini_locomotor::LocomotorStore;
     use game_engine::common::system::DataChunkOutput;

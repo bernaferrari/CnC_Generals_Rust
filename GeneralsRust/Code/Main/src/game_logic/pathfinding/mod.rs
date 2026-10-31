@@ -34,6 +34,9 @@ pub struct PendingHostPath {
     pub start: Vec3,
     pub destination: Vec3,
     pub waypoints: Vec<Vec3>,
+    /// FollowPath orders admitted while this first search is still pending.
+    /// They are handed to the actor after the search finishes, in order.
+    pub follow_path_appends: Vec<Vec3>,
     pub aircraft: bool,
     pub surfaces: u32,
     /// C++ `obj->getCrusherLevel() > 0` (AIPathfind.cpp:8170).

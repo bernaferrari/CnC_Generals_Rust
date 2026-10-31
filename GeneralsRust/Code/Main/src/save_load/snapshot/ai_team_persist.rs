@@ -23,7 +23,7 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 const TMAI_MAGIC: &[u8; 4] = b"TMAI";
-const TMAI_VERSION: u32 = 12;
+const TMAI_VERSION: u32 = 13;
 
 fn default_fast_as_possible_order() -> f32 {
     999_999.0
@@ -188,6 +188,18 @@ struct WaypointIdentityPersist {
 struct AiTeamPersistPayloadV12 {
     previous: AiTeamPersistPayloadV11,
     waypoints: Vec<WaypointIdentityPersist>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct PendingFollowPathAppends {
+    receiver: u32,
+    goals: Vec<[f32; 3]>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct AiTeamPersistPayloadV13 {
+    previous: AiTeamPersistPayloadV12,
+    pending_appends: Vec<PendingFollowPathAppends>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -885,6 +897,23 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
         previous: payload,
         waypoints,
     };
+    let pending_appends = game_logic
+        .snapshot_pending_host_paths()
+        .into_iter()
+        .filter(|request| !request.follow_path_appends.is_empty())
+        .map(|request| PendingFollowPathAppends {
+            receiver: request.unit_id.0,
+            goals: request
+                .follow_path_appends
+                .iter()
+                .map(vec3_to_arr)
+                .collect(),
+        })
+        .collect();
+    let payload = AiTeamPersistPayloadV13 {
+        previous: payload,
+        pending_appends,
+    };
     let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
@@ -924,6 +953,7 @@ pub(super) struct PreparedAiTeam {
     payload: AiTeamPersistPayload,
     movement_runtime: Vec<MovementRuntimePersist>,
     waypoint_identities: Vec<WaypointIdentityPersist>,
+    pending_appends: Vec<PendingFollowPathAppends>,
 }
 pub(super) fn prepare_from_lifecycle_tail(
     bytes: &[u8],
@@ -946,6 +976,7 @@ pub(super) fn prepare_from_lifecycle_tail(
         && version != 9
         && version != 10
         && version != 11
+        && version != 12
         && version != TMAI_VERSION
     {
         return Err(SaveLoadError::Corrupted(format!(
@@ -961,10 +992,18 @@ pub(super) fn prepare_from_lifecycle_tail(
     let encoded = &rest[..payload_len];
     let mut movement_runtime = Vec::new();
     let mut waypoint_identities = Vec::new();
-    let payload = if version == TMAI_VERSION || version == 11 {
-        let envelope: AiTeamPersistPayloadV11 = if version == TMAI_VERSION {
-            let current: AiTeamPersistPayloadV12 = bincode_legacy::deserialize(encoded)
-                .map_err(|err| SaveLoadError::Corrupted(format!("TMAI v12 decode: {err}")))?;
+    let mut pending_appends = Vec::new();
+    let payload = if version >= 11 {
+        let envelope: AiTeamPersistPayloadV11 = if version >= 12 {
+            let current: AiTeamPersistPayloadV12 = if version == TMAI_VERSION {
+                let v13: AiTeamPersistPayloadV13 = bincode_legacy::deserialize(encoded)
+                    .map_err(|err| SaveLoadError::Corrupted(format!("TMAI v13 decode: {err}")))?;
+                pending_appends = v13.pending_appends;
+                v13.previous
+            } else {
+                bincode_legacy::deserialize(encoded)
+                    .map_err(|err| SaveLoadError::Corrupted(format!("TMAI v12 decode: {err}")))?
+            };
             // The waypoint row resolves exactly one canonical saved order.
             // Otherwise find(first) could validate slots that apply_payload's
             // later duplicate would overwrite after preflight succeeds.
@@ -1160,10 +1199,30 @@ pub(super) fn prepare_from_lifecycle_tail(
             "Legacy name-keyed Team targets cannot identify a Team instance".into(),
         ));
     }
+    let mut seen_appends = std::collections::HashSet::new();
+    for row in &pending_appends {
+        let order = payload
+            .orders
+            .iter()
+            .find(|order| order.object_id == row.receiver);
+        if row.receiver == 0
+            || !receivers.contains(&ObjectId(row.receiver))
+            || !seen_appends.insert(row.receiver)
+            || row.goals.is_empty()
+            || row.goals.len() > 65536
+            || row.goals.iter().any(|goal| !arr_to_vec3(*goal).is_finite())
+            || order.is_none_or(|order| order.pending_path.is_none())
+        {
+            return Err(SaveLoadError::Corrupted(
+                "invalid pending FollowPath continuation".into(),
+            ));
+        }
+    }
     Ok(Some(PreparedAiTeam {
         payload,
         movement_runtime,
         waypoint_identities,
+        pending_appends,
     }))
 }
 pub(super) fn apply_prepared(
@@ -1175,6 +1234,7 @@ pub(super) fn apply_prepared(
         payload,
         movement_runtime,
         waypoint_identities,
+        pending_appends,
     }) = prepared
     else {
         return;
@@ -1185,7 +1245,7 @@ pub(super) fn apply_prepared(
         object.pending_waypoint_id = None;
         object.completed_waypoint_id = None;
     }
-    apply_payload(game_logic, payload, object_records);
+    apply_payload(game_logic, payload, pending_appends, object_records);
     for row in waypoint_identities {
         let object = game_logic
             .objects
@@ -1309,16 +1369,24 @@ fn capture(game_logic: &GameLogic) -> AiTeamPersistPayload {
 fn apply_payload(
     game_logic: &mut GameLogic,
     payload: AiTeamPersistPayload,
+    pending_appends: Vec<PendingFollowPathAppends>,
     object_records: Option<&std::collections::HashSet<ObjectId>>,
 ) {
     let mut pending = Vec::new();
+    let mut appends: std::collections::HashMap<_, _> = pending_appends
+        .into_iter()
+        .map(|row| (row.receiver, row.goals))
+        .collect();
     for order in payload.orders {
         let id = ObjectId(order.object_id);
-        if let Some(req) = order
+        if let Some(mut req) = order
             .pending_path
             .as_ref()
             .map(|p| restore_pending_path(id, p))
         {
+            if let Some(goals) = appends.remove(&id.0) {
+                req.follow_path_appends = goals.into_iter().map(arr_to_vec3).collect();
+            }
             pending.push(req);
         }
         let Some(object) = game_logic.host_objects_mut().get_mut(&id) else {
@@ -1403,6 +1471,7 @@ fn restore_pending_path(unit_id: ObjectId, persist: &PendingPathPersist) -> Pend
         start: arr_to_vec3(persist.start),
         destination: arr_to_vec3(persist.destination),
         waypoints: persist.waypoints.iter().copied().map(arr_to_vec3).collect(),
+        follow_path_appends: Vec::new(),
         aircraft: persist.aircraft,
         surfaces: persist.surfaces,
         is_crusher: persist.is_crusher,
@@ -1617,6 +1686,7 @@ mod tests {
             is_crusher: false,
             ignore_obstacle: None,
             adjust_destinations: true,
+            follow_path_appends: Vec::new(),
             restore_adjust_on_install: false,
         }]);
 

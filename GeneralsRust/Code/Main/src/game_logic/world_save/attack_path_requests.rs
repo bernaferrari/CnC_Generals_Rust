@@ -339,6 +339,7 @@ impl GameLogic {
             start: unit.get_position(),
             destination: dest,
             waypoints: Vec::new(),
+            follow_path_appends: Vec::new(),
             aircraft,
             surfaces,
             is_crusher: unit.crusher_level > 0,

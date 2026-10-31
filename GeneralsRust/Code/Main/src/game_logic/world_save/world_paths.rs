@@ -363,6 +363,7 @@ impl GameLogic {
                     start,
                     destination,
                     waypoints: waypoints.to_vec(),
+                    follow_path_appends: Vec::new(),
                     aircraft: quick_aircraft,
                     surfaces,
                     is_crusher,
@@ -1214,11 +1215,7 @@ impl GameLogic {
                 any = true;
             }
         }
-        if any {
-            Ok(())
-        } else {
-            Err(destination)
-        }
+        if any { Ok(()) } else { Err(destination) }
     }
 
     /// C++ AIGroup::friend_moveFormationToPos over the path created by
@@ -1278,11 +1275,7 @@ impl GameLogic {
             self.host_script_issue_group_follow_path(id, &path);
             any = true;
         }
-        if any {
-            Ok(())
-        } else {
-            Err(end_point)
-        }
+        if any { Ok(()) } else { Err(end_point) }
     }
 
     /// Per-member marching lanes for a shared-spine group march.
@@ -1613,10 +1606,15 @@ impl GameLogic {
         );
         self.pathfinding_system.begin_pathfind_queue_frame();
         while self.pathfinding_system.pathfind_budget_remaining() {
-            let Some(req) = self.pathfinding_system.pop_pending_path() else {
+            let Some(mut req) = self.pathfinding_system.pop_pending_path() else {
                 break;
             };
+            let unit = req.unit_id;
+            let appends = std::mem::take(&mut req.follow_path_appends);
             let _resolved = self.resolve_initialized_path_request(req)?;
+            for goal in appends {
+                self.append_unit_waypoint_impl(unit, goal, true);
+            }
         }
         Ok(())
     }
@@ -2443,18 +2441,56 @@ impl GameLogic {
     }
 
     pub fn append_unit_waypoint(&mut self, unit_id: ObjectId, waypoint: Vec3) -> bool {
-        let (unit_pos, mut current_path, current_target, can_move) =
+        self.append_unit_waypoint_impl(unit_id, waypoint, false)
+    }
+
+    fn append_unit_waypoint_impl(
+        &mut self,
+        unit_id: ObjectId,
+        waypoint: Vec3,
+        handoff: bool,
+    ) -> bool {
+        if !waypoint.is_finite() {
+            return false;
+        }
+        let (unit_pos, mut current_path, current_target, can_move, waiting_for_path) =
             match self.objects.lookup(&unit_id) {
                 Some(unit) => (
                     unit.get_position(),
                     unit.movement.path.clone(),
                     unit.movement.target_position,
                     unit.can_move(),
+                    unit.waiting_for_path,
                 ),
                 None => return false,
             };
         if !can_move {
             return false;
+        }
+
+        if waiting_for_path
+            && self
+                .pathfinding_system
+                .append_to_pending_follow_path(unit_id, waypoint)
+        {
+            let unit = self.objects.get_mut(&unit_id).expect("checked above");
+            Self::prepare_appended_waypoint(
+                unit,
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+            );
+            if !matches!(unit.ai_state(), AIState::Moving | AIState::Panic) {
+                unit.set_ai_state(
+                    AIState::Moving,
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                );
+            }
+            unit.set_status_moving(true);
+            self.movement_events.record(
+                self.frame,
+                unit_id,
+                Some([waypoint.x, waypoint.y, waypoint.z]),
+            );
+            return true;
         }
 
         let had_no_path = current_path.is_empty();
@@ -2529,27 +2565,12 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&unit_id) else {
             return false;
         };
-        // C++ privateFollowPathAppend → privateFollowPath:
-        // getStateMachine()->clear() exits Attack/Guard so a queued waypoint
-        // abandons the latched target. Without this, Moving + leftover target
-        // keeps firing / resumes the attack.
-        unit.set_guard_position(
-            None,
-            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-        );
-        unit.set_guard_target(
-            None,
-            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-        );
-        unit.end_guard_retaliate(&mut crate::game_logic::ObjectAudio::queue(
-            &mut self.queued_audio_events,
-        ));
-        unit.set_hunting(false);
-        unit.stop_attack(&mut crate::game_logic::ObjectAudio::queue(
-            &mut self.queued_audio_events,
-        ));
-        unit.is_attack_path = false;
-        unit.is_exact_path = false;
+        if !handoff {
+            Self::prepare_appended_waypoint(
+                unit,
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+            );
+        }
         unit.movement.path = appended;
         if had_no_path {
             unit.movement.current_path_index = usize::from(unit.movement.path.len() > 1);
@@ -2566,11 +2587,13 @@ impl GameLogic {
                 .copied()
                 .or(Some(waypoint));
         }
-        self.movement_events.record(
-            self.frame,
-            unit_id,
-            Some([waypoint.x, waypoint.y, waypoint.z]),
-        );
+        if !handoff {
+            self.movement_events.record(
+                self.frame,
+                unit_id,
+                Some([waypoint.x, waypoint.y, waypoint.z]),
+            );
+        }
         let entered_move = !matches!(unit.ai_state(), AIState::Moving | AIState::Panic);
         if entered_move {
             unit.set_ai_state(
@@ -2585,6 +2608,20 @@ impl GameLogic {
             self.register_ground_path_goal(unit_id, last);
         }
         true
+    }
+
+    fn prepare_appended_waypoint(
+        unit: &mut Object,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+    ) {
+        // privateFollowPath clears the old Attack/Guard state before entering FollowPath.
+        unit.set_guard_position(None, audio);
+        unit.set_guard_target(None, audio);
+        unit.end_guard_retaliate(audio);
+        unit.set_hunting(false);
+        unit.stop_attack(audio);
+        unit.is_attack_path = false;
+        unit.is_exact_path = false;
     }
 
     #[cfg(test)]

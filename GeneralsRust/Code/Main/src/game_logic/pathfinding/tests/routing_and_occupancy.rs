@@ -700,6 +700,7 @@ fn queue_overflow_refuses_newest() {
         is_crusher: false,
         ignore_obstacle: None,
         adjust_destinations: true,
+        follow_path_appends: Vec::new(),
         restore_adjust_on_install: false,
     };
     for i in 1..=PATHFIND_QUEUE_LEN as u32 {
