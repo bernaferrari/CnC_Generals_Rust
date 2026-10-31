@@ -15,6 +15,12 @@ impl SnapshotBuilder {
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
         snapshot.audio_policy.validate()?;
+        for object in snapshot.objects.values() {
+            super::super::receiving_template::validate_turret_source(
+                candidate,
+                &object.template_name,
+            )?;
+        }
         // WSFL framing and contents are validated before any receiving-world
         // mutation, just like the other detached lifecycle candidates.
         super::super::weapon_set_persist::validate_lifecycle_tail(&snapshot.lifecycle_tail)?;
@@ -355,6 +361,12 @@ impl SnapshotBuilder {
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
         snapshot.audio_policy.validate()?;
+        for object in snapshot.objects.values() {
+            super::super::receiving_template::validate_turret_source(
+                game_logic,
+                &object.template_name,
+            )?;
+        }
         // Native input owns squads; validate its detached wire before world mutation.
         let hotkey_groups =
             super::super::hotkey_squad_persist::read_control_groups(&snapshot.lifecycle_tail)?;

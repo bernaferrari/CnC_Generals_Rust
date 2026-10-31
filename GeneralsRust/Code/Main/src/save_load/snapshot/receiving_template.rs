@@ -3,6 +3,21 @@ use crate::game_logic::{GameLogic, ThingTemplate};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use std::borrow::Cow;
 
+/// Validate construction-critical turret data without publishing an object.
+pub(super) fn validate_turret_source(world: &GameLogic, name: &str) -> SaveLoadResult<()> {
+    let Some(content) = &world.receiving_module_content else {
+        return Ok(());
+    };
+    let plan = content.admitted_template(name).ok_or_else(|| {
+        SaveLoadError::Corrupted(format!(
+            "Saved Object '{name}' is absent from receiving content"
+        ))
+    })?;
+    crate::game_logic::thing::ReceivingClientTemplate::new(plan)
+        .validate_turret_slots()
+        .map_err(|error| SaveLoadError::Corrupted(format!("Saved Object '{name}': {error}")))
+}
+
 /// A materialized host-template cache is not the receiving content catalog.
 /// Resolve excluded/lazy Object definitions without admitting a live template,
 /// running a constructor, or discovering a different session's asset manager.

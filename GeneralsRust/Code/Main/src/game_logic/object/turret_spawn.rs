@@ -126,12 +126,7 @@ fn turret_spawn_from_typed_data(
 ) -> TurretSpawnSpec {
     let mut spec = TurretSpawnSpec::absent();
     spec.has_turret = true;
-    // Missing-mask rejection and independent AltTurret runtime remain tracked.
-    spec.controlled_weapon_slots = if data.turret_weapon_slots == 0 {
-        1
-    } else {
-        data.turret_weapon_slots
-    };
+    spec.controlled_weapon_slots = data.turret_weapon_slots;
     spec.enabled = !data.initially_disabled;
     spec.angle_deg = data.natural_turret_angle.to_degrees();
     spec.pitch_deg = data.natural_turret_pitch.to_degrees();

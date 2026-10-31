@@ -2296,6 +2296,13 @@ impl GameLogic {
             })?;
 
         if let Some(mut template) = self.templates.get(template_name).cloned() {
+            if let Some(source) = &template.receiving_client_template {
+                source.validate_turret_slots().map_err(|error| {
+                    gamelogic::GameLogicError::Configuration(format!(
+                        "Object '{template_name}' turret definition: {error}"
+                    ))
+                })?;
+            }
             if let Some(error) = &template.native_lifecycle_error {
                 return Err(gamelogic::GameLogicError::Configuration(format!(
                     "Object '{template_name}' native lifecycle: {error}"

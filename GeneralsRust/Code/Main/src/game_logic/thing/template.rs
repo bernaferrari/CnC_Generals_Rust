@@ -152,6 +152,29 @@ impl ReceivingClientTemplate {
         self.0.behavior_modules()
     }
 
+    /// TurretAI.cpp rejects a zero controlled-slot mask while constructing
+    /// each authored turret, including an alternate on a non-selected AI.
+    pub(crate) fn validate_turret_slots(&self) -> Result<(), String> {
+        for entry in self.0.behavior_modules().iter() {
+            let Some(ai) = crate::game_logic::object::receiving_ai_base_data(entry.data.as_ref())
+            else {
+                continue;
+            };
+            for (name, turret) in [
+                ("Turret", ai.turret_primary()),
+                ("AltTurret", ai.turret_secondary()),
+            ] {
+                if turret.is_some_and(|data| data.turret_weapon_slots == 0) {
+                    return Err(format!(
+                        "{} {name} has no controlled weapon slots",
+                        entry.name.as_str()
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn particle_manual_drive_settings(
         &self,
     ) -> Result<Option<crate::game_logic::special_power_strikes::ParticleManualDriveSettings>, ()>

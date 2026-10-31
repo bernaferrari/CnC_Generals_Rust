@@ -172,7 +172,7 @@ fn catalog_world() -> GameLogic {
     // This bounded fixture admits that initial state explicitly; it does not
     // claim to exercise the original BattlePlanUpdate creation callback.
     let objects = format!(
-        "Object {CENTER}\n KindOf = STRUCTURE FS_STRATEGY_CENTER SELECTABLE IMMOBILE\n Body = ActiveBody Body\n  MaxHealth = 1500\n  InitialHealth = 1500\n End\n Behavior = AIUpdateInterface Brain\n  Turret\n   TurretTurnRate = 60\n   TurretPitchRate = 60\n   NaturalTurretAngle = -90\n   NaturalTurretPitch = 45\n   InitiallyDisabled = Yes\n  End\n End\nEnd\n\
+        "Object {CENTER}\n KindOf = STRUCTURE FS_STRATEGY_CENTER SELECTABLE IMMOBILE\n Body = ActiveBody Body\n  MaxHealth = 1500\n  InitialHealth = 1500\n End\n Behavior = AIUpdateInterface Brain\n  Turret\n   TurretTurnRate = 60\n   TurretPitchRate = 60\n   NaturalTurretAngle = -90\n   NaturalTurretPitch = 45\n   ControlledWeaponSlots = PRIMARY\n   InitiallyDisabled = Yes\n  End\n End\nEnd\n\
          Object {GROUND}\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n  MaxHealth = 1000\n  InitialHealth = 1000\n End\nEnd\n\
          Object {ANCHOR}\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n  MaxHealth = 1000\n  InitialHealth = 1000\n End\nEnd\n"
     );

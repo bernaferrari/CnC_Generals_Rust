@@ -9,7 +9,7 @@ const TEMPLATE: &str = "AmericaTankCrusader";
 fn world(turret: Option<(u32, u32, i32, i32)>) -> GameLogic {
     let turret_behavior = turret.map_or_else(String::new, |(turn, pitch, angle, natural_pitch)| {
         format!(
-            " Behavior = AIUpdateInterface TurretBrain\n  Turret\n   TurretTurnRate = {turn}\n   TurretPitchRate = {pitch}\n   NaturalTurretAngle = {angle}\n   NaturalTurretPitch = {natural_pitch}\n  End\n End\n"
+            " Behavior = AIUpdateInterface TurretBrain\n  Turret\n   TurretTurnRate = {turn}\n   TurretPitchRate = {pitch}\n   NaturalTurretAngle = {angle}\n   NaturalTurretPitch = {natural_pitch}\n   ControlledWeaponSlots = PRIMARY\n  End\n End\n"
         )
     });
     let source = format!(
@@ -20,6 +20,89 @@ fn world(turret: Option<(u32, u32, i32, i32)>) -> GameLogic {
         .admit_object_ini_sources([("Object.ini".into(), source)])
         .expect("receiving Object INI accepted");
     world
+}
+
+fn world_with_invalid_turret(alternate: bool, empty: bool, nonselected_ai: bool) -> GameLogic {
+    let slots = if empty {
+        " ControlledWeaponSlots =\n"
+    } else {
+        ""
+    };
+    let turret = if nonselected_ai {
+        "Turret\n ControlledWeaponSlots = PRIMARY\n End".to_owned()
+    } else if alternate {
+        format!(
+            "Turret\n ControlledWeaponSlots = PRIMARY\n End\n AltTurret\n TurretTurnRate = 30\n{slots} End"
+        )
+    } else {
+        format!("Turret\n TurretTurnRate = 30\n{slots} End")
+    };
+    let extra_ai = if nonselected_ai {
+        "Behavior = AIUpdateInterface SecondBrain\n Turret\n TurretTurnRate = 30\n End\n End\n"
+    } else {
+        ""
+    };
+    let source = format!(
+        "Object {TEMPLATE}\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n  MaxHealth = 100\n  InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n {turret}\n End\n {extra_ai}End\n\
+         Object InvalidTurretWitness\n KindOf = VEHICLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"
+    );
+    let mut world = GameLogic::new();
+    world
+        .admit_object_ini_sources([("InvalidTurret.ini".into(), source)])
+        .unwrap();
+    world
+}
+
+#[test]
+fn invalid_primary_or_alternate_turret_cannot_create_or_load_an_object() {
+    let mut valid = world_with_slots("PRIMARY", false);
+    let id = valid
+        .create_object(TEMPLATE, Team::USA, Vec3::ZERO)
+        .unwrap();
+    let snapshot = SnapshotBuilder::new()
+        .create_world_snapshot(&valid)
+        .unwrap();
+    for (alternate, empty, nonselected_ai) in [
+        (false, false, false),
+        (true, false, false),
+        (false, true, false),
+        (false, false, true),
+    ] {
+        let mut invalid = world_with_invalid_turret(alternate, empty, nonselected_ai);
+        let witness = invalid
+            .create_object(
+                "InvalidTurretWitness",
+                Team::USA,
+                Vec3::new(10.0, 0.0, 20.0),
+            )
+            .unwrap();
+        assert_eq!(witness, id);
+        let frame = invalid.get_frame();
+        assert!(
+            invalid
+                .create_object(TEMPLATE, Team::USA, Vec3::ZERO)
+                .is_none()
+        );
+        assert_eq!(invalid.host_objects().registered_len(), 1);
+        let error = SnapshotBuilder::new()
+            .restore_from_snapshot(&snapshot, &mut invalid)
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("no controlled weapon slots"),
+            "{error}"
+        );
+        assert_eq!(invalid.get_frame(), frame);
+        assert_eq!(invalid.host_objects().registered_len(), 1);
+        assert_eq!(
+            invalid.host_object(witness).unwrap().get_position(),
+            Vec3::new(10.0, 0.0, 20.0)
+        );
+        let next = invalid
+            .create_object("InvalidTurretWitness", Team::USA, Vec3::ZERO)
+            .unwrap();
+        assert_eq!(next.0, witness.0 + 1, "rejection must not allocate an ID");
+        assert!(valid.host_object(id).unwrap().is_weapon_slot_on_turret(0));
+    }
 }
 
 fn world_with_slots(slots: &str, disabled: bool) -> GameLogic {
