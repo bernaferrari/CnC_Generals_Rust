@@ -1265,7 +1265,7 @@ pub(super) fn prepare_from_lifecycle_tail(
             .map(|row| row.object_id)
             .collect();
         let actual: std::collections::HashSet<_> = order.iter().copied().collect();
-        if order.len() > gamelogic::ai::pathfind_complete::PATHFIND_QUEUE_LEN
+        if order.len() > crate::game_logic::pathfinding::MAX_PENDING_PATH_REQUESTS
             || actual.len() != order.len()
             || actual != expected
         {

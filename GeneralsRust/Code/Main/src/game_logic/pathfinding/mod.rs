@@ -13,6 +13,9 @@ use gamelogic::ai::pathfind_complete::{
     SURFACE_GROUND, SURFACE_RUBBLE, SURFACE_WATER,
 };
 
+/// C++ reserves one ring slot to distinguish an empty queue from a full one.
+pub(crate) const MAX_PENDING_PATH_REQUESTS: usize = PATHFIND_QUEUE_LEN - 1;
+
 /// Host wrapper so `PathfindingSystem` can stay `Debug` while holding crate A*.
 struct HostCrateAStar {
     finder: AStarPathfinder,

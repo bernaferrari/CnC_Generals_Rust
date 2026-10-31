@@ -703,21 +703,21 @@ fn queue_overflow_refuses_newest() {
         follow_path_appends: Vec::new(),
         restore_adjust_on_install: false,
     };
-    for i in 1..=PATHFIND_QUEUE_LEN as u32 {
+    for i in 1..=MAX_PENDING_PATH_REQUESTS as u32 {
         assert!(sys.queue_path(mk(i)), "slot {i} must enqueue");
     }
-    assert_eq!(sys.pending_path_count(), PATHFIND_QUEUE_LEN);
+    assert_eq!(sys.pending_path_count(), MAX_PENDING_PATH_REQUESTS);
     assert!(
         !sys.queue_path(mk(9000)),
         "C++ queueForPath refuses when nextSlot==head"
     );
-    assert_eq!(sys.pending_path_count(), PATHFIND_QUEUE_LEN);
+    assert_eq!(sys.pending_path_count(), MAX_PENDING_PATH_REQUESTS);
     assert!(
         sys.queue_path(mk(1)),
         "duplicate ObjectID is a no-op success"
     );
     let drained = sys.take_pending_paths();
-    assert_eq!(drained.len(), PATHFIND_QUEUE_LEN);
+    assert_eq!(drained.len(), MAX_PENDING_PATH_REQUESTS);
     assert_eq!(drained[0].unit_id, ObjectId(1), "oldest waiter stays");
     assert!(
         drained.iter().all(|p| p.unit_id != ObjectId(9000)),

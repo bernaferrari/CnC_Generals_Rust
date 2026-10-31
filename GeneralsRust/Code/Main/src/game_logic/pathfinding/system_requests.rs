@@ -944,7 +944,7 @@ impl PathfindingSystem {
             *existing = req;
             return true;
         }
-        if self.pending_paths.len() >= PATHFIND_QUEUE_LEN {
+        if self.pending_paths.len() >= MAX_PENDING_PATH_REQUESTS {
             return false;
         }
         self.pending_paths.push_back(req);
