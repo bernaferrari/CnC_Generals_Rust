@@ -1136,13 +1136,16 @@ impl GameLogic {
                             effects,
                         );
                     }
-                    let space_after_kick = self.objects.get(&container_id).is_some_and(|c| {
-                        c.has_capacity_for(1) || c.contained_units().contains(&object_id)
-                    });
-                    let can_enter = container_has_unit
-                        || (container_has_space && tunnel_has_space)
-                        || already_in_tunnel_network
-                        || space_after_kick;
+                    let can_enter = if container_is_tunnel_network || container_is_cave {
+                        // The tracker owns admission; a stale or empty local
+                        // mirror cannot make a full shared pool accept a rider.
+                        tunnel_has_space
+                    } else {
+                        let space_after_kick = self.objects.get(&container_id).is_some_and(|c| {
+                            c.has_capacity_for(1) || c.contained_units().contains(&object_id)
+                        });
+                        container_has_unit || container_has_space || space_after_kick
+                    };
                     if !can_enter {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(

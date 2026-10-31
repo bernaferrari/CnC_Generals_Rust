@@ -1379,9 +1379,25 @@ impl GameLogic {
     /// Wave 245: container has space for one more without exposing `&Object`.
     #[inline]
     pub fn unit_has_capacity_for(&self, id: ObjectId, count: usize) -> bool {
-        self.objects
-            .get(&id)
-            .is_some_and(|o| o.has_capacity_for(count))
+        self.objects.get(&id).is_some_and(|object| {
+            if object.is_cave_style_container() {
+                return usize::try_from(self.cave_system.capacity()).is_ok_and(|capacity| {
+                    self.cave_system
+                        .contain_count(object.cave_index)
+                        .checked_add(count)
+                        .is_some_and(|total| total <= capacity)
+                });
+            }
+            if object.is_tunnel_network_style_container() {
+                return usize::try_from(self.tunnel_network.capacity()).is_ok_and(|capacity| {
+                    self.tunnel_network
+                        .contain_count(object.tunnel_system_key())
+                        .checked_add(count)
+                        .is_some_and(|total| total <= capacity)
+                });
+            }
+            object.has_capacity_for(count)
+        })
     }
 
     /// Wave 245: container contains unit without exposing `&Object`.

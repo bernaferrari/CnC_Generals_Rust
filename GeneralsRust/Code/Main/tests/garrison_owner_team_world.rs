@@ -2345,6 +2345,14 @@ fn authored_tunnel_capacity_is_session_owned_and_retained_by_restore() {
         two.normal_enter_available_capacity_for(other_cave_rider, other_cave),
         Some(1)
     );
+    // Session-level generic capacity queries must also use the shared pools,
+    // including requests for more than one remaining slot.
+    assert!(!one.unit_has_capacity_for(tunnel, 1));
+    assert!(!one.unit_has_capacity_for(cave, 1));
+    assert!(two.unit_has_capacity_for(other_tunnel, 1));
+    assert!(two.unit_has_capacity_for(other_cave, 1));
+    assert!(!two.unit_has_capacity_for(other_tunnel, 2));
+    assert!(!two.unit_has_capacity_for(other_cave, 2));
     // Restore mutable tracker state from a snapshot into a world with its own rules.
     let source_caves = bincode_legacy::deserialize(
         &bincode_legacy::serialize(one.cave_system_residual()).unwrap(),
@@ -2386,6 +2394,10 @@ fn authored_tunnel_capacity_is_session_owned_and_retained_by_restore() {
             assert_eq!(larger.host_object(id).unwrap().contained_by, Some(entrance));
         }
     }
+    assert!(larger.unit_has_capacity_for(large_tunnel, 1));
+    assert!(larger.unit_has_capacity_for(large_cave, 1));
+    assert!(!larger.unit_has_capacity_for(large_tunnel, 2));
+    assert!(!larger.unit_has_capacity_for(large_cave, 2));
     assert_eq!(
         larger.normal_enter_available_capacity_for(large_rider, large_tunnel),
         Some(1)
@@ -2513,5 +2525,94 @@ fn tunnel_capacity_uses_receiving_rules_after_world_snapshot_restore() {
     assert_eq!(
         source.normal_enter_available_capacity_for(rider, tunnel),
         Some(0)
+    );
+}
+
+#[test]
+fn full_shared_tunnel_rejects_docking_before_touching_local_roster() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, _, rider) = world_with_tunnel_capacity(&map, false, Some(1));
+    let tunnel = game
+        .create_object_for_player("OwnedTunnel", 2, Vec3::new(50., 0., 50.))
+        .unwrap();
+    game.host_object_mut(tunnel)
+        .unwrap()
+        .install_tunnel_network_residual();
+    let key = game.host_object(tunnel).unwrap().tunnel_system_key();
+    assert!(
+        game.tunnel_network_residual_mut()
+            .record_enter(key, ObjectId(99_999), tunnel)
+    );
+    // Simulate a stale entrance-local mirror. The authoritative tracker does
+    // not contain this rider and has no room; a rejected arrival must not
+    // start a local add/remove transaction or its callbacks.
+    game.host_object_mut(tunnel)
+        .unwrap()
+        .building_data
+        .as_mut()
+        .unwrap()
+        .garrisoned_units
+        .push(rider);
+    assert!(
+        game.unit_command_set_ai_state(rider, AIState::Docking)
+            .unwrap()
+    );
+    game.host_object_mut(rider).unwrap().target = Some(tunnel);
+    game.update_with_dt(1.0 / 30.0);
+    assert_eq!(game.host_object(rider).unwrap().contained_by, None);
+    assert!(
+        game.host_object(tunnel)
+            .unwrap()
+            .contained_units()
+            .contains(&rider)
+    );
+    assert_eq!(
+        game.tunnel_network_residual().contained_for_player(key),
+        vec![ObjectId(99_999)]
+    );
+}
+
+#[test]
+fn full_shared_cave_rejects_docking_before_touching_local_roster() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, _, rider) = world_with_tunnel_capacity(&map, false, Some(1));
+    let cave = game
+        .create_object_for_player("OwnedCave", 2, Vec3::new(50., 0., 50.))
+        .unwrap();
+    game.host_object_mut(cave)
+        .unwrap()
+        .install_cave_contain_residual(7);
+    game.cave_system_residual_mut()
+        .register_cave(cave, 7, Team::USA);
+    assert!(
+        game.cave_system_residual_mut()
+            .record_enter(7, ObjectId(99_999), cave, Team::USA)
+            .0
+    );
+    game.host_object_mut(cave)
+        .unwrap()
+        .building_data
+        .as_mut()
+        .unwrap()
+        .garrisoned_units
+        .push(rider);
+    assert!(
+        game.unit_command_set_ai_state(rider, AIState::Docking)
+            .unwrap()
+    );
+    game.host_object_mut(rider).unwrap().target = Some(cave);
+    game.update_with_dt(1.0 / 30.0);
+    assert_eq!(game.host_object(rider).unwrap().contained_by, None);
+    assert!(
+        game.host_object(cave)
+            .unwrap()
+            .contained_units()
+            .contains(&rider)
+    );
+    assert_eq!(
+        game.cave_system_residual().contained_for_index(7),
+        vec![ObjectId(99_999)]
     );
 }
