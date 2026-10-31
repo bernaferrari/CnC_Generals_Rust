@@ -88,3 +88,98 @@ fn external_object_cannot_bypass_invalid_receiving_template_by_name() {
     );
     assert_eq!(world.host_objects().registered_len(), 0);
 }
+
+#[test]
+fn foreign_same_name_template_cannot_enter_another_session() {
+    fn world(slots: &str) -> GameLogic {
+        let source = format!(
+            "Object SameUnit\n KindOf = VEHICLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n Turret\n TurretTurnRate = 30\n ControlledWeaponSlots = {slots}\n End\n End\nEnd\n"
+        );
+        let mut world = GameLogic::new();
+        world
+            .admit_object_ini_sources([("SameUnit.ini".into(), source)])
+            .unwrap();
+        world
+    }
+    let source = world("PRIMARY");
+    let mut receiver = world("SECONDARY");
+    let id = ObjectId(800);
+    let foreign = Object::try_new(source.templates["SameUnit"].clone(), id, Team::USA).unwrap();
+    assert!(foreign.is_weapon_slot_on_turret(0));
+    assert!(receiver.try_add_object(foreign).is_err());
+    assert_eq!(source.host_objects().registered_len(), 0);
+    assert_eq!(receiver.host_objects().registered_len(), 0);
+    let owned = Object::try_new(receiver.templates["SameUnit"].clone(), id, Team::USA).unwrap();
+    assert_eq!(receiver.try_add_object(owned).unwrap(), id);
+    assert!(
+        receiver
+            .host_object(id)
+            .unwrap()
+            .is_weapon_slot_on_turret(1)
+    );
+}
+
+#[test]
+fn detached_object_cannot_impersonate_authored_receiving_template() {
+    let mut receiver = GameLogic::new();
+    let source = "Object OwnedUnit\n KindOf = VEHICLE\n Behavior = AIUpdateInterface Brain\n Turret\n ControlledWeaponSlots = PRIMARY\n End\n End\nEnd\n";
+    receiver
+        .admit_object_ini_sources([("OwnedUnit.ini".into(), source.into())])
+        .unwrap();
+    let object =
+        Object::try_new(ThingTemplate::new("OwnedUnit"), ObjectId(801), Team::USA).unwrap();
+    assert!(receiver.try_add_object(object).is_err());
+    assert_eq!(receiver.host_objects().registered_len(), 0);
+}
+
+#[test]
+fn deserialized_template_cannot_impersonate_authored_receiver() {
+    let mut receiver = GameLogic::new();
+    let source = "Object EncodedUnit\n KindOf = VEHICLE\n Behavior = AIUpdateInterface Brain\n Turret\n ControlledWeaponSlots = SECONDARY\n End\n End\nEnd\n";
+    receiver
+        .admit_object_ini_sources([("EncodedUnit.ini".into(), source.into())])
+        .unwrap();
+    let json = serde_json::to_string(&receiver.templates["EncodedUnit"]).unwrap();
+    let detached: ThingTemplate = serde_json::from_str(&json).unwrap();
+    let object = Object::try_new(detached, ObjectId(802), Team::USA).unwrap();
+    assert!(receiver.try_add_object(object).is_err());
+    assert_eq!(receiver.host_objects().registered_len(), 0);
+}
+
+#[test]
+fn deserialized_object_requires_receiving_reconstruction() {
+    let mut receiver = GameLogic::new();
+    let source = "Object EncodedObject\n KindOf = VEHICLE\n Behavior = AIUpdateInterface Brain\n Turret\n ControlledWeaponSlots = PRIMARY\n End\n End\nEnd\n";
+    receiver
+        .admit_object_ini_sources([("EncodedObject.ini".into(), source.into())])
+        .unwrap();
+    let object = Object::try_new(
+        receiver.templates["EncodedObject"].clone(),
+        ObjectId(804),
+        Team::USA,
+    )
+    .unwrap();
+    let json = serde_json::to_string(&object).unwrap();
+    let detached: Object = serde_json::from_str(&json).unwrap();
+    assert!(receiver.try_add_object(detached).is_err());
+    assert_eq!(receiver.host_objects().registered_len(), 0);
+}
+
+#[test]
+fn changing_public_template_name_does_not_hide_foreign_authored_owner() {
+    let source_text = "Object ForeignUnit\n KindOf = VEHICLE\n Behavior = AIUpdateInterface Brain\n Turret\n ControlledWeaponSlots = PRIMARY\n End\n End\nEnd\n";
+    let mut source = GameLogic::new();
+    source
+        .admit_object_ini_sources([("ForeignUnit.ini".into(), source_text.into())])
+        .unwrap();
+    let mut object = Object::try_new(
+        source.templates["ForeignUnit"].clone(),
+        ObjectId(803),
+        Team::USA,
+    )
+    .unwrap();
+    object.template_name = "UnrelatedProgrammaticName".into();
+    let mut receiver = GameLogic::new();
+    assert!(receiver.try_add_object(object).is_err());
+    assert_eq!(receiver.host_objects().registered_len(), 0);
+}

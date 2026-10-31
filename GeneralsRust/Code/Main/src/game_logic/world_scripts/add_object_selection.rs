@@ -17,6 +17,31 @@ fn validate_object_turrets(object: &Object) -> gamelogic::GameLogicResult<()> {
 }
 
 impl GameLogic {
+    /// An externally supplied authored Object must carry this session's
+    /// admitted definition. Detached and foreign definitions require a real
+    /// reconstruction through the receiving session, not a name-only rebind.
+    fn validate_external_object_template(&self, object: &Object) -> gamelogic::GameLogicResult<()> {
+        let template = &object.thing().template;
+        let carried = template.receiving_client_template.as_ref();
+        let receiver = self
+            .templates
+            .get(&template.name)
+            .and_then(|template| template.receiving_client_template.as_ref());
+        let named_receiver = self
+            .templates
+            .get(&object.template_name)
+            .and_then(|template| template.receiving_client_template.as_ref());
+        if carried.is_some() || receiver.is_some() || named_receiver.is_some() {
+            if object.template_name != template.name || carried.is_none() || carried != receiver {
+                return Err(gamelogic::GameLogicError::Configuration(format!(
+                    "Object '{}' does not carry the receiving session's authored template",
+                    object.template_name
+                )));
+            }
+        }
+        Ok(())
+    }
+
     /// Validate the actual Object and any authored definition owned by this
     /// receiving world before team or object admission can have side effects.
     fn validate_receiving_object_turrets(&self, object: &Object) -> gamelogic::GameLogicResult<()> {
@@ -67,6 +92,7 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<ObjectId> {
+        self.validate_external_object_template(&object)?;
         self.validate_receiving_object_turrets(&object)?;
         if object.team_instance_name.trim().is_empty() && object.owner_player_id.is_some() {
             object.team_instance_name =
