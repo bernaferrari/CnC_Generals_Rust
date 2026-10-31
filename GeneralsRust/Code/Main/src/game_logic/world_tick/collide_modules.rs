@@ -194,7 +194,7 @@ impl super::super::GameLogic {
                 // immediately after adding the rider to its roster.
                 self.stamp_player_who_entered(other_id, self_id);
                 if let Some((index, event)) = cave_capture {
-                    self.apply_cave_capture_event(index, event);
+                    self.apply_cave_capture_event_with_effects(index, event, other_id, effects)?;
                 }
                 let state = self
                     .objects

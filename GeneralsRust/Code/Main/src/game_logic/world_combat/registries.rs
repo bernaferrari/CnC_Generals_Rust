@@ -1134,7 +1134,12 @@ impl GameLogic {
             }
             if is_cave {
                 // Leftover CaveContain::onRemoving: record_exit + LastEmpty team revert.
-                let _ = self.exit_cave_unit(*pid, container_id);
+                if let Err(error) =
+                    self.exit_cave_unit_with_effects(*pid, container_id, presentation_effects)
+                {
+                    log::error!("Cave owner restoration failed: {error}");
+                    return false;
+                }
             }
             if self
                 .host_object(container_id)

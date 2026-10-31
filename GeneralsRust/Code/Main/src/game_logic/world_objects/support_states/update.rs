@@ -1267,7 +1267,7 @@ impl GameLogic {
                             }
                             continue;
                         }
-                        self.apply_cave_capture_event(idx, ev);
+                        self.apply_cave_capture_event_with_effects(idx, ev, container_id, effects)?;
                     }
                     self.stamp_player_who_entered(container_id, object_id);
                     // C++ OpenContain::addToContain doLoadSound — leftover TheAudio.

@@ -482,6 +482,152 @@ fn collision_transport_rechecks_slot_capacity_and_controller() {
 }
 
 #[test]
+fn connected_caves_transfer_and_restore_exact_player_team_across_save() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, _, rider) = world(&map, false);
+    let (mut peer, _, peer_rider) = world(&map, false);
+    let setup = |world: &mut GameLogic| {
+        let a = world
+            .create_object_for_player("OwnedCave", 1, Vec3::new(50., 0., 50.))
+            .unwrap();
+        let b = world
+            .create_object_for_player("OwnedCave", 1, Vec3::new(70., 0., 50.))
+            .unwrap();
+        for cave in [a, b] {
+            world
+                .host_object_mut(cave)
+                .unwrap()
+                .install_cave_contain_residual(7);
+            world
+                .cave_system_residual_mut()
+                .register_cave(cave, 7, Team::USA);
+        }
+        (a, b)
+    };
+    let (a, b) = setup(&mut game);
+    let (peer_a, peer_b) = setup(&mut peer);
+    assert_eq!((a, b, rider), (peer_a, peer_b, peer_rider));
+    let original = game.host_object(a).unwrap().team_instance_identity();
+    let rider_team = game.host_object(rider).unwrap().team_instance_identity();
+    assert_ne!(original, rider_team);
+    assert!(
+        game.unit_command_set_ai_state(rider, AIState::Entering)
+            .unwrap()
+    );
+    game.host_object_mut(rider).unwrap().target = Some(a);
+    game.try_physics_collide(rider, a, 1.0).unwrap();
+    for cave in [a, b] {
+        assert_eq!(
+            game.host_object(cave).unwrap().team_instance_identity(),
+            rider_team
+        );
+        assert_eq!(
+            game.host_object(cave)
+                .unwrap()
+                .building_data
+                .as_ref()
+                .unwrap()
+                .original_team_instance_id,
+            original,
+            "captured cave must retain its original Team"
+        );
+        assert_eq!(game.host_object(cave).unwrap().owner_player_id, Some(2));
+        assert_eq!(
+            peer.host_object(cave).unwrap().team_instance_identity(),
+            original
+        );
+    }
+    let builder = SnapshotBuilder::new();
+    let snapshot = clone_bincode_snapshot(&builder.create_world_snapshot(&game).unwrap());
+    let (mut restored, _, _) = world(&map, false);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert_eq!(
+        CommandExecutor::new(&mut game, 2)
+            .execute_command(GameCommand {
+                command_type: CommandType::Exit,
+                player_id: 2,
+                command_id: 42,
+                timestamp: std::time::UNIX_EPOCH,
+                selected_units: vec![b],
+                modifier_keys: ModifierKeys::default(),
+            })
+            .unwrap(),
+        CommandResult::Success
+    );
+    assert_eq!(game.host_object(rider).unwrap().contained_by, None);
+    assert!(restored.exit_cave_unit(rider, b));
+    for cave in [a, b] {
+        assert_eq!(
+            game.host_object(cave).unwrap().team_instance_identity(),
+            original
+        );
+        assert_eq!(
+            restored.host_object(cave).unwrap().team_instance_identity(),
+            original
+        );
+        assert_eq!(game.host_object(cave).unwrap().owner_player_id, Some(1));
+        assert_eq!(restored.host_object(cave).unwrap().owner_player_id, Some(1));
+    }
+}
+
+#[test]
+fn connected_caves_restore_the_exiting_entrances_original_team() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, _, _) = world(&map, false);
+    let a = game
+        .create_object_for_player("OwnedCave", 1, Vec3::new(50., 0., 50.))
+        .unwrap();
+    let b = game
+        .create_object_for_player("OwnedCave", 2, Vec3::new(70., 0., 50.))
+        .unwrap();
+    for cave in [a, b] {
+        game.host_object_mut(cave)
+            .unwrap()
+            .install_cave_contain_residual(7);
+        game.cave_system_residual_mut()
+            .register_cave(cave, 7, Team::USA);
+    }
+    let rider = game
+        .create_object_for_player("OwnedGarrisonRider", 1, Vec3::new(50., 0., 50.))
+        .unwrap();
+    let rider_team = game.host_object(rider).unwrap().team_instance_identity();
+    let exit_original = game.host_object(b).unwrap().team_instance_identity();
+    assert_ne!(rider_team, exit_original);
+    assert!(
+        game.unit_command_set_ai_state(rider, AIState::Entering)
+            .unwrap()
+    );
+    game.host_object_mut(rider).unwrap().target = Some(a);
+    game.try_physics_collide(rider, a, 1.0).unwrap();
+    assert_eq!(
+        game.host_object(a).unwrap().team_instance_identity(),
+        rider_team
+    );
+    assert_eq!(
+        game.host_object(b).unwrap().team_instance_identity(),
+        rider_team
+    );
+    assert!(game.exit_cave_unit(rider, b));
+    for cave in [a, b] {
+        let object = game.host_object(cave).unwrap();
+        assert_eq!(object.team_instance_identity(), exit_original);
+        assert_eq!(object.owner_player_id, Some(2));
+        assert_eq!(
+            object
+                .building_data
+                .as_ref()
+                .unwrap()
+                .original_team_instance_id,
+            None
+        );
+    }
+}
+
+#[test]
 fn connected_caves_read_the_receiving_worlds_shared_inventory() {
     let root = tempfile::tempdir().unwrap();
     let map = map_file(root.path());

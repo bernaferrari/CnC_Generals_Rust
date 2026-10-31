@@ -62,6 +62,8 @@ fn cave_index_shares_inventory_and_set_cave_index() {
 fn first_occupant_captures_network_ranger_capture_does_not_kick() {
     // C++ CaveContain.cpp:254-336 / CaveContain.h:83 isKickOutOnCapture=false.
     let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::Neutral);
+    ensure_test_player_for_team(&mut logic, Team::USA);
     ensure_infantry(&mut logic);
     let a = create_cave(&mut logic, "CaveCapA", Vec3::ZERO, 4);
     let b = create_cave(&mut logic, "CaveCapB", Vec3::new(40.0, 0.0, 0.0), 4);
@@ -70,7 +72,9 @@ fn first_occupant_captures_network_ranger_capture_does_not_kick() {
         .expect("ranger");
     let (ok, ev) = logic.cave_system.record_enter(4, unit, a, Team::USA);
     assert!(ok);
-    logic.apply_cave_capture_event(4, ev);
+    logic
+        .apply_cave_capture_event_with_effects(4, ev, a, &mut Default::default())
+        .unwrap();
     assert_eq!(logic.host_object(a).unwrap().team, Team::USA);
     assert_eq!(logic.host_object(b).unwrap().team, Team::USA);
     logic.on_capture_kick_passengers(a, Team::USA, Team::China);
@@ -107,6 +111,8 @@ fn occupant_death_leaves_cave_system_pool_and_reverts_team() {
     // C++ Object.cpp:720-728 onDestroy → CaveContain::removeFromContain
     // tracker remove then onRemoving LastEmpty.
     let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::Neutral);
+    ensure_test_player_for_team(&mut logic, Team::USA);
     ensure_infantry(&mut logic);
     let a = create_cave(&mut logic, "CaveOccDieA", Vec3::ZERO, 7);
     let b = create_cave(&mut logic, "CaveOccDieB", Vec3::new(40.0, 0.0, 0.0), 7);
@@ -115,7 +121,9 @@ fn occupant_death_leaves_cave_system_pool_and_reverts_team() {
         .expect("ranger");
     let (ok, ev) = logic.cave_system.record_enter(7, unit, a, Team::USA);
     assert!(ok);
-    logic.apply_cave_capture_event(7, ev);
+    logic
+        .apply_cave_capture_event_with_effects(7, ev, a, &mut Default::default())
+        .unwrap();
     assert_eq!(logic.host_object(a).unwrap().team, Team::USA);
     assert_eq!(logic.host_object(b).unwrap().team, Team::USA);
     if let Some((u, fixture_partition_u)) = logic.host_object_and_partition_mut(unit) {

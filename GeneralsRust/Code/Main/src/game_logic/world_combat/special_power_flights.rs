@@ -2073,31 +2073,78 @@ impl GameLogic {
     }
 
     /// C++ CaveContain.cpp:254-336 changeTeamOnAllConnectedCaves.
-    pub(in super::super) fn apply_cave_capture_event(
+    pub(in crate::game_logic) fn apply_cave_capture_event_with_effects(
         &mut self,
         index: i32,
         event: crate::game_logic::host_cave_system::CaveCaptureEvent,
-    ) {
+        entrance: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_cave_system::CaveCaptureEvent;
         match event {
             CaveCaptureEvent::None => {}
-            CaveCaptureEvent::FirstOccupant(team) => {
+            CaveCaptureEvent::FirstOccupant(_) => {
+                let owner = self
+                    .cave_system
+                    .contained_for_index(index)
+                    .first()
+                    .and_then(|id| self.objects.get(id))
+                    .and_then(|rider| rider.owner_player_id);
+                let Some(owner) = owner else {
+                    return Ok(());
+                };
+                let player = self.players.get(&owner).ok_or_else(|| {
+                    gamelogic::GameLogicError::Configuration(
+                        "Cave rider controller is missing from the receiving world".into(),
+                    )
+                })?;
+                if player.default_team_id.is_none() {
+                    return Ok(());
+                }
+                let destination = self.host_default_team_id(owner).ok_or_else(|| {
+                    gamelogic::GameLogicError::Configuration(
+                        "Cave rider controller has no receiving default Team".into(),
+                    )
+                })?;
                 for cid in self.cave_system.cave_ids_for_index(index) {
                     if let Some(cave) = self.objects.get_mut(&cid) {
-                        cave.team = team;
+                        let Some(building) = cave.building_data.as_mut() else {
+                            continue;
+                        };
+                        building.original_team = cave.team_instance_id.map(|_| cave.team);
+                        building.original_garrison_player_id =
+                            cave.team_instance_id.and(cave.owner_player_id);
+                        building.original_team_instance_id = cave.team_instance_id;
+                        building.original_team_instance_name = cave
+                            .team_instance_id
+                            .map(|_| cave.team_instance_name.clone());
                     }
+                    self.defect_host_object_with_effects(cid, destination, 0, effects)?;
                 }
             }
             CaveCaptureEvent::LastEmpty => {
+                // C++ onRemoving uses the exiting cave's saved Team for all
+                // connected caves, even when they began on different Teams.
+                let original = self
+                    .objects
+                    .get(&entrance)
+                    .and_then(|cave| cave.building_data.as_ref()?.original_team_instance_id);
                 for cid in self.cave_system.cave_ids_for_index(index) {
-                    if let Some(orig) = self.cave_system.original_team_of(cid) {
-                        if let Some(cave) = self.objects.get_mut(&cid) {
-                            cave.team = orig;
+                    if let Some(cave) = self.objects.get_mut(&cid) {
+                        if let Some(building) = cave.building_data.as_mut() {
+                            building.original_team = None;
+                            building.original_garrison_player_id = None;
+                            building.original_team_instance_id = None;
+                            building.original_team_instance_name = None;
                         }
+                    }
+                    if let Some(original) = original {
+                        self.defect_host_object_with_effects(cid, original, 0, effects)?;
                     }
                 }
             }
         }
+        Ok(())
     }
 
     /// C++ ScriptActions.cpp:5063 SET_CAVE_INDEX / CaveContain::tryToSetCaveIndex.
@@ -2127,8 +2174,23 @@ impl GameLogic {
     }
 
     pub fn exit_cave_unit(&mut self, unit_id: ObjectId, exit_cave: ObjectId) -> bool {
+        match self.exit_cave_unit_with_effects(unit_id, exit_cave, &mut Default::default()) {
+            Ok(exited) => exited,
+            Err(error) => {
+                log::error!("Cave owner restoration failed: {error}");
+                false
+            }
+        }
+    }
+
+    pub(crate) fn exit_cave_unit_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        exit_cave: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
         let Some(index) = self.cave_system.index_holding_unit(unit_id) else {
-            return false;
+            return Ok(false);
         };
         let (entry, ev) = self.cave_system.record_exit(index, unit_id, exit_cave);
         if let Some(entry_id) = entry {
@@ -2152,8 +2214,8 @@ impl GameLogic {
         if let Some(unit) = self.objects.get_mut(&unit_id) {
             unit.set_status_disabled_held(false);
         }
-        self.apply_cave_capture_event(index, ev);
-        true
+        self.apply_cave_capture_event_with_effects(index, ev, exit_cave, effects)?;
+        Ok(true)
     }
 
     pub fn cave_system_residual(&self) -> &crate::game_logic::host_cave_system::HostCaveSystem {

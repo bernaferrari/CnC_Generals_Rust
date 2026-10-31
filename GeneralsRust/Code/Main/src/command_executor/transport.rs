@@ -528,16 +528,25 @@ impl<'a> CommandExecutor<'a> {
             };
 
             // C++ CaveContain::onRemoving → leftover record_exit + LastEmpty team revert.
-            let was_cave = if let Some(exit_cid) = cave_exit {
-                self.game_logic.exit_cave_unit(unit_id, exit_cid)
+            let cave_result = if let Some(exit_cid) = cave_exit {
+                self.game_logic
+                    .exit_cave_unit_with_effects(unit_id, exit_cid, &mut self.ui)
             } else if is_cave_unit {
                 if let Some(cid) = container_id {
-                    self.game_logic.exit_cave_unit(unit_id, cid)
+                    self.game_logic
+                        .exit_cave_unit_with_effects(unit_id, cid, &mut self.ui)
                 } else {
-                    false
+                    Ok(false)
                 }
             } else {
-                false
+                Ok(false)
+            };
+            let was_cave = match cave_result {
+                Ok(exited) => exited,
+                Err(error) => {
+                    log::error!("Cave owner restoration failed: {error}");
+                    return CommandResult::InvalidCommand;
+                }
             };
 
             if !was_tunnel && !was_cave {

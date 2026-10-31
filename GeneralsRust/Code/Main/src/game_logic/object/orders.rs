@@ -2176,6 +2176,8 @@ impl Object {
         mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
     ) -> bool {
         self.require_partition_owner(partition.as_deref());
+        let uses_garrison_cleanup =
+            !self.is_tunnel_network_style_container() && !self.is_cave_style_container();
         if let Some(building) = self.building_data.as_mut() {
             if let Some(pos) = building
                 .garrisoned_units
@@ -2186,10 +2188,12 @@ impl Object {
                 // C++ GarrisonContain::onRemoving → removeObjectFromGarrisonPoint
                 // (or station) for this occupant, not only when the building
                 // becomes empty. Survivors must inherit the freed window.
-                building.free_garrison_point_for(unit_id);
+                if uses_garrison_cleanup {
+                    building.free_garrison_point_for(unit_id);
+                }
 
                 let empty = building.garrisoned_units.is_empty();
-                if empty {
+                if empty && uses_garrison_cleanup {
                     self.restore_garrison_original_team_if_empty_with_partition_context(
                         ownership_events,
                         partition.as_deref_mut(),
