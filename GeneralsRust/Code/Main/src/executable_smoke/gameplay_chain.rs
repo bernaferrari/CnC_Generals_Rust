@@ -1465,12 +1465,7 @@ fn smoke_drive_gameplay_chain(
             st.control_group_detail =
                 format!("{};{}", st.control_group_detail, snap.last_gameplay_cmd);
         }
-        if snap.last_gameplay_cmd.starts_with("attack_ok")
-            || snap.last_gameplay_cmd.starts_with("attack_fail")
-            || snap.last_gameplay_cmd.starts_with("attack_begin")
-        {
-            st.saw_attack_ok = true;
-        }
+        record_attack_success(&mut st.saw_attack_ok, &snap.last_gameplay_cmd);
         if snap.last_gameplay_cmd.starts_with("select_ok") {
             st.saw_select_ok = true;
         }
