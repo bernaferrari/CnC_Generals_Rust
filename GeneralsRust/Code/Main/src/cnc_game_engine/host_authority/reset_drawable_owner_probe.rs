@@ -242,7 +242,6 @@ pub(crate) fn run() -> anyhow::Result<()> {
             .borrow_native_installed_poses()
             .has_drawable_lifetime(peer_id.0)
     );
-
     // Reject a missing receiving View before changing ordinary lookup or
     // starting Object callbacks; a later attempt with its owner can proceed.
     assert!(
@@ -301,9 +300,93 @@ pub(crate) fn run() -> anyhow::Result<()> {
             .borrow_native_installed_poses()
             .has_drawable_lifetime(peer_id.0)
     );
+    // A NewGame GameInfo admission also resets the outgoing world. Exercise
+    // that real admission path with its receiving owner, while a peer world
+    // retains the same numeric ObjectID and Drawable identity.
+    game_engine::common::ini::ensure_player_templates_loaded();
+    let player_templates =
+        game_engine::common::rts::player_template::get_player_template_store().clone();
+    world
+        .admit_player_template_definitions(player_templates)
+        .map_err(anyhow::Error::msg)?;
+    world
+        .admit_object_client_template("ResetDrawableOwnerProbe")
+        .map_err(anyhow::Error::msg)?;
+    let outgoing = with_receiving_view(&mut client, &mut pipeline, &mut graphics, |view| {
+        world
+            .create_object_with_script_effects_checked(
+                "ResetDrawableOwnerProbe",
+                Team::USA,
+                glam::Vec3::ZERO,
+                None,
+                &mut ScriptPresentationEffects {
+                    view: Some(view),
+                    ..Default::default()
+                },
+            )
+            .map_err(anyhow::Error::msg)
+    })?
+    .ok_or_else(|| anyhow::anyhow!("skirmish outgoing object creation failed"))?;
+    assert_eq!(
+        outgoing, peer_id,
+        "the two worlds intentionally reuse the same ObjectID"
+    );
+    let config = crate::skirmish_config::golden_skirmish_config("Lone Eagle");
+    let before_seed = world.logic_random.seed_words();
+    let rejected = crate::skirmish_config::apply_skirmish_config_for_mode_with_effects(
+        &mut world,
+        &config,
+        crate::game_logic::GameMode::Skirmish,
+        &mut ScriptPresentationEffects::default(),
+    );
+    assert!(
+        rejected.is_err(),
+        "missing drawable owner must reject admission"
+    );
+    assert_eq!(world.logic_random.seed_words(), before_seed);
+    assert!(world.host_object(outgoing).is_some());
+    // The actual engine reset retires the Client and renderer receipts before
+    // NewGame reaches the GameLogic reset in skirmish admission.
+    client.reset()?;
+    let (_, _, client_drawables) = client.split_frame_snow_and_drawable_owner();
+    pipeline
+        .retire_native_drawables_after_client_reset(&client_drawables)
+        .map_err(anyhow::Error::msg)?;
+    gamelogic::helpers::ClientVisualHandle::new(std::sync::Arc::clone(&world.world_services))
+        .clear_visual_state_for_reset();
+    with_receiving_view(&mut client, &mut pipeline, &mut graphics, |view| {
+        crate::skirmish_config::apply_skirmish_config_for_mode_with_effects(
+            &mut world,
+            &config,
+            crate::game_logic::GameMode::Skirmish,
+            &mut ScriptPresentationEffects {
+                view: Some(view),
+                ..Default::default()
+            },
+        )
+    })
+    .map_err(anyhow::Error::msg)?;
+    assert!(world.host_object(outgoing).is_none());
+    assert!(
+        !client
+            .borrow_native_drawable_owner()
+            .has_object_drawable(outgoing.0)
+    );
+    assert!(
+        !pipeline
+            .borrow_native_installed_poses()
+            .has_drawable_lifetime(outgoing.0)
+    );
+    assert!(peer.host_object(peer_id).is_some());
+    assert!(
+        peer_client
+            .borrow_native_drawable_owner()
+            .has_object_drawable(peer_id.0)
+    );
+
     verify_command_tail_survives_reset(&private_root)?;
     println!(
-        "PASS native reset receiver: Client -> renderer receipt -> host visual bridge -> checked GameLogic; peer and admitted command tail preserved"
+        "PASS native reset and skirmish admission: receiving owner retired, peer and admitted command tail preserved"
     );
     Ok(())
 }

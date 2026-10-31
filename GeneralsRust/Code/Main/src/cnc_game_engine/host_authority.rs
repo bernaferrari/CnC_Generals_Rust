@@ -3378,7 +3378,14 @@ impl CnCGameEngine {
     ) -> Result<(), String> {
         // Wave 928: single skirmish-config authority boundary.
 
-        crate::skirmish_config::apply_skirmish_config(&mut self.game_logic, config)?;
+        self.with_native_camera_effects(|world, effects| {
+            crate::skirmish_config::apply_skirmish_config_for_mode_with_effects(
+                world,
+                config,
+                crate::game_logic::GameMode::Skirmish,
+                effects,
+            )
+        })?;
         // GameInfo's explicit local slot may be a later human. Commands and
         // presentation must use the player admitted by this receiving world.
         if let Some(local) = self.game_logic.local_player_id() {

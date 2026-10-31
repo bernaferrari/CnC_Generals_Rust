@@ -843,7 +843,23 @@ pub(crate) fn apply_skirmish_config_for_mode(
     mode: GameMode,
 ) -> Result<(), String> {
     let settings = logic.multiplayer_definitions.clone();
-    apply_skirmish_config_for_mode_with_settings(logic, config, mode, settings.as_deref())
+    apply_skirmish_config_for_mode_with_settings(logic, config, mode, settings.as_deref(), None)
+}
+
+pub(crate) fn apply_skirmish_config_for_mode_with_effects(
+    logic: &mut GameLogic,
+    config: &SkirmishMatchConfig,
+    mode: GameMode,
+    effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+) -> Result<(), String> {
+    let settings = logic.multiplayer_definitions.clone();
+    apply_skirmish_config_for_mode_with_settings(
+        logic,
+        config,
+        mode,
+        settings.as_deref(),
+        Some(effects),
+    )
 }
 
 /// Apply a skirmish using the setup's own authored multiplayer settings.
@@ -861,6 +877,7 @@ pub fn apply_skirmish_config_with_multiplayer_settings(
         config,
         GameMode::Skirmish,
         Some(multiplayer),
+        None,
     )
 }
 
@@ -869,6 +886,7 @@ fn apply_skirmish_config_for_mode_with_settings(
     config: &SkirmishMatchConfig,
     mode: GameMode,
     multiplayer: Option<&game_engine::common::ini::ini_multiplayer::MultiplayerSettings>,
+    mut effects: Option<&mut crate::game_logic::ScriptPresentationEffects<'_>>,
 ) -> Result<(), String> {
     // Validate/resolve the candidate without changing an existing match on
     // error. Replay admission uses the same GameInfo seed in this config.
@@ -888,10 +906,21 @@ fn apply_skirmish_config_for_mode_with_settings(
         &resolved_slots,
         multiplayer,
     )?;
+    if let Some(effects) = effects.as_deref_mut() {
+        logic
+            .validate_reset_with_effects(effects)
+            .map_err(|error| error.to_string())?;
+    }
     logic.set_logic_random_seed(config.random_seed);
     let stream = logic.logic_random.clone();
     game_engine::common::random_value::with_session_random(&stream, || {
-        logic.start_new_game_for_resolved_players(mode);
+        if let Some(effects) = effects {
+            logic
+                .start_new_game_for_resolved_players_with_effects(mode, effects)
+                .map_err(|error| error.to_string())?;
+        } else {
+            logic.start_new_game_for_resolved_players(mode);
+        }
         // Carry faction-selection draws into the admitted match stream before
         // the subsequent start-position selection.
         logic.logic_random.set_seed_words(selection.seed_words());

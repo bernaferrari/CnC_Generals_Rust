@@ -306,6 +306,20 @@ impl GameLogic {
         self.start_new_game_state(mode, NewGamePlayerAdmission::Resolved);
     }
 
+    /// Native NewGame must retire the outgoing world's Objects through its
+    /// receiving presentation owner before admitting the selected players.
+    pub(crate) fn start_new_game_for_resolved_players_with_effects(
+        &mut self,
+        mode: GameMode,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        log::info!("Starting new game: {:?}", mode);
+        clear_live_campaign_victorious_for_new_game(self);
+        self.reset_with_effects_checked(effects)?;
+        self.finish_start_new_game_state(mode, NewGamePlayerAdmission::Resolved, false, false);
+        Ok(())
+    }
+
     pub(crate) fn start_new_game_in_campaign_session(
         &mut self,
         mode: GameMode,
@@ -349,6 +363,16 @@ impl GameLogic {
         // C++ GameLogic.cpp:1254-1256 TheCampaignManager->SetVictorious(FALSE).
         clear_live_campaign_victorious_for_new_game(self);
         self.reset();
+        self.finish_start_new_game_state(mode, admission, is_campaign, is_challenge);
+    }
+
+    fn finish_start_new_game_state(
+        &mut self,
+        mode: GameMode,
+        admission: NewGamePlayerAdmission,
+        is_campaign: bool,
+        is_challenge: bool,
+    ) {
         // Source metadata is admitted after reset and before template/player/onCreate work.
         self.admit_campaign_session(is_campaign, is_challenge);
         // C++ TheAI already holds AIData.ini EnableRepulsors after GameEngine init.

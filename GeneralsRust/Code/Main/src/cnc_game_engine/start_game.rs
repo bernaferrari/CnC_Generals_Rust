@@ -722,11 +722,11 @@ impl CnCGameEngine {
 
         if mode == GameMode::Replay && skirmish.is_some() {
             let config = skirmish.as_ref().expect("checked receiving replay slots");
-            if let Err(error) = crate::skirmish_config::apply_skirmish_config_for_mode(
-                &mut self.game_logic,
-                config,
-                GameMode::Replay,
-            ) {
+            if let Err(error) = self.with_native_camera_effects(|world, effects| {
+                crate::skirmish_config::apply_skirmish_config_for_mode_with_effects(
+                    world, config, GameMode::Replay, effects,
+                )
+            }) {
                 warn!("Rejecting recorded GameInfo admission before map load: {error}");
                 self.return_to_main_menu_after_match()?;
                 return Ok(());

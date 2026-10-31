@@ -863,6 +863,44 @@ impl GameLogic {
         Ok(())
     }
 
+    /// Validate the receiving reset boundary before NewGame changes its seed.
+    pub(crate) fn validate_reset_with_effects(
+        &self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.validate_reset_owners()?;
+        if self.has_unregistered_host_objects() {
+            return Err(gamelogic::GameLogicError::Configuration(
+                "GameLogic reset cannot discard an unfinished Object constructor".into(),
+            ));
+        }
+        self.validate_bulk_object_retirement_owners(effects)?;
+        if !self.combat_particles.can_clear() {
+            #[cfg(feature = "game_client")]
+            {
+                let manager = effects
+                    .view
+                    .as_deref_mut()
+                    .and_then(|view| view.particle_systems_mut())
+                    .ok_or_else(|| {
+                        gamelogic::GameLogicError::Configuration(
+                            "GameLogic reset requires its live receiving particle manager".into(),
+                        )
+                    })?;
+                if !self.combat_particles.can_clear_with_client_manager(manager) {
+                    return Err(gamelogic::GameLogicError::Configuration(
+                        "GameLogic reset received a peer particle manager".into(),
+                    ));
+                }
+            }
+            #[cfg(not(feature = "game_client"))]
+            return Err(gamelogic::GameLogicError::Configuration(
+                "GameLogic reset requires its live receiving particle manager".into(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Reset this world after retiring its registered Objects through the
     /// receiving presentation owner, when one is required.
     pub(crate) fn reset_with_effects_checked(
@@ -871,37 +909,7 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         let services = Arc::clone(&self.world_services);
         gamelogic::system::engine_stores::with_world_services(&services, || {
-            self.validate_reset_owners()?;
-            if self.has_unregistered_host_objects() {
-                return Err(gamelogic::GameLogicError::Configuration(
-                    "GameLogic reset cannot discard an unfinished Object constructor".into(),
-                ));
-            }
-            self.validate_bulk_object_retirement_owners(effects)?;
-            if !self.combat_particles.can_clear() {
-                #[cfg(feature = "game_client")]
-                {
-                    let manager = effects
-                        .view
-                        .as_deref_mut()
-                        .and_then(|view| view.particle_systems_mut())
-                        .ok_or_else(|| {
-                            gamelogic::GameLogicError::Configuration(
-                                "GameLogic reset requires its live receiving particle manager"
-                                    .into(),
-                            )
-                        })?;
-                    if !self.combat_particles.can_clear_with_client_manager(manager) {
-                        return Err(gamelogic::GameLogicError::Configuration(
-                            "GameLogic reset received a peer particle manager".into(),
-                        ));
-                    }
-                }
-                #[cfg(not(feature = "game_client"))]
-                return Err(gamelogic::GameLogicError::Configuration(
-                    "GameLogic reset requires its live receiving particle manager".into(),
-                ));
-            }
+            self.validate_reset_with_effects(effects)?;
 
             // C++ GameLogic::reset clears these controls and restores the
             // input/pause state before Object onDelete callbacks run.
