@@ -99,7 +99,7 @@ impl GameLogic {
             }
             // C++ getMoodMatrixActionAdjustment(MM_Action_Attack) residual.
             // AI-controlled sleep mood refuses attack (→ idle).
-            if !self.mood_allows_attack(unit_id, self.mood_controller_is_human(unit_id)) {
+            if !self.mood_allows_attack(unit_id) {
                 return Ok(AttackMachineResult::Failure);
             }
             // C++ cannotPossiblyAttackObject residual on enter.
@@ -592,8 +592,7 @@ impl GameLogic {
                 )? {
                     AttackAimResult::Success => {
                         // C++ rechecks the mood after approaching, before firing.
-                        if !self.mood_allows_attack(unit_id, self.mood_controller_is_human(unit_id))
-                        {
+                        if !self.mood_allows_attack(unit_id) {
                             return Ok(AttackMachineResult::Failure);
                         }
                         if let Some(u) = self.objects.get_mut(&unit_id) {
@@ -1067,7 +1066,7 @@ impl GameLogic {
         }
         use mood_action_adjust::AFFECT_RANGE_IGNORE_ALL;
         let is_human = self.mood_controller_is_human(unit_id);
-        let adj = self.get_mood_matrix_action_adjustment(unit_id, MoodMatrixAction::Idle, is_human);
+        let adj = self.get_mood_matrix_action_adjustment(unit_id, MoodMatrixAction::Idle);
         if adj & AFFECT_RANGE_IGNORE_ALL != 0 {
             return;
         }

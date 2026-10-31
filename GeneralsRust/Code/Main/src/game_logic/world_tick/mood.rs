@@ -856,16 +856,12 @@ impl GameLogic {
         // C++ AIIdleState::update: MAA_Affect_Range_IgnoreAll (Sleep) does not acquire.
         {
             use mood_action_adjust::*;
-            let adj = self.get_mood_matrix_action_adjustment(
-                unit_id,
-                MoodMatrixAction::Idle,
-                is_player_controlled,
-            );
+            let adj = self.get_mood_matrix_action_adjustment(unit_id, MoodMatrixAction::Idle);
             if (adj & AFFECT_RANGE_IGNORE_ALL) != 0 {
                 return Ok(None);
             }
         }
-        if !self.mood_allows_attack(unit_id, is_player_controlled) {
+        if !self.mood_allows_attack(unit_id) {
             return Ok(None);
         }
         let Some(victim) = self.get_next_mood_target(unit_id, true, true, is_player_controlled)
@@ -886,14 +882,18 @@ impl GameLogic {
         &self,
         unit_id: ObjectId,
         action: MoodMatrixAction,
-        is_player_controlled: bool,
     ) -> u32 {
         use mood_action_adjust::*;
         let Some(obj) = self.objects.get(&unit_id) else {
             return ACTION_OK;
         };
+        // C++ getMoodMatrixValue returns an empty matrix without a controller;
+        // getMoodMatrixActionAdjustment then retains its ACTION_OK default.
+        let Some(player) = obj.owner_player_id.and_then(|id| self.players.get(&id)) else {
+            return ACTION_OK;
+        };
         // C++ exempts infantry mob members, as well as human controllers.
-        if is_player_controlled
+        if player.is_human
             || (obj.is_kind_of(KindOf::Infantry) && obj.is_kind_of(KindOf::IgnoredInGui))
         {
             return ACTION_OK;
@@ -932,9 +932,7 @@ impl GameLogic {
         if state != AIState::Moving {
             return state;
         }
-        let is_player = self.mood_controller_is_human(unit_id);
-        let adj =
-            self.get_mood_matrix_action_adjustment(unit_id, MoodMatrixAction::Move, is_player);
+        let adj = self.get_mood_matrix_action_adjustment(unit_id, MoodMatrixAction::Move);
         if (adj & mood_action_adjust::ACTION_TO_ATTACK_MOVE) != 0 {
             AIState::AttackMoving
         } else {
@@ -943,13 +941,9 @@ impl GameLogic {
     }
 
     /// True when mood allows attack action (MAA_Action_Ok bit set, not forced to idle).
-    pub fn mood_allows_attack(&self, unit_id: ObjectId, is_player_controlled: bool) -> bool {
+    pub fn mood_allows_attack(&self, unit_id: ObjectId) -> bool {
         use mood_action_adjust::*;
-        let adj = self.get_mood_matrix_action_adjustment(
-            unit_id,
-            MoodMatrixAction::Attack,
-            is_player_controlled,
-        );
+        let adj = self.get_mood_matrix_action_adjustment(unit_id, MoodMatrixAction::Attack);
         (adj & ACTION_OK) != 0 && (adj & ACTION_TO_IDLE) == 0
     }
 

@@ -243,6 +243,40 @@ fn owner_resolution_has_no_faction_fallback_or_new_alive_faction_filters() {
     }
 }
 
+#[test]
+fn attack_mood_uses_each_worlds_exact_controller_type() {
+    let mut ai_world = world();
+    let mut human_world = world();
+    human_world.get_player_mut(1).unwrap().is_human = true;
+    let ai_unit = create(&mut ai_world, UNIT, 1, 0.0);
+    let human_unit = create(&mut human_world, UNIT, 1, 0.0);
+    assert_eq!(ai_unit, human_unit);
+    ai_world.host_object_mut(ai_unit).unwrap().ai_attitude = -2;
+    human_world.host_object_mut(human_unit).unwrap().ai_attitude = -2;
+
+    assert!(!ai_world.mood_allows_attack(ai_unit));
+    assert!(human_world.mood_allows_attack(human_unit));
+    human_world.get_player_mut(1).unwrap().is_human = false;
+    assert!(!human_world.mood_allows_attack(human_unit));
+    assert!(!ai_world.mood_allows_attack(ai_unit));
+    human_world
+        .host_object_mut(human_unit)
+        .unwrap()
+        .owner_player_id = Some(0);
+    assert!(human_world.mood_allows_attack(human_unit));
+    assert!(!ai_world.mood_allows_attack(ai_unit));
+    ai_world.host_object_mut(ai_unit).unwrap().owner_player_id = None;
+    assert!(
+        ai_world.mood_allows_attack(ai_unit),
+        "no controller has no AI mood"
+    );
+    ai_world.host_object_mut(ai_unit).unwrap().owner_player_id = Some(99);
+    assert!(
+        ai_world.mood_allows_attack(ai_unit),
+        "an absent player has no AI mood"
+    );
+}
+
 fn seed_combat(logic: &mut GameLogic, id: ObjectId, target: ObjectId, worker: bool) {
     {
         let o = logic.host_object_mut(id).unwrap();

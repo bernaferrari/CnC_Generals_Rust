@@ -292,12 +292,14 @@ fn named_unit_panic_is_not_a_noop() {
 fn set_team_attitude_applies_to_all_members() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     let mut logic = GameLogic::new();
+    logic.add_player(crate::game_logic::Player::new(1, Team::China, "AI", false));
     for i in 0..3u32 {
         let name = format!("Ta{i}");
         let mut t = ThingTemplate::new(&name);
         t.add_kind_of(KindOf::Infantry);
         let id = ObjectId(3100 + i);
         let mut o = Object::new(t, id, Team::China);
+        o.owner_player_id = Some(1);
         o.weapon = Some(Weapon {
             range: 40.0,
             ..Default::default()
@@ -320,8 +322,8 @@ fn set_team_attitude_applies_to_all_members() {
     assert_eq!(logic.objects[&ObjectId(3100)].ai_attitude, -2);
     assert_eq!(logic.objects[&ObjectId(3101)].ai_attitude, -2);
     assert_eq!(logic.objects[&ObjectId(3199)].ai_attitude, 0);
-    assert!(!logic.mood_allows_attack(ObjectId(3100), false));
-    assert!(logic.mood_allows_attack(ObjectId(3199), false));
+    assert!(!logic.mood_allows_attack(ObjectId(3100)));
+    assert!(logic.mood_allows_attack(ObjectId(3199)));
 }
 
 #[test]
@@ -434,11 +436,13 @@ fn inherit_uses_named_team_proto_not_faction() {
 fn set_unit_attitude_affects_mood_matrix() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     let mut logic = GameLogic::new();
+    logic.add_player(crate::game_logic::Player::new(1, Team::China, "AI", false));
     let mut t = ThingTemplate::new("AttA");
     t.add_kind_of(KindOf::Infantry);
     let id = ObjectId(2901);
     logic.objects.insert(id, {
         let mut o = Object::new(t, id, Team::China);
+        o.owner_player_id = Some(1);
         o.weapon = Some(Weapon {
             range: 50.0,
             ..Default::default()
@@ -446,9 +450,9 @@ fn set_unit_attitude_affects_mood_matrix() {
         o
     });
     assert!(logic.set_unit_attitude(id, GameLogic::parse_attitude_token("SLEEP")));
-    assert!(!logic.mood_allows_attack(id, false));
+    assert!(!logic.mood_allows_attack(id));
     assert!(logic.set_unit_attitude(id, GameLogic::parse_attitude_token("AGGRESSIVE")));
-    assert!(logic.mood_allows_attack(id, false));
+    assert!(logic.mood_allows_attack(id));
     assert_eq!(logic.objects[&id].ai_attitude, 2);
 }
 
@@ -1109,11 +1113,13 @@ fn transfer_attack_retargets_attackers() {
 fn mood_matrix_sleep_blocks_attack() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     let mut logic = GameLogic::new();
+    logic.add_player(crate::game_logic::Player::new(1, Team::USA, "AI", false));
     let mut t = ThingTemplate::new("MoodA");
     t.add_kind_of(KindOf::Infantry);
     let id = ObjectId(2410);
     logic.objects.insert(id, {
         let mut o = Object::new(t, id, Team::USA);
+        o.owner_player_id = Some(1);
         o.ai_attitude = -2; // Sleep
         o.weapon = Some(Weapon {
             range: 50.0,
@@ -1121,29 +1127,33 @@ fn mood_matrix_sleep_blocks_attack() {
         });
         o
     });
-    let adj = logic.get_mood_matrix_action_adjustment(id, MoodMatrixAction::Attack, false);
+    let adj = logic.get_mood_matrix_action_adjustment(id, MoodMatrixAction::Attack);
     assert_eq!(
         adj & mood_action_adjust::ACTION_TO_IDLE,
         mood_action_adjust::ACTION_TO_IDLE
     );
-    assert!(!logic.mood_allows_attack(id, false));
-    // Player always allowed.
-    assert!(logic.mood_allows_attack(id, true));
+    assert!(!logic.mood_allows_attack(id));
+    // A human controlling player is exempt from mood restrictions.
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Human", true));
+    logic.objects.get_mut(&id).unwrap().owner_player_id = Some(0);
+    assert!(logic.mood_allows_attack(id));
 }
 
 #[test]
 fn mood_matrix_aggressive_move_to_attack_move() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut logic = GameLogic::new();
+    logic.add_player(crate::game_logic::Player::new(1, Team::GLA, "AI", false));
     let mut t = ThingTemplate::new("MoodB");
     t.add_kind_of(KindOf::Vehicle);
     let id = ObjectId(2411);
     logic.objects.insert(id, {
         let mut o = Object::new(t, id, Team::GLA);
+        o.owner_player_id = Some(1);
         o.ai_attitude = 2; // Aggressive
         o
     });
-    let adj = logic.get_mood_matrix_action_adjustment(id, MoodMatrixAction::Move, false);
+    let adj = logic.get_mood_matrix_action_adjustment(id, MoodMatrixAction::Move);
     assert_eq!(
         adj & mood_action_adjust::ACTION_TO_ATTACK_MOVE,
         mood_action_adjust::ACTION_TO_ATTACK_MOVE
