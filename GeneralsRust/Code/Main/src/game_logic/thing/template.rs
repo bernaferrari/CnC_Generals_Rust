@@ -373,6 +373,9 @@ pub struct ThingTemplate {
     /// Complete effective source retained for receiving map overrides and rebind.
     #[serde(skip)]
     pub(crate) receiving_object_definition: Option<std::sync::Arc<crate::assets::ObjectDefinition>>,
+    /// Turret configuration supplied with this template's effective definition.
+    #[serde(skip)]
+    pub(crate) turret_spawn_definition: Option<crate::game_logic::object::TurretSpawnSpec>,
     #[serde(skip)]
     pub(crate) receiving_client_template: Option<ReceivingClientTemplate>,
     /// Immutable transition-effect content rebound from the receiving catalog.
@@ -1064,6 +1067,7 @@ impl ThingTemplate {
             max_health: 100.0,
             client_module_declarations: None,
             receiving_object_definition: None,
+            turret_spawn_definition: None,
             receiving_client_template: None,
             transition_damage_definition: None,
             body_kind: None,

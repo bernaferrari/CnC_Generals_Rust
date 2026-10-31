@@ -608,6 +608,8 @@ impl GameLogic {
         template: &mut ThingTemplate,
         definition: &crate::assets::ObjectDefinition,
     ) {
+        template.turret_spawn_definition =
+            Some(crate::game_logic::object::turret_spawn_for_receiving_definition(definition));
         template.armor_definitions.get_or_insert_with(|| {
             std::sync::Arc::new(gamelogic::object::armor::ArmorDefinitions::new())
         });

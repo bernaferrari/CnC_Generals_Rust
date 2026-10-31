@@ -91,19 +91,14 @@ pub fn turret_ms_to_frames(ms: u32) -> u32 {
     u32::try_from(frames).unwrap_or(u32::MAX)
 }
 
-/// Resolve TurretAI spawn for a template. Prefer authored Object INI; fall
-/// back to host honesty constants for known turreted units.
+/// Compatibility defaults for hand-built templates with no supplied data.
 pub fn turret_spawn_for_template(template_name: &str) -> TurretSpawnSpec {
-    if let Some(from_ini) = turret_spawn_from_object_definition(template_name) {
-        return from_ini;
-    }
     turret_spawn_from_name_honesty(template_name)
 }
 
 /// Resolve one Object's turret spawn facts from its receiving definition when
-/// present. Only hand-built/non-receiving templates may use the compatibility
-/// asset lookup and name fallback. Shared by normal and snapshot construction
-/// so the two lifecycle routes cannot select different configuration owners.
+/// present. Templates built from an explicit definition retain its resolved
+/// turret facts; hand-built templates use the compatibility defaults.
 pub(super) fn turret_spawn_for_thing_template(
     template: &crate::game_logic::ThingTemplate,
 ) -> TurretSpawnSpec {
@@ -111,16 +106,8 @@ pub(super) fn turret_spawn_for_thing_template(
         .receiving_object_definition
         .as_deref()
         .map(turret_spawn_for_receiving_definition)
+        .or_else(|| template.turret_spawn_definition.clone())
         .unwrap_or_else(|| turret_spawn_for_template(&template.name))
-}
-
-fn turret_spawn_from_object_definition(template_name: &str) -> Option<TurretSpawnSpec> {
-    let manager = crate::assets::get_asset_manager()?;
-    let guard = manager.lock().ok()?;
-    let definition = guard
-        .get_object_definition(template_name)
-        .or_else(|| guard.resolve_object_definition(template_name, None))?;
-    turret_spawn_from_definition(&definition)
 }
 
 fn turret_spawn_from_definition(
@@ -134,7 +121,7 @@ fn turret_spawn_from_definition(
 }
 
 /// An admitted object definition is authoritative even when it has no turret.
-pub(super) fn turret_spawn_for_receiving_definition(
+pub(crate) fn turret_spawn_for_receiving_definition(
     definition: &crate::assets::ObjectDefinition,
 ) -> TurretSpawnSpec {
     turret_spawn_from_definition(definition).unwrap_or_else(TurretSpawnSpec::absent)

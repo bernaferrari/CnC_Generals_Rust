@@ -109,6 +109,37 @@ fn preexisting_template_receives_its_worlds_authored_turret_definition() {
     assert!(!restored.host_object(a).unwrap().is_weapon_slot_on_turret(0));
 }
 
+#[test]
+fn hand_built_template_keeps_its_own_turret_defaults_beside_authored_peer() {
+    let mut hand_built = GameLogic::new();
+    hand_built.templates.insert(
+        TEMPLATE.into(),
+        generals_main::game_logic::ThingTemplate::new(TEMPLATE),
+    );
+    let mut authored = world_with_slots("SECONDARY", false);
+    let a = hand_built
+        .create_object(TEMPLATE, Team::USA, Vec3::ZERO)
+        .unwrap();
+    let b = authored
+        .create_object(TEMPLATE, Team::USA, Vec3::ZERO)
+        .unwrap();
+    assert_eq!(a, b);
+    assert!(
+        hand_built
+            .host_object(a)
+            .unwrap()
+            .is_weapon_slot_on_turret(0)
+    );
+    assert!(
+        !hand_built
+            .host_object(a)
+            .unwrap()
+            .is_weapon_slot_on_turret(1)
+    );
+    assert!(!authored.host_object(b).unwrap().is_weapon_slot_on_turret(0));
+    assert!(authored.host_object(b).unwrap().is_weapon_slot_on_turret(1));
+}
+
 fn assert_spawn(
     world: &GameLogic,
     id: generals_main::game_logic::ObjectId,

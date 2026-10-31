@@ -175,7 +175,7 @@ mod turret_spawn;
 use turret_spawn::turret_spawn_for_thing_template;
 pub(crate) use turret_spawn::{
     TurretSpawnSpec, turret_deg_per_sec_to_rad_per_frame, turret_ms_to_frames,
-    turret_spawn_for_template,
+    turret_spawn_for_receiving_definition, turret_spawn_for_template,
 };
 
 /// C++ default recenter wait residual (2 * LOGICFRAMES_PER_SECOND).
