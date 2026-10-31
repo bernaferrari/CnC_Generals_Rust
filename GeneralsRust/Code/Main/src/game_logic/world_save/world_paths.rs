@@ -2443,18 +2443,27 @@ impl GameLogic {
     }
 
     pub fn append_unit_waypoint(&mut self, unit_id: ObjectId, waypoint: Vec3) -> bool {
-        let (unit_pos, current_path, can_move) = match self.objects.lookup(&unit_id) {
-            Some(unit) => (
-                unit.get_position(),
-                unit.movement.path.clone(),
-                unit.can_move(),
-            ),
-            None => return false,
-        };
+        let (unit_pos, mut current_path, current_target, can_move) =
+            match self.objects.lookup(&unit_id) {
+                Some(unit) => (
+                    unit.get_position(),
+                    unit.movement.path.clone(),
+                    unit.movement.target_position,
+                    unit.can_move(),
+                ),
+                None => return false,
+            };
         if !can_move {
             return false;
         }
 
+        let had_no_path = current_path.is_empty();
+        if had_no_path {
+            if let Some(target) = current_target {
+                // Preserve an in-flight move even if its route has not been installed.
+                current_path.extend([unit_pos, target]);
+            }
+        }
         let last_goal = current_path.last().copied().unwrap_or(unit_pos);
 
         let segment = ({
@@ -2542,11 +2551,21 @@ impl GameLogic {
         unit.is_attack_path = false;
         unit.is_exact_path = false;
         unit.movement.path = appended;
+        if had_no_path {
+            unit.movement.current_path_index = usize::from(unit.movement.path.len() > 1);
+        }
         let last_node = unit.movement.path.last().copied();
         unit.refresh_follow_path_extra_distance();
         // Appending a goal must not replace the path segment already being
         // traversed. An idle unit starts toward its new goal instead.
-        unit.movement.target_position.get_or_insert(waypoint);
+        if unit.movement.target_position.is_none() {
+            unit.movement.target_position = unit
+                .movement
+                .path
+                .get(unit.movement.current_path_index)
+                .copied()
+                .or(Some(waypoint));
+        }
         self.movement_events.record(
             self.frame,
             unit_id,
