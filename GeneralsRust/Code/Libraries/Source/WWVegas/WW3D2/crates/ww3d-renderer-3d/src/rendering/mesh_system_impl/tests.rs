@@ -43,6 +43,148 @@ fn compute_pass_index_ranges_uses_vertex_count_for_non_indexed_meshes() {
 }
 
 #[test]
+fn replacing_a_texture_updates_only_matching_polygon_batches_and_invalidates_model() {
+    let old = Arc::new(TextureClass::new("old", 1, 1));
+    let other = Arc::new(TextureClass::new("other", 1, 1));
+    let replacement = Arc::new(TextureClass::new("new", 1, 1));
+    let mut old_pass = MaterialPassClass::new();
+    old_pass.set_texture(0, Arc::clone(&old));
+    let mut other_pass = MaterialPassClass::new();
+    other_pass.set_texture(0, Arc::clone(&other));
+    let mut model = MeshModelClass::new("per-face");
+    model.triangles = vec![
+        W3dTriangleStruct {
+            vindex: [0, 1, 2],
+            attributes: 0,
+            normal: W3dVectorStruct {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0
+            },
+            distance: 0.0,
+        };
+        3
+    ];
+    model.material_passes.push(old_pass.clone());
+    model.material_batches = vec![
+        MeshMaterialBatch {
+            source_pass_index: 0,
+            material_pass: old_pass,
+            face_indices: vec![0, 2],
+        },
+        MeshMaterialBatch {
+            source_pass_index: 0,
+            material_pass: other_pass,
+            face_indices: vec![1],
+        },
+    ];
+    let peer = Arc::new(model);
+    let mut mesh = MeshClass::new();
+    mesh.model = Some(Arc::clone(&peer));
+    let previous_revision = peer.revision();
+    mesh.replace_texture(&old, &replacement);
+    let model = mesh.model.as_ref().unwrap();
+    let (_, _, passes) = material_batch_index_data(model).unwrap();
+    assert_eq!(passes[0].get_texture(0).unwrap().get_name(), "new");
+    assert_eq!(passes[1].get_texture(0).unwrap().get_name(), "other");
+    assert!(Arc::ptr_eq(passes[0].get_texture(0).unwrap(), &replacement));
+    assert_eq!(
+        peer.material_batches[0]
+            .material_pass
+            .get_texture(0)
+            .unwrap()
+            .get_name(),
+        "old"
+    );
+    assert_ne!(model.revision(), previous_revision);
+}
+
+#[test]
+fn polygon_texture_edit_splits_only_the_selected_authored_pass() {
+    let old = Arc::new(TextureClass::new("old", 1, 1));
+    let replacement = Arc::new(TextureClass::new("replacement", 1, 1));
+    let mut pass = MaterialPassClass::new();
+    pass.set_texture(0, Arc::clone(&old));
+    let mut model = MeshModelClass::new("two-passes");
+    model.triangles = vec![
+        W3dTriangleStruct {
+            vindex: [0, 1, 2],
+            attributes: 0,
+            normal: W3dVectorStruct {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0
+            },
+            distance: 0.0,
+        };
+        3
+    ];
+    model.material_passes = vec![pass.clone(), pass.clone()];
+    model.material_batches = vec![
+        MeshMaterialBatch {
+            source_pass_index: 0,
+            material_pass: pass.clone(),
+            face_indices: vec![0, 1, 2],
+        },
+        MeshMaterialBatch {
+            source_pass_index: 1,
+            material_pass: pass,
+            face_indices: vec![0, 1, 2],
+        },
+    ];
+    model.set_texture(1, Arc::clone(&replacement), 0, 0);
+    assert!(model.has_texture_array(0, 0));
+    assert!(!model.has_texture_array(1, 0));
+    assert_eq!(model.peek_texture(0, 0, 0).unwrap().get_name(), "old");
+    assert_eq!(
+        model.peek_texture(1, 0, 0).unwrap().get_name(),
+        "replacement"
+    );
+    assert_eq!(model.peek_texture(2, 0, 0).unwrap().get_name(), "old");
+    assert_eq!(model.peek_texture(1, 1, 0).unwrap().get_name(), "old");
+    let (_, ranges, _) = material_batch_index_data(&model).unwrap();
+    assert_eq!(ranges, vec![(0, 3), (3, 3), (6, 3), (9, 9)]);
+    model.set_single_texture(Arc::clone(&replacement), 0, 0);
+    assert!(!model.has_texture_array(0, 0));
+    assert_eq!(model.peek_texture(1, 1, 0).unwrap().get_name(), "old");
+}
+
+#[test]
+fn polygon_texture_edit_creates_batches_for_unbatched_model() {
+    let old = Arc::new(TextureClass::new("same-name", 1, 1));
+    let other = Arc::new(TextureClass::new("same-name", 1, 1));
+    let replacement = Arc::new(TextureClass::new("new", 1, 1));
+    let mut pass = MaterialPassClass::new();
+    pass.set_texture(0, Arc::clone(&old));
+    let mut model = MeshModelClass::new("unbatched");
+    model.triangles = vec![
+        W3dTriangleStruct {
+            vindex: [0, 1, 2],
+            attributes: 0,
+            normal: W3dVectorStruct {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0
+            },
+            distance: 0.0,
+        };
+        2
+    ];
+    model.material_passes.push(pass);
+    model.set_texture(1, Arc::clone(&other), 0, 0);
+    assert!(model.has_texture_array(0, 0));
+    let mut mesh = MeshClass::new();
+    mesh.model = Some(Arc::new(model));
+    mesh.replace_texture(&old, &replacement);
+    let model = mesh.model.unwrap();
+    assert_eq!(model.peek_texture(0, 0, 0).unwrap().get_name(), "new");
+    assert!(std::ptr::eq(
+        model.peek_texture(1, 0, 0).unwrap(),
+        other.as_ref()
+    ));
+}
+
+#[test]
 fn material_batches_draw_each_authored_triangle_with_its_own_material() {
     let mut model = MeshModelClass::new("per_face_materials");
     model.triangles = [[0, 1, 2], [3, 4, 5], [6, 7, 8]]
@@ -61,10 +203,12 @@ fn material_batches_draw_each_authored_triangle_with_its_own_material() {
     model.material_passes.push(MaterialPassClass::new());
     model.material_batches = vec![
         MeshMaterialBatch {
+            source_pass_index: 0,
             material_pass: MaterialPassClass::new(),
             face_indices: vec![0, 2],
         },
         MeshMaterialBatch {
+            source_pass_index: 0,
             material_pass: MaterialPassClass::new(),
             face_indices: vec![1],
         },

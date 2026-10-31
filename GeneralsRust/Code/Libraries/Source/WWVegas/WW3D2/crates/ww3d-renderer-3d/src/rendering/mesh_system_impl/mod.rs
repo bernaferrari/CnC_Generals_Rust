@@ -278,6 +278,8 @@ pub struct MeshModelClass {
 /// A subset of source triangles drawn with one resolved material state.
 #[derive(Debug, Clone)]
 pub struct MeshMaterialBatch {
+    /// Authored material pass, independent of the GPU batch index.
+    pub source_pass_index: usize,
     pub material_pass: MaterialPassClass,
     pub face_indices: Vec<u32>,
 }

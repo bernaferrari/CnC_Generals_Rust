@@ -201,48 +201,32 @@ impl MeshClass {
 
     /// Replace texture - equivalent to C++ MeshClass::Replace_Texture
     /// C++ Reference: MeshModelClass::Replace_Texture (meshmdl.cpp:207-222)
-    pub fn replace_texture(&mut self, old_texture: &TextureClass, new_texture: &TextureClass) {
+    pub fn replace_texture(&mut self, old_texture: &TextureClass, new_texture: &Arc<TextureClass>) {
         if let Some(model_arc) = self.model.as_mut() {
             let model = Arc::make_mut(model_arc);
 
-            // Iterate through all texture stages and passes
-            // C++ loops through MAX_TEX_STAGES and pass count
-            for pass_idx in 0..model.get_pass_count() {
-                for stage_idx in 0..4 {
-                    // MAX_TEX_STAGES = 4 in most implementations
-                    if model.has_texture_array(pass_idx, stage_idx) {
-                        // Check each polygon's texture
-                        for poly_idx in 0..model.get_polygon_count() {
-                            if let Some(texture) = model.peek_texture(poly_idx, pass_idx, stage_idx)
-                            {
-                                // Compare texture pointers or names
-                                if std::ptr::eq(texture, old_texture)
-                                    || texture.get_name() == old_texture.get_name()
-                                {
-                                    model.set_texture(
-                                        poly_idx,
-                                        Arc::new(new_texture.clone()),
-                                        pass_idx,
-                                        stage_idx,
-                                    );
-                                }
-                            }
-                        }
-                    } else if let Some(single_texture) =
-                        model.peek_single_texture(pass_idx, stage_idx)
+            let mut changed = false;
+            // Each WGPU batch already has a uniform texture for its faces.
+            // Replace by object identity, preserving batch and face ordering.
+            for pass in model.material_passes.iter_mut().chain(
+                model
+                    .material_batches
+                    .iter_mut()
+                    .map(|batch| &mut batch.material_pass),
+            ) {
+                for stage in 0..2 {
+                    // MeshMatDescClass::MAX_TEX_STAGES
+                    if pass.textures[stage]
+                        .as_deref()
+                        .is_some_and(|texture| std::ptr::eq(texture, old_texture))
                     {
-                        // Handle single texture for all polygons
-                        if std::ptr::eq(single_texture, old_texture)
-                            || single_texture.get_name() == old_texture.get_name()
-                        {
-                            model.set_single_texture(
-                                Arc::new(new_texture.clone()),
-                                pass_idx,
-                                stage_idx,
-                            );
-                        }
+                        pass.set_texture(stage, Arc::clone(new_texture));
+                        changed = true;
                     }
                 }
+            }
+            if changed {
+                model.mark_dirty();
             }
         }
     }

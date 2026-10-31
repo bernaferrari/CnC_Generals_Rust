@@ -502,20 +502,57 @@ impl MeshModelClass {
     }
 
     /// Check if a texture stage has a texture array (per-polygon textures)
-    /// Per-polygon texture arrays are not supported in this renderer path.
-    pub fn has_texture_array(&self, _pass_idx: usize, _stage_idx: usize) -> bool {
-        false
+    pub fn has_texture_array(&self, pass_idx: usize, stage_idx: usize) -> bool {
+        let mut textures = self
+            .material_batches
+            .iter()
+            .filter(|batch| batch.source_pass_index == pass_idx && !batch.face_indices.is_empty())
+            .map(|batch| {
+                batch
+                    .material_pass
+                    .textures
+                    .get(stage_idx)
+                    .and_then(Option::as_ref)
+            });
+        let Some(first) = textures.next() else {
+            return false;
+        };
+        textures.any(|texture| match (first, texture) {
+            (Some(a), Some(b)) => !Arc::ptr_eq(a, b),
+            (None, None) => false,
+            _ => true,
+        })
     }
 
     /// Peek at texture for a specific polygon, pass, and stage
-    /// Returns None as we don't support per-polygon textures in the modern renderer
     pub fn peek_texture(
         &self,
-        _poly_idx: usize,
-        _pass_idx: usize,
-        _stage_idx: usize,
+        poly_idx: usize,
+        pass_idx: usize,
+        stage_idx: usize,
     ) -> Option<&TextureClass> {
-        None
+        if poly_idx >= self.get_polygon_count() {
+            return None;
+        }
+        self.material_batches
+            .iter()
+            .find(|batch| {
+                batch.source_pass_index == pass_idx
+                    && batch.face_indices.contains(&(poly_idx as u32))
+            })
+            .and_then(|batch| batch.material_pass.textures.get(stage_idx))
+            .and_then(Option::as_deref)
+            .or_else(|| {
+                if self
+                    .material_batches
+                    .iter()
+                    .any(|batch| batch.source_pass_index == pass_idx)
+                {
+                    None
+                } else {
+                    self.peek_single_texture(pass_idx, stage_idx)
+                }
+            })
     }
 
     /// Peek at single texture (shared across all polygons) for a pass and stage
@@ -528,16 +565,81 @@ impl MeshModelClass {
     }
 
     /// Set texture for a specific polygon, pass, and stage
-    /// This is a no-op in the modern renderer as we don't support per-polygon textures
     pub fn set_texture(
         &mut self,
-        _poly_idx: usize,
-        _new_texture: Arc<crate::texture_system::TextureClass>,
-        _pass_idx: usize,
-        _stage_idx: usize,
+        poly_idx: usize,
+        new_texture: Arc<crate::texture_system::TextureClass>,
+        pass_idx: usize,
+        stage_idx: usize,
     ) {
-        // Legacy C++ supported per-polygon textures, but modern renderer uses shared textures
-        // This method is kept for API compatibility but does nothing
+        if poly_idx >= self.get_polygon_count() || stage_idx >= 8 {
+            return;
+        }
+        if pass_idx >= self.material_passes.len() {
+            return;
+        }
+        if self
+            .peek_texture(poly_idx, pass_idx, stage_idx)
+            .is_some_and(|texture| std::ptr::eq(texture, new_texture.as_ref()))
+        {
+            return;
+        }
+        if self.material_batches.is_empty() {
+            let faces: Vec<u32> = (0..self.get_polygon_count() as u32).collect();
+            self.material_batches = self
+                .material_passes
+                .iter()
+                .enumerate()
+                .map(|(source_pass_index, material_pass)| MeshMaterialBatch {
+                    source_pass_index,
+                    material_pass: material_pass.clone(),
+                    face_indices: faces.clone(),
+                })
+                .collect();
+        }
+        let Some(index) = self.material_batches.iter().position(|batch| {
+            batch.source_pass_index == pass_idx && batch.face_indices.contains(&(poly_idx as u32))
+        }) else {
+            return;
+        };
+        let old = &self.material_batches[index];
+        if old.material_pass.textures[stage_idx]
+            .as_ref()
+            .is_some_and(|texture| Arc::ptr_eq(texture, &new_texture))
+        {
+            return;
+        }
+        let face_offset = old
+            .face_indices
+            .iter()
+            .position(|&face| face == poly_idx as u32)
+            .unwrap();
+        let mut parts = Vec::with_capacity(3);
+        if face_offset > 0 {
+            let mut before = old.clone();
+            before.face_indices.truncate(face_offset);
+            parts.push(before);
+        }
+        let mut changed = old.clone();
+        changed.face_indices = vec![poly_idx as u32];
+        changed.material_pass.set_texture(stage_idx, new_texture);
+        parts.push(changed);
+        if face_offset + 1 < old.face_indices.len() {
+            let mut after = old.clone();
+            after.face_indices = old.face_indices[face_offset + 1..].to_vec();
+            parts.push(after);
+        }
+        self.material_batches.splice(index..=index, parts);
+        if let Some(first) = self
+            .material_batches
+            .iter()
+            .find(|batch| batch.source_pass_index == pass_idx)
+        {
+            if let Some(pass) = self.material_passes.get_mut(pass_idx) {
+                pass.textures[stage_idx] = first.material_pass.textures[stage_idx].clone();
+            }
+        }
+        self.mark_dirty();
     }
 
     /// Set single texture (shared across all polygons) for a pass and stage
@@ -547,11 +649,23 @@ impl MeshModelClass {
         pass_idx: usize,
         stage_idx: usize,
     ) {
-        if let Some(pass) = self.material_passes.get_mut(pass_idx) {
-            if stage_idx < pass.textures.len() {
-                pass.textures[stage_idx] = Some(new_texture);
-            }
+        let Some(pass) = self.material_passes.get_mut(pass_idx) else {
+            return;
+        };
+        if stage_idx >= pass.textures.len() {
+            return;
         }
+        pass.set_texture(stage_idx, Arc::clone(&new_texture));
+        for batch in self
+            .material_batches
+            .iter_mut()
+            .filter(|batch| batch.source_pass_index == pass_idx)
+        {
+            batch
+                .material_pass
+                .set_texture(stage_idx, Arc::clone(&new_texture));
+        }
+        self.mark_dirty();
     }
 }
 

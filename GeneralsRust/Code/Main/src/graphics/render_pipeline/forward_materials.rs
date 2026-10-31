@@ -387,6 +387,7 @@ impl ForwardPass {
                         pass.set_pass_index(model.material_batches.len());
                         model.material_batches.push(
                             ww3d_renderer_3d::rendering::mesh_system::MeshMaterialBatch {
+                                source_pass_index: pass_index,
                                 material_pass: pass,
                                 face_indices: batch.faces,
                             },
