@@ -1610,6 +1610,16 @@ impl GameLogic {
                 break;
             };
             let unit = req.unit_id;
+            // C++ doPathfind returns without touching the actor when its
+            // waiting flag was cleared by a later order. Consume the stale
+            // queue entry, but do not resurrect its FollowPath continuation.
+            if !self
+                .objects
+                .get(&unit)
+                .is_some_and(|actor| actor.is_alive() && actor.waiting_for_path)
+            {
+                continue;
+            }
             let appends = std::mem::take(&mut req.follow_path_appends);
             let _resolved = self.resolve_initialized_path_request(req)?;
             for goal in appends {

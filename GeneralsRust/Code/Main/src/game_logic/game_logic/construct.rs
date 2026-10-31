@@ -1632,6 +1632,9 @@ impl GameLogic {
         // Host AI is match-scoped. Wipe so rematch / start_new_game cannot leave
         // orphan AI slots with stale object_ids while players were cleared above.
         // load_map does not call reset, so preserve_host_players still keeps AI.
+        // GameLogic::reset -> AI::reset -> Pathfinder::reset clears the
+        // receiving match's queued object IDs before the next match starts.
+        self.pathfinding_system.reset_pending_paths();
         self.ai_manager = AIManager::with_team_factory(self.team_factory.clone());
         // GameLogic.cpp resets the ScriptEngine after Object teardown and AI.
         // The owned command queue is not the already-admitted native command

@@ -967,6 +967,10 @@ impl PathfindingSystem {
         self.pending_paths.drain(..).collect()
     }
 
+    pub(crate) fn reset_pending_paths(&mut self) {
+        self.pending_paths.clear();
+    }
+
     pub fn pending_path_count(&self) -> usize {
         self.pending_paths.len()
     }

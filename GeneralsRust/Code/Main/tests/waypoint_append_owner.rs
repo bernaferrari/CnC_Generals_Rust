@@ -215,6 +215,75 @@ fn append_while_waiting_survives_the_pending_path_result() {
         }
     }
     assert_eq!(reached, [true; 3]);
+
+    // A stop invalidates the actor's queued request; the pathfinder still
+    // visits the queued ID but must not reissue its appended goals.
+    let mut stopped = make_world();
+    let stopped_id = stopped
+        .create_object_for_player("WaypointWalker", 1, Vec3::new(100.0, 0.0, 100.0))
+        .unwrap();
+    assert!(stopped.assign_unit_path(stopped_id, first, &[intermediate]));
+    assert!(stopped.host_object(stopped_id).unwrap().waiting_for_path);
+    assert!(stopped.append_unit_waypoint(stopped_id, second));
+    let other_id = stopped
+        .create_object_for_player("WaypointWalker", 1, Vec3::new(200.0, 0.0, 100.0))
+        .unwrap();
+    let other_first = Vec3::new(200.0, 0.0, 150.0);
+    let other_intermediate = Vec3::new(200.0, 0.0, 125.0);
+    let other_second = Vec3::new(250.0, 0.0, 150.0);
+    assert!(stopped.assign_unit_path(other_id, other_first, &[other_intermediate]));
+    assert!(stopped.append_unit_waypoint(other_id, other_second));
+    assert!(stopped.private_stop(stopped_id));
+    let snapshot = builder.create_world_snapshot(&stopped).unwrap();
+    let mut stopped_restored = make_world();
+    builder
+        .restore_from_snapshot(&snapshot, &mut stopped_restored)
+        .unwrap();
+    for receiver in [&mut stopped, &mut stopped_restored] {
+        receiver.update_with_dt(1.0 / 30.0);
+        let unit = receiver.host_object(stopped_id).unwrap();
+        assert!(!unit.waiting_for_path);
+        assert!(
+            unit.movement.target_position.is_none(),
+            "stopped order resumed"
+        );
+        assert!(unit.movement.path.is_empty(), "stopped route was recreated");
+        let other = receiver.host_object(other_id).unwrap();
+        assert_eq!(other.movement.path.last().copied(), Some(other_second));
+    }
+
+    let mut resetting = make_world();
+    let mut peer = make_world();
+    for receiver in [&mut resetting, &mut peer] {
+        let id = receiver
+            .create_object_for_player("WaypointWalker", 1, Vec3::new(100.0, 0.0, 100.0))
+            .unwrap();
+        assert!(receiver.assign_unit_path(id, first, &[intermediate]));
+        assert!(receiver.append_unit_waypoint(id, second));
+        assert_eq!(receiver.snapshot_pending_host_paths().len(), 1);
+    }
+    resetting.reset();
+    assert!(
+        resetting.snapshot_pending_host_paths().is_empty(),
+        "reset left an old path request"
+    );
+    assert_eq!(
+        peer.snapshot_pending_host_paths().len(),
+        1,
+        "reset cleared another session"
+    );
+    let peer_id = peer.snapshot_pending_host_paths()[0].unit_id;
+    peer.update_with_dt(1.0 / 30.0);
+    assert_eq!(
+        peer.host_object(peer_id)
+            .unwrap()
+            .movement
+            .path
+            .last()
+            .copied(),
+        Some(second),
+        "the peer must still complete its pending path"
+    );
 }
 
 #[test]
