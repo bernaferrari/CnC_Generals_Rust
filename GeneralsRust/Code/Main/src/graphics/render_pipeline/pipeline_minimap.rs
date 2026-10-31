@@ -257,6 +257,7 @@ impl RenderPipeline {
                     }
                 }
                 self.native_terrain = Some(candidate);
+                self.flush_native_props();
             }
         }
         #[cfg(not(feature = "game_client"))]

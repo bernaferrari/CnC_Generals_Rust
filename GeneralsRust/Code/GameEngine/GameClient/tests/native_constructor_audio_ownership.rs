@@ -625,6 +625,135 @@ fn client(audio: Arc<Mutex<AudioManager>>) -> GameClient {
 }
 
 #[test]
+fn authored_prop_mutation_is_emitted_once_per_receiving_client() {
+    use game_client_rust::core::game_client::PresentationDrawableMutation;
+    use game_engine::common::thing::thing_template::{
+        ObjectIniFields, ReceivingTemplateKind, ThingTemplate,
+    };
+    fn admitted(model: &str) -> (ModuleFactory, Arc<AdmittedReceivingTemplate>) {
+        let mut factory = ModuleFactory::new_receiving(NameKeyNamespace::new());
+        gamelogic::contain_module_overrides::register_native_module_overrides(&mut factory)
+            .unwrap();
+        let text = format!("Draw = W3DPropDraw PropTag\n ModelName = {model}\nEnd\nEnd");
+        let lines = text.lines().collect::<Vec<_>>();
+        let fields = ObjectIniFields::capture_body(&lines, 0).0;
+        let plan = ThingTemplate::new()
+            .admit_named_receiving_module_source(
+                "OwnedAmbient",
+                &fields,
+                INILoadType::Overwrite,
+                ReceivingTemplateKind::Object,
+                &mut factory,
+            )
+            .unwrap();
+        (factory, Arc::new(plan))
+    }
+    let (mut ca, pa) = admitted("Oak");
+    let (mut cb, pb) = admitted("Rock");
+    let mut ea = entry(pa);
+    ea.position = [10.0, 20.0, 7.0];
+    ea.orientation = 0.5;
+    let mut eb = entry(pb);
+    eb.position = [30.0, 40.0, 9.0];
+    eb.orientation = 1.0;
+    let mut a = client(Arc::new(Mutex::new(audio())));
+    let mut b = client(Arc::new(Mutex::new(audio())));
+    let policy = ReceivingDrawablePolicy {
+        time_of_day: Some(game_client_rust::system::TimeOfDay::Afternoon),
+        use_draw_module_lod: true,
+        static_game_lod: StaticGameLodLevel::High,
+        use_tree_sway: true,
+    };
+    let mut ar = Vec::new();
+    let mut br = Vec::new();
+    let mut aq = game_client_rust::terrain::terrain_visual::TerrainPropQueue::default();
+    let mut bq = game_client_rust::terrain::terrain_visual::TerrainPropQueue::default();
+    for _ in 0..2 {
+        a.sync_presentation_drawables_observed_with_content(
+            [ea.clone()],
+            0,
+            &mut ca,
+            policy,
+            |event| {
+                if let PresentationDrawableMutation::TerrainPropAdded { request, .. } = event {
+                    assert!(aq.push(3, request.clone()));
+                    ar.push(request);
+                }
+            },
+        )
+        .unwrap();
+        b.sync_presentation_drawables_observed_with_content(
+            [eb.clone()],
+            0,
+            &mut cb,
+            policy,
+            |event| {
+                if let PresentationDrawableMutation::TerrainPropAdded { request, .. } = event {
+                    assert!(bq.push(3, request.clone()));
+                    br.push(request);
+                }
+            },
+        )
+        .unwrap();
+    }
+    assert_eq!(ar.len(), 1);
+    assert_eq!(br.len(), 1);
+    assert_eq!(ar[0].drawable_id, br[0].drawable_id);
+    assert_eq!(
+        ar[0].location,
+        gamelogic::common::Coord3D::new(10.0, 7.0, 20.0)
+    );
+    assert_eq!(
+        br[0].location,
+        gamelogic::common::Coord3D::new(30.0, 9.0, 40.0)
+    );
+    assert_eq!(ar[0].model_name.as_str(), "Oak");
+    assert_eq!(br[0].model_name.as_str(), "Rock");
+    let mut av = game_client_rust::terrain::terrain_visual::TerrainVisualImpl::new();
+    let mut bv = game_client_rust::terrain::terrain_visual::TerrainVisualImpl::new();
+    aq.drain_into(&mut av);
+    bq.drain_into(&mut bv);
+    assert_eq!(av.terrain_props()[0].model_name, "Oak");
+    assert_eq!(bv.terrain_props()[0].model_name, "Rock");
+    assert_eq!(
+        av.terrain_props()[0].drawable_id,
+        bv.terrain_props()[0].drawable_id
+    );
+    let mut c = client(Arc::new(Mutex::new(audio())));
+    let mut deferred = ea.clone();
+    deferred.position = [0.0, 9.0, 0.0];
+    let mut requests = Vec::new();
+    c.sync_presentation_drawables_observed_with_content(
+        [deferred.clone()],
+        0,
+        &mut ca,
+        policy,
+        |event| {
+            if let PresentationDrawableMutation::TerrainPropAdded { request, .. } = event {
+                requests.push(request);
+            }
+        },
+    )
+    .unwrap();
+    assert!(
+        requests.is_empty(),
+        "height alone is still the original ground-plane origin"
+    );
+    deferred.position = [0.0, 9.0, 4.0];
+    c.sync_presentation_drawables_observed_with_content([deferred], 0, &mut ca, policy, |event| {
+        if let PresentationDrawableMutation::TerrainPropAdded { request, .. } = event {
+            requests.push(request);
+        }
+    })
+    .unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        requests[0].location,
+        gamelogic::common::Coord3D::new(0.0, 4.0, 9.0)
+    );
+}
+
+#[test]
 fn gameclient_constructor_routes_same_id_ambient_to_each_bound_manager() {
     let device_a = Arc::new(Mutex::new(audio()));
     let device_b = Arc::new(Mutex::new(audio()));

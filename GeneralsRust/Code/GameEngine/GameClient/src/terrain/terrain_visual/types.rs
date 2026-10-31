@@ -74,6 +74,54 @@ pub struct TerrainPropRecord {
     pub model_name: String,
 }
 
+/// One receiving draw world's not-yet-admitted prop requests. Requests from a
+/// previous host epoch cannot be replayed into a replacement terrain.
+#[derive(Default)]
+pub struct TerrainPropQueue {
+    epoch: Option<u64>,
+    pending: Vec<gamelogic::object::draw::w3d_prop_draw::TerrainPropAddRequest>,
+}
+
+impl TerrainPropQueue {
+    /// Bind to the driving world's epoch before admitting its callbacks.
+    pub fn bind_epoch(&mut self, epoch: u64) {
+        if self.epoch != Some(epoch) {
+            self.pending.clear();
+            self.epoch = Some(epoch);
+        }
+    }
+
+    pub fn push(
+        &mut self,
+        epoch: u64,
+        request: gamelogic::object::draw::w3d_prop_draw::TerrainPropAddRequest,
+    ) -> bool {
+        if self.epoch.is_some_and(|bound| bound != epoch) {
+            return false;
+        }
+        self.epoch = Some(epoch);
+        self.pending.push(request);
+        true
+    }
+
+    pub fn clear(&mut self) {
+        self.pending.clear();
+        self.epoch = None;
+    }
+
+    pub fn drain_into(&mut self, terrain: &mut TerrainVisualImpl) {
+        for request in self.pending.drain(..) {
+            terrain.add_prop(
+                request.drawable_id,
+                [request.location.x, request.location.y, request.location.z],
+                request.orientation,
+                request.scale,
+                request.model_name.as_str(),
+            );
+        }
+    }
+}
+
 /// CPU record for C++ `removeTreesAndPropsForConstruction`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TerrainConstructionRemoval {

@@ -296,6 +296,10 @@ pub enum PresentationDrawableMutation<'a> {
         source: &'a PresentationDrawableSync,
         transform: crate::drawable::Matrix4,
     },
+    TerrainPropAdded {
+        source: &'a PresentationDrawableSync,
+        request: gamelogic::object::draw::w3d_prop_draw::TerrainPropAddRequest,
+    },
     ConditionsMarked {
         source: &'a PresentationDrawableSync,
         bits: u128,
@@ -310,6 +314,7 @@ impl PresentationDrawableMutation<'_> {
         match self {
             Self::Creating { source, .. }
             | Self::TransformInstalled { source, .. }
+            | Self::TerrainPropAdded { source, .. }
             | Self::ConditionsMarked { source, .. } => source.object_id,
             Self::Destroyed { object_id, .. } => *object_id,
         }

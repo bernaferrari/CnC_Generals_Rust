@@ -739,6 +739,29 @@ impl GameClient {
         )
     }
 
+    fn take_owned_prop_requests(
+        drawable: &mut BasicDrawable,
+        source: &PresentationDrawableSync,
+    ) -> Vec<gamelogic::object::draw::w3d_prop_draw::TerrainPropAddRequest> {
+        let drawable_id = drawable.get_id().0;
+        let scale = drawable.get_instance_scale();
+        drawable
+            .get_draw_modules_mut()
+            .iter_mut()
+            .filter_map(|slot| {
+                let prop = slot.logic_module_mut()?.as_any_mut().downcast_mut::<
+                    gamelogic::object::draw::w3d_prop_draw::W3DPropDraw,
+                >()?;
+                // Presentation is Y-up; the terrain-prop contract retains the
+                // original X/Y ground plane and Z height.
+                let position = gamelogic::common::Coord3D::new(
+                    source.position[0], source.position[2], source.position[1],
+                );
+                prop.react_to_owned_transform(drawable_id, position, source.orientation, scale)
+            })
+            .collect()
+    }
+
     fn sync_presentation_drawables_with_content_inner<I>(
         &mut self,
         entries: I,
@@ -869,6 +892,9 @@ impl GameClient {
                         });
                     }
                     if let Some(basic) = drawable.downcast_mut::<BasicDrawable>() {
+                        for request in Self::take_owned_prop_requests(basic, &e) {
+                            observe(PresentationDrawableMutation::TerrainPropAdded { source: &e, request });
+                        }
                         basic.admit_receiving_time_of_day(receiving_tod);
                         if !visual_template_name.is_empty() {
                             basic.set_template_name_with_receiving(

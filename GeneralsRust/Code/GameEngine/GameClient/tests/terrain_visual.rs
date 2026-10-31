@@ -536,6 +536,44 @@ fn prop_identity_and_full_pose_stay_with_the_receiving_visual() {
 }
 
 #[test]
+fn pending_prop_queue_is_world_owned_and_discards_old_epoch() {
+    use game_client_rust::terrain::terrain_visual::TerrainPropQueue;
+    use gamelogic::object::draw::w3d_prop_draw::TerrainPropAddRequest;
+    let request = |model: &str, x| TerrainPropAddRequest {
+        drawable_id: 42,
+        location: gamelogic::common::Coord3D::new(x, 20.0, 7.0),
+        orientation: 0.5,
+        scale: 1.5,
+        model_name: model.into(),
+    };
+    let mut queue = TerrainPropQueue::default();
+    let mut peer_queue = TerrainPropQueue::default();
+    let mut terrain = TerrainVisualImpl::new();
+    let mut peer = TerrainVisualImpl::new();
+    queue.bind_epoch(1);
+    assert!(queue.push(1, request("stale", 1.0)));
+    queue.bind_epoch(2);
+    assert!(queue.push(2, request("oak", 10.0)));
+    assert!(!queue.push(1, request("late", 2.0)));
+    peer_queue.bind_epoch(3);
+    assert!(peer_queue.push(3, request("rock", 30.0)));
+    queue.drain_into(&mut terrain);
+    peer_queue.drain_into(&mut peer);
+    assert_eq!(terrain.terrain_props().len(), 1);
+    assert_eq!(terrain.terrain_props()[0].model_name, "oak");
+    assert_eq!(peer.terrain_props()[0].model_name, "rock");
+    assert_eq!(
+        terrain.terrain_props()[0].drawable_id,
+        peer.terrain_props()[0].drawable_id
+    );
+    assert!(!queue.push(1, request("late-after-drain", 3.0)));
+    assert!(queue.push(2, request("discarded", 40.0)));
+    queue.clear();
+    queue.drain_into(&mut terrain);
+    assert_eq!(terrain.terrain_props().len(), 1);
+}
+
+#[test]
 fn terrain_visual_forwards_track_detail_to_owned_track_system() {
     let terrain = FlatTrackTerrain;
     let mut visual = TerrainVisualImpl::new();

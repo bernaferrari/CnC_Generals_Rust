@@ -74,6 +74,40 @@ fn two_actual_pipeline_terrain_owners_accept_canonical_bytes_without_global_sele
         1,
         "GPU hydration must retain the saved/authored scorch owner"
     );
+    a.clear_native_terrain();
+    b.clear_native_terrain();
+    let request =
+        |name: &str, position| gamelogic::object::draw::w3d_prop_draw::TerrainPropAddRequest {
+            drawable_id: 42,
+            location: gamelogic::common::Coord3D::new(position, 2.0, 3.0),
+            orientation: 0.5,
+            scale: 1.5,
+            model_name: name.into(),
+        };
+    a.receive_native_prop(1, request("stale", 1.0));
+    a.clear_native_terrain();
+    a.receive_native_prop(2, request("oak", 10.0));
+    a.receive_native_prop(1, request("late", 2.0));
+    b.receive_native_prop(3, request("rock", 20.0));
+    a.install_native_terrain_cpu(Some(visual(40)));
+    b.install_native_terrain_cpu(Some(visual(80)));
+    assert_eq!(a.native_terrain().unwrap().terrain_props().len(), 1);
+    assert_eq!(
+        a.native_terrain().unwrap().terrain_props()[0].model_name,
+        "oak"
+    );
+    assert_eq!(
+        b.native_terrain().unwrap().terrain_props()[0].model_name,
+        "rock"
+    );
+    assert_eq!(
+        a.native_terrain().unwrap().terrain_props()[0].drawable_id,
+        42
+    );
+    assert_eq!(
+        b.native_terrain().unwrap().terrain_props()[0].drawable_id,
+        42
+    );
     drop(a);
     drop(b);
     drop(graphics);

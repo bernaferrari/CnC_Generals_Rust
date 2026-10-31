@@ -2128,6 +2128,7 @@ impl CnCGameEngine {
             }
         };
         let native_owner = &mut self.render_pipeline;
+        native_owner.bind_native_prop_epoch(host_epoch);
         let graphics = &mut self.graphics_system;
         let (created, updated, pruned) = if let Some(content) =
             &mut self.game_logic.receiving_module_content

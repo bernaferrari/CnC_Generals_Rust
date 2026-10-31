@@ -19,7 +19,7 @@ pub(super) struct NativeRendererViewEffects<'a> {
 #[cfg(feature = "game_client")]
 impl<'a> NativeRendererViewEffects<'a> {
     pub(super) fn new(
-        poses: NativeInstalledPoseLoan<'a>,
+        mut poses: NativeInstalledPoseLoan<'a>,
         graphics: &'a mut GraphicsSystem,
         drawables: game_client::core::game_client::NativeDrawableOwner<'a>,
         host_epoch: u64,
@@ -27,6 +27,7 @@ impl<'a> NativeRendererViewEffects<'a> {
         policy: game_client::core::game_client::ReceivingDrawablePolicy,
         retirement: &'a mut dyn game_client::core::game_client::NativeDrawableRetirement,
     ) -> Self {
+        poses.bind_native_prop_epoch(host_epoch);
         Self {
             poses,
             graphics,

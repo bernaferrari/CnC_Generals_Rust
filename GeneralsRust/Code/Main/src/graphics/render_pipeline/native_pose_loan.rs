@@ -4,6 +4,8 @@ use super::*;
 use installed_draw_pose::{NativeCameraPoseUnavailable, ObjectVisualState};
 
 pub(crate) struct NativeInstalledPoseLoan<'a> {
+    #[cfg(feature = "game_client")]
+    pub(super) pending_native_props: &'a mut game_client::terrain::terrain_visual::TerrainPropQueue,
     pub(super) native_drawable_lifetimes:
         &'a mut HashMap<NativeDrawOwnerId, native_draw_world::NativeDrawableLifetime>,
     pub(super) live_draw_playback:
@@ -33,8 +35,15 @@ impl RenderPipeline {
     }
 }
 impl NativeInstalledPoseLoan<'_> {
+    #[cfg(feature = "game_client")]
+    pub(crate) fn bind_native_prop_epoch(&mut self, epoch: u64) {
+        self.pending_native_props.bind_epoch(epoch);
+    }
+
     pub(crate) fn reborrow(&mut self) -> NativeInstalledPoseLoan<'_> {
         NativeInstalledPoseLoan {
+            #[cfg(feature = "game_client")]
+            pending_native_props: &mut *self.pending_native_props,
             native_drawable_lifetimes: &mut *self.native_drawable_lifetimes,
             live_draw_playback: &mut *self.live_draw_playback,
             drawable_visual_states: &mut *self.drawable_visual_states,

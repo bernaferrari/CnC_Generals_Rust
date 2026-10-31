@@ -29,8 +29,13 @@ impl RenderPipeline {
         source: Option<&crate::presentation_frame::UnitRenderInput>,
         graphics: &mut GraphicsSystem,
     ) {
+        if let PresentationDrawableMutation::TerrainPropAdded { source, request } = mutation {
+            self.receive_native_prop(source.host_epoch, request);
+            return;
+        }
         self.borrow_native_installed_poses()
             .receive_native_drawable_mutation(mutation, source, graphics);
+        self.flush_native_props();
     }
 
     /// Source getDrawModules on the same installed owner, through a bounded loan.
@@ -257,6 +262,12 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
         source: Option<NativeDrawSource<'_>>,
         graphics: &mut GraphicsSystem,
     ) {
+        if let PresentationDrawableMutation::TerrainPropAdded { source, request } = mutation {
+            if !self.pending_native_props.push(source.host_epoch, request) {
+                warn!("rejected terrain prop from a different draw-world epoch");
+            }
+            return;
+        }
         let owner = NativeDrawOwnerId::Actor(mutation.object_id());
         let mutation = match mutation {
             PresentationDrawableMutation::Creating {
@@ -274,6 +285,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                 NativeDrawMutation::ConditionsMarked { bits }
             }
             PresentationDrawableMutation::Destroyed { .. } => NativeDrawMutation::Destroyed,
+            PresentationDrawableMutation::TerrainPropAdded { .. } => unreachable!(),
         };
         self.receive_native_mutation_for_owner(owner, mutation, source, graphics);
     }

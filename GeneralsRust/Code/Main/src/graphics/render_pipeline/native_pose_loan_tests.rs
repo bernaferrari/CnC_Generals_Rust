@@ -57,6 +57,8 @@ fn same_id_peer_reset_and_replacement_cannot_query_or_consume_installed_owner() 
         .collect();
     {
         let mut loan = NativeInstalledPoseLoan {
+            #[cfg(feature = "game_client")]
+            pending_native_props: &mut Default::default(),
             native_drawable_lifetimes: &mut lifetimes,
             live_draw_playback: &mut playback,
             drawable_visual_states: &mut states,
@@ -116,6 +118,8 @@ fn residual_same_id_sibling_from_prior_generation_rejects_whole_source_query() {
         })
         .collect();
     let loan = NativeInstalledPoseLoan {
+        #[cfg(feature = "game_client")]
+        pending_native_props: &mut Default::default(),
         native_drawable_lifetimes: &mut lifetimes,
         live_draw_playback: &mut playback,
         drawable_visual_states: &mut states,
@@ -182,6 +186,8 @@ fn same_object_same_template_client_replacement_requires_actual_constructor_befo
         })
         .collect();
     let mut loan = NativeInstalledPoseLoan {
+        #[cfg(feature = "game_client")]
+        pending_native_props: &mut Default::default(),
         native_drawable_lifetimes: &mut lifetimes,
         live_draw_playback: &mut playback,
         drawable_visual_states: &mut states,

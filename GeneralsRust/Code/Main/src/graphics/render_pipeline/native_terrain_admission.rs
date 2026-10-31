@@ -90,6 +90,7 @@ impl RenderPipeline {
         visual: Option<game_client::terrain::terrain_visual::TerrainVisualImpl>,
     ) {
         self.native_terrain = visual;
+        self.flush_native_props();
         self.radar_terrain_colors = None;
         self.heightmap_world_size = self
             .native_terrain

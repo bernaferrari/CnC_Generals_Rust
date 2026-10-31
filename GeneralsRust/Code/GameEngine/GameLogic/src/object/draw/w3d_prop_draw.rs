@@ -146,6 +146,33 @@ mod tests {
     }
 
     #[test]
+    fn owned_transform_is_one_shot_and_independent_for_equal_drawable_ids() {
+        let mut first = W3DPropDraw::new(module_data("Oak"));
+        let mut peer = W3DPropDraw::new(module_data("Rock"));
+        assert_eq!(
+            first.react_to_owned_transform(42, Coord3D::new(0.0, 0.0, 9.0), 0.0, 1.0),
+            None
+        );
+        let a = first
+            .react_to_owned_transform(42, Coord3D::new(10.0, 20.0, 3.0), 0.5, 2.0)
+            .unwrap();
+        let b = peer
+            .react_to_owned_transform(42, Coord3D::new(30.0, 40.0, 7.0), 1.5, 3.0)
+            .unwrap();
+        assert_eq!(a.drawable_id, b.drawable_id);
+        assert_eq!(a.location, Coord3D::new(10.0, 20.0, 3.0));
+        assert_eq!(a.model_name.as_str(), "Oak");
+        assert_eq!(b.location, Coord3D::new(30.0, 40.0, 7.0));
+        assert_eq!(b.model_name.as_str(), "Rock");
+        assert_eq!(
+            first.react_to_owned_transform(42, Coord3D::new(99.0, 99.0, 9.0), 0.0, 1.0),
+            None
+        );
+        assert_eq!(first.take_pending_prop_add(), None);
+        assert_eq!(peer.take_pending_prop_add(), None);
+    }
+
+    #[test]
     fn do_draw_module_is_cpp_noop() {
         let mut draw = W3DPropDraw::new(module_data("Tree01"));
         draw.bind_owner_id(42);
@@ -208,28 +235,18 @@ impl W3DPropDraw {
         orientation: Real,
         scale: Real,
     ) {
-        if self.prop_added {
-            return;
-        }
-        if position.x == 0.0 && position.y == 0.0 {
-            return;
-        }
-        self.prop_added = true;
-
         let Some(drawable_id) = self.owner_id else {
+            if position.x != 0.0 || position.y != 0.0 {
+                self.prop_added = true;
+            }
             return;
         };
-        if self.data.model_name.is_empty() {
+        let Some(request) =
+            self.react_to_owned_transform(drawable_id, position, orientation, scale)
+        else {
             return;
-        }
-
-        self.pending_prop_add = Some(TerrainPropAddRequest {
-            drawable_id,
-            location: position,
-            orientation,
-            scale,
-            model_name: self.data.model_name.clone(),
-        });
+        };
+        self.pending_prop_add = Some(request);
         if let Some(visual) = TheTerrainVisual::get() {
             visual.add_prop(
                 drawable_id,
@@ -239,6 +256,31 @@ impl W3DPropDraw {
                 self.data.model_name.as_str(),
             );
         }
+    }
+
+    /// Build the one-shot insertion for the calling Drawable's own terrain
+    /// receiver, without looking up or publishing an active world.
+    pub fn react_to_owned_transform(
+        &mut self,
+        drawable_id: ObjectID,
+        position: Coord3D,
+        orientation: Real,
+        scale: Real,
+    ) -> Option<TerrainPropAddRequest> {
+        if self.prop_added || (position.x == 0.0 && position.y == 0.0) {
+            return None;
+        }
+        self.prop_added = true;
+        if self.data.model_name.is_empty() {
+            return None;
+        }
+        Some(TerrainPropAddRequest {
+            drawable_id,
+            location: position,
+            orientation,
+            scale,
+            model_name: self.data.model_name.clone(),
+        })
     }
 
     pub fn take_pending_prop_add(&mut self) -> Option<TerrainPropAddRequest> {

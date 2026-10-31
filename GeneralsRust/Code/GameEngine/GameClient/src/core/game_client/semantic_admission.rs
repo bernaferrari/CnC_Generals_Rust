@@ -620,6 +620,9 @@ impl NativeDrawableOwner<'_> {
                 source: e,
                 transform: drawable.native_base_transform(),
             })?;
+            for request in GameClient::take_owned_prop_requests(drawable, e) {
+                observe(PresentationDrawableMutation::TerrainPropAdded { source: e, request })?;
+            }
             GameClient::stamp_presentation_object_residual(drawable, e, !semantic_lifetime);
             let flags = drawable.get_model_condition_flags();
             let bits = (0..128.min(flags.get_bit_names().len()))

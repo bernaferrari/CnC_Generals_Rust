@@ -239,6 +239,8 @@ impl RenderPipeline {
                     self.render_items.len()
                 );
             }
+            #[cfg(feature = "game_client")]
+            self.flush_native_props();
             self.collect_render_items(
                 graphics_system,
                 view_matrix,
