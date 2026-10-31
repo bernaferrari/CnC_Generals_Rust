@@ -1825,17 +1825,9 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         else {
             return ScriptOwnerQuery::Missing;
         };
-        // CPP Object1757/2800 updates OFF_MAP from the current terrain extent.
-        // Main canonical poses and admitted extent supply the same 2D test.
-        let off_map = |object: &Object| {
-            let pos = object.get_position();
-            pos.x < self.world.world_min.x
-                || pos.x > self.world.world_max.x
-                || pos.z < self.world.world_min.z
-                || pos.z > self.world.world_max.z
-        };
+        // C++ PartitionFilterSameMapStatus compares the objects' stored flags.
         let source = looker.get_position();
-        let source_off_map = off_map(looker);
+        let source_off_map = looker.status.off_map;
         let found = self
             .world
             .host_objects()
@@ -1845,7 +1837,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                     || candidate.status.effectively_dead
                     || !self.sighting_candidate_is_in_partition(candidate)
                     || candidate.is_effectively_stealthed()
-                    || off_map(candidate) != source_off_map
+                    || candidate.status.off_map != source_off_map
                     || candidate.owner_player_id != Some(player)
                 {
                     return false;

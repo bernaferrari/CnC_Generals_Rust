@@ -102,41 +102,107 @@ fn true_condition() -> Condition {
     Condition::new(ConditionType::ConditionTrue)
 }
 
+fn nearest_map(root: &std::path::Path, boundary_cells: i32) -> std::path::PathBuf {
+    let mut out = DataChunkOutput::new();
+    out.open_data_chunk("HeightMapData", 4);
+    for value in [41, 41, 1, 1, boundary_cells, boundary_cells, 1681] {
+        out.write_int(value);
+    }
+    for _ in 0..1681 {
+        out.write_byte(0);
+    }
+    out.close_data_chunk();
+    out.open_data_chunk("PolygonTriggers", 4);
+    out.write_int(1);
+    out.write_ascii_string("OwnedArea");
+    out.write_ascii_string("OwnerLayer");
+    out.write_int(1901);
+    out.write_byte(1);
+    out.write_byte(0);
+    out.write_int(0);
+    out.write_int(4);
+    for (x, y) in [(0, 0), (110, 0), (110, 110), (0, 110)] {
+        out.write_int(x);
+        out.write_int(y);
+        out.write_int(0);
+    }
+    out.close_data_chunk();
+    out.open_data_chunk("ObjectsList", 3);
+    out.close_data_chunk();
+    let path = root.join(format!("Nearest{boundary_cells}.map"));
+    std::fs::write(&path, out.into_ckmp_bytes()).unwrap();
+    path
+}
+
+#[test]
+fn sighting_script_uses_receiving_off_map_status() {
+    fn fixture(path: &std::path::Path) -> (GameLogic, generals_main::game_logic::ObjectId) {
+        let (mut world, observer) = world(path);
+        let mut opponent =
+            Player::new(2, Team::China, "Opponent", false).with_script_identity("Opponent");
+        opponent.alliance_team = 2;
+        world.get_player_mut(1).unwrap().alliance_team = 1;
+        world
+            .get_player_mut(1)
+            .unwrap()
+            .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+        world.add_player(opponent);
+        world.host_object_mut(observer).unwrap().name = "SightingObserver".into();
+        world.host_object_mut(observer).unwrap().vision_range = 100.0;
+        world
+            .create_object_for_player("OwnedTeamStateUnit", 2, glam::Vec3::new(80.0, 0.0, 80.0))
+            .unwrap();
+        (world, observer)
+    }
+
+    fn sees_opponent(world: &mut GameLogic) -> bool {
+        let mut condition = Condition::new(ConditionType::EnemySighted);
+        condition
+            .add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                "SightingObserver".into(),
+            ))
+            .unwrap();
+        condition
+            .add_parameter(Parameter::with_int(ParameterType::Int, 0))
+            .unwrap();
+        condition
+            .add_parameter(Parameter::with_string(
+                ParameterType::Side,
+                "Opponent".into(),
+            ))
+            .unwrap();
+        let mut action = ScriptAction::new(ScriptActionType::IncrementCounter);
+        action
+            .add_parameter(Parameter::with_int(ParameterType::Int, 1))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Counter,
+                "SawOpponent".into(),
+            ))
+            .unwrap();
+        let engine = script_engine("SightingOffMap", condition, action);
+        engine.set_counter("SawOpponent", 0).unwrap();
+        world
+            .update_local_script_engine_with_owner(&engine)
+            .unwrap();
+        engine.get_counter("SawOpponent").unwrap().value == 1
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let (mut small, id) = fixture(&nearest_map(root.path(), 10));
+    let (mut large, peer_id) = fixture(&nearest_map(root.path(), 20));
+    let (mut both_off, third_id) = fixture(&nearest_map(root.path(), 8));
+    assert_eq!((id, id), (peer_id, third_id));
+    assert!(!sees_opponent(&mut small));
+    assert!(sees_opponent(&mut large));
+    assert!(sees_opponent(&mut both_off));
+}
+
 #[test]
 fn nearest_object_script_uses_receiving_off_map_status() {
     use glam::Vec3;
-
-    fn nearest_map(root: &std::path::Path, boundary_cells: i32) -> std::path::PathBuf {
-        let mut out = DataChunkOutput::new();
-        out.open_data_chunk("HeightMapData", 4);
-        for value in [41, 41, 1, 1, boundary_cells, boundary_cells, 1681] {
-            out.write_int(value);
-        }
-        for _ in 0..1681 {
-            out.write_byte(0);
-        }
-        out.close_data_chunk();
-        out.open_data_chunk("PolygonTriggers", 4);
-        out.write_int(1);
-        out.write_ascii_string("OwnedArea");
-        out.write_ascii_string("OwnerLayer");
-        out.write_int(1901);
-        out.write_byte(1);
-        out.write_byte(0);
-        out.write_int(0);
-        out.write_int(4);
-        for (x, y) in [(0, 0), (110, 0), (110, 110), (0, 110)] {
-            out.write_int(x);
-            out.write_int(y);
-            out.write_int(0);
-        }
-        out.close_data_chunk();
-        out.open_data_chunk("ObjectsList", 3);
-        out.close_data_chunk();
-        let path = root.join(format!("Nearest{boundary_cells}.map"));
-        std::fs::write(&path, out.into_ckmp_bytes()).unwrap();
-        path
-    }
 
     fn nearest_world(path: &std::path::Path) -> (GameLogic, generals_main::game_logic::ObjectId) {
         let mut world = GameLogic::new();

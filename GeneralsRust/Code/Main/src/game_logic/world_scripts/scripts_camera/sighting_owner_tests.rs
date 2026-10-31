@@ -21,8 +21,7 @@ fn isolated(run: impl FnOnce() + Send + 'static) {
 
 fn world() -> (GameLogic, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
-    world.world_min = Vec3::ZERO;
-    world.world_max = Vec3::splat(1000.0);
+    world.override_world_size(2000.0, 2000.0);
     world.add_player(Player::new(1, Team::USA, "Viewer", true).with_script_identity("Viewer"));
     world.add_player(
         Player::new(2, Team::China, "Opponent", false).with_script_identity("Opponent"),
@@ -198,7 +197,9 @@ fn sighting_strict_planar_range_and_same_map_status() {
         world.set_fixture_object_position(observer, Vec3::new(1001.0, 0.0, 50.0));
         both(&mut world, true); // both off map is allowed
         world.set_fixture_object_position(target, Vec3::new(1000.0, 0.0, 50.0));
-        both(&mut world, false); // extent edge is on map
+        both(&mut world, true); // extent edge is off map
+        world.set_fixture_object_position(target, Vec3::new(999.99, 0.0, 50.0));
+        both(&mut world, false);
     });
 }
 
@@ -551,8 +552,7 @@ fn typed_sparse_slot_names_resolve_in_live_script_sighting() {
             config.slots[1].slot_index = 3;
             let mut world = GameLogic::new();
             crate::skirmish_config::apply_skirmish_config(&mut world, &config).unwrap();
-            world.world_min = Vec3::ZERO;
-            world.world_max = Vec3::splat(1000.0);
+            world.override_world_size(2000.0, 2000.0);
             let mut template = ThingTemplate::new(TYPE);
             template.add_kind_of(KindOf::Infantry).set_health(100.0);
             world.templates.insert(TYPE.into(), template);
