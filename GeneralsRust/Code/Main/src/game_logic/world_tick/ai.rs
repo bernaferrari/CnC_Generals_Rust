@@ -876,6 +876,14 @@ impl GameLogic {
             }
             // C++ AIIdleState::onEnter → resetNextMoodCheckTime, before the scan.
             self.apply_pending_idle_mood_reset_with_effects(object_id, presentation_effects);
+            // AIMoveAndTightenState checks its path on the actor's next AI
+            // update, before the later match-wide pathfinder drain.
+            if let Some(object) = self.objects.get_mut(&object_id) {
+                let ready = !object.has_temporary_ai_move()
+                    && !object.waiting_for_path
+                    && !object.movement.path.is_empty();
+                object.unit_ai_runtime.update_tighten_path_check(ready);
+            }
             // C++ AIIdleState::update: mood scan / attack only — never AI_HUNT wander.
             if let Some(obj) = self.objects.get(&object_id) {
                 if obj.has_temporary_ai_move() && obj.ai_state() != AIState::Dead {

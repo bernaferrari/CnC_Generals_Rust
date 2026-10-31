@@ -1910,7 +1910,6 @@ fn safe_queue_one_repulsor_clears_the_old_path() {
             ignore_obstacle: None,
             adjust_destinations: true,
             follow_path_appends: Vec::new(),
-            restore_adjust_on_install: false,
         });
     logic.process_pathfind_queue();
     let obj = logic.objects.get(&id).expect("ranger");
@@ -1967,7 +1966,6 @@ fn airborne_approach_request_drops_the_approach_flag() {
             ignore_obstacle: None,
             adjust_destinations: true,
             follow_path_appends: Vec::new(),
-            restore_adjust_on_install: false,
         });
     logic.process_pathfind_queue();
     let obj = logic.objects.get(&id).expect("jet");

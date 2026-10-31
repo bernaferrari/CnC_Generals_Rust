@@ -701,7 +701,6 @@ fn queue_overflow_refuses_newest() {
         ignore_obstacle: None,
         adjust_destinations: true,
         follow_path_appends: Vec::new(),
-        restore_adjust_on_install: false,
     };
     for i in 1..=MAX_PENDING_PATH_REQUESTS as u32 {
         assert!(sys.queue_path(mk(i)), "slot {i} must enqueue");

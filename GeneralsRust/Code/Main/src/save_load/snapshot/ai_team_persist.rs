@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 const TMAI_MAGIC: &[u8; 4] = b"TMAI";
 // V15 stores the actor's absolute C++ retry frame in queue_for_path_frames;
 // older versions stored a remaining countdown in the same encoded slot.
-const TMAI_VERSION: u32 = 15;
+const TMAI_VERSION: u32 = 16;
 
 fn default_fast_as_possible_order() -> f32 {
     999_999.0
@@ -208,6 +208,12 @@ struct AiTeamPersistPayloadV13 {
 struct AiTeamPersistPayloadV14 {
     previous: AiTeamPersistPayloadV13,
     pending_order: Vec<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct AiTeamPersistPayloadV16 {
+    previous: AiTeamPersistPayloadV14,
+    final_goals: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -942,6 +948,16 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
         previous: payload,
         pending_order,
     };
+    let mut final_goals: Vec<u32> = game_logic
+        .host_objects()
+        .registered()
+        .filter_map(|(id, object)| object.is_final_goal.then_some(id.0))
+        .collect();
+    final_goals.sort_unstable();
+    let payload = AiTeamPersistPayloadV16 {
+        previous: payload,
+        final_goals,
+    };
     let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
@@ -983,6 +999,7 @@ pub(super) struct PreparedAiTeam {
     waypoint_identities: Vec<WaypointIdentityPersist>,
     pending_appends: Vec<PendingFollowPathAppends>,
     pending_order: Option<Vec<u32>>,
+    final_goals: Option<Vec<u32>>,
     absolute_retry_frames: bool,
 }
 pub(super) fn prepare_from_lifecycle_tail(
@@ -1009,6 +1026,7 @@ pub(super) fn prepare_from_lifecycle_tail(
         && version != 12
         && version != 13
         && version != 14
+        && version != 15
         && version != TMAI_VERSION
     {
         return Err(SaveLoadError::Corrupted(format!(
@@ -1026,14 +1044,23 @@ pub(super) fn prepare_from_lifecycle_tail(
     let mut waypoint_identities = Vec::new();
     let mut pending_appends = Vec::new();
     let mut pending_order = None;
+    let mut final_goals = None;
     let payload = if version >= 11 {
         let envelope: AiTeamPersistPayloadV11 = if version >= 12 {
             let current: AiTeamPersistPayloadV12 = if version >= 13 {
                 let v13: AiTeamPersistPayloadV13 = if version >= 14 {
-                    let v14: AiTeamPersistPayloadV14 = bincode_legacy::deserialize(encoded)
-                        .map_err(|err| {
+                    let v14: AiTeamPersistPayloadV14 = if version >= 16 {
+                        let v16: AiTeamPersistPayloadV16 = bincode_legacy::deserialize(encoded)
+                            .map_err(|err| {
+                                SaveLoadError::Corrupted(format!("TMAI v16 decode: {err}"))
+                            })?;
+                        final_goals = Some(v16.final_goals);
+                        v16.previous
+                    } else {
+                        bincode_legacy::deserialize(encoded).map_err(|err| {
                             SaveLoadError::Corrupted(format!("TMAI v14 decode: {err}"))
-                        })?;
+                        })?
+                    };
                     pending_order = Some(v14.pending_order);
                     v14.previous
                 } else {
@@ -1278,12 +1305,23 @@ pub(super) fn prepare_from_lifecycle_tail(
             ));
         }
     }
+    if let Some(final_goals) = &final_goals {
+        let orders: std::collections::HashSet<_> =
+            payload.orders.iter().map(|row| row.object_id).collect();
+        let actual: std::collections::HashSet<_> = final_goals.iter().copied().collect();
+        if actual.len() != final_goals.len() || !actual.is_subset(&orders) {
+            return Err(SaveLoadError::Corrupted(
+                "invalid TMAI final-goal receivers".into(),
+            ));
+        }
+    }
     Ok(Some(PreparedAiTeam {
         payload,
         movement_runtime,
         waypoint_identities,
         pending_appends,
         pending_order,
+        final_goals,
         absolute_retry_frames: version >= 15,
     }))
 }
@@ -1298,6 +1336,7 @@ pub(super) fn apply_prepared(
         waypoint_identities,
         pending_appends,
         pending_order,
+        final_goals,
         absolute_retry_frames,
     }) = prepared
     else {
@@ -1308,6 +1347,14 @@ pub(super) fn apply_prepared(
     for object in game_logic.objects.registered_values_mut() {
         object.pending_waypoint_id = None;
         object.completed_waypoint_id = None;
+    }
+    if let Some(final_goals) = &final_goals {
+        let selected: std::collections::HashSet<_> = final_goals.iter().copied().collect();
+        for order in &payload.orders {
+            if let Some(object) = game_logic.objects.get_mut(&ObjectId(order.object_id)) {
+                object.is_final_goal = selected.contains(&order.object_id);
+            }
+        }
     }
     apply_payload(
         game_logic,
@@ -1368,6 +1415,7 @@ fn capture(game_logic: &GameLogic) -> AiTeamPersistPayload {
             || object.requested_destination.is_some()
             || object.requested_victim_id.is_some()
             || object.waiting_for_path
+            || object.is_final_goal
             || object.is_exact_path
             || object.is_attack_path
             || object.is_approach_path
@@ -1566,7 +1614,6 @@ fn restore_pending_path(unit_id: ObjectId, persist: &PendingPathPersist) -> Pend
         ignore_obstacle: (persist.ignore_obstacle != 0)
             .then_some(ObjectId(persist.ignore_obstacle)),
         adjust_destinations: true,
-        restore_adjust_on_install: false,
     }
 }
 
@@ -1773,7 +1820,6 @@ mod tests {
             ignore_obstacle: None,
             adjust_destinations: true,
             follow_path_appends: Vec::new(),
-            restore_adjust_on_install: false,
         }]);
 
         let builder = SnapshotBuilder::new();

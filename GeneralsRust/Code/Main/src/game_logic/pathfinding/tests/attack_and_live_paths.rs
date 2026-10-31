@@ -642,7 +642,6 @@ fn process_pathfind_queue_stops_at_cell_budget() {
         ignore_obstacle: None,
         adjust_destinations: true,
         follow_path_appends: Vec::new(),
-        restore_adjust_on_install: false,
     };
     assert!(sys.queue_path(mk(1, 10.0)));
     assert!(sys.queue_path(mk(2, 30.0)));

@@ -237,11 +237,6 @@ impl GameLogic {
                 let installed =
                     self.apply_computed_unit_path(req.unit_id, start, goal, path, ground_search);
                 if installed {
-                    if req.restore_adjust_on_install {
-                        if let Some(unit) = self.objects.get_mut(&req.unit_id) {
-                            unit.set_adjust_destinations(true);
-                        }
-                    }
                     if let Some(unit) = self.objects.get_mut(&req.unit_id) {
                         unit.num_frames_blocked = 0;
                         unit.is_blocked_and_stuck = false;
@@ -342,7 +337,6 @@ impl GameLogic {
             is_crusher: unit.crusher_level > 0,
             ignore_obstacle: unit.ignored_obstacle_id,
             adjust_destinations: unit.adjust_destinations(),
-            restore_adjust_on_install: false,
         };
         Some(req)
     }

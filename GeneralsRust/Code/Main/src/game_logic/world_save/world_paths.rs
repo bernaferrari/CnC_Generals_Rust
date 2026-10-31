@@ -185,8 +185,6 @@ impl GameLogic {
         waypoints: &[Vec3],
         compute_now: bool,
     ) -> bool {
-        let restore_adjust = self.pathfinding_system.tighten_restore_adjust;
-        self.pathfinding_system.tighten_restore_adjust = false;
         if self.try_install_flying_quick_path(unit_id, destination) {
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 unit.retry_path = false;
@@ -372,7 +370,6 @@ impl GameLogic {
                         .objects
                         .lookup(&unit_id)
                         .is_some_and(|unit| unit.adjust_destinations()),
-                    restore_adjust_on_install: restore_adjust,
                 });
             if !queued {
                 return false;
@@ -1624,8 +1621,6 @@ impl GameLogic {
                 continue;
             };
             req.waypoints = std::mem::take(&mut queued.waypoints);
-            req.adjust_destinations = queued.adjust_destinations;
-            req.restore_adjust_on_install = queued.restore_adjust_on_install;
             let appends = std::mem::take(&mut queued.follow_path_appends);
             let _resolved = self.resolve_initialized_path_request(req)?;
             for goal in appends {

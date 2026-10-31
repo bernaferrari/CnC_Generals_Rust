@@ -1038,15 +1038,12 @@ impl GameLogic {
                         surfaces: 0,
                         is_crusher: false,
                         ignore_obstacle: None,
-                        adjust_destinations: queued.adjust_destinations,
-                        restore_adjust_on_install: queued.restore_adjust_on_install,
+                        adjust_destinations: true,
                     });
                 request.waypoints.clone_from(&queued.waypoints);
                 request
                     .follow_path_appends
                     .clone_from(&queued.follow_path_appends);
-                request.adjust_destinations = queued.adjust_destinations;
-                request.restore_adjust_on_install = queued.restore_adjust_on_install;
                 request
             })
             .collect()

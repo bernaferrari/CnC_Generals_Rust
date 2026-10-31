@@ -26,7 +26,6 @@ impl PathfindingSystem {
             seeker_center_in_cell: true,
             ignore_obstacle_id: None,
             adjust_goal: true,
-            tighten_restore_adjust: false,
             human_player_mask: None,
             seeker_is_human: false,
             seeker_is_dozer: false,

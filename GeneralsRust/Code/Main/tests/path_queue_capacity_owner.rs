@@ -15,7 +15,6 @@ fn request(id: u32) -> PendingHostPath {
         is_crusher: false,
         ignore_obstacle: None,
         adjust_destinations: true,
-        restore_adjust_on_install: false,
     }
 }
 

@@ -47,11 +47,8 @@ pub struct PendingHostPath {
     pub is_crusher: bool,
     /// C++ `AIUpdateInterface::ignoreObstacle` (DozerAIUpdate.cpp:210).
     pub ignore_obstacle: Option<ObjectId>,
-    /// Transitional move-order adjustment state retained with the route.
+    /// Actor's destination-adjustment setting at observation time.
     pub adjust_destinations: bool,
-    /// Set only for a tighten order. The drain sets the unit flag true
-    /// after install. Not persisted.
-    pub restore_adjust_on_install: bool,
 }
 
 /// Queue-owned ordering and transitional route data. Search inputs belong to
@@ -61,8 +58,6 @@ pub struct QueuedHostPath {
     pub unit_id: ObjectId,
     pub waypoints: Vec<Vec3>,
     pub follow_path_appends: Vec<Vec3>,
-    pub adjust_destinations: bool,
-    pub restore_adjust_on_install: bool,
 }
 
 impl From<PendingHostPath> for QueuedHostPath {
@@ -71,8 +66,6 @@ impl From<PendingHostPath> for QueuedHostPath {
             unit_id: request.unit_id,
             waypoints: request.waypoints,
             follow_path_appends: request.follow_path_appends,
-            adjust_destinations: request.adjust_destinations,
-            restore_adjust_on_install: request.restore_adjust_on_install,
         }
     }
 }
@@ -821,8 +814,6 @@ pub struct PathfindingSystem {
     ignore_obstacle_id: Option<ObjectId>,
     /// C++ `setAdjustsDestination`. False on a non-final hop.
     adjust_goal: bool,
-    /// One-shot copied onto the next `PendingHostPath` by tighten.
-    pub tighten_restore_adjust: bool,
     /// C++ `getPlayerType() == PLAYER_HUMAN` bits (bit i = player i).
     human_player_mask: Option<u16>,
     /// Seeker is a human player (m_logicalExtent clamp).

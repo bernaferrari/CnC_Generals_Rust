@@ -146,12 +146,17 @@ fn append_while_waiting_survives_the_pending_path_result() {
     let length = tag + 8;
     assert_eq!(
         u32::from_le_bytes(v12.lifecycle_tail[version..version + 4].try_into().unwrap()),
-        15
+        16
     );
     let size =
         u32::from_le_bytes(v12.lifecycle_tail[length..length + 4].try_into().unwrap()) as usize;
     let end = tag + 12 + size;
-    // V15 retains V14's envelope, including its pending-ID vector.
+    // This fixture has no final-goal rows in the V16 extension.
+    assert_eq!(&v12.lifecycle_tail[end - 8..end], &[0; 8]);
+    v12.lifecycle_tail.drain(end - 8..end);
+    let size = size - 8;
+    let end = end - 8;
+    // The V14 envelope includes the pending-ID vector.
     assert_eq!(&v12.lifecycle_tail[end - 20..end - 12], &[0; 8]);
     assert_eq!(&v12.lifecycle_tail[end - 12..end - 4], &1_u64.to_le_bytes());
     assert_eq!(&v12.lifecycle_tail[end - 4..end], &id.0.to_le_bytes());
@@ -191,18 +196,16 @@ fn append_while_waiting_survives_the_pending_path_result() {
     );
     assert!(!unit.waiting_for_path, "the queued search must run");
     assert_eq!(unit.movement.path.last().copied(), Some(third));
-    assert!(
-        unit.movement
-            .path
-            .iter()
-            .any(|point| point.distance(first) < 0.1)
-    );
-    assert!(
-        unit.movement
-            .path
-            .iter()
-            .any(|point| point.distance(second) < 0.1)
-    );
+    assert!(unit
+        .movement
+        .path
+        .iter()
+        .any(|point| point.distance(first) < 0.1));
+    assert!(unit
+        .movement
+        .path
+        .iter()
+        .any(|point| point.distance(second) < 0.1));
     let mut reached = [false; 3];
     for _ in 0..600 {
         world.update_with_dt(1.0 / 30.0);
@@ -346,7 +349,9 @@ fn append_while_waiting_survives_the_pending_path_result() {
         .unwrap();
     let length =
         u32::from_le_bytes(saved.lifecycle_tail[tag + 8..tag + 12].try_into().unwrap()) as usize;
-    let last_id = tag + 12 + length - 4;
+    let end = tag + 12 + length;
+    assert_eq!(&saved.lifecycle_tail[end - 8..end], &[0; 8]);
+    let last_id = end - 12;
     assert_eq!(
         &saved.lifecycle_tail[last_id..last_id + 4],
         &a.0.to_le_bytes()
@@ -543,11 +548,9 @@ fn waypoints_are_traversed_in_order_by_the_owning_world() {
     );
     let peer_before = restored.host_object(id).unwrap().get_position();
     after_reload.version = 0;
-    assert!(
-        builder
-            .restore_from_snapshot(&after_reload, &mut reloaded)
-            .is_err()
-    );
+    assert!(builder
+        .restore_from_snapshot(&after_reload, &mut reloaded)
+        .is_err());
     assert_eq!(
         (
             reloaded.get_frame(),

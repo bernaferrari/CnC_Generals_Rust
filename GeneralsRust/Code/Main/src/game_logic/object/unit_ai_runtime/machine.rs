@@ -57,6 +57,9 @@ pub struct BaseAiContinuation {
     pub face_goal_pos: Option<Vec3>,
     pub face_loco_frame: u32,
     pub adjust_destinations: bool,
+    /// AIMoveAndTightenState::m_checkForPath, owned and saved by this actor.
+    #[serde(default)]
+    pub(crate) tighten_check_for_path: bool,
     pub wander_width: f32,
 
     pub(crate) guard: GuardRuntime,
@@ -93,6 +96,7 @@ impl Default for BaseAiContinuation {
             face_goal_pos: None,
             face_loco_frame: 0,
             adjust_destinations: true,
+            tighten_check_for_path: false,
             wander_width: 0.0,
 
             guard: Default::default(),
@@ -195,6 +199,9 @@ impl UnitAiRuntime {
         Ok(())
     }
     pub(crate) fn enter_root(&mut self, state: AIState) {
+        if state != AIState::Moving {
+            self.machine.tighten_check_for_path = false;
+        }
         if self.machine.ai_state == AIState::Attacking && state != AIState::Attacking {
             self.machine.attack_original_victim_pos = None;
         }
@@ -388,6 +395,18 @@ impl UnitAiRuntime {
     pub(crate) fn set_adjust_destinations(&mut self, value: bool) {
         self.machine.adjust_destinations = value;
     }
+    pub(crate) fn begin_tighten_path_check(&mut self) {
+        self.machine.tighten_check_for_path = true;
+    }
+    pub(crate) fn cancel_tighten_path_check(&mut self) {
+        self.machine.tighten_check_for_path = false;
+    }
+    pub(crate) fn update_tighten_path_check(&mut self, path_ready: bool) {
+        if self.machine.tighten_check_for_path && path_ready {
+            self.machine.adjust_destinations = true;
+            self.machine.tighten_check_for_path = false;
+        }
+    }
     pub(crate) fn set_wander_width(&mut self, value: f32) {
         self.machine.wander_width = value;
     }
@@ -413,6 +432,7 @@ impl BaseAiContinuation {
             && self.quick_exit.is_none()
             && self.wander.is_none()
             && !self.face_active
+            && !self.tighten_check_for_path
             && self.attack_substate == AttackSubState::AimAtTarget
             && self.approach_timestamp == 0
             && self.prev_victim_pos.is_none()

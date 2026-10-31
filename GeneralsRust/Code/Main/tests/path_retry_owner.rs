@@ -87,6 +87,16 @@ fn delayed_request_runs_on_its_actor_deadline_after_save_and_interleaving() {
         .position(|part| part == b"TMAI")
         .unwrap()
         + 4;
+    let length = version + 4;
+    let size = u32::from_le_bytes(
+        legacy.lifecycle_tail[length..length + 4]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    let end = length + 4 + size;
+    assert_eq!(&legacy.lifecycle_tail[end - 8..end], &[0; 8]);
+    legacy.lifecycle_tail.drain(end - 8..end);
+    legacy.lifecycle_tail[length..length + 4].copy_from_slice(&((size - 8) as u32).to_le_bytes());
     legacy.lifecycle_tail[version..version + 4].copy_from_slice(&14_u32.to_le_bytes());
     let mut legacy_receiver = world(&map);
     builder
@@ -189,5 +199,139 @@ fn queued_search_uses_the_current_owners_locomotor_surfaces() {
             .path
             .is_empty(),
         "a water-only locomotor cannot use the ground-only terrain"
+    );
+}
+
+#[test]
+fn tighten_continuation_is_actor_owned_and_survives_pending_save() {
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("Tighten.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+
+    let mut original = world(&map);
+    let mut restored = world(&map);
+    let mut peer = world(&map);
+    let start = Vec3::new(100.0, 0.0, 100.0);
+    let id = original
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    let peer_id = peer
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    assert_eq!(id, peer_id);
+    assert!(original.unit_command_tighten_to(id, Vec3::new(100.0, 0.0, 150.0)));
+    assert!(original.host_object(id).unwrap().waiting_for_path);
+    assert!(!original.host_object(id).unwrap().adjust_destinations());
+    assert!(original.host_object(id).unwrap().is_final_goal);
+    assert!(peer.host_object(peer_id).unwrap().adjust_destinations());
+    let builder = SnapshotBuilder::new();
+    // Reject duplicate V16 final-goal receivers before mutating the peer.
+    let mut malformed = builder.create_world_snapshot(&original).unwrap();
+    let tag = malformed
+        .lifecycle_tail
+        .windows(4)
+        .position(|v| v == b"TMAI")
+        .unwrap();
+    let length = tag + 8;
+    let size = u32::from_le_bytes(
+        malformed.lifecycle_tail[length..length + 4]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    let end = tag + 12 + size;
+    assert_eq!(
+        &malformed.lifecycle_tail[end - 12..end - 4],
+        &1_u64.to_le_bytes()
+    );
+    assert_eq!(&malformed.lifecycle_tail[end - 4..end], &id.0.to_le_bytes());
+    malformed.lifecycle_tail[end - 12..end - 4].copy_from_slice(&2_u64.to_le_bytes());
+    malformed
+        .lifecycle_tail
+        .splice(end..end, id.0.to_le_bytes());
+    malformed.lifecycle_tail[length..length + 4]
+        .copy_from_slice(&((size + 4) as u32).to_le_bytes());
+    peer.set_current_frame(7);
+    assert!(builder
+        .restore_from_snapshot(&malformed, &mut peer)
+        .is_err());
+    assert_eq!(peer.get_current_frame(), 7);
+    assert!(peer.host_object(peer_id).unwrap().adjust_destinations());
+    let snapshot = builder.create_world_snapshot(&original).unwrap();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+
+    for world in [&mut original, &mut restored] {
+        world.update_with_dt(1.0 / 30.0);
+        let actor = world.host_object(id).unwrap();
+        assert!(!actor.waiting_for_path);
+        assert!(!actor.movement.path.is_empty());
+        assert!(
+            !actor.adjust_destinations(),
+            "C++ waits for the following AI update"
+        );
+    }
+    assert_eq!(
+        original.host_object(id).unwrap().movement.path,
+        restored.host_object(id).unwrap().movement.path
+    );
+    let between_frames = builder.create_world_snapshot(&original).unwrap();
+    let mut boundary_restore = world(&map);
+    builder
+        .restore_from_snapshot(&between_frames, &mut boundary_restore)
+        .unwrap();
+    assert!(!boundary_restore
+        .host_object(id)
+        .unwrap()
+        .adjust_destinations());
+    peer.update_with_dt(1.0 / 30.0);
+    assert!(peer.host_object(peer_id).unwrap().adjust_destinations());
+    for world in [&mut original, &mut restored, &mut boundary_restore] {
+        world.update_with_dt(1.0 / 30.0);
+        assert!(
+            world.host_object(id).unwrap().adjust_destinations(),
+            "C++ enables adjustment in the tighten-state update"
+        );
+    }
+
+    // A new ordinary move replaces the pending tighten state, even though
+    // both commands project to the host's Moving state.
+    let mut interrupted = world(&map);
+    let interrupted_id = interrupted
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    assert!(interrupted.unit_command_tighten_to(interrupted_id, Vec3::new(100.0, 0.0, 150.0)));
+    // An ultra-accurate move keeps adjustment disabled; a stale tighten
+    // continuation would incorrectly enable it after the replacement.
+    interrupted
+        .host_object_mut(interrupted_id)
+        .unwrap()
+        .ultra_accurate = true;
+    assert!(interrupted.unit_command_move_to(interrupted_id, Vec3::new(150.0, 0.0, 100.0)));
+    let adjustment_after_order = interrupted
+        .host_object(interrupted_id)
+        .unwrap()
+        .adjust_destinations();
+    assert!(!adjustment_after_order);
+    for _ in 0..2 {
+        interrupted.update_with_dt(1.0 / 30.0);
+    }
+    assert_eq!(
+        interrupted
+            .host_object(interrupted_id)
+            .unwrap()
+            .adjust_destinations(),
+        adjustment_after_order
     );
 }

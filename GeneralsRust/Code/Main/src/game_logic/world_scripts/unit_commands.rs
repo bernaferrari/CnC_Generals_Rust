@@ -269,6 +269,7 @@ impl GameLogic {
         let ok = self.assign_unit_path(id, destination, &[]);
         if ok {
             if let Some(unit) = self.objects.get_mut(&id) {
+                unit.unit_ai_runtime.cancel_tighten_path_check();
                 unit.ignored_obstacle_id = None;
                 end_hunt_on_player_parent_order(unit);
                 unit.set_ai_state(
@@ -332,6 +333,7 @@ impl GameLogic {
         let ok = self.assign_unit_path(id, destination, waypoints);
         if ok {
             if let Some(unit) = self.objects.get_mut(&id) {
+                unit.unit_ai_runtime.cancel_tighten_path_check();
                 unit.ignored_obstacle_id = None;
             }
         }
@@ -357,6 +359,7 @@ impl GameLogic {
             return false;
         }
         if let Some(unit) = self.objects.get_mut(&id) {
+            unit.unit_ai_runtime.cancel_tighten_path_check();
             unit.ignored_obstacle_id = None;
             end_hunt_on_player_parent_order(unit);
             unit.set_ai_state(
@@ -1339,6 +1342,7 @@ impl GameLogic {
         if cannot_path_yet {
             let clipped = self.clip_player_goal(id, destination);
             if let Some(unit) = self.objects.get_mut(&id) {
+                unit.unit_ai_runtime.cancel_tighten_path_check();
                 end_hunt_on_player_parent_order(unit);
                 unit.ignored_obstacle_id = None;
                 unit.pending_move = Some(clipped);
@@ -1358,6 +1362,7 @@ impl GameLogic {
             return false;
         }
         if let Some(unit) = self.objects.get_mut(&id) {
+            unit.unit_ai_runtime.cancel_tighten_path_check();
             end_hunt_on_player_parent_order(unit);
             unit.ignored_obstacle_id = None;
             unit.set_ai_state(
@@ -1521,6 +1526,7 @@ impl GameLogic {
             return false;
         }
         if let Some(unit) = self.objects.get_mut(&id) {
+            unit.unit_ai_runtime.cancel_tighten_path_check();
             unit.ignored_obstacle_id = None;
             if clear_formation && unit.formation_id != 0 {
                 unit.set_formation(0, glam::Vec2::ZERO);
@@ -1558,11 +1564,13 @@ impl GameLogic {
             .is_some_and(|unit| unit.is_alive() && !unit.can_move());
         if cannot_path_yet {
             if let Some(unit) = self.objects.get_mut(&id) {
+                unit.set_adjust_destinations(false);
                 Self::accept_tighten_order(
                     unit,
                     destination,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
+                unit.unit_ai_runtime.begin_tighten_path_check();
             }
             return true;
         }
@@ -1573,20 +1581,16 @@ impl GameLogic {
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.set_adjust_destinations(false);
         }
-        self.pathfinding_system.tighten_restore_adjust = true;
         if !self.assign_unit_path(id, destination, &[]) {
-            self.pathfinding_system.tighten_restore_adjust = false;
             return false;
         }
         if let Some(unit) = self.objects.get_mut(&id) {
-            if !unit.waiting_for_path && !unit.movement.path.is_empty() {
-                unit.set_adjust_destinations(true);
-            }
             Self::accept_tighten_order(
                 unit,
                 destination,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
+            unit.unit_ai_runtime.begin_tighten_path_check();
             return true;
         }
         false
@@ -2310,6 +2314,7 @@ impl GameLogic {
         }
 
         if let Some(unit) = self.objects.get_mut(&id) {
+            unit.unit_ai_runtime.cancel_tighten_path_check();
             unit.ignored_obstacle_id = None;
             // C++ setFormationID(NO_FORMATION) on free individual move when goal is not
             // the stamped formation offset destination.

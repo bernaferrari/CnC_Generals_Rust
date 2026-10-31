@@ -1087,6 +1087,10 @@ impl Object {
             return;
         }
 
+        if !nested && state != AIState::Moving {
+            self.unit_ai_runtime.cancel_tighten_path_check();
+        }
+
         // Leaving the host's Follow movement family exits Exact as well as
         // successful arrival. Same-family replacement is handled at accepted
         // path admission, where the outgoing order is still observable.
