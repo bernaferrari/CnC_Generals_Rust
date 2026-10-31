@@ -1229,6 +1229,7 @@ impl Object {
         self.set_status_moving(false);
         self.queue_for_path_frame = 0;
         self.waiting_for_path = false;
+        self.pending_quick_path_goal = false;
         // None is meaningful: do not leave the temporary goal installed when
         // the underlying machine never had a physical destination.
         self.requested_destination = previous_temporary.saved_destination;
@@ -1276,6 +1277,7 @@ impl Object {
         self.set_status_moving(false);
         self.requested_destination = None;
         self.waiting_for_path = false;
+        self.pending_quick_path_goal = false;
         self.is_attack_path = false;
         self.is_approach_path = false;
         self.is_safe_path = false;

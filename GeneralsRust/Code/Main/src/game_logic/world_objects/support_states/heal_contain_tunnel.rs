@@ -434,7 +434,7 @@ impl GameLogic {
                     unit.set_status_moving(true);
                     {}
                 }
-                self.register_ground_path_goal(uid, door_end);
+                self.register_path_goal(uid, door_end);
             }
         }
 

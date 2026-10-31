@@ -1200,7 +1200,7 @@ impl GameLogic {
         }
         // C++ updateGoal is inside the numberExits > 0 path (OpenContain.cpp:1016).
         if !skip_follow {
-            self.register_ground_path_goal(unit_id, door_end);
+            self.register_path_goal(unit_id, door_end);
         }
         // C++ TransportContain::onRemoving ResetMoodCheckTimeOnExit + OpenContain
         // template SoundExit / SoundFallingFromPlane.

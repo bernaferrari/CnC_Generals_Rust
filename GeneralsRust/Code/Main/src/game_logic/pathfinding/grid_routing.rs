@@ -671,6 +671,30 @@ impl PathfindingGrid {
             .unwrap_or(0)
     }
 
+    /// C++ `Pathfinder::updateAircraftGoal`: replace the actor's old claim.
+    pub(crate) fn update_aircraft_goal_cell(
+        &mut self,
+        unit_id: u32,
+        selection_radius: f32,
+        old: (i32, i32),
+        goal: Vec3,
+        adjusts_destination: bool,
+    ) -> (i32, i32) {
+        self.clear_ground_goal_square(unit_id, selection_radius, old);
+        if !adjusts_destination {
+            return (-1, -1);
+        }
+        let (radius, center) = Self::radius_and_center(selection_radius, self.grid_size);
+        let cell = self.cell_for_unit_position(goal, center);
+        let above = radius + i32::from(center);
+        for x in (cell.x - radius)..(cell.x + above) {
+            for y in (cell.y - radius)..(cell.y + above) {
+                self.stamp_aircraft_goal_cell(GridPos::new(x, y), unit_id);
+            }
+        }
+        (cell.x, cell.y)
+    }
+
     pub fn has_other_aircraft_goal(&self, pos: GridPos) -> bool {
         let id = self.goal_aircraft(pos);
         id != 0 && (self.query_seeker_id == 0 || id != self.query_seeker_id)
@@ -681,33 +705,11 @@ impl PathfindingGrid {
             return;
         };
         if let Some(slot) = self.occ_goal_aircraft.get_mut(idx) {
-            if *slot == 0 || *slot == unit_id {
-                *slot = unit_id;
-            }
+            *slot = unit_id;
         }
     }
 
-    pub(crate) fn aircraft_goal_dest(obj: &Object) -> Option<Vec3> {
-        if let Some(ai) = obj.chinook_ai.as_ref() {
-            if matches!(
-                ai.flight_status,
-                crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landing
-                    | crate::game_logic::host_combat_chinook::HostChinookFlightStatus::TakingOff
-            ) {
-                return Some(Vec3::new(ai.dest[0], ai.dest[2], ai.dest[1]));
-            }
-        }
-        if obj.do_final_position && obj.movement.path.is_empty() {
-            return Some(obj.final_position);
-        }
-        obj.movement
-            .path
-            .last()
-            .copied()
-            .or(obj.movement.target_position)
-    }
-
-    /// Project C++ `updateAircraftGoal` from this match's canonical object goal.
+    /// Project C++ `updateAircraftGoal` from this match's registered cell.
     /// Ground movers (including unmanned helipad aircraft) reserve ground goals.
     /// The footprint is derived on demand; it is never published into Core AI.
     fn aircraft_goal_footprint(&self, obj: &Object) -> Option<(GridPos, i32, i32)> {
@@ -718,32 +720,39 @@ impl PathfindingGrid {
         {
             return None;
         }
-        let goal = Self::aircraft_goal_dest(obj)?;
+        let (x, y) = obj.pathfind_goal_cell;
+        if x == -1 && y == -1 {
+            return None;
+        }
         let (radius, center) = Self::radius_and_center(obj.selection_radius, self.grid_size);
-        let cell = self.cell_for_unit_position(goal, center);
+        let cell = GridPos::new(x, y);
         Some((cell, radius, radius + i32::from(center)))
     }
 
-    /// Current roster claims, without the seeker's own reservation. Attack
-    /// queries cannot combine these with an older occupancy cache: a unit may
-    /// have changed or cleared its goal since the last path request.
+    /// Current roster claims, without the seeker's own reservation. Match the
+    /// grid rebuild's visitation order when two goals claim the same cell.
     pub(super) fn aircraft_goal_claims(
         &self,
         objects: HostObjectRead<'_>,
         seeker: u32,
     ) -> HashSet<GridPos> {
-        let mut claimed = HashSet::new();
-        for obj in objects.registered_values().filter(|obj| obj.id.0 != seeker) {
+        let mut owners = HashMap::new();
+        let mut actors: Vec<_> = objects.registered_values().collect();
+        actors.sort_by_key(|obj| obj.id);
+        for obj in actors {
             let Some((cell, radius, num_above)) = self.aircraft_goal_footprint(obj) else {
                 continue;
             };
             for i in (cell.x - radius)..(cell.x + num_above) {
                 for j in (cell.y - radius)..(cell.y + num_above) {
-                    claimed.insert(GridPos::new(i, j));
+                    owners.insert(GridPos::new(i, j), obj.id.0);
                 }
             }
         }
-        claimed
+        owners
+            .into_iter()
+            .filter_map(|(cell, owner)| (owner != seeker).then_some(cell))
+            .collect()
     }
 
     /// C++ `Pathfinder::updateAircraftGoal`, on the driving grid only.

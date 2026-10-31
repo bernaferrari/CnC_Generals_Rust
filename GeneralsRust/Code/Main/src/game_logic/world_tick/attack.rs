@@ -2582,7 +2582,7 @@ impl GameLogic {
         };
         drop(u);
         if try_adjust {
-            self.register_ground_path_goal(unit_id, goal);
+            self.register_path_goal(unit_id, goal);
         }
         let temporary_transport = self.objects.get(&unit_id).is_some_and(|object| {
             !was_idle
@@ -3208,7 +3208,7 @@ impl GameLogic {
         };
         if ok && self.objects.get(&id).is_some_and(|obj| obj.is_final_goal) {
             if let Some(last) = last_node {
-                self.register_ground_path_goal(id, last);
+                self.register_path_goal(id, last);
             }
         }
         ok

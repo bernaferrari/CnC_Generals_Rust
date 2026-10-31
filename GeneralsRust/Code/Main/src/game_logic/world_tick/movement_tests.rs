@@ -3111,7 +3111,7 @@ fn arrival_arms_final_position_at_path_last_node() {
     arriver.set_ai_state(AIState::Moving, &mut ObjectAudio::record(&mut Vec::new()));
     let arriver_id = ObjectId(7002);
     logic.objects.insert(arriver_id, arriver);
-    logic.register_ground_path_goal(arriver_id, goal);
+    logic.register_path_goal(arriver_id, goal);
     logic.update_movement_for_test(&[arriver_id], 1.0 / 30.0);
     let obj = logic.objects.get(&arriver_id).expect("arriver");
     let pos = obj.get_position();

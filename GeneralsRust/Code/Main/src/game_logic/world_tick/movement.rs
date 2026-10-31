@@ -17,6 +17,17 @@ impl GameLogic {
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        for &id in object_ids {
+            if self.objects.lookup(&id).is_some_and(|unit| {
+                unit.pending_quick_path_goal
+                    && !unit.waiting_for_path
+                    && !unit.is_disabled()
+                    && !unit.host_skip_dead_locomotor()
+                    && !unit.is_kind_of(KindOf::Immobile)
+            }) {
+                self.on_waited_path_arrived(id);
+            }
+        }
         self.refresh_movement_goal_objects(object_ids);
         self.repath_airborne_projectiles(object_ids);
         self.repath_if_move_goal_moved(object_ids);

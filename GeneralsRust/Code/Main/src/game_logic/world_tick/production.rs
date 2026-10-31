@@ -1294,7 +1294,7 @@ impl GameLogic {
         // computeQuickPath ok → leftover moveAlliesAwayFromDestination.
         self.move_allies_away_from_destination(unit_id, path[0]);
         // privateFollowPath setGoalPosition is the last node (AIUpdate.cpp:3373-3375).
-        self.register_ground_path_goal(unit_id, path[path.len() - 1]);
+        self.register_path_goal(unit_id, path[path.len() - 1]);
     }
 
     /// Wave 679: drain production-spawn ready log and apply host presentation residual

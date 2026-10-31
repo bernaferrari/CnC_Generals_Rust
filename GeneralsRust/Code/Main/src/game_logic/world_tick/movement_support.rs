@@ -186,7 +186,7 @@ impl GameLogic {
             );
         }
         if let Some(last) = accepted_goal {
-            self.register_ground_path_goal(object_id, last);
+            self.register_path_goal(object_id, last);
         }
         let installed = state_to_apply.is_some();
         if let Some(state) = state_to_apply {
@@ -908,7 +908,7 @@ impl GameLogic {
                         .get(&id)
                         .and_then(|obj| obj.movement.path.last().copied())
                     {
-                        self.register_ground_path_goal(id, last);
+                        self.register_path_goal(id, last);
                     }
                 }
             }
@@ -3255,28 +3255,31 @@ impl GameLogic {
         }
         i
     }
-    /// C++ `Pathfinder::updateGoal` on a ground path accept. Last node, not the click.
-    pub(crate) fn register_ground_path_goal(&mut self, unit_id: ObjectId, last: Vec3) {
-        let Some((uid, player, radius, old)) = self.objects.get(&unit_id).and_then(|unit| {
-            if unit.is_kind_of(KindOf::Immobile)
-                || unit.is_safe_path
-                || !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(unit)
-            {
-                return None;
-            }
-            Some((
-                unit.id.0,
-                unit.owner_player_id.unwrap_or(unit.team as u32),
-                unit.selection_radius,
-                unit.pathfind_goal_cell,
-            ))
-        }) else {
+    /// C++ `Pathfinder::updateGoal` on path acceptance. Last node, not the click.
+    pub(crate) fn register_path_goal(&mut self, unit_id: ObjectId, last: Vec3) {
+        let Some((uid, player, radius, old, ground, aircraft_adjusts)) =
+            self.objects.get(&unit_id).and_then(|unit| {
+                if unit.is_kind_of(KindOf::Immobile) || unit.is_safe_path {
+                    return None;
+                }
+                Some((
+                    unit.id.0,
+                    unit.owner_player_id.unwrap_or(unit.team as u32),
+                    unit.selection_radius,
+                    unit.pathfind_goal_cell,
+                    crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(unit),
+                    crate::game_logic::PathfindingGrid::is_aircraft_that_adjusts_destination(unit),
+                ))
+            })
+        else {
             return;
         };
-        let new_cell = self
-            .pathfinding_system
-            .grid
-            .update_ground_goal_cell(uid, player, radius, false, old, last);
+        let grid = &mut self.pathfinding_system.grid;
+        let new_cell = if ground {
+            grid.update_ground_goal_cell(uid, player, radius, false, old, last)
+        } else {
+            grid.update_aircraft_goal_cell(uid, radius, old, last, aircraft_adjusts)
+        };
         if let Some(unit) = self.objects.get_mut(&unit_id) {
             unit.pathfind_goal_cell = new_cell;
         }

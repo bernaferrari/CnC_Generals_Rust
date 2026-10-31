@@ -129,7 +129,7 @@ impl GameLogic {
                 .is_some_and(|unit| unit.is_final_goal);
             if stamp {
                 if let Some(last) = last_node {
-                    self.register_ground_path_goal(unit_id, last);
+                    self.register_path_goal(unit_id, last);
                 }
             }
             self.start_move_sound(unit_id);
@@ -159,7 +159,11 @@ impl GameLogic {
         ignore_obstacle: Option<ObjectId>,
     ) -> bool {
         self.assign_unit_path_ignoring_kind(
-            unit_id, destination, waypoints, ignore_obstacle, PathRequestKind::Move,
+            unit_id,
+            destination,
+            waypoints,
+            ignore_obstacle,
+            PathRequestKind::Move,
         )
     }
 
@@ -168,9 +172,16 @@ impl GameLogic {
         unit_id: ObjectId,
         destination: Vec3,
     ) -> bool {
-        let ignore = self.objects.lookup(&unit_id).and_then(|unit| unit.ignored_obstacle_id);
+        let ignore = self
+            .objects
+            .lookup(&unit_id)
+            .and_then(|unit| unit.ignored_obstacle_id);
         self.assign_unit_path_ignoring_kind(
-            unit_id, destination, &[], ignore, PathRequestKind::Approach,
+            unit_id,
+            destination,
+            &[],
+            ignore,
+            PathRequestKind::Approach,
         )
     }
 
@@ -216,8 +227,7 @@ impl GameLogic {
         compute_now: bool,
         kind: PathRequestKind,
     ) -> bool {
-        if kind == PathRequestKind::Move
-            && self.try_install_flying_quick_path(unit_id, destination)
+        if kind == PathRequestKind::Move && self.try_install_flying_quick_path(unit_id, destination)
         {
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 unit.retry_path = false;
@@ -319,6 +329,7 @@ impl GameLogic {
 
         let delayed = if waypoints.is_empty() {
             if let Some(unit) = self.objects.get_mut(&unit_id) {
+                unit.pending_quick_path_goal = false;
                 if kind == PathRequestKind::Approach {
                     !unit.begin_request_approach_path(destination, self.frame)
                 } else {
@@ -350,7 +361,8 @@ impl GameLogic {
             // Only the empty-waypoint request above can install a quick path.
             // An explicit route may replace another order in this same frame;
             // its predecessor's timestamp does not validate the new route.
-            kind == PathRequestKind::Move && waypoints.is_empty()
+            kind == PathRequestKind::Move
+                && waypoints.is_empty()
                 && unit.path_timestamp == self.frame
                 && !unit.waiting_for_path
                 && !unit.movement.path.is_empty()
@@ -415,6 +427,7 @@ impl GameLogic {
             let mut entered_move = false;
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 unit.waiting_for_path = true;
+                unit.pending_quick_path_goal = false;
                 unit.movement.target_position = None;
                 unit.movement.velocity = glam::Vec3::ZERO;
                 unit.start_move_at_frame(frame);
@@ -547,6 +560,7 @@ impl GameLogic {
                     unit.path_goal_position = Some(destination);
                     unit.waiting_for_path = false;
                     unit.queue_for_path_frame = 0;
+                    unit.pending_quick_path_goal = true;
                     unit.set_status_moving(true);
                 }
                 return true;
@@ -612,6 +626,7 @@ impl GameLogic {
             unit.path_timestamp = self.frame;
             unit.waiting_for_path = false;
             unit.queue_for_path_frame = 0;
+            unit.pending_quick_path_goal = true;
             unit.num_frames_blocked = 0;
             unit.is_blocked_and_stuck = false;
             unit.set_status_moving(true);
@@ -637,6 +652,7 @@ impl GameLogic {
         unit.path_timestamp = self.frame;
         unit.waiting_for_path = false;
         unit.queue_for_path_frame = 0;
+        unit.pending_quick_path_goal = true;
         unit.num_frames_blocked = 0;
         unit.is_blocked_and_stuck = false;
         unit.set_status_moving(true);
@@ -1024,7 +1040,7 @@ impl GameLogic {
         drop(unit);
         if stamp {
             if let Some(last) = last_node {
-                self.register_ground_path_goal(unit_id, last);
+                self.register_path_goal(unit_id, last);
             }
         }
         if after_ground_search && !no_collide {
@@ -1569,7 +1585,11 @@ impl GameLogic {
                 self.assign_unit_approach_path(id, dest)
             } else if approach_path {
                 self.assign_unit_path_ignoring_kind(
-                    id, dest, &[], ignore, PathRequestKind::Approach,
+                    id,
+                    dest,
+                    &[],
+                    ignore,
+                    PathRequestKind::Approach,
                 )
             } else if ignore.is_some() {
                 self.assign_unit_path_ignoring(id, dest, &[], ignore)
@@ -1845,6 +1865,7 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&unit_id) else {
             return Ok(());
         };
+        unit.pending_quick_path_goal = false;
         let overlay = unit.has_temporary_ai_move() && !matches!(unit.ai_state(), AIState::Moving);
         let completed_move = !overlay
             && matches!(unit.ai_state(), AIState::Moving)
@@ -1893,6 +1914,9 @@ impl GameLogic {
     /// (AIStates.cpp:1782-1786). Adjusting units `updateGoal` the last node.
     /// The others `removeGoal`.
     pub(crate) fn on_waited_path_arrived(&mut self, unit_id: ObjectId) {
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            unit.pending_quick_path_goal = false;
+        }
         let Some(unit) = self.objects.lookup(&unit_id) else {
             return;
         };
@@ -1908,10 +1932,10 @@ impl GameLogic {
         let last = unit.movement.path.last().copied();
         if adjusts {
             if let Some(last) = last {
-                self.register_ground_path_goal(unit_id, last);
+                self.register_path_goal(unit_id, last);
             }
         } else {
-            self.remove_registered_ground_path_goal(unit_id);
+            self.remove_registered_path_goal(unit_id);
         }
         if let Some(unit) = self.objects.get_mut(&unit_id) {
             unit.path_goal_position = goal.or(unit.path_goal_position);
@@ -1921,7 +1945,7 @@ impl GameLogic {
     }
 
     /// Pathfinder::removeGoal clears the actor's registered destination.
-    pub(in crate::game_logic) fn remove_registered_ground_path_goal(&mut self, unit_id: ObjectId) {
+    pub(in crate::game_logic) fn remove_registered_path_goal(&mut self, unit_id: ObjectId) {
         let Some(unit) = self.objects.get(&unit_id) else {
             return;
         };
@@ -1932,6 +1956,7 @@ impl GameLogic {
             .clear_ground_goal_square(unit_id.0, radius, old);
         if let Some(unit) = self.objects.get_mut(&unit_id) {
             unit.pathfind_goal_cell = (-1, -1);
+            unit.pending_quick_path_goal = false;
         }
     }
 
@@ -1951,9 +1976,7 @@ impl GameLogic {
         destination: Vec3,
         waypoints: &[Vec3],
     ) -> bool {
-        self.assign_unit_path_inner(
-            unit_id, destination, waypoints, true, PathRequestKind::Move,
-        )
+        self.assign_unit_path_inner(unit_id, destination, waypoints, true, PathRequestKind::Move)
     }
 
     /// Pathfind to goal then set AI state. Falls back to set_destination if A* fails.
@@ -2226,7 +2249,7 @@ impl GameLogic {
                 }
                 {}
                 if let Some(last) = last_node {
-                    self.register_ground_path_goal(unit_id, last);
+                    self.register_path_goal(unit_id, last);
                 }
                 return true;
             }
@@ -2672,7 +2695,7 @@ impl GameLogic {
         unit.set_status_moving(true);
         drop(unit);
         if let Some(last) = last_node {
-            self.register_ground_path_goal(unit_id, last);
+            self.register_path_goal(unit_id, last);
         }
         true
     }

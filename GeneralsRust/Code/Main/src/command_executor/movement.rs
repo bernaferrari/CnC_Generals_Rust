@@ -1022,7 +1022,7 @@ impl<'a> CommandExecutor<'a> {
                 self.game_logic.assign_unit_path(unit_id, goal, via)
             };
             if ok && adjusts {
-                self.game_logic.register_ground_path_goal(unit_id, goal);
+                self.game_logic.register_path_goal(unit_id, goal);
             }
             if ok {
                 any = true;

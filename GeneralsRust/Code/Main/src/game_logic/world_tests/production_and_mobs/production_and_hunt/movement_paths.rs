@@ -1448,7 +1448,7 @@ fn extra_distance_uses_the_easy_goal_metric() {
         unit.movement.current_path_index = 1;
         unit.path_extra_distance = 0.0;
     }
-    logic.register_ground_path_goal(id, last);
+    logic.register_path_goal(id, last);
     let unit = logic.host_object_mut(id).expect("unit");
     let strict = unit.host_locomotor_distance_to_goal(here, last);
     unit.path_extra_distance = 80.0;
@@ -1640,7 +1640,7 @@ fn far_arrival_snaps_the_current_cell_not_the_goal() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
-    logic.register_ground_path_goal(id, goal);
+    logic.register_path_goal(id, goal);
     logic.update_movement_for_test(&[id], 1.0 / 30.0);
     let unit = logic.host_object(id).expect("unit");
     assert!(!unit.do_final_position);
@@ -1685,7 +1685,7 @@ fn close_arrival_plants_the_goal_cell_not_the_raw_point() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
-    logic.register_ground_path_goal(id, raw);
+    logic.register_path_goal(id, raw);
     logic.update_movement_for_test(&[id], 1.0 / 30.0);
     let unit = logic.host_object(id).expect("unit");
     assert!(!unit.do_final_position);

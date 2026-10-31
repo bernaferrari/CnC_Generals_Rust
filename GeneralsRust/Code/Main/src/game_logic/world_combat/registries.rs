@@ -1082,7 +1082,7 @@ impl GameLogic {
                     .get(pid)
                     .and_then(|p| p.movement.target_position)
                 {
-                    self.register_ground_path_goal(*pid, goal);
+                    self.register_path_goal(*pid, goal);
                 }
             }
             if is_garrison && !enclosing {

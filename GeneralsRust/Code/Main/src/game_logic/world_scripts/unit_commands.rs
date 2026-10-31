@@ -1558,7 +1558,7 @@ impl GameLogic {
         }
         let destination = self.clip_player_goal(id, destination);
         self.drop_jet_targeters_on_attack_exit(id);
-        self.remove_registered_ground_path_goal(id);
+        self.remove_registered_path_goal(id);
         let cannot_path_yet = self
             .objects
             .get(&id)

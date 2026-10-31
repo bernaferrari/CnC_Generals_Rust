@@ -1,4 +1,4 @@
-//! Aircraft reservations are derived from the driving match's object goals.
+//! Aircraft reservations are owned by the driving match's registered goals.
 use super::super::*;
 use crate::game_logic::{GameLogic, KindOf, Object, ObjectId, ObjectType, Team, ThingTemplate};
 
@@ -13,7 +13,20 @@ fn aircraft(id: u32, appearance: LocomotorAppearance, goal: Vec3) -> Object {
     object.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_AIR;
     object.selection_radius = 8.0;
     object.movement.target_position = Some(goal);
+    object.pathfind_goal_cell = (
+        (goal.x / 10.0 + 0.5).floor() as i32,
+        (goal.z / 10.0 + 0.5).floor() as i32,
+    );
     object
+}
+
+fn set_goal(world: &mut GameLogic, id: ObjectId, goal: Option<Vec3>) {
+    world.objects.get_mut(&id).unwrap().movement.target_position = goal;
+    if let Some(goal) = goal {
+        world.register_path_goal(id, goal);
+    } else {
+        world.remove_registered_path_goal(id);
+    }
 }
 
 fn adjusted(world: &GameLogic, seeker: ObjectId, dest: Vec3) -> Vec3 {
@@ -37,7 +50,9 @@ fn aircraft_goal_projection_uses_half_cell_footprints_on_the_driving_grid() {
     let mut grid =
         PathfindingGrid::new_with_origin(Vec3::new(-40.0, 0.0, -30.0), 200.0, 200.0, 10.0);
     let goal = Vec3::new(36.0, 40.0, 46.0);
-    let object = aircraft(7, LocomotorAppearance::Hover, goal);
+    let mut object = aircraft(7, LocomotorAppearance::Hover, goal);
+    let cell = grid.cell_for_unit_position(goal, false);
+    object.pathfind_goal_cell = (cell.x, cell.y);
     assert_eq!(PathfindingGrid::radius_and_center(8.0, 10.0), (1, false));
     let mut objects = registered_path_fixture([(object.id, object)]);
     let claims = grid.aircraft_goal_claims(objects.read(), 8);
@@ -59,7 +74,7 @@ fn aircraft_goal_projection_uses_half_cell_footprints_on_the_driving_grid() {
     objects.get_mut(&ObjectId(7)).unwrap().selection_radius = 2.0;
     assert_eq!(
         grid.aircraft_goal_claims(objects.read(), 8),
-        HashSet::from([GridPos::new(7, 7)])
+        HashSet::from([GridPos::new(8, 8)])
     );
     assert!(
         grid.aircraft_goal_claims(objects.read(), 7).is_empty(),
@@ -121,12 +136,7 @@ fn aircraft_attack_query_uses_current_goals_instead_of_old_occupancy() {
             .update_dynamic_obstacles(world.objects.read(), &ground_source)
     });
     let blocked = adjusted(&world, ObjectId(1), dest);
-    world
-        .objects
-        .get_mut(&ObjectId(2))
-        .unwrap()
-        .movement
-        .target_position = None;
+    set_goal(&mut world, ObjectId(2), None);
     let clear = adjusted(&world, ObjectId(1), dest);
     assert_ne!(
         blocked, clear,
@@ -330,6 +340,9 @@ fn authored_world(goal: Vec3) -> (GameLogic, ObjectId, ObjectId) {
         ));
         assert!(!PathfindingGrid::is_doing_ground_movement(object));
     }
+    for id in [hover, wings] {
+        world.register_path_goal(id, goal);
+    }
     assert_eq!(
         world.objects[&hover].loco_appearance,
         LocomotorAppearance::Hover
@@ -405,12 +418,7 @@ fn authored_same_id_matches_keep_aircraft_goals_and_foreign_core_independent() {
     });
     assert_eq!(adjusted(&first, hover, dest), reference);
     assert_eq!(foreign_goal(), before);
-    second
-        .objects
-        .get_mut(&wings_b)
-        .unwrap()
-        .movement
-        .target_position = Some(dest);
+    set_goal(&mut second, wings_b, Some(dest));
     ({
         let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
         second
@@ -514,18 +522,8 @@ fn authored_aircraft_save_load_continues_owned_goal_changes() {
         adjusted(&source, hover, dest)
     );
     for next in [Some(dest + Vec3::new(60.0, 0.0, 0.0)), None, Some(dest)] {
-        source
-            .objects
-            .get_mut(&wings)
-            .unwrap()
-            .movement
-            .target_position = next;
-        restored
-            .objects
-            .get_mut(&wings)
-            .unwrap()
-            .movement
-            .target_position = next;
+        set_goal(&mut source, wings, next);
+        set_goal(&mut restored, wings, next);
         ({
             let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
             source
@@ -578,12 +576,7 @@ fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
     let dest = Vec3::new(75.0, 40.0, 75.0);
     let (mut driving, hover, wings) = authored_world(dest);
     // Only the hover reserves this goal; the wings is the attack seeker.
-    driving
-        .objects
-        .get_mut(&wings)
-        .unwrap()
-        .movement
-        .target_position = None;
+    set_goal(&mut driving, wings, None);
     let (foreign, foreign_hover, foreign_wings) = authored_world(Vec3::new(175.0, 40.0, 175.0));
     assert_eq!((hover, wings), (foreign_hover, foreign_wings));
     let mut shadow = GameWorldShadow::new(16);

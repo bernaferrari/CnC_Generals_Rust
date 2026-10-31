@@ -21,6 +21,10 @@ fn aircraft(world: &mut GameLogic, goal: Vec3) -> ObjectId {
     object.locomotor_surfaces = LOCO_SURFACE_AIR;
     object.selection_radius = 8.0;
     object.movement.target_position = Some(goal);
+    object.pathfind_goal_cell = (
+        (goal.x / 10.0 + 0.5).floor() as i32,
+        (goal.z / 10.0 + 0.5).floor() as i32,
+    );
     id
 }
 
@@ -91,6 +95,20 @@ fn replacing_a_ground_goal_replaces_the_recorded_owner() {
     assert_eq!(grid.ground_goal_mask(GridPos::new(5, 5)), 2);
     grid.clear_ground_goal_square(22, 2.0, old);
     assert_eq!(grid.ground_goal_mask(GridPos::new(5, 5)), 0);
+}
+
+#[test]
+fn overlapping_aircraft_goals_belong_to_the_last_rebuilt_actor() {
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
+    let first = aircraft(&mut world, Vec3::new(80.0, 0.0, 80.0));
+    let second = aircraft(&mut world, Vec3::new(80.0, 0.0, 80.0));
+    let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+    grid.update_dynamic_obstacles(world.host_objects(), &PathfindingGround::Flat(0.0));
+    let cell = GridPos::new(8, 8);
+    assert_eq!(grid.goal_aircraft(cell), second.0);
+    grid.clear_ground_goal_square(first.0, 8.0, (8, 8));
+    assert_eq!(grid.goal_aircraft(cell), second.0);
 }
 
 #[test]

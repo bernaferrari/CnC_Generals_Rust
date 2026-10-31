@@ -2295,7 +2295,7 @@ impl GameLogic {
                 self.assign_unit_path(unit_id, goal, via)
             };
             if assigned && adjusts {
-                self.register_ground_path_goal(unit_id, goal);
+                self.register_path_goal(unit_id, goal);
             }
             if assigned {
                 if let Some(unit) = self.host_object_mut(unit_id) {

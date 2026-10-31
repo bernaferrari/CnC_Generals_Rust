@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 const TMAI_MAGIC: &[u8; 4] = b"TMAI";
 // V15 stores the actor's absolute C++ retry frame in queue_for_path_frames;
 // older versions stored a remaining countdown in the same encoded slot.
-const TMAI_VERSION: u32 = 16;
+const TMAI_VERSION: u32 = 17;
 
 fn default_fast_as_possible_order() -> f32 {
     999_999.0
@@ -214,6 +214,19 @@ struct AiTeamPersistPayloadV14 {
 struct AiTeamPersistPayloadV16 {
     previous: AiTeamPersistPayloadV14,
     final_goals: Vec<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct PathGoalCellPersist {
+    receiver: u32,
+    cell: (i32, i32),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct AiTeamPersistPayloadV17 {
+    previous: AiTeamPersistPayloadV16,
+    goal_cells: Vec<PathGoalCellPersist>,
+    pending_quick_goals: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -958,6 +971,28 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
         previous: payload,
         final_goals,
     };
+    let mut goal_cells: Vec<_> = game_logic
+        .host_objects()
+        .registered()
+        .filter_map(|(id, object)| {
+            (object.pathfind_goal_cell != (-1, -1)).then_some(PathGoalCellPersist {
+                receiver: id.0,
+                cell: object.pathfind_goal_cell,
+            })
+        })
+        .collect();
+    goal_cells.sort_unstable_by_key(|row| row.receiver);
+    let mut pending_quick_goals: Vec<_> = game_logic
+        .host_objects()
+        .registered()
+        .filter_map(|(id, object)| object.pending_quick_path_goal.then_some(id.0))
+        .collect();
+    pending_quick_goals.sort_unstable();
+    let payload = AiTeamPersistPayloadV17 {
+        previous: payload,
+        goal_cells,
+        pending_quick_goals,
+    };
     let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
@@ -1000,6 +1035,8 @@ pub(super) struct PreparedAiTeam {
     pending_appends: Vec<PendingFollowPathAppends>,
     pending_order: Option<Vec<u32>>,
     final_goals: Option<Vec<u32>>,
+    goal_cells: Option<Vec<PathGoalCellPersist>>,
+    pending_quick_goals: Option<Vec<u32>>,
     absolute_retry_frames: bool,
 }
 pub(super) fn prepare_from_lifecycle_tail(
@@ -1027,6 +1064,7 @@ pub(super) fn prepare_from_lifecycle_tail(
         && version != 13
         && version != 14
         && version != 15
+        && version != 16
         && version != TMAI_VERSION
     {
         return Err(SaveLoadError::Corrupted(format!(
@@ -1045,15 +1083,26 @@ pub(super) fn prepare_from_lifecycle_tail(
     let mut pending_appends = Vec::new();
     let mut pending_order = None;
     let mut final_goals = None;
+    let mut goal_cells = None;
+    let mut pending_quick_goals = None;
     let payload = if version >= 11 {
         let envelope: AiTeamPersistPayloadV11 = if version >= 12 {
             let current: AiTeamPersistPayloadV12 = if version >= 13 {
                 let v13: AiTeamPersistPayloadV13 = if version >= 14 {
                     let v14: AiTeamPersistPayloadV14 = if version >= 16 {
-                        let v16: AiTeamPersistPayloadV16 = bincode_legacy::deserialize(encoded)
-                            .map_err(|err| {
+                        let v16: AiTeamPersistPayloadV16 = if version >= 17 {
+                            let v17: AiTeamPersistPayloadV17 = bincode_legacy::deserialize(encoded)
+                                .map_err(|err| {
+                                    SaveLoadError::Corrupted(format!("TMAI v17 decode: {err}"))
+                                })?;
+                            goal_cells = Some(v17.goal_cells);
+                            pending_quick_goals = Some(v17.pending_quick_goals);
+                            v17.previous
+                        } else {
+                            bincode_legacy::deserialize(encoded).map_err(|err| {
                                 SaveLoadError::Corrupted(format!("TMAI v16 decode: {err}"))
-                            })?;
+                            })?
+                        };
                         final_goals = Some(v16.final_goals);
                         v16.previous
                     } else {
@@ -1315,6 +1364,32 @@ pub(super) fn prepare_from_lifecycle_tail(
             ));
         }
     }
+    if let Some(rows) = &goal_cells {
+        let mut seen = std::collections::HashSet::new();
+        if rows.iter().any(|row| {
+            row.receiver == 0
+                || !receivers.contains(&ObjectId(row.receiver))
+                || !seen.insert(row.receiver)
+                || row.cell == (-1, -1)
+        }) {
+            return Err(SaveLoadError::Corrupted(
+                "invalid TMAI path-goal receivers".into(),
+            ));
+        }
+    }
+    if let Some(ids) = &pending_quick_goals {
+        let mut seen = std::collections::HashSet::new();
+        if ids.iter().any(|&id| {
+            id == 0
+                || !receivers.contains(&ObjectId(id))
+                || !seen.insert(id)
+                || !payload.orders.iter().any(|order| order.object_id == id)
+        }) {
+            return Err(SaveLoadError::Corrupted(
+                "invalid TMAI quick-path receivers".into(),
+            ));
+        }
+    }
     Ok(Some(PreparedAiTeam {
         payload,
         movement_runtime,
@@ -1322,6 +1397,8 @@ pub(super) fn prepare_from_lifecycle_tail(
         pending_appends,
         pending_order,
         final_goals,
+        goal_cells,
+        pending_quick_goals,
         absolute_retry_frames: version >= 15,
     }))
 }
@@ -1337,6 +1414,8 @@ pub(super) fn apply_prepared(
         pending_appends,
         pending_order,
         final_goals,
+        goal_cells,
+        pending_quick_goals,
         absolute_retry_frames,
     }) = prepared
     else {
@@ -1347,6 +1426,30 @@ pub(super) fn apply_prepared(
     for object in game_logic.objects.registered_values_mut() {
         object.pending_waypoint_id = None;
         object.completed_waypoint_id = None;
+    }
+    if let Some(rows) = goal_cells {
+        for object in game_logic.objects.registered_values_mut() {
+            object.pathfind_goal_cell = (-1, -1);
+        }
+        for row in rows {
+            game_logic
+                .objects
+                .get_mut(&ObjectId(row.receiver))
+                .expect("validated goal receiver")
+                .pathfind_goal_cell = row.cell;
+        }
+    }
+    if let Some(ids) = pending_quick_goals {
+        for object in game_logic.objects.registered_values_mut() {
+            object.pending_quick_path_goal = false;
+        }
+        for id in ids {
+            game_logic
+                .objects
+                .get_mut(&ObjectId(id))
+                .expect("validated quick-path receiver")
+                .pending_quick_path_goal = true;
+        }
     }
     if let Some(final_goals) = &final_goals {
         let selected: std::collections::HashSet<_> = final_goals.iter().copied().collect();
@@ -1691,11 +1794,13 @@ mod tests {
             .expect("capture TeamFactory")
             .teams
             .expect("TeamFactory chunk");
-        assert!(teams
-            .teams
-            .iter()
-            .any(|team| team.team_name == "USA_AttackSquad"
-                && team.common_attack_target == Some(victim.0)));
+        assert!(
+            teams
+                .teams
+                .iter()
+                .any(|team| team.team_name == "USA_AttackSquad"
+                    && team.common_attack_target == Some(victim.0))
+        );
 
         let mut restored = ranger_logic();
         restored.templates = source.templates.clone();

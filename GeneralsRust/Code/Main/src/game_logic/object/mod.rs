@@ -929,6 +929,9 @@ pub struct Object {
     /// C++ `AIUpdateInterface::m_pathfindGoalCell`. (-1, -1) means unset.
     #[serde(default = "default_unset_pathfind_cell")]
     pub pathfind_goal_cell: (i32, i32),
+    /// A completed quick path awaiting the move state's next update.
+    #[serde(default)]
+    pub(crate) pending_quick_path_goal: bool,
     /// C++ OVER_WATER model condition residual (hover).
     #[serde(default)]
     pub over_water: bool,

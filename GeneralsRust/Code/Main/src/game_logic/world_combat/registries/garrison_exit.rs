@@ -236,7 +236,7 @@ impl GameLogic {
             .get(&unit_id)
             .and_then(|p| p.movement.target_position)
         {
-            self.register_ground_path_goal(unit_id, goal);
+            self.register_path_goal(unit_id, goal);
         }
         if !enclosing {
             // C++ GarrisonContain::onRemoving Patch 1.01: Fire Base station

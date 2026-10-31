@@ -160,7 +160,7 @@ impl GameLogic {
                     if self.objects.get(&req.unit_id).is_some_and(|unit| {
                         crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(unit)
                     }) {
-                        self.register_ground_path_goal(req.unit_id, last);
+                        self.register_path_goal(req.unit_id, last);
                     }
                 }
             }
