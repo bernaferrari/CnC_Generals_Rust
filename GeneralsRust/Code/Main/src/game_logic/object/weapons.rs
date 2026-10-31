@@ -1110,14 +1110,23 @@ impl Object {
 
     /// Leftover `TurretAI::isWeaponSlotOnTurret` (ControlledWeaponSlots bit).
     pub fn is_weapon_slot_on_turret(&self, slot: u8) -> bool {
-        if !self.turret_enabled {
+        if !self.turret_runtime.has_authored_turret && !self.turret_enabled {
             return false;
         }
         let mask = self.leftover_turret_controlled_weapon_slots_mask();
-        (mask & (1u32 << slot)) != 0
+        slot < 3 && (mask & (1u32 << slot)) != 0
     }
 
     fn leftover_turret_controlled_weapon_slots_mask(&self) -> u32 {
+        if let Some(definition) = self.thing.template.receiving_object_definition.as_deref() {
+            return definition
+                .behavior_modules
+                .iter()
+                .find(|module| super::turret_spawn::module_has_turret_block(module))
+                .and_then(|module| module.attribute("ControlledWeaponSlots"))
+                .and_then(parse_turret_weapon_slots)
+                .unwrap_or(1);
+        }
         if let Some(mask) = leftover_parse_controlled_weapon_slots(&self.template_name) {
             return mask;
         }
@@ -1988,7 +1997,10 @@ fn leftover_parse_controlled_weapon_slots(template_name: &str) -> Option<u32> {
         .behavior_modules
         .iter()
         .find(|module| module.attribute("ControlledWeaponSlots").is_some())?;
-    let raw = module.attribute("ControlledWeaponSlots")?;
+    parse_turret_weapon_slots(module.attribute("ControlledWeaponSlots")?)
+}
+
+fn parse_turret_weapon_slots(raw: &str) -> Option<u32> {
     let mut mask = 0u32;
     for token in raw.split_whitespace() {
         let bit = match token.to_ascii_uppercase().as_str() {

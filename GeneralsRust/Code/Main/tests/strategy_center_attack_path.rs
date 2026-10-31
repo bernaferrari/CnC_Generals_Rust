@@ -21,7 +21,7 @@ fn path_state(logic: &GameLogic, id: ObjectId) -> Value {
         "path_goal":object.path_goal_position.map(|p|p.to_array()),
         "is_attack_path":object.is_attack_path,"waiting_for_path":object.waiting_for_path,
         "locomotor_goal":format!("{:?}",object.locomotor_goal_type),
-        "ai":format!("{:?}",object.ai_state),"attack_state":format!("{:?}",object.attack_substate)})
+        "ai":format!("{:?}",object.ai_state()),"attack_state":format!("{:?}",object.attack_substate())})
 }
 
 fn command_case(distance: f32) -> (GameLogic, ObjectId, ObjectId) {
@@ -107,8 +107,8 @@ fn command_case(distance: f32) -> (GameLogic, ObjectId, ObjectId) {
     });
     logic.process_commands();
     let source = logic.host_object(tank).unwrap();
-    assert_eq!(source.ai_state, AIState::Attacking);
-    assert_eq!(source.attack_substate, AttackSubState::AimAtTarget);
+    assert_eq!(source.ai_state(), AIState::Attacking);
+    assert_eq!(source.attack_substate(), AttackSubState::AimAtTarget);
     assert_eq!(source.target, Some(victim));
     assert!(source.status.is_aiming_weapon);
     println!(

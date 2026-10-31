@@ -22,6 +22,53 @@ fn world(turret: Option<(u32, u32, i32, i32)>) -> GameLogic {
     world
 }
 
+fn world_with_slots(slots: &str, disabled: bool) -> GameLogic {
+    let source = format!(
+        "Object {TEMPLATE}\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n  Turret\n   TurretTurnRate = 30\n   ControlledWeaponSlots = {slots}\n   InitiallyDisabled = {}\n  End\n End\nEnd\n",
+        if disabled { "Yes" } else { "No" }
+    );
+    let mut world = GameLogic::new();
+    world
+        .admit_object_ini_sources([("Object.ini".into(), source)])
+        .expect("receiving Object INI accepted");
+    world
+}
+
+#[test]
+fn disabled_turret_retains_receiving_controlled_slots_independent_of_peer() {
+    let mut first = world_with_slots("SECONDARY", true);
+    let mut peer = world_with_slots("PRIMARY TERTIARY", false);
+    let mut none = world(None);
+    let a = first
+        .create_object(TEMPLATE, Team::USA, Vec3::ZERO)
+        .unwrap();
+    let b = peer.create_object(TEMPLATE, Team::USA, Vec3::ZERO).unwrap();
+    let c = none.create_object(TEMPLATE, Team::USA, Vec3::ZERO).unwrap();
+    assert_eq!((a, a), (b, c));
+    let object = first.host_object(a).unwrap();
+    assert!(!object.turret_enabled);
+    assert!(!object.is_weapon_slot_on_turret(0));
+    assert!(object.is_weapon_slot_on_turret(1));
+    assert!(!object.is_weapon_slot_on_turret(2));
+    let object = peer.host_object(b).unwrap();
+    assert!(object.is_weapon_slot_on_turret(0));
+    assert!(!object.is_weapon_slot_on_turret(1));
+    assert!(object.is_weapon_slot_on_turret(2));
+    assert!(!none.host_object(c).unwrap().is_weapon_slot_on_turret(0));
+
+    let snapshot = SnapshotBuilder::new()
+        .create_world_snapshot(&first)
+        .unwrap();
+    let mut restored = world_with_slots("SECONDARY", true);
+    SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    let object = restored.host_object(a).unwrap();
+    assert!(!object.turret_enabled);
+    assert!(object.is_weapon_slot_on_turret(1));
+    assert!(!object.is_weapon_slot_on_turret(0));
+}
+
 fn assert_spawn(
     world: &GameLogic,
     id: generals_main::game_logic::ObjectId,

@@ -138,7 +138,7 @@ pub(super) fn turret_spawn_for_receiving_definition(
     turret_spawn_from_definition(definition).unwrap_or_else(TurretSpawnSpec::absent)
 }
 
-fn module_has_turret_block(module: &BehaviorModuleDefinition) -> bool {
+pub(super) fn module_has_turret_block(module: &BehaviorModuleDefinition) -> bool {
     module.attribute("TurretTurnRate").is_some()
         || module.attribute("TurretPitchRate").is_some()
         || module.attribute("NaturalTurretAngle").is_some()
