@@ -672,6 +672,7 @@ impl TerrainVisualImpl {
                 angle,
             });
         self.tree_buffer.force_vertex_rebuild();
+        let old_prop_count = self.terrain_props.len();
         self.terrain_props.retain(|prop| {
             !Self::point_inside_construction_footprint(
                 prop.position,
@@ -682,11 +683,15 @@ impl TerrainVisualImpl {
                 angle,
             )
         });
+        if self.terrain_props.len() != old_prop_count {
+            self.overlay.overlays_dirty = true;
+        }
     }
 
     /// C++ `addProp` terminal terrain-render-object call.
     pub fn add_prop(
         &mut self,
+        drawable_id: u32,
         position: [f32; 3],
         angle: f32,
         scale: f32,
@@ -696,11 +701,13 @@ impl TerrainVisualImpl {
             return false;
         }
         self.terrain_props.push(TerrainPropRecord {
+            drawable_id,
             position,
             angle,
             scale,
             model_name: model_name.to_string(),
         });
+        self.overlay.overlays_dirty = true;
         true
     }
 

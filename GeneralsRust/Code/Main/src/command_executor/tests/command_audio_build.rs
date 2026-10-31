@@ -240,7 +240,7 @@ fn execute_build_clears_removable_and_map_trees() {
                 },
             )
             .expect("add tree");
-        assert!(visual.add_prop([80.0, 80.0, 0.0], 0.0, 1.0, "TreeProp"));
+        assert!(visual.add_prop(1, [80.0, 80.0, 0.0], 0.0, 1.0, "TreeProp"));
     }
 
     let mut logic = GameLogic::new();

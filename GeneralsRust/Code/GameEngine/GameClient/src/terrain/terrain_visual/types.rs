@@ -66,6 +66,8 @@ pub struct TerrainBibRecord {
 /// CPU record for C++ `W3DTerrainRenderObject::addProp`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TerrainPropRecord {
+    /// Source drawable identity, scoped to this terrain visual.
+    pub drawable_id: u32,
     pub position: [f32; 3],
     pub angle: f32,
     pub scale: f32,

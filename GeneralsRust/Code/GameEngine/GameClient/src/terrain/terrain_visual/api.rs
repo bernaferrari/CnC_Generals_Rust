@@ -50,19 +50,18 @@ fn register_logic_height_hooks() {
     }));
     gamelogic::helpers::register_terrain_visual_add_prop_hook(Some(
         |drawable_id, position, angle, scale, model_name| {
-            let _ = drawable_id;
             if let Ok(mut visual) = get_terrain_visual() {
                 if let Some(visual) = visual.as_mut() {
-                    let _ = visual.add_prop(position, angle, scale, model_name);
+                    let _ = visual.add_prop(drawable_id, position, angle, scale, model_name);
                 }
             }
         },
     ));
     if let Some(logic_visual) = gamelogic::helpers::TheTerrainVisual::get() {
-        for (_id, position, angle, scale, model_name) in logic_visual.take_pending_props() {
+        for (drawable_id, position, angle, scale, model_name) in logic_visual.take_pending_props() {
             if let Ok(mut visual) = get_terrain_visual() {
                 if let Some(visual) = visual.as_mut() {
-                    let _ = visual.add_prop(position, angle, scale, &model_name);
+                    let _ = visual.add_prop(drawable_id, position, angle, scale, &model_name);
                 }
             }
         }

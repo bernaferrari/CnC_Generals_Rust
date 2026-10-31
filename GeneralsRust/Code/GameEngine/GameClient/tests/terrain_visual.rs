@@ -507,9 +507,9 @@ fn faction_bib_owner_replacement_removal_and_highlight_clear_match_cpp() {
 fn props_and_construction_removal_record_cpp_terrain_visual_calls() {
     let mut visual = TerrainVisualImpl::new();
 
-    assert!(!visual.add_prop([0.0, 0.0, 0.0], 0.0, 1.0, ""));
-    assert!(visual.add_prop([1.0, 1.0, 0.0], 0.25, 1.5, "TreeA"));
-    assert!(visual.add_prop([5.0, 5.0, 0.0], 0.5, 0.75, "TreeB"));
+    assert!(!visual.add_prop(10, [0.0, 0.0, 0.0], 0.0, 1.0, ""));
+    assert!(visual.add_prop(11, [1.0, 1.0, 0.0], 0.25, 1.5, "TreeA"));
+    assert!(visual.add_prop(12, [5.0, 5.0, 0.0], 0.5, 0.75, "TreeB"));
     assert_eq!(visual.terrain_props().len(), 2);
 
     visual.remove_trees_and_props_for_construction([0.0, 0.0, 0.0], 2.0, 2.0, true, 0.0);
@@ -517,6 +517,22 @@ fn props_and_construction_removal_record_cpp_terrain_visual_calls() {
     assert_eq!(visual.construction_removals().len(), 1);
     assert_eq!(visual.terrain_props().len(), 1);
     assert_eq!(visual.terrain_props()[0].model_name, "TreeB");
+    assert_eq!(visual.terrain_props()[0].drawable_id, 12);
+}
+
+#[test]
+fn prop_identity_and_full_pose_stay_with_the_receiving_visual() {
+    let mut first = TerrainVisualImpl::new();
+    let mut peer = TerrainVisualImpl::new();
+    assert!(first.add_prop(42, [10.0, 20.0, 7.0], 0.5, 1.5, "Oak"));
+    assert!(peer.add_prop(42, [100.0, 200.0, 17.0], 1.0, 2.0, "Rock"));
+    assert_eq!(first.terrain_props()[0].drawable_id, 42);
+    assert_eq!(first.terrain_props()[0].position, [10.0, 20.0, 7.0]);
+    assert_eq!(peer.terrain_props()[0].drawable_id, 42);
+    assert_eq!(peer.terrain_props()[0].position, [100.0, 200.0, 17.0]);
+    first.remove_trees_and_props_for_construction([10.0, 20.0, 7.0], 3.0, 3.0, true, 0.0);
+    assert!(first.terrain_props().is_empty());
+    assert_eq!(peer.terrain_props()[0].model_name, "Rock");
 }
 
 #[test]
