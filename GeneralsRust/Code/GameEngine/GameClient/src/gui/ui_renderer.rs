@@ -1675,8 +1675,20 @@ impl UIRenderer {
         Ok(())
     }
 
-    /// Render all UI elements to the given render pass
+    /// Render to a target matching the configured logical UI size.
     pub fn render(&mut self, render_pass: &mut RenderPass) -> Result<()> {
+        self.render_with_target_size(render_pass, self.screen_size)
+    }
+
+    /// Render logical UI coordinates into the actual attachment extent in pixels.
+    pub fn render_with_target_size(
+        &mut self,
+        render_pass: &mut RenderPass,
+        target_size: (u32, u32),
+    ) -> Result<()> {
+        if target_size.0 == 0 || target_size.1 == 0 {
+            return Ok(());
+        }
         // Update uniform buffer
         let uniforms = UIUniforms {
             view_projection: self.view_projection.to_cols_array_2d(),
@@ -1836,28 +1848,20 @@ impl UIRenderer {
                 }
 
                 if let Some(scissor) = command.scissor_rect {
-                    // Intersect the requested scissor with the render target.
-                    // wgpu rejects rects exceeding the target (stale 800x600
-                    // layout coords against a smaller window); clamping size to
-                    // a 1-px minimum instead of intersecting made edge scissors
-                    // clip text away. Cover the integer pixels overlapped by
-                    // [left, right) x [top, bottom) and skip the draw when the
-                    // intersection is empty.
-                    let left = scissor.x.max(0.0);
-                    let top = scissor.y.max(0.0);
-                    let right = scissor.x + scissor.width;
-                    let bottom = scissor.y + scissor.height;
-                    // Raw-sum guard: rejects empty rects and NaN components
-                    // (NaN would otherwise slip through f32::min/max).
+                    // UI coordinates are logical; scissors are attachment pixels.
+                    let scale_x = target_size.0 as f32 / self.screen_size.0.max(1) as f32;
+                    let scale_y = target_size.1 as f32 / self.screen_size.1.max(1) as f32;
+                    let left = (scissor.x * scale_x).max(0.0);
+                    let top = (scissor.y * scale_y).max(0.0);
+                    let right = (scissor.x + scissor.width) * scale_x;
+                    let bottom = (scissor.y + scissor.height) * scale_y;
                     if !(right > left && bottom > top) {
                         continue;
                     }
                     let x0 = left.floor();
                     let y0 = top.floor();
-                    let x1 = right.min(self.screen_size.0 as f32).ceil();
-                    let y1 = bottom.min(self.screen_size.1 as f32).ceil();
-                    // Second guard: a rect starting past the right/bottom
-                    // target edge clamps to an empty integer span.
+                    let x1 = right.min(target_size.0 as f32).ceil();
+                    let y1 = bottom.min(target_size.1 as f32).ceil();
                     if x1 > x0 && y1 > y0 {
                         render_pass.set_scissor_rect(
                             x0 as u32,
@@ -1869,12 +1873,7 @@ impl UIRenderer {
                         continue;
                     }
                 } else {
-                    render_pass.set_scissor_rect(
-                        0,
-                        0,
-                        self.screen_size.0.max(1),
-                        self.screen_size.1.max(1),
-                    );
+                    render_pass.set_scissor_rect(0, 0, target_size.0, target_size.1);
                 }
 
                 if count > 0 {

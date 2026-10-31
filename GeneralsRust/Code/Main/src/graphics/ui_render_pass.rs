@@ -97,6 +97,7 @@ impl<'a> NativeUiDraw<'a> {
         // repaint consumes that tree; it must not construct windows or invoke
         // lifecycle callbacks at the display refresh rate.
         let (width, height) = renderer.screen_size();
+        let target_size = frame.size();
         game_client::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks_for_owner(
             self.windows,
         );
@@ -198,7 +199,7 @@ impl<'a> NativeUiDraw<'a> {
                     multiview_mask: None,
                 });
             renderer
-                .render(&mut pass)
+                .render_with_target_size(&mut pass, target_size)
                 .map_err(|error| ww3d_renderer_3d::Error::GenericError(error.to_string()))?;
         }
         renderer.end_frame();

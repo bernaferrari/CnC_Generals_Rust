@@ -368,6 +368,12 @@ impl CnCGameEngine {
             locality,
             view,
         );
+        let scale = self.window.scale_factor().max(0.0001);
+        let size = self.window.inner_size();
+        let logical_size = (
+            ((size.width as f64) / scale).round().max(1.0) as u32,
+            ((size.height as f64) / scale).round().max(1.0) as u32,
+        );
         let (mut load, _default_pump) = self.game_client.split_load_screen_services(&mut audio);
         if !load.has_renderer() {
             return Err("native load screen has no receiving UI renderer".into());
@@ -377,6 +383,7 @@ impl CnCGameEngine {
             let renderer = services
                 .renderer
                 .ok_or_else(|| "native load screen has no receiving UI renderer".to_owned())?;
+            renderer.set_screen_size(logical_size.0, logical_size.1);
             let mut draw = crate::graphics::ui_render_pass::NativeUiDraw::new(
                 renderer,
                 services.windows,
