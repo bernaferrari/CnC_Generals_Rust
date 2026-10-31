@@ -184,6 +184,7 @@ impl ControlBarInputContext<'_> {
             manager: None,
             window_manager_owner: self.window_manager_owner,
             selected_window: None,
+            lent_windows: Vec::new(),
             emitted_messages: self
                 .emitted_messages
                 .as_deref_mut()

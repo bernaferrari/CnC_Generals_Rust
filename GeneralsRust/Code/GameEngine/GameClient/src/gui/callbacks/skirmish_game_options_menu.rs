@@ -2398,6 +2398,7 @@ mod tests {
                 script_display: None,
                 window_videos: None,
                 selected_window: None,
+                lent_windows: Vec::new(),
                 window_manager_owner: None,
                 emitted_messages: &mut emitted,
                 pending_control_bar_clicks: None,

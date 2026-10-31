@@ -73,6 +73,8 @@ pub struct WindowEventEffects<'a> {
     pub(crate) menus: Option<crate::gui::callbacks::menu_callbacks::MenuCallbackRecipients<'a>>,
     pub(crate) window_manager_owner: Option<&'a crate::gui::window_manager::WindowManagerOwner>,
     pub(crate) selected_window: Option<Weak<RefCell<GameWindow>>>,
+    /// Windows lent by synchronous parent-forwarding callbacks in this dispatch.
+    pub(crate) lent_windows: Vec<&'a mut GameWindow>,
     pub(crate) emitted_messages: &'a mut Vec<GameMessage>,
     pub(crate) pending_control_bar_clicks: Option<&'a mut Vec<LiveControlBarClick>>,
     pub(crate) campaign_manager: Option<&'a mut CampaignManager>,
@@ -216,6 +218,7 @@ impl<'effects> WindowEventEffects<'effects> {
             menus: None,
             window_manager_owner: None,
             selected_window: None,
+            lent_windows: Vec::new(),
             emitted_messages,
             pending_control_bar_clicks: None,
             campaign_manager: None,
@@ -743,6 +746,7 @@ impl<'effects> WindowEventEffects<'effects> {
             ime: self.ime.as_deref_mut(),
             window_manager_owner: self.window_manager_owner,
             selected_window: self.selected_window.clone(),
+            lent_windows: self.lent_windows.iter_mut().map(|window| &mut **window).collect(),
             emitted_messages: &mut *self.emitted_messages,
             pending_control_bar_clicks: self.pending_control_bar_clicks.as_deref_mut(),
             campaign_manager: self.campaign_manager.as_deref_mut(),
@@ -789,6 +793,7 @@ impl<'effects> WindowEventEffects<'effects> {
             ime: self.ime.as_deref_mut(),
             window_manager_owner: self.window_manager_owner,
             selected_window: self.selected_window.clone(),
+            lent_windows: self.lent_windows.iter_mut().map(|window| &mut **window).collect(),
             emitted_messages: &mut *self.emitted_messages,
             pending_control_bar_clicks: self.pending_control_bar_clicks.as_deref_mut(),
             campaign_manager: self.campaign_manager.as_deref_mut(),
@@ -837,6 +842,7 @@ impl<'effects> WindowEventEffects<'effects> {
             ime: self.ime.as_deref_mut(),
             window_manager_owner: self.window_manager_owner,
             selected_window: self.selected_window.clone(),
+            lent_windows: self.lent_windows.iter_mut().map(|window| &mut **window).collect(),
             emitted_messages: &mut *self.emitted_messages,
             pending_control_bar_clicks: self.pending_control_bar_clicks.as_deref_mut(),
             campaign_manager: self.campaign_manager.as_deref_mut(),
@@ -847,6 +853,54 @@ impl<'effects> WindowEventEffects<'effects> {
             main_menu: self.main_menu.as_deref_mut(),
             pending_main_menu_actions: Vec::new(),
         };
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(&mut local)));
+        self.payloads = std::mem::take(&mut local.payloads);
+        self.pending_window_callbacks = std::mem::take(&mut local.pending_window_callbacks);
+        self.pending_main_menu_actions
+            .append(&mut local.pending_main_menu_actions);
+        match result {
+            Ok(value) => value,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
+    }
+    pub(crate) fn with_lent_window<R>(
+        &mut self,
+        window: &mut GameWindow,
+        operation: impl FnOnce(&mut WindowEventEffects<'_>) -> R,
+    ) -> R {
+        let mut local = WindowEventEffects {
+            cursor_mouse: self.cursor_mouse.as_deref_mut(),
+            control_bar_observation: self.control_bar_observation.clone(),
+            menu_audio: self
+                .menu_audio
+                .as_mut()
+                .map(|audio| &mut **audio as &mut dyn crate::gui::menu_audio::MenuAudioEffects),
+            input_provenance: self.input_provenance,
+            payloads: std::mem::take(&mut self.payloads),
+            pending_window_callbacks: std::mem::take(&mut self.pending_window_callbacks),
+            diplomacy_world: self.diplomacy_world,
+            ui: self.ui.as_deref_mut(),
+            logic_frame: self.logic_frame,
+            client_frame: self.client_frame,
+            standalone_view: self.standalone_view.as_deref_mut(),
+            manager: self.manager.as_deref_mut(),
+            menus: self.menus.as_mut().map(|menus| menus.reborrow()),
+            ime: self.ime.as_deref_mut(),
+            window_manager_owner: self.window_manager_owner,
+            selected_window: self.selected_window.clone(),
+            lent_windows: self.lent_windows.iter_mut().map(|window| &mut **window).collect(),
+            emitted_messages: &mut *self.emitted_messages,
+            pending_control_bar_clicks: self.pending_control_bar_clicks.as_deref_mut(),
+            campaign_manager: self.campaign_manager.as_deref_mut(),
+            menu_world: self.menu_world,
+            menu_host: self.menu_host.as_deref_mut(),
+            window_videos: self.window_videos.as_deref_mut(),
+            script_display: self.script_display.as_deref_mut(),
+            main_menu: self.main_menu.as_deref_mut(),
+            pending_main_menu_actions: Vec::new(),
+        };
+        local.lent_windows.push(window);
         let result =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(&mut local)));
         self.payloads = std::mem::take(&mut local.payloads);

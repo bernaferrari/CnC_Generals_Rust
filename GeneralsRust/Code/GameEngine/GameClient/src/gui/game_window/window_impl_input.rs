@@ -663,9 +663,11 @@ impl GameWindow {
                 }
             }
             let result = if let Some(owner) = target_owner.as_ref() {
-                owner
-                    .borrow_mut()
-                    .send_system_message(msg, data1, data2, effects)
+                effects.with_lent_window(self, |effects| {
+                    owner
+                        .borrow_mut()
+                        .send_system_message(msg, data1, data2, effects)
+                })
             } else {
                 self.send_system_message(msg, data1, data2, effects)
             };

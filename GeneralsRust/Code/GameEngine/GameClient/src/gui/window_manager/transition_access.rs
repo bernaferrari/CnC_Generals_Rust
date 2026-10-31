@@ -62,6 +62,7 @@ pub(crate) struct TransitionWindowAccess<'state, 'selected> {
     mouse_capture: &'state mut Option<Weak<RefCell<GameWindow>>>,
     capture_flags: &'state mut CaptureFlags,
     selected: Option<&'selected mut GameWindow>,
+    lent: Option<&'selected mut [&'selected mut GameWindow]>,
 }
 impl<'state, 'selected> TransitionWindowAccess<'state, 'selected> {
     pub(super) fn new(
@@ -77,6 +78,7 @@ impl<'state, 'selected> TransitionWindowAccess<'state, 'selected> {
             mouse_capture,
             capture_flags,
             selected,
+            lent: None,
         }
     }
     pub(crate) fn borrow_window<'a>(
@@ -86,6 +88,14 @@ impl<'state, 'selected> TransitionWindowAccess<'state, 'selected> {
         if let Some(selected) = self.selected.as_deref() {
             if std::ptr::eq(target.as_ptr(), std::ptr::from_ref(selected)) {
                 return TransitionWindowRead::Selected(selected);
+            }
+        }
+        if let Some(lent) = self.lent.as_deref() {
+            if let Some(window) = lent
+                .iter()
+                .find(|window| std::ptr::eq(target.as_ptr(), std::ptr::from_ref(&***window)))
+            {
+                return TransitionWindowRead::Selected(window);
             }
         }
         TransitionWindowRead::Stored(target.borrow())
@@ -99,7 +109,18 @@ impl<'state, 'selected> TransitionWindowAccess<'state, 'selected> {
                 return TransitionWindowWrite::Selected(selected);
             }
         }
+        if let Some(lent) = self.lent.as_deref_mut() {
+            if let Some(window) = lent
+                .iter_mut()
+                .find(|window| std::ptr::eq(target.as_ptr(), std::ptr::from_ref(&***window)))
+            {
+                return TransitionWindowWrite::Selected(window);
+            }
+        }
         TransitionWindowWrite::Stored(target.borrow_mut())
+    }
+    pub(crate) fn set_lent(&mut self, lent: &'selected mut [&'selected mut GameWindow]) {
+        self.lent = Some(lent);
     }
     pub(crate) fn with_window<R>(
         &self,

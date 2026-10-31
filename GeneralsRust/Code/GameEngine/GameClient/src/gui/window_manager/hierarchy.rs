@@ -13,15 +13,18 @@ use std::time::Instant;
 
 use super::*;
 
-/// Read the canonical callback window directly; all other entries retain their
-/// ordinary arena borrow. No busy entry is interpreted as an absent subtree.
+/// Read windows lent by the current synchronous callback chain directly.
+/// Other entries retain their ordinary borrow; no subtree is skipped.
 fn with_lookup_window<R>(
     window: &Rc<RefCell<GameWindow>>,
     selected: Option<&GameWindow>,
+    lent: &[&GameWindow],
     read: impl FnOnce(&GameWindow) -> R,
 ) -> R {
-    if let Some(selected) =
-        selected.filter(|selected| std::ptr::eq(window.as_ptr(), std::ptr::from_ref(*selected)))
+    if let Some(selected) = selected
+        .into_iter()
+        .chain(lent.iter().copied())
+        .find(|selected| std::ptr::eq(window.as_ptr(), std::ptr::from_ref(*selected)))
     {
         read(selected)
     } else {
@@ -34,15 +37,16 @@ fn lookup_window_chain(
     start: usize,
     matches: &impl Fn(&GameWindow) -> bool,
     selected: Option<&GameWindow>,
+    lent: &[&GameWindow],
 ) -> Option<Rc<RefCell<GameWindow>>> {
     for window in windows.iter().skip(start) {
-        let (is_match, children) = with_lookup_window(window, selected, |value| {
+        let (is_match, children) = with_lookup_window(window, selected, lent, |value| {
             (matches(value), value.children().to_vec())
         });
         if is_match {
             return Some(window.clone());
         }
-        if let Some(found) = lookup_window_chain(&children, 0, matches, selected) {
+        if let Some(found) = lookup_window_chain(&children, 0, matches, selected, lent) {
             return Some(found);
         }
     }
@@ -170,11 +174,21 @@ impl WindowManager {
         name: &str,
         selected: Option<&GameWindow>,
     ) -> Option<Rc<RefCell<GameWindow>>> {
+        self.find_window_by_name_with_lent(name, selected, &[])
+    }
+
+    pub(crate) fn find_window_by_name_with_lent(
+        &self,
+        name: &str,
+        selected: Option<&GameWindow>,
+        lent: &[&GameWindow],
+    ) -> Option<Rc<RefCell<GameWindow>>> {
         lookup_window_chain(
             &self.root_windows,
             0,
             &|window| window.get_name().eq_ignore_ascii_case(name),
             selected,
+            lent,
         )
     }
 
@@ -210,28 +224,38 @@ impl WindowManager {
         id: WindowId,
         selected: Option<&GameWindow>,
     ) -> Option<Rc<RefCell<GameWindow>>> {
+        self.win_get_window_from_id_with_lent(base_window, id, selected, &[])
+    }
+
+    pub(crate) fn win_get_window_from_id_with_lent(
+        &self,
+        base_window: Option<&Rc<RefCell<GameWindow>>>,
+        id: WindowId,
+        selected: Option<&GameWindow>,
+        lent: &[&GameWindow],
+    ) -> Option<Rc<RefCell<GameWindow>>> {
         let matches = |window: &GameWindow| window.get_id() == id;
         if let Some(base_window) = base_window {
-            let parent = with_lookup_window(base_window, selected, |window| window.get_parent());
+            let parent = with_lookup_window(base_window, selected, lent, |window| window.get_parent());
             if let Some(parent) = parent {
                 let siblings =
-                    with_lookup_window(&parent, selected, |window| window.children().to_vec());
+                    with_lookup_window(&parent, selected, lent, |window| window.children().to_vec());
                 if let Some(index) = siblings
                     .iter()
                     .position(|sibling| Rc::ptr_eq(sibling, base_window))
                 {
-                    return lookup_window_chain(&siblings, index, &matches, selected);
+                    return lookup_window_chain(&siblings, index, &matches, selected, lent);
                 }
             } else if let Some(index) = self
                 .root_windows
                 .iter()
                 .position(|root| Rc::ptr_eq(root, base_window))
             {
-                return lookup_window_chain(&self.root_windows, index, &matches, selected);
+                return lookup_window_chain(&self.root_windows, index, &matches, selected, lent);
             }
-            lookup_window_chain(std::slice::from_ref(base_window), 0, &matches, selected)
+            lookup_window_chain(std::slice::from_ref(base_window), 0, &matches, selected, lent)
         } else {
-            lookup_window_chain(&self.root_windows, 0, &matches, selected)
+            lookup_window_chain(&self.root_windows, 0, &matches, selected, lent)
         }
     }
 
@@ -330,6 +354,18 @@ impl WindowManager {
         selected: Option<&mut GameWindow>,
     ) -> WindowResult<()> {
         let (_, _, mut access) = self.transition_parts(selected);
+        access.hide_window(window, hide);
+        Ok(())
+    }
+    pub(crate) fn hide_window_with_lent<'a>(
+        &'a mut self,
+        window: &Rc<RefCell<GameWindow>>,
+        hide: bool,
+        selected: Option<&'a mut GameWindow>,
+        lent: &'a mut [&'a mut GameWindow],
+    ) -> WindowResult<()> {
+        let (_, _, mut access) = self.transition_parts(selected);
+        access.set_lent(lent);
         access.hide_window(window, hide);
         Ok(())
     }

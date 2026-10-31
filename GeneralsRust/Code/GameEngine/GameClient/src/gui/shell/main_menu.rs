@@ -452,37 +452,49 @@ pub struct MainMenu {
 }
 
 impl MainMenu {
-    fn hide_receiving_window(
+    fn hide_receiving_window_with_lent(
         manager: &mut crate::gui::window_manager::WindowManager,
         parent_id: Option<u32>,
         id: Option<u32>,
         name: Option<&str>,
         hide: bool,
         selected: Option<&mut crate::gui::game_window::GameWindow>,
+        lent: &mut [&mut crate::gui::game_window::GameWindow],
     ) {
+        let lent_read: Vec<&crate::gui::game_window::GameWindow> =
+            lent.iter().map(|window| &**window).collect();
         let selected_read = selected.as_deref();
         let scoped = parent_id
-            .and_then(|parent| manager.get_window_by_id_with_selected(parent as i32, selected_read))
+            .and_then(|parent| {
+                manager.win_get_window_from_id_with_lent(None, parent as i32, selected_read, &lent_read)
+            })
             .and_then(|parent| {
                 id.and_then(|id| {
-                    manager.win_get_window_from_id_with_selected(
+                    manager.win_get_window_from_id_with_lent(
                         Some(&parent),
                         id as i32,
                         selected_read,
+                        &lent_read,
                     )
                 })
             });
         let window = scoped
             .or_else(|| {
-                id.and_then(|id| manager.get_window_by_id_with_selected(id as i32, selected_read))
+                id.and_then(|id| {
+                    manager.win_get_window_from_id_with_lent(None, id as i32, selected_read, &lent_read)
+                })
             })
             .or_else(|| {
-                name.and_then(|name| manager.find_window_by_name_with_selected(name, selected_read))
+                name.and_then(|name| {
+                    manager.find_window_by_name_with_lent(name, selected_read, &lent_read)
+                })
             });
         let Some(window) = window else {
             return;
         };
-        let _ = manager.hide_window_with_selected(&window, hide, selected);
+        let mut lent_for_hide: Vec<&mut crate::gui::game_window::GameWindow> =
+            lent.iter_mut().map(|window| &mut **window).collect();
+        let _ = manager.hide_window_with_lent(&window, hide, selected, &mut lent_for_hide);
     }
 
     fn hide_window_by_id(
@@ -494,13 +506,14 @@ impl MainMenu {
         selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) {
         effects.with_manager(|manager, effects| {
-            Self::hide_receiving_window(
+            Self::hide_receiving_window_with_lent(
                 manager,
                 Some(state.window_ids.main_menu_id),
                 Some(id),
                 fallback_name,
                 hide,
                 selected,
+                &mut effects.lent_windows,
             );
         });
     }
@@ -513,13 +526,14 @@ impl MainMenu {
         selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) {
         effects.with_manager(|manager, effects| {
-            Self::hide_receiving_window(
+            Self::hide_receiving_window_with_lent(
                 manager,
                 Some(state.window_ids.main_menu_id),
                 Some(NameKeyGenerator::name_to_key(name)),
                 Some(name),
                 hide,
                 selected,
+                &mut effects.lent_windows,
             );
         });
     }
@@ -573,7 +587,9 @@ impl MainMenu {
     fn hide_named_windows_live_or_deferred(names: &[&str], effects: &mut WindowEventEffects<'_>) {
         effects.with_manager(|manager, effects| {
             for name in names {
-                Self::hide_receiving_window(manager, None, None, Some(name), true, None);
+                Self::hide_receiving_window_with_lent(
+                    manager, None, None, Some(name), true, None, &mut effects.lent_windows,
+                );
             }
         });
     }
@@ -616,7 +632,9 @@ impl MainMenu {
             return;
         };
         effects.with_manager(|manager, effects| {
-            Self::hide_receiving_window(manager, None, None, Some(name), hide, selected);
+            Self::hide_receiving_window_with_lent(
+                manager, None, None, Some(name), hide, selected, &mut effects.lent_windows,
+            );
         });
     }
 
@@ -635,13 +653,14 @@ impl MainMenu {
                 DropdownType::Difficulty,
             ] {
                 if let Some(name) = Self::dropdown_wnd_name(candidate) {
-                    Self::hide_receiving_window(
+                    Self::hide_receiving_window_with_lent(
                         manager,
                         None,
                         None,
                         Some(name),
                         candidate != dropdown,
                         selected.as_deref_mut(),
+                        &mut effects.lent_windows,
                     );
                 }
             }
@@ -654,13 +673,14 @@ impl MainMenu {
         selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) {
         effects.with_manager(|manager, effects| {
-            Self::hide_receiving_window(
+            Self::hide_receiving_window_with_lent(
                 manager,
                 None,
                 None,
                 Some("MainMenu.wnd:MapBorder2"),
                 false,
                 selected,
+                &mut effects.lent_windows,
             );
         });
     }
@@ -1336,7 +1356,12 @@ impl MainMenu {
         selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) {
         effects.with_manager(|manager, effects| {
-            manager.transition_set_group(group, immediate, selected)
+            let mut lent: Vec<_> = effects
+                .lent_windows
+                .iter_mut()
+                .map(|window| &mut **window)
+                .collect();
+            manager.transition_set_group_with_lent(group, immediate, selected, &mut lent)
         });
     }
 
@@ -1559,7 +1584,14 @@ impl MainMenu {
         effects: &mut WindowEventEffects<'_>,
         selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) {
-        effects.with_manager(|manager, effects| manager.transition_reverse(group, selected));
+        effects.with_manager(|manager, effects| {
+            let mut lent: Vec<_> = effects
+                .lent_windows
+                .iter_mut()
+                .map(|window| &mut **window)
+                .collect();
+            manager.transition_reverse_with_lent(group, selected, &mut lent)
+        });
     }
 
     fn transition_remove(
@@ -1569,7 +1601,12 @@ impl MainMenu {
         selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) {
         effects.with_manager(|manager, effects| {
-            manager.transition_remove(group, skip_pending, selected)
+            let mut lent: Vec<_> = effects
+                .lent_windows
+                .iter_mut()
+                .map(|window| &mut **window)
+                .collect();
+            manager.transition_remove_with_lent(group, skip_pending, selected, &mut lent)
         });
     }
 

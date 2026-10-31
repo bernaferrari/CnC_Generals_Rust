@@ -760,6 +760,7 @@ impl GameClient {
                 ime: Some(&mut self.ime),
                 window_manager_owner: Some(&self.window_manager_owner),
                 selected_window: None,
+                lent_windows: Vec::new(),
                 emitted_messages: emitted,
                 pending_control_bar_clicks: None,
                 campaign_manager: Some(&mut self.campaign_manager),

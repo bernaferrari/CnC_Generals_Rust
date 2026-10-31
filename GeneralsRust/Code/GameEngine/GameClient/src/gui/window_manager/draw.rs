@@ -153,6 +153,39 @@ impl WindowManager {
         transitions.remove(group_name, skip_pending, &mut access);
     }
 
+    pub(crate) fn transition_set_group_with_lent<'a>(
+        &'a mut self,
+        group_name: &str,
+        immediate: bool,
+        selected: Option<&'a mut GameWindow>,
+        lent: &'a mut [&'a mut GameWindow],
+    ) {
+        let (transitions, lookup, mut access) = self.transition_parts(selected);
+        access.set_lent(lent);
+        transitions.set_group(group_name, immediate, lookup, &mut access);
+    }
+    pub(crate) fn transition_reverse_with_lent<'a>(
+        &'a mut self,
+        group_name: &str,
+        selected: Option<&'a mut GameWindow>,
+        lent: &'a mut [&'a mut GameWindow],
+    ) {
+        let (transitions, lookup, mut access) = self.transition_parts(selected);
+        access.set_lent(lent);
+        transitions.reverse(group_name, lookup, &mut access);
+    }
+    pub(crate) fn transition_remove_with_lent<'a>(
+        &'a mut self,
+        group_name: &str,
+        skip_pending: bool,
+        selected: Option<&'a mut GameWindow>,
+        lent: &'a mut [&'a mut GameWindow],
+    ) {
+        let (transitions, _, mut access) = self.transition_parts(selected);
+        access.set_lent(lent);
+        transitions.remove(group_name, skip_pending, &mut access);
+    }
+
     /// Check if the current transition group has finished.
     pub fn transitions_finished(&self) -> bool {
         self.transitions.is_finished()

@@ -535,6 +535,7 @@ pub fn dispatch_translated_window_input_for_owner(
             manager: None,
             window_manager_owner: Some(owner),
             selected_window: None,
+            lent_windows: Vec::new(),
             emitted_messages: context
                 .emitted_messages
                 .as_deref_mut()

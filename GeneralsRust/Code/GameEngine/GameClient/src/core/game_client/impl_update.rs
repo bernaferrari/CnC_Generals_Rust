@@ -2741,6 +2741,7 @@ impl GameClient {
                 window_videos: Some(&mut self.window_videos.challenge),
                 window_manager_owner: Some(&self.window_manager_owner),
                 selected_window: None,
+                lent_windows: Vec::new(),
                 emitted_messages: &mut messages,
                 pending_control_bar_clicks: None,
                 campaign_manager: Some(&mut self.campaign_manager),

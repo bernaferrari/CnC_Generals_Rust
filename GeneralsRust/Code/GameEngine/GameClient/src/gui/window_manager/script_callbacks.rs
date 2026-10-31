@@ -1444,9 +1444,11 @@ impl WindowManager {
                             }
 
                             if let Some(parent) = window.get_parent() {
-                                parent
-                                    .borrow_mut()
-                                    .send_system_message(msg, data1, data2, effects)
+                                effects.with_lent_window(window, |effects| {
+                                    parent
+                                        .borrow_mut()
+                                        .send_system_message(msg, data1, data2, effects)
+                                })
                             } else {
                                 WindowMsgHandled::Ignored
                             }
@@ -1466,9 +1468,11 @@ impl WindowManager {
                             }
 
                             if let Some(parent) = window.get_parent() {
-                                parent
-                                    .borrow_mut()
-                                    .send_system_message(msg, data1, data2, effects)
+                                effects.with_lent_window(window, |effects| {
+                                    parent
+                                        .borrow_mut()
+                                        .send_system_message(msg, data1, data2, effects)
+                                })
                             } else {
                                 WindowMsgHandled::Ignored
                             }
