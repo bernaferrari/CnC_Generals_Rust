@@ -279,6 +279,34 @@ fn observe_building_entered(world: &mut GameLogic, player: &str) -> bool {
 }
 
 #[test]
+fn collision_entry_records_receiving_player_without_touching_peer() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, host, rider) = world(&map, false);
+    let (peer, peer_host, peer_rider) = world(&map, false);
+    assert_eq!((host, rider), (peer_host, peer_rider));
+    let result = CommandExecutor::new(&mut game, 2)
+        .execute_command(GameCommand {
+            command_type: CommandType::Enter { target_id: host },
+            player_id: 2,
+            command_id: 1,
+            timestamp: std::time::UNIX_EPOCH,
+            selected_units: vec![rider],
+            modifier_keys: ModifierKeys::default(),
+        })
+        .expect("issue authored Enter command");
+    assert_eq!(result, CommandResult::Success);
+    game.try_physics_collide(rider, host, 1.0);
+    assert_eq!(game.host_object(rider).unwrap().contained_by, Some(host));
+    assert_eq!(game.host_object(host).unwrap().player_who_entered, Some(2));
+    assert_eq!(peer.host_object(peer_rider).unwrap().contained_by, None);
+    assert_eq!(
+        peer.host_object(peer_host).unwrap().player_who_entered,
+        None
+    );
+}
+
+#[test]
 fn transport_exit_door_continues_across_bincode_and_direct_xfer() {
     use generals_main::game_logic::host_enum_table_residual::door_1_closing_model_bit;
     let root = tempfile::tempdir().unwrap();

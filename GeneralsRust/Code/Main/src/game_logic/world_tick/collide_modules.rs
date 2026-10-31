@@ -42,6 +42,9 @@ impl super::super::GameLogic {
                 .get_mut(&other_id)
                 .is_some_and(|c| c.add_occupant(self_id));
             if boarded {
+                // OpenContain::addToContain records the controlling player
+                // immediately after adding the rider to its roster.
+                self.stamp_player_who_entered(other_id, self_id);
                 let state = self
                     .objects
                     .get(&other_id)
