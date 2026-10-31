@@ -521,6 +521,20 @@ impl GameLogic {
             inserted = inserted.saturating_add(1);
         }
         if let Some(content) = receiving {
+            // Seeding consumes detached definition values, but the cache must
+            // retain this session's canonical handle for ownership checks.
+            if let Some(definitions) = self.receiving_object_definitions.as_ref() {
+                for template in self.templates.values_mut() {
+                    if let Some(definition) = template
+                        .receiving_object_definition
+                        .as_ref()
+                        .and_then(|current| definitions.get(&current.name))
+                    {
+                        template.receiving_object_definition =
+                            Some(std::sync::Arc::clone(definition));
+                    }
+                }
+            }
             Self::bind_receiving_production_templates(&mut self.templates, content)?;
         }
         self.refresh_receiving_client_templates();

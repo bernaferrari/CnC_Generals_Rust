@@ -25,7 +25,12 @@ pub(super) fn resolve<'a>(
         .as_ref()
         .and_then(|definitions| definitions.get(name))
         .ok_or_else(missing)?;
-    if let Some(template) = world.templates.get(name) {
+    if let Some(template) = world.templates.get(name).filter(|template| {
+        template
+            .receiving_object_definition
+            .as_ref()
+            .is_some_and(|existing| std::sync::Arc::ptr_eq(existing, definition))
+    }) {
         return Ok(Some(Cow::Borrowed(template)));
     }
     let mut template = GameLogic::build_template_from_object_definition_with_receiving(
@@ -36,6 +41,7 @@ pub(super) fn resolve<'a>(
         world.locomotor_definitions.as_ref(),
     )
     .map_err(SaveLoadError::Corrupted)?;
+    template.receiving_object_definition = Some(std::sync::Arc::clone(definition));
     template.receiving_client_template =
         Some(crate::game_logic::thing::ReceivingClientTemplate::new(plan));
     Ok(Some(Cow::Owned(template)))

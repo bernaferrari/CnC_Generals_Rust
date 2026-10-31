@@ -1931,17 +1931,29 @@ impl GameLogic {
                 log::error!("Receiving Object '{template_name}' has no host definition projection");
                 return false;
             };
-            if let Some(template) = self.templates.get_mut(template_name) {
-                template.receiving_object_definition = Some(definition);
+            if let Some(template) = self.templates.get_mut(template_name).filter(|template| {
+                template
+                    .receiving_object_definition
+                    .as_ref()
+                    .is_some_and(|existing| std::sync::Arc::ptr_eq(existing, &definition))
+            }) {
                 template.receiving_client_template =
                     Some(crate::game_logic::thing::ReceivingClientTemplate::new(plan));
                 return true;
             }
-            let mut template = Self::build_template_from_object_definition(
+            let mut template = match Self::build_template_from_object_definition_with_receiving(
                 template_name,
                 &definition,
                 definition.get_primary_texture(),
-            );
+                Some(content),
+                self.locomotor_definitions.as_ref(),
+            ) {
+                Ok(template) => template,
+                Err(error) => {
+                    log::error!("Receiving Object '{template_name}' is invalid: {error}");
+                    return false;
+                }
+            };
             template.receiving_object_definition = Some(definition);
             template.receiving_client_template =
                 Some(crate::game_logic::thing::ReceivingClientTemplate::new(plan));
