@@ -117,7 +117,7 @@ fn same_named_landmark_bridges_use_the_receiving_objects_geometry() {
             world.templates.insert(tower.name.clone(), tower);
             assert!(world.load_map(path.to_str().unwrap()));
             assert_eq!(
-                world.objects.registered_len(),
+                world.host_objects().registered_len(),
                 2,
                 "map admission must create the bridge and its authored tower"
             );
@@ -127,7 +127,7 @@ fn same_named_landmark_bridges_use_the_receiving_objects_geometry() {
     let peer = create_world(&peer_map, 12.0, 4.0, 7.0, "PeerTower");
     fn find<'a>(world: &'a GameLogic, name: &str) -> &'a generals_main::game_logic::Object {
         world
-            .objects
+            .host_objects()
             .registered_values()
             .find(|object| object.template_name == name)
             .unwrap()
@@ -151,7 +151,12 @@ fn same_named_landmark_bridges_use_the_receiving_objects_geometry() {
     let first_deck = first
         .terrain_height_at(glam::Vec3::new(40.0, 0.0, 40.0))
         .unwrap();
-    let peer_object_height = peer.objects.get(&peer_id).unwrap().get_position().y;
+    let peer_object_height = peer
+        .host_objects()
+        .lookup(&peer_id)
+        .unwrap()
+        .get_position()
+        .y;
     assert!((first_height - first_ground).abs() < 0.01);
     assert!(
         (peer_height - first_deck).abs() < 0.01,

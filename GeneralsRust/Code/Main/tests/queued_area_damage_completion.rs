@@ -236,20 +236,23 @@ End
     for source in &shooters {
         if let Some(sink) = sink {
             world
-                .objects
-                .get_mut(source)
+                .host_object_mut(*source)
                 .unwrap()
                 .set_experience_sink(Some(sink));
         }
-        assert!(world.objects[source].is_trainable());
-        assert_eq!(world.objects[source].owner_player_id, Some(0));
-        assert_eq!(world.objects[source].experience.current, 0.0);
+        assert!(world.host_objects()[source].is_trainable());
+        assert_eq!(world.host_objects()[source].owner_player_id, Some(0));
+        assert_eq!(world.host_objects()[source].experience.current, 0.0);
         assert_eq!(
-            world.objects[source].experience.level,
+            world.host_objects()[source].experience.level,
             VeterancyLevel::Rookie
         );
         assert_eq!(
-            world.objects[source].weapon.as_ref().unwrap().splash_radius,
+            world.host_objects()[source]
+                .weapon
+                .as_ref()
+                .unwrap()
+                .splash_radius,
             radius
         );
         assert_eq!(
@@ -262,8 +265,8 @@ End
             generals_main::game_logic::CanAttackResult::Possible
         );
     }
-    assert_eq!(world.objects[&victim].owner_player_id, Some(1));
-    assert_eq!(world.objects[&victim].kill_experience_value(), 10.0);
+    assert_eq!(world.host_objects()[&victim].owner_player_id, Some(1));
+    assert_eq!(world.host_objects()[&victim].kill_experience_value(), 10.0);
     assert_eq!(
         world.player_relationship(0, 1),
         gamelogic::common::Relationship::Enemies
@@ -294,11 +297,15 @@ impl Fixture {
         self.world.update(); // frame99 aims
         for source in &self.shooters {
             assert_eq!(
-                self.world.objects[source].weapon.as_ref().unwrap().ammo,
+                self.world.host_objects()[source]
+                    .weapon
+                    .as_ref()
+                    .unwrap()
+                    .ammo,
                 Some(8)
             );
             assert_eq!(
-                self.world.objects[source]
+                self.world.host_objects()[source]
                     .weapon_discharge_marker()
                     .sequence,
                 0
@@ -307,7 +314,7 @@ impl Fixture {
         self.world.update(); // frame100 accepts exactly one shot per source
         assert_eq!(self.world.get_current_frame(), 101);
         for source in &self.shooters {
-            let o = &self.world.objects[source];
+            let o = &self.world.host_objects()[source];
             assert_eq!(o.weapon.as_ref().unwrap().ammo, Some(7));
             assert!(o.weapon_discharge_marker().sequence > 0);
             assert_eq!(o.weapon_discharge_marker().logic_frame, 100);
@@ -317,7 +324,11 @@ impl Fixture {
         let mut sequences: Vec<_> = self
             .shooters
             .iter()
-            .map(|id| self.world.objects[id].weapon_discharge_marker().sequence)
+            .map(|id| {
+                self.world.host_objects()[id]
+                    .weapon_discharge_marker()
+                    .sequence
+            })
             .collect();
         sequences.sort_unstable();
         assert_eq!(
@@ -328,7 +339,7 @@ impl Fixture {
     fn xp(&self) -> f32 {
         self.shooters
             .iter()
-            .filter_map(|id| self.world.objects.get(id))
+            .filter_map(|id| self.world.host_objects().lookup(id))
             .map(|o| o.experience.current)
             .sum()
     }
@@ -363,12 +374,12 @@ impl Fixture {
         let xp = self.xp();
         let sink_xp = self
             .sink
-            .map(|id| self.world.objects[&id].experience.current);
+            .map(|id| self.world.host_objects()[&id].experience.current);
         self.world.update();
         assert_eq!(self.xp(), xp);
         assert_eq!(
             self.sink
-                .map(|id| self.world.objects[&id].experience.current),
+                .map(|id| self.world.host_objects()[&id].experience.current),
             sink_xp
         );
         assert!(self.take_fx().is_empty());
@@ -379,18 +390,18 @@ fn instant(label: &str, health: f32, sink: bool) {
     f.accept();
     let lethal = health <= 100.0;
     if lethal {
-        assert!(!f.world.objects.contains_key(&f.victim));
+        assert!(!f.world.host_objects().lookup(&f.victim).is_some());
     } else {
-        let v = &f.world.objects[&f.victim];
+        let v = &f.world.host_objects()[&f.victim];
         assert_eq!(v.health.current, health - 100.0);
         assert_eq!(v.last_damage_timestamp, Some(100));
         assert_eq!(v.next_damage_fx_time, 103);
     }
     let xp = if lethal && !sink { 10.0 } else { 0.0 };
-    assert_eq!(f.world.objects[&f.intended].health.current, 9900.0);
+    assert_eq!(f.world.host_objects()[&f.intended].health.current, 9900.0);
     assert_eq!(f.xp(), xp);
     assert_eq!(
-        f.world.objects[&f.shooters[0]].experience.level,
+        f.world.host_objects()[&f.shooters[0]].experience.level,
         if xp > 0.0 {
             VeterancyLevel::Veteran
         } else {
@@ -399,7 +410,7 @@ fn instant(label: &str, health: f32, sink: bool) {
     );
     if let Some(sink) = f.sink {
         assert_eq!(
-            f.world.objects[&sink].experience.current,
+            f.world.host_objects()[&sink].experience.current,
             if lethal { 10.0 } else { 0.0 }
         );
     }
@@ -427,13 +438,13 @@ fn delayed(label: &str, remove_source: bool) {
     if remove_source {
         // Setup-only promotion: explicit local audio, no receiving UI admission.
         let mut audio = generals_main::game_logic::SessionAudio::default();
-        f.world.objects.get_mut(&source).unwrap().gain_experience(
+        f.world.host_object_mut(source).unwrap().gain_experience(
             10.0,
             &mut generals_main::game_logic::ObjectAudio::queue(&mut audio),
             &mut generals_main::game_logic::VeterancyFeedback::standalone(),
         );
         assert_eq!(
-            f.world.objects[&source].experience.level,
+            f.world.host_objects()[&source].experience.level,
             VeterancyLevel::Veteran
         );
     }
@@ -441,22 +452,23 @@ fn delayed(label: &str, remove_source: bool) {
     if remove_source {
         f.world.destroy_object(source);
         f.world.update();
-        assert!(!f.world.objects.contains_key(&source));
+        assert!(!f.world.host_objects().lookup(&source).is_some());
     }
     while f.world.get_current_frame() <= 110 {
         let frame = f.world.get_current_frame();
         assert_eq!(
-            f.world.objects[&f.victim].health.current, 100.0,
+            f.world.host_objects()[&f.victim].health.current,
+            100.0,
             "no early hit before frame110"
         );
         assert_eq!(f.xp(), 0.0);
         assert!(f.take_fx().is_empty());
         f.world.update();
         if frame < 110 {
-            assert!(f.world.objects.contains_key(&f.victim));
+            assert!(f.world.host_objects().lookup(&f.victim).is_some());
         }
     }
-    assert!(!f.world.objects.contains_key(&f.victim));
+    assert!(!f.world.host_objects().lookup(&f.victim).is_some());
     assert_eq!(f.xp(), if remove_source { 0.0 } else { 10.0 });
     f.expect_fx(
         if remove_source { "Regular" } else { "Veteran" },
@@ -498,7 +510,10 @@ fn missing_projectileless_source_bypasses_radius_affects_filters() {
         f.world.update();
     }
     assert_eq!(
-        f.world.objects[&same_owner_collateral].health.current, 400.0,
+        f.world.host_objects()[&same_owner_collateral]
+            .health
+            .current,
+        400.0,
         "C++ skips RadiusDamageAffects filtering when the delayed source no longer exists"
     );
 }
@@ -545,15 +560,22 @@ fn projectileless_area_uses_the_receiving_worlds_exact_team_override() {
     while first.world.get_current_frame() <= 110 {
         first.world.update();
     }
-    assert_eq!(first.world.objects[&first.victim].health.current, 100.0);
-    assert_eq!(peer.world.objects[&peer.victim].health.current, 200.0);
+    assert_eq!(
+        first.world.host_objects()[&first.victim].health.current,
+        100.0
+    );
+    assert_eq!(
+        peer.world.host_objects()[&peer.victim].health.current,
+        200.0
+    );
 
     peer.accept();
     while peer.world.get_current_frame() <= 110 {
         peer.world.update();
     }
     assert_eq!(
-        peer.world.objects[&peer.victim].health.current, 200.0,
+        peer.world.host_objects()[&peer.victim].health.current,
+        200.0,
         "the other world's Enemy relationship does not admit an ALLIES splash"
     );
 }
@@ -633,15 +655,15 @@ fn splash_similarity_uses_receiving_definitions_and_source_to_victim_relationshi
         source_considers_victim_allied(f);
         assert_eq!(
             f.world.object_relationship(
-                &f.world.objects[&f.shooters[0]],
-                &f.world.objects[&f.victim]
+                &f.world.host_objects()[&f.shooters[0]],
+                &f.world.host_objects()[&f.victim]
             ),
             gamelogic::common::Relationship::Allies
         );
         assert_eq!(
             f.world.object_relationship(
-                &f.world.objects[&f.victim],
-                &f.world.objects[&f.shooters[0]]
+                &f.world.host_objects()[&f.victim],
+                &f.world.host_objects()[&f.shooters[0]]
             ),
             gamelogic::common::Relationship::Enemies
         );
@@ -651,11 +673,13 @@ fn splash_similarity_uses_receiving_definitions_and_source_to_victim_relationshi
         }
     }
     assert_eq!(
-        first.world.objects[&first.victim].health.current, 200.0,
+        first.world.host_objects()[&first.victim].health.current,
+        200.0,
         "source-to-victim Allies protects the receiving build variation"
     );
     assert_eq!(
-        peer.world.objects[&peer.victim].health.current, 100.0,
+        peer.world.host_objects()[&peer.victim].health.current,
+        100.0,
         "the same names are not equivalent in the peer's definitions"
     );
 }
@@ -692,11 +716,16 @@ fn self_splash_still_requires_the_allies_relationship_mask() {
         }
     }
     assert_eq!(
-        excluded.world.objects[&excluded.shooters[0]].health.current, 500.0,
+        excluded.world.host_objects()[&excluded.shooters[0]]
+            .health
+            .current,
+        500.0,
         "SELF removes the self exclusion but does not imply ALLIES"
     );
     assert_eq!(
-        included.world.objects[&included.shooters[0]].health.current,
+        included.world.host_objects()[&included.shooters[0]]
+            .health
+            .current,
         400.0
     );
 }
@@ -705,12 +734,12 @@ fn self_splash_still_requires_the_allies_relationship_mask() {
 fn ordinary_library_queued_area_two_accepted_hits_credit_once() {
     let mut f = fixture("TwoHits", 100.0, false, 30000000, 2, 10.0);
     f.accept();
-    assert!(!f.world.objects.contains_key(&f.victim));
+    assert!(!f.world.host_objects().lookup(&f.victim).is_some());
     assert_eq!(f.xp(), 10.0);
     let killer = *f
         .shooters
         .iter()
-        .find(|id| f.world.objects[id].experience.current == 10.0)
+        .find(|id| f.world.host_objects()[id].experience.current == 10.0)
         .unwrap();
     f.expect_fx("Veteran", Some(killer));
     f.no_repeat();
@@ -723,7 +752,8 @@ fn ordinary_library_queued_area_interleaved_worlds() {
     assert_eq!(a.shooters, b.shooters);
     assert_eq!(a.victim, b.victim);
     assert_eq!(
-        a.world.objects[&a.victim].health.current, 100.0,
+        a.world.host_objects()[&a.victim].health.current,
+        100.0,
         "constructing B must not change A"
     );
     b.accept();
@@ -738,17 +768,17 @@ fn ordinary_library_queued_area_interleaved_worlds() {
     a.world.update();
     assert_eq!(a.xp(), 10.0);
     assert_eq!(b.xp(), 0.0);
-    assert_eq!(b.world.objects[&b.victim].health.current, 100.0);
+    assert_eq!(b.world.host_objects()[&b.victim].health.current, 100.0);
     a.expect_fx("Veteran", Some(a.shooters[0]));
     assert!(b.take_fx().is_empty());
     b.world.update();
     assert_eq!(b.xp(), 10.0);
     assert_eq!(
-        a.world.objects[&a.shooters[0]].experience.level,
+        a.world.host_objects()[&a.shooters[0]].experience.level,
         VeterancyLevel::Veteran
     );
     assert_eq!(
-        b.world.objects[&b.shooters[0]].experience.level,
+        b.world.host_objects()[&b.shooters[0]].experience.level,
         VeterancyLevel::Rookie
     );
     b.expect_fx("Regular", Some(b.shooters[0]));
@@ -767,11 +797,11 @@ fn ordinary_library_queued_area_two_collateral_kills_complete_in_encounter_order
         .create_object_for_player("QueuedVictim", 1, Vec3::new(12.0, 0.0, 0.0))
         .unwrap();
     f.accept();
-    assert!(!f.world.objects.contains_key(&f.victim));
-    assert!(!f.world.objects.contains_key(&other));
+    assert!(!f.world.host_objects().lookup(&f.victim).is_some());
+    assert!(!f.world.host_objects().lookup(&other).is_some());
     assert_eq!(f.xp(), 20.0);
     assert_eq!(
-        f.world.objects[&f.shooters[0]].experience.level,
+        f.world.host_objects()[&f.shooters[0]].experience.level,
         VeterancyLevel::Elite
     );
     let observed = f.take_fx();
@@ -828,9 +858,9 @@ fn ordinary_library_queued_area_secondary_and_sphere_boundary() {
         .create_object_for_player("QueuedVictim", 1, Vec3::new(21.01, 0.0, 0.0))
         .unwrap();
     f.accept();
-    assert_eq!(f.world.objects[&f.victim].health.current, 100.0);
-    assert_eq!(f.world.objects[&secondary].health.current, 175.0);
-    assert_eq!(f.world.objects[&outside].health.current, 200.0);
+    assert_eq!(f.world.host_objects()[&f.victim].health.current, 100.0);
+    assert_eq!(f.world.host_objects()[&secondary].health.current, 175.0);
+    assert_eq!(f.world.host_objects()[&outside].health.current, 200.0);
     assert_eq!(f.xp(), 0.0);
     let observed = f.take_fx();
     let hits = observed
@@ -848,11 +878,15 @@ fn ordinary_library_queued_area_elevation_uses_3d_sphere() {
         f.world
             .set_registered_object_position(f.victim, Vec3::new(11.0, 20.0, 0.0))
     );
-    f.world.objects.get_mut(&f.victim).unwrap().status.airborne_target = true;
+    f.world
+        .host_object_mut(f.victim)
+        .unwrap()
+        .status
+        .airborne_target = true;
     f.accept();
-    assert!(f.world.objects[&f.victim].get_position().y > 10.0);
-    assert_eq!(f.world.objects[&f.victim].health.current, 200.0);
-    assert_eq!(f.world.objects[&f.intended].health.current, 9900.0);
+    assert!(f.world.host_objects()[&f.victim].get_position().y > 10.0);
+    assert_eq!(f.world.host_objects()[&f.victim].health.current, 200.0);
+    assert_eq!(f.world.host_objects()[&f.intended].health.current, 9900.0);
     assert!(f.take_fx().is_empty());
 }
 
@@ -861,10 +895,10 @@ fn ordinary_library_queued_area_mask_fallback_and_intended_bypass() {
     // Some(players)/None(team_factory) preserves the current frozen-team Neutral fallback,
     // despite the players' explicit Enemies relationship.
     let mut f = fixture_custom("Mask", 200.0, false, 30000000, 1, 10.0, 5.0, "ENEMIES", "");
-    f.world.objects.get_mut(&f.shooters[0]).unwrap().producer_id = Some(f.intended);
+    f.world.host_object_mut(f.shooters[0]).unwrap().producer_id = Some(f.intended);
     f.accept();
-    assert_eq!(f.world.objects[&f.victim].health.current, 200.0);
-    assert_eq!(f.world.objects[&f.intended].health.current, 9900.0);
+    assert_eq!(f.world.host_objects()[&f.victim].health.current, 200.0);
+    assert_eq!(f.world.host_objects()[&f.intended].health.current, 9900.0);
     assert_eq!(f.xp(), 0.0);
     assert!(f.take_fx().is_empty());
 }
@@ -882,11 +916,11 @@ fn ordinary_library_queued_area_source_and_producer_excluded() {
         "ALLIES ENEMIES NEUTRALS",
         "",
     );
-    f.world.objects.get_mut(&f.shooters[0]).unwrap().producer_id = Some(f.victim);
+    f.world.host_object_mut(f.shooters[0]).unwrap().producer_id = Some(f.victim);
     f.accept();
-    assert_eq!(f.world.objects[&f.shooters[0]].health.current, 500.0);
-    assert_eq!(f.world.objects[&f.victim].health.current, 200.0);
-    assert_eq!(f.world.objects[&f.intended].health.current, 9900.0);
+    assert_eq!(f.world.host_objects()[&f.shooters[0]].health.current, 500.0);
+    assert_eq!(f.world.host_objects()[&f.victim].health.current, 200.0);
+    assert_eq!(f.world.host_objects()[&f.intended].health.current, 9900.0);
     assert!(f.take_fx().is_empty());
 }
 
@@ -903,10 +937,10 @@ fn ordinary_library_queued_area_self_mask_includes_source_and_producer() {
         "SELF ALLIES ENEMIES NEUTRALS",
         "",
     );
-    f.world.objects.get_mut(&f.shooters[0]).unwrap().producer_id = Some(f.victim);
+    f.world.host_object_mut(f.shooters[0]).unwrap().producer_id = Some(f.victim);
     f.accept();
-    assert_eq!(f.world.objects[&f.shooters[0]].health.current, 400.0);
-    assert_eq!(f.world.objects[&f.victim].health.current, 100.0);
+    assert_eq!(f.world.host_objects()[&f.shooters[0]].health.current, 400.0);
+    assert_eq!(f.world.host_objects()[&f.victim].health.current, 100.0);
     assert_eq!(f.xp(), 0.0);
     f.expect_fx("Regular", Some(f.shooters[0]));
 }
@@ -929,7 +963,7 @@ fn ordinary_library_queued_area_secondary_dual_threshold_is_preserved() {
             .set_registered_object_position(f.victim, Vec3::new(16.00025, 0.0, 0.0))
     );
     f.accept();
-    assert_eq!(f.world.objects[&f.victim].health.current, 200.0);
+    assert_eq!(f.world.host_objects()[&f.victim].health.current, 200.0);
     assert!(f.take_fx().is_empty());
 }
 
@@ -947,7 +981,7 @@ fn ordinary_library_queued_area_shock_after_nonlethal_damage() {
         "ShockWaveAmount = 20\n ShockWaveRadius = 30\n ShockWaveTaperOff = 1",
     );
     f.accept();
-    let victim = &f.world.objects[&f.victim];
+    let victim = &f.world.host_objects()[&f.victim];
     assert_eq!(victim.health.current, 100.0);
     assert_eq!(victim.last_damage_source, Some(f.shooters[0]));
     assert_eq!(victim.last_damage_timestamp, Some(100));
@@ -966,17 +1000,17 @@ fn ordinary_library_queued_area_dead_but_installed_source_at_arrival() {
         f.world.update();
     }
     let source = f.shooters[0];
-    let object = f.world.objects.get_mut(&source).unwrap();
+    let object = f.world.host_object_mut(source).unwrap();
     object.health.current = 0.0;
     assert!(!object.is_alive());
     assert!(!object.status.destroyed);
-    assert_eq!(f.world.objects[&f.victim].health.current, 100.0);
+    assert_eq!(f.world.host_objects()[&f.victim].health.current, 100.0);
     f.world.update();
-    assert!(!f.world.objects.contains_key(&f.victim));
-    assert!(f.world.objects.contains_key(&source));
+    assert!(!f.world.host_objects().lookup(&f.victim).is_some());
+    assert!(f.world.host_objects().lookup(&source).is_some());
     assert_eq!(f.xp(), 10.0);
     assert_eq!(
-        f.world.objects[&source].experience.level,
+        f.world.host_objects()[&source].experience.level,
         VeterancyLevel::Veteran
     );
     f.expect_fx("Veteran", Some(source));

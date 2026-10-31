@@ -249,14 +249,18 @@ fn seed_combat(logic: &mut GameLogic, id: ObjectId, target: ObjectId, worker: bo
     if worker {
         assert!(logic.move_object_to(id, Vec3::new(200.0, 0.0, 0.0)));
     }
-    logic.objects.get_mut(&id).unwrap().set_ai_state(
-        if worker {
-            AIState::Constructing
-        } else {
-            AIState::Attacking
-        },
-        &mut generals_main::game_logic::ObjectAudio::queue(&mut logic.queued_audio_events),
-    );
+    logic
+        .with_host_object_audio(id, |object, audio| {
+            object.set_ai_state(
+                if worker {
+                    AIState::Constructing
+                } else {
+                    AIState::Attacking
+                },
+                audio,
+            )
+        })
+        .unwrap();
 }
 
 #[test]

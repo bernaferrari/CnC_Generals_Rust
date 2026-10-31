@@ -139,8 +139,8 @@ fn construction_toggles_are_synchronous_and_world_owned_for_colliding_player_ids
     );
     assert!(!beta.get_player(1).unwrap().can_build_base);
     assert!(alpha.get_player(1).unwrap().can_build_base);
-    let alpha_factory = alpha.objects.registered_values().next().unwrap().id;
-    let beta_factory = beta.objects.registered_values().next().unwrap().id;
+    let alpha_factory = alpha.host_objects().registered_values().next().unwrap().id;
+    let beta_factory = beta.host_objects().registered_values().next().unwrap().id;
     alpha
         .update_local_script_engine_with_owner(&script(
             ScriptActionType::PlayerDisableFactories,
@@ -239,8 +239,8 @@ fn following_script_condition_observes_enable_in_the_same_world_walk() {
 fn script_flag_and_disabled_mask_are_distinct_and_survive_restore() {
     let mut a = world("Alpha");
     let mut b = world("Beta");
-    let id = a.objects.registered_values().next().unwrap().id;
-    let peer_id = b.objects.registered_values().next().unwrap().id;
+    let id = a.host_objects().registered_values().next().unwrap().id;
+    let peer_id = b.host_objects().registered_values().next().unwrap().id;
     assert_eq!(id, peer_id);
     // A parent can propagate a disabled type without changing a child's
     // independent script flag.

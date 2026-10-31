@@ -348,6 +348,15 @@ pub(in crate::game_logic) struct ConstructorLookupReceipt {
 pub struct HostObjectRead<'a> {
     store: &'a HostObjectStore,
 }
+
+impl std::ops::Index<&ObjectId> for HostObjectRead<'_> {
+    type Output = Object;
+
+    fn index(&self, id: &ObjectId) -> &Self::Output {
+        self.store.lookup(id).expect("Object ID is not visible")
+    }
+}
+
 impl<'a> HostObjectRead<'a> {
     pub fn lookup(self, id: &ObjectId) -> Option<&'a Object> {
         self.store.lookup(id)

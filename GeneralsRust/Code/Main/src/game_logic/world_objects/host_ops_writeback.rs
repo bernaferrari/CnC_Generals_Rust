@@ -1017,11 +1017,28 @@ impl GameLogic {
         self.objects.lookup(&id)
     }
 
-    /// Wave 955/958: host-authority object map borrow (command apply / AI / shadow).
+    /// Host-authority object map borrow (command apply / AI / shadow).
     /// Presentation dual-read paths must use `PresentationFrame`, not this.
+    ///
+    /// ```compile_fail
+    /// use generals_main::game_logic::GameLogic;
+    /// let mut world = GameLogic::new();
+    /// let _stolen_store = std::mem::take(&mut world.objects);
+    /// ```
     #[inline]
     pub fn host_objects(&self) -> crate::game_logic::HostObjectRead<'_> {
         self.objects.read()
+    }
+
+    /// Borrow one live object and this session's audio queue for one operation.
+    pub fn with_host_object_audio<R>(
+        &mut self,
+        id: ObjectId,
+        operation: impl FnOnce(&mut Object, &mut crate::game_logic::ObjectAudio<'_>) -> R,
+    ) -> Option<R> {
+        let object = self.objects.lookup_mut(&id)?;
+        let mut audio = crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events);
+        Some(operation(object, &mut audio))
     }
 
     pub(crate) fn has_unregistered_host_objects(&self) -> bool {
@@ -1030,7 +1047,7 @@ impl GameLogic {
 
     /// Wave 955/958: host-authority mutable object map borrow.
     #[inline]
-    pub fn host_objects_mut(&mut self) -> &mut HostObjectStore {
+    pub(crate) fn host_objects_mut(&mut self) -> &mut HostObjectStore {
         &mut self.objects
     }
 

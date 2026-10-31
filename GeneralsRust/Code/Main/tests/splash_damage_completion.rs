@@ -164,24 +164,23 @@ End
     });
     if let Some(sink) = sink {
         world
-            .objects
-            .get_mut(&shooter)
+            .host_object_mut(shooter)
             .unwrap()
             .set_experience_sink(Some(sink));
     }
-    assert!(world.objects[&shooter].is_trainable());
-    assert_eq!(world.objects[&shooter].owner_player_id, Some(0));
+    assert!(world.host_objects()[&shooter].is_trainable());
+    assert_eq!(world.host_objects()[&shooter].owner_player_id, Some(0));
     for target in &targets {
-        assert_eq!(world.objects[target].kill_experience_value(), 10.0);
-        assert_eq!(world.objects[target].owner_player_id, Some(1));
+        assert_eq!(world.host_objects()[target].kill_experience_value(), 10.0);
+        assert_eq!(world.host_objects()[target].owner_player_id, Some(1));
     }
-    assert_eq!(world.objects[&shooter].experience.current, 0.0);
+    assert_eq!(world.host_objects()[&shooter].experience.current, 0.0);
     assert_eq!(
-        world.objects[&shooter].experience.level,
+        world.host_objects()[&shooter].experience.level,
         VeterancyLevel::Rookie
     );
     assert_eq!(
-        world.objects[&shooter].weapon.as_ref().unwrap().ammo,
+        world.host_objects()[&shooter].weapon.as_ref().unwrap().ammo,
         Some(8)
     );
     let observer = Arc::new(Observer::default());
@@ -195,14 +194,14 @@ End
     // AttackObject commands enter the separately scoped queued-damage runtime.
     // Public set_target drives the ordinary host-combat path being repaired.
     let mut attack_output = generals_main::game_logic::host_attack_log::AttackEvents::default();
-    world.objects.get_mut(&shooter).unwrap().set_target(
-        Some(anchor),
-        &mut attack_output,
-        &mut generals_main::game_logic::ObjectAudio::queue(&mut world.queued_audio_events),
-    );
+    world
+        .with_host_object_audio(shooter, |object, audio| {
+            object.set_target(Some(anchor), &mut attack_output, audio)
+        })
+        .unwrap();
     world.update();
     assert_eq!(world.get_current_frame(), 101);
-    let source = &world.objects[&shooter];
+    let source = &world.host_objects()[&shooter];
     assert_eq!(source.weapon.as_ref().unwrap().ammo, Some(7));
     assert_eq!(source.weapon_discharge_marker().logic_frame, 100);
     let awarded = if health > 100.0 {
@@ -222,19 +221,22 @@ End
         }
     );
     if let Some(sink) = sink {
-        assert_eq!(world.objects[&sink].experience.current, awarded);
+        assert_eq!(world.host_objects()[&sink].experience.current, awarded);
     }
     for target in &targets {
         if health > 100.0 {
-            assert_eq!(world.objects[target].health.current, health - 100.0);
-            assert_eq!(world.objects[target].next_damage_fx_time, 103);
-            assert_eq!(world.objects[target].last_damage_timestamp, Some(100));
+            assert_eq!(world.host_objects()[target].health.current, health - 100.0);
+            assert_eq!(world.host_objects()[target].next_damage_fx_time, 103);
+            assert_eq!(
+                world.host_objects()[target].last_damage_timestamp,
+                Some(100)
+            );
         } else {
-            assert!(!world.objects.contains_key(target));
+            assert!(!world.host_objects().lookup(target).is_some());
         }
     }
     assert_eq!(
-        world.objects[&anchor].health.current,
+        world.host_objects()[&anchor].health.current,
         if scatter { 500.0 } else { 400.0 }
     );
     let calls = observer.0.lock().unwrap().clone();
@@ -267,11 +269,12 @@ End
     assert_eq!(take_dispatched_fx_nuggets(), expected_sounds);
     world.update();
     assert_eq!(
-        world.objects[&shooter].experience.current, expected_xp,
+        world.host_objects()[&shooter].experience.current,
+        expected_xp,
         "no duplicate kill credit"
     );
     if let Some(sink) = sink {
-        assert_eq!(world.objects[&sink].experience.current, awarded);
+        assert_eq!(world.host_objects()[&sink].experience.current, awarded);
     }
     assert!(take_dispatched_fx_nuggets().is_empty());
 }
@@ -366,11 +369,11 @@ fn fire_shock_relationship_weapon(
 ) {
     world.set_current_frame(100);
     let mut attack_output = generals_main::game_logic::host_attack_log::AttackEvents::default();
-    world.objects.get_mut(&source).unwrap().set_target(
-        Some(anchor),
-        &mut attack_output,
-        &mut generals_main::game_logic::ObjectAudio::queue(&mut world.queued_audio_events),
-    );
+    world
+        .with_host_object_audio(source, |object, audio| {
+            object.set_target(Some(anchor), &mut attack_output, audio)
+        })
+        .unwrap();
     world.update();
 }
 
@@ -438,15 +441,23 @@ End
 
     fire_shock_relationship_weapon(&mut ally_source, ally_id, ally_anchor);
     assert_eq!(
-        ally_source.objects[&ally_neighbor].health.current, 500.0,
+        ally_source.host_objects()[&ally_neighbor].health.current,
+        500.0,
         "the source considers the equivalent victim an ally despite the reverse being enemy"
     );
-    assert_eq!(enemy_source.objects[&enemy_neighbor].health.current, 500.0);
+    assert_eq!(
+        enemy_source.host_objects()[&enemy_neighbor].health.current,
+        500.0
+    );
 
     fire_shock_relationship_weapon(&mut enemy_source, enemy_id, enemy_anchor);
-    assert_eq!(ally_source.objects[&ally_neighbor].health.current, 500.0);
     assert_eq!(
-        enemy_source.objects[&enemy_neighbor].health.current, 400.0,
+        ally_source.host_objects()[&ally_neighbor].health.current,
+        500.0
+    );
+    assert_eq!(
+        enemy_source.host_objects()[&enemy_neighbor].health.current,
+        400.0,
         "an enemy relationship in both directions admits the receiving world's splash"
     );
 }
@@ -500,13 +511,23 @@ End
     );
 
     fire_shock_relationship_weapon(&mut ally_source, ally_id, ally_anchor);
-    assert_eq!(ally_source.objects[&ally_neighbor].health.current, 500.0);
-    assert_eq!(enemy_source.objects[&enemy_neighbor].health.current, 500.0);
+    assert_eq!(
+        ally_source.host_objects()[&ally_neighbor].health.current,
+        500.0
+    );
+    assert_eq!(
+        enemy_source.host_objects()[&enemy_neighbor].health.current,
+        500.0
+    );
 
     fire_shock_relationship_weapon(&mut enemy_source, enemy_id, enemy_anchor);
-    assert_eq!(ally_source.objects[&ally_neighbor].health.current, 500.0);
     assert_eq!(
-        enemy_source.objects[&enemy_neighbor].health.current, 400.0,
+        ally_source.host_objects()[&ally_neighbor].health.current,
+        500.0
+    );
+    assert_eq!(
+        enemy_source.host_objects()[&enemy_neighbor].health.current,
+        400.0,
         "the scatter miss follows source-to-victim similarity before victim-to-source mask"
     );
 }

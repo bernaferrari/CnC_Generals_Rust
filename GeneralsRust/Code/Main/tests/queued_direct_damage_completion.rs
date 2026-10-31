@@ -142,20 +142,23 @@ End
     for source in &shooters {
         if let Some(sink) = sink {
             world
-                .objects
-                .get_mut(source)
+                .host_object_mut(*source)
                 .unwrap()
                 .set_experience_sink(Some(sink));
         }
-        assert!(world.objects[source].is_trainable());
-        assert_eq!(world.objects[source].owner_player_id, Some(0));
-        assert_eq!(world.objects[source].experience.current, 0.0);
+        assert!(world.host_objects()[source].is_trainable());
+        assert_eq!(world.host_objects()[source].owner_player_id, Some(0));
+        assert_eq!(world.host_objects()[source].experience.current, 0.0);
         assert_eq!(
-            world.objects[source].experience.level,
+            world.host_objects()[source].experience.level,
             VeterancyLevel::Rookie
         );
         assert_eq!(
-            world.objects[source].weapon.as_ref().unwrap().splash_radius,
+            world.host_objects()[source]
+                .weapon
+                .as_ref()
+                .unwrap()
+                .splash_radius,
             0.0
         );
         assert_eq!(
@@ -168,8 +171,8 @@ End
             generals_main::game_logic::CanAttackResult::Possible
         );
     }
-    assert_eq!(world.objects[&victim].owner_player_id, Some(1));
-    assert_eq!(world.objects[&victim].kill_experience_value(), 10.0);
+    assert_eq!(world.host_objects()[&victim].owner_player_id, Some(1));
+    assert_eq!(world.host_objects()[&victim].kill_experience_value(), 10.0);
     assert_eq!(
         world.player_relationship(0, 1),
         gamelogic::common::Relationship::Enemies
@@ -197,11 +200,15 @@ impl Fixture {
         self.world.update(); // frame99 aims
         for source in &self.shooters {
             assert_eq!(
-                self.world.objects[source].weapon.as_ref().unwrap().ammo,
+                self.world.host_objects()[source]
+                    .weapon
+                    .as_ref()
+                    .unwrap()
+                    .ammo,
                 Some(8)
             );
             assert_eq!(
-                self.world.objects[source]
+                self.world.host_objects()[source]
                     .weapon_discharge_marker()
                     .sequence,
                 0
@@ -210,7 +217,7 @@ impl Fixture {
         self.world.update(); // frame100 accepts exactly one shot per source
         assert_eq!(self.world.get_current_frame(), 101);
         for source in &self.shooters {
-            let o = &self.world.objects[source];
+            let o = &self.world.host_objects()[source];
             assert_eq!(o.weapon.as_ref().unwrap().ammo, Some(7));
             assert!(o.weapon_discharge_marker().sequence > 0);
             assert_eq!(o.weapon_discharge_marker().logic_frame, 100);
@@ -220,7 +227,11 @@ impl Fixture {
         let mut sequences: Vec<_> = self
             .shooters
             .iter()
-            .map(|id| self.world.objects[id].weapon_discharge_marker().sequence)
+            .map(|id| {
+                self.world.host_objects()[id]
+                    .weapon_discharge_marker()
+                    .sequence
+            })
             .collect();
         sequences.sort_unstable();
         assert_eq!(
@@ -231,7 +242,7 @@ impl Fixture {
     fn xp(&self) -> f32 {
         self.shooters
             .iter()
-            .filter_map(|id| self.world.objects.get(id))
+            .filter_map(|id| self.world.host_objects().lookup(id))
             .map(|o| o.experience.current)
             .sum()
     }
@@ -266,12 +277,12 @@ impl Fixture {
         let xp = self.xp();
         let sink_xp = self
             .sink
-            .map(|id| self.world.objects[&id].experience.current);
+            .map(|id| self.world.host_objects()[&id].experience.current);
         self.world.update();
         assert_eq!(self.xp(), xp);
         assert_eq!(
             self.sink
-                .map(|id| self.world.objects[&id].experience.current),
+                .map(|id| self.world.host_objects()[&id].experience.current),
             sink_xp
         );
         assert!(self.take_fx().is_empty());
@@ -282,9 +293,9 @@ fn instant(label: &str, health: f32, sink: bool) {
     f.accept();
     let lethal = health <= 100.0;
     if lethal {
-        assert!(!f.world.objects.contains_key(&f.victim));
+        assert!(!f.world.host_objects().lookup(&f.victim).is_some());
     } else {
-        let v = &f.world.objects[&f.victim];
+        let v = &f.world.host_objects()[&f.victim];
         assert_eq!(v.health.current, health - 100.0);
         assert_eq!(v.last_damage_timestamp, Some(100));
         assert_eq!(v.next_damage_fx_time, 103);
@@ -292,7 +303,7 @@ fn instant(label: &str, health: f32, sink: bool) {
     let xp = if lethal && !sink { 10.0 } else { 0.0 };
     assert_eq!(f.xp(), xp);
     assert_eq!(
-        f.world.objects[&f.shooters[0]].experience.level,
+        f.world.host_objects()[&f.shooters[0]].experience.level,
         if xp > 0.0 {
             VeterancyLevel::Veteran
         } else {
@@ -301,7 +312,7 @@ fn instant(label: &str, health: f32, sink: bool) {
     );
     if let Some(sink) = f.sink {
         assert_eq!(
-            f.world.objects[&sink].experience.current,
+            f.world.host_objects()[&sink].experience.current,
             if lethal { 10.0 } else { 0.0 }
         );
     }
@@ -328,13 +339,14 @@ fn delayed(label: &str, remove_source: bool) {
     let source = f.shooters[0];
     if remove_source {
         // Setup-only promotion: explicit local audio, no receiving UI admission.
-        f.world.objects.get_mut(&source).unwrap().gain_experience(
+        let mut audio = generals_main::game_logic::SessionAudio::default();
+        f.world.host_object_mut(source).unwrap().gain_experience(
             10.0,
-            &mut generals_main::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut generals_main::game_logic::ObjectAudio::queue(&mut audio),
             &mut generals_main::game_logic::VeterancyFeedback::standalone(),
         );
         assert_eq!(
-            f.world.objects[&source].experience.level,
+            f.world.host_objects()[&source].experience.level,
             VeterancyLevel::Veteran
         );
     }
@@ -342,22 +354,23 @@ fn delayed(label: &str, remove_source: bool) {
     if remove_source {
         f.world.destroy_object(source);
         f.world.update();
-        assert!(!f.world.objects.contains_key(&source));
+        assert!(!f.world.host_objects().lookup(&source).is_some());
     }
     while f.world.get_current_frame() <= 110 {
         let frame = f.world.get_current_frame();
         assert_eq!(
-            f.world.objects[&f.victim].health.current, 100.0,
+            f.world.host_objects()[&f.victim].health.current,
+            100.0,
             "no early hit before frame110"
         );
         assert_eq!(f.xp(), 0.0);
         assert!(f.take_fx().is_empty());
         f.world.update();
         if frame < 110 {
-            assert!(f.world.objects.contains_key(&f.victim));
+            assert!(f.world.host_objects().lookup(&f.victim).is_some());
         }
     }
-    assert!(!f.world.objects.contains_key(&f.victim));
+    assert!(!f.world.host_objects().lookup(&f.victim).is_some());
     assert_eq!(f.xp(), if remove_source { 0.0 } else { 10.0 });
     f.expect_fx(
         if remove_source { "Regular" } else { "Veteran" },
@@ -381,20 +394,20 @@ fn ordinary_library_queued_direct_two_accepted_hits_credit_once() {
     f.accept();
     while f.world.get_current_frame() <= 110 {
         let frame = f.world.get_current_frame();
-        assert_eq!(f.world.objects[&f.victim].health.current, 100.0);
+        assert_eq!(f.world.host_objects()[&f.victim].health.current, 100.0);
         assert_eq!(f.xp(), 0.0);
         assert!(f.take_fx().is_empty());
         f.world.update();
         if frame < 110 {
-            assert!(f.world.objects.contains_key(&f.victim));
+            assert!(f.world.host_objects().lookup(&f.victim).is_some());
         }
     }
-    assert!(!f.world.objects.contains_key(&f.victim));
+    assert!(!f.world.host_objects().lookup(&f.victim).is_some());
     assert_eq!(f.xp(), 10.0);
     let killer = *f
         .shooters
         .iter()
-        .find(|id| f.world.objects[id].experience.current == 10.0)
+        .find(|id| f.world.host_objects()[id].experience.current == 10.0)
         .unwrap();
     f.expect_fx("Veteran", Some(killer));
     f.no_repeat();
@@ -407,7 +420,8 @@ fn ordinary_library_queued_direct_interleaved_worlds() {
     assert_eq!(a.shooters, b.shooters);
     assert_eq!(a.victim, b.victim);
     assert_eq!(
-        a.world.objects[&a.victim].health.current, 100.0,
+        a.world.host_objects()[&a.victim].health.current,
+        100.0,
         "constructing B must not change A"
     );
     b.accept();
@@ -422,17 +436,17 @@ fn ordinary_library_queued_direct_interleaved_worlds() {
     a.world.update();
     assert_eq!(a.xp(), 10.0);
     assert_eq!(b.xp(), 0.0);
-    assert_eq!(b.world.objects[&b.victim].health.current, 100.0);
+    assert_eq!(b.world.host_objects()[&b.victim].health.current, 100.0);
     a.expect_fx("Veteran", Some(a.shooters[0]));
     assert!(b.take_fx().is_empty());
     b.world.update();
     assert_eq!(b.xp(), 10.0);
     assert_eq!(
-        a.world.objects[&a.shooters[0]].experience.level,
+        a.world.host_objects()[&a.shooters[0]].experience.level,
         VeterancyLevel::Veteran
     );
     assert_eq!(
-        b.world.objects[&b.shooters[0]].experience.level,
+        b.world.host_objects()[&b.shooters[0]].experience.level,
         VeterancyLevel::Rookie
     );
     b.expect_fx("Regular", Some(b.shooters[0]));

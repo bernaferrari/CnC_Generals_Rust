@@ -564,15 +564,19 @@ End
                 .unwrap()
                 .set_experience_sink(Some(sink));
         }
-        assert!(world.objects[source].is_trainable());
-        assert_eq!(world.objects[source].owner_player_id, Some(0));
-        assert_eq!(world.objects[source].experience.current, 0.0);
+        assert!(world.host_objects()[source].is_trainable());
+        assert_eq!(world.host_objects()[source].owner_player_id, Some(0));
+        assert_eq!(world.host_objects()[source].experience.current, 0.0);
         assert_eq!(
-            world.objects[source].experience.level,
+            world.host_objects()[source].experience.level,
             VeterancyLevel::Rookie
         );
         assert_eq!(
-            world.objects[source].weapon.as_ref().unwrap().splash_radius,
+            world.host_objects()[source]
+                .weapon
+                .as_ref()
+                .unwrap()
+                .splash_radius,
             radius
         );
         assert_eq!(
@@ -585,8 +589,8 @@ End
             generals_main::game_logic::CanAttackResult::Possible
         );
     }
-    assert_eq!(world.objects[&victim].owner_player_id, Some(1));
-    assert_eq!(world.objects[&victim].kill_experience_value(), 10.0);
+    assert_eq!(world.host_objects()[&victim].owner_player_id, Some(1));
+    assert_eq!(world.host_objects()[&victim].kill_experience_value(), 10.0);
     assert_eq!(
         world.player_relationship(0, 1),
         gamelogic::common::Relationship::Enemies
@@ -646,11 +650,15 @@ impl Fixture {
         self.world.update(); // frame99 aims
         for source in &self.shooters {
             assert_eq!(
-                self.world.objects[source].weapon.as_ref().unwrap().ammo,
+                self.world.host_objects()[source]
+                    .weapon
+                    .as_ref()
+                    .unwrap()
+                    .ammo,
                 Some(8)
             );
             assert_eq!(
-                self.world.objects[source]
+                self.world.host_objects()[source]
                     .weapon_discharge_marker()
                     .sequence,
                 0
@@ -659,7 +667,7 @@ impl Fixture {
         self.world.update(); // frame100 accepts exactly one shot per source
         assert_eq!(self.world.get_current_frame(), 101);
         for source in &self.shooters {
-            let o = &self.world.objects[source];
+            let o = &self.world.host_objects()[source];
             assert_eq!(o.weapon.as_ref().unwrap().ammo, Some(7));
             assert!(o.weapon_discharge_marker().sequence > 0);
             assert_eq!(o.weapon_discharge_marker().logic_frame, 100);
@@ -669,7 +677,11 @@ impl Fixture {
         let mut sequences: Vec<_> = self
             .shooters
             .iter()
-            .map(|id| self.world.objects[id].weapon_discharge_marker().sequence)
+            .map(|id| {
+                self.world.host_objects()[id]
+                    .weapon_discharge_marker()
+                    .sequence
+            })
             .collect();
         sequences.sort_unstable();
         assert_eq!(
@@ -705,12 +717,12 @@ impl Fixture {
         let xp = self.xp();
         let sink_xp = self
             .sink
-            .map(|id| self.world.objects[&id].experience.current);
+            .map(|id| self.world.host_objects()[&id].experience.current);
         self.world.update();
         assert_eq!(self.xp(), xp);
         assert_eq!(
             self.sink
-                .map(|id| self.world.objects[&id].experience.current),
+                .map(|id| self.world.host_objects()[&id].experience.current),
             sink_xp
         );
         assert!(observer.0.lock().unwrap().is_empty());
@@ -743,18 +755,18 @@ fn advance_with_dead_source(
             assert!(advanced);
             if let Some(source) = dead_source {
                 assert!(source_marked_dead);
-                let object = &f.world.objects[&source];
+                let object = &f.world.host_objects()[&source];
                 assert!(!object.is_alive());
                 assert!(!object.status.destroyed);
             }
             return;
         }
-        assert_eq!(f.world.objects[&f.victim].health.current, health);
+        assert_eq!(f.world.host_objects()[&f.victim].health.current, health);
         assert!(observer.0.lock().unwrap().is_empty());
         assert!(take_dispatched_fx_nuggets().is_empty());
         assert_eq!(f.xp(), 0.0, "no early kill credit");
         if let Some(sink) = f.sink {
-            assert_eq!(f.world.objects[&sink].experience.current, 0.0);
+            assert_eq!(f.world.host_objects()[&sink].experience.current, 0.0);
         }
         assert!(
             shots
@@ -778,7 +790,7 @@ fn advance_with_dead_source(
         // the source earlier would allow ordinary cleanup before the impact.
         if let Some(source) = dead_source {
             let next_position = position + shots[0].velocity / 30.0;
-            if next_position.distance(f.world.objects[&f.victim].get_position()) <= 5.0 {
+            if next_position.distance(f.world.host_objects()[&f.victim].get_position()) <= 5.0 {
                 let object = f.world.host_object_mut(source).unwrap();
                 object.health.current = 0.0;
                 assert!(!object.is_alive());
@@ -845,7 +857,7 @@ fn moving_case(
     if lethal {
         assert!(f.world.host_object(f.victim).is_none());
     } else {
-        let victim = &f.world.objects[&f.victim];
+        let victim = &f.world.host_objects()[&f.victim];
         assert_eq!(victim.health.current, health - 100.0);
         let frame = (f.world.get_current_frame() - 1) as u32;
         assert!(frame > 100);
@@ -859,7 +871,7 @@ fn moving_case(
     };
     assert_eq!(f.xp(), xp);
     if let Some(sink) = f.sink {
-        assert_eq!(f.world.objects[&sink].experience.current, 10.0);
+        assert_eq!(f.world.host_objects()[&sink].experience.current, 10.0);
     }
     let killer = if missing {
         None
@@ -869,7 +881,7 @@ fn moving_case(
         f.shooters
             .iter()
             .copied()
-            .find(|id| f.world.objects[id].experience.current == 10.0)
+            .find(|id| f.world.host_objects()[id].experience.current == 10.0)
     };
     f.expect_fx(
         &observer,
@@ -949,7 +961,7 @@ fn moving_area_two_kills_complete_in_encounter_order() {
     assert!(f.world.host_object(other).is_none());
     assert_eq!(f.xp(), 20.0);
     assert_eq!(
-        f.world.objects[&f.shooters[0]].experience.level,
+        f.world.host_objects()[&f.shooters[0]].experience.level,
         VeterancyLevel::Elite
     );
     let hits = observer.0.lock().unwrap().drain(..).collect::<Vec<_>>();
@@ -1000,21 +1012,21 @@ fn worlds(radius: f32) {
     );
     assert_eq!(a.shooters, b.shooters);
     assert_eq!(a.victim, b.victim);
-    assert_eq!(a.world.objects[&a.victim].health.current, 100.0);
+    assert_eq!(a.world.host_objects()[&a.victim].health.current, 100.0);
     b.accept();
     for _ in 0..50 {
         a.world.update();
         if a.world.combat_system().projectiles_snapshot().is_empty() {
             assert_eq!(a.xp(), 10.0);
             assert_eq!(b.xp(), 0.0);
-            assert_eq!(b.world.objects[&b.victim].health.current, 100.0);
+            assert_eq!(b.world.host_objects()[&b.victim].health.current, 100.0);
             assert_eq!(b.world.combat_system().projectiles_snapshot().len(), 1);
             a.expect_fx(&observer, "Veteran", Some(a.shooters[0]));
             b.world.update();
             assert!(b.world.combat_system().projectiles_snapshot().is_empty());
             assert_eq!(b.xp(), 10.0);
             assert_eq!(
-                b.world.objects[&b.shooters[0]].experience.level,
+                b.world.host_objects()[&b.shooters[0]].experience.level,
                 VeterancyLevel::Rookie
             );
             b.expect_fx(&observer, "Regular", Some(b.shooters[0]));
@@ -1101,8 +1113,8 @@ fn moving_area_uses_projectile_default_team_identity_not_launcher_custom_team() 
     // The projectile belongs to the shooter's default Team, while the launcher
     // has a custom Team name. The exact default-Team override still admits the
     // collateral hit because C++ uses the projectile as detonation source.
-    assert_eq!(f.world.objects[&collateral].health.current, 50.0);
-    assert_eq!(f.world.objects[&f.victim].health.current, 50.0); // primary bypass
+    assert_eq!(f.world.host_objects()[&collateral].health.current, 50.0);
+    assert_eq!(f.world.host_objects()[&f.victim].health.current, 50.0); // primary bypass
     assert_eq!(observer.0.lock().unwrap().len(), 2);
     assert_eq!(f.xp(), 0.0);
 }
@@ -1163,7 +1175,7 @@ fn moving_area_projectile_default_team_identity_controls_collateral_filter() {
         .unwrap();
     f.world = receiver;
     advance_to_impact(&mut f, &observer, 150.0);
-    assert_eq!(f.world.objects[&collateral].health.current, 50.0);
+    assert_eq!(f.world.host_objects()[&collateral].health.current, 50.0);
 }
 
 #[test]
@@ -1219,11 +1231,13 @@ fn moving_directional_splash_uses_projectile_pose_and_receiving_weapon_angle() {
         assert!(f.world.combat_system().projectiles_snapshot().is_empty());
     }
     assert_eq!(
-        narrow.world.objects[&narrow_victim].health.current, 150.0,
+        narrow.world.host_objects()[&narrow_victim].health.current,
+        150.0,
         "the victim is behind the moving projectile even though it is ahead of the launcher"
     );
     assert_eq!(
-        full.world.objects[&full_victim].health.current, 50.0,
+        full.world.host_objects()[&full_victim].health.current,
+        50.0,
         "the same-named weapon in the peer session has a full-circle angle"
     );
 }
@@ -1246,7 +1260,7 @@ fn moving_area_shock_final_state() {
     );
     f.accept();
     advance_to_impact(&mut f, &observer, 200.0);
-    let victim = &f.world.objects[&f.victim];
+    let victim = &f.world.host_objects()[&f.victim];
     assert_eq!(victim.health.current, 100.0);
     assert_eq!(victim.last_damage_source, Some(f.shooters[0]));
     assert_eq!(
