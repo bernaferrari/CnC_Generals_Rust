@@ -456,29 +456,35 @@ impl GameLogic {
                 self.spawn_topple_stump_with_effects(&name, pos, ori, burned, presentation_effects);
             }
             #[cfg(feature = "game_client")]
-            let fx_operation_environment = self.observe_object_fx_environment();
+            let fx_operation_environment = self
+                .objects
+                .get(&object_id)
+                .is_some_and(|object| object.structure_collapse_data.is_some())
+                .then(|| self.observe_object_fx_environment());
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.poll_slow_death_phase_fx(self.frame);
                 #[cfg(feature = "game_client")]
-                let _ = Self::with_object_fx_services(
-                    &mut self.session_view,
-                    self.queued_audio_events.policy().clone(),
-                    fx_player,
-                    self.world_services.shroud(),
-                    presentation_effects,
-                    &fx_operation_environment,
-                    self.world_services.terrain(),
-                    &self.logic_random,
-                    |view| {
-                        let shroud = self.world_services.shroud();
-                        let mut dispatch = |name: &str, object: &Object, at_object: bool| {
-                            Self::dispatch_object_phase_fx_with_view(
-                                name, object, at_object, fx_player, shroud, view,
-                            );
-                        };
-                        obj.poll_structure_collapse_phase_with_fx(self.frame, &mut dispatch)
-                    },
-                );
+                if let Some(fx_operation_environment) = fx_operation_environment.as_ref() {
+                    let _ = Self::with_object_fx_services(
+                        &mut self.session_view,
+                        self.queued_audio_events.policy().clone(),
+                        fx_player,
+                        self.world_services.shroud(),
+                        presentation_effects,
+                        fx_operation_environment,
+                        self.world_services.terrain(),
+                        &self.logic_random,
+                        |view| {
+                            let shroud = self.world_services.shroud();
+                            let mut dispatch = |name: &str, object: &Object, at_object: bool| {
+                                Self::dispatch_object_phase_fx_with_view(
+                                    name, object, at_object, fx_player, shroud, view,
+                                );
+                            };
+                            obj.poll_structure_collapse_phase_with_fx(self.frame, &mut dispatch)
+                        },
+                    );
+                }
                 #[cfg(not(feature = "game_client"))]
                 let _ = obj.poll_structure_collapse_phase_fx(self.frame);
             }
