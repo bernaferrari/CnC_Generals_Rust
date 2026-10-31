@@ -188,7 +188,8 @@ impl GameLogic {
         let parachutable =
             game_engine::common::system::kind_of::KindOfMask::from_string("PARACHUTABLE")
                 .is_some_and(|mask| rider.kind_of_cpp_mask() & mask.bits() != 0);
-        rider.transport_slot_count() != 0 || rider.is_kind_of(KindOf::Infantry) || parachutable
+        self.effective_transport_slot_count(rider_id)
+            .is_some_and(|slots| slots != 0 || rider.is_kind_of(KindOf::Infantry) || parachutable)
     }
 
     /// Original source local bones are Z-up; canonical transforms are Y-up.

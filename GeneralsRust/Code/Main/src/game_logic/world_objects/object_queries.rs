@@ -1116,13 +1116,53 @@ impl GameLogic {
         (stealth, occupants.len().saturating_sub(stealth))
     }
 
+    /// C++ Object::getTransportSlotCount resolves special zero-slot
+    /// containers through their passengers. Resolve IDs in this session and
+    /// reject broken or cyclic containment rather than recursing indefinitely.
+    pub(in crate::game_logic) fn effective_transport_slot_count(
+        &self,
+        object_id: ObjectId,
+    ) -> Option<usize> {
+        let object = self.host_object(object_id)?;
+        if object.thing().template.contain_module.kind
+            != crate::game_logic::ContainModuleKind::Parachute
+        {
+            return Some(object.transport_slot_count());
+        }
+
+        let mut pending = vec![(object_id, false)];
+        let mut active = std::collections::HashSet::new();
+        let mut total = 0usize;
+        while let Some((id, leaving)) = pending.pop() {
+            if leaving {
+                active.remove(&id);
+                continue;
+            }
+            let object = self.host_object(id)?;
+            if object.thing().template.contain_module.kind
+                == crate::game_logic::ContainModuleKind::Parachute
+            {
+                if !active.insert(id) {
+                    return None;
+                }
+                pending.push((id, true));
+                pending.extend(
+                    object
+                        .contained_units()
+                        .into_iter()
+                        .map(|child| (child, false)),
+                );
+            } else {
+                total = total.checked_add(object.transport_slot_count())?;
+            }
+        }
+        Some(total)
+    }
+
     /// Remaining normal-Enter capacity before adding `unit_id`.
     ///
-    /// `TransportContain`/`RailedTransportContain` consume each rider's
-    /// authored `TransportSlotCount`; garrisons and the shared tunnel network
-    /// intentionally remain body-count containers.  A missing contained
-    /// object or missing slot metadata is not silently treated as one slot.
-
+    /// Transports consume rider slots; garrisons and tunnels count bodies.
+    /// Missing or invalid passengers are not silently treated as one slot.
     pub fn normal_enter_available_capacity_for(
         &self,
         unit_id: ObjectId,
@@ -1183,8 +1223,7 @@ impl GameLogic {
             }
             let mut slots_in_use = 0usize;
             for occupant_id in target.contained_units() {
-                let occupant = self.host_object(occupant_id)?;
-                let slots = occupant.transport_slot_count();
+                let slots = self.effective_transport_slot_count(occupant_id)?;
                 if slots == 0 {
                     return None;
                 }

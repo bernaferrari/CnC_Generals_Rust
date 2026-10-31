@@ -439,6 +439,67 @@ fn collision_transport_rechecks_slot_capacity_and_controller() {
 }
 
 #[test]
+fn parachute_transport_slots_follow_receiving_world_passengers() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, _, rider) = world(&map, false);
+    let (mut peer, _, peer_rider) = world(&map, false);
+    let setup = |world: &mut GameLogic, passenger: ObjectId, heavy: bool| {
+        let large = world
+            .create_object_for_player("HeavyTransportRider", 2, Vec3::new(50., 0., 50.))
+            .unwrap();
+        let chute = world
+            .create_object_for_player("AuthoredParachute", 2, Vec3::new(50., 0., 50.))
+            .unwrap();
+        let transport = world
+            .create_object_for_player("SnapshotDoorTransport", 2, Vec3::new(50., 0., 50.))
+            .unwrap();
+        world
+            .host_object_mut(chute)
+            .unwrap()
+            .occupants
+            .push(if heavy { large } else { passenger });
+        world
+            .host_object_mut(transport)
+            .unwrap()
+            .occupants
+            .push(chute);
+        (large, chute, transport)
+    };
+    let (large, chute, transport) = setup(&mut game, rider, false);
+    let (peer_large, peer_chute, peer_transport) = setup(&mut peer, peer_rider, true);
+    assert_eq!(
+        (large, chute, transport),
+        (peer_large, peer_chute, peer_transport)
+    );
+    let inner_chute = peer
+        .create_object_for_player("AuthoredParachute", 2, Vec3::new(50., 0., 50.))
+        .unwrap();
+    peer.host_object_mut(inner_chute)
+        .unwrap()
+        .occupants
+        .push(peer_large);
+    peer.host_object_mut(peer_chute).unwrap().occupants[0] = inner_chute;
+    assert_eq!(game.unit_transport_slot_count(chute), 1);
+    assert_eq!(peer.unit_transport_slot_count(peer_chute), 4);
+    assert_eq!(
+        game.normal_enter_available_capacity_for(large, transport),
+        Some(3)
+    );
+    assert_eq!(
+        peer.normal_enter_available_capacity_for(peer_rider, peer_transport),
+        Some(0)
+    );
+    game.host_object_mut(chute).unwrap().occupants.push(chute);
+    assert_eq!(game.unit_transport_slot_count(chute), 0);
+    assert_eq!(
+        game.normal_enter_available_capacity_for(large, transport),
+        None
+    );
+    assert_eq!(peer.unit_transport_slot_count(peer_chute), 4);
+}
+
+#[test]
 fn collision_garrison_rejects_invalid_rider_and_reports_missing_owner() {
     let root = tempfile::tempdir().unwrap();
     let map = map_file(root.path());

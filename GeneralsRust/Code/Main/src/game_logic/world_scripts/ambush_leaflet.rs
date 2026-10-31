@@ -1418,13 +1418,10 @@ impl GameLogic {
             .is_some_and(|o| o.normal_enter_forbids_aircraft())
     }
 
-    /// C++ `Object::getTransportSlotCount` raw authored value.
+    /// C++ `Object::getTransportSlotCount`, including parachute passengers.
     #[inline]
     pub fn unit_transport_slot_count(&self, id: ObjectId) -> usize {
-        self.objects
-            .get(&id)
-            .map(|o| o.transport_slot_count())
-            .unwrap_or(0)
+        self.effective_transport_slot_count(id).unwrap_or(0)
     }
 
     /// C++ OpenContain relationship admission for normal Enter.

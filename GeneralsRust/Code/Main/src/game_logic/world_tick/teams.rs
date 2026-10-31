@@ -1660,7 +1660,10 @@ impl GameLogic {
             if obj.is_kind_of(KindOf::Transport) {
                 transports.push((id, obj.max_transport as u32));
             } else {
-                units.push((id, obj.transport_slot_count() as u32));
+                let Some(slots) = self.effective_transport_slot_count(ObjectId(id)) else {
+                    continue;
+                };
+                units.push((id, slots as u32));
             }
         }
         let mut solver =
