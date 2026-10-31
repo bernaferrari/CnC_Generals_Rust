@@ -350,7 +350,7 @@ fn immediate_pause_only_clears_living_exact_owner_and_refunds_once() {
 }
 
 #[test]
-fn clear_keeps_existing_production_validation_for_dead_or_mismatched_owner() {
+fn clear_refunds_exact_controller_even_if_dead_or_faction_label_differs() {
     for dead_owner in [false, true] {
         let mut logic = world();
         let producer = create(&mut logic, PRODUCER, 1, 0.0);
@@ -363,12 +363,31 @@ fn clear_keeps_existing_production_validation_for_dead_or_mismatched_owner() {
             logic.host_object_mut(producer).unwrap().team = Team::GLA;
         }
         let balance = logic.get_player(1).unwrap().resources.supplies;
+        let peer_balance = logic.get_player(2).unwrap().resources.supplies;
         logic.pause_skirmish_ai_and_clear_combat(1);
         let o = logic.host_object(producer).unwrap();
         assert_eq!(o.target, None);
         assert_eq!(o.ai_state(), AIState::Idle);
-        assert_eq!(o.building_data.as_ref().unwrap().production_queue.len(), 1);
-        assert_eq!(logic.get_player(1).unwrap().resources.supplies, balance);
+        assert!(
+            o.building_data
+                .as_ref()
+                .unwrap()
+                .production_queue
+                .is_empty()
+        );
+        assert_eq!(
+            logic.get_player(1).unwrap().resources.supplies,
+            balance + 125
+        );
+        assert_eq!(
+            logic.get_player(2).unwrap().resources.supplies,
+            peer_balance
+        );
+        logic.pause_skirmish_ai_and_clear_combat(1);
+        assert_eq!(
+            logic.get_player(1).unwrap().resources.supplies,
+            balance + 125
+        );
     }
 }
 
