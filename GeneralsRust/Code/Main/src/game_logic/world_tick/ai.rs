@@ -195,32 +195,44 @@ impl GameLogic {
                         .is_some_and(|result| result.destroyed());
                 }
                 #[cfg(feature = "game_client")]
-                let fx_operation_environment = self.observe_object_fx_environment();
+                let fx_operation_environment = self.objects.get(&object_id).and_then(|object| {
+                    (object.topple_data.is_some() || object.structure_collapse_data.is_some()
+                        || (!object.status.under_construction
+                            && (object.missile_launcher_building.is_some()
+                                || crate::game_logic::host_missile_launcher_building_update::missile_launcher_ini_for_template(&object.template_name).is_some())))
+                        .then(|| self.observe_object_fx_environment())
+                });
                 let Some(obj) = self.objects.get_mut(&object_id) else {
                     continue;
                 };
                 // C++ MissileLauncherBuildingUpdate::update (ready-frame door SM).
                 let ml_pos = obj.get_position();
                 #[cfg(feature = "game_client")]
-                let (play, stop) = Self::with_object_fx_services(
-                    &mut self.session_view,
-                    self.queued_audio_events.policy().clone(),
-                    fx_player,
-                    self.world_services.shroud(),
-                    presentation_effects,
-                    &fx_operation_environment,
-                    self.world_services.terrain(),
-                    &self.logic_random,
-                    |view| {
-                        let shroud = self.world_services.shroud();
-                        let mut dispatch = |name: &str, object: &Object, at_object: bool| {
-                            Self::dispatch_object_phase_fx_with_view(
-                                name, object, at_object, fx_player, shroud, view,
-                            );
-                        };
-                        obj.tick_missile_launcher_building_with_fx(self.frame, &mut dispatch)
-                    },
-                );
+                let (play, stop) = if let Some(fx_operation_environment) =
+                    fx_operation_environment.as_ref()
+                {
+                    Self::with_object_fx_services(
+                        &mut self.session_view,
+                        self.queued_audio_events.policy().clone(),
+                        fx_player,
+                        self.world_services.shroud(),
+                        presentation_effects,
+                        &fx_operation_environment,
+                        self.world_services.terrain(),
+                        &self.logic_random,
+                        |view| {
+                            let shroud = self.world_services.shroud();
+                            let mut dispatch = |name: &str, object: &Object, at_object: bool| {
+                                Self::dispatch_object_phase_fx_with_view(
+                                    name, object, at_object, fx_player, shroud, view,
+                                );
+                            };
+                            obj.tick_missile_launcher_building_with_fx(self.frame, &mut dispatch)
+                        },
+                    )
+                } else {
+                    (None, false)
+                };
                 #[cfg(not(feature = "game_client"))]
                 let (play, stop) = obj.tick_missile_launcher_building(self.frame);
                 if play.is_some() || stop {
@@ -296,26 +308,32 @@ impl GameLogic {
                 {
                     #[cfg(feature = "game_client")]
                     {
-                        topple_kill = Self::with_object_fx_services(
-                            &mut self.session_view,
-                            self.queued_audio_events.policy().clone(),
-                            fx_player,
-                            self.world_services.shroud(),
-                            presentation_effects,
-                            &fx_operation_environment,
-                            self.world_services.terrain(),
-                            &self.logic_random,
-                            |view| {
-                                let shroud = self.world_services.shroud();
-                                let mut dispatch =
-                                    |name: &str, object: &Object, at_object: bool| {
-                                        Self::dispatch_object_phase_fx_with_view(
-                                            name, object, at_object, fx_player, shroud, view,
-                                        );
-                                    };
-                                obj.tick_topple_with_fx(&mut dispatch)
-                            },
-                        );
+                        topple_kill = if let Some(fx_operation_environment) =
+                            fx_operation_environment.as_ref()
+                        {
+                            Self::with_object_fx_services(
+                                &mut self.session_view,
+                                self.queued_audio_events.policy().clone(),
+                                fx_player,
+                                self.world_services.shroud(),
+                                presentation_effects,
+                                fx_operation_environment,
+                                self.world_services.terrain(),
+                                &self.logic_random,
+                                |view| {
+                                    let shroud = self.world_services.shroud();
+                                    let mut dispatch =
+                                        |name: &str, object: &Object, at_object: bool| {
+                                            Self::dispatch_object_phase_fx_with_view(
+                                                name, object, at_object, fx_player, shroud, view,
+                                            );
+                                        };
+                                    obj.tick_topple_with_fx(&mut dispatch)
+                                },
+                            )
+                        } else {
+                            false
+                        };
                     }
                     #[cfg(not(feature = "game_client"))]
                     {
@@ -431,7 +449,9 @@ impl GameLogic {
                             fx_player,
                             self.world_services.shroud(),
                             presentation_effects,
-                            &fx_operation_environment,
+                            fx_operation_environment
+                                .as_ref()
+                                .expect("collapse requires an FX environment"),
                             self.world_services.terrain(),
                             &self.logic_random,
                             |view| {
@@ -778,9 +798,9 @@ impl GameLogic {
             }
             if let Some((pos, gaining, has_victim)) = disguise_halfpoint {
                 use crate::game_logic::host_bomb_truck_disguise::{
-                    BOMB_TRUCK_DISGUISE_FX, BOMB_TRUCK_DISGUISE_REVEALED_FAILURE_AUDIO,
-                    BOMB_TRUCK_DISGUISE_REVEALED_SUCCESS_AUDIO, BOMB_TRUCK_DISGUISE_REVEAL_FX,
-                    BOMB_TRUCK_DISGUISE_STARTED_AUDIO,
+                    BOMB_TRUCK_DISGUISE_FX, BOMB_TRUCK_DISGUISE_REVEAL_FX,
+                    BOMB_TRUCK_DISGUISE_REVEALED_FAILURE_AUDIO,
+                    BOMB_TRUCK_DISGUISE_REVEALED_SUCCESS_AUDIO, BOMB_TRUCK_DISGUISE_STARTED_AUDIO,
                 };
                 let (sound, fx) = if gaining {
                     (BOMB_TRUCK_DISGUISE_STARTED_AUDIO, BOMB_TRUCK_DISGUISE_FX)
@@ -1065,7 +1085,7 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::host_mines::{
-            should_detonate_when_killed, HostMineDetonateReason, DEMO_TRAP_DETONATE_WHEN_KILLED,
+            DEMO_TRAP_DETONATE_WHEN_KILLED, HostMineDetonateReason, should_detonate_when_killed,
         };
         let due: Vec<ObjectId> = self
             .objects
