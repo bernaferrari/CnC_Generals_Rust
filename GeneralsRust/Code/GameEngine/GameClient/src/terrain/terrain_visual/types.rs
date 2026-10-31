@@ -74,6 +74,19 @@ pub struct TerrainPropRecord {
     pub model_name: String,
 }
 
+impl TerrainPropRecord {
+    /// W3DPropBuffer's Z-up translate * rotate-Z * uniform-scale, conjugated
+    /// into the Y-up basis used by the WGPU mesh renderer.
+    pub fn render_world_transform(&self) -> Mat4 {
+        Mat4::from_translation(Vec3::new(
+            self.position[0],
+            self.position[2],
+            self.position[1],
+        )) * Mat4::from_rotation_y(-self.angle)
+            * Mat4::from_scale(Vec3::splat(self.scale))
+    }
+}
+
 /// One receiving draw world's not-yet-admitted prop requests. Requests from a
 /// previous host epoch cannot be replayed into a replacement terrain.
 #[derive(Default)]

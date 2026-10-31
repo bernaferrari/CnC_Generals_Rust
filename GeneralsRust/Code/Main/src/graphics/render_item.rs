@@ -432,6 +432,9 @@ pub enum RenderItemOwner {
     /// ObjectID type, but are not GameClient direct-drawable bindings.
     PresentationProjectile(ObjectId),
     UnboundClientDrawable(u32),
+    /// Static render object owned by the terrain prop buffer, not the source
+    /// drawable (which has already completed its one-shot handoff).
+    TerrainProp(u32),
     /// Frozen W3D ghost RenderObj.  This is a separate identity domain from
     /// gameplay objects and standalone Drawable IDs.
     W3dGhost(GhostRenderKey),
@@ -593,6 +596,8 @@ pub struct RenderItem {
     /// object owner and must not participate in direct-object culling or
     /// clear-frame history.
     pub frozen_objectless_drawable_shroud: Option<FrozenObjectlessDrawableShroudRenderState>,
+    /// W3DPropBuffer's partition-based shroud material-pass decision.
+    pub terrain_prop_projected_shroud: bool,
 
     /// Per-instance UV offset override for submeshes such as W3D tread meshes.
     pub uv_offset_override: Option<Vec2>,
@@ -678,6 +683,7 @@ impl RenderItem {
             presentation_opacity: 1.0,
             frozen_direct_scene_shroud: None,
             frozen_objectless_drawable_shroud: None,
+            terrain_prop_projected_shroud: false,
             uv_offset_override: None,
             animation_frame: 0.0,
             animation_binding: None,
@@ -962,6 +968,7 @@ impl RenderItem {
         self.apply_status_tint(parent.status_tint);
         self.presentation_opacity = parent.presentation_opacity;
         self.frozen_objectless_drawable_shroud = parent.frozen_objectless_drawable_shroud;
+        self.terrain_prop_projected_shroud = parent.terrain_prop_projected_shroud;
         // AdditionalModels are C++ render-object children of the same
         // DrawModule submission. Carry the exact source stamp and authored
         // bases for diagnostics/future validated topology consumption, while
@@ -1042,6 +1049,7 @@ impl RenderItem {
             || self
                 .frozen_objectless_drawable_shroud
                 .is_some_and(|state| state.pushes_projected_shroud_pass)
+            || self.terrain_prop_projected_shroud
     }
 
     /// Get FOW visibility for this render item

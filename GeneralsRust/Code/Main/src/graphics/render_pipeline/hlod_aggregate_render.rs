@@ -668,6 +668,19 @@ fn aggregate_render_item_from_parent(
                 RenderPipeline::render_pass_for_material(material),
             )
         }
+        RenderItemOwner::TerrainProp(drawable_id) => {
+            let mut item = RenderItem::new_unbound_client_drawable(
+                drawable_id,
+                source_model_cache_key.to_string(),
+                mesh_index,
+                world_position,
+                world_matrix,
+                material,
+                RenderPipeline::render_pass_for_material(material),
+            );
+            item.owner = RenderItemOwner::TerrainProp(drawable_id);
+            item
+        }
         // Ghost HLOD children require their own exact snapshot/materializer;
         // the ordinary aggregate helper must never invent one from a child
         // asset.  Keep this path fail-closed until the dedicated ghost

@@ -239,6 +239,54 @@ impl PresentationFowGrid {
         self.cell_at(gx as u32, gy as u32)
     }
 
+    /// PartitionManager::getPropShroudStatusForPlayer samples the four
+    /// partition cells surrounding a prop after a half-cell offset.
+    pub fn prop_shroud_status(
+        &self,
+        world_x: f32,
+        world_y: f32,
+    ) -> gamelogic::common::types::ObjectShroudStatus {
+        use gamelogic::common::types::ObjectShroudStatus as Status;
+        if !self.active {
+            return Status::Clear;
+        }
+        if !world_x.is_finite()
+            || !world_y.is_finite()
+            || !self.cell_size.is_finite()
+            || !self.world_origin_xy.iter().all(|v| v.is_finite())
+            || self.cell_size <= 0.0
+        {
+            return Status::Shrouded;
+        }
+        let x = ((world_x - self.cell_size * 0.5 - self.world_origin_xy[0]) / self.cell_size)
+            .floor() as i32;
+        let y = ((world_y - self.cell_size * 0.5 - self.world_origin_xy[1]) / self.cell_size)
+            .floor() as i32;
+        let cell = |x: i32, y: i32| {
+            if x < 0 || y < 0 {
+                Self::CELL_HIDDEN
+            } else {
+                self.cell_at(x as u32, y as u32)
+            }
+        };
+        let first = cell(x, y);
+        if [
+            (x.saturating_add(1), y),
+            (x.saturating_add(1), y.saturating_add(1)),
+            (x, y.saturating_add(1)),
+        ]
+        .into_iter()
+        .any(|(x, y)| cell(x, y) != first)
+        {
+            return Status::PartialClear;
+        }
+        match first {
+            Self::CELL_VISIBLE => Status::Clear,
+            Self::CELL_HIDDEN => Status::Shrouded,
+            _ => Status::Fogged,
+        }
+    }
+
     /// Encode one cell to R8 for `FowTerrainOverlay::update_texture`.
     #[inline]
     pub fn cell_to_r8(cell: u8) -> u8 {
@@ -1285,13 +1333,21 @@ mod tests {
 
         assert_eq!(first_metadata.shroud_color_rgb, [128, 0, 255]);
         assert_eq!(
-            (first_metadata.clear_alpha, first_metadata.fog_alpha, first_metadata.shroud_alpha),
+            (
+                first_metadata.clear_alpha,
+                first_metadata.fog_alpha,
+                first_metadata.shroud_alpha
+            ),
             (211, 64, 32),
         );
         assert_eq!(first_metadata.border_alpha, 255);
         assert_eq!(second_metadata.shroud_color_rgb, [0, 255, 64]);
         assert_eq!(
-            (second_metadata.clear_alpha, second_metadata.fog_alpha, second_metadata.shroud_alpha),
+            (
+                second_metadata.clear_alpha,
+                second_metadata.fog_alpha,
+                second_metadata.shroud_alpha
+            ),
             (173, 17, 9),
         );
         assert_eq!(second_metadata.border_alpha, 9);

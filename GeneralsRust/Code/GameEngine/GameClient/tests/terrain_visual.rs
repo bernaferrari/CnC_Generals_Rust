@@ -530,6 +530,12 @@ fn prop_identity_and_full_pose_stay_with_the_receiving_visual() {
     assert_eq!(first.terrain_props()[0].position, [10.0, 20.0, 7.0]);
     assert_eq!(peer.terrain_props()[0].drawable_id, 42);
     assert_eq!(peer.terrain_props()[0].position, [100.0, 200.0, 17.0]);
+    let world = first.terrain_props()[0].render_world_transform();
+    let origin = world.transform_point3(glam::Vec3::ZERO);
+    assert_eq!(origin, glam::Vec3::new(10.0, 7.0, 20.0));
+    let rotated = world.transform_vector3(glam::Vec3::X);
+    assert!((rotated.x - 1.5 * 0.5f32.cos()).abs() < 1e-5);
+    assert!((rotated.z - 1.5 * 0.5f32.sin()).abs() < 1e-5);
     first.remove_trees_and_props_for_construction([10.0, 20.0, 7.0], 3.0, 3.0, true, 0.0);
     assert!(first.terrain_props().is_empty());
     assert_eq!(peer.terrain_props()[0].model_name, "Rock");

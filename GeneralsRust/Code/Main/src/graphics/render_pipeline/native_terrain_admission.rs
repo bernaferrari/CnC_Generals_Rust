@@ -87,8 +87,11 @@ impl RenderPipeline {
     /// this same CPU map, including already-admitted water and saved scorches.
     pub(crate) fn install_native_terrain_cpu(
         &mut self,
-        visual: Option<game_client::terrain::terrain_visual::TerrainVisualImpl>,
+        mut visual: Option<game_client::terrain::terrain_visual::TerrainVisualImpl>,
     ) {
+        if let Some(visual) = visual.as_mut() {
+            visual.set_native_prop_models(true);
+        }
         self.native_terrain = visual;
         self.flush_native_props();
         self.radar_terrain_colors = None;

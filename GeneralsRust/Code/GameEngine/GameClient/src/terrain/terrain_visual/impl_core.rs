@@ -33,6 +33,13 @@ fn frustum_ground_footprint_center(view: Mat4, projection: Mat4, ground_y: f32) 
 }
 
 impl TerrainVisualImpl {
+    /// Select the renderer-owned W3D model path instead of compatibility cards.
+    pub fn set_native_prop_models(&mut self, enabled: bool) {
+        if self.native_prop_models != enabled {
+            self.native_prop_models = enabled;
+            self.overlay_gpu_meshes_dirty = true;
+        }
+    }
     /// Admit water GameData from the world that owns this presentation.
     pub fn admit_water_rules(
         &mut self,
@@ -190,6 +197,7 @@ impl TerrainVisualImpl {
             water_grid: WaterGridCpuState::default(),
             terrain_bibs: Vec::new(),
             prop_meshes: Vec::new(),
+            native_prop_models: false,
             terrain_props: Vec::new(),
             construction_removals: Vec::new(),
             chunk_meshes: HashMap::new(),

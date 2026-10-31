@@ -673,6 +673,8 @@ mod filter_scene;
 mod native_terrain_admission;
 mod native_terrain_owner;
 #[cfg(feature = "game_client")]
+pub use native_terrain_owner::append_terrain_prop_model_items;
+#[cfg(feature = "game_client")]
 mod native_terrain_pass;
 
 /// Main render pipeline - equivalent to C++ SAGE RenderPipeline

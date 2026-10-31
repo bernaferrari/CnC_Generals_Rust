@@ -274,6 +274,15 @@ impl RenderPipeline {
                 &direct_scene_candidates,
                 direct_scene_decisions,
             );
+            #[cfg(feature = "game_client")]
+            self.append_native_terrain_prop_models(
+                graphics_system,
+                view_matrix,
+                projection_matrix,
+                camera_position,
+                allow_sync_model_loads,
+                &mut deferred_model_load_budget,
+            );
             if self.frame_number <= 5 {
                 info!(
                     "RenderPipeline::execute frame {} collect_done ({} items, {:?})",

@@ -664,13 +664,13 @@ impl TerrainVisualImpl {
         self.bib_meshes = meshes;
     }
 
-    /// C++ `W3DPropBuffer::drawProps` renders every `TerrainPropRecord` as a
-    /// full W3D model; this port has no prop models, so each prop draws as a
-    /// crossed-card stand-in (two quads, the tree-buffer convention)
-    /// height-snapped to the terrain and tinted deterministically from the
-    /// prop name hash. Drawn through the alpha-blended overlay pipeline so
-    /// the cards read as scenery rather than collision geometry.
+    /// Compatibility renderer for terrain visuals without an attached W3D
+    /// model renderer. Native Main disables these crossed-card stand-ins.
     fn upload_prop_meshes(&mut self) {
+        if self.native_prop_models {
+            self.prop_meshes.clear();
+            return;
+        }
         const PROP_CARD_UVS: [[f32; 2]; 4] = [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]];
         let Some(device) = self.device.as_ref() else {
             self.prop_meshes.clear();

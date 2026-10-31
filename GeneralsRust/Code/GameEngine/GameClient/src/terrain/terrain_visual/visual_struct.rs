@@ -320,6 +320,7 @@ pub struct TerrainVisualImpl {
     snow_texture_name: String,
     snow_texture_is_fallback: bool,
     prop_meshes: Vec<GpuRoadMesh>,
+    native_prop_models: bool,
     smudge_mesh: Option<GpuRoadMesh>,
     flat_lod_meshes: Vec<GpuRoadMesh>,
 }

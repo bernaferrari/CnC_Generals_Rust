@@ -256,6 +256,7 @@ impl RenderPipeline {
                         );
                     }
                 }
+                candidate.set_native_prop_models(true);
                 self.native_terrain = Some(candidate);
                 self.flush_native_props();
             }
