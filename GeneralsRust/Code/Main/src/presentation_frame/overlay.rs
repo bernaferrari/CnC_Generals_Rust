@@ -2633,6 +2633,9 @@ impl PresentationFrame {
                 );
                 let _ = frame.overlay_gameworld_shadow(shadow);
                 let _ = frame.append_missing_from_gameworld(shadow);
+                // Shadow overlay is non-authoritative for containment and can
+                // replace hidden/shared data with an entrance-local roster.
+                let _ = frame.overlay_host_fx_residual(logic);
                 frame.refresh_host_kind_facts(logic);
                 frame.freeze_drawable_status_tints_from_logic(logic, Some(shadow));
                 frame
@@ -2713,6 +2716,9 @@ impl PresentationFrame {
             Some(shadow) => {
                 let _ = frame.overlay_gameworld_shadow(shadow);
                 let _ = frame.append_missing_from_gameworld(shadow);
+                // Shadow overlay is non-authoritative for containment and can
+                // replace hidden/shared data with an entrance-local roster.
+                let _ = frame.overlay_host_fx_residual(logic);
                 frame.refresh_host_kind_facts(logic);
             }
             None => {}

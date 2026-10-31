@@ -41,6 +41,9 @@ impl PresentationFrame {
         if !target.supports_normal_enter() {
             return None;
         }
+        // Hidden UI counts cannot establish actual occupancy. A hostless or
+        // deserialized frame must not manufacture a containment decision.
+        let authoritative_count = target.normal_enter_authoritative_occupant_count?;
         let Some(capacity) = target.normal_enter_capacity() else {
             return None;
         };
@@ -55,9 +58,7 @@ impl PresentationFrame {
         if shared_tracker {
             // ActionManager's foreign-controller rule precedes the tracker
             // eligibility check; Cave/Tunnel do not use OpenContain masks.
-            let occupied = target
-                .normal_enter_authoritative_occupant_count
-                .unwrap_or_else(|| target.normal_enter_occupant_count());
+            let occupied = authoritative_count;
             if !same_controller && (occupied > 0 || target.is_faction_structure) {
                 return None;
             }
@@ -86,10 +87,7 @@ impl PresentationFrame {
                 return None;
             }
             let stealth = target.stealth_garrison_occupant_count as usize;
-            let contain_count = target
-                .normal_enter_authoritative_occupant_count
-                .unwrap_or_else(|| target.normal_enter_occupant_count())
-                .max(stealth);
+            let contain_count = authoritative_count.max(stealth);
             let non_stealth = contain_count.saturating_sub(stealth);
             if non_stealth > 0 {
                 return None;

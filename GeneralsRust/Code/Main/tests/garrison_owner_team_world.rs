@@ -2743,6 +2743,11 @@ fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
     shadow.sync_from_host(&first);
     let frame = PresentationFrame::build_from_gameworld(&shadow, 2, Some(&mut first));
     check(&frame, vec![cave_rider], vec![tunnel_rider], 2);
+    let engine_frame = PresentationFrame::build_for_engine(&mut first, 2, Some(&shadow));
+    check(&engine_frame, vec![cave_rider], vec![tunnel_rider], 2);
+    let victory_frame =
+        PresentationFrame::build_with_victory_for_engine(&mut first, 2, Some(&shadow));
+    check(&victory_frame, vec![cave_rider], vec![tunnel_rider], 2);
     let mut peer_shadow = GameWorldShadow::new(256);
     peer_shadow.sync_from_host(&peer);
     let peer_frame = PresentationFrame::build_from_gameworld(&peer_shadow, 2, Some(&mut peer));
@@ -2792,7 +2797,15 @@ fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
     hidden_shadow.sync_from_host(&first);
     let shadow_hidden =
         PresentationFrame::build_from_gameworld(&hidden_shadow, 3, Some(&mut first));
-    for (name, frame) in [("direct", &direct_hidden), ("shadow", &shadow_hidden)] {
+    let engine_hidden = PresentationFrame::build_for_engine(&mut first, 3, Some(&hidden_shadow));
+    let victory_hidden =
+        PresentationFrame::build_with_victory_for_engine(&mut first, 3, Some(&hidden_shadow));
+    for (name, frame) in [
+        ("direct", &direct_hidden),
+        ("shadow", &shadow_hidden),
+        ("engine", &engine_hidden),
+        ("victory", &victory_hidden),
+    ] {
         for id in [cb, tb, ordinary_garrison] {
             let object = frame.objects.iter().find(|object| object.id == id).unwrap();
             assert!(
@@ -3172,6 +3185,15 @@ fn hidden_garrison_entry_uses_true_stealth_and_nonstealth_counts() {
             assert_eq!(
                 frame.normal_enter_available_capacity_for_local(target),
                 expected
+            );
+            // Serialized diagnostic frames cannot carry the private runtime
+            // authority fact; they must not invent an input decision.
+            let encoded = bincode_legacy::serialize(frame).unwrap();
+            let decoded: PresentationFrame = bincode_legacy::deserialize(&encoded).unwrap();
+            let target = decoded.objects.iter().find(|o| o.id == host).unwrap();
+            assert_eq!(
+                decoded.normal_enter_available_capacity_for_local(target),
+                None
             );
         }
     };
