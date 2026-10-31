@@ -347,6 +347,8 @@ pub struct MainMenuState {
     pub button_pushed: bool,
     pub is_shutting_down: bool,
     pub start_game: bool,
+    /// The host is starting a match; this affects shutdown, not campaign launch.
+    host_match_starting: bool,
     pub show_fade: bool,
     pub not_shown: bool,
     pub first_time_running_the_game: bool,
@@ -409,6 +411,7 @@ impl Default for MainMenuState {
             button_pushed: false,
             is_shutting_down: false,
             start_game: false,
+            host_match_starting: false,
             show_fade: false,
             not_shown: true,
             first_time_running_the_game: true,
@@ -786,6 +789,7 @@ impl MainMenu {
         state.button_pushed = false;
         state.is_shutting_down = false;
         state.start_game = false;
+        state.host_match_starting = false;
         state.show_logo = false;
         state.logo_is_shown = false;
         state.launch_challenge_menu = false;
@@ -899,7 +903,7 @@ impl MainMenu {
 
         let mut state = &mut self.state;
 
-        if !state.start_game {
+        if !state.start_game && !state.host_match_starting {
             state.is_shutting_down = true;
         }
 
@@ -919,7 +923,7 @@ impl MainMenu {
             return Ok(());
         }
 
-        if !state.start_game {
+        if !state.start_game && !state.host_match_starting {
             // TheShell->reverseAnimatewindow() - matches C++ line 686.  This
             // callback runs inside Shell::push, so queue it at that lifecycle
             // boundary rather than taking a second mutable shell borrow.
@@ -3635,9 +3639,8 @@ pub fn tick_main_menu_transitions(times: u32, effects: &mut WindowEventEffects<'
 /// `MainMenuShutdown` skips reverse-animate (avoids shell re-borrow /
 /// post-shutdown SIGSEGV on the windowed runtime-host path).
 pub fn mark_host_match_start(effects: &mut WindowEventEffects<'_>) {
-    effects.with_main_menu(|menu, effects| {
-        let mut state = &mut menu.state;
-        state.start_game = true;
+    effects.with_main_menu(|menu, _effects| {
+        menu.state.host_match_starting = true;
     })
 }
 
