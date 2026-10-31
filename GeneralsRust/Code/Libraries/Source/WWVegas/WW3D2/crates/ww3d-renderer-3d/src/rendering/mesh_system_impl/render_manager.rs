@@ -1936,6 +1936,61 @@ mod per_mesh_lighting_tests {
     use crate::rendering::lighting_system::LightEnvironmentClass;
 
     #[test]
+    fn replaced_polygon_batch_selects_new_gpu_texture_and_preserves_peer() {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+            apply_limit_buckets: false,
+        }))
+        .expect("material-binding integration test requires a GPU adapter");
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+        let gpu = Arc::new(GpuDevice::from_shared(Arc::new(device), Arc::new(queue)));
+        let mut manager = MeshRenderManager::new(gpu);
+        let mut red = TextureClass::new("same.tga", 1, 1);
+        red.replace_pixels(vec![255, 0, 0, 255]).unwrap();
+        let mut blue = TextureClass::new("same.tga", 1, 1);
+        blue.replace_pixels(vec![0, 0, 255, 255]).unwrap();
+        let red = Arc::new(red);
+        let blue = Arc::new(blue);
+        let mut pass = MaterialPassClass::new();
+        pass.set_texture(0, Arc::clone(&red));
+        let red_view = manager.stage_resources_for(&pass, 0).view_2d;
+        let mut model = MeshModelClass::new("source");
+        model.material_passes.push(pass.clone());
+        model.material_batches.push(MeshMaterialBatch {
+            source_pass_index: 0,
+            material_pass: pass,
+            face_indices: vec![0],
+        });
+        model.triangles.push(W3dTriangleStruct {
+            vindex: [0, 1, 2],
+            attributes: 0,
+            normal: W3dVectorStruct {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            },
+            distance: 0.0,
+        });
+        let shared = Arc::new(model);
+        let mut mesh = MeshClass::new();
+        mesh.model = Some(Arc::clone(&shared));
+        mesh.replace_texture(&red, &blue);
+        let (_, _, updated) = material_batch_index_data(mesh.model.as_ref().unwrap()).unwrap();
+        let (_, _, original) = material_batch_index_data(&shared).unwrap();
+        let updated_view = manager.stage_resources_for(&updated[0], 0).view_2d;
+        let original_view = manager.stage_resources_for(&original[0], 0).view_2d;
+        assert!(!Arc::ptr_eq(&updated_view, &red_view));
+        assert!(Arc::ptr_eq(&original_view, &red_view));
+    }
+
+    #[test]
     fn distinct_same_name_owned_textures_have_distinct_gpu_views() {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
