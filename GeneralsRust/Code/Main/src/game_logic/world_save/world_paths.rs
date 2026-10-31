@@ -2544,7 +2544,9 @@ impl GameLogic {
         unit.movement.path = appended;
         let last_node = unit.movement.path.last().copied();
         unit.refresh_follow_path_extra_distance();
-        unit.movement.target_position = Some(waypoint);
+        // Appending a goal must not replace the path segment already being
+        // traversed. An idle unit starts toward its new goal instead.
+        unit.movement.target_position.get_or_insert(waypoint);
         self.movement_events.record(
             self.frame,
             unit_id,
