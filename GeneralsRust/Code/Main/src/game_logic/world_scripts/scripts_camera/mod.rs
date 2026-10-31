@@ -193,10 +193,12 @@ mod booby_status_observation_tests {
 
 /// C++ OpenContain::getPlayerWhoEntered — SIDE name, one-frame pulse after enter.
 fn host_query_player_who_entered(
-    _logic: &GameLogic,
+    logic: &GameLogic,
     obj: &crate::game_logic::object::Object,
 ) -> String {
-    obj.player_who_entered.clone()
+    obj.player_who_entered
+        .and_then(|id| logic.player_name(id))
+        .unwrap_or_default()
 }
 
 fn panel_flag_is_indestructible(flag: &str) -> bool {

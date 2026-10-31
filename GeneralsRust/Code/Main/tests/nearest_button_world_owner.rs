@@ -509,7 +509,7 @@ fn team_garrison_neutral_target_must_be_empty() {
     let (mut neutral, peer, _) = world(neutral_root.path(), 20, true);
     assert_eq!(source, peer);
     let mut targets = Vec::new();
-    for (game, owner_id, owner_name) in [(&mut own, 1, "Owner"), (&mut neutral, 2, "Opponent")] {
+    for (game, owner_id) in [(&mut own, 1), (&mut neutral, 2)] {
         game.get_player_mut(1)
             .unwrap()
             .set_map_relationship(2, Relationship::Neutral);
@@ -533,7 +533,7 @@ fn team_garrison_neutral_target_must_be_empty() {
         // Construct an occupied container in both directions; the selection
         // being tested must observe the count before issuing a new order.
         assert!(game.host_object_mut(near).unwrap().add_occupant(occupant));
-        game.host_object_mut(near).unwrap().player_who_entered = owner_name.into();
+        game.host_object_mut(near).unwrap().player_who_entered = Some(owner_id);
         game.host_object_mut(occupant).unwrap().contained_by = Some(near);
         targets.push((near, far));
     }

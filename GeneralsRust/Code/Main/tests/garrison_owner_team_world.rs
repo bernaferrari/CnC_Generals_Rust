@@ -2,6 +2,11 @@ use game_engine::common::dict::Dict;
 use game_engine::common::ini::ini_locomotor::LocomotorStore;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::DataChunkOutput;
+use gamelogic::scripting::core::{
+    Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+    ScriptActionType, ScriptList,
+};
+use gamelogic::scripting::engine::ScriptEngine;
 use generals_main::command_executor::CommandExecutor;
 use generals_main::command_system::{CommandResult, CommandType, GameCommand, ModifierKeys};
 use generals_main::game_logic::{AIState, GameLogic, GameMode, ObjectId, Player, Team};
@@ -167,6 +172,81 @@ fn enter(world: &mut GameLogic, host: ObjectId, rider: ObjectId) {
             .host_object(host)
             .map(|object| object.contained_units()),
         trace
+    );
+}
+
+fn named_garrison(world: &mut GameLogic, unit_name: &str) {
+    let mut action = ScriptAction::new(ScriptActionType::NamedGarrisonNearestBuilding);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            unit_name.into(),
+        ))
+        .unwrap();
+    let mut condition = OrCondition::new();
+    condition.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    let mut script = Script::new();
+    script.script_name = "PlayerIdentityGarrison".into();
+    script.is_one_shot = true;
+    script.delay_evaluation_seconds = 0;
+    script.condition = Some(Box::new(condition));
+    script.action = Some(Box::new(action));
+    let mut scripts = ScriptList::new();
+    scripts.append_script(Box::new(script));
+    let engine = ScriptEngine::new().unwrap();
+    engine
+        .set_script_list_for_player(0, Some(Box::new(scripts)))
+        .unwrap();
+    world
+        .update_local_script_engine_with_owner(&engine)
+        .unwrap();
+}
+
+#[test]
+fn named_garrison_uses_entering_player_identity_not_display_name() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut aliased, host, rider) = world(&map, false);
+    let (mut distinct, peer_host, peer_rider) = world(&map, false);
+    assert_eq!((host, rider), (peer_host, peer_rider));
+    enter(&mut aliased, host, rider);
+    enter(&mut distinct, peer_host, peer_rider);
+    assert_eq!(
+        aliased.host_object(host).unwrap().player_who_entered,
+        Some(2)
+    );
+    assert_eq!(
+        distinct.host_object(peer_host).unwrap().player_who_entered,
+        Some(2)
+    );
+    aliased.get_player_mut(1).unwrap().name = "GarrisonRider".into();
+    let mut subjects = Vec::new();
+    for game in [&mut aliased, &mut distinct] {
+        let unit = game
+            .create_object_for_player("OwnedGarrisonRider", 1, Vec3::new(20.0, 0.0, 50.0))
+            .unwrap();
+        game.host_object_mut(unit).unwrap().name = "NamedCaster".into();
+        let fallback = game
+            .create_object_for_player("OwnedGarrison", 1, Vec3::new(150.0, 0.0, 50.0))
+            .unwrap();
+        subjects.push((unit, fallback));
+    }
+    assert_eq!(subjects[0], subjects[1]);
+    named_garrison(&mut distinct, "NamedCaster");
+    assert_eq!(
+        distinct.host_object(subjects[1].0).unwrap().target,
+        Some(subjects[1].1)
+    );
+    named_garrison(&mut aliased, "NamedCaster");
+    assert_eq!(
+        aliased.host_object(subjects[0].0).unwrap().target,
+        Some(subjects[0].1)
+    );
+    aliased.update();
+    assert_eq!(aliased.host_object(host).unwrap().player_who_entered, None);
+    assert_eq!(
+        distinct.host_object(peer_host).unwrap().player_who_entered,
+        Some(2)
     );
 }
 

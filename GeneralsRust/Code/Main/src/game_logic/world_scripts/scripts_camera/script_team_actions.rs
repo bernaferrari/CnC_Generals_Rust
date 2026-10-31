@@ -1609,15 +1609,8 @@ impl GameLogic {
         if Self::host_script_contain_slots_available(building) <= 0 {
             return false;
         }
-        if building.player_who_entered.is_empty() {
-            return true;
-        }
-        let Some(pid) = player_id else {
-            return false;
-        };
-        self.players
-            .get(&pid)
-            .is_some_and(|p| building.player_who_entered.eq_ignore_ascii_case(&p.name))
+        building.player_who_entered.is_none()
+            || (player_id.is_some() && building.player_who_entered == player_id)
     }
 
     pub(super) fn host_script_ai_enter(
@@ -1859,12 +1852,8 @@ impl GameLogic {
             {
                 continue;
             }
-            if !obj.player_who_entered.is_empty()
-                && !player_id
-                    .and_then(|id| self.players.get(&id))
-                    .is_some_and(|player| {
-                        obj.player_who_entered.eq_ignore_ascii_case(&player.name)
-                    })
+            if obj.player_who_entered.is_some()
+                && (player_id.is_none() || obj.player_who_entered != player_id)
             {
                 continue;
             }

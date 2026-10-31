@@ -1243,10 +1243,10 @@ pub struct Object {
 
     /// Tracked occupants for transports/garrisons
     pub occupants: Vec<ObjectId>,
-    /// C++ OpenContain::m_playerEnteredMask — last rider's controlling player name.
+    /// C++ OpenContain::m_playerEnteredMask — last rider's controlling player.
     /// One-frame pulse: stamped on enter, cleared by OpenContain::update next frame.
     #[serde(default)]
-    pub player_who_entered: String,
+    pub player_who_entered: Option<u32>,
 
     /// Residual transport slot capacity (vehicles).
     /// `0` = use footprint heuristic (existing host residual default).

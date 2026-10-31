@@ -429,34 +429,24 @@ impl GameLogic {
         container_id: ObjectId,
         occupant_id: ObjectId,
     ) {
-        let name = {
+        let player_id = {
             let Some(occupant) = self.objects.get(&occupant_id) else {
                 return;
             };
-            if let Some(pid) = occupant.owner_player_id {
-                self.player_name(pid)
-            } else {
-                let team = occupant.team;
-                self.players
-                    .values()
-                    .find(|p| p.team == team)
-                    .map(|p| p.name.clone())
-            }
+            occupant.owner_player_id
         };
-        let Some(name) = name.filter(|n| !n.is_empty()) else {
+        let Some(player_id) = player_id.filter(|id| self.players.contains_key(id)) else {
             return;
         };
         if let Some(container) = self.objects.get_mut(&container_id) {
-            container.player_who_entered = name;
+            container.player_who_entered = Some(player_id);
         }
     }
 
     /// C++ OpenContain::update `m_playerEnteredMask = 0`.
     pub(in crate::game_logic) fn clear_open_contain_player_who_entered(&mut self) {
         for obj in self.objects.registered_values_mut() {
-            if !obj.player_who_entered.is_empty() {
-                obj.player_who_entered.clear();
-            }
+            obj.player_who_entered = None;
         }
     }
 
