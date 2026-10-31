@@ -758,10 +758,8 @@ impl CnCGameEngine {
                     if crate::gameplay_layout::control_bar_parent_is_live_with_owner(
                         &window_manager_owner,
                     ) {
-                        let side = self
-                            .ui_local_player_team_name()
-                            .filter(|name| !name.is_empty())
-                            .unwrap_or_else(|| "Observer".to_string());
+                        let side =
+                            crate::gameplay_layout::control_bar_local_player_side(&self.game_logic);
                         self.set_owned_control_bar_scheme(&side);
                     }
                 }

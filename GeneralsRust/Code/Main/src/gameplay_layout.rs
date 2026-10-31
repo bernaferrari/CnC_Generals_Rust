@@ -54,6 +54,27 @@ pub fn materialise_live_control_bar_with_owner(
         && effects.with_manager_ref(|wm| wm.window_count()) > 0
 }
 
+/// Resolve the C++ PlayerTemplate side for the receiving match's local player.
+/// Team labels are not scheme names (the USA team uses the America scheme).
+pub fn control_bar_local_player_side(logic: &crate::game_logic::GameLogic) -> String {
+    let Some(player_id) = logic.local_player_id() else {
+        return "Observer".into();
+    };
+    let Some(player) = logic.get_player(player_id) else {
+        return "Observer".into();
+    };
+    logic
+        .resolved_player_template(player_id)
+        .map(|template| template.get_side().to_owned())
+        .filter(|side| !side.is_empty())
+        .unwrap_or_else(|| match player.team {
+            crate::game_logic::Team::USA => "America".into(),
+            crate::game_logic::Team::China => "China".into(),
+            crate::game_logic::Team::GLA => "GLA".into(),
+            crate::game_logic::Team::Neutral => "Observer".into(),
+        })
+}
+
 /// Candidate locations for ControlBar.wnd (extracted BIG / WindowZH trees).
 pub const CONTROL_BAR_CANDIDATES: &[&str] = &[
     "windows_game/extracted_big_files/WindowZH/Window/ControlBar.wnd",
