@@ -26,6 +26,58 @@ fn transform(object: &mut Object, matrix: &Matrix3D) {
 }
 
 #[test]
+fn owned_pose_off_map_uses_receiving_terrain_and_cpp_movement_threshold() {
+    fn terrain(size: i32) -> crate::terrain::TerrainLogic {
+        let mut map = crate::system::map_loader::MapData::new();
+        map.width = 10;
+        map.height = 10;
+        map.heightmap = vec![0; 100];
+        map.boundaries = vec![
+            crate::common::ICoord2D::new(10, 10),
+            crate::common::ICoord2D::new(size, size),
+        ];
+        let mut terrain = crate::terrain::TerrainLogic::new();
+        terrain.load_map_data(map);
+        terrain.restore_active_boundary_from_snapshot(1);
+        terrain
+    }
+    fn move_to(object: &mut Object, terrain: &crate::terrain::TerrainLogic, x: f32) {
+        object
+            .set_snapshot_position_with_services(
+                &Coord3D::new(x, 25.0, 0.0),
+                terrain,
+                &mut crate::object::collide::collision_system::CollisionSystem::new(),
+                0,
+                &mut |_| {},
+                &mut |_| {},
+            )
+            .unwrap();
+    }
+    fn off_map(object: &Object) -> bool {
+        object.private_status & (ObjectPrivateStatusBits::OffMap as u8) != 0
+    }
+
+    let large = terrain(10);
+    let small = terrain(5);
+    let mut a = inert_object();
+    let mut b = inert_object(); // Both objects intentionally have the same ID.
+    move_to(&mut a, &large, 99.996);
+    move_to(&mut b, &small, 99.996);
+    assert!(!off_map(&a));
+    assert!(off_map(&b));
+
+    // Object.cpp:1683 and 1752 only recompute OFF_MAP if a component
+    // changes by more than 0.01, even when this tiny move crosses the edge.
+    move_to(&mut a, &large, 100.004);
+    assert!(!off_map(&a));
+    move_to(&mut a, &large, 100.02);
+    assert!(off_map(&a));
+    move_to(&mut b, &small, 25.0);
+    assert!(!off_map(&b));
+    assert!(off_map(&a));
+}
+
+#[test]
 fn actual_object_retains_finite_singular_and_sheared_cpp_matrix_rows() {
     let mut object = inert_object();
     // C++ copies the 3x4 rows even if a rotation/scale decomposition is absent.
