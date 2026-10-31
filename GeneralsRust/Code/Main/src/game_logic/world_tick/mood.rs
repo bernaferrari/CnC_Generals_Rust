@@ -2,14 +2,6 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 impl GameLogic {
-    /// C++ AIUpdateInterface::getMoodMatrixValue uses the object's controller.
-    pub(crate) fn mood_controller_is_human(&self, unit_id: ObjectId) -> bool {
-        self.objects
-            .get(&unit_id)
-            .and_then(|unit| unit.owner_player_id)
-            .and_then(|id| self.players.get(&id))
-            .is_some_and(|player| player.is_human)
-    }
     pub fn sync_attack_priority_from_script_engine(&mut self) {
         self.with_owned_script_engine(|engine, world| {
             world.sync_attack_priority_from_receiving_interpreter(engine);
@@ -665,9 +657,14 @@ impl GameLogic {
         unit_id: ObjectId,
         called_by_ai: bool,
         called_during_idle: bool,
-        is_player_controlled: bool,
     ) -> Option<ObjectId> {
         let now = self.frame;
+        let controller_is_human = self
+            .objects
+            .get(&unit_id)
+            .and_then(|object| object.owner_player_id)
+            .and_then(|owner| self.players.get(&owner))
+            .map(|player| player.is_human);
         // Snapshot gates.
         let (
             alive,
@@ -772,7 +769,7 @@ impl GameLogic {
         }
         // C++ AIUpdate.cpp:4571-4583. Non-healing always returns findObjectByID.
         // A null source is NULL. Only DAMAGE_HEALING continues into the scan.
-        if attitude == -1 && !is_player_controlled && !last_dmg_healing {
+        if attitude == -1 && controller_is_human == Some(false) && !last_dmg_healing {
             return last_dmg;
         }
         if let Some(container_id) = self.objects.get(&unit_id).and_then(|o| o.contained_by) {
@@ -791,7 +788,7 @@ impl GameLogic {
                 flags |= CAN_SEE;
             }
         }
-        if called_by_ai && is_player_controlled {
+        if called_by_ai && controller_is_human == Some(true) {
             flags |= WITHIN_ATTACK_RANGE | UNFOGGED;
         }
         if (auto_idle & AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS) != 0 {
@@ -818,24 +815,14 @@ impl GameLogic {
 
     /// Idle mood auto-acquire: if idle and mood allows, set attack target.
     #[cfg(test)]
-    pub fn try_mood_auto_acquire(
-        &mut self,
-        unit_id: ObjectId,
-        is_player_controlled: bool,
-    ) -> Option<ObjectId> {
-        self.try_mood_auto_acquire_with_effects(
-            unit_id,
-            is_player_controlled,
-            &mut Default::default(),
-        )
-        .expect("valid explicit standalone mood fixture")
+    pub fn try_mood_auto_acquire(&mut self, unit_id: ObjectId) -> Option<ObjectId> {
+        self.try_mood_auto_acquire_with_effects(unit_id, &mut Default::default())
+            .expect("valid explicit standalone mood fixture")
     }
 
     pub fn try_mood_auto_acquire_with_effects(
         &mut self,
         unit_id: ObjectId,
-        is_player_controlled: bool,
-
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
         let Some(eligible) = self.objects.get(&unit_id).map(|o| {
@@ -864,8 +851,7 @@ impl GameLogic {
         if !self.mood_allows_attack(unit_id) {
             return Ok(None);
         }
-        let Some(victim) = self.get_next_mood_target(unit_id, true, true, is_player_controlled)
-        else {
+        let Some(victim) = self.get_next_mood_target(unit_id, true, true) else {
             return Ok(None);
         };
         // Host-immediate attack enter + decision log inside attack_state_enter.
@@ -1689,7 +1675,7 @@ mod common_target_parity {
             o
         });
         assert!(
-            logic.get_next_mood_target(aid, true, true, false).is_none(),
+            logic.get_next_mood_target(aid, true, true).is_none(),
             "DETECTED must not lift the STEALTHED idle veto"
         );
         if let Some(o) = logic.objects.get_mut(&aid) {
@@ -1697,7 +1683,7 @@ mod common_target_parity {
             o.next_mood_check_time = 0;
         }
         assert_eq!(
-            logic.get_next_mood_target(aid, true, true, false),
+            logic.get_next_mood_target(aid, true, true),
             Some(vid),
             "Stealthed INI bit must allow idle acquire"
         );
@@ -1748,7 +1734,7 @@ mod common_target_parity {
                 o
             });
             assert!(
-                logic.get_next_mood_target(aid, true, true, false).is_none(),
+                logic.get_next_mood_target(aid, true, true).is_none(),
                 "ATTACK_BUILDINGS + ignore-insig must skip civilian huts"
             );
             if let Some(o) = logic.objects.get_mut(&aid) {
@@ -1764,7 +1750,7 @@ mod common_target_parity {
                 o
             });
             assert_eq!(
-                logic.get_next_mood_target(aid, true, true, false),
+                logic.get_next_mood_target(aid, true, true),
                 Some(inf),
                 "ignore-insig must still acquire units"
             );
@@ -2020,7 +2006,7 @@ mod common_target_parity {
             o.locomotor_goal_type,
             crate::game_logic::object::LocoGoalType::None
         );
-        assert!(logic.get_next_mood_target(id, true, true, false).is_none());
+        assert!(logic.get_next_mood_target(id, true, true).is_none());
         assert!(logic.host_object(id).unwrap().randomly_offset_mood_check);
 
         if let Some(o) = logic.host_object_mut(id) {
@@ -2035,7 +2021,7 @@ mod common_target_parity {
         logic.logic_random.seed_random(0xC0FFEE);
         let jitter = logic.logic_random.next_int(-15, 15);
         logic.logic_random.seed_random(0xC0FFEE);
-        assert!(logic.get_next_mood_target(id, true, true, false).is_none());
+        assert!(logic.get_next_mood_target(id, true, true).is_none());
         let o = logic.host_object(id).expect("ranger");
         assert!(!o.randomly_offset_mood_check);
         assert_eq!(

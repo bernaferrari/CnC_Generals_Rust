@@ -121,11 +121,7 @@ impl GameLogic {
             };
             if do_check {
                 // C++ AutoAcquireEnemiesWhenIdle applies to player and AI units.
-                let _ = self.try_mood_auto_acquire_with_effects(
-                    id,
-                    self.mood_controller_is_human(id),
-                    presentation_effects,
-                )?;
+                let _ = self.try_mood_auto_acquire_with_effects(id, presentation_effects)?;
             }
         }
         Ok(())

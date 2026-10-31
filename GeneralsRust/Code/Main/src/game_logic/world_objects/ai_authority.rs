@@ -79,9 +79,7 @@ impl GameLogic {
                 .get(&object_id)
                 .is_some_and(|o| o.next_mood_check_time == 0);
             if can_attack && !ai_auto_engage_paused && (should_scan(20) || force_mood) {
-                let is_player = self.mood_controller_is_human(object_id);
-                if let Some(enemy_id) = self.get_next_mood_target(object_id, true, false, is_player)
-                {
+                if let Some(enemy_id) = self.get_next_mood_target(object_id, true, false) {
                     // C++ AIAttackMoveToState::update: friend_endingMove +
                     // setGoalObject + AI_ATTACK_OBJECT. No Hold / FindNewTarget
                     // second opinion (hq-6p7c2).
@@ -1407,7 +1405,7 @@ mod hq_m6gcj_tests {
         logic.objects.insert(enemy.id, enemy);
         assert!(
             logic
-                .get_next_mood_target(ObjectId(1), true, true, true)
+                .get_next_mood_target(ObjectId(1), true, true)
                 .is_none()
         );
         if let Some(o) = logic.objects.get_mut(&ObjectId(1)) {
@@ -1416,7 +1414,7 @@ mod hq_m6gcj_tests {
             o.set_auto_acquire_when_idle(true);
         }
         let _ = AbleToAttackType::NewTarget;
-        let _ = logic.get_next_mood_target(ObjectId(1), true, true, true);
+        let _ = logic.get_next_mood_target(ObjectId(1), true, true);
     }
 
     #[test]

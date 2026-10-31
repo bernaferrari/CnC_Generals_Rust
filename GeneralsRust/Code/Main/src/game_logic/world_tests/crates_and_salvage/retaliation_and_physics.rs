@@ -877,10 +877,10 @@ fn get_next_mood_target_finds_nearby_enemy() {
         o
     });
     assert!(logic.adjusted_vision_range_for_mood(aid) > 0.0);
-    let t = logic.get_next_mood_target(aid, true, true, false);
+    let t = logic.get_next_mood_target(aid, true, true);
     assert_eq!(t, Some(vid));
     // Rate limit: immediate second call should be None.
-    assert!(logic.get_next_mood_target(aid, true, true, false).is_none());
+    assert!(logic.get_next_mood_target(aid, true, true).is_none());
 }
 
 #[test]
@@ -935,7 +935,7 @@ fn get_next_mood_target_sleep_returns_none() {
     });
     assert_eq!(logic.objects[&aid].owner_player_id, Some(1));
     assert_eq!(logic.adjusted_vision_range_for_mood(aid), 0.0);
-    assert!(logic.get_next_mood_target(aid, true, true, false).is_none());
+    assert!(logic.get_next_mood_target(aid, true, true).is_none());
 }
 
 #[test]
@@ -995,10 +995,7 @@ fn get_next_mood_target_passive_uses_last_damage_source() {
         o
     });
     assert!(logic.adjusted_vision_range_for_mood(aid) > 0.0);
-    assert_eq!(
-        logic.get_next_mood_target(aid, true, true, false),
-        Some(enemy)
-    );
+    assert_eq!(logic.get_next_mood_target(aid, true, true), Some(enemy));
 }
 
 #[test]
@@ -1064,7 +1061,7 @@ fn try_mood_auto_acquire_enters_attack() {
         o
     });
     assert!(logic.adjusted_vision_range_for_mood(aid) > 0.0);
-    let got = logic.try_mood_auto_acquire(aid, false);
+    let got = logic.try_mood_auto_acquire(aid);
     assert_eq!(got, Some(vid));
     assert_eq!(logic.objects[&aid].target, Some(vid));
     assert!(logic.objects[&aid].status.attacking);

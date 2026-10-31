@@ -1065,12 +1065,11 @@ impl GameLogic {
             return;
         }
         use mood_action_adjust::AFFECT_RANGE_IGNORE_ALL;
-        let is_human = self.mood_controller_is_human(unit_id);
         let adj = self.get_mood_matrix_action_adjustment(unit_id, MoodMatrixAction::Idle);
         if adj & AFFECT_RANGE_IGNORE_ALL != 0 {
             return;
         }
-        let Some(enemy) = self.get_next_mood_target(unit_id, true, true, is_human) else {
+        let Some(enemy) = self.get_next_mood_target(unit_id, true, true) else {
             return;
         };
         // Leftover: choose_best_weapon_for_target PreferMostDamage FromAi, then

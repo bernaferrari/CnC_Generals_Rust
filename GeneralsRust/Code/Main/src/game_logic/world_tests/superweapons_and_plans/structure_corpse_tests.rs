@@ -206,7 +206,7 @@ fn exercise_retained_body(coupled: bool) {
                     crate::gameworld_shadow::run_owned_host_boundary(Some(&mut shadow), &mut world);
             }
             assert_corpse(&world, id);
-            assert!(world.get_next_mood_target(id, true, true, false).is_none());
+            assert!(world.get_next_mood_target(id, true, true).is_none());
             assert_eq!(world.get_player(0).unwrap().power_produced, 0);
             completed = finished(&world, id, collapse);
             if completed {

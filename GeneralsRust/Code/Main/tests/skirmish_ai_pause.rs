@@ -612,54 +612,59 @@ fn slaved_drone_attack_obeys_its_controllers_pause() {
     assert_eq!(run(Some(1)), (0, 1000.0), "the owner can pause the drone");
 }
 
-#[test]
-fn slaved_drone_idle_acquisition_obeys_its_controllers_pause() {
+fn mood_drone_world() -> (GameLogic, ObjectId, ObjectId) {
     use game_engine::common::system::DataChunkOutput;
     use generals_main::game_logic::host_slave_drones::SlaveDroneKind;
 
-    fn run(paused_owner: Option<u32>) -> (u64, f32, bool) {
-        let directory = tempfile::tempdir().unwrap();
-        let mut map = DataChunkOutput::new();
-        map.open_data_chunk("HeightMapData", 3);
-        for value in [21, 21, 1, 441] {
-            map.write_int(value);
-        }
-        for _ in 0..441 {
-            map.write_byte(8);
-        }
-        map.close_data_chunk();
-        map.open_data_chunk("ObjectsList", 3);
-        map.close_data_chunk();
-        let path = directory.path().join("Pause.map");
-        std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
-        std::fs::write(
-            directory.path().join("Map.ini"),
-            "AIData\n GuardOuterModifierAI = 2.0\nEnd\n",
-        )
+    let directory = tempfile::tempdir().unwrap();
+    let mut map = DataChunkOutput::new();
+    map.open_data_chunk("HeightMapData", 3);
+    for value in [21, 21, 1, 441] {
+        map.write_int(value);
+    }
+    for _ in 0..441 {
+        map.write_byte(8);
+    }
+    map.close_data_chunk();
+    map.open_data_chunk("ObjectsList", 3);
+    map.close_data_chunk();
+    let path = directory.path().join("Pause.map");
+    std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
+    std::fs::write(
+        directory.path().join("Map.ini"),
+        "AIData\n GuardOuterModifierAI = 2.0\n GuardOuterModifierHuman = 2.0\nEnd\n",
+    )
+    .unwrap();
+    let mut logic = world();
+    assert!(logic.load_map(path.to_str().unwrap()));
+    logic.clear_all_players();
+    add_players(&mut logic);
+    register(&mut logic, 1, true);
+    register(&mut logic, 2, true);
+    logic
+        .admit_object_ini_sources([("pause-slave.ini".into(), SLAVE_OBJECTS.into())])
         .unwrap();
-        let mut logic = world();
-        assert!(logic.load_map(path.to_str().unwrap()));
-        logic.clear_all_players();
-        add_players(&mut logic);
-        register(&mut logic, 1, true);
-        register(&mut logic, 2, true);
-        logic
-            .admit_object_ini_sources([("pause-slave.ini".into(), SLAVE_OBJECTS.into())])
-            .unwrap();
-        let master = logic
-            .create_object_for_player("AmericaVehicleHumvee", 1, Vec3::new(80.0, 0.0, 80.0))
-            .unwrap();
-        let drone = logic
-            .residual_attach_slave_drone(master, SlaveDroneKind::Hellfire)
-            .expect("authored slave attaches to its master");
-        logic.host_object_mut(drone).unwrap().weapon = Some(weapon());
-        let target = logic
-            .create_object_for_player(TARGET, 3, Vec3::new(100.0, 0.0, 80.0))
-            .unwrap();
-        assert!(
-            logic.host_std_guard_ranges(drone).1 > 0.0,
-            "authored AIData must reach this world"
-        );
+    let master = logic
+        .create_object_for_player("AmericaVehicleHumvee", 1, Vec3::new(80.0, 0.0, 80.0))
+        .unwrap();
+    let drone = logic
+        .residual_attach_slave_drone(master, SlaveDroneKind::Hellfire)
+        .expect("authored slave attaches to its master");
+    logic.host_object_mut(drone).unwrap().weapon = Some(weapon());
+    let target = logic
+        .create_object_for_player(TARGET, 3, Vec3::new(100.0, 0.0, 80.0))
+        .unwrap();
+    assert!(
+        logic.host_std_guard_ranges(drone).1 > 0.0,
+        "authored AIData must reach this world"
+    );
+    (logic, drone, target)
+}
+
+#[test]
+fn slaved_drone_idle_acquisition_obeys_its_controllers_pause() {
+    fn run(paused_owner: Option<u32>) -> (u64, f32, bool) {
+        let (mut logic, drone, target) = mood_drone_world();
         if let Some(owner) = paused_owner {
             logic.set_ai_active(owner, false);
         }
@@ -690,5 +695,32 @@ fn slaved_drone_idle_acquisition_obeys_its_controllers_pause() {
         run(Some(1)),
         (0, 1000.0, false),
         "own pause suppresses acquisition"
+    );
+}
+
+#[test]
+fn passive_target_selection_uses_the_receiving_controlling_player() {
+    let (mut ai_world, ai_drone, ai_target) = mood_drone_world();
+    let (mut human_world, human_drone, human_target) = mood_drone_world();
+    assert_eq!((ai_drone, ai_target), (human_drone, human_target));
+    for (world, drone) in [(&mut ai_world, ai_drone), (&mut human_world, human_drone)] {
+        let object = world.host_object_mut(drone).unwrap();
+        object.ai_attitude = -1;
+        object.last_damage_source = None;
+    }
+    human_world.get_player_mut(1).unwrap().is_human = true;
+    assert_eq!(ai_world.get_next_mood_target(ai_drone, false, true), None);
+    assert_eq!(
+        human_world.get_next_mood_target(human_drone, false, true),
+        Some(human_target)
+    );
+    ai_world.host_object_mut(ai_drone).unwrap().owner_player_id = None;
+    assert_eq!(
+        ai_world.get_next_mood_target(ai_drone, false, true),
+        Some(ai_target)
+    );
+    assert_eq!(
+        human_world.get_next_mood_target(human_drone, false, true),
+        Some(human_target)
     );
 }
