@@ -17,16 +17,7 @@ const WORKER: &str = "PauseDozer";
 
 fn world() -> GameLogic {
     let mut logic = GameLogic::new();
-    for id in 0..4 {
-        let mut player = Player::new(
-            id,
-            if id == 3 { Team::GLA } else { Team::USA },
-            "Pause",
-            id == 0,
-        );
-        player.alliance_team = if id == 3 { 45 } else { 31 };
-        logic.add_player(player);
-    }
+    add_players(&mut logic);
     for (name, kind) in [
         (UNIT, KindOf::Vehicle),
         (TARGET, KindOf::Vehicle),
@@ -54,6 +45,19 @@ fn world() -> GameLogic {
         logic.templates.insert(name.into(), template);
     }
     logic
+}
+
+fn add_players(logic: &mut GameLogic) {
+    for id in 0..4 {
+        let mut player = Player::new(
+            id,
+            if id == 3 { Team::GLA } else { Team::USA },
+            "Pause",
+            id == 0,
+        );
+        player.alliance_team = if id == 3 { 45 } else { 31 };
+        logic.add_player(player);
+    }
 }
 
 fn weapon() -> Weapon {
@@ -496,18 +500,7 @@ fn specialty_admission_gates_use_the_exact_attacker() {
     assert!(failures.is_empty(), "{failures:?}");
 }
 
-#[test]
-fn slaved_drone_attack_obeys_its_controllers_pause() {
-    use generals_main::game_logic::host_slave_drones::SlaveDroneKind;
-
-    fn run(paused_owner: Option<u32>) -> (u64, f32) {
-        let mut logic = world();
-        register(&mut logic, 1, true);
-        register(&mut logic, 2, true);
-        logic
-            .admit_object_ini_sources([(
-                "pause-slave.ini".into(),
-                r#"
+const SLAVE_OBJECTS: &str = r#"
 Object AmericaVehicleHumvee
  KindOf = VEHICLE SELECTABLE
  Body = ActiveBody MasterBody
@@ -524,6 +517,7 @@ Object PauseTarget
 End
 Object AmericaVehicleHellfireDrone
  KindOf = VEHICLE SELECTABLE
+ VisionRange = 200
  Body = ActiveBody DroneBody
   MaxHealth = 1000
   InitialHealth = 1000
@@ -537,9 +531,18 @@ Object AmericaVehicleHellfireDrone
   AttackRange = 75
  End
 End
-"#
-                .into(),
-            )])
+"#;
+
+#[test]
+fn slaved_drone_attack_obeys_its_controllers_pause() {
+    use generals_main::game_logic::host_slave_drones::SlaveDroneKind;
+
+    fn run(paused_owner: Option<u32>) -> (u64, f32) {
+        let mut logic = world();
+        register(&mut logic, 1, true);
+        register(&mut logic, 2, true);
+        logic
+            .admit_object_ini_sources([("pause-slave.ini".into(), SLAVE_OBJECTS.into())])
             .unwrap();
         let master = create(&mut logic, "AmericaVehicleHumvee", 1, 0.0);
         let drone = logic
@@ -573,4 +576,85 @@ End
     );
     assert_eq!(run(Some(2)), active, "another AI cannot pause the drone");
     assert_eq!(run(Some(1)), (0, 1000.0), "the owner can pause the drone");
+}
+
+#[test]
+fn slaved_drone_idle_acquisition_obeys_its_controllers_pause() {
+    use game_engine::common::system::DataChunkOutput;
+    use generals_main::game_logic::host_slave_drones::SlaveDroneKind;
+
+    fn run(paused_owner: Option<u32>) -> (u64, f32, bool) {
+        let directory = tempfile::tempdir().unwrap();
+        let mut map = DataChunkOutput::new();
+        map.open_data_chunk("HeightMapData", 3);
+        for value in [21, 21, 1, 441] {
+            map.write_int(value);
+        }
+        for _ in 0..441 {
+            map.write_byte(8);
+        }
+        map.close_data_chunk();
+        map.open_data_chunk("ObjectsList", 3);
+        map.close_data_chunk();
+        let path = directory.path().join("Pause.map");
+        std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
+        std::fs::write(
+            directory.path().join("Map.ini"),
+            "AIData\n GuardOuterModifierAI = 2.0\nEnd\n",
+        )
+        .unwrap();
+        let mut logic = world();
+        assert!(logic.load_map(path.to_str().unwrap()));
+        logic.clear_all_players();
+        add_players(&mut logic);
+        register(&mut logic, 1, true);
+        register(&mut logic, 2, true);
+        logic
+            .admit_object_ini_sources([("pause-slave.ini".into(), SLAVE_OBJECTS.into())])
+            .unwrap();
+        let master = logic
+            .create_object_for_player("AmericaVehicleHumvee", 1, Vec3::new(80.0, 0.0, 80.0))
+            .unwrap();
+        let drone = logic
+            .residual_attach_slave_drone(master, SlaveDroneKind::Hellfire)
+            .expect("authored slave attaches to its master");
+        logic.host_object_mut(drone).unwrap().weapon = Some(weapon());
+        let target = logic
+            .create_object_for_player(TARGET, 3, Vec3::new(100.0, 0.0, 80.0))
+            .unwrap();
+        assert!(
+            logic.host_std_guard_ranges(drone).1 > 0.0,
+            "authored AIData must reach this world"
+        );
+        if let Some(owner) = paused_owner {
+            logic.set_ai_active(owner, false);
+        }
+        let mut saw_target = false;
+        for _ in 0..90 {
+            logic.update();
+            saw_target |= logic.host_object(drone).unwrap().target.is_some();
+        }
+        let object = logic.host_object(drone).unwrap();
+        (
+            object.weapon_discharge_marker().sequence,
+            logic.host_object(target).unwrap().health.current,
+            saw_target,
+        )
+    }
+
+    let active = run(None);
+    assert!(
+        active.0 > 0 && active.1 < 1000.0 && active.2,
+        "active idle drone: {active:?}"
+    );
+    let foreign = run(Some(2));
+    assert!(
+        foreign.0 > 0 && foreign.1 < 1000.0 && foreign.2,
+        "foreign pause: {foreign:?}"
+    );
+    assert_eq!(
+        run(Some(1)),
+        (0, 1000.0, false),
+        "own pause suppresses acquisition"
+    );
 }
