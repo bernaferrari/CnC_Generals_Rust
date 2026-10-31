@@ -4,6 +4,18 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+fn validate_object_turrets(object: &Object) -> gamelogic::GameLogicResult<()> {
+    if let Some(source) = &object.thing().template.receiving_client_template {
+        source.validate_turret_slots().map_err(|error| {
+            gamelogic::GameLogicError::Configuration(format!(
+                "Object '{}' turret definition: {error}",
+                object.template_name
+            ))
+        })?;
+    }
+    Ok(())
+}
+
 impl GameLogic {
     /// Add object to the game world
     pub fn add_object(&mut self, object: Object) -> ObjectId {
@@ -38,6 +50,7 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<ObjectId> {
+        validate_object_turrets(&object)?;
         if object.team_instance_name.trim().is_empty() && object.owner_player_id.is_some() {
             object.team_instance_name =
                 self.default_host_team_instance_name(object.owner_player_id, object.team);
@@ -111,6 +124,7 @@ impl GameLogic {
         mut object: Object,
     ) -> gamelogic::GameLogicResult<()> {
         // Validate before touching old reservations, identities or callback state.
+        validate_object_turrets(&object)?;
         self.validate_host_object_admission(object.id)?;
         // Observation copies retain scalar history, not a receipt authorizing
         // subtraction from another receiving grid. New admission starts clean.

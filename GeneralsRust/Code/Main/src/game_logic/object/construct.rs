@@ -57,6 +57,15 @@ impl Object {
         Self::new_with_logic_frame(template, id, team, 0)
     }
 
+    /// Validate authored construction data before creating any object state.
+    pub fn try_new(
+        template: ThingTemplate,
+        id: ObjectId,
+        team: Team,
+    ) -> gamelogic::GameLogicResult<Self> {
+        Self::try_new_with_logic_frame(template, id, team, 0)
+    }
+
     /// Construct an Object with the authoritative logic frame used by C++
     /// `Weapon::Weapon` when it schedules each temporary weapon's
     /// `SuspendFXFrame`.  The legacy constructor remains frame-zero for
@@ -67,7 +76,32 @@ impl Object {
         team: Team,
         logic_frame: u32,
     ) -> Self {
-        Self::new_with_initial_status(template, id, team, logic_frame, ObjectStatus::default())
+        Self::try_new_with_logic_frame(template, id, team, logic_frame)
+            .expect("Object construction requires a valid authored turret definition")
+    }
+
+    /// Checked variant for callers admitting authored or otherwise untrusted content.
+    pub fn try_new_with_logic_frame(
+        template: ThingTemplate,
+        id: ObjectId,
+        team: Team,
+        logic_frame: u32,
+    ) -> gamelogic::GameLogicResult<Self> {
+        if let Some(source) = &template.receiving_client_template {
+            source.validate_turret_slots().map_err(|error| {
+                gamelogic::GameLogicError::Configuration(format!(
+                    "Object '{}' turret definition: {error}",
+                    template.name
+                ))
+            })?;
+        }
+        Ok(Self::new_with_initial_status(
+            template,
+            id,
+            team,
+            logic_frame,
+            ObjectStatus::default(),
+        ))
     }
 
     /// C++ Object receives its initial status from ThingFactory. This keeps
