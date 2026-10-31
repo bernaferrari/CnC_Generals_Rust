@@ -1588,7 +1588,7 @@ impl Object {
             return false;
         }
         self.queue_for_path_frame = 0;
-        self.waiting_for_path && self.requested_destination.is_some()
+        true
     }
 
     /// Advance the temporary-move overlay independently of path retry ownership.

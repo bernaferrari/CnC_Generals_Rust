@@ -1112,9 +1112,7 @@ End
             "scatter places the rider at the wreck, not an Idle ring offset; got {pos:?}"
         );
         let dest = r.movement.path.last().copied().or_else(|| {
-            logic
-                .pathfinding_system
-                .pending_paths()
+            logic.snapshot_pending_host_paths().into_iter()
                 .find(|p| p.unit_id == rider)
                 .map(|p| p.destination)
         });

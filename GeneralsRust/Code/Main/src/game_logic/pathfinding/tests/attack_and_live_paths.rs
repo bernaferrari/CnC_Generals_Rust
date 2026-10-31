@@ -656,8 +656,8 @@ fn process_pathfind_queue_stops_at_cell_budget() {
             break;
         };
         let _ = sys.find_path_ex(
-            req.start,
-            req.destination,
+            Vec3::new(10.0, 0.0, 10.0 + 20.0 * (req.unit_id.0 - 1) as f32),
+            Vec3::new(80.0, 0.0, 10.0 + 20.0 * (req.unit_id.0 - 1) as f32),
             objects.read(),
             false,
             Some(req.unit_id),
@@ -806,15 +806,13 @@ fn queued_search_uses_ignore_written_after_enqueue() {
     let decoy = ObjectId(wall.0.wrapping_add(1000));
     logic.force_map_loaded_for_path_test(true);
     assert!(logic.assign_unit_path_ignoring(mover, goal, &[], Some(decoy)));
-    let queued: Vec<_> = logic
-        .pathfinding_system
-        .pending_paths()
+    let queued: Vec<_> = logic.snapshot_pending_host_paths().into_iter()
         .map(|req| req.ignore_obstacle)
         .collect();
     assert_eq!(
         queued,
         vec![Some(decoy)],
-        "enqueue keeps the stale snapshot"
+        "the queued view reflects the current actor"
     );
     if let Some(unit) = logic.host_object_mut(mover) {
         unit.ignored_obstacle_id = Some(wall);

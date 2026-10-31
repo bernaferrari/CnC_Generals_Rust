@@ -53,16 +53,12 @@ fn transport_death_scatter_records_own_pose_before_path_order() {
                 .last()
                 .copied()
                 .or_else(|| {
-                    world
-                        .pathfinding_system
-                        .pending_paths()
+                    world.snapshot_pending_host_paths().into_iter()
                         .find(|request| request.unit_id == rider)
                         .map(|request| request.destination)
                 })
                 .expect("scatter admitted the real path request");
-            let path_origin = world
-                .pathfinding_system
-                .pending_paths()
+            let path_origin = world.snapshot_pending_host_paths().into_iter()
                 .find(|request| request.unit_id == rider)
                 .map(|request| request.start)
                 .expect("scatter queues a real match path request");

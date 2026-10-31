@@ -1019,9 +1019,37 @@ impl GameLogic {
             .import_static_block_mask(width as i32, height as i32, mask)
     }
 
-    /// C++ `Pathfinder::queueForPath` residual for save/load.
+    /// Project queued IDs onto the current actors for save/load and inspection.
+    /// A removed actor has no live search inputs, so its diagnostic view uses
+    /// zero/default values while retaining its queued ID.
     pub fn snapshot_pending_host_paths(&self) -> Vec<super::pathfinding::PendingHostPath> {
-        self.pathfinding_system.pending_paths().cloned().collect()
+        self.pathfinding_system
+            .pending_paths()
+            .map(|queued| {
+                let mut request = self
+                    .initialized_path_request(queued.unit_id)
+                    .unwrap_or_else(|| super::pathfinding::PendingHostPath {
+                        unit_id: queued.unit_id,
+                        start: glam::Vec3::ZERO,
+                        destination: glam::Vec3::ZERO,
+                        waypoints: Vec::new(),
+                        follow_path_appends: Vec::new(),
+                        aircraft: false,
+                        surfaces: 0,
+                        is_crusher: false,
+                        ignore_obstacle: None,
+                        adjust_destinations: queued.adjust_destinations,
+                        restore_adjust_on_install: queued.restore_adjust_on_install,
+                    });
+                request.waypoints.clone_from(&queued.waypoints);
+                request
+                    .follow_path_appends
+                    .clone_from(&queued.follow_path_appends);
+                request.adjust_destinations = queued.adjust_destinations;
+                request.restore_adjust_on_install = queued.restore_adjust_on_install;
+                request
+            })
+            .collect()
     }
 
     /// Re-queue deferred pathfind requests after load.

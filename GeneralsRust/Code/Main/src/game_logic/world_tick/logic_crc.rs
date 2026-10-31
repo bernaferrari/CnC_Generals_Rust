@@ -61,11 +61,12 @@ impl GameLogic {
         crc.compute_crc(&(self.pathfinding_system.pending_path_count() as u32).to_le_bytes());
         for request in self.pathfinding_system.pending_paths() {
             crc.compute_crc(&request.unit_id.0.to_le_bytes());
-            for value in [
-                request.destination.x,
-                request.destination.y,
-                request.destination.z,
-            ] {
+            let destination = self
+                .objects
+                .get(&request.unit_id)
+                .and_then(|object| object.requested_destination)
+                .unwrap_or(glam::Vec3::ZERO);
+            for value in [destination.x, destination.y, destination.z] {
                 crc.compute_crc(&value.to_bits().to_le_bytes());
             }
         }

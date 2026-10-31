@@ -1,5 +1,7 @@
 use game_engine::common::{ini::ini_locomotor::LocomotorStore, system::DataChunkOutput};
-use generals_main::game_logic::{GameLogic, GameMode, Object, ObjectId, Player, Team, ThingTemplate};
+use generals_main::game_logic::{
+    GameLogic, GameMode, Object, ObjectId, Player, Team, ThingTemplate,
+};
 use generals_main::save_load::SnapshotBuilder;
 use glam::Vec3;
 
@@ -140,5 +142,52 @@ fn delayed_request_runs_on_its_actor_deadline_after_save_and_interleaving() {
     assert_eq!(
         original.host_object(id).unwrap().movement.path,
         restored.host_object(id).unwrap().movement.path
+    );
+}
+
+#[test]
+fn queued_search_uses_the_current_owners_locomotor_surfaces() {
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("LiveSurfaces.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+
+    let mut ground = world(&map);
+    let mut changed = world(&map);
+    let start = Vec3::new(100.0, 0.0, 100.0);
+    let goal = Vec3::new(100.0, 0.0, 150.0);
+    let mut ids = Vec::new();
+    for world in [&mut ground, &mut changed] {
+        let id = world
+            .create_object_for_player("RetryWalker", 1, start)
+            .unwrap();
+        assert!(world.assign_unit_path(id, goal, &[]));
+        assert!(world.host_object(id).unwrap().waiting_for_path);
+        ids.push(id);
+    }
+    assert_eq!(ids[0], ids[1]);
+    changed.host_object_mut(ids[1]).unwrap().locomotor_surfaces =
+        gamelogic::ai::pathfind_complete::SURFACE_WATER;
+    ground.update_with_dt(1.0 / 30.0);
+    changed.update_with_dt(1.0 / 30.0);
+    assert!(!ground.host_object(ids[0]).unwrap().movement.path.is_empty());
+    assert!(
+        changed
+            .host_object(ids[1])
+            .unwrap()
+            .movement
+            .path
+            .is_empty(),
+        "a water-only locomotor cannot use the ground-only terrain"
     );
 }

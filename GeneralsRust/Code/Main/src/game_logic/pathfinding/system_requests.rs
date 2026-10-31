@@ -326,7 +326,7 @@ impl PathfindingSystem {
         self.cumulative_cells_allocated < self.pathfind_cells_per_frame
     }
 
-    pub fn pop_pending_path(&mut self) -> Option<PendingHostPath> {
+    pub fn pop_pending_path(&mut self) -> Option<QueuedHostPath> {
         self.pending_paths.pop_front()
     }
 
@@ -937,37 +937,27 @@ impl PathfindingSystem {
         None
     }
 
-    /// Queue a path request for next-frame resolve (C++ queueForPath).
-    /// Duplicate ObjectID updates dest in place. Full queue refuses the new request.
+    /// Queue an actor ID and its transitional route for later resolution.
+    /// A replacement order keeps the queue position; a full queue refuses it.
     pub fn queue_path(&mut self, req: PendingHostPath) -> bool {
         if let Some(existing) = self
             .pending_paths
             .iter_mut()
             .find(|p| p.unit_id == req.unit_id)
         {
-            *existing = req;
+            *existing = req.into();
             return true;
         }
         if self.pending_paths.len() >= MAX_PENDING_PATH_REQUESTS {
             return false;
         }
-        self.pending_paths.push_back(req);
+        self.pending_paths.push_back(req.into());
         true
     }
 
-    /// C++ keeps the existing queue position and resolves actor state when it
-    /// processes the ID. Refresh our request snapshot without losing the
-    /// existing order's path and FollowPath continuations.
-    pub(crate) fn queue_path_retry(&mut self, mut req: PendingHostPath) -> bool {
-        if let Some(existing) = self
-            .pending_paths
-            .iter_mut()
-            .find(|p| p.unit_id == req.unit_id)
-        {
-            req.waypoints = std::mem::take(&mut existing.waypoints);
-            req.follow_path_appends = std::mem::take(&mut existing.follow_path_appends);
-            req.restore_adjust_on_install = existing.restore_adjust_on_install;
-            *existing = req;
+    /// C++ keeps an existing queued ID in place when the same actor retries.
+    pub(crate) fn queue_path_retry(&mut self, req: PendingHostPath) -> bool {
+        if self.pending_paths.iter().any(|p| p.unit_id == req.unit_id) {
             return true;
         }
         self.queue_path(req)
@@ -985,7 +975,7 @@ impl PathfindingSystem {
         true
     }
 
-    pub fn take_pending_paths(&mut self) -> Vec<PendingHostPath> {
+    pub fn take_pending_paths(&mut self) -> Vec<QueuedHostPath> {
         self.pending_paths.drain(..).collect()
     }
 
@@ -997,7 +987,7 @@ impl PathfindingSystem {
         self.pending_paths.len()
     }
 
-    pub fn pending_paths(&self) -> impl Iterator<Item = &PendingHostPath> {
+    pub fn pending_paths(&self) -> impl Iterator<Item = &QueuedHostPath> {
         self.pending_paths.iter()
     }
 

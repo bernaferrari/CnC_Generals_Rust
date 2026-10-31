@@ -23,13 +23,13 @@ impl GameLogic {
             Some(unit) if unit.is_alive() && unit.waiting_for_path => (
                 unit.get_position(),
                 unit.can_move(),
-                req.aircraft,
-                if req.surfaces != 0 {
-                    req.surfaces
-                } else {
-                    unit.locomotor_surfaces
-                },
-                req.is_crusher || unit.crusher_level > 0,
+                (unit.locomotor_surfaces & crate::game_logic::object::LOCO_SURFACE_AIR) != 0
+                    && !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(unit)
+                    && (unit.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                        || unit.object_type == crate::game_logic::ObjectType::Aircraft)
+                    && !unit.is_kind_of(crate::game_logic::KindOf::Projectile),
+                unit.locomotor_surfaces,
+                unit.crusher_level > 0,
                 unit.is_safe_path,
                 unit.is_approach_path,
                 unit.is_attack_path,
@@ -321,12 +321,9 @@ impl GameLogic {
         let Some(unit) = self.objects.get(&id) else {
             return None;
         };
-        let Some(dest) = unit.requested_destination else {
-            return None;
-        };
-        if !unit.waiting_for_path {
-            return None;
-        }
+        // C++ initializes this coordinate to zero and queues IDs even if a
+        // later order has cleared the waiting flag.
+        let dest = unit.requested_destination.unwrap_or(glam::Vec3::ZERO);
         let surfaces = unit.locomotor_surfaces;
         let quick = (surfaces & crate::game_logic::object::LOCO_SURFACE_AIR) != 0
             && !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(unit);

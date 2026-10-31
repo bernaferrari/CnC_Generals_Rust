@@ -1606,10 +1606,10 @@ impl GameLogic {
         );
         self.pathfinding_system.begin_pathfind_queue_frame();
         while self.pathfinding_system.pathfind_budget_remaining() {
-            let Some(mut req) = self.pathfinding_system.pop_pending_path() else {
+            let Some(mut queued) = self.pathfinding_system.pop_pending_path() else {
                 break;
             };
-            let unit = req.unit_id;
+            let unit = queued.unit_id;
             // C++ doPathfind returns without touching the actor when its
             // waiting flag was cleared by a later order. Consume the stale
             // queue entry, but do not resurrect its FollowPath continuation.
@@ -1620,7 +1620,13 @@ impl GameLogic {
             {
                 continue;
             }
-            let appends = std::mem::take(&mut req.follow_path_appends);
+            let Some(mut req) = self.initialized_path_request(unit) else {
+                continue;
+            };
+            req.waypoints = std::mem::take(&mut queued.waypoints);
+            req.adjust_destinations = queued.adjust_destinations;
+            req.restore_adjust_on_install = queued.restore_adjust_on_install;
+            let appends = std::mem::take(&mut queued.follow_path_appends);
             let _resolved = self.resolve_initialized_path_request(req)?;
             for goal in appends {
                 self.append_unit_waypoint_impl(unit, goal, true);

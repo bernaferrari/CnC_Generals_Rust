@@ -77,9 +77,7 @@ fn attack_request_loaded_admission_preserves_old_path_until_resolution() {
     );
     assert_eq!(world.pathfinding_system.pending_path_count(), 1);
     assert_eq!(
-        world
-            .pathfinding_system
-            .pending_paths()
+        world.snapshot_pending_host_paths().into_iter()
             .next()
             .unwrap()
             .destination,

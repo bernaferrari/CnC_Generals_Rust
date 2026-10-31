@@ -828,9 +828,7 @@ fn passthrough_rally_snapshots_the_pad() {
     }
     logic.force_map_loaded_for_path_test(true);
     logic.update_support_states_for_test(&[tank], 1.0 / 30.0);
-    let queued_ignore: Vec<_> = logic
-        .pathfinding_system
-        .pending_paths()
+    let queued_ignore: Vec<_> = logic.snapshot_pending_host_paths().into_iter()
         .map(|p| p.ignore_obstacle)
         .collect();
     assert_eq!(queued_ignore, vec![Some(pad)]);
