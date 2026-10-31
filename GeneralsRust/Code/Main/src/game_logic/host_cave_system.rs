@@ -41,6 +41,9 @@ pub struct HostCaveNetwork {
 /// Live host CaveSystem: index → shared tracker.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostCaveSystem {
+    /// Session definition; never serialized with mutable tracker state.
+    #[serde(skip)]
+    capacity: Option<i32>,
     pub enters: u32,
     pub exits: u32,
     pub cross_exits: u32,
@@ -60,7 +63,17 @@ impl HostCaveSystem {
     }
 
     pub fn clear(&mut self) {
+        let capacity = self.capacity;
         *self = Self::default();
+        self.capacity = capacity;
+    }
+
+    pub(crate) fn set_capacity(&mut self, capacity: i32) {
+        self.capacity = Some(capacity);
+    }
+
+    pub(crate) fn capacity(&self) -> i32 {
+        self.capacity.unwrap_or(10)
     }
 
     pub fn index_of(&self, cave: ObjectId) -> Option<i32> {
@@ -87,7 +100,7 @@ impl HostCaveSystem {
     }
 
     pub fn has_capacity(&self, index: i32) -> bool {
-        self.contain_count(index) < MAX_CAVE_CAPACITY
+        i64::try_from(self.contain_count(index)).unwrap_or(i64::MAX) < i64::from(self.capacity())
     }
 
     pub fn contained_for_index(&self, index: i32) -> Vec<ObjectId> {

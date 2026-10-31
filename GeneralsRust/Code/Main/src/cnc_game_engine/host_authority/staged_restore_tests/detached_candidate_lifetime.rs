@@ -36,6 +36,7 @@ fn stage_decoded(
             lighting_baseline: source.lighting_rules_baseline(),
             roads_baseline: source.terrain_road_baseline(),
             combat_bonus_baseline: source.combat_bonus_baseline(),
+            tunnel_capacity_base: source.tunnel_capacity_base,
             body_damage_baseline: source.body_damage_baseline(),
             damage_fx_base: &source.damage_fx_base,
             #[cfg(feature = "game_client")]

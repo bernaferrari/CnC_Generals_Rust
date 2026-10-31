@@ -81,6 +81,7 @@ impl GameLogic {
             locomotor_definitions: None,
             solo_weapon_bonus_set: gamelogic::weapon::WeaponBonusSet::new(),
             combat_bonus_base: Default::default(),
+            tunnel_capacity_base: 10,
             solo_player_health_bonus_for_difficulty: [[1.0;
                 game_engine::common::global_data::DIFFICULTY_COUNT];
                 game_engine::common::global_data::PLAYERTYPE_COUNT],
@@ -939,6 +940,7 @@ impl GameLogic {
             "GameLogic reset cannot recover a failed native retirement; replace the session and native owner"
         );
         self.restore_combat_bonus_baseline();
+        self.restore_tunnel_capacity_baseline();
         self.queued_audio_events.reset();
         self.session_view.world_animations.clear();
         self.session_view.border_shroud_level = None;

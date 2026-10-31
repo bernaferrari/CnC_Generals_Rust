@@ -400,6 +400,7 @@ impl GameLogic {
         self.body_damage_definitions.effective = self.body_damage_definitions.base;
         self.combat_particles.reset_body_auto_particle_map_rules();
         self.restore_combat_bonus_baseline();
+        self.restore_tunnel_capacity_baseline();
         self.lighting_definitions.effective = self.lighting_definitions.base.clone();
         self.terrain_road_definitions.effective = self.terrain_road_definitions.base.clone();
         self.reset_ocl_map_definitions();
@@ -504,6 +505,11 @@ impl GameLogic {
                 }
                 if let Err(error) = self.admit_body_damage_companion_sources(&weapon_overrides) {
                     log::error!("Cannot admit receiving map Body rules: {error}");
+                    return Ok(false);
+                }
+                if let Err(error) = self.admit_tunnel_capacity_companion_sources(&weapon_overrides)
+                {
+                    log::error!("Cannot admit receiving map tunnel capacity: {error}");
                     return Ok(false);
                 }
                 if let Err(error) = self.admit_combat_bonus_companion_sources(&weapon_overrides) {

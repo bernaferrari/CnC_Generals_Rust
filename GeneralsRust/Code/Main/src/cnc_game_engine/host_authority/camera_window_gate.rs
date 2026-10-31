@@ -127,6 +127,7 @@ impl CnCGameEngine {
                 dynamic_debris_skip_mask: self.game_logic.current_dynamic_debris_skip_mask(),
                 roads_baseline: self.game_logic.terrain_road_baseline(),
                 combat_bonus_baseline: self.game_logic.combat_bonus_baseline(),
+                tunnel_capacity_base: self.game_logic.tunnel_capacity_base,
                 body_damage_baseline: self.game_logic.body_damage_baseline(),
                 damage_fx_base: &self.game_logic.damage_fx_base,
                 #[cfg(feature = "game_client")]

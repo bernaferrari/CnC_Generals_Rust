@@ -150,10 +150,13 @@ impl super::super::GameLogic {
             let mut boarded = eligible
                 && !cancelled
                 && uncontained
-                && self
-                    .objects
-                    .get_mut(&other_id)
-                    .is_some_and(|c| c.add_occupant(self_id));
+                && self.objects.get_mut(&other_id).is_some_and(|c| {
+                    if tunnel_key.is_some() || cave_index.is_some() {
+                        c.add_shared_tracker_occupant(self_id)
+                    } else {
+                        c.add_occupant(self_id)
+                    }
+                });
             if boarded && let Some(key) = tunnel_key {
                 if self.tunnel_network.record_enter(key, self_id, other_id) {
                     self.stamp_contained_by_frame(self_id, self.frame);

@@ -2134,6 +2134,21 @@ impl Object {
         if !self.can_contain() || !self.has_capacity_for(1) {
             return false;
         }
+        self.add_occupant_to_local_roster(unit_id)
+    }
+
+    /// Stage a mirror entry only when the caller will commit or roll back the
+    /// session-owned CaveSystem/TunnelTracker admission in the same operation.
+    pub(crate) fn add_shared_tracker_occupant(&mut self, unit_id: ObjectId) -> bool {
+        if !self.can_contain()
+            || !(self.is_cave_style_container() || self.is_tunnel_network_style_container())
+        {
+            return false;
+        }
+        self.add_occupant_to_local_roster(unit_id)
+    }
+
+    fn add_occupant_to_local_roster(&mut self, unit_id: ObjectId) -> bool {
         if let Some(building) = self.building_data.as_mut() {
             if building.garrisoned_units.contains(&unit_id) {
                 return true;

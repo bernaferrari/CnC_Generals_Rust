@@ -1208,7 +1208,13 @@ impl GameLogic {
                     } else {
                         self.objects
                             .get_mut(&container_id)
-                            .map(|container| container.add_occupant(object_id))
+                            .map(|container| {
+                                if container_is_tunnel_network || container_is_cave {
+                                    container.add_shared_tracker_occupant(object_id)
+                                } else {
+                                    container.add_occupant(object_id)
+                                }
+                            })
                             .unwrap_or(false)
                     };
                     if !entered {

@@ -146,6 +146,7 @@ fn staged_restore_rejects_unavailable_map_before_snapshot_restore() {
                     lighting_baseline: source.lighting_rules_baseline(),
                     roads_baseline: source.terrain_road_baseline(),
                     combat_bonus_baseline: source.combat_bonus_baseline(),
+                    tunnel_capacity_base: source.tunnel_capacity_base,
                     body_damage_baseline: source.body_damage_baseline(),
                     damage_fx_base: &source.damage_fx_base,
                     #[cfg(feature = "game_client")]
@@ -216,6 +217,7 @@ fn malformed_client_chunk_rejects_candidate_before_touching_live_client() {
                     lighting_baseline: logic.lighting_rules_baseline(),
                     roads_baseline: logic.terrain_road_baseline(),
                     combat_bonus_baseline: logic.combat_bonus_baseline(),
+                    tunnel_capacity_base: logic.tunnel_capacity_base,
                     body_damage_baseline: logic.body_damage_baseline(),
                     damage_fx_base: &logic.damage_fx_base,
                     #[cfg(feature = "game_client")]
@@ -362,6 +364,7 @@ fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
                     lighting_baseline: source.lighting_rules_baseline(),
                     roads_baseline: source.terrain_road_baseline(),
                     combat_bonus_baseline: source.combat_bonus_baseline(),
+                    tunnel_capacity_base: source.tunnel_capacity_base,
                     body_damage_baseline: source.body_damage_baseline(),
                     damage_fx_base: &source.damage_fx_base,
                     #[cfg(feature = "game_client")]
@@ -680,6 +683,7 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
                     lighting_baseline: source.lighting_rules_baseline(),
                     roads_baseline: source.terrain_road_baseline(),
                     combat_bonus_baseline: source.combat_bonus_baseline(),
+                    tunnel_capacity_base: source.tunnel_capacity_base,
                     body_damage_baseline: source.body_damage_baseline(),
                     damage_fx_base: &source.damage_fx_base,
                     #[cfg(feature = "game_client")]
@@ -1026,6 +1030,7 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
                             lighting_baseline: source.lighting_rules_baseline(),
                             roads_baseline: source.terrain_road_baseline(),
                             combat_bonus_baseline: source.combat_bonus_baseline(),
+                            tunnel_capacity_base: source.tunnel_capacity_base,
                             body_damage_baseline: source.body_damage_baseline(),
                             damage_fx_base: &source.damage_fx_base,
                             #[cfg(feature = "game_client")]
@@ -1260,6 +1265,7 @@ fn staged_restore_continues_logic_rng_stream_from_save_point() {
                     lighting_baseline: source.lighting_rules_baseline(),
                     roads_baseline: source.terrain_road_baseline(),
                     combat_bonus_baseline: source.combat_bonus_baseline(),
+                    tunnel_capacity_base: source.tunnel_capacity_base,
                     body_damage_baseline: source.body_damage_baseline(),
                     damage_fx_base: &source.damage_fx_base,
                     #[cfg(feature = "game_client")]
@@ -1864,6 +1870,7 @@ End
                         lighting_baseline: source.lighting_rules_baseline(),
                         roads_baseline: source.terrain_road_baseline(),
                         combat_bonus_baseline: source.combat_bonus_baseline(),
+                        tunnel_capacity_base: source.tunnel_capacity_base,
                         body_damage_baseline: source.body_damage_baseline(),
                         damage_fx_base: &source.damage_fx_base,
                         #[cfg(feature = "game_client")]
@@ -1997,6 +2004,7 @@ End
                         lighting_baseline: source.lighting_rules_baseline(),
                         roads_baseline: source.terrain_road_baseline(),
                         combat_bonus_baseline: source.combat_bonus_baseline(),
+                        tunnel_capacity_base: source.tunnel_capacity_base,
                         body_damage_baseline: source.body_damage_baseline(),
                         damage_fx_base: &source.damage_fx_base,
                         #[cfg(feature = "game_client")]

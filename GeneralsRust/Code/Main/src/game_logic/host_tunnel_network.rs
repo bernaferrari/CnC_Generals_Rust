@@ -125,6 +125,9 @@ pub fn tunnel_network_ms_to_frames(ms: u32) -> u32 {
 /// Host residual honesty counters + per-player shared contain state.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostTunnelNetworkRegistry {
+    /// Session definition; never serialized with mutable tracker state.
+    #[serde(skip)]
+    capacity: Option<i32>,
     /// Successful residual enters into any player tunnel.
     pub enters: u32,
     /// Successful residual exits (same or cross tunnel).
@@ -210,11 +213,23 @@ impl HostTunnelNetworkRegistry {
 
     /// Replace the live per-player TunnelTracker pool from a snapshot tail.
     pub fn restore_from(&mut self, other: Self) {
+        let capacity = self.capacity;
         *self = other;
+        self.capacity = capacity;
     }
 
     pub fn clear(&mut self) {
+        let capacity = self.capacity;
         *self = Self::default();
+        self.capacity = capacity;
+    }
+
+    pub(crate) fn set_capacity(&mut self, capacity: i32) {
+        self.capacity = Some(capacity);
+    }
+
+    pub(crate) fn capacity(&self) -> i32 {
+        self.capacity.unwrap_or(10)
     }
 
     /// C++ OneShot SpawnBehavior already delivered its batch for this tunnel.
@@ -243,7 +258,8 @@ impl HostTunnelNetworkRegistry {
     }
 
     pub fn has_capacity(&self, player_id: u32) -> bool {
-        self.contain_count(player_id) < MAX_TUNNEL_CAPACITY
+        i64::try_from(self.contain_count(player_id)).unwrap_or(i64::MAX)
+            < i64::from(self.capacity())
     }
 
     pub fn is_in_network(&self, player_id: u32, unit_id: ObjectId) -> bool {

@@ -40,6 +40,7 @@ pub struct GameLogic {
     pub(crate) solo_weapon_bonus_set: gamelogic::weapon::WeaponBonusSet,
     /// Original application GameData values; map overrides are derived from this owner.
     pub(crate) combat_bonus_base: game_engine::common::ini::ini_game_data::CombatBonusRules,
+    pub(crate) tunnel_capacity_base: i32,
     /// GameData SOLO health factors admitted with this receiving session.
     pub(crate) solo_player_health_bonus_for_difficulty: [[f32;
         game_engine::common::global_data::DIFFICULTY_COUNT];

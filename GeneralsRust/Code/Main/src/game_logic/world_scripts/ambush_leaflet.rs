@@ -1072,7 +1072,9 @@ impl GameLogic {
                 object.cave_index = index;
             }
         }
+        let capacity = self.cave_system.capacity();
         self.cave_system = system;
+        self.cave_system.set_capacity(capacity);
     }
 
     /// Mutable CaveSystem for snapshot tests / restore helpers.
@@ -1085,7 +1087,9 @@ impl GameLogic {
         &mut self,
         network: crate::game_logic::HostTunnelNetworkRegistry,
     ) {
+        let capacity = self.tunnel_network.capacity();
         self.tunnel_network = network;
+        self.tunnel_network.set_capacity(capacity);
     }
 
     /// Mutable tunnel pool for snapshot tests.

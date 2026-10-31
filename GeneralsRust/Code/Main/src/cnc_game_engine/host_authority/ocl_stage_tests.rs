@@ -275,6 +275,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                         lighting_baseline: source.lighting_rules_baseline(),
                         roads_baseline: source.terrain_road_baseline(),
                         combat_bonus_baseline: source.combat_bonus_baseline(),
+                        tunnel_capacity_base: source.tunnel_capacity_base,
                         body_damage_baseline: source.body_damage_baseline(),
                         damage_fx_base: &source.damage_fx_base,
                         #[cfg(feature = "game_client")]
@@ -355,6 +356,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                             lighting_baseline: source.lighting_rules_baseline(),
                             roads_baseline: source.terrain_road_baseline(),
                             combat_bonus_baseline: source.combat_bonus_baseline(),
+                            tunnel_capacity_base: source.tunnel_capacity_base,
                             body_damage_baseline: source.body_damage_baseline(),
                             damage_fx_base: &source.damage_fx_base,
                             #[cfg(feature = "game_client")]
@@ -441,6 +443,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                             lighting_baseline: source.lighting_rules_baseline(),
                             roads_baseline: source.terrain_road_baseline(),
                             combat_bonus_baseline: source.combat_bonus_baseline(),
+                            tunnel_capacity_base: source.tunnel_capacity_base,
                             body_damage_baseline: source.body_damage_baseline(),
                             damage_fx_base: &source.damage_fx_base,
                             #[cfg(feature = "game_client")]

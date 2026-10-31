@@ -1341,6 +1341,9 @@ pub use body_auto_particle_rules::BodyAutoParticleRules;
 #[path = "ini_game_data/body_damage_rules.rs"]
 mod body_damage_rules;
 pub use body_damage_rules::BodyDamageRules;
+#[path = "ini_game_data/tunnel_capacity_rules.rs"]
+mod tunnel_capacity_rules;
+pub use tunnel_capacity_rules::TunnelCapacityRules;
 #[path = "ini_game_data/combat_bonus_rules.rs"]
 mod combat_bonus_rules;
 pub use combat_bonus_rules::CombatBonusRules;

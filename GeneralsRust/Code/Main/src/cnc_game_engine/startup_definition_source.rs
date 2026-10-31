@@ -44,6 +44,7 @@ pub(super) struct StartupSimulationRules {
     sell_percentage: f32,
     max_beacons_per_player: i32,
     combat_bonus: game_engine::common::ini::ini_game_data::CombatBonusRules,
+    tunnel_capacity: i32,
     upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
     player_templates: Option<game_engine::common::rts::player_template::PlayerTemplateStore>,
     multiplayer_definitions:
@@ -69,6 +70,7 @@ impl StartupSimulationRules {
             sell_percentage: world.session_sell_percentage,
             max_beacons_per_player: world.max_beacons_per_player,
             combat_bonus: world.combat_bonus_baseline().clone(),
+            tunnel_capacity: world.tunnel_capacity_base,
             upgrade_definitions: world.upgrade_definitions.clone(),
             player_templates: world.player_template_definitions.clone(),
             multiplayer_definitions: world.multiplayer_definitions.clone(),
@@ -151,6 +153,7 @@ impl StartupSimulationRules {
         world.admit_sell_percentage(self.sell_percentage);
         world.admit_max_beacons_per_player(self.max_beacons_per_player);
         world.admit_combat_bonus_baseline(self.combat_bonus);
+        world.admit_tunnel_capacity_baseline(self.tunnel_capacity);
         world.upgrade_definition_base = self.upgrade_definitions.clone();
         world.upgrade_definitions = self.upgrade_definitions;
         if let Some(definitions) = self.locomotors {

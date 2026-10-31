@@ -155,6 +155,7 @@ pub(super) struct RestoreTemplateCatalog<'a> {
     dynamic_debris_skip_mask: u32,
     roads_baseline: &'a game_engine::common::ini::ini_road::TerrainRoadCollection,
     combat_bonus_baseline: &'a game_engine::common::ini::ini_game_data::CombatBonusRules,
+    tunnel_capacity_base: i32,
     templates: &'a std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
     player_templates: &'a Option<game_engine::common::rts::player_template::PlayerTemplateStore>,
     multiplayer_definitions:
@@ -181,6 +182,7 @@ impl<'a> RestoreTemplateCatalog<'a> {
             dynamic_debris_skip_mask: world.current_dynamic_debris_skip_mask(),
             roads_baseline: world.terrain_road_baseline(),
             combat_bonus_baseline: world.combat_bonus_baseline(),
+            tunnel_capacity_base: world.tunnel_capacity_base,
             body_damage_baseline: world.body_damage_baseline(),
             damage_fx_base: &world.damage_fx_base,
             #[cfg(feature = "game_client")]
@@ -2357,6 +2359,7 @@ impl CnCGameEngine {
                 dynamic_debris_skip_mask: live.current_dynamic_debris_skip_mask(),
                 roads_baseline: live.terrain_road_baseline(),
                 combat_bonus_baseline: live.combat_bonus_baseline(),
+                tunnel_capacity_base: live.tunnel_capacity_base,
                 body_damage_baseline: live.body_damage_baseline(),
                 damage_fx_base: &live.damage_fx_base,
                 #[cfg(feature = "game_client")]
@@ -2518,6 +2521,7 @@ impl CnCGameEngine {
             candidate.admit_sell_percentage(live.session_sell_percentage);
             candidate.admit_max_beacons_per_player(live.max_beacons_per_player);
             candidate.admit_combat_bonus_baseline(live.combat_bonus_baseline().clone());
+            candidate.admit_tunnel_capacity_baseline(live.tunnel_capacity_base);
             candidate.admit_physics_rules_base(live.physics_rules_baseline())?;
             candidate.admit_body_damage_baseline(live.body_damage_baseline());
             candidate.admit_lighting_rules_base(live.lighting_rules_baseline().clone());
@@ -2827,6 +2831,7 @@ impl CnCGameEngine {
         staged.admit_sell_percentage(template_catalog.session_sell_percentage);
         staged.admit_max_beacons_per_player(template_catalog.max_beacons_per_player);
         staged.admit_combat_bonus_baseline(template_catalog.combat_bonus_baseline.clone());
+        staged.admit_tunnel_capacity_baseline(template_catalog.tunnel_capacity_base);
         staged.admit_physics_rules_base(physics_rules_base)?;
         staged.admit_body_damage_baseline(template_catalog.body_damage_baseline);
         staged.damage_fx_base = template_catalog.damage_fx_base.clone();
@@ -3106,6 +3111,7 @@ impl CnCGameEngine {
                     dynamic_debris_skip_mask: self.game_logic.current_dynamic_debris_skip_mask(),
                     roads_baseline: self.game_logic.terrain_road_baseline(),
                     combat_bonus_baseline: self.game_logic.combat_bonus_baseline(),
+                    tunnel_capacity_base: self.game_logic.tunnel_capacity_base,
                     body_damage_baseline: self.game_logic.body_damage_baseline(),
                     damage_fx_base: &self.game_logic.damage_fx_base,
                     #[cfg(feature = "game_client")]
@@ -3162,6 +3168,7 @@ impl CnCGameEngine {
                 dynamic_debris_skip_mask: self.game_logic.current_dynamic_debris_skip_mask(),
                 roads_baseline: self.game_logic.terrain_road_baseline(),
                 combat_bonus_baseline: self.game_logic.combat_bonus_baseline(),
+                tunnel_capacity_base: self.game_logic.tunnel_capacity_base,
                 body_damage_baseline: self.game_logic.body_damage_baseline(),
                 damage_fx_base: &self.game_logic.damage_fx_base,
                 #[cfg(feature = "game_client")]

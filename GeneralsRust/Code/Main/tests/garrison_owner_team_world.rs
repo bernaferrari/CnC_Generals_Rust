@@ -48,7 +48,22 @@ fn map_file(root: &std::path::Path) -> std::path::PathBuf {
 }
 
 fn world(map: &std::path::Path, reverse_players: bool) -> (GameLogic, ObjectId, ObjectId) {
+    world_with_tunnel_capacity(map, reverse_players, None)
+}
+
+fn world_with_tunnel_capacity(
+    map: &std::path::Path,
+    reverse_players: bool,
+    capacity: Option<i32>,
+) -> (GameLogic, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
+    if let Some(capacity) = capacity {
+        world
+            .admit_tunnel_capacity_ini_sources([format!(
+                "GameData\n MaxTunnelCapacity = {capacity}\nEnd\n"
+            )])
+            .unwrap();
+    }
     let mut locomotors = LocomotorStore::new_owned();
     locomotors
         .apply_source(
@@ -2254,4 +2269,249 @@ fn entrant_pulse_survives_bincode_and_direct_xfer_then_clears() {
     first.update();
     assert!(!observe_building_entered(&mut first, "GarrisonRider"));
     assert!(observe_building_entered(&mut second, "GarrisonRider"));
+}
+
+#[test]
+fn authored_tunnel_capacity_is_session_owned_and_retained_by_restore() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut one, _, rider) = world_with_tunnel_capacity(&map, false, Some(1));
+    let (mut two, _, other_rider) = world_with_tunnel_capacity(&map, false, Some(2));
+    let setup = |world: &mut GameLogic| {
+        let tunnel = world
+            .create_object_for_player("OwnedTunnel", 2, Vec3::new(50., 0., 50.))
+            .unwrap();
+        world
+            .host_object_mut(tunnel)
+            .unwrap()
+            .install_tunnel_network_residual();
+        let cave = world
+            .create_object_for_player("OwnedCave", 2, Vec3::new(70., 0., 50.))
+            .unwrap();
+        world
+            .host_object_mut(cave)
+            .unwrap()
+            .install_cave_contain_residual(7);
+        world
+            .cave_system_residual_mut()
+            .register_cave(cave, 7, Team::USA);
+        (tunnel, cave)
+    };
+    let (tunnel, cave) = setup(&mut one);
+    let (other_tunnel, other_cave) = setup(&mut two);
+    assert_eq!(
+        (tunnel, cave, rider),
+        (other_tunnel, other_cave, other_rider)
+    );
+    let key = one.host_object(tunnel).unwrap().tunnel_system_key();
+    let cave_rider = one
+        .create_object_for_player("OwnedGarrisonRider", 2, Vec3::new(70., 0., 50.))
+        .unwrap();
+    let other_cave_rider = two
+        .create_object_for_player("OwnedGarrisonRider", 2, Vec3::new(70., 0., 50.))
+        .unwrap();
+    assert_eq!(cave_rider, other_cave_rider);
+    assert!(
+        one.tunnel_network_residual_mut()
+            .record_enter(key, rider, tunnel)
+    );
+    assert!(
+        two.tunnel_network_residual_mut()
+            .record_enter(key, other_rider, other_tunnel)
+    );
+    assert_eq!(
+        one.normal_enter_available_capacity_for(rider, tunnel),
+        Some(0)
+    );
+    assert_eq!(
+        two.normal_enter_available_capacity_for(other_rider, other_tunnel),
+        Some(1)
+    );
+    assert!(
+        one.cave_system_residual_mut()
+            .record_enter(7, cave_rider, cave, Team::USA)
+            .0
+    );
+    assert!(
+        two.cave_system_residual_mut()
+            .record_enter(7, other_cave_rider, other_cave, Team::USA)
+            .0
+    );
+    assert_eq!(
+        one.normal_enter_available_capacity_for(cave_rider, cave),
+        Some(0)
+    );
+    assert_eq!(
+        two.normal_enter_available_capacity_for(other_cave_rider, other_cave),
+        Some(1)
+    );
+    // Restore mutable tracker state from a snapshot into a world with its own rules.
+    let source_caves = bincode_legacy::deserialize(
+        &bincode_legacy::serialize(one.cave_system_residual()).unwrap(),
+    )
+    .unwrap();
+    let source_tunnels = bincode_legacy::deserialize(
+        &bincode_legacy::serialize(one.tunnel_network_residual()).unwrap(),
+    )
+    .unwrap();
+    two.restore_cave_system(source_caves);
+    two.restore_tunnel_network(source_tunnels);
+    assert_eq!(
+        two.normal_enter_available_capacity_for(other_rider, other_tunnel),
+        Some(1)
+    );
+    assert_eq!(
+        two.normal_enter_available_capacity_for(other_cave_rider, other_cave),
+        Some(1)
+    );
+    one.reset();
+    assert_eq!(
+        two.normal_enter_available_capacity_for(other_rider, other_tunnel),
+        Some(1)
+    );
+    let (mut larger, _, large_rider) = world_with_tunnel_capacity(&map, false, Some(12));
+    let (large_tunnel, large_cave) = setup(&mut larger);
+    for _ in 0..11 {
+        for entrance in [large_tunnel, large_cave] {
+            let id = larger
+                .create_object_for_player("OwnedGarrisonRider", 2, Vec3::new(50., 0., 50.))
+                .unwrap();
+            assert!(
+                larger
+                    .unit_command_set_ai_state(id, AIState::Entering)
+                    .unwrap()
+            );
+            larger.host_object_mut(id).unwrap().target = Some(entrance);
+            larger.try_physics_collide(id, entrance, 1.0).unwrap();
+            assert_eq!(larger.host_object(id).unwrap().contained_by, Some(entrance));
+        }
+    }
+    assert_eq!(
+        larger.normal_enter_available_capacity_for(large_rider, large_tunnel),
+        Some(1)
+    );
+    assert_eq!(
+        larger.normal_enter_available_capacity_for(large_rider, large_cave),
+        Some(1)
+    );
+    let (mut zero, _, zero_rider) = world_with_tunnel_capacity(&map, false, Some(0));
+    let (zero_tunnel, zero_cave) = setup(&mut zero);
+    assert_eq!(
+        zero.normal_enter_available_capacity_for(zero_rider, zero_tunnel),
+        Some(0)
+    );
+    assert_eq!(
+        zero.normal_enter_available_capacity_for(zero_rider, zero_cave),
+        Some(0)
+    );
+}
+
+#[test]
+fn tunnel_capacity_obeys_ordered_map_overrides_and_restores_baseline() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    std::fs::write(
+        root.path().join("Map.ini"),
+        "GameData\n MaxTunnelCapacity = 4\nEnd\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.path().join("Solo.ini"),
+        "GameData\n MaxTunnelCapacity = 1\nEnd\n",
+    )
+    .unwrap();
+    let (mut game, _, rider) = world_with_tunnel_capacity(&map, false, Some(9));
+    let tunnel = game
+        .create_object_for_player("OwnedTunnel", 2, Vec3::new(50., 0., 50.))
+        .unwrap();
+    game.host_object_mut(tunnel)
+        .unwrap()
+        .install_tunnel_network_residual();
+    let key = game.host_object(tunnel).unwrap().tunnel_system_key();
+    assert!(
+        game.tunnel_network_residual_mut()
+            .record_enter(key, rider, tunnel)
+    );
+    assert_eq!(
+        game.normal_enter_available_capacity_for(rider, tunnel),
+        Some(0)
+    );
+    std::fs::remove_file(root.path().join("Map.ini")).unwrap();
+    std::fs::remove_file(root.path().join("Solo.ini")).unwrap();
+    game.reset();
+    assert!(game.load_map(map.to_str().unwrap()));
+    game.add_player(
+        Player::new(2, Team::USA, "GarrisonRider", true).with_script_identity("GarrisonRider"),
+    );
+    let tunnel = game
+        .create_object_for_player("OwnedTunnel", 2, Vec3::new(50., 0., 50.))
+        .unwrap();
+    game.host_object_mut(tunnel)
+        .unwrap()
+        .install_tunnel_network_residual();
+    let rider = game
+        .create_object_for_player("OwnedGarrisonRider", 2, Vec3::new(50., 0., 50.))
+        .unwrap();
+    let key = game.host_object(tunnel).unwrap().tunnel_system_key();
+    for i in 0..8 {
+        assert!(
+            game.tunnel_network_residual_mut()
+                .record_enter(key, ObjectId(20_000 + i), tunnel)
+        );
+    }
+    assert_eq!(
+        game.normal_enter_available_capacity_for(rider, tunnel),
+        Some(1)
+    );
+    assert!(
+        game.tunnel_network_residual_mut()
+            .record_enter(key, rider, tunnel)
+    );
+    assert_eq!(
+        game.normal_enter_available_capacity_for(rider, tunnel),
+        Some(0)
+    );
+}
+
+#[test]
+fn tunnel_capacity_uses_receiving_rules_after_world_snapshot_restore() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut source, _, rider) = world_with_tunnel_capacity(&map, false, Some(1));
+    let tunnel = source
+        .create_object_for_player("OwnedTunnel", 2, Vec3::new(50., 0., 50.))
+        .unwrap();
+    source
+        .host_object_mut(tunnel)
+        .unwrap()
+        .install_tunnel_network_residual();
+    assert!(
+        source
+            .unit_command_set_ai_state(rider, AIState::Entering)
+            .unwrap()
+    );
+    source.host_object_mut(rider).unwrap().target = Some(tunnel);
+    source.try_physics_collide(rider, tunnel, 1.0).unwrap();
+    assert_eq!(
+        source.host_object(rider).unwrap().contained_by,
+        Some(tunnel)
+    );
+    assert_eq!(
+        source.normal_enter_available_capacity_for(rider, tunnel),
+        Some(0)
+    );
+    let builder = SnapshotBuilder::new();
+    let snapshot = clone_bincode_snapshot(&builder.create_world_snapshot(&source).unwrap());
+    let (mut destination, _, _) = world_with_tunnel_capacity(&map, false, Some(2));
+    builder
+        .restore_from_snapshot(&snapshot, &mut destination)
+        .unwrap();
+    assert_eq!(
+        destination.normal_enter_available_capacity_for(rider, tunnel),
+        Some(1)
+    );
+    assert_eq!(
+        source.normal_enter_available_capacity_for(rider, tunnel),
+        Some(0)
+    );
 }

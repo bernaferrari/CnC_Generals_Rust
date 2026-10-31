@@ -2201,7 +2201,12 @@ impl PresentationFrame {
                 ro.max_transport = max_transport;
                 dirty = true;
             }
-            let max_garrison = obj.garrison_capacity();
+            let max_garrison =
+                if obj.is_tunnel_network_style_container() || obj.is_cave_style_container() {
+                    logic.effective_tunnel_capacity()
+                } else {
+                    obj.garrison_capacity()
+                };
             if ro.max_garrison != max_garrison {
                 ro.max_garrison = max_garrison;
                 dirty = true;
