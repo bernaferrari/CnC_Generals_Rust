@@ -67,18 +67,9 @@ impl PresentationFrame {
             if target.team != self.local_team && target.team != Team::Neutral {
                 return None;
             }
-            let occupied = self
-                .objects
-                .iter()
-                .filter(|candidate| {
-                    candidate.is_tunnel_network
-                        && self.normal_enter_same_tunnel_controller(candidate, target)
-                        && !candidate.destroyed
-                        && !candidate.sold
-                })
-                .map(RenderableObject::normal_enter_occupant_count)
-                .sum::<usize>();
-            return capacity.checked_sub(occupied);
+            // Every entrance already publishes the same player-owned
+            // TunnelTracker roster; summing entrances counts it repeatedly.
+            return capacity.checked_sub(target.normal_enter_occupant_count());
         }
 
         // C++ ActionManager.cpp:656-675: non-owner may Enter a non-faction
@@ -204,27 +195,6 @@ impl PresentationFrame {
                 .filter(|player| player.is_alive && player.team == object.team)
                 .map(|player| player.id)
         })
-    }
-
-    /// Tunnel pool grouping mirrors the authority side: exact owner identity
-    /// when present, otherwise only an all-ownerless legacy frame may use the
-    /// faction pool.
-    fn normal_enter_same_tunnel_controller(
-        &self,
-        candidate: &RenderableObject,
-        target: &RenderableObject,
-    ) -> bool {
-        match (target.owner_player_id, candidate.owner_player_id) {
-            (Some(target_owner), Some(candidate_owner)) => {
-                target_owner == candidate_owner
-                    && self.normal_enter_valid_explicit_owner(target) == Some(target_owner)
-                    && self.normal_enter_valid_explicit_owner(candidate) == Some(candidate_owner)
-            }
-            (None, None) => {
-                self.uses_legacy_team_ownership_fallback() && candidate.team == target.team
-            }
-            _ => false,
-        }
     }
 
     fn normal_enter_unique_live_player_for_team(&self, team: Team) -> Option<u32> {

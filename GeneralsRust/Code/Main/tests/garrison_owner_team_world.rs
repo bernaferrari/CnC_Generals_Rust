@@ -2686,6 +2686,13 @@ fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
             assert_eq!(object.garrisoned_units, expected, "object {:?}", id);
             assert_eq!(object.occupant_count, expected.len() as u16);
             assert_eq!(object.max_garrison, cap);
+            if id == ta || id == tb {
+                assert_eq!(
+                    frame.normal_enter_available_capacity_for_local(object),
+                    Some(cap - expected.len()),
+                    "object {id:?}"
+                );
+            }
         }
     };
     let direct = PresentationFrame::build_from_logic(&mut first, 2);
@@ -2706,6 +2713,12 @@ fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
         assert!(object.garrisoned_units.is_empty());
         assert_eq!(object.occupant_count, 0);
         assert_eq!(object.max_garrison, 4);
+        if id == ta || id == tb {
+            assert_eq!(
+                peer_frame.normal_enter_available_capacity_for_local(object),
+                Some(4)
+            );
+        }
     }
 
     // A shadow-backed frame must respect the same hidden-garrison decision
@@ -2764,6 +2777,42 @@ fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
             let object = frame.objects.iter().find(|object| object.id == id).unwrap();
             assert_eq!(object.garrisoned_units, vec![expected]);
             assert_eq!(object.occupant_count, 1);
+        }
+    }
+    // Once the shared pool is full, both entrances must reject a new Enter.
+    let second_rider = first
+        .create_object_for_player("OwnedGarrisonRider", 2, Vec3::new(50., 0., 70.))
+        .unwrap();
+    assert_eq!(
+        CommandExecutor::new(&mut first, 2)
+            .execute_command(GameCommand {
+                command_type: CommandType::Enter { target_id: ta },
+                player_id: 2,
+                command_id: 96,
+                timestamp: std::time::UNIX_EPOCH,
+                selected_units: vec![second_rider],
+                modifier_keys: ModifierKeys::default(),
+            })
+            .unwrap(),
+        CommandResult::Success,
+    );
+    first.try_physics_collide(second_rider, ta, 1.0).unwrap();
+    assert_eq!(
+        first.host_object(second_rider).unwrap().contained_by,
+        Some(ta)
+    );
+    let full_direct = PresentationFrame::build_from_logic(&mut first, 2);
+    shadow.sync_from_host(&first);
+    let full_shadow = PresentationFrame::build_from_gameworld(&shadow, 2, Some(&mut first));
+    for frame in [&full_direct, &full_shadow] {
+        for id in [ta, tb] {
+            let object = frame.objects.iter().find(|object| object.id == id).unwrap();
+            assert_eq!(
+                frame.normal_enter_available_capacity_for_local(object),
+                Some(0),
+                "full object {id:?}"
+            );
+            assert!(!frame.normal_enter_target_available_for_local(object));
         }
     }
 }
