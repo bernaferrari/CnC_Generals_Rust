@@ -1,7 +1,8 @@
 use generals_main::game_logic::{GameLogic, KindOf, ObjectId, Player, Team};
 use generals_main::save_load::SnapshotBuilder;
 use generals_main::save_load::snapshot::{
-    capture_lifecycle_tail, decode_lifecycle_tail, encode_lifecycle_tail,
+    apply_lifecycle_tail_to_host, capture_lifecycle_tail, decode_lifecycle_tail,
+    encode_lifecycle_tail,
 };
 use glam::Vec3;
 
@@ -210,11 +211,49 @@ fn stale_spawn_behavior_ids_survive_save_restore_as_unbound_tombstones() {
         .expect("owner SpawnBehavior admitted");
     let saved_order = roster(&owner, nest);
     let stale_id = ObjectId(saved_order[0]);
-    owner
-        .objects
-        .remove(&stale_id)
-        .expect("simulate removal without onSpawnDeath callback");
-    let saved_tail = capture_lifecycle_tail(&owner).expect("capture stale child as tombstone");
+    let missing_id = ObjectId(0x1234_5678);
+    let mut detached = capture_lifecycle_tail(&owner).expect("capture source roster");
+    let detached_roster = detached
+        .spawn_behavior_rosters
+        .as_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|roster| roster.producer_id == nest.0)
+        .unwrap();
+    let entry = detached_roster
+        .children
+        .iter_mut()
+        .find(|child| child.child_id == stale_id.0)
+        .unwrap();
+    entry.tombstone = true;
+    let mut missing = entry.clone();
+    missing.child_id = missing_id.0;
+    detached_roster.children.push(missing);
+
+    let mut receiver = world("OwnerRosterSoldier");
+    let receiver_nest = receiver
+        .create_object_for_player("OwnedRosterNest", 1, Vec3::ZERO)
+        .unwrap();
+    assert_eq!(receiver_nest, nest);
+    assert_eq!(roster(&receiver, receiver_nest), saved_order);
+    apply_lifecycle_tail_to_host(&detached, &mut receiver).expect("apply detached tombstone");
+    assert!(
+        receiver.host_object(stale_id).is_some(),
+        "same-ID live birth remains intact"
+    );
+    assert!(
+        !capture_lifecycle_tail(&owner)
+            .unwrap()
+            .spawn_behavior_rosters
+            .unwrap()[0]
+            .children
+            .iter()
+            .find(|child| child.child_id == stale_id.0)
+            .unwrap()
+            .tombstone
+    );
+    let saved_tail = capture_lifecycle_tail(&receiver).expect("capture stale child as tombstone");
+    assert!(receiver.host_object(missing_id).is_none());
     assert!(
         saved_tail
             .spawn_behavior_rosters
@@ -230,16 +269,50 @@ fn stale_spawn_behavior_ids_survive_save_restore_as_unbound_tombstones() {
             .tombstone
     );
 
-    // The direct HashMap removal above intentionally bypasses the native
-    // partition teardown, so only the lifecycle tail is a valid witness for
-    // this synthetic stale-link setup. Full SnapshotBuilder round trips of
-    // serialized tombstones are exercised by the main test's crafted entry.
+    // A tombstone must stay unbound even when a same-ID live object exists.
     let encoded = encode_lifecycle_tail(&saved_tail);
     assert!(
         decode_lifecycle_tail(&encoded)
             .unwrap()
             .spawn_behavior_rosters
             .unwrap()[0]
+            .children
+            .iter()
+            .find(|child| child.child_id == stale_id.0)
+            .unwrap()
+            .tombstone
+    );
+    let snapshot = SnapshotBuilder::new()
+        .create_world_snapshot(&receiver)
+        .unwrap();
+    let mut restored = world("OwnerRosterSoldier");
+    SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    let restored_tail = capture_lifecycle_tail(&restored).unwrap();
+    assert!(restored.host_object(stale_id).is_some());
+    assert!(restored.host_object(missing_id).is_none());
+    assert!(
+        restored_tail
+            .spawn_behavior_rosters
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|roster| roster.producer_id == nest.0)
+            .unwrap()
+            .children
+            .iter()
+            .find(|child| child.child_id == missing_id.0)
+            .unwrap()
+            .tombstone
+    );
+    assert!(
+        restored_tail
+            .spawn_behavior_rosters
+            .unwrap()
+            .iter()
+            .find(|roster| roster.producer_id == nest.0)
+            .unwrap()
             .children
             .iter()
             .find(|child| child.child_id == stale_id.0)
