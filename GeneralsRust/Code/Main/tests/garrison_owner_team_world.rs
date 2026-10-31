@@ -134,6 +134,19 @@ Object AuthoredParachute\n\
   ParachuteOpenDist = 100\n\
  End\n\
 End\n\
+Object EnteringParachute\n\
+ KindOf = PARACHUTE SELECTABLE\n\
+ Body = ActiveBody BodyTag\n\
+  MaxHealth = 100\n\
+  InitialHealth = 100\n\
+ End\n\
+ Behavior = ParachuteContain ChuteTag\n\
+  AllowInsideKindOf = INFANTRY\n\
+  ParachuteOpenDist = 100\n\
+ End\n\
+ Behavior = AIUpdateInterface Brain\n\
+ End\n\
+End\n\
 Object SnapshotDoorTransport\n\
  KindOf = VEHICLE TRANSPORT SELECTABLE\n\
  Geometry = BOX\n\
@@ -435,6 +448,89 @@ fn collision_transport_rechecks_slot_capacity_and_controller() {
         peer.host_object(peer_heavy).unwrap().contained_by,
         None,
         "TransportContain requires the same controlling player at collision"
+    );
+}
+
+#[test]
+fn collision_transport_checks_the_passenger_inside_a_parachute() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, _, _) = world(&map, false);
+    let (mut peer, _, _) = world(&map, false);
+    let setup = |world: &mut GameLogic, passenger_owner: u32| {
+        let transport = world
+            .create_object_for_player("SnapshotDoorTransport", 2, Vec3::new(50., 0., 50.))
+            .unwrap();
+        let chute = world
+            .create_object_for_player("EnteringParachute", 2, Vec3::new(50., 0., 50.))
+            .unwrap();
+        let passenger = world
+            .create_object_for_player(
+                "OwnedGarrisonRider",
+                passenger_owner,
+                Vec3::new(50., 0., 50.),
+            )
+            .unwrap();
+        world
+            .host_object_mut(chute)
+            .unwrap()
+            .occupants
+            .push(passenger);
+        world.host_object_mut(passenger).unwrap().contained_by = Some(chute);
+        assert!(
+            world
+                .unit_command_set_ai_state(chute, AIState::Entering)
+                .unwrap()
+        );
+        world.host_object_mut(chute).unwrap().target = Some(transport);
+        (transport, chute, passenger)
+    };
+    let (transport, chute, passenger) = setup(&mut game, 1);
+    let (peer_transport, peer_chute, peer_passenger) = setup(&mut peer, 2);
+    assert_eq!(
+        (transport, chute, passenger),
+        (peer_transport, peer_chute, peer_passenger)
+    );
+
+    game.try_physics_collide(chute, transport, 1.0).unwrap();
+    assert_eq!(game.host_object(chute).unwrap().contained_by, None);
+    assert!(
+        game.host_object(transport)
+            .unwrap()
+            .contained_units()
+            .is_empty()
+    );
+    assert!(
+        peer.host_object(peer_transport)
+            .unwrap()
+            .contained_units()
+            .is_empty()
+    );
+
+    let empty = game
+        .create_object_for_player("EnteringParachute", 2, Vec3::new(50., 0., 50.))
+        .unwrap();
+    assert!(
+        game.unit_command_set_ai_state(empty, AIState::Entering)
+            .unwrap()
+    );
+    game.host_object_mut(empty).unwrap().target = Some(transport);
+    game.try_physics_collide(empty, transport, 1.0).unwrap();
+    assert_eq!(game.host_object(empty).unwrap().contained_by, None);
+
+    peer.try_physics_collide(peer_chute, peer_transport, 1.0)
+        .unwrap();
+    assert_eq!(
+        peer.host_object(peer_chute).unwrap().contained_by,
+        Some(peer_transport)
+    );
+    assert_eq!(
+        peer.host_object(peer_passenger).unwrap().contained_by,
+        Some(peer_chute)
+    );
+    assert_eq!(
+        peer.host_object(peer_transport).unwrap().contained_units(),
+        vec![peer_chute]
     );
 }
 

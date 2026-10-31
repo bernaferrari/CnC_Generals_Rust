@@ -77,25 +77,31 @@ impl super::super::GameLogic {
                     .get(&self_id)
                     .zip(self.objects.get(&other_id))
                     .is_some_and(|(rider, container)| {
-                        // ParachuteContain's zero-slot wrapper needs its contained
-                        // rider resolved before applying the transport rules.
-                        // Preserve its existing path until that migration is done.
-                        if rider.thing().template.contain_module.kind
+                        // TransportContain validates the first passenger inside
+                        // a special zero-slot wrapper, but boards the wrapper.
+                        let checked_id = if rider.thing().template.contain_module.kind
                             == crate::game_logic::ContainModuleKind::Parachute
                         {
-                            return true;
-                        }
-                        let slots = rider.transport_slot_count();
+                            rider.contained_units().first().copied().unwrap_or(self_id)
+                        } else {
+                            self_id
+                        };
+                        let Some(checked_rider) = self.objects.get(&checked_id) else {
+                            return false;
+                        };
+                        let Some(slots) = self.effective_transport_slot_count(checked_id) else {
+                            return false;
+                        };
                         slots > 0
                             && container
                                 .thing()
                                 .template
                                 .contain_module
-                                .leftover_kind_masks_admit(rider.kind_of_cpp_mask())
+                                .leftover_kind_masks_admit(checked_rider.kind_of_cpp_mask())
                             && container.allows_normal_enter_for_relationship(
-                                self.normal_enter_relationship(rider, container),
+                                self.normal_enter_relationship(checked_rider, container),
                             )
-                            && self.normal_enter_controller_matches(rider, container)
+                            && self.normal_enter_controller_matches(checked_rider, container)
                             && self
                                 .normal_enter_available_capacity_for(self_id, other_id)
                                 .is_some_and(|available| available >= slots)
