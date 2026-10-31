@@ -99,13 +99,7 @@ impl GameLogic {
         } else {
             object_types.to_vec()
         };
-        let off_map = |position: glam::Vec3| {
-            position.x < self.world_min.x
-                || position.x > self.world_max.x
-                || position.z < self.world_min.z
-                || position.z > self.world_max.z
-        };
-        let source_off_map = off_map(self.objects.get(&source)?.get_position());
+        let source_off_map = self.objects.get(&source)?.status.off_map;
         let mut best: Option<(ObjectId, f32)> = None;
         // C++ uses the Coord3D overload, so no receiver is excluded. These
         // filters also omit PartitionFilterAlive: retained dead/queued bodies
@@ -113,7 +107,7 @@ impl GameLogic {
         // Keep the current production visitation order and strict tie rule;
         // exact equivalence/partition ordering is tracked in hq-llakh.
         for (&id, object) in self.objects.registered() {
-            if off_map(object.get_position()) != source_off_map
+            if object.status.off_map != source_off_map
                 || !names.iter().any(|name| object.template_name == *name)
             {
                 continue;

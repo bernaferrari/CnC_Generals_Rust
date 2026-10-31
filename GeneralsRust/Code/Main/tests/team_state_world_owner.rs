@@ -102,6 +102,136 @@ fn true_condition() -> Condition {
     Condition::new(ConditionType::ConditionTrue)
 }
 
+#[test]
+fn nearest_object_script_uses_receiving_off_map_status() {
+    use glam::Vec3;
+
+    fn nearest_map(root: &std::path::Path, boundary_cells: i32) -> std::path::PathBuf {
+        let mut out = DataChunkOutput::new();
+        out.open_data_chunk("HeightMapData", 4);
+        for value in [41, 41, 1, 1, boundary_cells, boundary_cells, 1681] {
+            out.write_int(value);
+        }
+        for _ in 0..1681 {
+            out.write_byte(0);
+        }
+        out.close_data_chunk();
+        out.open_data_chunk("PolygonTriggers", 4);
+        out.write_int(1);
+        out.write_ascii_string("OwnedArea");
+        out.write_ascii_string("OwnerLayer");
+        out.write_int(1901);
+        out.write_byte(1);
+        out.write_byte(0);
+        out.write_int(0);
+        out.write_int(4);
+        for (x, y) in [(0, 0), (110, 0), (110, 110), (0, 110)] {
+            out.write_int(x);
+            out.write_int(y);
+            out.write_int(0);
+        }
+        out.close_data_chunk();
+        out.open_data_chunk("ObjectsList", 3);
+        out.close_data_chunk();
+        let path = root.join(format!("Nearest{boundary_cells}.map"));
+        std::fs::write(&path, out.into_ckmp_bytes()).unwrap();
+        path
+    }
+
+    fn nearest_world(path: &std::path::Path) -> (GameLogic, generals_main::game_logic::ObjectId) {
+        let mut world = GameLogic::new();
+        world
+            .admit_object_ini_sources([(
+                "NearestOwner.ini".into(),
+                r#"
+Object OwnedNearestMover
+ KindOf = SELECTABLE INFANTRY
+ Locomotor = SET_NORMAL BasicHumanLocomotor
+ Body = ActiveBody BodyTag
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = AIUpdateInterface Brain
+ End
+End
+Object OwnedNearestTarget
+ KindOf = SELECTABLE INFANTRY
+ Body = ActiveBody BodyTag
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+"#
+                .into(),
+            )])
+            .unwrap();
+        world.start_new_game(GameMode::SinglePlayer);
+        assert!(world.load_map(path.to_str().unwrap()));
+        world.add_player(Player::new(1, Team::USA, "Owner", true).with_script_identity("Owner"));
+        let mover = world
+            .create_object_for_player("OwnedNearestMover", 1, Vec3::new(100.0, 0.0, 100.0))
+            .unwrap();
+        world.host_object_mut(mover).unwrap().name = "NearestMover".into();
+        world
+            .create_object_for_player("OwnedNearestTarget", 1, Vec3::new(80.0, 0.0, 80.0))
+            .unwrap();
+        (world, mover)
+    }
+
+    fn execute(world: &mut GameLogic) {
+        let mut action = ScriptAction::new(ScriptActionType::UnitMoveTowardsNearestObjectType);
+        for (kind, name) in [
+            (ParameterType::Unit, "NearestMover"),
+            (ParameterType::ObjectType, "OwnedNearestTarget"),
+            (ParameterType::TriggerArea, "OwnedArea"),
+        ] {
+            action
+                .add_parameter(Parameter::with_string(kind, name.into()))
+                .unwrap();
+        }
+        let mut counter = ScriptAction::new(ScriptActionType::IncrementCounter);
+        counter
+            .add_parameter(Parameter::with_int(ParameterType::Int, 1))
+            .unwrap();
+        counter
+            .add_parameter(Parameter::with_string(
+                ParameterType::Counter,
+                "ObservedNearest".into(),
+            ))
+            .unwrap();
+        action.next_action = Some(Box::new(counter));
+        let engine = script_engine("NearestOffMap", true_condition(), action);
+        engine.set_counter("ObservedNearest", 0).unwrap();
+        world
+            .update_local_script_engine_with_owner(&engine)
+            .unwrap();
+        assert_eq!(engine.get_counter("ObservedNearest").unwrap().value, 1);
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let (mut small, mover) = nearest_world(&nearest_map(root.path(), 10));
+    let (mut large, peer_mover) = nearest_world(&nearest_map(root.path(), 20));
+    let (mut both_off, both_mover) = nearest_world(&nearest_map(root.path(), 8));
+    assert_eq!((mover, mover), (peer_mover, both_mover));
+    execute(&mut small);
+    execute(&mut large);
+    assert_eq!(
+        small.host_object(mover).unwrap().requested_destination,
+        None
+    );
+    assert_eq!(
+        large.host_object(mover).unwrap().requested_destination,
+        Some(Vec3::new(80.0, 0.0, 80.0))
+    );
+
+    // Both actors are off-map at the strict 80-unit edge, so they match.
+    execute(&mut both_off);
+    assert_eq!(
+        both_off.host_object(mover).unwrap().requested_destination,
+        Some(Vec3::new(80.0, 0.0, 80.0))
+    );
+}
+
 fn team_state_action(team: &str, state: &str) -> ScriptAction {
     let mut action = ScriptAction::new(ScriptActionType::TeamSetState);
     action
