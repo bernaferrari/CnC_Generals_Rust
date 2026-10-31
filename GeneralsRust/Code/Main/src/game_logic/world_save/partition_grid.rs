@@ -55,7 +55,7 @@ impl GameLogic {
         let observer = self
             .players
             .values()
-            .find(|player| player.name == "ReplayObserver")
+            .find(|player| player.script_identity() == Some("ReplayObserver"))
             .map(|player| player.id);
         if let Some(observer) = observer {
             shroud_owner

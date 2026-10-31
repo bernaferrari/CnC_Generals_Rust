@@ -1022,9 +1022,7 @@ fn oversized_boundary_rejection_leaves_the_receiving_session_unchanged() {
         .create_object_for_player("ChainVictim", 1, Vec3::new(30.0, 0.0, 20.0))
         .unwrap();
     let retained_position = session.host_object(retained).unwrap().get_position();
-    let mut observer = Player::new(9, Team::USA, "ReplayObserver", false);
-    observer.is_observer = true;
-    session.add_player(observer);
+    session.ensure_replay_observer_player();
     let builder = generals_main::save_load::SnapshotBuilder::new();
     let before = builder.create_world_snapshot(&session).unwrap();
     let mut action = ScriptAction::new(ScriptActionType::MapSwitchBorder);
@@ -1061,4 +1059,104 @@ fn oversized_boundary_rejection_leaves_the_receiving_session_unchanged() {
         retained_position
     );
     assert_eq!(after.lifecycle_tail, before.lifecycle_tail);
+}
+
+#[test]
+fn boundary_observer_uses_authored_player_name_not_display_label() {
+    use game_engine::common::system::DataChunkOutput;
+    use gamelogic::scripting::core::{
+        Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+        ScriptActionType, ScriptList,
+    };
+
+    fn switch(session: &mut GameLogic) {
+        let mut action = ScriptAction::new(ScriptActionType::MapSwitchBorder);
+        action
+            .add_parameter(Parameter::with_int(ParameterType::Boundary, 1))
+            .unwrap();
+        let mut condition = OrCondition::new();
+        condition
+            .set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+        let mut script = Script::new();
+        script.script_name = "ObserverBoundary".into();
+        script.is_one_shot = true;
+        script.condition = Some(Box::new(condition));
+        script.action = Some(Box::new(action));
+        let mut scripts = ScriptList::new();
+        scripts.append_script(Box::new(script));
+        let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+        engine
+            .set_script_list_for_player(0, Some(Box::new(scripts)))
+            .unwrap();
+        session
+            .update_local_script_engine_with_owner(&engine)
+            .unwrap();
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("observer-boundary.map");
+    let mut map = DataChunkOutput::new();
+    map.open_data_chunk("HeightMapData", 4);
+    for value in [101, 101, 1, 2, 10, 10, 99, 99, 10201] {
+        map.write_int(value);
+    }
+    for _ in 0..10201 {
+        map.write_byte(0);
+    }
+    map.close_data_chunk();
+    std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
+    let make_session = || {
+        let (mut session, _, _, _) = world(200.0, "ObserverIdentityWeapon");
+        assert!(session.load_map(path.to_str().unwrap()));
+        session
+    };
+    let mut actual = make_session();
+    let observer_id = actual.ensure_replay_observer_player();
+    assert!(actual.set_player_name(observer_id, "Observer display"));
+    let mut display_collision = make_session();
+    let mut decoy = Player::new(observer_id, Team::USA, "ReplayObserver", false)
+        .with_script_identity("replayobserver");
+    decoy.is_observer = true;
+    display_collision.add_player(decoy);
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let peer_before = builder.create_world_snapshot(&display_collision).unwrap();
+    switch(&mut actual);
+    let switched = builder.create_world_snapshot(&actual).unwrap();
+    let grid = switched.shroud.grid.as_ref().unwrap();
+    assert!(
+        grid.cells
+            .iter()
+            .all(|cell| cell.current_shroud[observer_id as usize] < 0),
+        "authored ReplayObserver must retain full visibility"
+    );
+    assert_eq!(
+        builder
+            .create_world_snapshot(&display_collision)
+            .unwrap()
+            .shroud,
+        peer_before.shroud
+    );
+    switch(&mut display_collision);
+    let collision = builder.create_world_snapshot(&display_collision).unwrap();
+    assert!(
+        collision
+            .shroud
+            .grid
+            .as_ref()
+            .unwrap()
+            .cells
+            .iter()
+            .any(|cell| cell.current_shroud[observer_id as usize] >= 0),
+        "a display label alone must not select the observer"
+    );
+    let mut reloaded = make_session();
+    assert_eq!(reloaded.ensure_replay_observer_player(), observer_id);
+    assert!(reloaded.set_player_name(observer_id, "Observer display"));
+    builder
+        .restore_from_snapshot(&switched, &mut reloaded)
+        .unwrap();
+    assert_eq!(
+        builder.create_world_snapshot(&reloaded).unwrap().shroud,
+        switched.shroud
+    );
 }
