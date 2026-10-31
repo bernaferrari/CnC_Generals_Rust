@@ -146,15 +146,26 @@ fn append_while_waiting_survives_the_pending_path_result() {
     let length = tag + 8;
     assert_eq!(
         u32::from_le_bytes(v12.lifecycle_tail[version..version + 4].try_into().unwrap()),
-        13
+        14
     );
     let size =
         u32::from_le_bytes(v12.lifecycle_tail[length..length + 4].try_into().unwrap()) as usize;
     let end = tag + 12 + size;
-    assert_eq!(&v12.lifecycle_tail[end - 8..end], &[0; 8]);
-    v12.lifecycle_tail.drain(end - 8..end);
+    // V14 appends one pending-ID vector after V13's empty append vector.
+    assert_eq!(&v12.lifecycle_tail[end - 20..end - 12], &[0; 8]);
+    assert_eq!(&v12.lifecycle_tail[end - 12..end - 4], &1_u64.to_le_bytes());
+    assert_eq!(&v12.lifecycle_tail[end - 4..end], &id.0.to_le_bytes());
+    v12.lifecycle_tail.drain(end - 12..end);
+    v12.lifecycle_tail[version..version + 4].copy_from_slice(&13_u32.to_le_bytes());
+    v12.lifecycle_tail[length..length + 4].copy_from_slice(&((size - 12) as u32).to_le_bytes());
+    let mut v13_receiver = make_world();
+    builder
+        .restore_from_snapshot(&v12, &mut v13_receiver)
+        .unwrap();
+    assert_eq!(v13_receiver.snapshot_pending_host_paths().len(), 1);
+    v12.lifecycle_tail.drain(end - 20..end - 12);
     v12.lifecycle_tail[version..version + 4].copy_from_slice(&12_u32.to_le_bytes());
-    v12.lifecycle_tail[length..length + 4].copy_from_slice(&((size - 8) as u32).to_le_bytes());
+    v12.lifecycle_tail[length..length + 4].copy_from_slice(&((size - 20) as u32).to_le_bytes());
     let mut legacy = make_world();
     builder.restore_from_snapshot(&v12, &mut legacy).unwrap();
     assert_eq!(legacy.snapshot_pending_host_paths().len(), 1);
@@ -283,6 +294,106 @@ fn append_while_waiting_survives_the_pending_path_result() {
             .copied(),
         Some(second),
         "the peer must still complete its pending path"
+    );
+
+    // A replacement load must retire the receiver's old queue, then admit
+    // the saved requests in their original order, including same-ID entries.
+    let mut source = make_world();
+    let mut fresh = make_world();
+    let mut untouched_peer = make_world();
+    let a = source
+        .create_object_for_player("WaypointWalker", 1, Vec3::new(100.0, 0.0, 100.0))
+        .unwrap();
+    let b = source
+        .create_object_for_player("WaypointWalker", 1, Vec3::new(200.0, 0.0, 100.0))
+        .unwrap();
+    assert!(source.assign_unit_path(b, other_first, &[other_intermediate]));
+    assert!(source.assign_unit_path(a, first, &[intermediate]));
+    assert!(source.append_unit_waypoint(b, other_second));
+    assert!(source.append_unit_waypoint(a, second));
+    let saved_queue = source.snapshot_pending_host_paths();
+    assert_eq!(
+        saved_queue.iter().map(|q| q.unit_id).collect::<Vec<_>>(),
+        vec![b, a]
+    );
+    let mut saved = builder.create_world_snapshot(&source).unwrap();
+    let peer_unit = untouched_peer
+        .create_object_for_player("WaypointWalker", 1, Vec3::new(100.0, 0.0, 100.0))
+        .unwrap();
+    assert!(untouched_peer.assign_unit_path(peer_unit, first, &[intermediate]));
+    let obsolete = source
+        .create_object_for_player("WaypointWalker", 1, Vec3::new(300.0, 0.0, 100.0))
+        .unwrap();
+    assert!(source.assign_unit_path(
+        obsolete,
+        Vec3::new(300.0, 0.0, 150.0),
+        &[Vec3::new(300.0, 0.0, 125.0)]
+    ));
+    assert_eq!(source.snapshot_pending_host_paths().len(), 3);
+    let version = saved.version;
+    saved.version = 0;
+    assert!(builder.restore_from_snapshot(&saved, &mut source).is_err());
+    assert_eq!(
+        source.snapshot_pending_host_paths().len(),
+        3,
+        "failed load changed the queue"
+    );
+    saved.version = version;
+    let tag = saved
+        .lifecycle_tail
+        .windows(4)
+        .position(|v| v == b"TMAI")
+        .unwrap();
+    let length =
+        u32::from_le_bytes(saved.lifecycle_tail[tag + 8..tag + 12].try_into().unwrap()) as usize;
+    let last_id = tag + 12 + length - 4;
+    assert_eq!(
+        &saved.lifecycle_tail[last_id..last_id + 4],
+        &a.0.to_le_bytes()
+    );
+    saved.lifecycle_tail[last_id..last_id + 4].copy_from_slice(&b.0.to_le_bytes());
+    assert!(builder.restore_from_snapshot(&saved, &mut source).is_err());
+    assert_eq!(
+        source.snapshot_pending_host_paths().len(),
+        3,
+        "invalid queue changed the receiver"
+    );
+    saved.lifecycle_tail[last_id..last_id + 4].copy_from_slice(&a.0.to_le_bytes());
+    builder.restore_from_snapshot(&saved, &mut source).unwrap();
+    builder.restore_from_snapshot(&saved, &mut fresh).unwrap();
+    for receiver in [&source, &fresh] {
+        let queue = receiver.snapshot_pending_host_paths();
+        assert_eq!(
+            queue.iter().map(|q| q.unit_id).collect::<Vec<_>>(),
+            vec![b, a]
+        );
+        for (actual, expected) in queue.iter().zip(&saved_queue) {
+            assert_eq!(actual.destination, expected.destination);
+            assert_eq!(actual.follow_path_appends, expected.follow_path_appends);
+        }
+    }
+    assert_eq!(untouched_peer.snapshot_pending_host_paths().len(), 1);
+    source.update_with_dt(1.0 / 30.0);
+    fresh.update_with_dt(1.0 / 30.0);
+    for (id, expected_goal) in [(b, other_second), (a, second)] {
+        let original = source.host_object(id).unwrap();
+        let restored = fresh.host_object(id).unwrap();
+        assert_eq!(original.movement.path, restored.movement.path);
+        assert_eq!(original.movement.path.last().copied(), Some(expected_goal));
+    }
+
+    let mut empty_receiver = make_world();
+    let prior = empty_receiver
+        .create_object_for_player("WaypointWalker", 1, Vec3::new(100.0, 0.0, 100.0))
+        .unwrap();
+    assert!(empty_receiver.assign_unit_path(prior, first, &[intermediate]));
+    let empty = builder.create_world_snapshot(&make_world()).unwrap();
+    builder
+        .restore_from_snapshot(&empty, &mut empty_receiver)
+        .unwrap();
+    assert!(
+        empty_receiver.snapshot_pending_host_paths().is_empty(),
+        "empty snapshot retained an old request"
     );
 }
 
