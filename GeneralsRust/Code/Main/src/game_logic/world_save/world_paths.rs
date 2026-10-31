@@ -1087,10 +1087,9 @@ impl GameLogic {
             }
             let radius = unit.selection_radius;
             let uid = unit.id.0;
-            let player = unit.owner_player_id.unwrap_or(unit.team as u32);
             self.pathfinding_system
                 .grid
-                .clear_ground_goal_square(uid, player, radius, old);
+                .clear_ground_goal_square(uid, radius, old);
             if let Some(unit) = self.objects.get_mut(&id) {
                 unit.pathfind_goal_cell = (-1, -1);
             }
@@ -1928,10 +1927,9 @@ impl GameLogic {
         };
         let old = unit.pathfind_goal_cell;
         let radius = unit.selection_radius;
-        let player = unit.owner_player_id.unwrap_or(unit.team as u32);
         self.pathfinding_system
             .grid
-            .clear_ground_goal_square(unit_id.0, player, radius, old);
+            .clear_ground_goal_square(unit_id.0, radius, old);
         if let Some(unit) = self.objects.get_mut(&unit_id) {
             unit.pathfind_goal_cell = (-1, -1);
         }

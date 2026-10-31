@@ -1587,7 +1587,8 @@ impl PathfindingGrid {
             let occ = self.layer_occ.entry(layer as u8).or_default();
             let key = (pos.x, pos.y);
             if goal {
-                *occ.occ_goal_mask.entry(key).or_insert(0) |= bit;
+                // C++ stores one goal unit per cell: a newer owner replaces it.
+                occ.occ_goal_mask.insert(key, bit);
                 occ.occ_goal_unit.insert(key, unit_id);
                 return;
             }
@@ -1616,7 +1617,7 @@ impl PathfindingGrid {
         Self::bit_set(&mut self.dynamic_bits, idx, true);
         if goal {
             if let Some(slot) = self.occ_goal_mask.get_mut(idx) {
-                *slot |= bit;
+                *slot = bit;
             }
             if let Some(slot) = self.occ_goal_unit.get_mut(idx) {
                 *slot = unit_id;

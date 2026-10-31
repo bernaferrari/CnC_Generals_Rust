@@ -600,38 +600,11 @@ impl PathfindingGrid {
         if center {
             num_above += 1;
         }
-        // removeGoal bumps a zero radius; updateGoal does not.
-        let mut clear_radius = radius;
-        if clear_radius == 0 {
-            clear_radius += 1;
-        }
-        let mut clear_above = clear_radius;
-        if center {
-            clear_above += 1;
-        }
         let new_cell = self.cell_for_unit_position(pos, center);
         if old == (new_cell.x, new_cell.y) {
             return old;
         }
-        let bit = 1u16 << player.min(15);
-        if old.0 >= 0 && old.1 >= 0 {
-            for i in (old.0 - clear_radius)..(old.0 + clear_above) {
-                for j in (old.1 - clear_radius)..(old.1 + clear_above) {
-                    let p = GridPos::new(i, j);
-                    let Some(idx) = self.bit_index(p) else {
-                        continue;
-                    };
-                    if self.occ_goal_unit.get(idx).copied() == Some(unit_id) {
-                        if let Some(slot) = self.occ_goal_unit.get_mut(idx) {
-                            *slot = 0;
-                        }
-                        if let Some(slot) = self.occ_goal_mask.get_mut(idx) {
-                            *slot &= !bit;
-                        }
-                    }
-                }
-            }
-        }
+        self.clear_ground_goal_square(unit_id, selection_radius, old);
         for i in (new_cell.x - radius)..(new_cell.x + num_above) {
             for j in (new_cell.y - radius)..(new_cell.y + num_above) {
                 let p = GridPos::new(i, j);
@@ -656,7 +629,6 @@ impl PathfindingGrid {
     pub fn clear_ground_goal_square(
         &mut self,
         unit_id: u32,
-        player: u32,
         selection_radius: f32,
         old: (i32, i32),
     ) {
@@ -672,7 +644,6 @@ impl PathfindingGrid {
         if center {
             clear_above += 1;
         }
-        let bit = 1u16 << player.min(15);
         for i in (old.0 - clear_radius)..(old.0 + clear_above) {
             for j in (old.1 - clear_radius)..(old.1 + clear_above) {
                 let p = GridPos::new(i, j);
@@ -684,8 +655,11 @@ impl PathfindingGrid {
                         *slot = 0;
                     }
                     if let Some(slot) = self.occ_goal_mask.get_mut(idx) {
-                        *slot &= !bit;
+                        *slot = 0;
                     }
+                }
+                if self.occ_goal_aircraft.get(idx).copied() == Some(unit_id) {
+                    self.occ_goal_aircraft[idx] = 0;
                 }
             }
         }
