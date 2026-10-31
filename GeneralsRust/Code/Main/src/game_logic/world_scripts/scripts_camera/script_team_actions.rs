@@ -1692,36 +1692,37 @@ impl GameLogic {
         player_id: Option<u32>,
     ) -> bool {
         use crate::game_logic::KindOf;
-        if !building.is_alive() || building.status.destroyed {
-            return false;
-        }
+        use gamelogic::common::Relationship;
         if building.status.off_map != leader_off_map {
             return false;
         }
         let is_internet = building.is_kind_of(KindOf::FSInternetCenter);
         if leader_is_hacker {
-            if !is_internet {
-                return false;
-            }
-        } else if is_internet || !building.is_kind_of(KindOf::Structure) {
+            // The hacker branch uses only the internet-center kind filter;
+            // actual container capacity is checked during the later visit.
+            return is_internet;
+        }
+        let Some(player_id) = player_id.filter(|id| self.players.contains_key(id)) else {
+            return false;
+        };
+        if building.status.effectively_dead
+            || !building.is_kind_of(KindOf::Structure)
+            || !building.is_garrison_contain()
+        {
             return false;
         }
-        if Self::host_script_contain_slots_available(building) <= 0 {
-            return false;
+        if building.owner_player_id == Some(player_id) {
+            return true;
         }
-        if !leader_is_hacker && !building.player_who_entered.is_empty() {
-            let Some(pid) = player_id else {
-                return false;
-            };
-            if !self
-                .players
-                .get(&pid)
-                .is_some_and(|p| building.player_who_entered.eq_ignore_ascii_case(&p.name))
-            {
-                return false;
-            }
-        }
-        true
+        let relationship = Self::object_relationship_from_owner_to_team_identity(
+            &self.team_factory,
+            &self.players,
+            Some(player_id),
+            building.owner_player_id,
+            building.team_instance_id,
+            &building.team_instance_name,
+        );
+        relationship == Relationship::Neutral && building.garrison_count() == 0
     }
 
     pub(super) fn host_script_team_garrison_nearest(
@@ -1731,17 +1732,32 @@ impl GameLogic {
         condition: Option<u32>,
     ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::KindOf;
-        let members = self.receiving_garrison_members(team, calling, condition)?;
+        let Some((team_id, members)) = self.resolve_owned_script_team(team, calling, condition)?
+        else {
+            return Ok(());
+        };
+        let player_id = {
+            let factory = self.team_factory.lock().map_err(|error| {
+                gamelogic::GameLogicError::Threading(error.to_string())
+            })?;
+            let Some(team) = factory.find_team_by_id(team_id) else {
+                return Ok(());
+            };
+            let team = team.read().map_err(|error| {
+                gamelogic::GameLogicError::Threading(error.to_string())
+            })?;
+            team.get_controlling_player_id()
+        };
+        let members: Vec<_> = members.into_iter().map(ObjectId).collect();
         let Some(&leader_id) = members.first() else {
             return Ok(());
         };
-        let Some((leader_pos, leader_off_map, leader_is_hacker, player_id)) =
+        let Some((leader_pos, leader_off_map, leader_is_hacker)) =
             self.host_object(leader_id).map(|obj| {
                 (
                     obj.get_position(),
                     obj.status.off_map,
                     obj.is_kind_of(KindOf::MoneyHacker),
-                    obj.owner_player_id,
                 )
             })
         else {

@@ -126,7 +126,7 @@ fn world_with_roster(
     )
     .unwrap();
     let mut game = GameLogic::new();
-    game.admit_object_ini_sources([("Objects.ini".into(), "Object AmericaInfantryMissileDefender\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n Behavior = SpecialAbility Laser\n SpecialPowerTemplate = SpecialAbilityMissileDefenderLaserGuidedMissiles\n End\nEnd\nObject OwnedNoAiInfantry\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject OwnedVehicle\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\nObject OwnedNearestGarrison\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = GarrisonContain GarrisonTag\n ContainMax = 1\n End\nEnd\nObject OwnedZeroSlotGarrison\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = GarrisonContain GarrisonTag\n ContainMax = 0\n End\nEnd\nObject OwnedNoContainer\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\nEnd\n".into())]).unwrap();
+    game.admit_object_ini_sources([("Objects.ini".into(), "Object AmericaInfantryMissileDefender\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n Behavior = SpecialAbility Laser\n SpecialPowerTemplate = SpecialAbilityMissileDefenderLaserGuidedMissiles\n End\nEnd\nObject OwnedNoAiInfantry\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject OwnedVehicle\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\nObject OwnedNearestGarrison\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = GarrisonContain GarrisonTag\n ContainMax = 1\n End\nEnd\nObject OwnedTwoSlotGarrison\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = GarrisonContain GarrisonTag\n ContainMax = 2\n End\nEnd\nObject OwnedZeroSlotGarrison\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = GarrisonContain GarrisonTag\n ContainMax = 0\n End\nEnd\nObject OwnedNoContainer\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\nEnd\n".into())]).unwrap();
     let mut definitions = PlayerTemplateStore::new_owned();
     definitions.apply_source("PlayerTemplate FactionCivilian\n Side = Civilian\nEnd\nPlayerTemplate FactionAmerica\n Side = America\nEnd\n", INILoadType::Overwrite).unwrap();
     game.admit_player_template_definitions(definitions).unwrap();
@@ -451,5 +451,98 @@ fn named_and_team_garrison_use_different_capacity_rules() {
     assert_eq!(
         named.host_object(named_unit).unwrap().target,
         Some(ids[0].1)
+    );
+}
+
+#[test]
+fn team_garrison_observes_controlling_player_relationships() {
+    use gamelogic::common::Relationship;
+    let enemy_root = tempfile::tempdir().unwrap();
+    let ally_root = tempfile::tempdir().unwrap();
+    let neutral_root = tempfile::tempdir().unwrap();
+    let (mut enemy, source, _) = world(enemy_root.path(), 20, true);
+    let (mut ally, peer, _) = world(ally_root.path(), 20, true);
+    let (mut neutral, third, _) = world(neutral_root.path(), 20, true);
+    assert_eq!((source, source), (peer, third));
+    let mut target_ids = Vec::new();
+    for (game, relationship) in [
+        (&mut enemy, Relationship::Enemies),
+        (&mut ally, Relationship::Allies),
+        (&mut neutral, Relationship::Neutral),
+    ] {
+        game.get_player_mut(1)
+            .unwrap()
+            .set_map_relationship(2, relationship);
+        let other = game
+            .create_object_for_player("OwnedNearestGarrison", 2, glam::Vec3::new(90.0, 0.0, 90.0))
+            .unwrap();
+        let own = game
+            .create_object_for_player("OwnedNearestGarrison", 1, glam::Vec3::new(70.0, 0.0, 70.0))
+            .unwrap();
+        target_ids.push((other, own));
+    }
+    assert_eq!(target_ids[0], target_ids[1]);
+    assert_eq!(target_ids[0], target_ids[2]);
+    execute_garrison(&mut neutral, true);
+    assert_eq!(
+        neutral.host_object(third).unwrap().target,
+        Some(target_ids[2].0)
+    );
+    execute_garrison(&mut enemy, true);
+    assert_eq!(
+        enemy.host_object(source).unwrap().target,
+        Some(target_ids[0].1)
+    );
+    execute_garrison(&mut ally, true);
+    assert_eq!(
+        ally.host_object(peer).unwrap().target,
+        Some(target_ids[1].1)
+    );
+}
+
+#[test]
+fn team_garrison_neutral_target_must_be_empty() {
+    use gamelogic::common::Relationship;
+    let own_root = tempfile::tempdir().unwrap();
+    let neutral_root = tempfile::tempdir().unwrap();
+    let (mut own, source, _) = world(own_root.path(), 20, true);
+    let (mut neutral, peer, _) = world(neutral_root.path(), 20, true);
+    assert_eq!(source, peer);
+    let mut targets = Vec::new();
+    for (game, owner_id, owner_name) in [(&mut own, 1, "Owner"), (&mut neutral, 2, "Opponent")] {
+        game.get_player_mut(1)
+            .unwrap()
+            .set_map_relationship(2, Relationship::Neutral);
+        let near = game
+            .create_object_for_player(
+                "OwnedTwoSlotGarrison",
+                owner_id,
+                glam::Vec3::new(90.0, 0.0, 90.0),
+            )
+            .unwrap();
+        let far = game
+            .create_object_for_player("OwnedNearestGarrison", 1, glam::Vec3::new(70.0, 0.0, 70.0))
+            .unwrap();
+        let occupant = game
+            .create_object_for_player(
+                "OwnedNoAiInfantry",
+                owner_id,
+                glam::Vec3::new(90.0, 0.0, 90.0),
+            )
+            .unwrap();
+        // Construct an occupied container in both directions; the selection
+        // being tested must observe the count before issuing a new order.
+        assert!(game.host_object_mut(near).unwrap().add_occupant(occupant));
+        game.host_object_mut(near).unwrap().player_who_entered = owner_name.into();
+        game.host_object_mut(occupant).unwrap().contained_by = Some(near);
+        targets.push((near, far));
+    }
+    assert_eq!(targets[0], targets[1]);
+    execute_garrison(&mut own, true);
+    assert_eq!(own.host_object(source).unwrap().target, Some(targets[0].0));
+    execute_garrison(&mut neutral, true);
+    assert_eq!(
+        neutral.host_object(peer).unwrap().target,
+        Some(targets[1].1)
     );
 }
