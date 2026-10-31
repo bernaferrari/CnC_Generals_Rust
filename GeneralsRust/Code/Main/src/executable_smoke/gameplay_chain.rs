@@ -17,6 +17,9 @@ fn smoke_drive_gameplay_chain(
     control_path: &Path,
     launch: ExecutableSmokeLaunch,
 ) {
+    if st.saw_construct_ok && snap.under_construction > 0 {
+        st.saw_construct_under_construction = true;
+    }
     // Issue host gameplay commands (select + move), then exit.
     // Not WND widget clicks — still not playable_claim.
     if st.gameplay_step == 0 {
@@ -60,6 +63,7 @@ fn smoke_drive_gameplay_chain(
                     &["construct|template=AmericaBarracks|auto_target=1"],
                 );
                 st.gameplay_step = 3;
+                st.construct_wait_started = Some(Instant::now());
                 st.commanded_at = Some(Instant::now());
             }
         } else {
@@ -97,6 +101,8 @@ fn smoke_drive_gameplay_chain(
             && snap
                 .last_gameplay_cmd
                 .starts_with("construct_fail_no_building")
+            && st.construct_wait_started
+                .is_none_or(|started| started.elapsed() <= Duration::from_secs(90))
             && st.commanded_at
                 .map(|t| t.elapsed() > Duration::from_secs(3))
                 .unwrap_or(false)
@@ -113,26 +119,35 @@ fn smoke_drive_gameplay_chain(
             if snap.under_construction > 0 {
                 st.saw_construct_under_construction = true;
             }
-            let elapsed = st.commanded_at.map(|t| t.elapsed()).unwrap_or_default();
-            let min_wait = elapsed > Duration::from_secs(8);
-            let build_done = st.saw_construct_ok
-                && st.saw_construct_under_construction
-                && snap.under_construction == 0
-                && min_wait;
-            let build_timeout = elapsed > Duration::from_secs(90);
-            if !build_done && !build_timeout {
-                // keep polling; do not issue train yet
-            } else if st.saw_construct_ok || build_timeout {
-                // One template only — a second train_unit overwrites
-                // train_ok with train_fail_enqueue on the CC.
-                let _ = write_control(
-                    &control_path,
-                    &["train_unit|template=AmericaInfantryRanger|auto_target=1"],
-                );
-                st.train_sent = true;
-                st.train_retry_started = Some(Instant::now());
-                st.gameplay_step = 4;
-                st.commanded_at = Some(Instant::now());
+            let elapsed = st
+                .construct_wait_started
+                .get_or_insert_with(Instant::now)
+                .elapsed();
+            match construction_wait(
+                st.saw_construct_ok,
+                st.saw_construct_under_construction,
+                snap.under_construction,
+                elapsed,
+            ) {
+                ConstructionWait::Pending => {}
+                ConstructionWait::Ready => {
+                    let _ = write_control(
+                        &control_path,
+                        &["train_unit|template=AmericaInfantryRanger|auto_target=1"],
+                    );
+                    st.train_sent = true;
+                    st.train_retry_started = Some(Instant::now());
+                    st.gameplay_step = 4;
+                    st.commanded_at = Some(Instant::now());
+                }
+                ConstructionWait::TimedOut => {
+                    // Continue independent checks, but do not train from an
+                    // unfinished or unobserved scaffold. The late pass can
+                    // still train if the observed scaffold later finishes.
+                    st.train_detail = "train_skipped_barracks_not_ready".into();
+                    st.gameplay_step = 4;
+                    st.commanded_at = Some(Instant::now());
+                }
             }
         } else {
             let _ = write_control(
@@ -1462,7 +1477,20 @@ fn smoke_drive_gameplay_chain(
         if launch == ExecutableSmokeLaunch::Windowed {
             // Re-issue only while the producer is complete and train
             // has not succeeded. train_fail must not block a retry.
-            if st.train_sent
+            if !st.train_sent
+                && st.saw_construct_ok
+                && st.saw_construct_under_construction
+                && snap.under_construction == 0
+            {
+                let _ = write_control(
+                    &control_path,
+                    &["train_unit|template=AmericaInfantryRanger|auto_target=1"],
+                );
+                st.train_sent = true;
+                st.train_detail.clear();
+                st.train_retry_started = Some(Instant::now());
+                st.commanded_at = Some(Instant::now());
+            } else if st.train_sent
                 && !st.saw_train_ok
                 && st.saw_construct_ok
                 && st.saw_construct_under_construction
@@ -1623,7 +1651,15 @@ fn smoke_drive_gameplay_chain(
                 } else {
                     500u32
                 };
-        if want_exit
+        let waiting_for_deferred_train = launch == ExecutableSmokeLaunch::Windowed
+            && st.train_sent
+            && !st.saw_train_ok
+            && st.train_retry_started
+                .is_some_and(|started| started.elapsed() < Duration::from_secs(10));
+        if waiting_for_deferred_train {
+            // Give the runtime time to consume the train request before another
+            // control message or exit can replace it.
+        } else if want_exit
             && launch == ExecutableSmokeLaunch::Windowed
             && !st.saw_interactive_gameplay
             && result.reached_ingame

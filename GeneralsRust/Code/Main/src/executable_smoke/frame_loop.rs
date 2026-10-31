@@ -143,6 +143,7 @@ struct SmokeRunState {
     saw_skirmish_start_wnd_ok: bool,
     train_sent: bool,
     saw_construct_under_construction: bool,
+    construct_wait_started: Option<Instant>,
     train_retry_started: Option<Instant>,
     load_retry_started: Option<Instant>,
     phase: u8, // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
