@@ -380,6 +380,25 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
+        // Older snapshots contain only the frame-derived timer and no host
+        // partial step. Validate before retiring the receiving world's objects.
+        let timers = &snapshot.global_ai_state.global_timers;
+        let session_time = timers
+            .get("session_clock_seconds")
+            .or_else(|| timers.get("sim_time_seconds"))
+            .copied()
+            .unwrap_or(snapshot.frame_number as f32 / 30.0);
+        let accumulated_time = timers
+            .get("session_accumulated_seconds")
+            .copied()
+            .unwrap_or(0.0);
+        if !session_time.is_finite()
+            || session_time < 0.0
+            || !accumulated_time.is_finite()
+            || accumulated_time < 0.0
+        {
+            return Err(SaveLoadError::Corrupted("invalid session clock".into()));
+        }
         snapshot.audio_policy.validate()?;
         validate_cave_tracker(snapshot)?;
         for object in snapshot.objects.values() {
@@ -762,6 +781,7 @@ impl SnapshotBuilder {
 
         // Restore frame number
         game_logic.set_current_frame(snapshot.frame_number);
+        game_logic.restore_session_clock(session_time, accumulated_time);
         // These host-wide residual passes recur every frame. Their heap belongs
         // to the receiving timeline, so old wake frames cannot survive a rewind.
         game_logic.reset_recurring_updates();

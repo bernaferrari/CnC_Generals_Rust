@@ -1750,6 +1750,11 @@ impl SnapshotBuilder {
         let difficulty = _game_logic.get_difficulty();
 
         let mut global_timers = HashMap::new();
+        // Retain the exact receiving clock and host-step remainder without
+        // changing the existing frame-derived legacy timer or its wire layout.
+        let (session_time, accumulated_time) = _game_logic.snapshot_session_clock();
+        global_timers.insert("session_clock_seconds".to_string(), session_time);
+        global_timers.insert("session_accumulated_seconds".to_string(), accumulated_time);
         global_timers.insert(
             "sim_time_seconds".to_string(),
             _game_logic.get_current_frame() as f32 / 30.0,

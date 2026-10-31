@@ -213,6 +213,15 @@ pub(in super::super) mod residual_gate_seam {
 }
 
 impl GameLogic {
+    pub(crate) fn snapshot_session_clock(&self) -> (f32, f32) {
+        (self.sim_time_seconds, self.accumulated_time)
+    }
+
+    pub(crate) fn restore_session_clock(&mut self, time: f32, accumulated: f32) {
+        self.sim_time_seconds = time;
+        self.accumulated_time = accumulated;
+    }
+
     pub(crate) fn reset_recurring_updates(&mut self) {
         self.host_sleepy = super::HostSleepyHeap::new();
     }
