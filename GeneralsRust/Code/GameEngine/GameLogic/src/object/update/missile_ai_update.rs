@@ -83,6 +83,8 @@ pub enum MissileState {
 #[derive(Debug, Clone)]
 pub struct MissileAIUpdateModuleData {
     pub base: BehaviorModuleData,
+    /// Fields inherited from AIUpdateModuleData by the original missile update.
+    pub ai_base: crate::object::update::ai_update_interface::AIUpdateModuleData,
     /// Whether missile attempts to follow moving targets
     pub try_to_follow_target: bool,
 
@@ -139,6 +141,7 @@ impl Default for MissileAIUpdateModuleData {
     fn default() -> Self {
         Self {
             base: BehaviorModuleData::default(),
+            ai_base: crate::object::update::ai_update_interface::AIUpdateModuleData::default(),
             try_to_follow_target: true,
             fuel_lifetime: 0,
             ignition_delay: 0,
@@ -370,7 +373,12 @@ const MISSILE_AI_UPDATE_FIELDS: &[FieldParse<MissileAIUpdateModuleData>] = &[
 
 impl MissileAIUpdateModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, MISSILE_AI_UPDATE_FIELDS)
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.ai_base,
+            crate::object::update::ai_update_interface::AI_UPDATE_FIELDS,
+            MISSILE_AI_UPDATE_FIELDS,
+        )
     }
 }
 
