@@ -215,20 +215,6 @@ pub struct W3DWaypointBuffer {
     line_style: WaypointLineStyle,
 }
 
-static LAST_WAYPOINT_FRAME: std::sync::Mutex<WaypointDrawFrame> =
-    std::sync::Mutex::new(WaypointDrawFrame {
-        node_positions: Vec::new(),
-        lines: Vec::new(),
-    });
-
-/// Last submitted waypoint overlay.
-pub fn last_waypoint_draw_frame() -> WaypointDrawFrame {
-    LAST_WAYPOINT_FRAME
-        .lock()
-        .map(|frame| frame.clone())
-        .unwrap_or_default()
-}
-
 /// C++ HeightMap `m_waypointBuffer->drawWaypoints` after terrain/roads/fog.
 pub fn draw_live_waypoints(context: Option<&WaypointDrawContext>) -> WaypointDrawFrame {
     let mut buffer = W3DWaypointBuffer::new();
@@ -600,9 +586,6 @@ impl W3DWaypointBuffer {
     pub fn draw_and_submit(&mut self, context: Option<&WaypointDrawContext>) -> WaypointDrawFrame {
         let frame = self.draw_waypoints(context);
         self.submit_frame(&frame);
-        if let Ok(mut last) = LAST_WAYPOINT_FRAME.lock() {
-            *last = frame.clone();
-        }
         frame
     }
 }

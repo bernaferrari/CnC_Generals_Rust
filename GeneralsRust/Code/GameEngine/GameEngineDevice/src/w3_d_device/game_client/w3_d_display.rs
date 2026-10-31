@@ -8,11 +8,8 @@ pub use game_client::fx_list::{
     light_pulse_too_small, scene_dynamic_lights,
 };
 
-/// C++ `W3DShaderManager::startRenderToTexture` / `endRenderToTexture` /
-/// `filterPostRender` — live GameClient wgpu analog.
-pub use game_client::display::shader_filter::{
-    MOTION_BLUR_MAX_COUNT, end_render_to_texture, filter_post_render, start_render_to_texture,
-};
+/// Maximum number of retained motion-blur frames.
+pub use game_client::display::shader_filter::MOTION_BLUR_MAX_COUNT;
 
 /// C++ `TheDisplay->createLightPulse`.
 pub fn create_light_pulse(pulse: DisplayLightPulse) -> bool {
