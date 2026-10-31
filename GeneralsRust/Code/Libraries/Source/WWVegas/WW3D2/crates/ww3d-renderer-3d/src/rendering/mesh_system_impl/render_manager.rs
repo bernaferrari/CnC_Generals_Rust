@@ -1936,6 +1936,188 @@ mod per_mesh_lighting_tests {
     use crate::rendering::lighting_system::LightEnvironmentClass;
 
     #[test]
+    fn replacement_changes_pixels_through_real_mesh_draw() {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+            apply_limit_buckets: false,
+        }))
+        .expect("material draw test requires a GPU adapter");
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            required_limits: adapter.limits(),
+            ..wgpu::DeviceDescriptor::default()
+        }))
+        .unwrap();
+        let gpu = Arc::new(GpuDevice::from_shared(Arc::new(device), Arc::new(queue)));
+        let mut manager = MeshRenderManager::new(Arc::clone(&gpu));
+        manager.set_render_formats(
+            wgpu::TextureFormat::Rgba8Unorm,
+            Some(wgpu::TextureFormat::Depth32Float),
+        );
+        let mut old = TextureClass::new("same-name", 1, 1);
+        old.replace_pixels(vec![255, 0, 0, 255]).unwrap();
+        let mut new = TextureClass::new("same-name", 1, 1);
+        new.replace_pixels(vec![0, 0, 255, 255]).unwrap();
+        let old = Arc::new(old);
+        let new = Arc::new(new);
+        let mut material = MaterialPassClass::new();
+        material.set_texture(0, Arc::clone(&old));
+        material.shader.set_texturing_enable(true);
+        let mut model = MeshModelClass::new("material-draw");
+        model.vertices = [(-2.0, -2.0), (2.0, -2.0), (0.0, 2.0)]
+            .into_iter()
+            .map(|(x, y)| W3dVectorStruct { x, y, z: 0.0 })
+            .collect();
+        model.triangles.push(W3dTriangleStruct {
+            vindex: [0, 1, 2],
+            attributes: 0,
+            normal: W3dVectorStruct {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+            distance: 0.0,
+        });
+        model.vertex_count = 3;
+        model.index_count = 3;
+        model.material_passes.push(material.clone());
+        model.material_batches.push(MeshMaterialBatch {
+            source_pass_index: 0,
+            material_pass: material,
+            face_indices: vec![0],
+        });
+        let mut mesh = MeshClass::new();
+        mesh.model = Some(Arc::new(model));
+        let mut camera = CameraClass::new();
+        camera.set_clip_planes(0.1, 100.0);
+        camera.set_view_matrix(Mat4::look_at_rh(
+            Vec3::new(0.0, 0.0, 5.0),
+            Vec3::ZERO,
+            Vec3::Y,
+        ));
+        camera.set_projection_matrix(Mat4::perspective_rh(1.0, 1.0, 0.1, 100.0));
+        let info = RenderInfoClass::new(Arc::new(camera));
+        let draw = |manager: &mut MeshRenderManager, mesh: &MeshClass| -> [u8; 4] {
+            let size = wgpu::Extent3d {
+                width: 64,
+                height: 64,
+                depth_or_array_layers: 1,
+            };
+            let make_target = |format, usage| {
+                gpu.wgpu_device().create_texture(&wgpu::TextureDescriptor {
+                    label: Some("material-draw-test"),
+                    size,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage,
+                    view_formats: &[],
+                })
+            };
+            let color = make_target(
+                wgpu::TextureFormat::Rgba8Unorm,
+                wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            );
+            let depth = make_target(
+                wgpu::TextureFormat::Depth32Float,
+                wgpu::TextureUsages::RENDER_ATTACHMENT,
+            );
+            let color_view = color.create_view(&wgpu::TextureViewDescriptor::default());
+            let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
+            let mut arena =
+                crate::rendering::frame_uniform_arena::FrameUniformArena::new(&gpu, 1 << 20);
+            let mut encoder = gpu
+                .wgpu_device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            {
+                let mut render = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("material-draw-test"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &color_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                    multiview_mask: None,
+                });
+                manager
+                    .render_pass(
+                        &mut render,
+                        &[Arc::new(mesh.clone())],
+                        &[],
+                        &info,
+                        &mut arena,
+                    )
+                    .unwrap();
+            }
+            let readback = gpu.wgpu_device().create_buffer(&wgpu::BufferDescriptor {
+                label: Some("material-draw-readback"),
+                size: 256 * 64,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            encoder.copy_texture_to_buffer(
+                color.as_image_copy(),
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &readback,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(256),
+                        rows_per_image: Some(64),
+                    },
+                },
+                size,
+            );
+            gpu.queue().submit(Some(encoder.finish()));
+            let slice = readback.slice(..);
+            let (tx, rx) = std::sync::mpsc::channel();
+            slice.map_async(wgpu::MapMode::Read, move |result| {
+                let _ = tx.send(result);
+            });
+            gpu.wgpu_device()
+                .poll(wgpu::PollType::wait_indefinitely())
+                .unwrap();
+            rx.recv().unwrap().unwrap();
+            let data = slice.get_mapped_range().unwrap();
+            let offset = 32 * 256 + 32 * 4;
+            let result = data[offset..offset + 4].try_into().unwrap();
+            drop(data);
+            readback.unmap();
+            result
+        };
+        let red = draw(&mut manager, &mesh);
+        mesh.replace_texture(&old, &new);
+        let blue = draw(&mut manager, &mesh);
+        assert!(
+            red[0] > red[2] + 8,
+            "original texture must draw red: {red:?}"
+        );
+        assert!(
+            blue[2] > blue[0] + 8,
+            "replacement texture must draw blue: {blue:?}"
+        );
+    }
+
+    #[test]
     fn replaced_polygon_batch_selects_new_gpu_texture_and_preserves_peer() {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
