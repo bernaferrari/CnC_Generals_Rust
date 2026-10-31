@@ -3004,6 +3004,11 @@ pub(crate) fn receiving_ai_base_data(
     if let Some(base) = data.downcast_ref::<AIUpdateModuleData>() {
         return Some(base);
     }
+    if let Some(flight_deck) = data.downcast_ref::<
+        gamelogic::object::behavior::flight_deck_behavior::FlightDeckBehaviorModuleData,
+    >() {
+        return Some(&flight_deck.ai_base);
+    }
     macro_rules! derived_base {
         ($($kind:ty),* $(,)?) => {
             $(if let Some(value) = data.downcast_ref::<$kind>() {

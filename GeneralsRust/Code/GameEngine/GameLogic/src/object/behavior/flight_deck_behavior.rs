@@ -96,6 +96,8 @@ impl Default for RunwayDefinition {
 #[derive(Debug, Clone)]
 pub struct FlightDeckBehaviorModuleData {
     pub base: BehaviorModuleData,
+    /// Fields inherited from AIUpdateModuleData by the original flight deck.
+    pub ai_base: crate::object::update::ai_update_interface::AIUpdateModuleData,
     /// Runway definitions
     pub runway_info: [RunwayDefinition; MAX_RUNWAYS],
     /// Thing template name for creating aircraft
@@ -132,6 +134,7 @@ impl Default for FlightDeckBehaviorModuleData {
     fn default() -> Self {
         Self {
             base: BehaviorModuleData::default(),
+            ai_base: crate::object::update::ai_update_interface::AIUpdateModuleData::default(),
             runway_info: [RunwayDefinition::default(), RunwayDefinition::default()],
             thing_template_name: String::new(),
             heal_amount: 0.0,
@@ -153,7 +156,12 @@ impl Default for FlightDeckBehaviorModuleData {
 
 impl FlightDeckBehaviorModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, FLIGHT_DECK_BEHAVIOR_FIELDS)
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.ai_base,
+            crate::object::update::ai_update_interface::AI_UPDATE_FIELDS,
+            FLIGHT_DECK_BEHAVIOR_FIELDS,
+        )
     }
 }
 
