@@ -158,12 +158,9 @@ impl GameLogic {
         {
             return NativeTickProgress::Failed(error);
         }
-        let (delta, absolute) = timing
-            .map(|t| (t.delta_seconds(), Some(t.total_seconds())))
-            .unwrap_or((dt, None));
+        let delta = timing.map_or(dt, FrameTiming::delta_seconds);
         let pending = self.step_simulation_with_callbacks(
             delta,
-            absolute,
             budget.map(|n| n.max(1)),
             None,
             |world, fixed| {
@@ -287,7 +284,6 @@ impl GameLogic {
             let mut completed = Some(SimulationStepOutcome::Advanced);
             let next = self.step_simulation_with_callbacks(
                 0.,
-                pending.absolute_time,
                 pending.max_fixed_steps,
                 Some(FixedStepCounts {
                     advanced: pending.prior_steps,
@@ -327,11 +323,6 @@ impl GameLogic {
                 .unwrap_or_else(|e| e.into_inner())
                 .set_current_frame(self.frame);
             self.sim_time_seconds += dt;
-            if !pending.reset_seen && pending.frozen_steps == 0 {
-                if let Some(absolute) = pending.absolute_time {
-                    self.sim_time_seconds = absolute.max(self.sim_time_seconds);
-                }
-            }
         }
         self.last_fixed_step_diagnostics = FixedStepDiagnostics {
             steps_run: pending.prior_steps + 1,

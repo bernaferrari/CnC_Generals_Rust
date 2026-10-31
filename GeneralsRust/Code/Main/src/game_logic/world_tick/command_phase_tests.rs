@@ -416,7 +416,7 @@ fn ignored_source_lifecycle_preserves_entire_original_fixed_step_budget() {
                     );
                     assert_eq!(
                         receiving, neutral,
-                        "ignored source command changed original counts/carry/live clamp/absolute clock/client callbacks: budget={budget:?} late={late} freeze={freeze}"
+                        "ignored source command changed counts, carry, logic clock, or client callbacks: budget={budget:?} late={late} freeze={freeze}"
                     );
                 }
             }

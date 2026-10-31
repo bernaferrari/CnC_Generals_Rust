@@ -14,7 +14,7 @@ fn frozen_step_burns_time_advances_nothing_and_still_runs_scripts() {
     logic.set_script_time_frozen_for_test(true);
     logic.mission_scripts.push_radar_forced(true);
 
-    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
+    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None);
 
     assert_eq!(logic.frame, 0, "frozen step must not advance the frame");
     assert_eq!(
@@ -70,7 +70,7 @@ fn host_ai_runs_once_for_each_advanced_fixed_logic_frame() {
         // C++ calls TheAI->UPDATE before advancing the frame's simulation
         // clock, so AI observes the time at the beginning of each tick.
         let tick_time = logic.sim_time_seconds;
-        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
+        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None);
         assert_eq!(logic.frame, expected_frame);
         assert_eq!(
             host_ai_last_update_time(&logic).to_bits(),
@@ -86,13 +86,13 @@ fn host_ai_does_not_run_on_frozen_steps_and_resumes_after_unfreeze() {
     add_test_host_ai(&mut logic);
     let initial_ai_time = host_ai_last_update_time(&logic);
     logic.set_script_time_frozen_for_test(true);
-    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
+    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None);
     assert_eq!(logic.frame, 0);
     assert_eq!(host_ai_last_update_time(&logic), initial_ai_time);
 
     logic.set_script_time_frozen_for_test(false);
     let resumed_tick_time = logic.sim_time_seconds;
-    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
+    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None);
     assert_eq!(logic.frame, 1);
     assert_eq!(
         host_ai_last_update_time(&logic).to_bits(),
@@ -105,7 +105,7 @@ fn host_ai_catch_up_updates_every_internal_fixed_step() {
     let mut logic = GameLogic::new();
     add_test_host_ai(&mut logic);
     let first_tick_time = logic.sim_time_seconds;
-    logic.step_simulation_with_budget(4.0 * LOGIC_FRAME_TIMESTEP, None, Some(4));
+    logic.step_simulation_with_budget(4.0 * LOGIC_FRAME_TIMESTEP, Some(4));
 
     assert_eq!(logic.frame, 4);
     let final_ai_tick_time = first_tick_time + 3.0 * LOGIC_FRAME_TIMESTEP;
@@ -124,14 +124,14 @@ fn host_ai_catch_up_updates_every_internal_fixed_step() {
 fn unfreeze_resumes_on_next_frame_without_skips() {
     let mut logic = GameLogic::new();
     logic.set_script_time_frozen_for_test(true);
-    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
-    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
+    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None);
+    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None);
     assert_eq!(logic.frame, 0, "frozen frames must not advance the frame");
 
     logic.set_script_time_frozen_for_test(false);
-    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
+    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None);
     assert_eq!(logic.frame, 1, "unfreeze resumes on the very next frame");
-    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
+    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None);
     assert_eq!(logic.frame, 2, "no repeated frames after unfreeze");
     assert!((logic.sim_time_seconds - 2.0 * LOGIC_FRAME_TIMESTEP).abs() < 1e-6);
 }
@@ -164,7 +164,7 @@ fn frozen_with_pending_clear_game_data_falls_through() {
         )])
         .unwrap();
 
-    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, Some(1));
+    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, Some(1));
     assert_eq!(
         logic.frame, 1,
         "clear escape falls through to the full update"
@@ -184,7 +184,7 @@ fn frozen_with_pending_clear_game_data_falls_through() {
         matches!(lifecycle.as_slice(), [message] if matches!(message.get_type(), GameMessageType::ClearGameData)),
         "peek retains the command until its normal Recorder/command phase"
     );
-    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, Some(1));
+    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, Some(1));
     assert_eq!(
         logic.frame, 1,
         "script/camera freeze still apply on the next frame"
@@ -206,7 +206,7 @@ fn receiving_tick_debug_freeze_and_foreign_clear_are_instance_isolated() {
         )])
         .unwrap();
     assert!(peer.replay_pending.receiving_clear_command_pending());
-    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, Some(1));
+    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, Some(1));
     assert_eq!(logic.frame, 0, "debug-only freeze stops the actual tick");
     assert!(logic.script_debug_frozen(None).unwrap());
     assert!(peer.replay_pending.receiving_clear_command_pending());
@@ -215,7 +215,7 @@ fn receiving_tick_debug_freeze_and_foreign_clear_are_instance_isolated() {
         .as_mut()
         .unwrap()
         .set_time_frozen_debug(false);
-    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, Some(1));
+    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, Some(1));
     assert_eq!(logic.frame, 1);
 }
 
@@ -233,7 +233,7 @@ fn foreign_message_stream_clear_cannot_escape_receiving_tick_freeze() {
             }
             let mut logic = GameLogic::new();
             logic.set_script_time_frozen_for_test(true);
-            logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, Some(1));
+            logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, Some(1));
             assert_eq!(
                 logic.frame, 0,
                 "foreign MessageStream is not receiving CommandList"
@@ -262,7 +262,7 @@ fn fixed_step_batch_does_not_consume_the_global_logic_stream() {
     let global_words = game_engine::common::random_value::get_game_logic_random_seed_state();
 
     let mut logic = GameLogic::new();
-    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
+    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None);
 
     // Whatever the step drew (if anything) went to the driving instance:
     // the global fallback words stay bit-identical to the fresh seed.
@@ -403,7 +403,7 @@ fn vision_feed_runs_on_canonical_owner_frames() {
     // Drive 3 InGame logic frames through the standard step loop while
     // the coupled tick is active — Phase 17 must still feed the shroud.
     for _ in 0..3 {
-        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
+        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None);
     }
 
     {
@@ -449,7 +449,7 @@ fn vision_feed_runs_on_canonical_owner_frames() {
 fn live_catchup_runs_one_step_and_drops_excess_backlog() {
     let mut logic = GameLogic::new();
     // 20 steps' worth of stall backlog on the live path (budget = None).
-    logic.step_simulation_with_budget(20.0 * LOGIC_FRAME_TIMESTEP, None, None);
+    logic.step_simulation_with_budget(20.0 * LOGIC_FRAME_TIMESTEP, None);
 
     assert_eq!(logic.frame, 1, "C++ live update advances one logic frame");
     let diag = logic.fixed_step_diagnostics();
@@ -466,7 +466,7 @@ fn live_catchup_runs_one_step_and_drops_excess_backlog() {
 
     // Headless path unchanged: an explicit budget keeps the carry-over.
     let mut headless = GameLogic::new();
-    headless.step_simulation_with_budget(20.0 * LOGIC_FRAME_TIMESTEP, None, Some(3));
+    headless.step_simulation_with_budget(20.0 * LOGIC_FRAME_TIMESTEP, Some(3));
     assert_eq!(headless.frame, 3);
     assert!(
         headless.accumulated_time >= LOGIC_FRAME_TIMESTEP,
@@ -484,7 +484,7 @@ fn residual_gates_skip_empty_registries() {
     residual_gate_seam::reset_all();
 
     let mut logic = GameLogic::new();
-    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
+    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None);
 
     // Every registry-backed residual pass must have skipped on the empty
     // world (each gate counter bumped once by this step).
@@ -614,7 +614,7 @@ fn callback_unwind_restores_an_enclosing_logic_rng_owner() {
     assert_eq!(after, expected_after);
 }
 #[test]
-fn immutable_frame_timing_keeps_the_existing_absolute_clock_rule() {
+fn immutable_frame_timing_advances_only_the_logic_clock() {
     let timing = FrameTiming {
         frame_number: 300,
         delta_time: Duration::from_secs_f32(1.0 / 30.0),
@@ -631,7 +631,7 @@ fn immutable_frame_timing_keeps_the_existing_absolute_clock_rule() {
         logic.tick_logic_frame_with_boundary(0.0, Some(&timing), Some(1), |_| callbacks += 1);
     assert_eq!(callbacks, 1);
     assert_eq!(snap.frame, 1);
-    assert_eq!(logic.sim_time_seconds, 10.0);
+    assert_eq!(logic.sim_time_seconds, LOGIC_FRAME_TIMESTEP);
     let mut frozen = GameLogic::new();
     frozen.set_script_time_frozen_for_test(true);
     let snap = frozen.tick_logic_frame_with_boundary(0.0, Some(&timing), Some(1), |_| {
@@ -645,7 +645,7 @@ fn host_logic_step_active_phase_restores_after_real_frozen_and_advanced_steps() 
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
     logic.set_script_time_frozen_for_test(true);
-    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
+    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None);
     assert_eq!(logic.frame, 0, "frozen update does not advance frame");
     assert_eq!(logic.fixed_step_diagnostics().frozen_steps, 1);
     assert!(
@@ -654,7 +654,7 @@ fn host_logic_step_active_phase_restores_after_real_frozen_and_advanced_steps() 
     );
 
     logic.set_script_time_frozen_for_test(false);
-    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
+    logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None);
     assert_eq!(logic.frame, 1, "advanced update advances one frame");
     assert_eq!(logic.fixed_step_diagnostics().steps_run, 1);
     assert!(
@@ -672,7 +672,7 @@ fn another_world_step_does_not_replace_the_driving_object_phase() {
             let mut second = GameLogic::new();
             assert!(!second.host_logic_step_active);
             assert!(first.host_logic_step_active);
-            second.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, Some(1));
+            second.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, Some(1));
             assert_eq!(second.frame, 1);
             assert!(!second.host_logic_step_active);
             assert!(first.host_logic_step_active);

@@ -105,7 +105,6 @@ pub(crate) struct NativeTickContinuation {
     frozen_steps: usize,
     max_fixed_steps: Option<usize>,
     carry: f32,
-    absolute_time: Option<f32>,
     reset_seen: bool,
     new_game_pending: bool,
 }
@@ -228,19 +227,19 @@ impl GameLogic {
 
     /// Main update loop with delta time
     pub fn update_with_dt(&mut self, dt: f32) -> SimTimingSnapshot {
-        self.step_simulation(dt, None);
+        self.step_simulation(dt);
         self.sim_timing_snapshot()
     }
 
     pub fn update_with_timing(&mut self, timing: &FrameTiming) -> SimTimingSnapshot {
-        self.step_simulation(timing.delta_seconds(), Some(timing.total_seconds()));
+        self.step_simulation(timing.delta_seconds());
         self.sim_timing_snapshot()
     }
 
     /// Headless/host residual: bound fixed-step catch-up so a stalled GPU present
     /// cannot dump dozens of logic frames into one drive_frame (UI freeze residual).
     pub fn update_with_dt_budget(&mut self, dt: f32, max_fixed_steps: usize) -> SimTimingSnapshot {
-        self.step_simulation_with_budget(dt, None, Some(max_fixed_steps.max(1)));
+        self.step_simulation_with_budget(dt, Some(max_fixed_steps.max(1)));
         self.sim_timing_snapshot()
     }
 
@@ -251,7 +250,6 @@ impl GameLogic {
     ) -> SimTimingSnapshot {
         self.step_simulation_with_budget(
             timing.delta_seconds(),
-            Some(timing.total_seconds()),
             Some(max_fixed_steps.max(1)),
         );
         self.sim_timing_snapshot()
@@ -314,12 +312,9 @@ impl GameLogic {
         mut before_step: impl FnMut(u32),
         after_step: impl FnMut(&mut Self),
     ) -> SimTimingSnapshot {
-        let (delta_time, absolute_time) = timing
-            .map(|timing| (timing.delta_seconds(), Some(timing.total_seconds())))
-            .unwrap_or((dt, None));
+        let delta_time = timing.map_or(dt, FrameTiming::delta_seconds);
         let pending = self.step_simulation_with_callbacks(
             delta_time,
-            absolute_time,
             budget.map(|budget| budget.max(1)),
             None,
             |logic, fixed_dt| {
@@ -371,16 +366,12 @@ impl GameLogic {
         dt: f32,
         max_fixed_steps: usize,
     ) -> SimTimingSnapshot {
-        self.step_simulation_with_budget(dt, None, Some(max_fixed_steps.max(1)));
+        self.step_simulation_with_budget(dt, Some(max_fixed_steps.max(1)));
         self.sim_timing_snapshot()
     }
 
-    pub(in super::super) fn step_simulation(
-        &mut self,
-        delta_time: f32,
-        absolute_time: Option<f32>,
-    ) {
-        self.step_simulation_with_budget(delta_time, absolute_time, None);
+    pub(in super::super) fn step_simulation(&mut self, delta_time: f32) {
+        self.step_simulation_with_budget(delta_time, None);
     }
 
     /// Admit a seed at this match/replay setup boundary, without broadcasting.
@@ -392,12 +383,10 @@ impl GameLogic {
     pub(in super::super) fn step_simulation_with_budget(
         &mut self,
         delta_time: f32,
-        absolute_time: Option<f32>,
         max_fixed_steps: Option<usize>,
     ) {
         let pending = self.step_simulation_with_callbacks(
             delta_time,
-            absolute_time,
             max_fixed_steps,
             None,
             |logic, fixed_dt| logic.update_simulation(fixed_dt),
@@ -413,7 +402,6 @@ impl GameLogic {
     fn step_simulation_with_callbacks(
         &mut self,
         delta_time: f32,
-        absolute_time: Option<f32>,
         max_fixed_steps: Option<usize>,
         resumed_counts: Option<FixedStepCounts>,
         mut run_step: impl FnMut(&mut Self, f32) -> SimulationStepOutcome,
@@ -514,7 +502,6 @@ impl GameLogic {
                             frozen_steps,
                             max_fixed_steps,
                             carry: self.accumulated_time,
-                            absolute_time,
                             reset_seen: false,
                             new_game_pending: false,
                         });
@@ -538,15 +525,6 @@ impl GameLogic {
         if suspended.is_some() {
             return Ok(suspended);
         }
-        if let Some(total_seconds) = absolute_time {
-            // Presentation clock sync must not leak into a batch containing a
-            // frozen step: a frozen frame advances no sim time (C++ has no
-            // wall-clock clamp at all).
-            if frozen_steps == 0 {
-                self.sim_time_seconds = total_seconds.max(self.sim_time_seconds);
-            }
-        }
-
         self.last_fixed_step_diagnostics = FixedStepDiagnostics {
             steps_run,
             frozen_steps,
@@ -789,7 +767,6 @@ mod failed_step_owner_tests {
                 let mut after_calls = 0;
                 let result = world.step_simulation_with_callbacks(
                     LOGIC_FRAME_TIMESTEP,
-                    Some(999.0),
                     Some(3),
                     None,
                     |_, _| {

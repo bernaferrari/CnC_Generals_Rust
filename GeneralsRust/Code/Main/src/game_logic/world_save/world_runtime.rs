@@ -14,7 +14,7 @@ impl GameLogic {
         self.refresh_owned_bridge_pathfinder_states();
         // C++ AI::update → Pathfinder::processPathfindQueue drains inside
         // update_simulation (every logic frame, live and test paths).
-        self.step_simulation(LOGIC_FRAME_TIMESTEP, None);
+        self.step_simulation(LOGIC_FRAME_TIMESTEP);
     }
 
     /// C++ interface methods

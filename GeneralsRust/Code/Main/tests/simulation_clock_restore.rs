@@ -114,3 +114,33 @@ fn older_snapshot_uses_frame_derived_time_and_no_partial_step() {
     );
     assert_eq!(receiver.update_with_dt(0.01).steps_run, 0);
 }
+
+#[test]
+fn simulation_clock_follows_logic_steps_not_presentation_timestamps() {
+    use std::time::{Duration, Instant};
+    use ww3d_engine::FrameTiming;
+
+    let timing = |total_seconds: u64| FrameTiming {
+        frame_number: 123,
+        delta_time: Duration::from_secs_f32(1.0 / 120.0),
+        total_time: Duration::from_secs(total_seconds),
+        fps: 120.0,
+        frame_start: Instant::now(),
+        sync_time: 0,
+        previous_sync_time: 0,
+    };
+    let mut first = GameLogic::new();
+    let mut second = GameLogic::new();
+    for _ in 0..12 {
+        let a = first.update_with_timing(&timing(10));
+        let b = second.update_with_timing(&timing(100));
+        assert_eq!((a.frame, a.steps_run), (b.frame, b.steps_run));
+        assert_eq!(
+            first.update_ui_state(0).current_game_time,
+            second.update_ui_state(0).current_game_time
+        );
+        assert!(
+            (first.update_ui_state(0).current_game_time - a.frame as f32 / 30.0).abs() < 0.00001
+        );
+    }
+}
