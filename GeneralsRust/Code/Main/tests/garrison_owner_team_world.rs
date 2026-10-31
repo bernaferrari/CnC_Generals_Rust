@@ -482,6 +482,142 @@ fn collision_transport_rechecks_slot_capacity_and_controller() {
 }
 
 #[test]
+fn unregistered_cave_preserves_its_index_across_snapshot() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, host, _) = world(&map, false);
+    let (mut peer, _, _) = world(&map, false);
+    let create = |world: &mut GameLogic| {
+        world
+            .create_object_under_construction_for_player(
+                "OwnedCave",
+                2,
+                Vec3::new(50., 0., 50.),
+                0.0,
+            )
+            .unwrap()
+            .unwrap()
+    };
+    let cave = create(&mut game);
+    let peer_cave = create(&mut peer);
+    assert_eq!(cave, peer_cave);
+    assert_eq!(game.host_object(cave).unwrap().cave_index, 7);
+    assert!(game.host_object(cave).unwrap().status.under_construction);
+    assert!(game.host_object(cave).unwrap().cave_needs_build_complete);
+    assert_eq!(game.cave_system_residual().index_of(cave), None);
+    let builder = SnapshotBuilder::new();
+    let snapshot = clone_bincode_snapshot(&builder.create_world_snapshot(&game).unwrap());
+    let mut direct_source = clone_bincode_snapshot(&snapshot);
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    direct_source.xfer(&mut XferSave::new(&mut bytes)).unwrap();
+    let mut direct = WorldSnapshot::default();
+    direct
+        .xfer(&mut XferLoad::new(std::io::Cursor::new(bytes.into_inner())))
+        .unwrap();
+    let (mut restored, _, _) = world(&map, false);
+    builder
+        .restore_from_snapshot(&direct, &mut restored)
+        .unwrap();
+    assert_eq!(restored.host_object(cave).unwrap().cave_index, 7);
+    assert!(
+        restored
+            .host_object(cave)
+            .unwrap()
+            .cave_needs_build_complete
+    );
+    assert!(
+        restored
+            .host_object(cave)
+            .unwrap()
+            .status
+            .under_construction
+    );
+    assert_eq!(restored.cave_system_residual().index_of(cave), None);
+    assert_eq!(peer.host_object(peer_cave).unwrap().cave_index, 7);
+    assert_eq!(peer.cave_system_residual().index_of(peer_cave), None);
+
+    let mut wrong_owner = clone_bincode_snapshot(&snapshot);
+    wrong_owner.objects.get_mut(&host).unwrap().modules.insert(
+        "CaveContain".into(),
+        generals_main::save_load::snapshot::ModuleSnapshot::CaveContain {
+            needs_build_complete: true,
+            cave_index: 7,
+        },
+    );
+    let (mut rejecting, rejecting_host, _) = world(&map, false);
+    rejecting
+        .host_object_mut(rejecting_host)
+        .unwrap()
+        .health
+        .current = 321.0;
+    assert!(
+        builder
+            .restore_from_snapshot(&wrong_owner, &mut rejecting)
+            .is_err()
+    );
+    assert_eq!(
+        rejecting
+            .host_object(rejecting_host)
+            .unwrap()
+            .health
+            .current,
+        321.0
+    );
+
+    restored
+        .notify_structure_construction_complete(cave)
+        .unwrap();
+    assert!(
+        !restored
+            .host_object(cave)
+            .unwrap()
+            .cave_needs_build_complete
+    );
+    assert_eq!(restored.cave_system_residual().index_of(cave), Some(7));
+    assert!(restored.try_set_cave_index(cave, 9));
+    assert_eq!(restored.cave_system_residual().index_of(cave), Some(9));
+    let switched = clone_bincode_snapshot(&builder.create_world_snapshot(&restored).unwrap());
+    let (mut reloaded, _, _) = world(&map, false);
+    builder
+        .restore_from_snapshot(&switched, &mut reloaded)
+        .unwrap();
+    assert_eq!(reloaded.host_object(cave).unwrap().cave_index, 9);
+    assert!(
+        !reloaded
+            .host_object(cave)
+            .unwrap()
+            .cave_needs_build_complete
+    );
+    assert_eq!(reloaded.cave_system_residual().index_of(cave), Some(9));
+    let mut conflicting = clone_bincode_snapshot(&switched);
+    let module = conflicting
+        .objects
+        .get_mut(&cave)
+        .unwrap()
+        .modules
+        .get_mut("CaveContain")
+        .unwrap();
+    let generals_main::save_load::snapshot::ModuleSnapshot::CaveContain { cave_index, .. } = module
+    else {
+        panic!("cave module must retain its state");
+    };
+    *cave_index = 8;
+    assert!(
+        builder
+            .restore_from_snapshot(&conflicting, &mut rejecting)
+            .is_err()
+    );
+    assert_eq!(
+        rejecting
+            .host_object(rejecting_host)
+            .unwrap()
+            .health
+            .current,
+        321.0
+    );
+}
+
+#[test]
 fn connected_caves_transfer_and_restore_exact_player_team_across_save() {
     let root = tempfile::tempdir().unwrap();
     let map = map_file(root.path());

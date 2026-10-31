@@ -1422,6 +1422,9 @@ pub struct Object {
     /// C++ CaveContain CaveIndex + CaveSystem registration.
     #[serde(default)]
     pub cave_index: i32,
+    /// C++ CaveContain::m_needToRunOnBuildComplete.
+    #[serde(default = "default_true")]
+    pub cave_needs_build_complete: bool,
     /// Host residual: this object is a CaveContain entrance.
     #[serde(default)]
     pub is_cave_contain: bool,

@@ -1,6 +1,25 @@
 //! World capture and restoration commit order.
 use super::*;
 
+fn validate_cave_tracker(snapshot: &WorldSnapshot) -> SaveLoadResult<()> {
+    for (id, object) in &snapshot.objects {
+        if let Some(ModuleSnapshot::CaveContain { cave_index, .. }) =
+            object.modules.get("CaveContain")
+        {
+            if snapshot
+                .cave_system
+                .index_of(*id)
+                .is_some_and(|registered| registered != *cave_index)
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "CaveContain index disagrees with its registered tracker".into(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 impl SnapshotBuilder {
     pub fn new() -> Self {
         Self {}
@@ -15,6 +34,7 @@ impl SnapshotBuilder {
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
         snapshot.audio_policy.validate()?;
+        validate_cave_tracker(snapshot)?;
         for object in snapshot.objects.values() {
             super::super::receiving_template::validate_turret_source(
                 candidate,
@@ -361,6 +381,7 @@ impl SnapshotBuilder {
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
         snapshot.audio_policy.validate()?;
+        validate_cave_tracker(snapshot)?;
         for object in snapshot.objects.values() {
             super::super::receiving_template::validate_turret_source(
                 game_logic,

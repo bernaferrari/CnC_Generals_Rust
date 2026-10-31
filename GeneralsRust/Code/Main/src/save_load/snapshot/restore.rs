@@ -262,8 +262,20 @@ impl SnapshotBuilder {
                     "Invalid OpenContain door module owner".into(),
                 ));
             }
+            if object.modules.iter().any(|(key, value)| {
+                matches!(value, ModuleSnapshot::CaveContain { .. }) && key != "CaveContain"
+            }) || object
+                .modules
+                .get("CaveContain")
+                .is_some_and(|value| !matches!(value, ModuleSnapshot::CaveContain { .. }))
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "Invalid CaveContain module owner".into(),
+                ));
+            }
             if object.modules.contains_key("OpenContainEntered")
                 || object.modules.contains_key("OpenContainDoor")
+                || object.modules.contains_key("CaveContain")
             {
                 let cached = game_logic.templates.get(&object.template_name);
                 let rebuilt;
@@ -309,6 +321,14 @@ impl SnapshotBuilder {
                 }) {
                     return Err(SaveLoadError::Corrupted(
                         "OpenContain state is attached to a non-container template".into(),
+                    ));
+                }
+                if object.modules.contains_key("CaveContain")
+                    && template
+                        .is_none_or(|template| !template.contain_module.kind.is_cave_contain())
+                {
+                    return Err(SaveLoadError::Corrupted(
+                        "CaveContain state is attached to a non-cave template".into(),
                     ));
                 }
             }
@@ -819,6 +839,18 @@ impl SnapshotBuilder {
                         ));
                     }
                     object.door_close_countdown = *countdown;
+                }
+                ModuleSnapshot::CaveContain {
+                    needs_build_complete,
+                    cave_index,
+                } => {
+                    if !object.get_template().contain_module.kind.is_cave_contain() {
+                        return Err(SaveLoadError::Corrupted(
+                            "CaveContain state has no receiving cave".into(),
+                        ));
+                    }
+                    object.cave_needs_build_complete = *needs_build_complete;
+                    object.cave_index = *cave_index;
                 }
                 ModuleSnapshot::BaseAi(_) => {}
                 ModuleSnapshot::DozerTasks(_) => {}

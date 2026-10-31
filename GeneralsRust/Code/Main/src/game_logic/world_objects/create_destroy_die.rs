@@ -3666,7 +3666,7 @@ impl GameLogic {
         self.on_structure_superweapon_creation(object_id);
         self.on_supply_center_build_complete_with_effects_checked(object_id, interpreter, ui)?;
         // C++ TunnelContain::onObjectCreated / onBuildComplete → onTunnelCreated.
-        if let Some(obj) = self.objects.get(&object_id) {
+        if let Some(obj) = self.objects.get_mut(&object_id) {
             if obj.is_tunnel_network_style_container()
                 || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
                     &obj.template_name,
@@ -3675,9 +3675,10 @@ impl GameLogic {
                 let player_id = obj.tunnel_system_key();
                 self.tunnel_network.on_tunnel_created(player_id, object_id);
             }
-            if obj.is_cave_style_container() {
+            if obj.is_cave_style_container() && obj.cave_needs_build_complete {
                 let idx = obj.cave_index;
                 let team = obj.team;
+                obj.cave_needs_build_complete = false;
                 self.cave_system.register_cave(object_id, idx, team);
             }
         }

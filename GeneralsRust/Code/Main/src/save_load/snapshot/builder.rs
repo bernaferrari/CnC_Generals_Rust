@@ -289,6 +289,16 @@ impl SnapshotBuilder {
             );
         }
 
+        if object.get_template().contain_module.kind.is_cave_contain() {
+            modules.insert(
+                "CaveContain".to_owned(),
+                ModuleSnapshot::CaveContain {
+                    needs_build_complete: object.cave_needs_build_complete,
+                    cave_index: object.cave_index,
+                },
+            );
+        }
+
         modules.insert(
             "ActiveWeaponStatus".to_owned(),
             ModuleSnapshot::ActiveWeaponStatus(object.weapon_fire_status),

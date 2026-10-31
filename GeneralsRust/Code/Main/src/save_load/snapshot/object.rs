@@ -367,6 +367,12 @@ pub enum ModuleSnapshot {
     OpenContainEntered(u32),
     /// C++ OpenContain::m_doorCloseCountdown in logic frames.
     OpenContainDoor(u32),
+    /// CaveContain's per-object state; original Team identity uses the
+    /// existing validated original-Team snapshot capsule.
+    CaveContain {
+        needs_build_complete: bool,
+        cave_index: i32,
+    },
 }
 
 /// AI update module snapshot
@@ -1640,6 +1646,7 @@ impl XferData for ModuleSnapshot {
             ModuleSnapshot::ActiveWeaponStatus(_) => 16,
             ModuleSnapshot::OpenContainEntered(_) => 17,
             ModuleSnapshot::OpenContainDoor(_) => 18,
+            ModuleSnapshot::CaveContain { .. } => 19,
         };
         xfer.xfer_u32(&mut disc)?;
         if xfer.get_mode() == XferMode::Save {
@@ -1660,6 +1667,13 @@ impl XferData for ModuleSnapshot {
                 }
                 ModuleSnapshot::OpenContainEntered(player_id) => xfer.xfer_u32(player_id)?,
                 ModuleSnapshot::OpenContainDoor(countdown) => xfer.xfer_u32(countdown)?,
+                ModuleSnapshot::CaveContain {
+                    needs_build_complete,
+                    cave_index,
+                } => {
+                    xfer.xfer_bool(needs_build_complete)?;
+                    xfer.xfer_i32(cave_index)?;
+                }
             }
         } else {
             *self = match disc {
@@ -1779,6 +1793,16 @@ impl XferData for ModuleSnapshot {
                     let mut countdown = 0;
                     xfer.xfer_u32(&mut countdown)?;
                     ModuleSnapshot::OpenContainDoor(countdown)
+                }
+                19 => {
+                    let mut needs_build_complete = false;
+                    let mut cave_index = 0;
+                    xfer.xfer_bool(&mut needs_build_complete)?;
+                    xfer.xfer_i32(&mut cave_index)?;
+                    ModuleSnapshot::CaveContain {
+                        needs_build_complete,
+                        cave_index,
+                    }
                 }
                 _ => {
                     return Err(SaveLoadError::Corrupted(format!(
