@@ -579,6 +579,42 @@ fn continuation_selects_the_victims_player_not_a_same_faction_peer() {
 }
 
 #[test]
+fn mood_enemy_search_uses_each_objects_owned_off_map_status() {
+    use generals_main::game_logic::find_enemy_flags;
+
+    let (mut small, attacker, victim, candidate) = world(100.0, "MoodMapStatusWeapon");
+    let (mut large, peer_attacker, peer_victim, peer_candidate) =
+        world(100.0, "MoodMapStatusWeapon");
+    assert_eq!(
+        (attacker, victim, candidate),
+        (peer_attacker, peer_victim, peer_candidate)
+    );
+    for (session, victim) in [(&mut small, victim), (&mut large, peer_victim)] {
+        session
+            .host_object_mut(victim)
+            .unwrap()
+            .status
+            .effectively_dead = true;
+    }
+    small.override_world_size(100.0, 100.0);
+    large.override_world_size(200.0, 200.0);
+    let find = |session: &GameLogic| {
+        session.find_closest_enemy(attacker, 200.0, find_enemy_flags::CAN_ATTACK)
+    };
+    // The strict C++ boundary excludes x=50 in the first world, but not its peer.
+    assert_eq!(find(&small), None);
+    assert_eq!(find(&large), Some(candidate));
+    // At x=20 the source is now off-map too, so the two off-map objects match.
+    small.override_world_size(40.0, 100.0);
+    assert_eq!(find(&small), Some(candidate));
+    assert_eq!(
+        find(&large),
+        Some(candidate),
+        "peer status remains unchanged"
+    );
+}
+
+#[test]
 fn continuation_uses_each_worlds_off_map_status_after_boundary_change_and_restore() {
     let (mut small, attacker, victim, candidate) = world(100.0, "MapStatusWeapon");
     let (mut large, peer_attacker, peer_victim, peer_candidate) = world(100.0, "MapStatusWeapon");
@@ -630,6 +666,43 @@ fn continuation_uses_each_worlds_off_map_status_after_boundary_change_and_restor
     builder
         .restore_from_snapshot(&transient, &mut restored_transient)
         .unwrap();
+    // Observe the candidate through the mood filter before exercising the
+    // attack continuation. The nearer victim is excluded only for this query.
+    for session in [
+        &mut small,
+        &mut large,
+        &mut restored,
+        &mut restored_transient,
+    ] {
+        session
+            .host_object_mut(victim)
+            .unwrap()
+            .status
+            .effectively_dead = true;
+    }
+    let find = |session: &GameLogic| {
+        session.find_closest_enemy(
+            attacker,
+            200.0,
+            generals_main::game_logic::find_enemy_flags::CAN_ATTACK,
+        )
+    };
+    assert_eq!(find(&small), None);
+    assert_eq!(find(&large), Some(candidate));
+    assert_eq!(find(&restored), None);
+    assert_eq!(find(&restored_transient), Some(candidate));
+    for session in [
+        &mut small,
+        &mut large,
+        &mut restored,
+        &mut restored_transient,
+    ] {
+        session
+            .host_object_mut(victim)
+            .unwrap()
+            .status
+            .effectively_dead = false;
+    }
     for session in [
         &mut small,
         &mut large,

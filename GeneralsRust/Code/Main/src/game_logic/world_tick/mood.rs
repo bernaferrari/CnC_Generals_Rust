@@ -151,15 +151,9 @@ impl GameLogic {
         let need_los = (qualifiers & CAN_SEE) != 0;
         let unfogged = (qualifiers & UNFOGGED) != 0;
         let ignore_insig = (qualifiers & IGNORE_INSIGNIFICANT_BUILDINGS) != 0;
-        // C++ PartitionFilterSameMapStatus / leftover find_closest_enemy:
-        // owner.is_off_map() != target.is_off_map() is illegal.
-        let me_off = crate::game_logic::host_deliver_payload::is_off_map_residual(
-            me_pos,
-            self.world_min.x,
-            self.world_min.z,
-            self.world_max.x,
-            self.world_max.z,
-        );
+        // AI.cpp PartitionFilterLiveMapEnemies compares the stored OFF_MAP
+        // status, including boundary callbacks and sub-threshold movement.
+        let me_off = me.status.off_map;
         // C++ AIAttackSquadState::chooseVictim: script flag forces DIFFICULTY_NORMAL
         // (closest), so Easy/Hard AI pick the same target.
         let force_normal = self.receiving_choose_victim_uses_normal();
@@ -269,15 +263,7 @@ impl GameLogic {
                     }
                 }
             }
-            if me_off
-                != crate::game_logic::host_deliver_payload::is_off_map_residual(
-                    obj.get_position(),
-                    self.world_min.x,
-                    self.world_min.z,
-                    self.world_max.x,
-                    self.world_max.z,
-                )
-            {
+            if me_off != obj.status.off_map {
                 continue;
             }
             let is_bldg = obj.is_kind_of(crate::game_logic::KindOf::Structure)
@@ -1785,6 +1771,9 @@ mod common_target_parity {
         logic.objects.insert(eid, {
             let mut o = Object::new(et, eid, Team::GLA);
             o.set_position(off);
+            // Detached Object fixture: the owning boundary callback normally
+            // writes this status when the object is admitted or moved.
+            o.status.off_map = true;
             o
         });
         assert!(
