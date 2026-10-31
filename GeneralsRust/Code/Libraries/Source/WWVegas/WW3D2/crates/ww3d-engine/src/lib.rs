@@ -641,6 +641,11 @@ pub struct RenderFrame {
 }
 
 impl RenderFrame {
+    /// Whether ending this frame can present a real window surface.
+    pub fn has_window_surface(&self) -> bool {
+        self.surface_texture.is_some()
+    }
+
     /// Borrow the command encoder to record render passes.
     pub fn encoder(&mut self) -> &mut wgpu::CommandEncoder {
         &mut self.encoder

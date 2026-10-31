@@ -10,6 +10,14 @@
 use super::*;
 
 impl RenderPipeline {
+    pub(crate) fn reset_surface_presented(&mut self) {
+        self.forward_pass.renderer.reset_surface_presented();
+    }
+
+    pub(crate) fn last_surface_presented(&self) -> bool {
+        self.forward_pass.renderer.last_surface_presented()
+    }
+
     /// Retire renderer-side constructor receipts after the receiving
     /// GameClient has completed its source-ordered Drawable reset. This is
     /// intentionally separate from full world invalidation, which occurs

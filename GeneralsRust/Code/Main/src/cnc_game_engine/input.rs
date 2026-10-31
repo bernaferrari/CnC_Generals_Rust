@@ -1912,6 +1912,7 @@ impl CnCGameEngine {
     }
 
     pub fn render(&mut self) -> Result<()> {
+        self.render_pipeline.reset_surface_presented();
         let render_started = Instant::now();
         #[cfg(feature = "game_client")]
         {

@@ -346,7 +346,9 @@ pub async fn run_cnc_game(
                         // presented a wgpu surface (end_render present_surface_texture).
                         // Headless keeps capture-only promotion so headless smoke
                         // cannot forge playable_claim via live_frame_ok alone.
-                        if !runtime_headless_mode {
+                        if !runtime_headless_mode
+                            && engine.render_pipeline.last_surface_presented()
+                        {
                             if let Some(bridge) = runtime_host_bridge.as_mut() {
                                 bridge.note_windowed_surface_presented();
                             }

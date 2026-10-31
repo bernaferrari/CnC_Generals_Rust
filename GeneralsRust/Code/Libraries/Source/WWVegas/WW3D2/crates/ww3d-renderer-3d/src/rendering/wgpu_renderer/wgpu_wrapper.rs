@@ -462,6 +462,13 @@ impl WgpuWrapper {
         Ok(())
     }
 
+    /// Whether the active frame owns a surface texture that can be presented.
+    pub fn active_frame_has_surface(&self) -> bool {
+        self.active_frame
+            .as_ref()
+            .is_some_and(|frame| frame.surface_output.is_some())
+    }
+
     /// End rendering for the current frame. Equivalent to DX8 EndScene.
     pub fn end_scene(&mut self, flip_frame: bool) -> Result<()> {
         if let Some(mut frame) = self.active_frame.take() {

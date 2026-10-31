@@ -108,6 +108,7 @@ pub struct WgpuMainRenderer {
     ready_flag: Arc<AtomicBool>,
     registered_with_ww3d: bool,
     pending_frame: Option<ww3d_engine::RenderFrame>,
+    last_surface_presented: bool,
     pre_scene_callbacks: Vec<FrameCallback>,
     post_frame_callbacks: Vec<FrameCallback>,
     legacy_frame_clock: LegacyFrameClock,
@@ -254,6 +255,7 @@ impl WgpuMainRenderer {
             ready_flag,
             registered_with_ww3d,
             pending_frame: None,
+            last_surface_presented: false,
             pre_scene_callbacks: Vec::new(),
             post_frame_callbacks: Vec::new(),
             legacy_frame_clock: LegacyFrameClock::new(),
@@ -330,6 +332,7 @@ impl WgpuMainRenderer {
             ready_flag,
             registered_with_ww3d,
             pending_frame: None,
+            last_surface_presented: false,
             pre_scene_callbacks: Vec::new(),
             post_frame_callbacks: Vec::new(),
             legacy_frame_clock: LegacyFrameClock::new(),
@@ -373,6 +376,16 @@ impl WgpuMainRenderer {
         Ok(())
     }
 
+    /// Clear the last result before a new application render attempt.
+    pub fn reset_surface_presented(&mut self) {
+        self.last_surface_presented = false;
+    }
+
+    /// True only when this renderer completed a frame with a window surface.
+    pub fn last_surface_presented(&self) -> bool {
+        self.last_surface_presented
+    }
+
     /// Begin a new frame.
     ///
     /// FRAME CLOCK: the logic frame clock (`ww3d_engine` `last_frame_start`) is
@@ -384,6 +397,7 @@ impl WgpuMainRenderer {
     /// only reads the clock; `self.frame_start` below is this renderer's own
     /// stats clock (frame_accumulator in end_frame), not the logic dt chain.
     pub fn begin_frame(&mut self) -> RendererResult<()> {
+        self.last_surface_presented = false;
         self.frame_start = Instant::now();
         self.shadow_caster_submissions.clear();
         self.shadow_caster_count_hint = 0;
@@ -527,6 +541,7 @@ impl WgpuMainRenderer {
                     }
                     Ok(())
                 });
+            let has_window_surface = frame.has_window_surface();
             let end_result = ww3d_engine::end_render(frame)
                 .map_err(|err| RendererError::RenderError(err.to_string()));
             let frame_work_result = match (frame_work_result, callback_result) {
@@ -535,7 +550,10 @@ impl WgpuMainRenderer {
             };
 
             match (frame_work_result, end_result) {
-                (Ok(stats), Ok(())) => stats,
+                (Ok(stats), Ok(())) => {
+                    self.last_surface_presented = has_window_surface;
+                    stats
+                }
                 (Err(work_err), Ok(())) => return Err(work_err),
                 (Ok(_), Err(end_err)) => return Err(end_err),
                 (Err(work_err), Err(end_err)) => {
@@ -581,7 +599,9 @@ impl WgpuMainRenderer {
                         renderer_guard.take_pending_shadow_caster_submissions(),
                     ))
                 })?;
+                let has_window_surface = backend.active_frame_has_surface();
                 backend.end_scene(true)?;
+                self.last_surface_presented = has_window_surface;
                 (stats, shadow_submissions)
             };
             self.sync_shadow_submissions(shadow_submissions);
