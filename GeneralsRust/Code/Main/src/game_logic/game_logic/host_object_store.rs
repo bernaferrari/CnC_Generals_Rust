@@ -121,8 +121,8 @@ impl HostObjectStore {
         &self.registration_order
     }
 
-    /// Admit a new object lifetime after its ID becomes unoccupied.
-    pub fn admit(&mut self, id: ObjectId, object: Object) -> Option<Object> {
+    /// Internal storage operation; callers must validate the new lifetime first.
+    pub(crate) fn admit(&mut self, id: ObjectId, object: Object) -> Option<Object> {
         #[cfg(feature = "game_client")]
         assert!(
             object.jet_ai.lockon_runtime.is_none(),
@@ -149,13 +149,13 @@ impl HostObjectStore {
         self.map.insert(id, object)
     }
 
-    pub fn remove(&mut self, id: &ObjectId) -> Option<Object> {
+    pub(crate) fn remove(&mut self, id: &ObjectId) -> Option<Object> {
         let object = self.map.remove(id)?;
         self.registration_order.retain(|existing| existing != id);
         Some(object)
     }
 
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.map.clear();
         self.registration_order.clear();
         self.ordinary_lookup_hidden_ids = None;

@@ -468,21 +468,21 @@ fn team_hunt_membership_named_leave_retirement_and_reset_are_session_owned() {
         peer.ai_group_members_of(first).as_deref(),
         Some(&[second, first][..])
     );
-    // Reusing an ID through the public store must not attach the new birth
-    // to the previous object's group.
-    let removed = peer.objects.remove(&first).unwrap();
+    // Finish the previous lifetime before admitting a replacement with the
+    // same ID; its group membership must not follow the new birth.
+    peer.destroy_object(first).unwrap();
+    peer.process_destroy_list();
     let replacement = generals_main::game_logic::Object::new(
         generals_main::game_logic::ThingTemplate::new("Replacement"),
         first,
         generals_main::game_logic::Team::USA,
     );
-    peer.objects.admit(first, replacement);
+    peer.try_add_object(replacement).unwrap();
     assert_eq!(peer.ai_group_id_of(first), None);
     assert_eq!(
         peer.ai_group_members_of(second).as_deref(),
         Some(&[second][..])
     );
-    drop(removed);
     peer.reset();
     assert_eq!(peer.ai_group_id_of(first), None);
     assert_eq!(owner.ai_group_id_of(first), None);
