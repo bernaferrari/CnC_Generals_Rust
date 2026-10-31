@@ -31,15 +31,14 @@ impl NativeLoadSurface<'_> {
         if !self.forward.is_ready() {
             return Err("native loading surface is unavailable".into());
         }
-        self.forward
-            .renderer
-            .begin_frame()
-            .map_err(|error| error.to_string())?;
         let mut overlay = |frame: &mut ww3d_engine::RenderFrame| ui(frame, None);
-        self.forward
-            .renderer
-            .end_frame_with_scene_policy(true, Some(&mut overlay))
-            .map_err(|error| error.to_string())
+        ww3d_renderer_3d::rendering::wgpu_main_renderer::present_optional_frame(
+            &mut self.forward.renderer,
+            |renderer| renderer.begin_frame(),
+            |renderer| renderer.end_frame_with_scene_policy(true, Some(&mut overlay)),
+        )
+        .map(|_| ())
+        .map_err(|error| error.to_string())
     }
 }
 impl RenderPipeline {

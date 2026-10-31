@@ -13,6 +13,32 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+/// Attempt an optional loading-screen frame. The returned boolean records
+/// whether a frame was actually finished, rather than just attempted.
+pub fn present_optional_frame<T>(
+    renderer: &mut T,
+    begin: impl FnOnce(&mut T) -> RendererResult<()>,
+    finish: impl FnOnce(&mut T) -> RendererResult<()>,
+) -> RendererResult<bool> {
+    match begin(renderer) {
+        Ok(()) => {}
+        Err(RendererError::RenderError(message))
+            if matches!(
+                message.as_str(),
+                "surface occluded"
+                    | "surface timeout"
+                    | "Failed to acquire surface texture: surface occluded"
+                    | "Failed to acquire surface texture: surface timeout"
+            ) =>
+        {
+            return Ok(false);
+        }
+        Err(error) => return Err(error),
+    }
+    finish(renderer)?;
+    Ok(true)
+}
 use wgpu::{Device, Queue, Surface, SurfaceConfiguration, TextureFormat};
 use ww3d_assets::AssetManager;
 use ww3d_core::errors::{W3DError, W3DResult};
