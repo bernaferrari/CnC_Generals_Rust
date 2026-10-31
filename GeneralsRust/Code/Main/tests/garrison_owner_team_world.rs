@@ -2808,3 +2808,75 @@ fn presentation_keeps_shared_inventory_above_thirty_two_items() {
         assert_eq!(object.max_garrison, 40);
     }
 }
+
+#[test]
+fn full_shared_pools_do_not_readmit_a_contained_passenger_at_another_entrance() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    for (cave, capacity) in [(false, 1), (true, 1), (false, 2), (true, 2)] {
+        let (mut game, _, rider) = world_with_tunnel_capacity(&map, false, Some(capacity));
+        let template = if cave { "OwnedCave" } else { "OwnedTunnel" };
+        let a = game
+            .create_object_for_player(template, 2, Vec3::new(50., 0., 50.))
+            .unwrap();
+        let b = game
+            .create_object_for_player(template, 2, Vec3::new(70., 0., 50.))
+            .unwrap();
+        for entrance in [a, b] {
+            if cave {
+                game.host_object_mut(entrance)
+                    .unwrap()
+                    .install_cave_contain_residual(7);
+                game.cave_system_residual_mut()
+                    .register_cave(entrance, 7, Team::USA);
+            } else {
+                game.host_object_mut(entrance)
+                    .unwrap()
+                    .install_tunnel_network_residual();
+            }
+        }
+        assert!(
+            game.unit_command_set_ai_state(rider, AIState::Entering)
+                .unwrap()
+        );
+        game.host_object_mut(rider).unwrap().target = Some(a);
+        game.try_physics_collide(rider, a, 1.0).unwrap();
+        assert_eq!(game.host_object(rider).unwrap().contained_by, Some(a));
+        assert!(
+            game.unit_command_set_ai_state(rider, AIState::Docking)
+                .unwrap()
+        );
+        game.host_object_mut(rider).unwrap().target = Some(b);
+        game.update_with_dt(1.0 / 30.0);
+        assert_eq!(
+            game.host_object(rider).unwrap().contained_by,
+            Some(a),
+            "cave={cave} capacity={capacity}"
+        );
+        assert!(
+            !game
+                .host_object(b)
+                .unwrap()
+                .contained_units()
+                .contains(&rider),
+            "cave={cave} capacity={capacity}"
+        );
+        assert_eq!(game.host_authoritative_contained_units(b), vec![rider]);
+        assert_eq!(
+            CommandExecutor::new(&mut game, 2)
+                .execute_command(GameCommand {
+                    command_type: CommandType::Exit,
+                    player_id: 2,
+                    command_id: 91,
+                    timestamp: std::time::UNIX_EPOCH,
+                    selected_units: vec![b],
+                    modifier_keys: ModifierKeys::default(),
+                })
+                .unwrap(),
+            CommandResult::Success,
+            "cave={cave} capacity={capacity}"
+        );
+        assert_eq!(game.host_object(rider).unwrap().contained_by, None);
+        assert!(game.host_authoritative_contained_units(b).is_empty());
+    }
+}

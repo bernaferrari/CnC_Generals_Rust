@@ -838,6 +838,24 @@ impl GameLogic {
                     } else {
                         container_id
                     };
+                    // A held passenger exits through the shared tracker; it
+                    // cannot be re-admitted at another entrance. C++
+                    // OpenContain::addToContain rejects already-contained
+                    // objects, while cross-entrance exit uses AI_EXIT.
+                    let shared_target = self.objects.get(&container_id).is_some_and(|container| {
+                        container.is_tunnel_network_style_container()
+                            || container.is_cave_style_container()
+                    });
+                    if shared_target
+                        && (self
+                            .objects
+                            .get(&object_id)
+                            .is_some_and(|rider| rider.contained_by.is_some())
+                            || self.tunnel_network.player_holding_unit(object_id).is_some()
+                            || self.cave_system.index_holding_unit(object_id).is_some())
+                    {
+                        continue;
+                    }
                     // C++ OpenContain::onCollide ejects foreign riders first,
                     // then isValidContainerFor + addToContain.
                     if normal_enter {
@@ -1002,14 +1020,7 @@ impl GameLogic {
                         continue;
                     }
 
-                    // Tunnel network residual: units already in the shared pool may
-                    // transfer to another allied tunnel without walking (can_move false).
-                    let already_in_tunnel_network = (container_is_tunnel_network
-                        && self.tunnel_network.player_holding_unit(object_id).is_some())
-                        || (container_is_cave
-                            && self.cave_system.index_holding_unit(object_id).is_some());
-
-                    if (!can_move && !already_in_tunnel_network)
+                    if !can_move
                         || !container_is_alive
                         || container_under_construction
                         || !container_can_contain
@@ -1063,11 +1074,7 @@ impl GameLogic {
                     }
 
                     let enter_range = selection_radius + container_radius + 4.0;
-                    // Cross-tunnel residual transfer: skip walk when already in pool.
-                    if !already_in_tunnel_network
-                        && can_move
-                        && position.distance(container_pos) > enter_range
-                    {
+                    if can_move && position.distance(container_pos) > enter_range {
                         if matches!(state, AIState::Entering) {
                             self.path_approach_with_state_ignoring(
                                 object_id,
@@ -1115,16 +1122,14 @@ impl GameLogic {
                         container_team,
                     );
                     let tunnel_has_space = if container_is_tunnel_network {
-                        self.tunnel_network.is_in_network(tunnel_player, object_id)
-                            || self.tunnel_network.has_capacity(tunnel_player)
+                        self.tunnel_network.has_capacity(tunnel_player)
                     } else if container_is_cave {
                         let idx = self
                             .objects
                             .get(&container_id)
                             .map(|c| c.cave_index)
                             .unwrap_or(0);
-                        self.cave_system.is_in_network(idx, object_id)
-                            || self.cave_system.has_capacity(idx)
+                        self.cave_system.has_capacity(idx)
                     } else {
                         true
                     };
