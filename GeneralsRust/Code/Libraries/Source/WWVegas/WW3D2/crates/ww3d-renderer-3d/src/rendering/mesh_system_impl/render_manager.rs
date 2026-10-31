@@ -283,6 +283,9 @@ pub struct MeshRenderManager {
     /// textures are built with pixel data but no GPU upload, so the mesh
     /// manager owns the first-bind upload, keyed by texture name.
     gpu_texture_views: HashMap<String, Arc<wgpu::TextureView>>,
+    // Actual texture instances can share a name but contain different pixels.
+    // Weak ownership prevents the cache from extending their game-world lifetime.
+    owned_texture_views: HashMap<usize, (std::sync::Weak<TextureClass>, Arc<wgpu::TextureView>)>,
     stats: MeshRenderStats,
     pipeline_mgr: WgpuPipelineManager,
     pass_texture_provider: Option<MeshPassTextureProvider>,
@@ -352,6 +355,7 @@ impl MeshRenderManager {
             gpu_device,
             preparedmodels: HashMap::new(),
             gpu_texture_views: HashMap::new(),
+            owned_texture_views: HashMap::new(),
             fallback_bind_warnings: HashMap::new(),
             stats: MeshRenderStats::default(),
             pipeline_mgr,
@@ -1535,7 +1539,13 @@ impl MeshRenderManager {
                     view_cube: self.fallback_textures.view_cube.clone(),
                     sampler,
                 }
-            } else if let Some(view) = self.ensure_gpu_texture_view(texture) {
+            } else if let Some(view) = if texture.raw_pixels().is_empty() {
+                self.gpu_texture_views
+                    .get(&texture.get_name().to_ascii_lowercase())
+                    .cloned()
+            } else {
+                self.ensure_owned_gpu_texture_view(texture)
+            } {
                 let sampler_desc = sampler_descriptor_for_settings(&texture.stage_settings);
                 let sampler = Arc::new(self.gpu_device.wgpu_device().create_sampler(&sampler_desc));
                 StageResources {
@@ -1650,6 +1660,38 @@ impl MeshRenderManager {
             return Some(Arc::clone(view));
         }
 
+        let view = self.upload_gpu_texture_view(texture)?;
+        self.gpu_texture_views.insert(key, Arc::clone(&view));
+        Some(view)
+    }
+
+    fn ensure_owned_gpu_texture_view(
+        &mut self,
+        texture: &Arc<TextureClass>,
+    ) -> Option<Arc<wgpu::TextureView>> {
+        if texture.raw_pixels().is_empty() {
+            return None;
+        }
+        let key = Arc::as_ptr(texture) as usize;
+        if let Some((owner, view)) = self.owned_texture_views.get(&key) {
+            if owner
+                .upgrade()
+                .is_some_and(|owner| Arc::ptr_eq(&owner, texture))
+            {
+                return Some(Arc::clone(view));
+            }
+        }
+        if self.owned_texture_views.len() >= 1024 && self.owned_texture_views.len() % 256 == 0 {
+            self.owned_texture_views
+                .retain(|_, (owner, _)| owner.strong_count() != 0);
+        }
+        let view = self.upload_gpu_texture_view(texture)?;
+        self.owned_texture_views
+            .insert(key, (Arc::downgrade(texture), Arc::clone(&view)));
+        Some(view)
+    }
+
+    fn upload_gpu_texture_view(&self, texture: &TextureClass) -> Option<Arc<wgpu::TextureView>> {
         let pixels = texture.raw_pixels();
         let (width, height) = (texture.width, texture.height);
         if pixels.is_empty() || width == 0 || height == 0 {
@@ -1708,7 +1750,6 @@ impl MeshRenderManager {
         );
         let view = Arc::new(gpu_texture.create_view(&wgpu::TextureViewDescriptor::default()));
 
-        self.gpu_texture_views.insert(key, Arc::clone(&view));
         Some(view)
     }
 
@@ -1893,6 +1934,56 @@ mod per_mesh_lighting_tests {
     use super::*;
     use crate::rendering::camera_system::CameraClass;
     use crate::rendering::lighting_system::LightEnvironmentClass;
+
+    #[test]
+    fn distinct_same_name_owned_textures_have_distinct_gpu_views() {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+            apply_limit_buckets: false,
+        }))
+        .expect("texture-cache integration test requires a GPU adapter");
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+        let gpu = Arc::new(GpuDevice::from_shared(Arc::new(device), Arc::new(queue)));
+        let mut first = MeshRenderManager::new(Arc::clone(&gpu));
+        let mut second = MeshRenderManager::new(gpu);
+        let mut red = TextureClass::new("same.tga", 1, 1);
+        red.replace_pixels(vec![255, 0, 0, 255]).unwrap();
+        let mut blue = TextureClass::new("same.tga", 1, 1);
+        blue.replace_pixels(vec![0, 0, 255, 255]).unwrap();
+        let red = Arc::new(red);
+        let blue = Arc::new(blue);
+        let mut pass = MaterialPassClass::new();
+        pass.set_texture(0, Arc::clone(&red));
+        let red_view = first.stage_resources_for(&pass, 0).view_2d;
+        let red_again = first.stage_resources_for(&pass, 0).view_2d;
+        assert!(Arc::ptr_eq(&red_view, &red_again));
+        pass.set_texture(0, Arc::clone(&blue));
+        let blue_view = first.stage_resources_for(&pass, 0).view_2d;
+        assert!(
+            !Arc::ptr_eq(&red_view, &blue_view),
+            "same-name textures must not alias"
+        );
+        let red_owner = Arc::downgrade(&red);
+        drop(red);
+        assert!(
+            red_owner.upgrade().is_none(),
+            "the renderer must not retain the world texture"
+        );
+        let peer_view = second.stage_resources_for(&pass, 0).view_2d;
+        assert!(!Arc::ptr_eq(&blue_view, &peer_view));
+        drop(first);
+        assert!(Arc::ptr_eq(
+            &peer_view,
+            &second.stage_resources_for(&pass, 0).view_2d
+        ));
+    }
 
     #[test]
     fn first_bind_texture_cache_reuses_views_within_its_renderer_only() {
