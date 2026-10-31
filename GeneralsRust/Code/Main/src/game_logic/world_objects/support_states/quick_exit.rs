@@ -96,7 +96,7 @@ impl GameLogic {
             unit.movement.current_path_index = 0;
             unit.movement.target_position = None;
             unit.waiting_for_path = false;
-            unit.queue_for_path_frames = 0;
+            unit.queue_for_path_frame = 0;
             unit.ignored_obstacle_id = None;
             unit.set_locomotor_goal_none();
             unit.model_condition_bits &=

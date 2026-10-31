@@ -789,7 +789,7 @@ fn locomotor_path_flags_channel_via_set_movement() {
         o.is_braking = true;
         o.is_blocked_and_stuck = false;
         o.is_safe_path = true;
-        o.queue_for_path_frames = 3;
+        o.queue_for_path_frame = 3;
         o.path_timestamp = 42;
         o.waiting_for_path = true;
         o.movement.max_speed = 15.0;
@@ -804,7 +804,7 @@ fn locomotor_path_flags_channel_via_set_movement() {
     assert!(e.is_attack_path);
     assert!(e.is_braking);
     assert!(e.is_safe_path);
-    assert_eq!(e.queue_for_path_frames, 3);
+    assert_eq!(e.queue_for_path_frame, 3);
     assert_eq!(e.path_timestamp, 42);
 
     shadow.sync_from_host(&logic);
@@ -813,7 +813,7 @@ fn locomotor_path_flags_channel_via_set_movement() {
     assert_eq!(o.locomotor_surfaces, 0b101);
     assert!(o.is_attack_path);
     assert!(o.is_braking);
-    assert_eq!(o.queue_for_path_frames, 3);
+    assert_eq!(o.queue_for_path_frame, 3);
     assert_eq!(o.path_timestamp, 42);
 }
 

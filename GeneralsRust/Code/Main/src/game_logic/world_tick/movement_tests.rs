@@ -955,7 +955,7 @@ fn idle_wing_keeps_a_queued_repath() {
     tmpl.add_kind_of(KindOf::Aircraft);
     let mut unit = Object::new(tmpl, ObjectId(9534), Team::USA);
     unit.loco_appearance = LocomotorAppearance::Wings;
-    unit.queue_for_path_frames = 15;
+    unit.queue_for_path_frame = 15;
     unit.ground_height = 0.0;
     unit.set_position(Vec3::ZERO);
     unit.movement.target_position = Some(Vec3::ZERO);
@@ -963,7 +963,7 @@ fn idle_wing_keeps_a_queued_repath() {
     logic.objects.insert(ObjectId(9534), unit);
     logic.update_movement_for_test(&[ObjectId(9534)], 1.0 / 30.0);
     let obj = logic.objects.get(&ObjectId(9534)).expect("jet");
-    assert_eq!(obj.queue_for_path_frames, 15);
+    assert_eq!(obj.queue_for_path_frame, 15);
 }
 
 #[test]
@@ -975,7 +975,7 @@ fn moving_unit_already_on_goal_finishes_once() {
     bind_fixture_locomotor(&mut unit, "RaptorJetLocomotor");
     unit.loco_appearance = LocomotorAppearance::Wings;
     unit.set_ai_state(AIState::Moving, &mut ObjectAudio::record(&mut Vec::new()));
-    unit.queue_for_path_frames = 15;
+    unit.queue_for_path_frame = 15;
     unit.ignored_obstacle_id = Some(ObjectId(7));
     unit.ground_height = 0.0;
     unit.set_position(Vec3::ZERO);
@@ -988,17 +988,17 @@ fn moving_unit_already_on_goal_finishes_once() {
     logic.objects.insert(ObjectId(9535), unit);
     logic.update_movement_for_test(&[ObjectId(9535)], 1.0 / 30.0);
     let obj = logic.objects.get(&ObjectId(9535)).expect("jet");
-    assert_eq!(obj.queue_for_path_frames, 0);
+    assert_eq!(obj.queue_for_path_frame, 0);
     assert!(obj.ignored_obstacle_id.is_none());
     assert!(!obj.status.moving);
     assert!(obj.movement.target_position.is_none());
     if let Some(obj) = logic.objects.get_mut(&ObjectId(9535)) {
-        obj.queue_for_path_frames = 15;
+        obj.queue_for_path_frame = 15;
         obj.ignored_obstacle_id = Some(ObjectId(7));
     }
     logic.update_movement_for_test(&[ObjectId(9535)], 1.0 / 30.0);
     let obj = logic.objects.get(&ObjectId(9535)).expect("jet");
-    assert_eq!(obj.queue_for_path_frames, 15);
+    assert_eq!(obj.queue_for_path_frame, 15);
     assert_eq!(obj.ignored_obstacle_id, Some(ObjectId(7)));
 }
 
@@ -1224,12 +1224,12 @@ fn fast_repath_waits_one_logic_second() {
     assert!(unit.begin_request_move_path(Vec3::new(10.0, 0.0, 0.0), 100));
     assert_eq!(unit.path_timestamp, 0);
     assert!(unit.begin_request_move_path(Vec3::new(20.0, 0.0, 0.0), 102));
-    assert_eq!(unit.queue_for_path_frames, 0);
+    assert_eq!(unit.queue_for_path_frame, 0);
     unit.path_timestamp = 100;
     assert!(!unit.begin_request_move_path(Vec3::new(20.0, 0.0, 0.0), 102));
-    assert_eq!(unit.queue_for_path_frames, 30);
+    assert_eq!(unit.queue_for_path_frame, 132);
     assert!(unit.waiting_for_path);
-    unit.queue_for_path_frames = 0;
+    unit.queue_for_path_frame = 0;
     assert!(unit.begin_request_move_path(Vec3::new(30.0, 0.0, 0.0), 103));
     unit.movement.path = vec![Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0)];
     unit.is_blocked_and_stuck = true;
@@ -1237,7 +1237,7 @@ fn fast_repath_waits_one_logic_second() {
     unit.num_frames_blocked = 12;
     unit.path_timestamp = 200;
     assert!(!unit.begin_request_move_path(Vec3::new(40.0, 0.0, 0.0), 202));
-    assert_eq!(unit.queue_for_path_frames, 30);
+    assert_eq!(unit.queue_for_path_frame, 232);
     assert_eq!(unit.ignore_collisions_until_frame, 262);
     assert_eq!(unit.num_frames_blocked, 0);
     assert!(!unit.is_blocked);
@@ -1285,7 +1285,7 @@ fn flying_non_aircraft_gets_a_two_node_quick_path() {
     approach.movement.path = kept.clone();
     approach.path_timestamp = 10;
     assert!(!approach.begin_request_approach_path(Vec3::new(40.0, 0.0, 0.0), 12));
-    assert_eq!(approach.queue_for_path_frames, 60);
+    assert_eq!(approach.queue_for_path_frame, 72);
     assert_eq!(approach.movement.path, kept);
     let jet_id = ObjectId(9643);
     let mut jet_tmpl = ThingTemplate::new("Jet");
@@ -1429,7 +1429,7 @@ fn stuck_failed_search_snaps_and_waits_one_second() {
     let unit = logic.objects.get(&id).expect("ranger");
     assert!(unit.movement.path.is_empty());
     assert!(!unit.do_final_position);
-    assert_eq!(unit.queue_for_path_frames, 0);
+    assert_eq!(unit.queue_for_path_frame, 0);
     assert!(!unit.waiting_for_path);
     assert!(!unit.is_blocked_and_stuck);
     assert_eq!(unit.num_frames_blocked, 0);
@@ -1455,7 +1455,7 @@ fn stuck_failed_search_snaps_and_waits_one_second() {
     let stuck = logic.objects.get(&ObjectId(9714)).expect("stuck");
     assert!(stuck.movement.path.is_empty());
     assert!(!stuck.do_final_position);
-    assert_eq!(stuck.queue_for_path_frames, 30);
+    assert_eq!(stuck.queue_for_path_frame, 30);
     assert!(stuck.waiting_for_path);
     assert_eq!(stuck.requested_destination, Some(far));
     assert_eq!(stuck.path_extra_distance, 100.0);
@@ -1787,7 +1787,7 @@ fn fast_attack_approach_and_safe_repath_wait_two_seconds() {
     assert!(attack.begin_request_attack_path(None, Vec3::new(10.0, 0.0, 0.0), 100));
     attack.path_timestamp = 100;
     assert!(!attack.begin_request_attack_path(None, Vec3::new(20.0, 0.0, 0.0), 102));
-    assert_eq!(attack.queue_for_path_frames, 60);
+    assert_eq!(attack.queue_for_path_frame, 162);
     assert_eq!(
         attack.locomotor_goal_type,
         crate::game_logic::object::LocoGoalType::None
@@ -1798,7 +1798,7 @@ fn fast_attack_approach_and_safe_repath_wait_two_seconds() {
     assert!(approach.begin_request_approach_path(Vec3::new(10.0, 0.0, 0.0), 100));
     approach.path_timestamp = 100;
     assert!(!approach.begin_request_approach_path(Vec3::new(20.0, 0.0, 0.0), 102));
-    assert_eq!(approach.queue_for_path_frames, 60);
+    assert_eq!(approach.queue_for_path_frame, 162);
     assert_ne!(
         approach.locomotor_goal_type,
         crate::game_logic::object::LocoGoalType::None
@@ -1808,7 +1808,7 @@ fn fast_attack_approach_and_safe_repath_wait_two_seconds() {
     assert!(safe.begin_request_safe_path(ObjectId(1), Vec3::new(10.0, 0.0, 0.0), 100));
     safe.path_timestamp = 100;
     assert!(!safe.begin_request_safe_path(ObjectId(1), Vec3::new(20.0, 0.0, 0.0), 102));
-    assert_eq!(safe.queue_for_path_frames, 60);
+    assert_eq!(safe.queue_for_path_frame, 162);
 }
 
 #[test]
@@ -1822,13 +1822,14 @@ fn expired_path_delay_is_queued_again() {
     assert!(unit.begin_request_move_path(dest, 100));
     unit.path_timestamp = 100;
     assert!(!unit.begin_request_move_path(Vec3::new(50.0, 0.0, 0.0), 102));
-    unit.queue_for_path_frames = 1;
+    unit.queue_for_path_frame = 1;
     unit.movement.max_speed = 20.0;
     logic.objects.insert(id, unit);
-    logic.tick_physics_collisions_all();
+    logic.frame = 1;
+    logic.update_owned_path_retry(id);
     logic.process_pathfind_queue();
     let obj = logic.objects.get(&id).expect("ranger");
-    assert_eq!(obj.queue_for_path_frames, 0);
+    assert_eq!(obj.queue_for_path_frame, 0);
     assert!(!obj.movement.path.is_empty());
 
     let atk_id = ObjectId(9625);
@@ -1850,17 +1851,18 @@ fn expired_path_delay_is_queued_again() {
     attack.path_timestamp = 200;
     assert!(!attack.begin_request_attack_path(Some(victim_id), Vec3::new(30.0, 0.0, 0.0), 202));
     assert!(attack.is_attack_path);
-    attack.queue_for_path_frames = 2;
+    attack.queue_for_path_frame = 2;
     logic.objects.insert(atk_id, attack);
-    logic.tick_physics_collisions_all();
+    logic.update_owned_path_retry(atk_id);
     let mid = logic.objects.get(&atk_id).expect("attack");
-    assert_eq!(mid.queue_for_path_frames, 1);
+    assert_eq!(mid.queue_for_path_frame, 2);
     assert!(mid.waiting_for_path);
     assert!(mid.movement.path.is_empty());
-    logic.tick_physics_collisions_all();
+    logic.frame = 2;
+    logic.update_owned_path_retry(atk_id);
     logic.process_pathfind_queue();
     let done = logic.objects.get(&atk_id).expect("attack");
-    assert_eq!(done.queue_for_path_frames, 0);
+    assert_eq!(done.queue_for_path_frame, 0);
     assert!(done.is_attack_path);
     assert!(!done.movement.path.is_empty());
 }
@@ -3914,7 +3916,7 @@ fn stuck_unit_with_failing_patch_concedes_and_backs_off() {
         "concede must destroy the path instead of hammering A*"
     );
     assert_eq!(
-        obj.queue_for_path_frames, 30,
+        obj.queue_for_path_frame, 30,
         "concede queues for path 1s (LOGICFRAMES_PER_SECOND)"
     );
     assert!(obj.movement.target_position.is_none());
@@ -3969,7 +3971,7 @@ fn stuck_unit_with_failing_patch_concedes_and_backs_off() {
     // After the deadline expires, a successful patch installs and clears
     // stuck bookkeeping (AIUpdate.cpp:1753-1754), without a tunnel.
     logic.frame = 80;
-    logic.objects.get_mut(&id).unwrap().queue_for_path_frames = 0;
+    logic.objects.get_mut(&id).unwrap().queue_for_path_frame = 0;
     logic.update_movement_for_test(&[id], 1.0 / 30.0);
     let obj = logic.objects.get(&id).expect("unit");
     assert!(
@@ -4015,7 +4017,7 @@ fn blocked_not_jammed_unit_concedes_without_tunnel() {
     let obj = logic.objects.get(&id).expect("unit");
     assert_reachable_side_of_wall(&logic, obj, start_cell.x + 9);
     assert!(obj.retry_path, "C++ retries a closest-path prefix");
-    assert_eq!(obj.queue_for_path_frames, 0);
+    assert_eq!(obj.queue_for_path_frame, 0);
     assert!(
         !obj.can_path_through_units,
         "tunnel arms only for blocked-and-stuck jams"

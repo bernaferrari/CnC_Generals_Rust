@@ -34,7 +34,7 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
 }
 fn observe(world: &mut GameLogic, id: ObjectId, frame: u32) {
     let (actor, audio) = world.host_object_and_audio_events_mut(id).unwrap();
-    actor.tick_path_queue(frame, &mut crate::game_logic::ObjectAudio::record(audio));
+    actor.tick_temporary_move_overlay(frame, &mut crate::game_logic::ObjectAudio::record(audio));
 }
 fn bytes(world: &GameLogic, id: ObjectId) -> Vec<u8> {
     serde_json::to_vec(

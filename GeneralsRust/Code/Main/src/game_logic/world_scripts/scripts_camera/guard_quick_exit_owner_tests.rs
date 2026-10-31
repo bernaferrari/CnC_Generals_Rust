@@ -594,7 +594,7 @@ fn expired_object_overlay_fresh_return_cancellation(delayed: bool) {
             resumed.waiting,
             "recent-path admission must preserve the actual pending request"
         );
-        assert!(owner.host_object(id).unwrap().queue_for_path_frames > 0);
+        assert!(owner.host_object(id).unwrap().queue_for_path_frame > 0);
         assert_eq!(
             resumed.path.last().copied(),
             Some(temporary_goal),

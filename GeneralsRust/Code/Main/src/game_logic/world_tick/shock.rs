@@ -117,16 +117,13 @@ impl GameLogic {
             .iter()
             .map(|(id, birth, _)| (*id, birth.clone()))
             .collect();
-        let mut expired_paths: Vec<ObjectId> = Vec::new();
         for (id, o) in self.objects.registered_mut() {
             o.clear_blocked_frame_state();
             o.tick_move_away_state(self.locomotor_definitions.as_ref());
-            if o.tick_path_queue(
+            o.tick_temporary_move_overlay(
                 self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-            ) {
-                expired_paths.push(*id);
-            }
+            );
             if physics_ids.get(id).is_some_and(|birth| {
                 birth.ptr_eq(&std::sync::Arc::downgrade(&o.visual_draw_identity_token))
             }) {
@@ -144,7 +141,6 @@ impl GameLogic {
             }
             self.apply_arrival_goal_snap(id, None);
         }
-        self.requeue_expired_path_requests(&expired_paths);
         for (id, birth, ground_y) in ground_heights {
             if !self.objects.get(&id).is_some_and(|object| {
                 birth.ptr_eq(&std::sync::Arc::downgrade(
@@ -554,8 +550,8 @@ impl GameLogic {
             return 0;
         }
         use crate::game_logic::weapon_bootstrap::{
-            WEAPON_AFFECTS_DEFAULT, host_radius_damage_affects_for_weapon_name,
-            radius_damage_affects_victim,
+            host_radius_damage_affects_for_weapon_name, radius_damage_affects_victim,
+            WEAPON_AFFECTS_DEFAULT,
         };
         let affects = native_rule
             .as_ref()
@@ -785,9 +781,9 @@ impl GameLogic {
         }
 
         use crate::game_logic::weapon_bootstrap::{
-            WEAPON_AFFECTS_DEFAULT, host_primary_damage_radius_for_weapon_name,
-            host_radius_damage_affects_for_weapon_name, host_secondary_damage_for_weapon_name,
-            host_secondary_damage_radius_for_weapon_name, radius_damage_affects_victim,
+            host_primary_damage_radius_for_weapon_name, host_radius_damage_affects_for_weapon_name,
+            host_secondary_damage_for_weapon_name, host_secondary_damage_radius_for_weapon_name,
+            radius_damage_affects_victim, WEAPON_AFFECTS_DEFAULT,
         };
         // C++ dealDamageInternal: authored primary/secondary radii, no 1.5x ring.
         let (damage_mult, radius_mult) =
@@ -1030,8 +1026,8 @@ impl GameLogic {
         slot: u8,
     ) -> bool {
         use crate::game_logic::weapon_bootstrap::{
-            DEFAULT_SCATTER_HIT_RADIUS, host_effective_scatter_radius,
-            scatter_misses_intended_target, scatter_seed_for_shot,
+            host_effective_scatter_radius, scatter_misses_intended_target, scatter_seed_for_shot,
+            DEFAULT_SCATTER_HIT_RADIUS,
         };
         let (wname, tgt_inf, hit_r) = {
             let attacker = match self.objects.lookup(&attacker_id) {

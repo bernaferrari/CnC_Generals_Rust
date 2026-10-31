@@ -363,7 +363,7 @@ impl GameLogic {
                 {
                     return None;
                 }
-                if obj.waiting_for_path || obj.queue_for_path_frames > 0 {
+                if obj.waiting_for_path || obj.queue_for_path_frame > 0 {
                     return None;
                 }
                 let surfaces = if obj.locomotor_surfaces != 0 {
@@ -490,7 +490,7 @@ impl GameLogic {
                 if obj.is_blocked_and_stuck {
                     yield_stuck.push(id);
                 }
-            } else if obj.queue_for_path_frames == 0
+            } else if obj.queue_for_path_frame == 0
                 && !obj.waiting_for_path
                 && ((obj.movement.path.is_empty()
                     && obj.requested_destination.is_some()
@@ -886,7 +886,7 @@ impl GameLogic {
                     obj.is_exact_path = false;
                     obj.can_path_through_units = false;
                     obj.waiting_for_path = false;
-                    obj.queue_for_path_frames = 0;
+                    obj.queue_for_path_frame = 0;
                     obj.refresh_follow_path_extra_distance();
                     obj.is_blocked_and_stuck = false;
                     // C++ computePath always clears these after patchPath
@@ -987,8 +987,9 @@ impl GameLogic {
             obj.final_position = goal_pos;
             obj.do_final_position = false;
             obj.set_locomotor_goal_none();
-            obj.queue_for_path_frames =
-                crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
+            obj.queue_for_path_frame = self.frame.wrapping_add(
+                crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL,
+            );
             obj.num_frames_blocked = 0;
             obj.path_timestamp = self.frame;
             obj.is_blocked = false;
@@ -1565,7 +1566,7 @@ impl GameLogic {
                                     obj.maintain_pos_valid = false;
                                     obj.can_path_through_units = false;
                                     obj.ignored_obstacle_id = None;
-                                    obj.queue_for_path_frames = 0;
+                                    obj.queue_for_path_frame = 0;
                                     obj.set_precise_z_pos(false);
                                     obj.set_status_moving(false);
                                     if adjusts_destination_now(obj) {
@@ -1620,7 +1621,7 @@ impl GameLogic {
                                         obj.can_path_through_units = false;
                                         obj.set_precise_z_pos(false);
                                         obj.ignored_obstacle_id = None;
-                                        obj.queue_for_path_frames = 0;
+                                        obj.queue_for_path_frame = 0;
                                         idle_after_locomotion |= matches!(
                                             obj.ai_state(),
                                             AIState::Moving | AIState::AttackMoving
@@ -2123,7 +2124,7 @@ impl GameLogic {
                                             obj.maintain_pos_valid = false;
                                             obj.can_path_through_units = false;
                                             obj.ignored_obstacle_id = None;
-                                            obj.queue_for_path_frames = 0;
+                                            obj.queue_for_path_frame = 0;
                                             obj.set_precise_z_pos(false);
                                             obj.set_status_moving(false);
                                             if adjusts_destination_now(obj) {
@@ -2186,7 +2187,7 @@ impl GameLogic {
                                                 obj.can_path_through_units = false;
                                                 obj.set_precise_z_pos(false);
                                                 obj.ignored_obstacle_id = None;
-                                                obj.queue_for_path_frames = 0;
+                                                obj.queue_for_path_frame = 0;
                                                 idle_after_locomotion |= matches!(
                                                     obj.ai_state(),
                                                     AIState::Moving | AIState::AttackMoving
@@ -2863,7 +2864,7 @@ impl GameLogic {
                                             obj.can_path_through_units = false;
                                             obj.set_precise_z_pos(false);
                                             obj.ignored_obstacle_id = None;
-                                            obj.queue_for_path_frames = 0;
+                                            obj.queue_for_path_frame = 0;
                                             idle_after_locomotion |= matches!(
                                                 obj.ai_state(),
                                                 AIState::Moving | AIState::AttackMoving
@@ -3036,7 +3037,7 @@ impl GameLogic {
                                         obj.can_path_through_units = false;
                                         obj.set_precise_z_pos(false);
                                         obj.ignored_obstacle_id = None;
-                                        obj.queue_for_path_frames = 0;
+                                        obj.queue_for_path_frame = 0;
                                         idle_after_locomotion |= matches!(
                                             obj.ai_state(),
                                             AIState::Moving | AIState::AttackMoving

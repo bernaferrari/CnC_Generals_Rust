@@ -186,7 +186,7 @@ impl GameLogic {
                     state,
                     object.is_alive(),
                     !object.waiting_for_path
-                        && object.queue_for_path_frames == 0
+                        && object.queue_for_path_frame == 0
                         && object.movement.path.is_empty()
                         && !object.status.moving,
                 )
@@ -401,10 +401,7 @@ mod tests {
         assert!(!logic.host_object(id).unwrap().status.destroyed);
         for _ in 0..600 {
             let (object, output) = logic.host_object_and_audio_events_mut(id).unwrap();
-            assert!(
-                !object.tick_path_queue(0, &mut crate::game_logic::ObjectAudio::queue(output)),
-                "transport owns the absolute temporary deadline; observing the path queue does not expire it"
-            );
+            object.tick_temporary_move_overlay(0, &mut crate::game_logic::ObjectAudio::queue(output));
         }
         // Repeated observations in one logic frame never consume the saved deadline.
         assert_eq!(

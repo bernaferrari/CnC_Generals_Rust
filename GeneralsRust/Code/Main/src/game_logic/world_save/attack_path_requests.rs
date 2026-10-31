@@ -281,7 +281,7 @@ impl GameLogic {
                     if self
                         .objects
                         .get(&req.unit_id)
-                        .is_some_and(|unit| unit.queue_for_path_frames > 0)
+                        .is_some_and(|unit| unit.queue_for_path_frame > 0)
                     {
                         if let Some(unit) = self.objects.get_mut(&req.unit_id) {
                             unit.waiting_for_path = true;
@@ -300,9 +300,9 @@ impl GameLogic {
     }
 
     /// C++ AIUpdate when `now >= m_queueForPathFrame`: queueForPath and clear the timer.
-    pub(in crate::game_logic) fn requeue_expired_path_requests(&mut self, ids: &[ObjectId]) {
-        for &id in ids {
-            let _ = self.queue_initialized_path_request(id);
+    pub(in crate::game_logic) fn requeue_expired_path_request(&mut self, id: ObjectId) {
+        if let Some(request) = self.initialized_path_request(id) {
+            self.pathfinding_system.queue_path_retry(request);
         }
     }
 

@@ -1095,7 +1095,7 @@ pub enum WorldMutation {
         is_blocked_and_stuck: bool,
         is_braking: bool,
         is_safe_path: bool,
-        queue_for_path_frames: u32,
+        queue_for_path_frame: u32,
         path_timestamp: u32,
         cur_max_blocked_speed: f32,
         num_frames_blocked: u32,
@@ -2630,7 +2630,7 @@ impl GameWorld {
                     is_blocked_and_stuck,
                     is_braking,
                     is_safe_path,
-                    queue_for_path_frames,
+                    queue_for_path_frame,
                     path_timestamp,
                     cur_max_blocked_speed,
                     num_frames_blocked,
@@ -2652,7 +2652,7 @@ impl GameWorld {
                         e.is_blocked_and_stuck = is_blocked_and_stuck;
                         e.is_braking = is_braking;
                         e.is_safe_path = is_safe_path;
-                        e.queue_for_path_frames = queue_for_path_frames;
+                        e.queue_for_path_frame = queue_for_path_frame;
                         e.path_timestamp = path_timestamp;
                         e.cur_max_blocked_speed = cur_max_blocked_speed;
                         e.num_frames_blocked = num_frames_blocked;

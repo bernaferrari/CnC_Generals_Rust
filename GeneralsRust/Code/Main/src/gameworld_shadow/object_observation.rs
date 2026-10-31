@@ -1190,7 +1190,7 @@ impl GameWorldShadow {
         e.is_blocked_and_stuck = obj.is_blocked_and_stuck;
         e.is_braking = obj.is_braking;
         e.is_safe_path = obj.is_safe_path;
-        e.queue_for_path_frames = obj.queue_for_path_frames;
+        e.queue_for_path_frame = obj.queue_for_path_frame;
         e.path_timestamp = obj.path_timestamp;
         e.cur_max_blocked_speed = obj.cur_max_blocked_speed;
         e.num_frames_blocked = obj.num_frames_blocked;

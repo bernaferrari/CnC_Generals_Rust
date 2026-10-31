@@ -495,7 +495,7 @@ fn panic_follows_multiple_waypoints_and_finishes_after_real_locomotor_arrivals()
     assert_eq!(unit.movement.current_path_index, 0);
     assert!(unit.path_goal_position.is_some());
     assert_eq!(unit.path_goal_position, unit.requested_destination);
-    assert_eq!(unit.queue_for_path_frames, 0);
+    assert_eq!(unit.queue_for_path_frame, 0);
     assert_eq!(unit.ignored_obstacle_id, None);
     assert!(!unit.waiting_for_path);
     assert!(!unit.is_panicking);
@@ -550,7 +550,7 @@ fn panic_failure_does_not_advance_the_waypoint_and_terminal_uses_terminal_labels
     unit.retry_path = true;
     unit.path_goal_position = Some(current);
     unit.requested_destination = Some(current);
-    unit.queue_for_path_frames = 7;
+    unit.queue_for_path_frame = 7;
     unit.ignored_obstacle_id = Some(ObjectId(999_999));
     unit.try_one_more_repath = true;
     assert_panic_arrival_preconditions(unit);
@@ -571,7 +571,7 @@ fn panic_failure_does_not_advance_the_waypoint_and_terminal_uses_terminal_labels
     assert_eq!(unit.movement.target_position, None);
     assert_eq!(unit.path_goal_position, Some(current));
     assert_eq!(unit.requested_destination, Some(current));
-    assert_eq!(unit.queue_for_path_frames, 0);
+    assert_eq!(unit.queue_for_path_frame, 0);
     assert_eq!(unit.ignored_obstacle_id, None);
     assert!(!unit.waiting_for_path);
     assert!(unit.retry_path);

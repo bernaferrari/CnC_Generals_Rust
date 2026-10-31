@@ -310,7 +310,11 @@ impl PathfindingSystem {
                 }
             }
         }
-        if cells.is_empty() { None } else { Some(cells) }
+        if cells.is_empty() {
+            None
+        } else {
+            Some(cells)
+        }
     }
 
     /// C++ `processPathfindQueue` reset of `m_cumulativeCellsAllocated` + extent.
@@ -949,6 +953,24 @@ impl PathfindingSystem {
         }
         self.pending_paths.push_back(req);
         true
+    }
+
+    /// C++ keeps the existing queue position and resolves actor state when it
+    /// processes the ID. Refresh our request snapshot without losing the
+    /// existing order's path and FollowPath continuations.
+    pub(crate) fn queue_path_retry(&mut self, mut req: PendingHostPath) -> bool {
+        if let Some(existing) = self
+            .pending_paths
+            .iter_mut()
+            .find(|p| p.unit_id == req.unit_id)
+        {
+            req.waypoints = std::mem::take(&mut existing.waypoints);
+            req.follow_path_appends = std::mem::take(&mut existing.follow_path_appends);
+            req.restore_adjust_on_install = existing.restore_adjust_on_install;
+            *existing = req;
+            return true;
+        }
+        self.queue_path(req)
     }
 
     pub(crate) fn append_to_pending_follow_path(&mut self, unit: ObjectId, goal: Vec3) -> bool {

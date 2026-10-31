@@ -91,7 +91,7 @@ impl GameLogic {
         let last_node = full_path.last().copied();
         let (started, entered_move) = if let Some(unit) = self.objects.get_mut(&unit_id) {
             unit.waiting_for_path = false;
-            unit.queue_for_path_frames = 0;
+            unit.queue_for_path_frame = 0;
             unit.movement.current_path_index = 0;
             unit.movement.path = full_path;
             unit.movement.target_position = unit.movement.path.first().copied();
@@ -494,7 +494,7 @@ impl GameLogic {
                     unit.requested_destination = Some(destination);
                     unit.path_goal_position = Some(destination);
                     unit.waiting_for_path = false;
-                    unit.queue_for_path_frames = 0;
+                    unit.queue_for_path_frame = 0;
                     unit.set_status_moving(true);
                 }
                 return true;
@@ -559,7 +559,7 @@ impl GameLogic {
             unit.path_goal_position = Some(destination);
             unit.path_timestamp = self.frame;
             unit.waiting_for_path = false;
-            unit.queue_for_path_frames = 0;
+            unit.queue_for_path_frame = 0;
             unit.num_frames_blocked = 0;
             unit.is_blocked_and_stuck = false;
             unit.set_status_moving(true);
@@ -584,7 +584,7 @@ impl GameLogic {
         unit.path_goal_position = Some(destination);
         unit.path_timestamp = self.frame;
         unit.waiting_for_path = false;
-        unit.queue_for_path_frames = 0;
+        unit.queue_for_path_frame = 0;
         unit.num_frames_blocked = 0;
         unit.is_blocked_and_stuck = false;
         unit.set_status_moving(true);
@@ -903,7 +903,7 @@ impl GameLogic {
             }
         }
         unit.waiting_for_path = false;
-        unit.queue_for_path_frames = 0;
+        unit.queue_for_path_frame = 0;
         if unit.is_safe_path {
             unit.set_adjust_destinations(false);
         }
@@ -1778,8 +1778,9 @@ impl GameLogic {
             unit.final_position = goal_pos;
             unit.do_final_position = false;
             unit.set_locomotor_goal_none();
-            unit.queue_for_path_frames =
-                crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
+            unit.queue_for_path_frame = self.frame.wrapping_add(
+                crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL,
+            );
             unit.is_blocked = false;
             unit.waiting_for_path = true;
         }

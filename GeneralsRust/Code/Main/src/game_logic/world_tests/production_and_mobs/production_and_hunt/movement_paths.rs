@@ -1537,7 +1537,7 @@ fn live_arrival_clears_the_ignored_obstacle() {
         unit.movement.target_position = Some(goal);
         unit.movement.max_speed = 0.0;
         unit.ignored_obstacle_id = Some(ObjectId(9));
-        unit.queue_for_path_frames = 60;
+        unit.queue_for_path_frame = 60;
         unit.set_status_moving(true);
         unit.set_ai_state(
             crate::game_logic::AIState::Moving,
@@ -1548,7 +1548,7 @@ fn live_arrival_clears_the_ignored_obstacle() {
     let unit = logic.host_object(id).expect("unit");
     assert!(unit.movement.path.is_empty() || !unit.status.moving);
     assert_eq!(unit.ignored_obstacle_id, None);
-    assert_eq!(unit.queue_for_path_frames, 0);
+    assert_eq!(unit.queue_for_path_frame, 0);
 }
 
 #[test]
@@ -1571,7 +1571,7 @@ fn live_air_hold_clears_the_ignore_and_the_queue() {
         unit.movement.target_position = Some(goal);
         unit.movement.max_speed = 0.0;
         unit.ignored_obstacle_id = Some(ObjectId(9));
-        unit.queue_for_path_frames = 60;
+        unit.queue_for_path_frame = 60;
         unit.can_path_through_units = true;
         unit.set_precise_z_pos(true);
         unit.locomotor_goal_type = crate::game_logic::LocoGoalType::PositionOnPath;
@@ -1585,7 +1585,7 @@ fn live_air_hold_clears_the_ignore_and_the_queue() {
     let unit = logic.host_object(id).expect("jet");
     assert!(unit.movement.path.is_empty());
     assert_eq!(unit.ignored_obstacle_id, None);
-    assert_eq!(unit.queue_for_path_frames, 0);
+    assert_eq!(unit.queue_for_path_frame, 0);
     assert!(!unit.can_path_through_units);
     assert!(!unit.precise_z_pos);
     assert!(!unit.status.moving);

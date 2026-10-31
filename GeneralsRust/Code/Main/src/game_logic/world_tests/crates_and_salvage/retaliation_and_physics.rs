@@ -2458,7 +2458,7 @@ fn request_attack_path_rate_limits() {
         .request_attack_path(aid, None, Vec3::new(20.0, 0.0, 0.0))
         .expect("valid deferred attack fixture");
     let a = logic.objects.get(&aid).unwrap();
-    assert!(deferred || a.queue_for_path_frames > 0);
+    assert!(deferred || a.queue_for_path_frame > 0);
 }
 
 #[test]

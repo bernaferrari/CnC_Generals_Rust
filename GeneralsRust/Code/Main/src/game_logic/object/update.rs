@@ -513,7 +513,7 @@ impl Object {
                     if !matches!(self.ai_state(), AIState::Panic) {
                         self.note_waypoint_path_arrival();
                         self.ignored_obstacle_id = None;
-                        self.queue_for_path_frames = 0;
+                        self.queue_for_path_frame = 0;
                         self.set_locomotor_goal_none();
                     }
                     self.finish_locomotor_path_leg(audio);
@@ -716,7 +716,7 @@ impl Object {
                     if !matches!(self.ai_state(), AIState::Panic) {
                         self.note_waypoint_path_arrival();
                         self.ignored_obstacle_id = None;
-                        self.queue_for_path_frames = 0;
+                        self.queue_for_path_frame = 0;
                         self.set_locomotor_goal_none();
                     }
                     self.finish_locomotor_path_leg(audio);

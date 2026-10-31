@@ -1227,7 +1227,7 @@ impl Object {
         self.movement.current_path_index = 0;
         self.movement.target_position = None;
         self.set_status_moving(false);
-        self.queue_for_path_frames = 0;
+        self.queue_for_path_frame = 0;
         self.waiting_for_path = false;
         // None is meaningful: do not leave the temporary goal installed when
         // the underlying machine never had a physical destination.
@@ -1270,7 +1270,7 @@ impl Object {
         self.movement.target_position = None;
         self.movement.velocity = Vec3::ZERO;
         self.set_status_moving(false);
-        self.queue_for_path_frames = 0;
+        self.queue_for_path_frame = 0;
         self.movement.path.clear();
         self.movement.current_path_index = 0;
         self.set_status_moving(false);

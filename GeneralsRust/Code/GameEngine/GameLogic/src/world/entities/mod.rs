@@ -695,8 +695,8 @@ pub struct Entity {
     pub is_braking: bool,
     /// Host Object::is_safe_path residual.
     pub is_safe_path: bool,
-    /// Host Object::queue_for_path_frames residual.
-    pub queue_for_path_frames: u32,
+    /// Host Object::queue_for_path_frame residual.
+    pub queue_for_path_frame: u32,
     /// Host Object::path_timestamp residual.
     pub path_timestamp: u32,
     /// Host Object::cur_max_blocked_speed residual.
@@ -1867,7 +1867,7 @@ impl EntityStore {
             is_blocked_and_stuck: false,
             is_braking: false,
             is_safe_path: false,
-            queue_for_path_frames: 0,
+            queue_for_path_frame: 0,
             path_timestamp: 0,
             cur_max_blocked_speed: f32::MAX,
             num_frames_blocked: 0,

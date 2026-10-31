@@ -1045,9 +1045,9 @@ pub struct Object {
     /// C++ m_pathTimestamp residual (frame of last path request).
     #[serde(default)]
     pub path_timestamp: u32,
-    /// C++ queue-for-path delay frames remaining (0 = idle).
+    /// C++ m_queueForPathFrame: absolute logic frame of the retry (0 = idle).
     #[serde(default)]
-    pub queue_for_path_frames: u32,
+    pub queue_for_path_frame: u32,
     /// C++ Weapon maxShotCount residual (-1 = unlimited).
     #[serde(default = "default_max_shots")]
     pub max_shots_to_fire: i32,

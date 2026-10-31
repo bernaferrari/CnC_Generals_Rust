@@ -146,12 +146,12 @@ fn append_while_waiting_survives_the_pending_path_result() {
     let length = tag + 8;
     assert_eq!(
         u32::from_le_bytes(v12.lifecycle_tail[version..version + 4].try_into().unwrap()),
-        14
+        15
     );
     let size =
         u32::from_le_bytes(v12.lifecycle_tail[length..length + 4].try_into().unwrap()) as usize;
     let end = tag + 12 + size;
-    // V14 appends one pending-ID vector after V13's empty append vector.
+    // V15 retains V14's envelope, including its pending-ID vector.
     assert_eq!(&v12.lifecycle_tail[end - 20..end - 12], &[0; 8]);
     assert_eq!(&v12.lifecycle_tail[end - 12..end - 4], &1_u64.to_le_bytes());
     assert_eq!(&v12.lifecycle_tail[end - 4..end], &id.0.to_le_bytes());

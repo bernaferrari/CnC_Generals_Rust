@@ -47,7 +47,7 @@ fn attack_request_mapless_fallback_keeps_victim_and_skips_move_initializer() {
     assert_eq!(unit.requested_victim_id, Some(VICTIM));
     assert!(!unit.is_attack_path);
     assert!(!unit.waiting_for_path);
-    assert_eq!(unit.queue_for_path_frames, 0);
+    assert_eq!(unit.queue_for_path_frame, 0);
     assert!(!unit.movement.path.is_empty());
     assert!(unit.is_final_goal);
 }
@@ -108,7 +108,7 @@ fn attack_request_queued_fallback_observes_current_victim_position() {
     assert!(!unit.is_attack_path);
     assert!(!unit.waiting_for_path);
     assert!(!unit.movement.path.is_empty());
-    assert_eq!(unit.queue_for_path_frames, 0);
+    assert_eq!(unit.queue_for_path_frame, 0);
 }
 
 #[test]
@@ -210,7 +210,7 @@ fn attack_request_repath_two_and_three_frame_boundary() {
             world.pathfinding_system.pending_path_count(),
             usize::from(accepted)
         );
-        assert_eq!(unit.queue_for_path_frames, if accepted { 0 } else { 60 });
+        assert_eq!(unit.queue_for_path_frame, if accepted { 0 } else { frame + 60 });
         if !accepted {
             assert!(unit.movement.target_position.is_none());
         }
@@ -271,7 +271,7 @@ fn attack_request_snapshot_retains_queued_and_deferred_continuation() {
         assert_eq!(a.requested_destination, b.requested_destination);
         assert_eq!(a.is_attack_path, b.is_attack_path);
         assert_eq!(a.waiting_for_path, b.waiting_for_path);
-        assert_eq!(a.queue_for_path_frames, b.queue_for_path_frames);
+        assert_eq!(a.queue_for_path_frame, b.queue_for_path_frame);
         assert_eq!(
             source.pathfinding_system.pending_path_count(),
             restored.pathfinding_system.pending_path_count()
@@ -284,8 +284,8 @@ fn attack_request_snapshot_retains_queued_and_deferred_continuation() {
                     .objects
                     .get_mut(&ATTACKER)
                     .unwrap()
-                    .queue_for_path_frames = 0;
-                world.requeue_expired_path_requests(&[ATTACKER]);
+                    .queue_for_path_frame = 0;
+                world.requeue_expired_path_request(ATTACKER);
             }
         }
         resolve(&mut source);

@@ -23,7 +23,9 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 const TMAI_MAGIC: &[u8; 4] = b"TMAI";
-const TMAI_VERSION: u32 = 14;
+// V15 stores the actor's absolute C++ retry frame in queue_for_path_frames;
+// older versions stored a remaining countdown in the same encoded slot.
+const TMAI_VERSION: u32 = 15;
 
 fn default_fast_as_possible_order() -> f32 {
     999_999.0
@@ -981,6 +983,7 @@ pub(super) struct PreparedAiTeam {
     waypoint_identities: Vec<WaypointIdentityPersist>,
     pending_appends: Vec<PendingFollowPathAppends>,
     pending_order: Option<Vec<u32>>,
+    absolute_retry_frames: bool,
 }
 pub(super) fn prepare_from_lifecycle_tail(
     bytes: &[u8],
@@ -1005,6 +1008,7 @@ pub(super) fn prepare_from_lifecycle_tail(
         && version != 11
         && version != 12
         && version != 13
+        && version != 14
         && version != TMAI_VERSION
     {
         return Err(SaveLoadError::Corrupted(format!(
@@ -1025,7 +1029,7 @@ pub(super) fn prepare_from_lifecycle_tail(
     let payload = if version >= 11 {
         let envelope: AiTeamPersistPayloadV11 = if version >= 12 {
             let current: AiTeamPersistPayloadV12 = if version >= 13 {
-                let v13: AiTeamPersistPayloadV13 = if version == TMAI_VERSION {
+                let v13: AiTeamPersistPayloadV13 = if version >= 14 {
                     let v14: AiTeamPersistPayloadV14 = bincode_legacy::deserialize(encoded)
                         .map_err(|err| {
                             SaveLoadError::Corrupted(format!("TMAI v14 decode: {err}"))
@@ -1280,6 +1284,7 @@ pub(super) fn prepare_from_lifecycle_tail(
         waypoint_identities,
         pending_appends,
         pending_order,
+        absolute_retry_frames: version >= 15,
     }))
 }
 pub(super) fn apply_prepared(
@@ -1293,6 +1298,7 @@ pub(super) fn apply_prepared(
         waypoint_identities,
         pending_appends,
         pending_order,
+        absolute_retry_frames,
     }) = prepared
     else {
         return;
@@ -1309,6 +1315,7 @@ pub(super) fn apply_prepared(
         pending_appends,
         pending_order,
         object_records,
+        absolute_retry_frames,
     );
     for row in waypoint_identities {
         let object = game_logic
@@ -1402,7 +1409,7 @@ fn capture(game_logic: &GameLogic) -> AiTeamPersistPayload {
             is_safe_path: object.is_safe_path,
             pending_waypoint_labels: object.pending_waypoint_labels.clone(),
             completed_waypoint_labels: object.completed_waypoint_labels.clone(),
-            queue_for_path_frames: object.queue_for_path_frames,
+            queue_for_path_frames: object.queue_for_path_frame,
             group_speed_factor: object.group_speed_factor,
             ai_attitude: object.ai_attitude,
             do_final_position: object.do_final_position,
@@ -1436,7 +1443,9 @@ fn apply_payload(
     pending_appends: Vec<PendingFollowPathAppends>,
     pending_order: Option<Vec<u32>>,
     object_records: Option<&std::collections::HashSet<ObjectId>>,
+    absolute_retry_frames: bool,
 ) {
+    let frame = game_logic.get_current_frame() as u32;
     let mut pending = Vec::new();
     let mut appends: std::collections::HashMap<_, _> = pending_appends
         .into_iter()
@@ -1478,7 +1487,11 @@ fn apply_payload(
         object.is_safe_path = order.is_safe_path;
         object.pending_waypoint_labels = order.pending_waypoint_labels;
         object.completed_waypoint_labels = order.completed_waypoint_labels;
-        object.queue_for_path_frames = order.queue_for_path_frames;
+        object.queue_for_path_frame = if absolute_retry_frames || order.queue_for_path_frames == 0 {
+            order.queue_for_path_frames
+        } else {
+            frame.wrapping_add(order.queue_for_path_frames)
+        };
         object.group_speed_factor = order.group_speed_factor;
         object.ai_attitude = order.ai_attitude;
         object.do_final_position = order.do_final_position;
@@ -1631,13 +1644,11 @@ mod tests {
             .expect("capture TeamFactory")
             .teams
             .expect("TeamFactory chunk");
-        assert!(
-            teams
-                .teams
-                .iter()
-                .any(|team| team.team_name == "USA_AttackSquad"
-                    && team.common_attack_target == Some(victim.0))
-        );
+        assert!(teams
+            .teams
+            .iter()
+            .any(|team| team.team_name == "USA_AttackSquad"
+                && team.common_attack_target == Some(victim.0)));
 
         let mut restored = ranger_logic();
         restored.templates = source.templates.clone();

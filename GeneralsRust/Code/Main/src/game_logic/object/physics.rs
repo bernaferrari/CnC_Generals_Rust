@@ -1452,10 +1452,10 @@ impl Object {
         self.is_approach_path = false;
         self.is_safe_path = false;
         self.waiting_for_path = true;
-        if self.path_timestamp > 0 && current_frame.saturating_sub(self.path_timestamp) < 3 {
+        if self.path_timestamp > current_frame.wrapping_sub(3) {
             // C++ setQueueForPathTime(2 * LOGICFRAMES_PER_SECOND) and setLocomotorGoalNone.
-            self.queue_for_path_frames = 2
-                * crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
+            self.queue_for_path_frame = current_frame.wrapping_add(2
+                * crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL);
             self.set_locomotor_goal_none();
             return false;
         }
@@ -1495,8 +1495,8 @@ impl Object {
             return true;
         }
         self.waiting_for_path = true;
-        if self.path_timestamp > 0 && current_frame.saturating_sub(self.path_timestamp) < 3 {
-            self.queue_for_path_frames = crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
+        if self.path_timestamp > current_frame.wrapping_sub(3) {
+            self.queue_for_path_frame = current_frame.wrapping_add(crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL);
             return false;
         }
 
@@ -1549,8 +1549,8 @@ impl Object {
         self.is_approach_path = true;
         self.is_final_goal = true;
         if !ok {
-            self.queue_for_path_frames = 2
-                * crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
+            self.queue_for_path_frame = current_frame.wrapping_add(2
+                * crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL);
         }
         ok
     }
@@ -1571,8 +1571,8 @@ impl Object {
         // (AIStates.cpp:2265 and :2294). It never restores true.
         self.set_adjust_destinations(false);
         if !ok {
-            self.queue_for_path_frames = 2
-                * crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
+            self.queue_for_path_frame = current_frame.wrapping_add(2
+                * crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL);
         }
         if previous != Some(repulsor) {
             self.safe_path_repulsor2 = previous;
@@ -1582,23 +1582,21 @@ impl Object {
         ok
     }
 
-    /// Returns true the frame the delay hits zero while a path is still waiting.
-    pub fn tick_path_queue(
+    /// Consume the actor's path retry at the C++ AIUpdate deadline.
+    pub(crate) fn consume_due_path_retry(&mut self, current_frame: u32) -> bool {
+        if self.queue_for_path_frame == 0 || current_frame < self.queue_for_path_frame {
+            return false;
+        }
+        self.queue_for_path_frame = 0;
+        self.waiting_for_path && self.requested_destination.is_some()
+    }
+
+    /// Advance the temporary-move overlay independently of path retry ownership.
+    pub(crate) fn tick_temporary_move_overlay(
         &mut self,
         current_frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
-    ) -> bool {
-        let expired = if self.queue_for_path_frames == 0 {
-            false
-        } else {
-            self.queue_for_path_frames -= 1;
-            if self.queue_for_path_frames > 0 {
-                self.waiting_for_path = true;
-            }
-            self.queue_for_path_frames == 0
-                && self.waiting_for_path
-                && self.requested_destination.is_some()
-        };
+    ) {
         if self.has_temporary_ai_move()
             && !matches!(
                 self.transport_return_state,
@@ -1618,7 +1616,6 @@ impl Object {
                 self.end_temporary_move_overlay(audio);
             }
         }
-        expired
     }
 
     /// C++ privateAttackObject max-shots residual.
@@ -1738,7 +1735,7 @@ impl Object {
         frame: Option<u32>,
     ) {
         self.waiting_for_path = true;
-        self.queue_for_path_frames = 0;
+        self.queue_for_path_frame = 0;
         self.maintain_pos_valid = false;
         if let Some(mut wps) = waypoints {
             if wps.is_empty() {
@@ -2311,7 +2308,11 @@ impl Object {
         let vz = v.z * dir.y;
         let dot = vx + vz;
         let speed = (vx * vx + vz * vz).sqrt();
-        if dot >= 0.0 { speed } else { -speed }
+        if dot >= 0.0 {
+            speed
+        } else {
+            -speed
+        }
     }
 
     /// C++ getAerodynamicFriction residual (clamped).

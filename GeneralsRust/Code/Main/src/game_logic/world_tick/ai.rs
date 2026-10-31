@@ -2,6 +2,18 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 impl GameLogic {
+    /// AIUpdate checks this actor's retry after its state update, before the
+    /// derived dozer update and the later match-wide pathfinder drain.
+    pub(in crate::game_logic) fn update_owned_path_retry(&mut self, object_id: ObjectId) {
+        let due = self
+            .objects
+            .get_mut(&object_id)
+            .is_some_and(|object| object.consume_due_path_retry(self.frame));
+        if due {
+            self.requeue_expired_path_request(object_id);
+        }
+    }
+
     pub(in super::super) fn update_ai(
         &mut self,
         object_ids: &[ObjectId],
@@ -779,9 +791,9 @@ impl GameLogic {
             }
             if let Some((pos, gaining, has_victim)) = disguise_halfpoint {
                 use crate::game_logic::host_bomb_truck_disguise::{
-                    BOMB_TRUCK_DISGUISE_FX, BOMB_TRUCK_DISGUISE_REVEAL_FX,
-                    BOMB_TRUCK_DISGUISE_REVEALED_FAILURE_AUDIO,
-                    BOMB_TRUCK_DISGUISE_REVEALED_SUCCESS_AUDIO, BOMB_TRUCK_DISGUISE_STARTED_AUDIO,
+                    BOMB_TRUCK_DISGUISE_FX, BOMB_TRUCK_DISGUISE_REVEALED_FAILURE_AUDIO,
+                    BOMB_TRUCK_DISGUISE_REVEALED_SUCCESS_AUDIO, BOMB_TRUCK_DISGUISE_REVEAL_FX,
+                    BOMB_TRUCK_DISGUISE_STARTED_AUDIO,
                 };
                 let (sound, fx) = if gaining {
                     (BOMB_TRUCK_DISGUISE_STARTED_AUDIO, BOMB_TRUCK_DISGUISE_FX)
@@ -886,6 +898,7 @@ impl GameLogic {
             // C++ AIIdleState::update: mood scan / attack only — never AI_HUNT wander.
             if let Some(obj) = self.objects.get(&object_id) {
                 if obj.has_temporary_ai_move() && obj.ai_state() != AIState::Dead {
+                    self.update_owned_path_retry(object_id);
                     self.dozer_update_primary_owned_with_effects(object_id, presentation_effects)?;
                     continue;
                 }
@@ -900,6 +913,7 @@ impl GameLogic {
                     && obj.target.is_none()
                     && matches!(obj.ai_state(), AIState::Idle)
                 {
+                    self.update_owned_path_retry(object_id);
                     self.dozer_update_primary_owned_with_effects(object_id, presentation_effects)?;
                     continue;
                 }
@@ -924,6 +938,7 @@ impl GameLogic {
                     self.update_base_ai_dead_owned(object_id);
                 }
             }
+            self.update_owned_path_retry(object_id);
             // C++ DozerAIUpdate::update invokes the retained derived machine
             // immediately after this actor's inherited AI update and command.
             self.dozer_update_primary_owned_with_effects(object_id, presentation_effects)?;
@@ -1055,7 +1070,7 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::host_mines::{
-            DEMO_TRAP_DETONATE_WHEN_KILLED, HostMineDetonateReason, should_detonate_when_killed,
+            should_detonate_when_killed, HostMineDetonateReason, DEMO_TRAP_DETONATE_WHEN_KILLED,
         };
         let due: Vec<ObjectId> = self
             .objects
