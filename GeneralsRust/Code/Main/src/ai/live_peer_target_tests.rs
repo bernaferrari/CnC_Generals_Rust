@@ -41,6 +41,7 @@ fn world_with_enemy_objects(rows: &[(u32, Team, Vec3, bool)]) -> GameLogic {
 }
 
 fn add_assessing_ai(world: &mut GameLogic, id: u32, center: Vec3) {
+    world.get_player_mut(id).unwrap().map_side.is_skirmish_ai = true;
     let team = world.get_player(id).unwrap().team;
     let mut ai =
         AIPlayer::new_with_team_factory(id, team, AIDifficulty::Medium, world.team_factory.clone());
@@ -135,4 +136,28 @@ fn fixed_tick_peer_subtraction_clamps_before_later_slot_penalty() {
     assert_eq!(world.ai_manager.ai_players[&2].enemy_player_id, Some(5));
     assert_eq!(world.ai_manager.ai_players[&1].enemy_player_id, Some(2));
     assert_eq!(world.ai_manager.ai_players[&3].enemy_player_id, Some(4));
+}
+
+#[test]
+fn campaign_ai_peer_does_not_affect_skirmish_target_scoring() {
+    for (peer_is_skirmish, expected) in [(false, 3), (true, 4)] {
+        let mut world = world_with_enemy_objects(&[
+            (1, Team::USA, Vec3::ZERO, true),
+            (2, Team::USA, Vec3::ZERO, true),
+            (3, Team::China, Vec3::new(100.0, 0.0, 100.0), true),
+            (4, Team::GLA, Vec3::new(200.0, 0.0, 100.0), true),
+        ]);
+        world.get_player_mut(2).unwrap().alliance_team = 1;
+        add_assessing_ai(&mut world, 1, Vec3::ZERO);
+        add_assessing_ai(&mut world, 2, Vec3::ZERO);
+        world.get_player_mut(2).unwrap().map_side.is_skirmish_ai = peer_is_skirmish;
+        let peer = world.ai_manager.ai_players.get_mut(&2).unwrap();
+        peer.is_active = false;
+        peer.enemy_player_id = Some(3);
+        world.update_with_dt_budget(1.0 / 30.0, 1);
+        assert_eq!(
+            world.ai_manager.ai_players[&1].enemy_player_id,
+            Some(expected)
+        );
+    }
 }

@@ -1260,7 +1260,13 @@ impl AIPlayer {
             }
             for &(other_id, other_target) in &self.peer_ai_targets {
                 // C++ skips the candidate slot only; our prior target also counts.
-                if other_id == player_id {
+                // Player::isSkirmishAIPlayer delegates to the controller class;
+                // campaign AI targets do not participate in skirmish scoring.
+                if other_id == player_id
+                    || !game_logic
+                        .get_player(other_id)
+                        .is_some_and(|peer| peer.map_side.is_skirmish_ai)
+                {
                     continue;
                 }
                 if other_target == Some(player_id) {
