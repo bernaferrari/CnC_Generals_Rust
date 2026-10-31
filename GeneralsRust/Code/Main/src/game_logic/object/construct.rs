@@ -22,146 +22,6 @@ fn parse_ini_real(text: Option<&str>) -> Option<f32> {
     text.and_then(|t| t.trim().parse().ok())
 }
 
-fn leftover_typed_auto_acquire(
-    data: &dyn game_engine::common::thing::module::ModuleData,
-) -> Option<u32> {
-    use gamelogic::object::update::ai_update::{
-        AssaultTransportAIUpdateModuleData, ChinookAIUpdateModuleData,
-        DeliverPayloadAIUpdateModuleData, DeployStyleAIUpdateModuleData, DozerAIUpdateModuleData,
-        HackInternetAIUpdateModuleData, JetAIUpdateModuleData, RailedTransportAIUpdateModuleData,
-        SupplyTruckAIUpdateModuleData, TransportAIUpdateModuleData, WanderAIUpdateModuleData,
-        WorkerAIUpdateModuleData,
-    };
-    use gamelogic::object::update::ai_update_interface::AIUpdateModuleData;
-    if let Some(d) = data.as_any().downcast_ref::<AIUpdateModuleData>() {
-        return Some(d.auto_acquire_enemies_when_idle());
-    }
-    if let Some(d) = data
-        .as_any()
-        .downcast_ref::<DeployStyleAIUpdateModuleData>()
-    {
-        return Some(d.base.auto_acquire_enemies_when_idle());
-    }
-    if let Some(d) = data.as_any().downcast_ref::<JetAIUpdateModuleData>() {
-        return Some(d.base.auto_acquire_enemies_when_idle());
-    }
-    if let Some(d) = data.as_any().downcast_ref::<DozerAIUpdateModuleData>() {
-        return Some(d.base.auto_acquire_enemies_when_idle());
-    }
-    if let Some(d) = data.as_any().downcast_ref::<WorkerAIUpdateModuleData>() {
-        return Some(d.base.auto_acquire_enemies_when_idle());
-    }
-    if let Some(d) = data
-        .as_any()
-        .downcast_ref::<SupplyTruckAIUpdateModuleData>()
-    {
-        return Some(d.base.auto_acquire_enemies_when_idle());
-    }
-    if let Some(d) = data.as_any().downcast_ref::<ChinookAIUpdateModuleData>() {
-        return Some(d.base.auto_acquire_enemies_when_idle());
-    }
-    if let Some(d) = data
-        .as_any()
-        .downcast_ref::<HackInternetAIUpdateModuleData>()
-    {
-        return Some(d.base.auto_acquire_enemies_when_idle());
-    }
-    if let Some(d) = data
-        .as_any()
-        .downcast_ref::<AssaultTransportAIUpdateModuleData>()
-    {
-        return Some(d.base.auto_acquire_enemies_when_idle());
-    }
-    if let Some(d) = data
-        .as_any()
-        .downcast_ref::<DeliverPayloadAIUpdateModuleData>()
-    {
-        return Some(d.base.auto_acquire_enemies_when_idle());
-    }
-    if let Some(d) = data.as_any().downcast_ref::<TransportAIUpdateModuleData>() {
-        return Some(d.base.auto_acquire_enemies_when_idle());
-    }
-    if let Some(d) = data.as_any().downcast_ref::<WanderAIUpdateModuleData>() {
-        return Some(d.base.auto_acquire_enemies_when_idle());
-    }
-    if let Some(d) = data
-        .as_any()
-        .downcast_ref::<RailedTransportAIUpdateModuleData>()
-    {
-        return Some(d.base.auto_acquire_enemies_when_idle());
-    }
-    None
-}
-
-fn leftover_typed_forbid_player(data: &dyn game_engine::common::thing::module::ModuleData) -> bool {
-    use gamelogic::object::update::ai_update::{
-        AssaultTransportAIUpdateModuleData, ChinookAIUpdateModuleData,
-        DeliverPayloadAIUpdateModuleData, DeployStyleAIUpdateModuleData, DozerAIUpdateModuleData,
-        HackInternetAIUpdateModuleData, JetAIUpdateModuleData, RailedTransportAIUpdateModuleData,
-        SupplyTruckAIUpdateModuleData, TransportAIUpdateModuleData, WanderAIUpdateModuleData,
-        WorkerAIUpdateModuleData,
-    };
-    use gamelogic::object::update::ai_update_interface::AIUpdateModuleData;
-    if let Some(d) = data.as_any().downcast_ref::<AIUpdateModuleData>() {
-        return d.forbid_player_commands();
-    }
-    if let Some(d) = data
-        .as_any()
-        .downcast_ref::<DeployStyleAIUpdateModuleData>()
-    {
-        return d.base.forbid_player_commands();
-    }
-    if let Some(d) = data.as_any().downcast_ref::<JetAIUpdateModuleData>() {
-        return d.base.forbid_player_commands();
-    }
-    if let Some(d) = data.as_any().downcast_ref::<DozerAIUpdateModuleData>() {
-        return d.base.forbid_player_commands();
-    }
-    if let Some(d) = data.as_any().downcast_ref::<WorkerAIUpdateModuleData>() {
-        return d.base.forbid_player_commands();
-    }
-    if let Some(d) = data
-        .as_any()
-        .downcast_ref::<SupplyTruckAIUpdateModuleData>()
-    {
-        return d.base.forbid_player_commands();
-    }
-    if let Some(d) = data.as_any().downcast_ref::<ChinookAIUpdateModuleData>() {
-        return d.base.forbid_player_commands();
-    }
-    if let Some(d) = data
-        .as_any()
-        .downcast_ref::<HackInternetAIUpdateModuleData>()
-    {
-        return d.base.forbid_player_commands();
-    }
-    if let Some(d) = data
-        .as_any()
-        .downcast_ref::<AssaultTransportAIUpdateModuleData>()
-    {
-        return d.base.forbid_player_commands();
-    }
-    if let Some(d) = data
-        .as_any()
-        .downcast_ref::<DeliverPayloadAIUpdateModuleData>()
-    {
-        return d.base.forbid_player_commands();
-    }
-    if let Some(d) = data.as_any().downcast_ref::<TransportAIUpdateModuleData>() {
-        return d.base.forbid_player_commands();
-    }
-    if let Some(d) = data.as_any().downcast_ref::<WanderAIUpdateModuleData>() {
-        return d.base.forbid_player_commands();
-    }
-    if let Some(d) = data
-        .as_any()
-        .downcast_ref::<RailedTransportAIUpdateModuleData>()
-    {
-        return d.base.forbid_player_commands();
-    }
-    false
-}
-
 fn parse_auto_acquire_idle_bits(text: &str) -> u32 {
     use gamelogic::object::update::ai_update_interface::{
         AUTO_ACQUIRE_IDLE, AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS, AUTO_ACQUIRE_IDLE_NO,
@@ -301,7 +161,8 @@ impl Object {
         .or(template.railed_transport_slots)
         .unwrap_or(0);
         let authored_helix_contain = template.contain_module.is_helix_contain;
-        let authored_passengers_allowed_to_fire = template.contain_module.passengers_allowed_to_fire;
+        let authored_passengers_allowed_to_fire =
+            template.contain_module.passengers_allowed_to_fire;
 
         // Determine object type from template
         let object_type = if template.is_kind_of(KindOf::Infantry) {
@@ -3128,15 +2989,58 @@ mod defection_timer_owner_tests {
 }
 
 /// Read only the installed immutable module data; never consult an active factory.
+pub(crate) fn receiving_ai_base_data(
+    data: &dyn game_engine::common::thing::module::ModuleData,
+) -> Option<&gamelogic::object::update::ai_update_interface::AIUpdateModuleData> {
+    use gamelogic::object::update::ai_update::{
+        AssaultTransportAIUpdateModuleData, ChinookAIUpdateModuleData,
+        DeliverPayloadAIUpdateModuleData, DeployStyleAIUpdateModuleData, DozerAIUpdateModuleData,
+        HackInternetAIUpdateModuleData, JetAIUpdateModuleData, RailedTransportAIUpdateModuleData,
+        SupplyTruckAIUpdateModuleData, TransportAIUpdateModuleData, WanderAIUpdateModuleData,
+        WorkerAIUpdateModuleData,
+    };
+    use gamelogic::object::update::ai_update_interface::AIUpdateModuleData;
+    let data = data.as_any();
+    if let Some(base) = data.downcast_ref::<AIUpdateModuleData>() {
+        return Some(base);
+    }
+    macro_rules! derived_base {
+        ($($kind:ty),* $(,)?) => {
+            $(if let Some(value) = data.downcast_ref::<$kind>() {
+                return Some(&value.base);
+            })*
+        };
+    }
+    derived_base!(
+        AssaultTransportAIUpdateModuleData,
+        ChinookAIUpdateModuleData,
+        DeliverPayloadAIUpdateModuleData,
+        DeployStyleAIUpdateModuleData,
+        DozerAIUpdateModuleData,
+        HackInternetAIUpdateModuleData,
+        JetAIUpdateModuleData,
+        RailedTransportAIUpdateModuleData,
+        SupplyTruckAIUpdateModuleData,
+        TransportAIUpdateModuleData,
+        WanderAIUpdateModuleData,
+        WorkerAIUpdateModuleData,
+    );
+    None
+}
+
+/// Read only the installed immutable module data; never consult an active factory.
 pub(crate) fn receiving_ai_policy_data(
     data: &dyn game_engine::common::thing::module::ModuleData,
 ) -> (u32, bool) {
-    let bits = leftover_typed_auto_acquire(data).unwrap_or_else(|| {
-        data.get_ini_field("AutoAcquireEnemiesWhenIdle")
-            .map(parse_auto_acquire_idle_bits)
-            .unwrap_or(0)
-    });
-    let forbid = leftover_typed_forbid_player(data)
+    let base = receiving_ai_base_data(data);
+    let bits = base
+        .map(|ai| ai.auto_acquire_enemies_when_idle())
+        .unwrap_or_else(|| {
+            data.get_ini_field("AutoAcquireEnemiesWhenIdle")
+                .map(parse_auto_acquire_idle_bits)
+                .unwrap_or(0)
+        });
+    let forbid = base.is_some_and(|ai| ai.forbid_player_commands())
         || data
             .get_ini_field("ForbidPlayerCommands")
             .is_some_and(parse_ini_yes);

@@ -34,6 +34,46 @@ fn world_with_slots(slots: &str, disabled: bool) -> GameLogic {
     world
 }
 
+fn world_with_two_turrets(primary_angle: i32, alternate_angle: i32) -> GameLogic {
+    let source = format!(
+        "Object {TEMPLATE}\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n  MaxHealth = 100\n  InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n  Turret\n   TurretTurnRate = 30\n   NaturalTurretAngle = {primary_angle}\n   ControlledWeaponSlots = PRIMARY\n   InitiallyDisabled = Yes\n  End\n  AltTurret\n   TurretTurnRate = 120\n   NaturalTurretAngle = {alternate_angle}\n   ControlledWeaponSlots = SECONDARY\n   InitiallyDisabled = No\n  End\n End\nEnd\n"
+    );
+    let mut world = GameLogic::new();
+    world
+        .admit_object_ini_sources([("TwoTurrets.ini".into(), source)])
+        .unwrap();
+    world
+}
+
+#[test]
+fn primary_turret_spawn_does_not_take_alternate_turret_fields() {
+    let mut first = world_with_two_turrets(-25, 75);
+    let mut peer = world_with_two_turrets(10, -60);
+    let a = first
+        .create_object(TEMPLATE, Team::USA, Vec3::ZERO)
+        .unwrap();
+    let b = peer.create_object(TEMPLATE, Team::USA, Vec3::ZERO).unwrap();
+    assert_eq!(a, b);
+    for (world, id, angle) in [(&first, a, -25.0), (&peer, b, 10.0)] {
+        let object = world.host_object(id).unwrap();
+        assert!((object.turret_natural_angle_deg - angle).abs() < 1e-5);
+        assert!((object.turret_turn_rate_rad - 30.0_f32.to_radians() / 30.0).abs() < 1e-6);
+        assert!(!object.turret_enabled);
+        assert!(object.is_weapon_slot_on_turret(0));
+    }
+    let snapshot = SnapshotBuilder::new()
+        .create_world_snapshot(&first)
+        .unwrap();
+    let mut restored = world_with_two_turrets(-25, 75);
+    SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    let object = restored.host_object(a).unwrap();
+    assert!((object.turret_natural_angle_deg + 25.0).abs() < 1e-5);
+    assert!(!object.turret_enabled);
+    assert!(object.is_weapon_slot_on_turret(0));
+}
+
 #[test]
 fn disabled_turret_retains_receiving_controlled_slots_independent_of_peer() {
     let mut first = world_with_slots("SECONDARY", true);

@@ -232,6 +232,17 @@ impl ReceivingClientTemplate {
         ))
     }
 
+    pub(crate) fn receiving_ai_base_data(
+        &self,
+    ) -> Option<&gamelogic::object::update::ai_update_interface::AIUpdateModuleData> {
+        let entry = self
+            .0
+            .behavior_modules()
+            .iter()
+            .nth(self.receiving_ai_source_index()?)?;
+        crate::game_logic::object::receiving_ai_base_data(entry.data.as_ref())
+    }
+
     pub(crate) fn receiving_ai_identity(&self) -> Option<(u32, String, String)> {
         let ordinal = self.receiving_ai_source_index()?;
         let entry = self.0.behavior_modules().iter().nth(ordinal)?;

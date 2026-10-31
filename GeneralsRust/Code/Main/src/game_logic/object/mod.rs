@@ -3282,7 +3282,7 @@ mod attack;
 mod barrels;
 mod bonuses;
 mod construct;
-pub(crate) use construct::receiving_ai_policy_data;
+pub(crate) use construct::{receiving_ai_base_data, receiving_ai_policy_data};
 mod damage;
 pub(in crate::game_logic) use damage::{BridgeBodyCallbacks, DamageApplication};
 mod death;

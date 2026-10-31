@@ -102,12 +102,56 @@ pub fn turret_spawn_for_template(template_name: &str) -> TurretSpawnSpec {
 pub(super) fn turret_spawn_for_thing_template(
     template: &crate::game_logic::ThingTemplate,
 ) -> TurretSpawnSpec {
+    if let Some(ai) = template
+        .receiving_client_template
+        .as_ref()
+        .and_then(|source| source.receiving_ai_base_data())
+    {
+        return ai
+            .turret_primary()
+            .or_else(|| ai.turret_secondary())
+            .map(turret_spawn_from_typed_data)
+            .unwrap_or_else(TurretSpawnSpec::absent);
+    }
     template
         .receiving_object_definition
         .as_deref()
         .map(turret_spawn_for_receiving_definition)
         .or_else(|| template.turret_spawn_definition.clone())
         .unwrap_or_else(|| turret_spawn_for_template(&template.name))
+}
+
+fn turret_spawn_from_typed_data(
+    data: &gamelogic::object::update::ai_update_interface::TurretAIData,
+) -> TurretSpawnSpec {
+    let mut spec = TurretSpawnSpec::absent();
+    spec.has_turret = true;
+    // Missing-mask rejection and independent AltTurret runtime remain tracked.
+    spec.controlled_weapon_slots = if data.turret_weapon_slots == 0 {
+        1
+    } else {
+        data.turret_weapon_slots
+    };
+    spec.enabled = !data.initially_disabled;
+    spec.angle_deg = data.natural_turret_angle.to_degrees();
+    spec.pitch_deg = data.natural_turret_pitch.to_degrees();
+    spec.natural_angle_deg = spec.angle_deg;
+    spec.natural_pitch_deg = spec.pitch_deg;
+    spec.turn_rate_rad = data.turn_rate;
+    spec.pitch_rate_rad = data.pitch_rate;
+    spec.recenter_frames = data.recenter_time;
+    spec.allows_pitch = data.allows_pitch;
+    spec.fire_pitch_rad = data.fire_pitch;
+    spec.min_pitch_rad = data.min_pitch;
+    spec.ground_unit_pitch_rad = data.ground_unit_pitch;
+    spec.min_idle_scan_angle_rad = data.min_idle_scan_angle;
+    spec.max_idle_scan_angle_rad = data.max_idle_scan_angle;
+    spec.min_idle_scan_interval = data.min_idle_scan_interval;
+    spec.max_idle_scan_interval = data.max_idle_scan_interval;
+    spec.fire_angle_sweep = data.turret_fire_angle_sweep;
+    spec.sweep_speed_mod = data.turret_sweep_speed_modifier;
+    spec.fires_while_turning = data.fires_while_turning;
+    spec
 }
 
 fn turret_spawn_from_definition(
