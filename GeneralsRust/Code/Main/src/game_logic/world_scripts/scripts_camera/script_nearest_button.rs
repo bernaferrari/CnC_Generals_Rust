@@ -99,14 +99,7 @@ impl GameLogic {
             })?;
         let power = module.command_power.as_ref()?;
         let center = self.owned_command_group_center(members)?;
-        let off_map = |object: &Object| {
-            let p = object.get_position();
-            p.x < self.world_min.x
-                || p.x > self.world_max.x
-                || p.z < self.world_min.z
-                || p.z > self.world_max.z
-        };
-        let source_off_map = off_map(source);
+        let source_off_map = source.status.off_map;
         let kind = match request {
             Request::TeamOnNearestKindof { kindof, .. }
             | Request::TeamOnNearestEnemyBuildingClass { kindof, .. } => {
@@ -116,7 +109,7 @@ impl GameLogic {
         };
         let mut nearest: Option<(ObjectId, f32)> = None;
         for object in self.objects.registered_values() {
-            if object.status.destroyed || off_map(object) != source_off_map {
+            if object.status.destroyed || object.status.off_map != source_off_map {
                 continue;
             }
             let allow_neutral = matches!(request, Request::TeamOnNearestObjectType { .. });
@@ -167,9 +160,7 @@ impl GameLogic {
             | Request::TeamOnNearestObjectType { team, button, .. } => (team, button),
             _ => return Ok(()),
         };
-        let Some(button) = game_engine::common::ini::ini_command_button::get_control_bar()
-            .and_then(|catalog| catalog.find_command_button_resolved(name).cloned())
-        else {
+        let Some(button) = self.admitted_command_button(name) else {
             return Ok(());
         };
         self.apply_owned_team_nearest_button_definition(request, &button, calling, condition)

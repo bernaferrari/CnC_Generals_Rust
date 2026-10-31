@@ -6,6 +6,7 @@ use gamelogic::scripting::HostScriptUseCommandButtonRequest as Request;
 
 fn fixture() -> (GameLogic, ObjectId, ObjectId, CommandButton, u32) {
     let (mut world, unrelated, invalid) = super::named_command_test_support::world();
+    world.override_world_size(2000.0, 2000.0);
     world
         .players
         .get_mut(&1)
@@ -142,7 +143,7 @@ fn nearest_authored_button_uses_first_source_map_status_and_ai_nonheld_center() 
             .0,
         target
     );
-    owner.set_fixture_object_position(target, Vec3::new(-1.0, 0.0, 50.0));
+    owner.set_fixture_object_position(target, Vec3::new(-1001.0, 0.0, 50.0));
     assert!(
         owner
             .owned_team_nearest_button_target(&members, &button, &request, 1)
@@ -155,7 +156,7 @@ fn nearest_authored_button_uses_first_source_map_status_and_ai_nonheld_center() 
         .unwrap()
         .special_power_cooldowns
         .insert(SpecialPowerType::MissileDefenderLaserGuided, 9999.0);
-    owner.set_fixture_object_position(source, Vec3::new(-2.0, 0.0, 50.0));
+    owner.set_fixture_object_position(source, Vec3::new(-1002.0, 0.0, 50.0));
     assert_eq!(
         owner
             .owned_team_nearest_button_target(&members, &button, &request, 1)
