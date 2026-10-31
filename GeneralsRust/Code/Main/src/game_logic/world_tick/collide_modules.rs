@@ -9,7 +9,7 @@ impl super::super::GameLogic {
         &mut self,
         self_id: ObjectId,
         other_id: ObjectId,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.dispatch_host_collide_modules_with_effects(self_id, other_id, &mut Default::default())
     }
 
@@ -18,16 +18,16 @@ impl super::super::GameLogic {
         self_id: ObjectId,
         other_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         if self_id == other_id {
-            return;
+            return Ok(());
         }
         let (entering_other, crate_other) = {
             let Some(us) = self.objects.get(&self_id) else {
-                return;
+                return Ok(());
             };
             let Some(other) = self.objects.get(&other_id) else {
-                return;
+                return Ok(());
             };
             let entering = matches!(us.ai_state(), AIState::Entering)
                 && (us.target == Some(other_id) || us.container_id() == Some(other_id))
@@ -37,10 +37,55 @@ impl super::super::GameLogic {
             (entering, is_crate)
         };
         if entering_other {
-            let boarded = self
+            let is_garrison = self
                 .objects
-                .get_mut(&other_id)
-                .is_some_and(|c| c.add_occupant(self_id));
+                .get(&other_id)
+                .is_some_and(|c| c.is_garrison_contain());
+            if is_garrison {
+                // OpenContain::onCollide orders opposing riders out before its
+                // final isValidContainerFor check.
+                self.kick_other_controller_occupants_for_enter_with_effects(
+                    other_id, self_id, effects,
+                );
+            }
+            let eligible = if is_garrison {
+                self.objects
+                    .get(&self_id)
+                    .zip(self.objects.get(&other_id))
+                    .is_some_and(|(rider, container)| {
+                        let relationship = self.normal_enter_relationship(rider, container);
+                        container.garrison_container_accepts_entry()
+                            && !rider.is_kind_of(crate::game_logic::KindOf::NoGarrison)
+                            && container
+                                .thing()
+                                .template
+                                .contain_module
+                                .leftover_kind_masks_admit(rider.kind_of_cpp_mask())
+                            && container.allows_normal_enter_for_relationship(relationship)
+                            && container.has_capacity_for(1)
+                    })
+            } else {
+                true
+            };
+            let cancelled = eligible
+                && is_garrison
+                && self.should_cancel_containment_after_booby_trap_with_effects(
+                    other_id, self_id, effects,
+                );
+            let uncontained = self
+                .objects
+                .get(&self_id)
+                .is_some_and(|rider| rider.contained_by.is_none());
+            if eligible && !cancelled && uncontained && is_garrison {
+                self.validate_garrison_owner_team_transfer(other_id, self_id)?;
+            }
+            let boarded = eligible
+                && !cancelled
+                && uncontained
+                && self
+                    .objects
+                    .get_mut(&other_id)
+                    .is_some_and(|c| c.add_occupant(self_id));
             if boarded {
                 // OpenContain::addToContain records the controlling player
                 // immediately after adding the rider to its roster.
@@ -86,12 +131,28 @@ impl super::super::GameLogic {
                     us.status.moving = false;
                 }
                 self.admit_object_drawable_deselection(self_id);
+                if is_garrison {
+                    self.record_garrison_residual_enter();
+                    self.apply_garrison_contain_on_enter_with_effects(other_id, self_id, effects)?;
+                    if let Some(owner) = self
+                        .objects
+                        .get(&self_id)
+                        .and_then(|rider| rider.owner_player_id)
+                    {
+                        if let Some(player) = self.players.get_mut(&owner) {
+                            player.selected_objects.retain(|id| *id != self_id);
+                        }
+                    }
+                    self.admit_local_drawable_deselected(self_id);
+                    self.play_container_enter_sound(other_id, effects);
+                }
             }
         }
         if crate_other {
             self.update_money_crate_collides_with_effects(effects);
         }
         self.fire_host_weapon_collide_with_effects(self_id, other_id, effects);
+        Ok(())
     }
 
     /// C++ `FireWeaponCollide::onCollide` — skip ground (other is always an

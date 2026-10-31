@@ -195,7 +195,12 @@ impl GameLogic {
     /// Order: ignore-collisions gate → mutual parachute skip → overlap crush
     /// → immobile bounce/crash. Sets last_collidee when a real collide runs.
     /// Returns true if the pair was handled (skip generic bounce force).
-    pub fn try_physics_collide(&mut self, a_id: ObjectId, b_id: ObjectId, us_radius: f32) -> bool {
+    pub fn try_physics_collide(
+        &mut self,
+        a_id: ObjectId,
+        b_id: ObjectId,
+        us_radius: f32,
+    ) -> gamelogic::GameLogicResult<bool> {
         self.try_physics_collide_with_effects(
             a_id,
             b_id,
@@ -210,7 +215,7 @@ impl GameLogic {
         b_id: ObjectId,
         us_radius: f32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         // Snapshot flags without holding borrows across mutates.
         let (
             a_ignore_b,
@@ -222,14 +227,12 @@ impl GameLogic {
             b_unmanned,
             a_ignore_obs,
             b_ignore_obs,
-            a_contained_by,
-            b_contained_by,
         ) = {
             let Some(a) = self.objects.get(&a_id) else {
-                return false;
+                return Ok(false);
             };
             let Some(b) = self.objects.get(&b_id) else {
-                return false;
+                return Ok(false);
             };
             (
                 a.is_ignoring_collisions_with(b_id),
@@ -244,23 +247,29 @@ impl GameLogic {
                 b.status.disabled_unmanned,
                 a.ignored_obstacle_id == Some(b_id),
                 b.ignored_obstacle_id == Some(a_id),
-                a.contained_by,
-                b.contained_by,
             )
         };
         if a_ignore_b || b_ignore_a {
-            return true; // ignore = handled (no bounce)
+            return Ok(true); // ignore = handled (no bounce)
         }
         // C++ both parachuting: never collide.
         if a_para && b_para {
-            return true;
+            return Ok(true);
         }
         // C++ Object::onCollide walks only this object's collide modules.
         // Reverse side is the pair loop's second try_physics_collide.
-        self.dispatch_host_collide_modules_with_effects(a_id, b_id, presentation_effects);
+        self.dispatch_host_collide_modules_with_effects(a_id, b_id, presentation_effects)?;
         // C++ PhysicsUpdate.cpp:1167-1172 — container/occupant never bounce/crush.
-        if a_contained_by == Some(b_id) || b_contained_by == Some(a_id) {
-            return true;
+        if self
+            .objects
+            .get(&a_id)
+            .is_some_and(|a| a.contained_by == Some(b_id))
+            || self
+                .objects
+                .get(&b_id)
+                .is_some_and(|b| b.contained_by == Some(a_id))
+        {
+            return Ok(true);
         }
         // C++ PhysicsUpdate.cpp:1182-1213: recrew only inside
         // ai->getIgnoredObstacleID() == other->getID(); else bounce/crush.
@@ -273,7 +282,7 @@ impl GameLogic {
                     a.last_collidee = Some(b_id);
                 }
             }
-            return true;
+            return Ok(true);
         }
         if b_ignore_obs {
             let b_inf = self
@@ -294,7 +303,7 @@ impl GameLogic {
                     a.last_collidee = Some(b_id);
                 }
             }
-            return true;
+            return Ok(true);
         }
 
         let is_ally = self.crush_relationship_is_allies(a_id, b_id);
@@ -306,14 +315,14 @@ impl GameLogic {
             if let Some(a) = self.objects.get_mut(&a_id) {
                 a.last_collidee = Some(b_id);
             }
-            return true;
+            return Ok(true);
         }
         // Overlap crush (may handle the pair).
         if self.apply_overlap_crush_check_with_effects(a_id, b_id, is_ally, presentation_effects) {
             if let Some(a) = self.objects.get_mut(&a_id) {
                 a.last_collidee = Some(b_id);
             }
-            return true;
+            return Ok(true);
         }
         // Immobile bounce path.
         // C++ PhysicsUpdate.cpp:1255-1264: living AI calls processCollision;
@@ -322,7 +331,7 @@ impl GameLogic {
         if b_immobile {
             let (has_ai, dead_or_para, allow) = {
                 let Some(a) = self.objects.get(&a_id) else {
-                    return false;
+                    return Ok(false);
                 };
                 let dead = !a.is_alive();
                 let para = a.is_parachuting();
@@ -338,20 +347,20 @@ impl GameLogic {
                 let frame = self.frame;
                 let b_snap = match self.objects.get(&b_id) {
                     Some(b) => b.clone(),
-                    None => return false,
+                    None => return Ok(false),
                 };
                 let do_force = match self.objects.get_mut(&a_id) {
                     Some(a) => {
                         a.ai_process_collision(&b_snap, frame, is_ally, other_sees_us_as_ally)
                     }
-                    None => return false,
+                    None => return Ok(false),
                 };
                 if !do_force {
-                    return true; // processCollision refused bounce
+                    return Ok(true); // processCollision refused bounce
                 }
             }
             if !allow {
-                return true; // handled as no-force
+                return Ok(true); // handled as no-force
             }
             let handled = self.apply_immobile_collide_bounce_with_effects(
                 a_id,
@@ -364,21 +373,21 @@ impl GameLogic {
                     a.last_collidee = Some(b_id);
                 }
             }
-            return handled;
+            return Ok(handled);
         }
         // Mobile-mobile: AI processCollision residual (usually no bounce force).
         let frame = self.frame;
         let b_snap = match self.objects.get(&b_id) {
             Some(b) => b.clone(),
-            None => return false,
+            None => return Ok(false),
         };
         let allow_force = match self.objects.get_mut(&a_id) {
             Some(a) => a.ai_process_collision(&b_snap, frame, is_ally, other_sees_us_as_ally),
-            None => return false,
+            None => return Ok(false),
         };
         let req_away = {
             let Some(a) = self.objects.get_mut(&a_id) else {
-                return false;
+                return Ok(false);
             };
             a.last_collidee = Some(b_id);
             if a.is_blocked {
@@ -704,7 +713,7 @@ impl GameLogic {
             }
         }
         if !allow_force {
-            return true; // AI handled / no force
+            return Ok(true); // AI handled / no force
         }
         // C++ PhysicsUpdate.cpp:1278-1398: airborne = 3D sphere radii + delta;
         // ground = 2D circle; early-out if dist exceeds radius sum; overlap cap 5.
@@ -750,7 +759,7 @@ impl GameLogic {
                 }
             }
         }
-        true
+        Ok(true)
     }
 
     /// C++ ToppleUpdate::onCollide residual — `crusher` may topple `prop`.

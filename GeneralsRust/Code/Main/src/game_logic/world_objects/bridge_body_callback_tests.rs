@@ -1139,7 +1139,7 @@ fn bridge_on_die_moves_physics_survivor_and_kills_without_physics_in_original_or
                 );
                 object.ground_height = 5.;
             }
-            world.update_owned_partition_with_effects(&mut Default::default());
+            world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
             let mut recipients = Vec::new();
             world.visit_owned_bridge_on_die_recipients(span, |_, id, physics| {
                 recipients.push((id, physics))

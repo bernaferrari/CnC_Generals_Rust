@@ -60,7 +60,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<u32> {
         self.integrate_owned_physics_motion_with_effects(effects)?;
-        Ok(self.update_owned_partition_with_effects(effects))
+        self.update_owned_partition_with_effects(effects)
     }
 
     pub(crate) fn integrate_owned_physics_motion_with_effects(
@@ -176,7 +176,7 @@ impl GameLogic {
     pub(crate) fn update_owned_partition_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         let mut contacts = Vec::new();
         let mut seen = std::collections::HashSet::new();
         while let Some(dirty) = self.partition_manager.take_next_receiving_dirty() {
@@ -261,7 +261,7 @@ impl GameLogic {
             let b_radius = b.physics_on_collide_radius();
             // Main actors dispatch receiving modules in try_physics_collide.
             // Core OBJECT_REGISTRY is a different world and must not be probed.
-            if self.try_physics_collide_with_effects(a_id, b_id, a_radius, effects) {
+            if self.try_physics_collide_with_effects(a_id, b_id, a_radius, effects)? {
                 handled = handled.saturating_add(1);
             }
             let reverse = self
@@ -272,7 +272,7 @@ impl GameLogic {
                     .objects
                     .get(&b_id)
                     .is_some_and(|object| !object.status.destroyed);
-            if reverse && self.try_physics_collide_with_effects(b_id, a_id, b_radius, effects) {
+            if reverse && self.try_physics_collide_with_effects(b_id, a_id, b_radius, effects)? {
                 handled = handled.saturating_add(1);
             }
             // Source rereads partition attachment after both onCollide calls.
@@ -335,7 +335,7 @@ impl GameLogic {
         for o in self.objects.registered_values_mut() {
             o.landing_splat_done = false;
         }
-        handled
+        Ok(handled)
     }
 
     pub(crate) fn tick_shock_stun_all(&mut self) {

@@ -1855,7 +1855,7 @@ impl GameLogic {
 
                 // GameLogic.cpp578: every successive starting-unit placement
                 // queries after the previous birth's dirty partition phase.
-                self.update_owned_partition_with_effects(effects);
+                self.update_owned_partition_with_effects(effects)?;
 
                 // C++ uses rally as findPositionAround center; invented yard offsets
                 // only when the map has no Player_N_Rally.

@@ -285,7 +285,7 @@ fn authored_team_panic_bounces_infantry_collision_before_blocked_state() {
             &logic.objects[&BLOCKER]
         )
     );
-    assert!(logic.try_physics_collide(PANIC_UNIT, BLOCKER, 5.0));
+    assert!(logic.try_physics_collide(PANIC_UNIT, BLOCKER, 5.0).unwrap());
     let unit = &logic.objects[&PANIC_UNIT];
     assert_eq!(unit.last_collidee, Some(BLOCKER));
     assert!(

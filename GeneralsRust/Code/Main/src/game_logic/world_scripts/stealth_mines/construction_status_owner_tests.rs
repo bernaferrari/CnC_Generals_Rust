@@ -91,7 +91,7 @@ fn wave(owner: &mut GameLogic) -> [ObjectId; 3] {
 /// This is deliberately not hidden inside factory/mine helpers or the sweep.
 fn resident_partition_phase(owner: &mut GameLogic) {
     let frame = owner.frame;
-    owner.update_owned_partition_with_effects(&mut Default::default());
+    owner.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     assert_eq!(
         owner.frame, frame,
         "PM phase does not advance the logic clock"

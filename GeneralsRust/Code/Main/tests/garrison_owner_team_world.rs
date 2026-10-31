@@ -95,6 +95,16 @@ Object OwnedGarrisonRider\n\
  Behavior = AIUpdateInterface Brain\n\
  End\n\
 End\n\
+Object BlockedGarrisonRider\n\
+ KindOf = INFANTRY SELECTABLE NO_GARRISON\n\
+ TransportSlotCount = 1\n\
+ Body = ActiveBody BodyTag\n\
+  MaxHealth = 100\n\
+  InitialHealth = 100\n\
+ End\n\
+ Behavior = AIUpdateInterface Brain\n\
+ End\n\
+End\n\
 Object PlainNonContainer\n\
  KindOf = STRUCTURE SELECTABLE\n\
  Body = ActiveBody BodyTag\n\
@@ -285,6 +295,15 @@ fn collision_entry_records_receiving_player_without_touching_peer() {
     let (mut game, host, rider) = world(&map, false);
     let (peer, peer_host, peer_rider) = world(&map, false);
     assert_eq!((host, rider), (peer_host, peer_rider));
+    let rider_team = game.host_object(rider).unwrap().team_instance_identity();
+    let peer_team = peer
+        .host_object(peer_host)
+        .unwrap()
+        .team_instance_identity();
+    assert_ne!(
+        game.host_object(host).unwrap().team_instance_identity(),
+        rider_team
+    );
     let result = CommandExecutor::new(&mut game, 2)
         .execute_command(GameCommand {
             command_type: CommandType::Enter { target_id: host },
@@ -296,13 +315,69 @@ fn collision_entry_records_receiving_player_without_touching_peer() {
         })
         .expect("issue authored Enter command");
     assert_eq!(result, CommandResult::Success);
-    game.try_physics_collide(rider, host, 1.0);
+    game.try_physics_collide(rider, host, 1.0).unwrap();
     assert_eq!(game.host_object(rider).unwrap().contained_by, Some(host));
     assert_eq!(game.host_object(host).unwrap().player_who_entered, Some(2));
+    assert_eq!(
+        game.host_object(host).unwrap().team_instance_identity(),
+        rider_team,
+        "GarrisonContain::onContaining must transfer to the first rider's team"
+    );
+    assert!(
+        game.host_object(host)
+            .unwrap()
+            .has_object_status_bit("CAN_ATTACK")
+    );
     assert_eq!(peer.host_object(peer_rider).unwrap().contained_by, None);
     assert_eq!(
         peer.host_object(peer_host).unwrap().player_who_entered,
         None
+    );
+    assert_eq!(
+        peer.host_object(peer_host)
+            .unwrap()
+            .team_instance_identity(),
+        peer_team
+    );
+}
+
+#[test]
+fn collision_garrison_rejects_invalid_rider_and_reports_missing_owner() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, host, rider) = world(&map, false);
+    let forbidden = game
+        .create_object_for_player("BlockedGarrisonRider", 2, Vec3::new(50.0, 0.0, 50.0))
+        .unwrap();
+    assert!(
+        game.unit_command_set_ai_state(forbidden, AIState::Entering)
+            .unwrap()
+    );
+    game.host_object_mut(forbidden).unwrap().target = Some(host);
+    game.try_physics_collide(forbidden, host, 1.0).unwrap();
+    assert_eq!(game.host_object(forbidden).unwrap().contained_by, None);
+    assert!(game.host_object(host).unwrap().contained_units().is_empty());
+
+    let result = CommandExecutor::new(&mut game, 2)
+        .execute_command(GameCommand {
+            command_type: CommandType::Enter { target_id: host },
+            player_id: 2,
+            command_id: 1,
+            timestamp: std::time::UNIX_EPOCH,
+            selected_units: vec![rider],
+            modifier_keys: ModifierKeys::default(),
+        })
+        .unwrap();
+    assert_eq!(result, CommandResult::Success);
+    let team = game.host_object(host).unwrap().team_instance_identity();
+    game.host_object_mut(rider).unwrap().owner_player_id = Some(u32::MAX);
+    let error = game.try_physics_collide(rider, host, 1.0).unwrap_err();
+    assert!(error.to_string().contains("controller is missing"));
+    assert_eq!(game.host_object(rider).unwrap().contained_by, None);
+    assert!(game.host_object(host).unwrap().contained_units().is_empty());
+    assert_eq!(
+        game.host_object(host).unwrap().team_instance_identity(),
+        team
     );
 }
 

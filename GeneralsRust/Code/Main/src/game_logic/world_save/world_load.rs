@@ -1390,7 +1390,8 @@ impl GameLogic {
                 .as_mut()
                 .map(|native| native.effects())
                 .unwrap_or_default(),
-        );
+        )
+        .map_err(|error| error.to_string())?;
 
         self.map_loaded = true;
         if let Some(draw_sky_box) = self

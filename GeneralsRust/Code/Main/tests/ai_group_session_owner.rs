@@ -361,7 +361,7 @@ fn attack_own_position_forwards_the_containers_position_to_its_passenger() {
             .create_object_for_player("GroupVisibleGarrison", 1, Vec3::new(42.0, 0.0, 40.0))
             .unwrap();
         assert!(game.unit_command_order_enter(passenger, garrison));
-        game.try_physics_collide(passenger, garrison, 1.0);
+        game.try_physics_collide(passenger, garrison, 1.0).unwrap();
         let unit = game.host_object_mut(passenger).unwrap();
         assert_eq!(unit.contained_by, Some(garrison));
         unit.weapon = Some(Weapon {
@@ -803,7 +803,8 @@ fn enclosing_boarding_leaves_only_the_receiving_worlds_group() {
 
     // The second live boarding path is PhysicsBehavior::onCollide.
     assert!(peer.unit_command_order_enter(peer_first, peer_carrier));
-    peer.try_physics_collide(peer_first, peer_carrier, 1.0);
+    peer.try_physics_collide(peer_first, peer_carrier, 1.0)
+        .unwrap();
     assert_eq!(
         peer.host_object(peer_first).unwrap().contained_by,
         Some(peer_carrier)
@@ -824,7 +825,9 @@ fn enclosing_boarding_leaves_only_the_receiving_worlds_group() {
         .create_object_for_player("GroupVisibleGarrison", 1, Vec3::new(40.0, 0.0, 40.0))
         .unwrap();
     assert!(visible.unit_command_order_enter(visible_first, garrison));
-    visible.try_physics_collide(visible_first, garrison, 1.0);
+    visible
+        .try_physics_collide(visible_first, garrison, 1.0)
+        .unwrap();
     assert_eq!(
         visible.host_object(visible_first).unwrap().contained_by,
         Some(garrison)

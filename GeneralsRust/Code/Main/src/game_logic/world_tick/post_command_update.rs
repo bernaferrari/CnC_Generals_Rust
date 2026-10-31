@@ -1012,7 +1012,9 @@ impl GameLogic {
         // C++: ThePartitionManager->UPDATE();
         // Spatial partition updated AFTER all objects moved and BEFORE death
         // cleanup so spatial queries during cleanup use correct positions.
-        self.update_owned_partition_with_effects(&mut ui);
+        if let Err(error) = self.update_owned_partition_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
 
         // -----------------------------------------------------------------------
         // Phase 13: Death/Cleanup (C++ line 3762)

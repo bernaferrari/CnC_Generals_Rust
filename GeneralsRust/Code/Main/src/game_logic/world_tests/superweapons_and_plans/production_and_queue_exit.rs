@@ -118,7 +118,7 @@ fn script_skirmish_attack_nearest_group_uses_relationship_and_cell_value() {
         obj.shroud_clearing_range = 1.0;
         obj.vision_range = 1.0;
     }
-    logic.update_owned_partition_with_effects(&mut Default::default());
+    logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     request_host_skirmish_attack_nearest_group("teamUSA1", 4, 50);
     logic.evaluate_and_execute_scripts(0.0);
 

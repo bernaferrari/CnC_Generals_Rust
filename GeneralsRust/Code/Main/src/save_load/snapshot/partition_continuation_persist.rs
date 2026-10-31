@@ -210,7 +210,7 @@ mod tests {
                 let id = owner
                     .create_object("ScalarPreflight", Team::USA, glam::Vec3::ZERO)
                     .unwrap();
-                owner.update_owned_partition_with_effects(&mut Default::default());
+                owner.update_owned_partition_with_effects(&mut Default::default()).unwrap();
                 let token = owner
                     .host_object(id)
                     .unwrap()

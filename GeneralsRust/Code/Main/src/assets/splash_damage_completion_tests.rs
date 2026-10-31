@@ -31,7 +31,7 @@ impl Splash {
     }
     fn apply(self, world: &mut GameLogic, source: ObjectId, team: Team, skip: ObjectId) -> u32 {
         // The match's partition phase admits factory births before combat queries.
-        world.update_owned_partition_with_effects(&mut Default::default());
+        world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
         match self {
             Self::Hit => world.apply_instant_hit_splash_at(
                 Vec3::new(30.0, 0.0, 0.0),

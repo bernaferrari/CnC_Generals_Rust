@@ -396,7 +396,7 @@ fn native_bridge_death_world() -> (GameLogic, ObjectId, ObjectId, ObjectId) {
         world.set_fixture_object_position(id, glam::Vec3::new(position.x, 5., position.z));
         world.host_object_mut(id).unwrap().ground_height = 5.;
     }
-    world.update_owned_partition_with_effects(&mut Default::default());
+    world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     (world, span, physics, no_physics)
 }
 

@@ -22,7 +22,7 @@ fn world(position: Vec3) -> (GameLogic, ObjectId) {
     let id = world
         .create_object_for_player("RuntimeAttachmentCloneProbe", 0, position)
         .unwrap();
-    world.update_owned_partition_with_effects(&mut Default::default());
+    world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     (world, id)
 }
 fn partition_bytes(world: &GameLogic) -> Vec<u8> {
@@ -148,7 +148,7 @@ fn actual_clone_admission_rebinds_runtime_attachments_with_new_birth_and_clean_s
     assert!(!admitted.partition_last_affect_applied);
     assert!(admitted.host_trigger_world.upgrade().is_some());
     receiver.set_fixture_object_position(id, Vec3::new(550.0, 0.0, 570.0));
-    receiver.update_owned_partition_with_effects(&mut Default::default());
+    receiver.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     assert_eq!(
         cash_value(&receiver, Vec3::new(150.0, 0.0, 170.0)),
         0,
@@ -212,7 +212,7 @@ fn encoded_lifecycle_continuation_moves_same_birth_attachment_rights_without_tou
     assert!(installed.host_trigger_world.upgrade().is_some());
     assert_eq!(partition_bytes(&owner), partition_before);
     owner.set_fixture_object_position(id, Vec3::new(520.0, 0.0, 540.0));
-    owner.update_owned_partition_with_effects(&mut Default::default());
+    owner.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     assert_eq!(cash_value(&owner, Vec3::new(120.0, 0.0, 140.0)), 0);
     assert_eq!(cash_value(&owner, Vec3::new(520.0, 0.0, 540.0)), 50);
     assert_eq!(partition_bytes(&peer), peer_partition);

@@ -139,7 +139,7 @@ fn vehicle_requests_infantry_move_away() {
         v.movement.path = vec![Vec3::new(0.0, 0.0, 8.0), Vec3::new(0.0, 0.0, 16.0)];
         v.movement.current_path_index = 0;
     }
-    assert!(logic.try_physics_collide(vid, iid, 8.0));
+    assert!(logic.try_physics_collide(vid, iid, 8.0).unwrap());
     let inf = logic.objects.get(&iid).unwrap();
     assert_eq!(inf.move_away_from, Some(vid));
     assert!(inf.move_away_destination.is_some());
@@ -181,7 +181,7 @@ fn ai_blocked_sets_speed_cap() {
     b.crushable_level = 10;
     logic.objects.insert(bid, b);
 
-    assert!(logic.try_physics_collide(aid, bid, 8.0));
+    assert!(logic.try_physics_collide(aid, bid, 8.0).unwrap());
     let a = logic.objects.get(&aid).unwrap();
     assert_eq!(a.last_collidee, Some(bid));
     assert!(
@@ -228,7 +228,7 @@ fn panicking_infantry_stays_on_the_blocked_path() {
     b.selection_radius = 5.0;
     logic.objects.insert(bid, b);
 
-    assert!(logic.try_physics_collide(aid, bid, 5.0));
+    assert!(logic.try_physics_collide(aid, bid, 5.0).unwrap());
     let a = logic.objects.get(&aid).unwrap();
     assert_eq!(a.last_collidee, Some(bid));
     assert!(
@@ -269,7 +269,7 @@ fn collision_without_current_locomotor_does_not_mark_blocked() {
     assert!(crate::game_logic::pathfinding::PathfindingGrid::is_doing_ground_movement_full(&b));
     logic.objects.insert(bid, b);
 
-    assert!(logic.try_physics_collide(aid, bid, 5.0));
+    assert!(logic.try_physics_collide(aid, bid, 5.0).unwrap());
     let a = logic.objects.get(&aid).unwrap();
     assert_eq!(a.last_collidee, Some(bid));
     assert!(
@@ -326,7 +326,7 @@ fn partition_cell_broadphase_and_collide_force() {
     logic.objects.get_mut(&tid).unwrap().allow_collide_force = false;
     logic.set_fixture_object_position(tid, Vec3::new(0.0, 1.0, 0.0));
     logic.set_fixture_object_position(sid, Vec3::new(2.0, 1.0, 0.0));
-    assert!(logic.try_physics_collide(tid, sid, 10.0));
+    assert!(logic.try_physics_collide(tid, sid, 10.0).unwrap());
 }
 
 #[test]
@@ -400,7 +400,7 @@ fn try_physics_collide_respects_ignore_and_parachute() {
     a.set_ignore_collisions_with(Some(bid));
     logic.objects.insert(aid, a);
     logic.objects.insert(bid, b);
-    assert!(logic.try_physics_collide(aid, bid, 10.0));
+    assert!(logic.try_physics_collide(aid, bid, 10.0).unwrap());
     // Ignored: infantry not crushed.
     assert!(!logic.objects.get(&bid).unwrap().status.destroyed);
 
@@ -412,7 +412,7 @@ fn try_physics_collide_respects_ignore_and_parachute() {
         .set_ignore_collisions_with(None);
     logic.objects.get_mut(&aid).unwrap().status.parachuting = true;
     logic.objects.get_mut(&bid).unwrap().status.parachuting = true;
-    assert!(logic.try_physics_collide(aid, bid, 10.0));
+    assert!(logic.try_physics_collide(aid, bid, 10.0).unwrap());
     assert!(!logic.objects.get(&bid).unwrap().status.destroyed);
 
     // Unmanned vehicle boarded by infantry.
@@ -430,7 +430,7 @@ fn try_physics_collide_respects_ignore_and_parachute() {
     let mut inf = Object::new(ti, iid, Team::USA);
     inf.ignored_obstacle_id = Some(vid);
     logic.objects.insert(iid, inf);
-    assert!(logic.try_physics_collide(iid, vid, 5.0));
+    assert!(logic.try_physics_collide(iid, vid, 5.0).unwrap());
     // Reclaim residual: process_destroy_list removes the pilot (not merely
     // marks destroyed while leaving the slot occupied).
     assert!(
@@ -461,7 +461,7 @@ fn try_physics_collide_unmanned_recrew_requires_ignored_obstacle() {
     let iid = ObjectId(414);
     let inf = Object::new(ti, iid, Team::USA);
     logic.objects.insert(iid, inf);
-    assert!(logic.try_physics_collide(iid, vid, 5.0));
+    assert!(logic.try_physics_collide(iid, vid, 5.0).unwrap());
     assert!(
         logic.objects.get(&iid).is_some_and(|o| o.is_alive()),
         "accidental bump must not destroy the infantry"
@@ -638,7 +638,7 @@ fn allied_player_tank_does_not_crush_friends() {
     assert_ne!(inf.status.death_type, HostDeathType::Crushed);
 
     // Live collide path uses object_relationship, not Team==.
-    assert!(logic.try_physics_collide(tid, iid, 8.0));
+    assert!(logic.try_physics_collide(tid, iid, 8.0).unwrap());
     let inf = logic.objects.get(&iid).unwrap();
     assert!(
         inf.is_alive(),
@@ -849,7 +849,7 @@ fn collide_immobile_is_kindof_immobile_not_can_move() {
     // Pair loop: dead wreck stays mobile-mobile (last_collidee, no vel zero).
     logic.objects.get_mut(&mid).unwrap().movement.velocity = Vec3::new(8.0, 0.0, 0.0);
     logic.objects.get_mut(&mid).unwrap().allow_collide_force = true;
-    assert!(logic.try_physics_collide(mid, dead, 10.0));
+    assert!(logic.try_physics_collide(mid, dead, 10.0).unwrap());
     let tank = logic.objects.get(&mid).unwrap();
     assert_eq!(tank.last_collidee, Some(dead));
     assert!(
@@ -914,7 +914,7 @@ fn try_physics_collide_skips_container_contained() {
     occ.movement.velocity = Vec3::new(4.0, 0.0, 0.0);
     logic.objects.insert(iid, occ);
 
-    assert!(logic.try_physics_collide(iid, cid, 8.0));
+    assert!(logic.try_physics_collide(iid, cid, 8.0).unwrap());
     let occ = logic.objects.get(&iid).unwrap();
     assert!(
         occ.physics_accel.length_squared() < 1e-8,

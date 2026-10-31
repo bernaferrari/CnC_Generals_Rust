@@ -743,7 +743,7 @@ fn boarded_passenger_shots_use_owning_carrier_rof() {
                 .unwrap(),
         );
         assert!(world.unit_command_order_enter(passenger, carrier));
-        world.try_physics_collide(passenger, carrier, 1.0);
+        world.try_physics_collide(passenger, carrier, 1.0).unwrap();
         assert_eq!(
             world.host_object(passenger).unwrap().contained_by,
             Some(carrier)
@@ -783,7 +783,7 @@ fn boarded_passenger_reload_uses_owning_carrier_rof() {
     for world in [&mut boosted, &mut plain] {
         world.host_object_mut(passenger).unwrap().contained_by = None;
         assert!(world.unit_command_order_enter(passenger, carrier));
-        world.try_physics_collide(passenger, carrier, 1.0);
+        world.try_physics_collide(passenger, carrier, 1.0).unwrap();
         assert_eq!(
             world.host_object(passenger).unwrap().contained_by,
             Some(carrier)
@@ -913,7 +913,7 @@ fn authored_passenger_fire_permission_controls_actual_firing() {
                 .unwrap(),
         );
         assert!(world.unit_command_order_enter(passenger, carrier));
-        world.try_physics_collide(passenger, carrier, 1.0);
+        world.try_physics_collide(passenger, carrier, 1.0).unwrap();
         assert_eq!(
             world.host_object(passenger).unwrap().contained_by,
             Some(carrier)
@@ -1009,7 +1009,7 @@ fn passenger_pre_attack_uses_receiving_carrier_bonus() {
                 .unwrap(),
         );
         assert!(world.unit_command_order_enter(passenger, carrier));
-        world.try_physics_collide(passenger, carrier, 1.0);
+        world.try_physics_collide(passenger, carrier, 1.0).unwrap();
         assert_eq!(
             world.host_object(passenger).unwrap().contained_by,
             Some(carrier)
@@ -1077,7 +1077,7 @@ fn passenger_acquisition_uses_carriers_receiving_range_bonus() {
                 .unwrap(),
         );
         assert!(world.unit_command_order_enter(passenger, carrier));
-        world.try_physics_collide(passenger, carrier, 1.0);
+        world.try_physics_collide(passenger, carrier, 1.0).unwrap();
         assert_eq!(
             world.host_object(passenger).unwrap().contained_by,
             Some(carrier)
@@ -1123,7 +1123,7 @@ fn passenger_firing_inherits_the_receiving_carriers_damage_bonus() {
         );
         assert!(world.can_unit_enter_normal_target(passenger, carrier));
         assert!(world.unit_command_order_enter(passenger, carrier));
-        world.try_physics_collide(passenger, carrier, 1.0);
+        world.try_physics_collide(passenger, carrier, 1.0).unwrap();
         assert_eq!(
             world.host_object(passenger).unwrap().contained_by,
             Some(carrier)
@@ -1217,7 +1217,7 @@ fn boarding_save_and_evacuation_preserve_session_bonus_ownership() {
         world.host_object_mut(passenger).unwrap().contained_by = None;
         assert!(world.can_unit_enter_normal_target(passenger, carrier));
         assert!(world.unit_command_order_enter(passenger, carrier));
-        world.try_physics_collide(passenger, carrier, 1.0);
+        world.try_physics_collide(passenger, carrier, 1.0).unwrap();
         assert_eq!(
             world.host_object(passenger).unwrap().contained_by,
             Some(carrier)
@@ -1277,7 +1277,7 @@ fn passenger_fire_runtime_override_survives_save_formats_and_peer_interleaving()
         assert_eq!((passenger, carrier), (peer_passenger, peer_carrier));
         source.host_object_mut(passenger).unwrap().contained_by = None;
         assert!(source.unit_command_order_enter(passenger, carrier));
-        source.try_physics_collide(passenger, carrier, 1.0);
+        source.try_physics_collide(passenger, carrier, 1.0).unwrap();
         assert_eq!(
             source.host_object(passenger).unwrap().contained_by,
             Some(carrier)

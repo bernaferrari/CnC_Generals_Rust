@@ -227,10 +227,10 @@ fn actual_scalar_factory_dirty_phase_same_id_peer_and_drop_use_receiving_grid() 
                 0,
                 "factory projection does not apply cells before original dirty phase"
             );
-            world.update_owned_partition_with_effects(&mut Default::default());
+            world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
             let mut peer = receiving_scalar_grid(91);
             assert_eq!(spawn(&mut peer, 91), id);
-            peer.update_owned_partition_with_effects(&mut Default::default());
+            peer.update_owned_partition_with_effects(&mut Default::default()).unwrap();
             assert_eq!(threat_cell(&world, 0.), 17);
             assert_eq!(threat_cell(&peer, 0.), 91);
             world.set_fixture_object_position(id, Vec3::new(160., 0., 0.));
@@ -240,7 +240,7 @@ fn actual_scalar_factory_dirty_phase_same_id_peer_and_drop_use_receiving_grid() 
                 "pose setter does not run original partition maintenance early"
             );
             assert_eq!(threat_cell(&world, 160.), 0);
-            world.update_owned_partition_with_effects(&mut Default::default());
+            world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
             assert_eq!(threat_cell(&world, 0.), 0);
             assert_eq!(threat_cell(&world, 160.), 17);
             assert_eq!(threat_cell(&peer, 0.), 91);
@@ -274,7 +274,7 @@ fn actual_bincode_pending_scalar_cell_observation_continues_without_early_restam
         || {
             let mut world = receiving_scalar_grid(17);
             let id = spawn(&mut world, 17);
-            world.update_owned_partition_with_effects(&mut Default::default());
+            world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
             world.set_fixture_object_position(id, Vec3::new(160., 0., 0.));
             let builder = crate::save_load::SnapshotBuilder::new();
             let bytes =
@@ -291,8 +291,8 @@ fn actual_bincode_pending_scalar_cell_observation_continues_without_early_restam
                 "saved previous observation owns stale scalar stamp"
             );
             assert_eq!(threat_cell(&loaded, 160.), 0);
-            loaded.update_owned_partition_with_effects(&mut Default::default());
-            world.update_owned_partition_with_effects(&mut Default::default());
+            loaded.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+            world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
             for x in [0., 40., 120., 160., 200.] {
                 assert_eq!(threat_cell(&loaded, x), threat_cell(&world, x));
             }
@@ -314,7 +314,7 @@ fn receiving_scalar_and_pose_operations_reject_naked_mutators_before_any_change(
         || {
             let mut world = receiving_scalar_grid(17);
             let id = spawn(&mut world, 17);
-            world.update_owned_partition_with_effects(&mut Default::default());
+            world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
             let before = world.host_object(id).unwrap().get_position();
             assert!(
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -385,7 +385,7 @@ fn actual_nearest_enemy_scalar_query_observes_factory_phase_and_saved_stale_cell
                 None,
                 "actual script reader cannot infer current-pose value before original owner phase"
             );
-            world.update_owned_partition_with_effects(&mut Default::default());
+            world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
             let old = world
                 .fixture_nearest_enemy_scalar_group(0, Vec3::ZERO, 100)
                 .expect("actual receiving scalar group");
@@ -423,8 +423,8 @@ fn actual_nearest_enemy_scalar_query_observes_factory_phase_and_saved_stale_cell
                 loaded.fixture_nearest_enemy_scalar_group(0, Vec3::ZERO, 100),
                 Some(old)
             );
-            world.update_owned_partition_with_effects(&mut Default::default());
-            loaded.update_owned_partition_with_effects(&mut Default::default());
+            world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+            loaded.update_owned_partition_with_effects(&mut Default::default()).unwrap();
             let new = world
                 .fixture_nearest_enemy_scalar_group(0, Vec3::ZERO, 100)
                 .expect("moved receiving group");
@@ -445,10 +445,10 @@ fn actual_direct_delete_retains_original_scalar_residual_but_lethal_body_clears_
         || {
             let mut direct = receiving_scalar_grid(17);
             let id = spawn(&mut direct, 17);
-            direct.update_owned_partition_with_effects(&mut Default::default());
+            direct.update_owned_partition_with_effects(&mut Default::default()).unwrap();
             let mut lethal = receiving_scalar_grid(17);
             assert_eq!(spawn(&mut lethal, 17), id);
-            lethal.update_owned_partition_with_effects(&mut Default::default());
+            lethal.update_owned_partition_with_effects(&mut Default::default()).unwrap();
             direct.destroy_object(id);
             assert!(!direct.host_object(id).unwrap().status.effectively_dead);
             assert_eq!(

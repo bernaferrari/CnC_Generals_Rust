@@ -68,7 +68,7 @@ fn world(spawn: bool) -> (GameLogic, Option<ObjectId>, Option<ObjectId>) {
         .host_object_mut(victim)
         .unwrap()
         .set_special_power_completion(POWER, CREATOR);
-    world.update_owned_partition_with_effects(&mut Default::default());
+    world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     assert_eq!(
         world.host_object_id_by_script_name("NotificationCarrier"),
         None
