@@ -143,6 +143,19 @@ Object OwnedCave\n\
   CaveIndex = 7\n\
  End\n\
 End\n\
+Object RestrictedCave\n\
+ KindOf = STRUCTURE SELECTABLE\n\
+ Body = ActiveBody BodyTag\n\
+  MaxHealth = 1000\n\
+  InitialHealth = 1000\n\
+ End\n\
+ Behavior = CaveContain CaveTag\n\
+  CaveIndex = 8\n\
+  AllowInsideKindOf = VEHICLE\n\
+  ForbidInsideKindOf = INFANTRY\n\
+  AllowAlliesInside = No\n\
+ End\n\
+End\n\
 Object TunnelAircraft\n\
  KindOf = AIRCRAFT VEHICLE SELECTABLE\n\
  TransportSlotCount = 1\n\
@@ -478,6 +491,135 @@ fn collision_transport_rechecks_slot_capacity_and_controller() {
         peer.host_object(peer_heavy).unwrap().contained_by,
         None,
         "TransportContain requires the same controlling player at collision"
+    );
+}
+
+#[test]
+fn cave_enter_queries_use_shared_capacity_and_occupants() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, _, rider) = world(&map, false);
+    let (mut peer, _, peer_rider) = world(&map, false);
+    let setup = |world: &mut GameLogic| {
+        let a = world
+            .create_object_for_player("OwnedCave", 2, Vec3::new(50., 0., 50.))
+            .unwrap();
+        let b = world
+            .create_object_for_player("OwnedCave", 2, Vec3::new(70., 0., 50.))
+            .unwrap();
+        for cave in [a, b] {
+            world
+                .host_object_mut(cave)
+                .unwrap()
+                .install_cave_contain_residual(7);
+            world
+                .cave_system_residual_mut()
+                .register_cave(cave, 7, Team::USA);
+        }
+        let outsider = world
+            .create_object_for_player("OwnedGarrisonRider", 1, Vec3::new(70., 0., 50.))
+            .unwrap();
+        (a, b, outsider)
+    };
+    let (a, b, outsider) = setup(&mut game);
+    let (peer_a, peer_b, peer_outsider) = setup(&mut peer);
+    assert_eq!(
+        (a, b, outsider, rider),
+        (peer_a, peer_b, peer_outsider, peer_rider)
+    );
+    assert!(
+        game.unit_command_set_ai_state(rider, AIState::Entering)
+            .unwrap()
+    );
+    game.host_object_mut(rider).unwrap().target = Some(a);
+    game.try_physics_collide(rider, a, 1.0).unwrap();
+    assert!(game.cave_system_residual().is_in_network(7, rider));
+    assert!(!game.can_unit_enter_normal_target(outsider, b));
+    assert!(peer.can_unit_enter_normal_target(peer_outsider, peer_b));
+
+    for _ in 1..10 {
+        let unit = game
+            .create_object_for_player("OwnedGarrisonRider", 2, Vec3::new(50., 0., 50.))
+            .unwrap();
+        let peer_unit = peer
+            .create_object_for_player("OwnedGarrisonRider", 2, Vec3::new(50., 0., 50.))
+            .unwrap();
+        assert_eq!(unit, peer_unit);
+        assert!(
+            game.unit_command_set_ai_state(unit, AIState::Entering)
+                .unwrap()
+        );
+        game.host_object_mut(unit).unwrap().target = Some(a);
+        game.try_physics_collide(unit, a, 1.0).unwrap();
+    }
+    let overflow = game
+        .create_object_for_player("OwnedGarrisonRider", 2, Vec3::new(70., 0., 50.))
+        .unwrap();
+    let peer_overflow = peer
+        .create_object_for_player("OwnedGarrisonRider", 2, Vec3::new(70., 0., 50.))
+        .unwrap();
+    assert_eq!(overflow, peer_overflow);
+    assert_eq!(
+        game.normal_enter_available_capacity_for(overflow, b),
+        Some(0)
+    );
+    assert_eq!(
+        peer.normal_enter_available_capacity_for(peer_overflow, peer_b),
+        Some(1)
+    );
+    assert!(!game.can_unit_enter_normal_target(overflow, b));
+    assert!(peer.can_unit_enter_normal_target(peer_overflow, peer_b));
+    let restricted = peer
+        .create_object_for_player("RestrictedCave", 2, Vec3::new(80., 0., 50.))
+        .unwrap();
+    peer.host_object_mut(restricted)
+        .unwrap()
+        .install_cave_contain_residual(8);
+    assert!(peer.can_unit_enter_normal_target(peer_overflow, restricted));
+    assert_eq!(
+        CommandExecutor::new(&mut game, 2)
+            .execute_command(GameCommand {
+                command_type: CommandType::Enter { target_id: b },
+                player_id: 2,
+                command_id: 87,
+                timestamp: std::time::UNIX_EPOCH,
+                selected_units: vec![overflow],
+                modifier_keys: ModifierKeys::default(),
+            })
+            .unwrap(),
+        CommandResult::InvalidCommand
+    );
+
+    // A stale entrance-local list must not manufacture a shared passenger.
+    let ghost_position = peer.host_object(peer_outsider).unwrap().get_position();
+    peer.host_object_mut(peer_b)
+        .unwrap()
+        .building_data
+        .as_mut()
+        .unwrap()
+        .garrisoned_units
+        .push(peer_outsider);
+    assert_eq!(
+        CommandExecutor::new(&mut peer, 2)
+            .execute_command(GameCommand {
+                command_type: CommandType::Exit,
+                player_id: 2,
+                command_id: 88,
+                timestamp: std::time::UNIX_EPOCH,
+                selected_units: vec![peer_b],
+                modifier_keys: ModifierKeys::default(),
+            })
+            .unwrap(),
+        CommandResult::InvalidCommand
+    );
+    assert_eq!(
+        peer.host_object(peer_outsider).unwrap().get_position(),
+        ghost_position
+    );
+    assert!(!peer.evacuate_container_now(peer_b, false));
+    assert_eq!(
+        peer.host_object(peer_outsider).unwrap().get_position(),
+        ghost_position
     );
 }
 

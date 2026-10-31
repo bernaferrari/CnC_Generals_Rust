@@ -1105,6 +1105,11 @@ impl GameLogic {
     /// occupants with `KINDOF_STEALTH_GARRISON` vs everyone else.
 
     pub fn stealth_garrison_occupant_counts(&self, target: &Object) -> (usize, usize) {
+        if target.is_cave_style_container() {
+            // CaveContain stores the roster in its tracker; it never calls
+            // OpenContain::addToContainList's stealth counter update.
+            return (0, self.cave_system.contain_count(target.cave_index));
+        }
         let occupants = target.contained_units();
         let stealth = occupants
             .iter()
@@ -1184,6 +1189,12 @@ impl GameLogic {
         let target = self.host_object(target_id)?;
         if !target.can_contain() || !target.supports_normal_enter() {
             return None;
+        }
+
+        if target.is_cave_style_container() {
+            return Some(usize::from(
+                self.cave_system.has_capacity(target.cave_index),
+            ));
         }
 
         if target.contained_units().contains(&unit_id) {
@@ -1421,8 +1432,9 @@ impl GameLogic {
             return false;
         }
 
+        let is_cave = target.is_cave_style_container();
         let relationship = self.normal_enter_relationship(unit, target);
-        if !target.allows_normal_enter_for_relationship(relationship) {
+        if !is_cave && !target.allows_normal_enter_for_relationship(relationship) {
             return false;
         }
         let same_controller = self.normal_enter_controller_matches(unit, target);
@@ -1431,7 +1443,15 @@ impl GameLogic {
         }
         let mut skip_capacity_for_stealth_garrison = false;
 
-        if target.is_tunnel_network_style_container() {
+        if is_cave {
+            if unit.is_kind_of(KindOf::Aircraft)
+                || (!same_controller
+                    && (self.cave_system.contain_count(target.cave_index) > 0
+                        || target.is_faction_structure()))
+            {
+                return false;
+            }
+        } else if target.is_tunnel_network_style_container() {
             if unit.is_kind_of(KindOf::Aircraft) {
                 return false;
             }

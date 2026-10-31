@@ -340,12 +340,6 @@ impl<'a> CommandExecutor<'a> {
                             cave_exit_for.insert(contained, selected_id);
                         }
                     }
-                    for contained in selected_obj.contained_units() {
-                        if seen_units.insert(contained) {
-                            to_unload.push((contained, Some(selected_id), origin));
-                            cave_exit_for.insert(contained, selected_id);
-                        }
-                    }
                     continue;
                 }
 

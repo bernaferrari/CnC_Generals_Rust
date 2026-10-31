@@ -812,15 +812,11 @@ impl GameLogic {
         };
         let yaw = container.get_orientation();
         let building_pos = container.get_position();
-        let mut passengers: Vec<ObjectId> = container.contained_units();
-        if is_cave {
-            let idx = container.cave_index;
-            for uid in self.cave_system.contained_for_index(idx) {
-                if !passengers.contains(&uid) {
-                    passengers.push(uid);
-                }
-            }
-        }
+        let mut passengers: Vec<ObjectId> = if is_cave {
+            self.cave_system.contained_for_index(container.cave_index)
+        } else {
+            container.contained_units()
+        };
         if passengers.is_empty() && !and_exit {
             // Still clear pending flags.
             if let Some(c) = self.objects.get_mut(&container_id) {

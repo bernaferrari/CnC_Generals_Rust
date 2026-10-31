@@ -1306,6 +1306,11 @@ impl Object {
         if self.is_tunnel_network_style_container() {
             return ContainAdmission::InfantryOrVehicle;
         }
+        if self.is_cave_style_container() {
+            // CaveContain delegates eligibility to TunnelTracker, which
+            // accepts every non-aircraft object regardless of OpenContain masks.
+            return ContainAdmission::AnyMobile;
+        }
         if self.is_overlord_style_container() && self.overlord_bunker_slot_capacity() > 0 {
             return ContainAdmission::InfantryOnly;
         }
