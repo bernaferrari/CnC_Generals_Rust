@@ -1626,6 +1626,12 @@ impl GameLogic {
         dest: ObjectId,
     ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::AIState;
+        if !self
+            .host_object(unit)
+            .is_some_and(|object| object.has_ai_update_interface())
+        {
+            return Ok(());
+        }
         let Some(pos) = self.host_object(dest).map(|obj| obj.get_position()) else {
             return Ok(());
         };
@@ -1776,7 +1782,9 @@ impl GameLogic {
                 let member_id = members[member_idx];
                 member_idx += 1;
                 let ok = self.host_object(member_id).is_some_and(|obj| {
-                    obj.is_kind_of(KindOf::Infantry) && !obj.is_kind_of(KindOf::NoGarrison)
+                    obj.has_ai_update_interface()
+                        && obj.is_kind_of(KindOf::Infantry)
+                        && !obj.is_kind_of(KindOf::NoGarrison)
                 });
                 if !ok {
                     continue;

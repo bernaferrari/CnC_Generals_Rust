@@ -35,6 +35,16 @@ fn world_with_target(
     button_admitted: bool,
     target_position: glam::Vec3,
 ) -> (GameLogic, ObjectId, ObjectId) {
+    world_with_roster(root, boundary, button_admitted, target_position, false)
+}
+
+fn world_with_roster(
+    root: &std::path::Path,
+    boundary: i32,
+    button_admitted: bool,
+    target_position: glam::Vec3,
+    add_non_ai_member: bool,
+) -> (GameLogic, ObjectId, ObjectId) {
     let mut sides = SidesList::new();
     let mut player = Dict::new();
     player.set_ascii_string(key_player_name(), "Owner");
@@ -90,6 +100,20 @@ fn world_with_target(
     properties.set_ascii_string(NameKeyGenerator::name_to_key("originalOwner"), "OwnedTeam");
     map.write_dict(&properties);
     map.close_data_chunk();
+    if add_non_ai_member {
+        // Team admission prepends: this member is visited before the caster.
+        map.open_data_chunk("Object", 3);
+        for value in [95.0, 95.0, 0.0, 0.0] {
+            map.write_real(value);
+        }
+        map.write_int(0);
+        map.write_ascii_string("OwnedNoAiInfantry");
+        let mut properties = Dict::new();
+        properties.set_ascii_string(NameKeyGenerator::name_to_key("objectName"), "NoAiMember");
+        properties.set_ascii_string(NameKeyGenerator::name_to_key("originalOwner"), "OwnedTeam");
+        map.write_dict(&properties);
+        map.close_data_chunk();
+    }
     map.close_data_chunk();
     sides.write_sides_data_chunk(&mut map, &ScriptTemplateLookup::from_engine(&engine));
     let path = root.join("NearestButton.map");
@@ -102,7 +126,7 @@ fn world_with_target(
     )
     .unwrap();
     let mut game = GameLogic::new();
-    game.admit_object_ini_sources([("Objects.ini".into(), "Object AmericaInfantryMissileDefender\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n Behavior = SpecialAbility Laser\n SpecialPowerTemplate = SpecialAbilityMissileDefenderLaserGuidedMissiles\n End\nEnd\nObject OwnedVehicle\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\nObject OwnedNearestGarrison\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = GarrisonContain GarrisonTag\n ContainMax = 4\n End\nEnd\n".into())]).unwrap();
+    game.admit_object_ini_sources([("Objects.ini".into(), "Object AmericaInfantryMissileDefender\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n Behavior = SpecialAbility Laser\n SpecialPowerTemplate = SpecialAbilityMissileDefenderLaserGuidedMissiles\n End\nEnd\nObject OwnedNoAiInfantry\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject OwnedVehicle\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\nObject OwnedNearestGarrison\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = GarrisonContain GarrisonTag\n ContainMax = 1\n End\nEnd\n".into())]).unwrap();
     let mut definitions = PlayerTemplateStore::new_owned();
     definitions.apply_source("PlayerTemplate FactionCivilian\n Side = Civilian\nEnd\nPlayerTemplate FactionAmerica\n Side = America\nEnd\n", INILoadType::Overwrite).unwrap();
     game.admit_player_template_definitions(definitions).unwrap();
@@ -271,6 +295,10 @@ fn team_sighting_hook_requires_strictly_inside_vision_range() {
 }
 
 fn execute_garrison(game: &mut GameLogic, by_team: bool) {
+    execute_garrison_for(game, by_team, "OwnedCaster");
+}
+
+fn execute_garrison_for(game: &mut GameLogic, by_team: bool, unit: &str) {
     let mut action = ScriptAction::new(if by_team {
         ScriptActionType::TeamGarrisonNearestBuilding
     } else {
@@ -283,7 +311,7 @@ fn execute_garrison(game: &mut GameLogic, by_team: bool) {
             } else {
                 ParameterType::Unit
             },
-            if by_team { "OwnedTeam" } else { "OwnedCaster" }.into(),
+            if by_team { "OwnedTeam" } else { unit }.into(),
         ))
         .unwrap();
     let mut branch = OrCondition::new();
@@ -301,6 +329,55 @@ fn execute_garrison(game: &mut GameLogic, by_team: bool) {
         .set_script_list_for_player(0, Some(Box::new(scripts)))
         .unwrap();
     game.update_local_script_engine_with_owner(&engine).unwrap();
+}
+
+#[test]
+fn team_garrison_skips_infantry_without_ai_before_consuming_slot() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut game, source, _) = world_with_roster(
+        root.path(),
+        20,
+        true,
+        glam::Vec3::new(80.0, 0.0, 80.0),
+        true,
+    );
+    let non_ai = game
+        .host_objects()
+        .registered_values()
+        .find(|object| object.name == "NoAiMember")
+        .unwrap()
+        .id;
+    assert!(!game.host_object(non_ai).unwrap().has_ai_update_interface());
+    assert!(game.host_object(source).unwrap().has_ai_update_interface());
+    let building = game
+        .create_object_for_player("OwnedNearestGarrison", 1, glam::Vec3::new(80.0, 0.0, 80.0))
+        .unwrap();
+    execute_garrison(&mut game, true);
+    assert_eq!(game.host_object(non_ai).unwrap().target, None);
+    assert_eq!(game.host_object(source).unwrap().target, Some(building));
+}
+
+#[test]
+fn named_garrison_does_not_order_infantry_without_ai() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut game, _, _) = world_with_roster(
+        root.path(),
+        20,
+        true,
+        glam::Vec3::new(80.0, 0.0, 80.0),
+        true,
+    );
+    let non_ai = game
+        .host_objects()
+        .registered_values()
+        .find(|object| object.name == "NoAiMember")
+        .unwrap()
+        .id;
+    assert!(!game.host_object(non_ai).unwrap().has_ai_update_interface());
+    game.create_object_for_player("OwnedNearestGarrison", 1, glam::Vec3::new(80.0, 0.0, 80.0))
+        .unwrap();
+    execute_garrison_for(&mut game, false, "NoAiMember");
+    assert_eq!(game.host_object(non_ai).unwrap().target, None);
 }
 
 #[test]
