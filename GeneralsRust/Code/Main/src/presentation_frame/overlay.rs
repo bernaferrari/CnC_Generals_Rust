@@ -2637,6 +2637,9 @@ impl PresentationFrame {
                 // replace hidden/shared data with an entrance-local roster.
                 let _ = frame.overlay_host_fx_residual(logic);
                 frame.refresh_host_kind_facts(logic);
+                // Shadow-only additions still need the receiving host's frozen
+                // drawable identity before the native roster is collected.
+                frame.bind_draw_playback_handles_from_host(logic);
                 frame.freeze_drawable_status_tints_from_logic(logic, Some(shadow));
                 frame
             }
@@ -2723,6 +2726,10 @@ impl PresentationFrame {
             }
             None => {}
         }
+        // Both the rebuilt roster and shadow-only additions can contain
+        // canonical host objects. Freeze their identities after the last
+        // roster mutation, before the native renderer consumes this frame.
+        frame.bind_draw_playback_handles_from_host(logic);
         frame.freeze_drawable_status_tints_from_logic(logic, shadow);
         frame
     }
