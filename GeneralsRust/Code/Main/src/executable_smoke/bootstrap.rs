@@ -7,7 +7,7 @@
 
 /// Spawned child plus its runtime-host file paths for one smoke run.
 struct SmokeBootstrap {
-    child: Child,
+    child: SmokeChild,
     tmp: PathBuf,
     control_path: PathBuf,
     status_path: PathBuf,
@@ -25,15 +25,34 @@ fn bootstrap_smoke_child(
             "generals binary not found; build with `cargo build -p generals_main --bin generals --release` or set GENERALS_RUNTIME_EXE".into();
         return None;
     };
-    // Best-effort: prior flaky runs can leave a hanging runtime_host `generals` holding
-    // the GPU/display; that makes the next Booting exit before Menu.
-    kill_stale_runtime_host_generals(&exe);
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
+        .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let tmp = std::env::temp_dir().join(format!("generals_exec_smoke_{stamp}"));
-    let _ = fs::create_dir_all(&tmp);
+    let mut tmp = None;
+    for attempt in 0..1024 {
+        let candidate = std::env::temp_dir().join(format!(
+            "generals_exec_smoke_{}_{stamp}_{attempt}",
+            std::process::id()
+        ));
+        match fs::create_dir(&candidate) {
+            Ok(()) => {
+                tmp = Some(candidate);
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                result.status = "temp_dir_failed".into();
+                result.detail = format!("cannot create smoke directory: {error}");
+                return None;
+            }
+        }
+    }
+    let Some(tmp) = tmp else {
+        result.status = "temp_dir_failed".into();
+        result.detail = "cannot allocate an exclusive smoke directory".into();
+        return None;
+    };
     let control_path = tmp.join("control.txt");
     let status_path = tmp.join("status.txt");
     let frame_path = tmp.join("frame.png");
@@ -100,11 +119,10 @@ fn bootstrap_smoke_child(
     result.process_started = true;
 
     Some(SmokeBootstrap {
-        child,
+        child: SmokeChild(child),
         tmp,
         control_path,
         status_path,
         map,
     })
-
 }

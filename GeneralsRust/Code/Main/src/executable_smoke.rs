@@ -99,8 +99,7 @@ fn run_executable_smoke_with_launch_and_driver(
     launch: ExecutableSmokeLaunch,
     driver: SmokeDriver,
 ) -> ExecutableSmokeResult {
-    // One automatic retry: Booting early-exit is commonly a stale GPU/lock race after
-    // pkill -9 (no Drop cleanup). Second attempt after a fresh kill is usually green.
+    // Retry one early boot failure after this invocation's child is cleaned up.
     let first = run_executable_smoke_once(timeout, use_new_game_path, launch, driver);
     let retryable = matches!(
         first.status.as_str(),

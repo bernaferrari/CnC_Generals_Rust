@@ -1,32 +1,26 @@
-// Lifecycle: process helpers — stale-host cleanup, binary/map resolution,
-// child kill, and the launch/driver enums.
+// Lifecycle: owned child cleanup, binary/map resolution, and launch modes.
 
-fn kill_stale_runtime_host_generals(exe: &Path) {
-    // Fail-soft: prior smoke / cargo runs can leave a hanging `generals` holding
-    // GPU/display and cause Booting→exit before Menu (or Tokio shutdown races).
-    #[cfg(unix)]
-    {
-        let exe_s = exe.to_string_lossy().to_string();
-        // CLI flag is `-runtime_host=headless` (underscore). Also match basename
-        // when the absolute path differs between debug/release invocations.
-        // Wave 833: never pkill bare exe path — that races the just-spawned child
-        // when paths collide across debug/release. Match runtime_host flag only.
-        let patterns = [
-            format!("{exe_s}.*runtime_host"),
-            "target/.*/generals.*runtime_host=headless".to_string(),
-            "generals.*-runtime_host=headless".to_string(),
-        ];
-        for pat in patterns {
-            let _ = std::process::Command::new("pkill")
-                .args(["-9", "-f", &pat])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status();
-        }
-        // Allow GPU/window teardown before the next spawn.
-        std::thread::sleep(Duration::from_millis(1200));
+/// Own only the process spawned by this smoke run. Cleanup on unwinding or an
+/// early return must never target another worktree's runtime host by name.
+struct SmokeChild(Child);
+
+impl std::ops::Deref for SmokeChild {
+    type Target = Child;
+    fn deref(&self) -> &Child {
+        &self.0
     }
-    let _ = exe;
+}
+
+impl std::ops::DerefMut for SmokeChild {
+    fn deref_mut(&mut self) -> &mut Child {
+        &mut self.0
+    }
+}
+
+impl Drop for SmokeChild {
+    fn drop(&mut self) {
+        kill_child(&mut self.0);
+    }
 }
 
 pub(crate) fn resolve_runtime_exe() -> Option<PathBuf> {
