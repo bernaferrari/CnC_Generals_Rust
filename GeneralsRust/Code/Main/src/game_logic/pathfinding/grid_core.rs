@@ -21,7 +21,7 @@ impl PathfindingGrid {
             grid_size,
             origin,
             blocked_bits: vec![0u64; words],
-            dynamic_bits: vec![0u64; words],
+            explicit_dynamic_bits: vec![0u64; words],
             cell_types: vec![PathfindCellType::Clear as u8; cells],
             pinched_bits: vec![0u64; words],
             terrain_zones: vec![0u16; cells],
@@ -312,9 +312,11 @@ impl PathfindingGrid {
 
     pub fn is_blocked(&self, pos: GridPos) -> bool {
         self.is_static_blocked(pos)
-            || self
-                .bit_index(pos)
-                .is_some_and(|idx| Self::bit_test(&self.dynamic_bits, idx))
+            || self.bit_index(pos).is_some_and(|idx| {
+                Self::bit_test(&self.explicit_dynamic_bits, idx)
+                    || self.occ_pos_unit[idx] != 0
+                    || self.occ_goal_unit[idx] != 0
+            })
     }
 
     pub fn is_static_blocked(&self, pos: GridPos) -> bool {
@@ -1217,12 +1219,12 @@ impl PathfindingGrid {
 
     pub fn set_dynamic_blocked(&mut self, pos: GridPos, blocked: bool) {
         if let Some(idx) = self.bit_index(pos) {
-            Self::bit_set(&mut self.dynamic_bits, idx, blocked);
+            Self::bit_set(&mut self.explicit_dynamic_bits, idx, blocked);
         }
     }
 
     pub fn clear_dynamic_blocks(&mut self) {
-        self.dynamic_bits.fill(0);
+        self.explicit_dynamic_bits.fill(0);
         self.occ_fixed_mask.fill(0);
         self.occ_moving_mask.fill(0);
         self.occ_goal_mask.fill(0);

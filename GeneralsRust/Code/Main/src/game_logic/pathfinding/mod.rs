@@ -253,8 +253,8 @@ pub struct PathfindingGrid {
     origin: Vec3,
     /// Static obstacle bits (row-major y*width+x). A* hot path — no HashSet.
     blocked_bits: Vec<u64>,
-    /// Dynamic vehicle/structure occupancy bits (cleared each rebuild).
-    dynamic_bits: Vec<u64>,
+    /// Explicit dynamic blockers; ordinary occupancy is owned by cell records.
+    explicit_dynamic_bits: Vec<u64>,
     /// C++ PathfindCell::CellType residual (AIPathfind.h:233-242).
     /// Parallel to blocked_bits so water/cliff stay distinct from IMPASSABLE.
     cell_types: Vec<u8>,

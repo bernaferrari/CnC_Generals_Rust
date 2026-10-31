@@ -1567,7 +1567,7 @@ impl PathfindingGrid {
     }
 
     /// C++ `Pathfinder::updatePos` / `updateGoal` cell stamp.
-    /// LAYER cells go on the layer map; `dynamic_bits` is ground-only.
+    /// LAYER cells go on the layer map; ground occupancy uses the cell records.
     /// Missing layer cells fall back to ground (`getCell` residual).
     pub(super) fn mark_occupancy(
         &mut self,
@@ -1614,7 +1614,6 @@ impl PathfindingGrid {
         let Some(idx) = self.bit_index(pos) else {
             return;
         };
-        Self::bit_set(&mut self.dynamic_bits, idx, true);
         if goal {
             if let Some(slot) = self.occ_goal_mask.get_mut(idx) {
                 *slot = bit;
