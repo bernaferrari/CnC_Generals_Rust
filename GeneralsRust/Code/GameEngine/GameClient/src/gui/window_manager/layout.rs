@@ -101,6 +101,21 @@ impl WindowLayout {
         self.hidden.set(hide);
     }
 
+    pub(crate) fn hide_with_manager_and_lent(
+        &self,
+        manager: &mut super::WindowManager,
+        hide: bool,
+        mut selected: Option<&mut GameWindow>,
+        lent: &mut [&mut GameWindow],
+    ) {
+        for window in &self.windows {
+            let mut borrowed: Vec<&mut GameWindow> = lent.iter_mut().map(|w| &mut **w).collect();
+            let _ =
+                manager.hide_window_with_lent(window, hide, selected.as_deref_mut(), &mut borrowed);
+        }
+        self.hidden.set(hide);
+    }
+
     /// Apply this layout's visibility through the manager that owns its windows.
     /// This is the synchronous path for code already borrowing a concrete manager;
     /// it preserves `WindowLayout::hide` ordering without selecting an ambient tree.

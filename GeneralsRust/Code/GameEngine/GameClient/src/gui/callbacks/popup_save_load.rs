@@ -260,11 +260,22 @@ fn init_gadget_ids(state: &mut SaveLoadMenuState, prefix: &str) {
 /// same windows, so use that local tree just as the C++ callback uses its
 /// `WindowLayout`/parent relationship.
 fn layout_window_by_id(layout: &WindowLayout, id: i32) -> Option<Rc<RefCell<GameWindow>>> {
-    layout
-        .windows()
-        .iter()
-        .find(|window| window.borrow().get_id() == id)
-        .cloned()
+    let mut pending: Vec<_> = layout.windows().iter().rev().cloned().collect();
+    while let Some(window) = pending.pop() {
+        let found = {
+            let borrowed = window.borrow();
+            if borrowed.get_id() == id {
+                true
+            } else {
+                pending.extend(borrowed.children().iter().rev().cloned());
+                false
+            }
+        };
+        if found {
+            return Some(window);
+        }
+    }
+    None
 }
 
 fn load_controls(
@@ -1017,10 +1028,13 @@ fn close_save_menu(
 ) {
     if is_popup {
         if let Some(layout) = window.get_layout() {
-            effects.with_manager(|manager, _effects| {
-                layout
-                    .borrow()
-                    .hide_with_manager_and_selected(manager, true, Some(window))
+            effects.with_manager(|manager, effects| {
+                layout.borrow().hide_with_manager_and_lent(
+                    manager,
+                    true,
+                    Some(window),
+                    &mut effects.lent_windows,
+                )
             });
         }
     } else {

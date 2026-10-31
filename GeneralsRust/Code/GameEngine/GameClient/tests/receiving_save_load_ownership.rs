@@ -82,7 +82,8 @@ fn scene(c: &mut GameClient) -> Scene {
                         )));
                     listbox = Some(w.clone());
                 }
-                layout.add_window(w);
+                // Retail WindowLayout owns only root windows; controls stay in
+                // the parent's child tree.
             }
             Scene {
                 layout,

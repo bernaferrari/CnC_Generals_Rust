@@ -721,32 +721,29 @@ fn quit_menu_system_with_camera_input(
             });
 
             if control_id == button_save_load {
-                if let Some(layout) = existing_layout {
-                    // This callback normally runs under WindowManager input
-                    // dispatch, so the popup init must not re-enter the
-                    // manager for control lookup.
-                    layout.borrow().run_init(None);
-                    show_live_popup_save_load_layout(layout, effects);
-                } else {
-                    // The current input dispatch already owns WindowManager.
-                    // Queue the retail layout creation instead of invoking
-                    // with_window_manager and getting its fail-closed result.
-                    effects.queue_window_operation(move |manager, effects| {
-                        let Some(layout) = manager
-                            .create_layout_with_windows("Menus/PopupSaveLoad.wnd", effects)
-                            .ok()
-                            .map(|(layout, _)| layout)
-                        else {
-                            return;
-                        };
-
-                        effects
-                            .with_quit_menu(|state| state.save_load_layout = Some(layout.clone()));
-
-                        layout.borrow().run_init(None);
-                        show_live_popup_save_load_layout(layout, effects);
+                // Input dispatch already lends the receiving manager. Defer
+                // creation and initialization until that dispatch has ended,
+                // then lend the same manager to every popup operation.
+                effects.queue_window_operation(move |manager, effects| {
+                    let layout = match existing_layout {
+                        Some(layout) => layout,
+                        None => {
+                            let Ok((layout, _)) = manager
+                                .create_layout_with_windows("Menus/PopupSaveLoad.wnd", effects)
+                            else {
+                                return;
+                            };
+                            effects.with_quit_menu(|state| {
+                                state.save_load_layout = Some(layout.clone());
+                            });
+                            layout
+                        }
+                    };
+                    effects.with_receiving_manager(manager, |effects| {
+                        layout.borrow().run_init_with_effects(None, effects);
+                        show_live_popup_save_load_layout(layout.clone(), effects);
                     });
-                }
+                });
                 return WindowMsgHandled::Handled;
             } else if control_id == button_exit {
                 let yes: MessageBoxFunc = Box::new(exit_quit_menu);
@@ -1255,6 +1252,17 @@ mod os_wnd_tests {
                 ),
                 "the real save description cancel button must be hittable"
             );
+            assert!(
+                crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonBack", effects),
+                "Back must hide the popup during child input dispatch"
+            );
+            assert!(
+                drive_os_wnd_quit_menu_save_load_like_cpp(effects),
+                "the existing popup must reopen without borrowing the manager twice"
+            );
+            assert!(effects.with_manager(|manager, effects| {
+                crate::gui::callbacks::popup_save_load::ensure_live_popup_save_load_layout(manager, effects)
+            }));
             effects.with_manager(|manager, effects| manager.reset(effects));
         });
     }
