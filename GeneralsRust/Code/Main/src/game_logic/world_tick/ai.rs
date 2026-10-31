@@ -247,7 +247,9 @@ impl GameLogic {
                     obj.tick_force_reload_when_idle(self.frame);
                 }
                 let _ = obj;
-                let rates = self.objects.get(&object_id)
+                let rates = self
+                    .objects
+                    .get(&object_id)
                     .map(|object| self.receiving_weapon_rates_of_fire(object));
                 let Some(obj) = self.objects.get_mut(&object_id) else {
                     continue;
@@ -841,7 +843,7 @@ impl GameLogic {
                 continue;
             }
             // OCL_EjectPilotViaParachute residual sink (elevated pilot → ground).
-            if !self.tick_parachute_contain_owned(object_id, presentation_effects)? {
+            if !self.uses_authored_parachute_path(object_id) {
                 self.tick_eject_parachute_residual_with_effects(object_id, presentation_effects);
                 // Separately tracked synthetic cargo residual; genuine authored
                 // ParachuteContain advances only through its selected locomotor/Physics.
@@ -1002,6 +1004,19 @@ impl GameLogic {
         // C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
         self.update_demo_trap_detonate_when_killed_with_effects(presentation_effects);
         self.update_support_states_with_effects(object_ids, dt, presentation_effects)?;
+
+        // ParachuteContain inherits the normal-phase OpenContain update.
+        // Keep it after the AI-entry pass and run it exactly once per object.
+        if self.frame != 0 {
+            for &id in object_ids {
+                if self.objects.get(&id).is_some_and(|object| {
+                    object.thing().template.contain_module.kind == ContainModuleKind::Parachute
+                        && !object.has_disabled_type()
+                }) {
+                    self.tick_parachute_contain_owned(id, presentation_effects)?;
+                }
+            }
+        }
 
         Ok(())
     }

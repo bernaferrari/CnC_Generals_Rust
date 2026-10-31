@@ -101,6 +101,17 @@ Object PlainNonContainer\n\
   MaxHealth = 100\n\
   InitialHealth = 100\n\
  End\n\
+End\n\
+Object AuthoredParachute\n\
+ KindOf = PARACHUTE\n\
+ Body = ActiveBody BodyTag\n\
+  MaxHealth = 100\n\
+  InitialHealth = 100\n\
+ End\n\
+ Behavior = ParachuteContain ChuteTag\n\
+  AllowInsideKindOf = INFANTRY\n\
+  ParachuteOpenDist = 100\n\
+ End\n\
 End\n"
                 .into(),
         )])
@@ -249,6 +260,81 @@ fn observe_building_entered(world: &mut GameLogic, player: &str) -> bool {
         .update_local_script_engine_with_owner(&engine)
         .unwrap();
     engine.get_counter("ObservedEntry").unwrap().value == 1
+}
+
+#[test]
+fn parachute_updates_its_door_once_and_respects_first_wake_and_disabled() {
+    use generals_main::game_logic::host_enum_table_residual::{
+        door_1_closing_model_bit, door_1_opening_model_bit,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, _, rider) = world(&map, false);
+    let (mut peer, _, peer_rider) = world(&map, false);
+    let create = |world: &mut GameLogic, passenger: ObjectId| {
+        let chute = world
+            .create_object_for_player("AuthoredParachute", 1, Vec3::new(50.0, 400.0, 50.0))
+            .expect("admit authored parachute");
+        world
+            .host_object_mut(chute)
+            .unwrap()
+            .occupants
+            .push(passenger);
+        world.host_object_mut(passenger).unwrap().contained_by = Some(chute);
+        let object = world.host_object_mut(chute).unwrap();
+        object.door_close_countdown = 3;
+        object.player_who_entered = Some(2);
+        object.model_condition_bits |= 1u128 << door_1_opening_model_bit();
+        chute
+    };
+    let chute = create(&mut game, rider);
+    let peer_chute = create(&mut peer, peer_rider);
+    assert_eq!(chute, peer_chute);
+    game.update();
+    assert_eq!(game.get_current_frame(), 1, "the frame must complete");
+    assert_eq!(game.host_object(chute).unwrap().player_who_entered, Some(2));
+    assert_eq!(
+        game.host_object(chute).unwrap().door_close_countdown,
+        3,
+        "frame zero must not run ParachuteContain::update"
+    );
+    game.update();
+    assert_eq!(game.get_current_frame(), 2, "the frame must complete");
+    assert_eq!(game.host_object(chute).unwrap().player_who_entered, None);
+    assert_eq!(
+        game.host_object(chute).unwrap().door_close_countdown,
+        2,
+        "the base OpenContain update runs exactly once"
+    );
+    game.host_object_mut(chute)
+        .unwrap()
+        .set_status_disabled_script_disabled(true);
+    game.update();
+    assert_eq!(game.host_object(chute).unwrap().door_close_countdown, 2);
+    game.host_object_mut(chute)
+        .unwrap()
+        .set_status_disabled_script_disabled(false);
+    game.update();
+    assert_eq!(game.host_object(chute).unwrap().door_close_countdown, 1);
+    game.update();
+    let object = game.host_object(chute).unwrap();
+    assert_eq!(object.door_close_countdown, 0);
+    assert_eq!(
+        object.model_condition_bits & (1u128 << door_1_opening_model_bit()),
+        0
+    );
+    assert_ne!(
+        object.model_condition_bits & (1u128 << door_1_closing_model_bit()),
+        0
+    );
+    assert_eq!(
+        peer.host_object(peer_chute).unwrap().door_close_countdown,
+        3
+    );
+    assert_eq!(
+        peer.host_object(peer_chute).unwrap().player_who_entered,
+        Some(2)
+    );
 }
 
 #[test]

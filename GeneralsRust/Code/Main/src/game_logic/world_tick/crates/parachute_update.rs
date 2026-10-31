@@ -3,6 +3,18 @@ use crate::game_logic::*;
 use glam::Vec3;
 
 impl GameLogic {
+    pub(in crate::game_logic) fn uses_authored_parachute_path(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some_and(|object| {
+            object.thing().template.contain_module.kind == ContainModuleKind::Parachute
+                || object
+                    .contained_by
+                    .and_then(|parent| self.objects.get(&parent))
+                    .is_some_and(|parent| {
+                        parent.thing().template.contain_module.kind == ContainModuleKind::Parachute
+                    })
+        })
+    }
+
     /// true also excludes a passenger held by this genuine module from the
     /// separately tracked synthetic OCL pilot residual.
     pub(in crate::game_logic) fn tick_parachute_contain_owned(
@@ -357,6 +369,8 @@ impl GameLogic {
         id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        // OpenContain::update clears the entrant before monitoring its art.
+        self.objects.get_mut(&id).unwrap().player_who_entered = None;
         let bits = if let Some(view) = effects.view.as_ref() {
             let source = self
                 .current_native_slave_source(id, view.local_player_id())
@@ -433,20 +447,7 @@ impl GameLogic {
                 .unwrap()
                 .observed_condition_bits = bits;
         }
-        let object = self.objects.get_mut(&id).unwrap();
-        if object.door_close_countdown > 0 {
-            object.door_close_countdown -= 1;
-            if object.door_close_countdown == 0 {
-                let opening =
-                    host_enum_table_residual::model_condition_bit_name_index("DOOR_1_OPENING")
-                        .unwrap();
-                let closing =
-                    host_enum_table_residual::model_condition_bit_name_index("DOOR_1_CLOSING")
-                        .unwrap();
-                object.model_condition_bits =
-                    (object.model_condition_bits & !(1u128 << opening)) | (1u128 << closing);
-            }
-        }
+        Self::update_open_contain_door(self.objects.get_mut(&id).unwrap());
         Ok(())
     }
 }

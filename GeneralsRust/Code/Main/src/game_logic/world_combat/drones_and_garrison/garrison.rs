@@ -453,20 +453,25 @@ impl GameLogic {
         for obj in self.objects.registered_values_mut() {
             // UpdateModule's default disabled mask is empty: GameLogic skips
             // OpenContain::update while any disabled flag is present.
-            if obj.has_disabled_type() {
+            if obj.has_disabled_type()
+                || obj.thing().template.contain_module.kind == ContainModuleKind::Parachute
+            {
                 continue;
             }
             obj.player_who_entered = None;
-            if obj.door_close_countdown == 0 {
-                continue;
-            }
-            let pulse =
-                gamelogic::object::contain::open_contain::leftover_open_contain_tick_exit_door(
-                    obj.door_close_countdown,
-                );
-            obj.door_close_countdown = pulse.countdown;
-            apply_leftover_open_contain_door_pulse(obj, pulse);
+            Self::update_open_contain_door(obj);
         }
+    }
+
+    pub(in crate::game_logic) fn update_open_contain_door(obj: &mut Object) {
+        if obj.door_close_countdown == 0 {
+            return;
+        }
+        let pulse = gamelogic::object::contain::open_contain::leftover_open_contain_tick_exit_door(
+            obj.door_close_countdown,
+        );
+        obj.door_close_countdown = pulse.countdown;
+        apply_leftover_open_contain_door_pulse(obj, pulse);
     }
 
     pub(in crate::game_logic) fn apply_garrison_contain_on_enter(
