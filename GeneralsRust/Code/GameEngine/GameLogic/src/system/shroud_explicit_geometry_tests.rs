@@ -82,3 +82,24 @@ fn staged_shape_rejects_equal_total_different_shape_or_size_before_mutation() {
     assert_eq!(mapless.snapshot_state(), saved);
     assert_eq!(mapless.grid_world_origin(), Some([0., 0.]));
 }
+
+#[test]
+fn prepared_grid_does_not_change_owner_or_consume_pending_reveals_until_installed() {
+    let mut owner = ShroudManager::new();
+    owner
+        .init_shroud_grid_at_origin_with_cell_size([2., 3.], 80., 40., 20.)
+        .unwrap();
+    owner.pending_full_reveal_players.insert(2);
+    let before = owner.snapshot_state();
+    let peer = owner.clone();
+    let staged = ShroudManager::prepare_shroud_grid([10., 20.], 40., 40., 10.).unwrap();
+    assert_eq!(owner.snapshot_state(), before);
+    assert!(owner.pending_full_reveal_players.contains(&2));
+    assert!(ShroudManager::prepare_shroud_grid([0., 0.], 100_000., 100_000., 1.).is_err());
+    assert_eq!(owner.snapshot_state(), before);
+    owner.install_prepared_shroud_grid(staged);
+    assert_eq!(owner.grid_dimensions(), Some((4, 4, 10.)));
+    assert_eq!(owner.grid_world_origin(), Some([10., 20.]));
+    assert!(!owner.pending_full_reveal_players.contains(&2));
+    assert_eq!(peer.snapshot_state(), before);
+}

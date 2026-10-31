@@ -965,3 +965,72 @@ fn attack_continues_after_authored_boundary_switch() {
         Some(candidate)
     );
 }
+
+#[test]
+fn oversized_boundary_rejection_leaves_the_receiving_session_unchanged() {
+    use game_engine::common::system::DataChunkOutput;
+    use gamelogic::scripting::core::{
+        Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+        ScriptActionType, ScriptList,
+    };
+
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("oversized-boundary.map");
+    let mut map = DataChunkOutput::new();
+    map.open_data_chunk("HeightMapData", 4);
+    for value in [101, 101, 1, 2, 10, 10, 2_000_000, 2_000_000, 10201] {
+        map.write_int(value);
+    }
+    for _ in 0..10201 {
+        map.write_byte(0);
+    }
+    map.close_data_chunk();
+    std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
+
+    let (mut session, _, _, _) = world(200.0, "BoundaryAllocationWeapon");
+    assert!(session.load_map(path.to_str().unwrap()));
+    session.add_player(Player::new(1, Team::USA, "Owner", true));
+    let retained = session
+        .create_object_for_player("ChainVictim", 1, Vec3::new(30.0, 0.0, 20.0))
+        .unwrap();
+    let retained_position = session.host_object(retained).unwrap().get_position();
+    let mut observer = Player::new(9, Team::USA, "ReplayObserver", false);
+    observer.is_observer = true;
+    session.add_player(observer);
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let before = builder.create_world_snapshot(&session).unwrap();
+    let mut action = ScriptAction::new(ScriptActionType::MapSwitchBorder);
+    action
+        .add_parameter(Parameter::with_int(ParameterType::Boundary, 1))
+        .unwrap();
+    let mut condition = OrCondition::new();
+    condition.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    let mut script = Script::new();
+    script.script_name = "OversizedBoundary".into();
+    script.is_one_shot = true;
+    script.condition = Some(Box::new(condition));
+    script.action = Some(Box::new(action));
+    let mut scripts = ScriptList::new();
+    scripts.append_script(Box::new(script));
+    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    engine
+        .set_script_list_for_player(0, Some(Box::new(scripts)))
+        .unwrap();
+    assert!(
+        session
+            .update_local_script_engine_with_owner(&engine)
+            .is_err()
+    );
+    let after = builder.create_world_snapshot(&session).unwrap();
+    assert_eq!(
+        after.persist_v18.terrain_active_boundary,
+        before.persist_v18.terrain_active_boundary
+    );
+    assert_eq!(after.shroud, before.shroud);
+    assert_eq!(after.objects.len(), before.objects.len());
+    assert_eq!(
+        session.host_object(retained).unwrap().get_position(),
+        retained_position
+    );
+    assert_eq!(after.lifecycle_tail, before.lifecycle_tail);
+}

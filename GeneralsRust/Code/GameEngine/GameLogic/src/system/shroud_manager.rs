@@ -389,6 +389,10 @@ struct ShroudGrid {
     cells: Vec<PartitionCell>,
 }
 
+/// An allocated grid that can be installed after a boundary switch commits.
+/// Preparing it does not mutate a session or consume its pending reveal queues.
+pub struct PreparedShroudGrid(ShroudGrid);
+
 impl ShroudGrid {
     fn dimensions_for_extent(
         world_origin_xy: [f32; 2],
@@ -1604,8 +1608,25 @@ impl ShroudManager {
         map_height: f32,
         cell_size: f32,
     ) -> Result<(), String> {
-        let replacement = ShroudGrid::new(world_origin_xy, map_width, map_height, cell_size)?;
-        self.shroud_grid = Some(replacement);
+        let replacement =
+            Self::prepare_shroud_grid(world_origin_xy, map_width, map_height, cell_size)?;
+        self.install_prepared_shroud_grid(replacement);
+        Ok(())
+    }
+
+    /// Allocate and validate the replacement before mutating a live owner.
+    pub fn prepare_shroud_grid(
+        world_origin_xy: [f32; 2],
+        map_width: f32,
+        map_height: f32,
+        cell_size: f32,
+    ) -> Result<PreparedShroudGrid, String> {
+        ShroudGrid::new(world_origin_xy, map_width, map_height, cell_size).map(PreparedShroudGrid)
+    }
+
+    /// Install the prepared grid at the original partition reset point.
+    pub fn install_prepared_shroud_grid(&mut self, replacement: PreparedShroudGrid) {
+        self.shroud_grid = Some(replacement.0);
 
         if let Some(grid) = self.shroud_grid.as_mut() {
             for player_id in self.pending_full_reveal_players.drain() {
@@ -1626,7 +1647,6 @@ impl ShroudManager {
                 grid.width, grid.height, grid.world_origin_xy, grid.cell_size
             );
         }
-        Ok(())
     }
 
     /// Update visibility information for all players

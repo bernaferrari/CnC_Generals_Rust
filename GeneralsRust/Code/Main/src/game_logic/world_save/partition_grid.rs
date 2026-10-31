@@ -9,12 +9,38 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Result<(), String> {
         let terrain_owner = self.world_services.terrain().clone();
-        let should_switch = {
+        let target_extent = {
             let terrain = terrain_owner
                 .read()
                 .map_err(|_| "receiving terrain owner is poisoned")?;
-            boundary != terrain.get_active_boundary()
-                && terrain.extent_for_saved_boundary(boundary).is_some()
+            (boundary != terrain.get_active_boundary())
+                .then(|| terrain.extent_for_saved_boundary(boundary))
+                .flatten()
+        };
+        // Allocate before undoing observer reveal, selecting the boundary or
+        // detaching any objects. A failed allocation must leave this owner intact.
+        let prepared_grid = if let Some(extent) = target_extent {
+            let width = extent.hi.x - extent.lo.x;
+            let height = extent.hi.y - extent.lo.y;
+            if width.abs() <= f32::EPSILON || height.abs() <= f32::EPSILON {
+                return Err("boundary has invalid radar extent".into());
+            }
+            let cell_size = self
+                .session_view
+                .camera
+                .movement_policy
+                .current()
+                .partition_cell_size;
+            Some(
+                gamelogic::system::shroud_manager::ShroudManager::prepare_shroud_grid(
+                    [extent.lo.x, extent.lo.y],
+                    width,
+                    height,
+                    cell_size,
+                )?,
+            )
+        } else {
+            None
         };
         let shroud_owner = self.world_services.shroud().clone();
         let observer = self
@@ -28,7 +54,7 @@ impl GameLogic {
                 .map_err(|_| "receiving shroud owner is poisoned")?
                 .undo_reveal_map_for_player_permanently(observer)?;
         }
-        if should_switch {
+        if let Some(prepared_grid) = prepared_grid {
             let mut saved = {
                 let mut shroud = shroud_owner
                     .lock()
@@ -57,7 +83,7 @@ impl GameLogic {
                 .lock()
                 .map_err(|_| "receiving shroud owner is poisoned")?
                 .store_boundary_permanently_revealed_cells(&mut saved)?;
-            self.initialize_receiving_partition_grid()?;
+            self.install_receiving_partition_grid(prepared_grid)?;
             let (min, max) = self.receiving_partition_extent();
             if !self.host_radar_new_map_with_extent(min, max) {
                 return Err("boundary has invalid radar extent".into());
@@ -185,8 +211,6 @@ impl GameLogic {
     /// The existing private GameData policy captures startup and ordered map
     /// overrides. PM alone clamps it; the camera retains the raw source rule.
     pub(crate) fn initialize_receiving_partition_grid(&mut self) -> Result<(), String> {
-        self.objects
-            .retire_owned_scalar_stamps(&mut self.partition_manager);
         let cell_size = self
             .session_view
             .camera
@@ -194,17 +218,27 @@ impl GameLogic {
             .current()
             .partition_cell_size;
         let (min, max) = self.receiving_partition_extent();
-        let mut shroud = self
-            .world_services
-            .shroud()
-            .lock()
-            .map_err(|_| "receiving shroud owner is poisoned".to_string())?;
-        shroud.init_shroud_grid_at_origin_with_cell_size(
+        let prepared = gamelogic::system::shroud_manager::ShroudManager::prepare_shroud_grid(
             [min.x, min.z],
             max.x - min.x,
             max.z - min.z,
             cell_size,
         )?;
+        self.install_receiving_partition_grid(prepared)
+    }
+
+    fn install_receiving_partition_grid(
+        &mut self,
+        prepared: gamelogic::system::shroud_manager::PreparedShroudGrid,
+    ) -> Result<(), String> {
+        let mut shroud = self
+            .world_services
+            .shroud()
+            .lock()
+            .map_err(|_| "receiving shroud owner is poisoned".to_string())?;
+        self.objects
+            .retire_owned_scalar_stamps(&mut self.partition_manager);
+        shroud.install_prepared_shroud_grid(prepared);
         self.partition_manager.configure_grid_from_shroud(&shroud);
         drop(shroud);
         self.refresh_receiving_object_map_status();
