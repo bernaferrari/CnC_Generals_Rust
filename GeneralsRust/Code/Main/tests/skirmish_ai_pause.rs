@@ -70,7 +70,7 @@ fn weapon() -> Weapon {
 fn create(logic: &mut GameLogic, template: &str, owner: u32, x: f32) -> ObjectId {
     logic
         .create_object_for_player(template, owner, Vec3::new(x, 0.0, 0.0))
-        .unwrap()
+        .unwrap_or_else(|| panic!("could not create {template}"))
 }
 
 fn register(logic: &mut GameLogic, owner: u32, active: bool) {
@@ -470,14 +470,9 @@ fn specialty(name: &str, paused_owner: Option<u32>) -> (u64, f32) {
 }
 
 #[test]
-fn all_four_specialty_admission_gates_use_the_exact_attacker() {
+fn specialty_admission_gates_use_the_exact_attacker() {
     let mut failures = Vec::new();
-    for name in [
-        "PauseDefense",
-        "PauseStrategy",
-        "AmericaVehicleSentryDrone",
-        "AmericaVehicleHellfireDrone",
-    ] {
+    for name in ["PauseDefense", "PauseStrategy", "AmericaVehicleSentryDrone"] {
         let active = specialty(name, None);
         let foreign_pause = specialty(name, Some(2));
         let own_pause = specialty(name, Some(1));
@@ -499,4 +494,83 @@ fn all_four_specialty_admission_gates_use_the_exact_attacker() {
         }
     }
     assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
+fn slaved_drone_attack_obeys_its_controllers_pause() {
+    use generals_main::game_logic::host_slave_drones::SlaveDroneKind;
+
+    fn run(paused_owner: Option<u32>) -> (u64, f32) {
+        let mut logic = world();
+        register(&mut logic, 1, true);
+        register(&mut logic, 2, true);
+        logic
+            .admit_object_ini_sources([(
+                "pause-slave.ini".into(),
+                r#"
+Object AmericaVehicleHumvee
+ KindOf = VEHICLE SELECTABLE
+ Body = ActiveBody MasterBody
+  MaxHealth = 1000
+  InitialHealth = 1000
+ End
+End
+Object PauseTarget
+ KindOf = VEHICLE SELECTABLE
+ Body = ActiveBody TargetBody
+  MaxHealth = 1000
+  InitialHealth = 1000
+ End
+End
+Object AmericaVehicleHellfireDrone
+ KindOf = VEHICLE SELECTABLE
+ Body = ActiveBody DroneBody
+  MaxHealth = 1000
+  InitialHealth = 1000
+ End
+ Locomotor = SET_NORMAL ComancheLocomotor
+ Behavior = AIUpdateInterface DroneAI
+  AutoAcquireEnemiesWhenIdle = Yes
+ End
+ Behavior = SlavedUpdate DroneSlave
+  GuardMaxRange = 35
+  AttackRange = 75
+ End
+End
+"#
+                .into(),
+            )])
+            .unwrap();
+        let master = create(&mut logic, "AmericaVehicleHumvee", 1, 0.0);
+        let drone = logic
+            .residual_attach_slave_drone(master, SlaveDroneKind::Hellfire)
+            .expect("authored slave attaches to its master");
+        logic.host_object_mut(drone).unwrap().weapon = Some(weapon());
+        let target = create(&mut logic, TARGET, 3, 20.0);
+        // Supply an explicit attack to exercise the common combat path. The
+        // slaved update follows its master; it does not directly fire a gun.
+        seed_combat(&mut logic, drone, target, false);
+        if let Some(owner) = paused_owner {
+            logic.set_ai_active(owner, false);
+        }
+        for _ in 0..4 {
+            logic.update();
+        }
+        (
+            logic
+                .host_object(drone)
+                .unwrap()
+                .weapon_discharge_marker()
+                .sequence,
+            logic.host_object(target).unwrap().health.current,
+        )
+    }
+
+    let active = run(None);
+    assert!(
+        active.0 > 0 && active.1 < 1000.0,
+        "active drone: {active:?}"
+    );
+    assert_eq!(run(Some(2)), active, "another AI cannot pause the drone");
+    assert_eq!(run(Some(1)), (0, 1000.0), "the owner can pause the drone");
 }

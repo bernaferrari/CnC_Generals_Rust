@@ -20,6 +20,12 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<Option<CombatAttackInput>> {
         Ok({
+            // Combat can run before an inactive host AI has cleared its attack
+            // state. Apply the same controller-scoped pause at admission so an
+            // already-targeted object cannot discharge during that interval.
+            if self.skirmish_ai_auto_engage_paused(attacker_id) {
+                return Ok(None);
+            }
             // Empty-clip RTB is JetAI (guard/hunt interrupt or idle), not every attack.
 
             // Early gates + docked/garrisoned flags in one immutable scope.
