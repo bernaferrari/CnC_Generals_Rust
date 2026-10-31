@@ -3,8 +3,7 @@
 //! turning-turret AIM itself does not request locomotor movement.
 use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
 use generals_main::game_logic::{
-    AIState, AttackSubState, GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate,
-    Weapon,
+    AIState, AttackSubState, GameLogic, Object, ObjectId, Player, Team,
 };
 use glam::Vec3;
 use serde_json::{Value, json};
@@ -26,35 +25,59 @@ fn path_state(logic: &GameLogic, id: ObjectId) -> Value {
 
 fn command_case(distance: f32) -> (GameLogic, ObjectId, ObjectId) {
     let mut logic = GameLogic::new();
+    let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+    locomotors
+        .apply_source("Locomotor TurretPathGround\n Surfaces = GROUND\n Speed = 30\n Acceleration = 60\n TurnRate = 120\n Appearance = FOUR_WHEELS\nEnd\n")
+        .unwrap();
+    logic.admit_locomotor_definitions(locomotors).unwrap();
+    let objects = r#"
+Object AmericaTankCrusader
+  KindOf = VEHICLE SELECTABLE
+  Locomotor = SET_NORMAL TurretPathGround
+  Body = ActiveBody Body
+    MaxHealth = 1000
+    InitialHealth = 1000
+  End
+  Behavior = AIUpdateInterface Brain
+    Turret
+      TurretTurnRate = 180
+      ControlledWeaponSlots = PRIMARY
+    End
+  End
+  WeaponSet
+    Conditions = NONE
+    Weapon = PRIMARY TurretPathWeapon
+  End
+End
+Object PathVictim
+  KindOf = VEHICLE
+  Body = ActiveBody Body
+    MaxHealth = 1000
+    InitialHealth = 1000
+  End
+End
+Object PathAnchor
+  KindOf = STRUCTURE
+  Body = ActiveBody Body
+    MaxHealth = 1000
+    InitialHealth = 1000
+  End
+End
+"#;
+    logic
+        .admit_object_ini_sources([("TurretPath.ini".into(), objects.into())])
+        .unwrap();
+    let mut weapon = gamelogic::weapon::WeaponTemplate::new("TurretPathWeapon".into());
+    weapon.primary_damage = 25.0;
+    weapon.attack_range = 150.0;
+    weapon.projectile_name = "NONE".into();
+    logic
+        .admit_receiving_weapon_snapshot(vec![("TurretPathWeapon".into(), weapon)])
+        .unwrap();
     for (id, team) in [(0, Team::USA), (1, Team::GLA)] {
         let mut player = Player::new(id, team, "Turret path boundary", id == 0);
         player.alliance_team = id as i32;
         logic.add_player(player);
-    }
-    let mut tank = ThingTemplate::new("AmericaTankCrusader");
-    tank.set_health(1000.0)
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_primary_weapon(Weapon {
-            damage: 25.0,
-            range: 300.0,
-            reload_time: 1.0,
-            projectile_speed: 0.0,
-            ..Weapon::default()
-        });
-    logic.templates.insert(tank.name.clone(), tank);
-    for (name, kind) in [
-        ("PathVictim", KindOf::Vehicle),
-        ("PathAnchor", KindOf::Structure),
-    ] {
-        let mut template = ThingTemplate::new(name);
-        template
-            .set_health(1000.0)
-            .add_kind_of(kind)
-            .add_kind_of(KindOf::Attackable)
-            .set_primary_weapon_none();
-        logic.templates.insert(name.into(), template);
     }
     let tank = logic
         .create_object_for_player("AmericaTankCrusader", 0, Vec3::ZERO)
@@ -78,6 +101,10 @@ fn command_case(distance: f32) -> (GameLogic, ObjectId, ObjectId) {
         .create_object_for_player("PathVictim", 1, Vec3::new(0.0, 0.0, distance))
         .unwrap();
     let source = logic.host_object(tank).unwrap();
+    assert_eq!(
+        source.cur_locomotor_name.as_deref(),
+        Some("TurretPathGround")
+    );
     assert_eq!(source.owner_player_id, Some(0));
     assert_eq!(source.selected_weapon_slot(), Some(0));
     assert!(source.is_weapon_slot_on_turret(0) && source.turret_turn_rate_rad > 0.0);
@@ -145,6 +172,8 @@ fn in_range_turning_turret_command_does_not_add_a_movement_path() {
 #[test]
 fn out_of_range_turning_turret_command_still_requests_and_follows_a_path() {
     let (mut logic, tank, victim) = command_case(300.0);
+    let (mut peer, peer_tank, peer_victim) = command_case(300.0);
+    assert_eq!((tank, victim), (peer_tank, peer_victim));
     let source = logic.host_object(tank).unwrap();
     assert_eq!(
         source.requested_destination,
@@ -161,4 +190,14 @@ fn out_of_range_turning_turret_command_still_requests_and_follows_a_path() {
     assert!(source.get_position().length() > 1.0);
     assert_eq!(source.owner_player_id, Some(0));
     assert_eq!(source.target, Some(victim));
+    let progressed = source.get_position();
+    assert_eq!(
+        peer.host_object(peer_tank).unwrap().get_position(),
+        Vec3::ZERO
+    );
+    for _ in 0..30 {
+        peer.update();
+    }
+    assert!(peer.host_object(peer_tank).unwrap().get_position().length() > 1.0);
+    assert_eq!(logic.host_object(tank).unwrap().get_position(), progressed);
 }
