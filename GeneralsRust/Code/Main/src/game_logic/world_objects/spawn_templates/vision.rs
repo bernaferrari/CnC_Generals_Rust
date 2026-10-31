@@ -2,14 +2,34 @@
 use super::*;
 use gamelogic::common::Relationship;
 
+#[derive(Clone, Copy)]
+struct ObjectVisionObservation {
+    id: ObjectId,
+    position: glam::Vec3,
+    owner: Option<u32>,
+    look_range: f32,
+    cover_range: f32,
+    reveal_all_range: f32,
+    reveal_to_all: bool,
+    under_construction: bool,
+    blocked: bool,
+    stealthed_hidden: bool,
+    vision_spied_mask: u32,
+}
+
+#[derive(Default)]
+struct ObjectVisionReceipts {
+    lookers: HashSet<ObjectId>,
+    reveal_all: HashSet<ObjectId>,
+    covers: HashSet<ObjectId>,
+}
+
 impl GameLogic {
     /// Feed Main-crate object positions into ShroudManager.
     ///
     /// C++ Object::look/unlook: unlook previous looker then look at
     /// ShroudClearingRange on move/death. Do not add lookers every frame.
     pub(in super::super::super) fn update_main_crate_vision(&mut self) {
-        use gamelogic::common::Coord3D;
-
         let shroud = std::sync::Arc::clone(self.world_services.shroud());
         let mut shroud_mgr = match shroud.lock() {
             Ok(mgr) => mgr,
@@ -26,172 +46,34 @@ impl GameLogic {
             shroud_mgr.clear_host_object_visibility(pid);
         }
 
-        let mut live_lookers = std::collections::HashSet::new();
-        let mut live_reveal_all = std::collections::HashSet::new();
-        let mut live_covers = std::collections::HashSet::new();
-
         let snaps: Vec<_> = self
             .objects
             .registered_values()
-            .filter(|obj| obj.is_alive())
-            .map(|obj| {
-                let pos = obj.get_position();
-                let tpl = obj.get_template();
-                // C++ Object::look uses getShroudClearingRange() only.
-                // A runtime 0 stays blind; the ctor already resolved -1 to vision.
-                let shroud_range = obj.get_shroud_clearing_range();
-                let owner_pid = obj
-                    .owner_player_id
-                    .or_else(|| self.player_id_for_team(obj.team));
-                let blocked = obj.contained_by.is_some_and(|cid| {
-                    self.objects
-                        .get(&cid)
-                        .is_some_and(container_blocks_passenger_look)
-                });
-                let stealthed_hidden =
-                    obj.status.stealthed && !obj.status.detected && !obj.status.disguised;
-                (
-                    obj.id,
-                    pos,
-                    owner_pid,
-                    shroud_range,
-                    obj.shroud_range,
-                    tpl.shroud_reveal_to_all_range,
-                    tpl.reveal_to_all,
-                    obj.status.under_construction,
-                    blocked,
-                    stealthed_hidden,
-                    obj.vision_spied_mask,
-                )
-            })
+            .filter(|object| object.is_alive())
+            .map(|object| self.observe_object_vision(object))
             .collect();
-
-        for (
-            id,
-            pos,
-            owner_pid,
-            shroud_range,
-            cover_range,
-            reveal_all_range,
-            reveal_to_all_kind,
-            under_construction,
-            blocked,
-            stealthed_hidden,
-            vision_spied_mask,
-        ) in snaps
-        {
-            let center = Coord3D::new(pos.x, pos.z, pos.y);
-
-            if !blocked {
-                if shroud_range > 0.0 {
-                    let mut player_mask = if reveal_to_all_kind {
-                        player_ids
-                            .iter()
-                            .fold(0u32, |mask, &pid| mask | (1u32 << pid.min(31)))
-                    } else if let Some(owner_pid) = owner_pid {
-                        let mut mask = 0u32;
-                        for &pid in &player_ids {
-                            if self.player_relationship(owner_pid, pid)
-                                == gamelogic::common::Relationship::Allies
-                            {
-                                mask |= 1u32 << pid.min(31);
-                            }
-                        }
-                        mask
-                    } else {
-                        0u32
-                    };
-                    // C++ Object::look: lookingMask |= m_visionSpiedMask.
-                    player_mask |= vision_spied_mask;
-                    if player_mask != 0 {
-                        restamp_host_partition_look(
-                            &mut self.vision_last_looks,
-                            &mut live_lookers,
-                            &mut shroud_mgr,
-                            id,
-                            center,
-                            shroud_range,
-                            player_mask,
-                            persist,
-                            frame,
-                        );
-                    }
-                }
-
-                if reveal_all_range > 0.0 && !under_construction && !stealthed_hidden {
-                    if let Some(owner_pid) = owner_pid {
-                        let mut reveal_mask = 0u32;
-                        for &pid in &player_ids {
-                            let rel = self.player_relationship(owner_pid, pid);
-                            if matches!(
-                                rel,
-                                gamelogic::common::Relationship::Enemies
-                                    | gamelogic::common::Relationship::Neutral
-                            ) {
-                                reveal_mask |= 1u32 << pid.min(31);
-                            }
-                        }
-                        if reveal_mask != 0 {
-                            restamp_host_partition_look(
-                                &mut self.vision_last_reveal_all,
-                                &mut live_reveal_all,
-                                &mut shroud_mgr,
-                                id,
-                                center,
-                                reveal_all_range,
-                                reveal_mask,
-                                persist,
-                                frame,
-                            );
-                        }
-                    }
-                }
-            }
-
-            // C++ Object::shroud: !UNDER_CONSTRUCTION && !dead && getShroudRange() > 0.
-            // Cover is independent of passenger-look blocking.
-            if cover_range > 0.0 && !under_construction {
-                if let Some(owner_pid) = owner_pid {
-                    let mut shrouding_mask = 0u32;
-                    for &pid in &player_ids {
-                        if self.player_relationship(owner_pid, pid)
-                            != gamelogic::common::Relationship::Allies
-                        {
-                            shrouding_mask |= 1u32 << pid.min(31);
-                        }
-                    }
-                    if shrouding_mask != 0 {
-                        restamp_host_partition_shroud(
-                            &mut self.vision_last_shroud,
-                            &mut live_covers,
-                            &mut shroud_mgr,
-                            id,
-                            center,
-                            cover_range,
-                            shrouding_mask,
-                        );
-                    }
-                }
-            }
+        let mut live = ObjectVisionReceipts::default();
+        for observation in snaps {
+            self.stamp_object_vision(observation, &player_ids, &mut live, &mut shroud_mgr);
         }
 
         unlook_stale_host_partition_looks(
             &mut self.vision_last_looks,
-            &live_lookers,
+            &live.lookers,
             &mut shroud_mgr,
             persist,
             frame,
         );
         unlook_stale_host_partition_looks(
             &mut self.vision_last_reveal_all,
-            &live_reveal_all,
+            &live.reveal_all,
             &mut shroud_mgr,
             persist,
             frame,
         );
         unshroud_stale_host_partition_covers(
             &mut self.vision_last_shroud,
-            &live_covers,
+            &live.covers,
             &mut shroud_mgr,
         );
 
@@ -296,6 +178,177 @@ impl GameLogic {
         if let Err(error) = self.update_host_fog_ghosts_with_shroud(&shroud_mgr) {
             log::error!("Cannot update this session's fog ghosts: {error}");
         }
+    }
+
+    fn observe_object_vision(&self, object: &Object) -> ObjectVisionObservation {
+        let template = object.get_template();
+        ObjectVisionObservation {
+            id: object.id,
+            position: object.get_position(),
+            owner: object
+                .owner_player_id
+                .or_else(|| self.player_id_for_team(object.team)),
+            look_range: object.get_shroud_clearing_range(),
+            cover_range: object.shroud_range,
+            reveal_all_range: template.shroud_reveal_to_all_range,
+            reveal_to_all: template.reveal_to_all,
+            under_construction: object.status.under_construction,
+            blocked: object.contained_by.is_some_and(|id| {
+                self.objects
+                    .get(&id)
+                    .is_some_and(container_blocks_passenger_look)
+            }),
+            stealthed_hidden: object.status.stealthed
+                && !object.status.detected
+                && !object.status.disguised,
+            vision_spied_mask: object.vision_spied_mask,
+        }
+    }
+
+    fn stamp_object_vision(
+        &mut self,
+        object: ObjectVisionObservation,
+        players: &[u32],
+        live: &mut ObjectVisionReceipts,
+        shroud: &mut gamelogic::system::shroud_manager::ShroudManager,
+    ) {
+        self.stamp_object_looks(object, players, live, shroud);
+        self.stamp_object_cover(object, players, live, shroud);
+    }
+
+    fn stamp_object_cover(
+        &mut self,
+        object: ObjectVisionObservation,
+        players: &[u32],
+        live: &mut ObjectVisionReceipts,
+        shroud: &mut gamelogic::system::shroud_manager::ShroudManager,
+    ) {
+        let center = gamelogic::common::Coord3D::new(
+            object.position.x,
+            object.position.z,
+            object.position.y,
+        );
+        if object.cover_range > 0.0 && !object.under_construction {
+            if let Some(owner) = object.owner {
+                let mut mask = 0u32;
+                for &player in players {
+                    if self.player_relationship(owner, player) != Relationship::Allies {
+                        mask |= 1u32 << player.min(31);
+                    }
+                }
+                if mask != 0 {
+                    restamp_host_partition_shroud(
+                        &mut self.vision_last_shroud,
+                        &mut live.covers,
+                        shroud,
+                        object.id,
+                        center,
+                        object.cover_range,
+                        mask,
+                    );
+                }
+            }
+        }
+    }
+
+    fn stamp_object_looks(
+        &mut self,
+        object: ObjectVisionObservation,
+        players: &[u32],
+        live: &mut ObjectVisionReceipts,
+        shroud: &mut gamelogic::system::shroud_manager::ShroudManager,
+    ) {
+        if object.blocked {
+            return;
+        }
+        let center = gamelogic::common::Coord3D::new(
+            object.position.x,
+            object.position.z,
+            object.position.y,
+        );
+        if object.look_range > 0.0 {
+            let mut mask = if object.reveal_to_all {
+                players
+                    .iter()
+                    .fold(0u32, |mask, &player| mask | (1u32 << player.min(31)))
+            } else if let Some(owner) = object.owner {
+                players.iter().fold(0u32, |mask, &player| {
+                    if self.player_relationship(owner, player) == Relationship::Allies {
+                        mask | (1u32 << player.min(31))
+                    } else {
+                        mask
+                    }
+                })
+            } else {
+                0
+            };
+            mask |= object.vision_spied_mask;
+            if mask != 0 {
+                restamp_host_partition_look(
+                    &mut self.vision_last_looks,
+                    &mut live.lookers,
+                    shroud,
+                    object.id,
+                    center,
+                    object.look_range,
+                    mask,
+                    host_unlook_persist_frames(),
+                    self.frame,
+                );
+            }
+        }
+        if object.reveal_all_range > 0.0 && !object.under_construction && !object.stealthed_hidden {
+            if let Some(owner) = object.owner {
+                let mut mask = 0u32;
+                for &player in players {
+                    if matches!(
+                        self.player_relationship(owner, player),
+                        Relationship::Enemies | Relationship::Neutral
+                    ) {
+                        mask |= 1u32 << player.min(31);
+                    }
+                }
+                if mask != 0 {
+                    restamp_host_partition_look(
+                        &mut self.vision_last_reveal_all,
+                        &mut live.reveal_all,
+                        shroud,
+                        object.id,
+                        center,
+                        object.reveal_all_range,
+                        mask,
+                        host_unlook_persist_frames(),
+                        self.frame,
+                    );
+                }
+            }
+        }
+    }
+
+    /// Re-establish this object's look and cover at its boundary callback.
+    pub(in crate::game_logic) fn relook_boundary_object(
+        &mut self,
+        id: ObjectId,
+    ) -> Result<(), String> {
+        let Some(observation) = self
+            .objects
+            .get(&id)
+            .filter(|object| object.is_alive())
+            .map(|object| self.observe_object_vision(object))
+        else {
+            return Ok(());
+        };
+        let mut players: Vec<_> = self.players.keys().copied().collect();
+        players.sort_unstable();
+        let shroud = std::sync::Arc::clone(self.world_services.shroud());
+        let mut shroud = shroud
+            .lock()
+            .map_err(|_| "receiving shroud owner is poisoned")?;
+        let mut live = ObjectVisionReceipts::default();
+        // Object::handleShroud restores cover before its own look.
+        self.stamp_object_cover(observation, &players, &mut live, &mut shroud);
+        self.stamp_object_looks(observation, &players, &mut live, &mut shroud);
+        Ok(())
     }
 
     pub(in super::super::super) fn shroud_visibility_snapshot_for_player(
@@ -521,5 +574,82 @@ impl GameLogic {
             duration,
             player_results,
         }
+    }
+}
+
+#[cfg(test)]
+mod boundary_relook_tests {
+    use super::*;
+    use gamelogic::common::Coord3D;
+    use gamelogic::system::shroud_manager::ShroudState;
+
+    #[test]
+    fn each_boundary_relook_stamps_only_its_object_and_preserves_peer() {
+        let mut world = GameLogic::new();
+        let mut peer = GameLogic::new();
+        for session in [&mut world, &mut peer] {
+            session.add_player(Player::new(1, Team::USA, "Viewer", true));
+            let mut template = ThingTemplate::new("BoundaryLooker");
+            template.shroud_clearing_range = 20.0;
+            session.templates.insert(template.name.clone(), template);
+            session
+                .world_services
+                .shroud()
+                .lock()
+                .unwrap()
+                .init_shroud_grid(512.0, 512.0);
+        }
+        let first = world
+            .create_object_for_player("BoundaryLooker", 1, glam::Vec3::new(100.0, 0.0, 100.0))
+            .unwrap();
+        let second = world
+            .create_object_for_player("BoundaryLooker", 1, glam::Vec3::new(300.0, 0.0, 300.0))
+            .unwrap();
+        assert_eq!(
+            peer.create_object_for_player("BoundaryLooker", 1, glam::Vec3::new(100.0, 0.0, 100.0)),
+            Some(first)
+        );
+        let peer_before = peer
+            .world_services
+            .shroud()
+            .lock()
+            .unwrap()
+            .snapshot_state();
+        // Boundary reset retires the previous receipts before reattaching objects.
+        world.vision_last_looks.clear();
+        world.vision_last_reveal_all.clear();
+        world.vision_last_shroud.clear();
+        world
+            .world_services
+            .shroud()
+            .lock()
+            .unwrap()
+            .init_shroud_grid(512.0, 512.0);
+        let a = Coord3D::new(100.0, 100.0, 0.0);
+        let b = Coord3D::new(300.0, 300.0, 0.0);
+        world.relook_boundary_object(first).unwrap();
+        {
+            let shroud = world.world_services.shroud().lock().unwrap();
+            assert_eq!(shroud.get_shroud_state(1, &a), ShroudState::Visible);
+            assert_ne!(shroud.get_shroud_state(1, &b), ShroudState::Visible);
+        }
+        world.relook_boundary_object(second).unwrap();
+        assert_eq!(
+            world
+                .world_services
+                .shroud()
+                .lock()
+                .unwrap()
+                .get_shroud_state(1, &b),
+            ShroudState::Visible
+        );
+        assert_eq!(
+            peer.world_services
+                .shroud()
+                .lock()
+                .unwrap()
+                .snapshot_state(),
+            peer_before
+        );
     }
 }

@@ -83,7 +83,7 @@ impl GameLogic {
                 .lock()
                 .map_err(|_| "receiving shroud owner is poisoned")?
                 .store_boundary_permanently_revealed_cells(&mut saved)?;
-            self.install_receiving_partition_grid(prepared_grid)?;
+            self.install_receiving_partition_grid(prepared_grid, false)?;
             let (min, max) = self.receiving_partition_extent();
             if !self.host_radar_new_map_with_extent(min, max) {
                 return Err("boundary has invalid radar extent".into());
@@ -93,24 +93,37 @@ impl GameLogic {
                 .map_err(|_| "receiving shroud owner is poisoned")?
                 .restore_boundary_permanently_revealed_cells(&saved)?;
             self.w3d_ghosts.set_lock_ghost_objects(true);
+            let mut notification_result = Ok(());
             for id in &ids {
                 let object = self
                     .objects
                     .get_mut(id)
                     .expect("registered boundary object");
                 self.partition_manager.attach_receiving_object(object);
+                self.host_radar_add_object_with_effects(*id, effects);
+                if let Err(error) = self.relook_boundary_object(*id) {
+                    notification_result = Err(error);
+                    break;
+                }
+                let object = self
+                    .objects
+                    .get_mut(id)
+                    .expect("registered boundary object");
                 object.handle_partition_cell_maintenance_with_partition_owner(
                     &mut self.partition_manager,
                 );
-                self.host_radar_add_object_with_effects(*id, effects);
+                self.partition_manager.refresh_object_map_status(object);
             }
-            self.update_main_crate_vision();
+            if notification_result.is_ok() {
+                self.update_main_crate_vision();
+            }
             let fog_result = shroud_owner
                 .lock()
                 .map_err(|_| "receiving shroud owner is poisoned".to_owned())
                 .and_then(|mut shroud| shroud.restore_boundary_fogged_cells(&saved));
             self.w3d_ghosts.restore_partition_data();
             self.w3d_ghosts.set_lock_ghost_objects(false);
+            notification_result?;
             fog_result?;
             self.session_view.camera.constraints.invalidate();
         }
@@ -224,12 +237,13 @@ impl GameLogic {
             max.z - min.z,
             cell_size,
         )?;
-        self.install_receiving_partition_grid(prepared)
+        self.install_receiving_partition_grid(prepared, true)
     }
 
     fn install_receiving_partition_grid(
         &mut self,
         prepared: gamelogic::system::shroud_manager::PreparedShroudGrid,
+        refresh_objects: bool,
     ) -> Result<(), String> {
         let mut shroud = self
             .world_services
@@ -241,7 +255,11 @@ impl GameLogic {
         shroud.install_prepared_shroud_grid(prepared);
         self.partition_manager.configure_grid_from_shroud(&shroud);
         drop(shroud);
-        self.refresh_receiving_object_map_status();
+        if refresh_objects {
+            self.refresh_receiving_object_map_status();
+        } else {
+            self.sync_receiving_map_extent();
+        }
         Ok(())
     }
 

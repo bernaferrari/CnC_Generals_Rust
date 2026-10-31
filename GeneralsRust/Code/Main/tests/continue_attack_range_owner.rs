@@ -718,12 +718,20 @@ fn switched_boundary_worlds() -> (GameLogic, GameLogic, ObjectId, ObjectId, Obje
         .unwrap()
         .auto_acquire_idle_bits = 0;
     session.host_object_mut(attacker).unwrap().weapon_bonus_solo = 16;
+    session
+        .host_object_mut(attacker)
+        .unwrap()
+        .shroud_clearing_range = 20.0;
     let victim = session
         .create_object_for_player("ChainVictim", 2, Vec3::new(30.0, 0.0, 20.0))
         .unwrap();
     let candidate = session
         .create_object_for_player("ChainVictim", 2, Vec3::new(150.0, 0.0, 20.0))
         .unwrap();
+    session
+        .host_object_mut(candidate)
+        .unwrap()
+        .shroud_clearing_range = 20.0;
     let builder = generals_main::save_load::SnapshotBuilder::new();
     let mut snapshot = builder.create_world_snapshot(&session).unwrap();
     let grid = snapshot
@@ -840,6 +848,7 @@ fn switched_boundary_worlds() -> (GameLogic, GameLogic, ObjectId, ObjectId, Obje
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
+    let peer_shroud_before_switch = builder.create_world_snapshot(&restored).unwrap().shroud;
     // Run the authored action through the receiving script driver, then save
     // its real boundary and partition continuation for the other session.
     use gamelogic::scripting::core::{
@@ -898,14 +907,17 @@ fn switched_boundary_worlds() -> (GameLogic, GameLogic, ObjectId, ObjectId, Obje
     let grid = switched.shroud.grid.as_ref().unwrap();
     let large_cells = (990.0 / grid.cell_size).ceil() as u32;
     assert_eq!((grid.width, grid.height), (large_cells, large_cells));
-    assert_eq!(
-        builder
-            .create_world_snapshot(&restored)
-            .unwrap()
-            .persist_v18
-            .terrain_active_boundary,
-        0
-    );
+    for (position, player) in [(20.0_f32, 1_usize), (150.0_f32, 2_usize)] {
+        let x = (position / grid.cell_size).floor() as usize;
+        let y = (20.0 / grid.cell_size).floor() as usize;
+        assert!(
+            grid.cells[y * grid.width as usize + x].current_shroud[player] < 0,
+            "the object's look must be restored by the boundary callback"
+        );
+    }
+    let peer_before_restore = builder.create_world_snapshot(&restored).unwrap();
+    assert_eq!(peer_before_restore.persist_v18.terrain_active_boundary, 0);
+    assert_eq!(peer_before_restore.shroud, peer_shroud_before_switch);
     builder
         .restore_from_snapshot(&switched, &mut restored)
         .unwrap();
