@@ -699,6 +699,17 @@ pub trait ScriptExecutionDriver {
         ScriptOwnerQuery::Unavailable
     }
 
+    /// Query OpenContain's last entering player in the receiving world.
+    fn building_entered_by_player(
+        &self,
+        _player: &str,
+        _building: &str,
+        _current_player: Option<&str>,
+        _this_object: Option<ObjectID>,
+    ) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Unavailable
+    }
+
     /// Resolve literal object/player identities against this execution's world.
     /// Types are the driving engine's current ObjectTypes contents. Missing
     /// and Present(false) are authoritative; only Unavailable uses Core's

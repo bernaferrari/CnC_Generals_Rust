@@ -1804,6 +1804,29 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         ScriptOwnerQuery::Present(())
     }
 
+    fn building_entered_by_player(
+        &self,
+        player: &str,
+        building: &str,
+        current_player: Option<&str>,
+        this_object: Option<gamelogic::common::ObjectID>,
+    ) -> ScriptOwnerQuery<bool> {
+        let Some(object) = self
+            .world
+            .owned_named_script_object(building, this_object.map(ObjectId))
+            .and_then(|id| self.world.host_object(id))
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        if object.get_template().contain_module.kind == crate::game_logic::ContainModuleKind::None {
+            return ScriptOwnerQuery::Present(false);
+        }
+        let Some(player_id) = self.script_player_id(player, current_player) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        ScriptOwnerQuery::Present(object.player_who_entered == Some(player_id))
+    }
+
     fn sighted(
         &self,
         unit: &str,

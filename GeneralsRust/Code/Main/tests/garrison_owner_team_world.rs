@@ -202,6 +202,73 @@ fn named_garrison(world: &mut GameLogic, unit_name: &str) {
         .unwrap();
 }
 
+fn observe_building_entered(world: &mut GameLogic, player: &str) -> bool {
+    let mut condition = Condition::new(ConditionType::BuildingEnteredByPlayer);
+    condition
+        .add_parameter(Parameter::with_string(ParameterType::Side, player.into()))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "EnteredHost".into(),
+        ))
+        .unwrap();
+    let mut branch = OrCondition::new();
+    branch.set_first_and_condition(Some(Box::new(condition)));
+    let mut action = ScriptAction::new(ScriptActionType::IncrementCounter);
+    action
+        .add_parameter(Parameter::with_int(ParameterType::Int, 1))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Counter,
+            "ObservedEntry".into(),
+        ))
+        .unwrap();
+    let mut script = Script::new();
+    script.script_name = "ObserveOwnedEntry".into();
+    script.is_one_shot = true;
+    script.delay_evaluation_seconds = 0;
+    script.condition = Some(Box::new(branch));
+    script.action = Some(Box::new(action));
+    let mut scripts = ScriptList::new();
+    scripts.append_script(Box::new(script));
+    let engine = ScriptEngine::new().unwrap();
+    engine.set_counter("ObservedEntry", 0).unwrap();
+    engine
+        .set_script_list_for_player(0, Some(Box::new(scripts)))
+        .unwrap();
+    world
+        .update_local_script_engine_with_owner(&engine)
+        .unwrap();
+    engine.get_counter("ObservedEntry").unwrap().value == 1
+}
+
+#[test]
+fn building_entered_observes_receiving_player_identity() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut renamed, host, rider) = world(&map, false);
+    let (mut peer, peer_host, peer_rider) = world(&map, false);
+    assert_eq!((host, rider), (peer_host, peer_rider));
+    renamed.host_object_mut(host).unwrap().name = "EnteredHost".into();
+    peer.host_object_mut(peer_host).unwrap().name = "EnteredHost".into();
+    renamed.get_player_mut(1).unwrap().name = "Shared display name".into();
+    renamed.get_player_mut(2).unwrap().name = "Shared display name".into();
+    assert_eq!(renamed.get_player(1).unwrap().map_side.map_player_name, "GarrisonHost");
+    assert_eq!(renamed.get_player(2).unwrap().map_side.map_player_name, "GarrisonRider");
+    enter(&mut renamed, host, rider);
+    assert!(observe_building_entered(&mut renamed, "GarrisonRider"));
+    assert!(!observe_building_entered(&mut peer, "GarrisonRider"));
+    assert!(!observe_building_entered(&mut renamed, "GarrisonHost"));
+    enter(&mut peer, peer_host, peer_rider);
+    assert!(observe_building_entered(&mut peer, "GarrisonRider"));
+    assert!(observe_building_entered(&mut renamed, "GarrisonRider"));
+    renamed.update();
+    assert!(!observe_building_entered(&mut renamed, "GarrisonRider"));
+    assert!(observe_building_entered(&mut peer, "GarrisonRider"));
+}
+
 #[test]
 fn named_garrison_uses_entering_player_identity_not_display_name() {
     let root = tempfile::tempdir().unwrap();

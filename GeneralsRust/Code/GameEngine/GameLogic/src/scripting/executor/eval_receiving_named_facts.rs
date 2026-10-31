@@ -25,13 +25,26 @@ impl ScriptConditionEvaluator<'_> {
                 ScriptError::ParameterNotFound(format!("Parameter {index} not found"))
             })
         };
+        let engine = self.context.borrowed_engine();
+        if kind == ConditionType::BuildingEnteredByPlayer {
+            let current = engine.get_current_player_name();
+            match driver.building_entered_by_player(
+                parameter(0)?.get_string(),
+                parameter(1)?.get_string(),
+                current.as_deref(),
+                engine.script_object_id(),
+            ) {
+                ScriptOwnerQuery::Present(entered) => return Ok(Some(Self::bool_result(entered))),
+                ScriptOwnerQuery::Missing => return Ok(Some(Self::bool_result(false))),
+                ScriptOwnerQuery::Unavailable => {}
+            }
+        }
         let name = parameter(if kind == ConditionType::BuildingEnteredByPlayer {
             1
         } else {
             0
         })?
         .get_string();
-        let engine = self.context.borrowed_engine();
         let (frame, fact) = match driver.named_query_fact(name, engine.script_object_id()) {
             ScriptOwnerQuery::Unavailable => return Ok(None),
             ScriptOwnerQuery::Missing => return Ok(Some(Self::bool_result(false))),
