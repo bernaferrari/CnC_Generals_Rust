@@ -40,7 +40,6 @@ impl GameLogic {
         self.apply_pending_host_dock_cancellation_effects();
         self.update_leftover_laser_guided_channels_with_effects(dt, effects);
         self.expire_leftover_disable_fx(effects);
-        self.update_open_contain_exit_doors();
 
         const INTERACT_RANGE: f32 = crate::game_logic::host_repair::HOST_REPAIR_INTERACT_RANGE;
         const SPECIAL_ABILITY_RANGE_PADDING: f32 = 4.0;
@@ -4105,7 +4104,7 @@ impl GameLogic {
         // AIUpdate runs in PHASE_INITIAL; OpenContain::update uses the later
         // PHASE_NORMAL. Entries processed by the loop above must therefore be
         // cleared before the next frame's script evaluation.
-        self.clear_open_contain_player_who_entered();
+        self.update_open_contain_state();
         self.tick_scuttled_riders_with_effects(effects);
 
         // C++ HealContain::update + TunnelContain::update → TunnelTracker::healObjects.

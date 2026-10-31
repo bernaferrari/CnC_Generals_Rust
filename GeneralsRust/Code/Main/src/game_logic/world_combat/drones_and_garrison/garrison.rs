@@ -443,20 +443,20 @@ impl GameLogic {
         }
     }
 
-    /// C++ OpenContain::update `m_playerEnteredMask = 0`.
-    pub(in crate::game_logic) fn clear_open_contain_player_who_entered(&mut self) {
+    /// C++ OpenContain::update clears the entrant before advancing the door.
+    pub(in crate::game_logic) fn update_open_contain_state(&mut self) {
+        // GameLogic::registerObject schedules a newly registered module no
+        // earlier than frame 1, even when the game is still on frame 0.
+        if self.frame == 0 {
+            return;
+        }
         for obj in self.objects.registered_values_mut() {
             // UpdateModule's default disabled mask is empty: GameLogic skips
             // OpenContain::update while any disabled flag is present.
-            if !obj.has_disabled_type() {
-                obj.player_who_entered = None;
+            if obj.has_disabled_type() {
+                continue;
             }
-        }
-    }
-
-    /// C++ OpenContain::update door countdown → DOOR_1_CLOSING.
-    pub(in crate::game_logic) fn update_open_contain_exit_doors(&mut self) {
-        for obj in self.objects.registered_values_mut() {
+            obj.player_who_entered = None;
             if obj.door_close_countdown == 0 {
                 continue;
             }

@@ -252,10 +252,87 @@ fn observe_building_entered(world: &mut GameLogic, player: &str) -> bool {
 }
 
 #[test]
+fn entrant_pulse_survives_frame_zero_until_first_container_update() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, host, _) = world(&map, false);
+    let (mut peer, peer_host, _) = world(&map, false);
+    assert_eq!(game.get_current_frame(), 0);
+    assert_eq!(peer.get_current_frame(), 0);
+    game.host_object_mut(host).unwrap().player_who_entered = Some(2);
+    peer.host_object_mut(peer_host).unwrap().player_who_entered = Some(1);
+
+    game.update();
+    assert_eq!(game.get_current_frame(), 1);
+    assert_eq!(
+        game.host_object(host).unwrap().player_who_entered,
+        Some(2),
+        "C++ schedules the first OpenContain update at frame 1"
+    );
+    assert_eq!(
+        peer.host_object(peer_host).unwrap().player_who_entered,
+        Some(1)
+    );
+    game.update();
+    assert_eq!(game.host_object(host).unwrap().player_who_entered, None);
+    assert_eq!(
+        peer.host_object(peer_host).unwrap().player_who_entered,
+        Some(1)
+    );
+}
+
+#[test]
+fn container_door_waits_for_first_wake_and_disabled_updates() {
+    use generals_main::game_logic::host_enum_table_residual::{
+        door_1_closing_model_bit, door_1_opening_model_bit,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, host, _) = world(&map, false);
+    let (mut peer, peer_host, _) = world(&map, false);
+    let opening = 1u128 << door_1_opening_model_bit();
+    let closing = 1u128 << door_1_closing_model_bit();
+    for (world, id) in [(&mut game, host), (&mut peer, peer_host)] {
+        let container = world.host_object_mut(id).unwrap();
+        container.door_close_countdown = 1;
+        container.model_condition_bits |= opening;
+    }
+    game.update();
+    let container = game.host_object(host).unwrap();
+    assert_eq!(
+        container.door_close_countdown, 1,
+        "frame zero must not run the module"
+    );
+    assert_ne!(container.model_condition_bits & opening, 0);
+    assert_eq!(container.model_condition_bits & closing, 0);
+
+    game.host_object_mut(host)
+        .unwrap()
+        .set_status_disabled_script_disabled(true);
+    game.update();
+    assert_eq!(
+        game.host_object(host).unwrap().door_close_countdown,
+        1,
+        "disabled OpenContain must not advance the timer"
+    );
+    game.host_object_mut(host)
+        .unwrap()
+        .set_status_disabled_script_disabled(false);
+    game.update();
+    let container = game.host_object(host).unwrap();
+    assert_eq!(container.door_close_countdown, 0);
+    assert_eq!(container.model_condition_bits & opening, 0);
+    assert_ne!(container.model_condition_bits & closing, 0);
+    assert_eq!(peer.host_object(peer_host).unwrap().door_close_countdown, 1);
+}
+
+#[test]
 fn ai_entry_clears_pulse_in_normal_phase_and_disabled_container_retains_it() {
     let root = tempfile::tempdir().unwrap();
     let map = map_file(root.path());
     let (mut game, host, rider) = world(&map, false);
+    // Compare phase order after the C++ modules' first eligible wake.
+    game.update();
     enter(&mut game, host, rider);
     assert_eq!(
         game.host_object(host).unwrap().player_who_entered,
