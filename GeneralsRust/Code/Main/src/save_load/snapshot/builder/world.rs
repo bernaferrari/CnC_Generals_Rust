@@ -401,6 +401,8 @@ impl SnapshotBuilder {
         }
         snapshot.audio_policy.validate()?;
         validate_cave_tracker(snapshot)?;
+        // Reject malformed terrain before retiring or replacing the receiver.
+        Self::validate_terrain_snapshot(&snapshot.terrain)?;
         for object in snapshot.objects.values() {
             super::super::receiving_template::validate_turret_source(
                 game_logic,

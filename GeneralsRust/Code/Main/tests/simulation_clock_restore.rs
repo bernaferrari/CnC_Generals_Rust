@@ -91,6 +91,65 @@ fn invalid_clock_is_rejected_before_mutating_a_session() {
 }
 
 #[test]
+fn malformed_terrain_is_rejected_before_replacing_a_live_session() {
+    use generals_main::game_logic::{Player, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let builder = SnapshotBuilder::new();
+    let mut source = GameLogic::new();
+    source.add_player(Player::new(7, Team::USA, "Receiving player", true));
+    for _ in 0..3 {
+        source.update_with_dt(1.0 / 30.0);
+    }
+    for malformed in 0..3 {
+        let mut receiving = GameLogic::new();
+        receiving.add_player(Player::new(7, Team::USA, "Receiving player", true));
+        receiving
+            .templates
+            .insert("RestoreProbe".into(), ThingTemplate::new("RestoreProbe"));
+        let object = receiving
+            .create_object_for_player("RestoreProbe", 7, Vec3::ZERO)
+            .unwrap();
+        receiving.update_with_dt(0.04);
+        let frame = receiving.get_frame();
+        let time = receiving.update_ui_state(0).current_game_time;
+        let mut snapshot = builder.create_world_snapshot(&source).unwrap();
+        match malformed {
+            0 => {
+                snapshot.terrain.logic_width = 2;
+                snapshot.terrain.logic_height = 2;
+                snapshot.terrain.logic_heights = vec![0; 3];
+            }
+            1 => {
+                snapshot.terrain.width = 2;
+                snapshot.terrain.height = 2;
+                snapshot.terrain.height_map = vec![0.0; 3];
+            }
+            _ => {
+                snapshot.terrain.width = 2;
+                snapshot.terrain.height = 2;
+                snapshot.terrain.passability_map = vec![true; 3];
+            }
+        }
+        let error = builder
+            .restore_from_snapshot(&snapshot, &mut receiving)
+            .unwrap_err();
+        let expected = match malformed {
+            0 => "invalid complete terrain byte grid",
+            1 => "invalid terrain height grid",
+            _ => "invalid terrain passability grid",
+        };
+        assert!(error.to_string().contains(expected), "{error:?}");
+        assert_eq!(receiving.get_frame(), frame, "malformed case {malformed}");
+        assert_eq!(receiving.update_ui_state(0).current_game_time, time);
+        assert!(receiving.get_player(7).is_some());
+        assert!(receiving.host_object(object).is_some());
+        assert_eq!(source.get_frame(), 3);
+        assert!(source.get_player(7).is_some());
+    }
+}
+
+#[test]
 fn older_snapshot_uses_frame_derived_time_and_no_partial_step() {
     let mut world = GameLogic::new();
     world.update_with_dt(0.05);

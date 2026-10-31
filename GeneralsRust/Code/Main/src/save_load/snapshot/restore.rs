@@ -1371,13 +1371,11 @@ impl SnapshotBuilder {
         Ok(())
     }
 
-    pub(super) fn restore_terrain(
-        &self,
+    pub(super) fn validate_terrain_snapshot(
         terrain_snapshot: &TerrainSnapshot,
-        game_logic: &mut GameLogic,
-    ) -> SaveLoadResult<()> {
-        // Validate the host's complete raw snapshot before touching the
-        // candidate. Xfer's separate prefix-copy format is not this payload.
+    ) -> SaveLoadResult<Option<(i32, i32)>> {
+        // The host's complete raw snapshot is distinct from Xfer's
+        // prefix-copy format; validate it before touching the receiver.
         let raw_shape = if terrain_snapshot.logic_width == 0
             && terrain_snapshot.logic_height == 0
             && terrain_snapshot.logic_heights.is_empty()
@@ -1416,6 +1414,15 @@ impl SnapshotBuilder {
                 )));
             }
         }
+        Ok(raw_shape)
+    }
+
+    pub(super) fn restore_terrain(
+        &self,
+        terrain_snapshot: &TerrainSnapshot,
+        game_logic: &mut GameLogic,
+    ) -> SaveLoadResult<()> {
+        let raw_shape = Self::validate_terrain_snapshot(terrain_snapshot)?;
         if let Some((width, height)) = raw_shape {
             let mut terrain = game_logic
                 .world_services
