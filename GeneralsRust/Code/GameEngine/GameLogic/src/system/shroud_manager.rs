@@ -974,7 +974,7 @@ impl ShroudGrid {
         center_y: f32,
         radius: f32,
     ) {
-        if y_pos < 0 || y_pos >= self.height as i32 {
+        if y_pos < 0 || y_pos >= self.height as i32 || x_start >= self.width as i32 || x_end < 0 {
             return;
         }
 
@@ -1009,7 +1009,7 @@ impl ShroudGrid {
         center_y: f32,
         radius: f32,
     ) {
-        if y_pos < 0 || y_pos >= self.height as i32 {
+        if y_pos < 0 || y_pos >= self.height as i32 || x_start >= self.width as i32 || x_end < 0 {
             return;
         }
 
@@ -1044,7 +1044,7 @@ impl ShroudGrid {
         center_y: f32,
         radius: f32,
     ) {
-        if y_pos < 0 || y_pos >= self.height as i32 {
+        if y_pos < 0 || y_pos >= self.height as i32 || x_start >= self.width as i32 || x_end < 0 {
             return;
         }
 
@@ -1073,7 +1073,7 @@ impl ShroudGrid {
         center_y: f32,
         radius: f32,
     ) {
-        if y_pos < 0 || y_pos >= self.height as i32 {
+        if y_pos < 0 || y_pos >= self.height as i32 || x_start >= self.width as i32 || x_end < 0 {
             return;
         }
 
