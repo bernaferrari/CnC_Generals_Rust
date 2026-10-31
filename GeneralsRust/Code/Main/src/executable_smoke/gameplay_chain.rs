@@ -57,7 +57,7 @@ fn smoke_drive_gameplay_chain(
                 // Require an existing builder — no spawn_dozer cheat.
                 let _ = write_control(
                     &control_path,
-                    &["construct|template=USA_Barracks|auto_target=1"],
+                    &["construct|template=AmericaBarracks|auto_target=1"],
                 );
                 st.gameplay_step = 3;
                 st.commanded_at = Some(Instant::now());
@@ -66,7 +66,7 @@ fn smoke_drive_gameplay_chain(
             let _ = write_control(
                 &control_path,
                 &[
-                    "construct|template=USA_Barracks|spawn_dozer=1|alias_fallback=1|auto_target=1",
+                    "construct|template=AmericaBarracks|spawn_dozer=1|alias_fallback=1|auto_target=1",
                 ],
             );
             st.gameplay_step = 3;
@@ -103,14 +103,13 @@ fn smoke_drive_gameplay_chain(
         {
             let _ = write_control(
                 &control_path,
-                &["construct|template=USA_Barracks|auto_target=1"],
+                &["construct|template=AmericaBarracks|auto_target=1"],
             );
             st.commanded_at = Some(Instant::now());
         }
         if launch == ExecutableSmokeLaunch::Windowed {
-            // construct_ok is "DozerConstruct issued". Honest train
-            // waits until we observe under_construction>0 then 0
-            // (barracks finished). Immediate UC==0 is a stale frame.
+            // Train only after a physical scaffold has appeared and completed.
+            // An immediate zero can be a stale status frame.
             if snap.under_construction > 0 {
                 st.saw_construct_under_construction = true;
             }
