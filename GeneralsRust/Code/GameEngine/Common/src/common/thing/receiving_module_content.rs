@@ -9,7 +9,7 @@ use super::{
     thing_template::{AdmittedReceivingTemplate, ReceivingTemplateKind, ThingTemplate},
 };
 use crate::common::ini::INILoadType;
-use std::{collections::HashMap, sync::Arc};
+use std::{cell::OnceCell, collections::HashMap, sync::Arc};
 pub use upgrade_tooltip::{UpgradeTooltipObservation, UpgradeTooltipSource};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,6 +99,7 @@ pub struct ReceivingModuleContent {
     templates: HashMap<String, TemplateVersion>,
     declaration_order: Vec<String>,
     next_template_id: u16,
+    compatibility_view: OnceCell<Arc<HashMap<String, Arc<ThingTemplate>>>>,
     modules: ModuleFactory,
 }
 
@@ -113,6 +114,7 @@ impl ReceivingModuleContent {
             templates: HashMap::new(),
             declaration_order: Vec::new(),
             next_template_id: 1,
+            compatibility_view: OnceCell::new(),
             modules,
         }
     }
@@ -245,6 +247,24 @@ impl ReceivingModuleContent {
             }),
             self.next_template_id,
         )
+    }
+
+    /// Detached effective templates shared by observations of this catalog version.
+    /// The cache belongs to this owner; mutation invalidates it without changing
+    /// snapshots already held by an operation or by another catalog.
+    pub fn shared_compatibility_templates(&self) -> Arc<HashMap<String, Arc<ThingTemplate>>> {
+        Arc::clone(self.compatibility_view.get_or_init(|| {
+            let factory = self.compatibility_template_view();
+            Arc::new(
+                self.admitted_templates()
+                    .filter_map(|(name, _)| {
+                        factory
+                            .find_template(name, false)
+                            .map(|template| (name.to_owned(), template))
+                    })
+                    .collect(),
+            )
+        }))
     }
 
     /// Parse each actual declaration once, in supplied source order. File admission
@@ -406,11 +426,13 @@ impl ReceivingModuleContent {
                 current: Arc::clone(&admitted),
             },
         );
+        self.compatibility_view.take();
         Ok(admitted)
     }
     /// ThingFactory::reset removes override versions/map-only roots. ModuleFactory
     /// reset is explicitly a no-op, so its data list and namespace remain intact.
     pub fn reset_map_overrides(&mut self) {
+        self.compatibility_view.take();
         self.action_current = self.action_base.clone();
         self.modules
             .replace_receiving_special_power_definitions(Arc::new(

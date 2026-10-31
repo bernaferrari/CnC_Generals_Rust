@@ -4,7 +4,10 @@ use super::*;
 use game_client::fx_list::{
     FxObservation, FxRayRequest, FxSource, FxTracerRequest, GameClientFxRuntime,
 };
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 /// Immutable external observations for one bounded Object operation. Mutable
 /// primary fields are deliberately absent: every nugget rereads the borrower.
@@ -19,7 +22,7 @@ pub(crate) struct ObjectFxEnvironment {
     pub tunnel_counts: HashMap<crate::game_logic::ObjectId, u16>,
     pub localities: HashMap<i32, game_engine::common::audio::AudioSubmissionLocality>,
     pub drawings: HashMap<String, std::sync::Arc<crate::game_logic::thing::ReceivingDrawModels>>,
-    pub things: HashMap<String, std::sync::Arc<game_engine::common::thing::ThingTemplate>>,
+    pub things: Option<Arc<HashMap<String, Arc<game_engine::common::thing::ThingTemplate>>>>,
 }
 impl crate::game_logic::GameLogic {
     pub(crate) fn observe_object_fx_environment(&self) -> ObjectFxEnvironment {
@@ -47,15 +50,10 @@ impl crate::game_logic::GameLogic {
             })
             .collect::<HashMap<_, _>>();
         localities.insert(-1, self.receiving_audio_locality_for_player(-1));
-        let mut things = HashMap::new();
-        if let Some(content) = self.receiving_module_content.as_ref() {
-            let factory = content.compatibility_template_view();
-            for (name, _) in content.admitted_templates() {
-                if let Some(template) = factory.find_template(name, false) {
-                    things.insert(name.to_owned(), template);
-                }
-            }
-        }
+        let things = self
+            .receiving_module_content
+            .as_ref()
+            .map(|content| content.shared_compatibility_templates());
         ObjectFxEnvironment {
             world_identity: std::sync::Arc::clone(&self.live_draw_playback_world),
             world_revision: self.host_visual_world_epoch(),
@@ -549,7 +547,8 @@ impl GameClientFxRuntime for ObjectFxRuntime<'_, '_, '_, '_> {
             .services
             .environment
             .things
-            .get(request.template)
+            .as_ref()
+            .and_then(|things| things.get(request.template))
             .ok_or("receiving tracer definition absent")?;
         self.services
             .effects
@@ -563,7 +562,8 @@ impl GameClientFxRuntime for ObjectFxRuntime<'_, '_, '_, '_> {
             .services
             .environment
             .things
-            .get(request.template)
+            .as_ref()
+            .and_then(|things| things.get(request.template))
             .ok_or("receiving ray definition absent")?;
         self.services
             .effects
