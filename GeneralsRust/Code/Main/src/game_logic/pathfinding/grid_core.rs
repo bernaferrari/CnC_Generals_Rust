@@ -421,6 +421,41 @@ impl PathfindingGrid {
         }
     }
 
+    /// C++ PathfindCell::setTypeAsObstacle keeps an existing obstacle (or
+    /// rubble) instead of replacing its owner when footprints overlap.
+    fn classify_obstacle_if_available(
+        &mut self,
+        pos: GridPos,
+        is_fence: bool,
+        is_transparent: bool,
+        object_id: u32,
+        owner_player: Option<u32>,
+        team: Option<Team>,
+        as_rubble: bool,
+    ) -> bool {
+        if !self.is_valid_pos(pos)
+            || !matches!(
+                self.cell_type(pos),
+                PathfindCellType::Clear | PathfindCellType::Impassable
+            )
+        {
+            return false;
+        }
+        if as_rubble {
+            self.set_cell_type(pos, PathfindCellType::Rubble);
+        } else {
+            self.set_cell_obstacle_owned(
+                pos,
+                is_fence,
+                is_transparent,
+                object_id,
+                owner_player,
+                team,
+            );
+        }
+        true
+    }
+
     /// Remove only cells still owned by this object, preserving overlapping
     /// foreign obstacles. Completion then reclassifies its current footprint.
     pub(super) fn remove_owned_object_footprint(&mut self, object_id: u32) {
@@ -670,6 +705,7 @@ impl PathfindingGrid {
         object_id: u32,
         owner_player: Option<u32>,
         team: Option<Team>,
+        as_rubble: bool,
     ) -> Option<(GridPos, GridPos)> {
         if fence_width <= 0.0 {
             return None;
@@ -695,13 +731,14 @@ impl PathfindingGrid {
             for _ix in 0..num_steps_x {
                 let cell = self.classify_world_to_cell(x, z);
                 if self.is_valid_pos(cell) {
-                    self.set_cell_obstacle_owned(
+                    self.classify_obstacle_if_available(
                         cell,
                         true,
                         is_transparent,
                         object_id,
                         owner_player,
                         team,
+                        as_rubble,
                     );
                     Self::expand_stamp_bounds(&mut lo, &mut hi, cell);
                     did = true;
@@ -755,6 +792,7 @@ impl PathfindingGrid {
                 obj.id.0,
                 obj.owner_player_id,
                 Some(obj.team),
+                as_rubble,
             );
         }
         if !obj.is_kind_of(KindOf::Structure) {
@@ -782,19 +820,16 @@ impl PathfindingGrid {
             if !grid.is_valid_pos(cell) {
                 return false;
             }
-            if as_rubble {
-                grid.set_cell_type(cell, PathfindCellType::Rubble);
-            } else {
-                grid.set_cell_obstacle_owned(
-                    cell,
-                    false,
-                    is_transparent,
-                    obj.id.0,
-                    obj.owner_player_id,
-                    Some(obj.team),
-                );
-            }
-            if is_blast_crater {
+            let inserted = grid.classify_obstacle_if_available(
+                cell,
+                false,
+                is_transparent,
+                obj.id.0,
+                obj.owner_player_id,
+                Some(obj.team),
+                as_rubble,
+            );
+            if inserted && is_blast_crater {
                 grid.permanent_blast_crater_cells.insert((cell.x, cell.y));
             }
             Self::expand_stamp_bounds(lo, hi, cell);

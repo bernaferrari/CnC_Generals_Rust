@@ -1309,10 +1309,11 @@ impl PathfindingSystem {
         obj: &Object,
         ground_source: &PathfindingGround<'_>,
     ) {
-        if let Some((lo, hi)) = self
-            .grid
-            .classify_object_footprint(obj, false, ground_source)
-        {
+        if let Some((lo, hi)) = self.grid.classify_object_footprint(
+            obj,
+            PathfindingGrid::object_is_pathfind_rubble(obj),
+            ground_source,
+        ) {
             self.grid.refresh_pinched_bounds(lo, hi);
             self.grid.rebuild_path_zones();
         }

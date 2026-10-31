@@ -101,6 +101,10 @@ impl GameLogic {
                     .expect("registered boundary object");
                 self.partition_manager.attach_receiving_object(object);
                 self.host_radar_add_object_with_effects(*id, effects);
+                if let Err(error) = self.readmit_boundary_pathfinder_object(*id) {
+                    notification_result = Err(error);
+                    break;
+                }
                 if let Err(error) = self.relook_boundary_object(*id) {
                     notification_result = Err(error);
                     break;
@@ -141,6 +145,29 @@ impl GameLogic {
         }
         Ok(())
     }
+    /// Object::friend_notifyOfNewMapBoundary re-adds the object to this
+    /// session's existing pathfinder; preparation deliberately did not remove it.
+    fn readmit_boundary_pathfinder_object(&mut self, id: ObjectId) -> Result<(), String> {
+        let Some(object) = self.objects.get(&id) else {
+            return Err("boundary pathfinder object disappeared".into());
+        };
+        let terrain = self
+            .world_services
+            .terrain()
+            .read()
+            .map_err(|_| "receiving terrain owner is poisoned")?;
+        let ground = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+            &terrain,
+            self.map_loaded,
+            self.terrain.as_ref(),
+            self.pathfinding_height_samples.as_ref(),
+            &self.pathfinding_system.grid,
+        );
+        self.pathfinding_system
+            .classify_and_pinch_object(object, &ground);
+        Ok(())
+    }
+
     /// Validate against the saved boundary without changing the receiving world.
     pub(crate) fn validate_saved_partition_geometry(
         &self,

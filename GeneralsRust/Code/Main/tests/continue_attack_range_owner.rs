@@ -53,7 +53,7 @@ fn world_with_upgrade_damage(
         .unwrap();
     }
     game.admit_object_ini_sources([("ContinueRange.ini".into(),
-        format!("Object ChainAttacker\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface AI\n End\n WeaponSet\n Conditions = NONE\n Weapon = PRIMARY {weapon_name}\n End\nEnd\nObject ChainVictim\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 10\n InitialHealth = 10\n End\nEnd\n"))]).unwrap();
+        format!("Object ChainAttacker\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface AI\n End\n WeaponSet\n Conditions = NONE\n Weapon = PRIMARY {weapon_name}\n End\nEnd\nObject ChainVictim\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 10\n InitialHealth = 10\n End\nEnd\nObject BoundaryPathBlock\n KindOf = STRUCTURE IMMOBILE\n Geometry = CYLINDER\n GeometryMajorRadius = 20\n GeometryHeight = 10\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"))]).unwrap();
     game.templates
         .get_mut("ChainVictim")
         .unwrap()
@@ -732,6 +732,17 @@ fn switched_boundary_worlds() -> (GameLogic, GameLogic, ObjectId, ObjectId, Obje
         .host_object_mut(candidate)
         .unwrap()
         .shroud_clearing_range = 20.0;
+    session
+        .create_object_for_player("BoundaryPathBlock", 1, Vec3::new(75.0, 0.0, 75.0))
+        .unwrap();
+    let path_before_switch = session.snapshot_pathfinding_passability();
+    let (path_origin, _) = session.world_bounds();
+    let obstacle_x = ((75.0 - path_origin.x) / 10.0) as i32;
+    let obstacle_y = ((75.0 - path_origin.z) / 10.0) as i32;
+    assert!(
+        session.is_pathfinding_static_blocked(obstacle_x, obstacle_y),
+        "fixture structure must occupy the receiving pathfinder before switching"
+    );
     let builder = generals_main::save_load::SnapshotBuilder::new();
     let mut snapshot = builder.create_world_snapshot(&session).unwrap();
     let grid = snapshot
@@ -876,6 +887,11 @@ fn switched_boundary_worlds() -> (GameLogic, GameLogic, ObjectId, ObjectId, Obje
         .update_local_script_engine_with_owner(&engine)
         .unwrap();
     let switched = builder.create_world_snapshot(&session).unwrap();
+    assert_eq!(
+        session.snapshot_pathfinding_passability(),
+        path_before_switch,
+        "re-admission must preserve the existing pathfinder grid"
+    );
     assert_eq!(switched.persist_v18.terrain_active_boundary, 1);
     let data = &switched.lifecycle_tail;
     let footer = data.windows(4).rposition(|tag| tag == b"OXFE").unwrap();
