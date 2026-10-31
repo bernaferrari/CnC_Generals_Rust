@@ -133,6 +133,16 @@ Object OwnedTunnel\n\
   ContainMax = 10\n\
  End\n\
 End\n\
+Object OwnedCave\n\
+ KindOf = STRUCTURE SELECTABLE\n\
+ Body = ActiveBody BodyTag\n\
+  MaxHealth = 1000\n\
+  InitialHealth = 1000\n\
+ End\n\
+ Behavior = CaveContain CaveTag\n\
+  CaveIndex = 7\n\
+ End\n\
+End\n\
 Object TunnelAircraft\n\
  KindOf = AIRCRAFT VEHICLE SELECTABLE\n\
  TransportSlotCount = 1\n\
@@ -469,6 +479,79 @@ fn collision_transport_rechecks_slot_capacity_and_controller() {
         None,
         "TransportContain requires the same controlling player at collision"
     );
+}
+
+#[test]
+fn connected_caves_read_the_receiving_worlds_shared_inventory() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut game, _, rider) = world(&map, false);
+    let (mut peer, _, peer_rider) = world(&map, false);
+    let setup = |world: &mut GameLogic| {
+        let a = world
+            .create_object_for_player("OwnedCave", 2, Vec3::new(50., 0., 50.))
+            .unwrap();
+        let b = world
+            .create_object_for_player("OwnedCave", 2, Vec3::new(70., 0., 50.))
+            .unwrap();
+        for cave in [a, b] {
+            world
+                .host_object_mut(cave)
+                .unwrap()
+                .install_cave_contain_residual(7);
+            world
+                .cave_system_residual_mut()
+                .register_cave(cave, 7, Team::USA);
+        }
+        (a, b)
+    };
+    let (a, b) = setup(&mut game);
+    let (peer_a, peer_b) = setup(&mut peer);
+    assert_eq!((a, b, rider), (peer_a, peer_b, peer_rider));
+    assert!(
+        game.unit_command_set_ai_state(rider, AIState::Entering)
+            .unwrap()
+    );
+    game.host_object_mut(rider).unwrap().target = Some(a);
+    game.try_physics_collide(rider, a, 1.0).unwrap();
+    assert!(game.cave_system_residual().is_in_network(7, rider));
+    assert_eq!(game.host_object(rider).unwrap().ai_state(), AIState::Docked);
+    assert!(game.host_object(rider).unwrap().status.disabled_held);
+    assert_eq!(game.host_authoritative_contained_units(a), vec![rider]);
+    assert_eq!(game.host_authoritative_contained_units(b), vec![rider]);
+    assert_eq!(game.host_authoritative_occupant_count(a), Some(1));
+    assert_eq!(game.host_authoritative_occupant_count(b), Some(1));
+    assert!(peer.host_authoritative_contained_units(peer_b).is_empty());
+    assert_eq!(peer.host_authoritative_occupant_count(peer_a), Some(0));
+    let aircraft = game
+        .create_object_for_player("TunnelAircraft", 2, Vec3::new(50., 0., 50.))
+        .unwrap();
+    assert!(
+        game.unit_command_set_ai_state(aircraft, AIState::Entering)
+            .unwrap()
+    );
+    game.host_object_mut(aircraft).unwrap().target = Some(a);
+    game.try_physics_collide(aircraft, a, 1.0).unwrap();
+    assert_eq!(game.host_object(aircraft).unwrap().contained_by, None);
+    let builder = SnapshotBuilder::new();
+    let snapshot = clone_bincode_snapshot(&builder.create_world_snapshot(&game).unwrap());
+    let (mut restored, _, _) = world(&map, false);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert_eq!(
+        restored.host_authoritative_contained_units(b),
+        vec![rider],
+        "restored object index {}, tracker index {:?}, pool contains rider {}",
+        restored.host_object(b).unwrap().cave_index,
+        restored.cave_system_residual().index_of(b),
+        restored.cave_system_residual().is_in_network(7, rider),
+    );
+    assert!(restored.host_object(rider).unwrap().status.disabled_held);
+    assert!(peer.host_authoritative_contained_units(peer_b).is_empty());
+    assert!(game.exit_cave_unit(rider, b));
+    assert!(!game.host_object(rider).unwrap().status.disabled_held);
+    assert!(game.host_authoritative_contained_units(a).is_empty());
 }
 
 #[test]

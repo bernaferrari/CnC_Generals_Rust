@@ -1065,6 +1065,13 @@ impl GameLogic {
 
     /// Replace the live CaveSystem from a world snapshot tail.
     pub fn restore_cave_system(&mut self, system: crate::game_logic::HostCaveSystem) {
+        // The tracker serializes each registered entrance's current index.
+        // Restore the entrance view from that owner before queries resume.
+        for object in self.objects.registered_values_mut() {
+            if let Some(index) = system.index_of(object.id) {
+                object.cave_index = index;
+            }
+        }
         self.cave_system = system;
     }
 

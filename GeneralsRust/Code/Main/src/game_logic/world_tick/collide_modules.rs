@@ -42,7 +42,17 @@ impl super::super::GameLogic {
                     .is_tunnel_network_style_container()
                     .then(|| container.tunnel_system_key())
             });
+            let cave_index = if tunnel_key.is_none() {
+                self.objects.get(&other_id).and_then(|container| {
+                    container
+                        .is_cave_style_container()
+                        .then_some(container.cave_index)
+                })
+            } else {
+                None
+            };
             let is_garrison = tunnel_key.is_none()
+                && cave_index.is_none()
                 && self
                     .objects
                     .get(&other_id)
@@ -67,6 +77,11 @@ impl super::super::GameLogic {
                     .get(&self_id)
                     .is_some_and(|rider| !rider.is_kind_of(crate::game_logic::KindOf::Aircraft))
                     && self.tunnel_network.has_capacity(key)
+            } else if let Some(index) = cave_index {
+                self.objects
+                    .get(&self_id)
+                    .is_some_and(|rider| !rider.is_kind_of(crate::game_logic::KindOf::Aircraft))
+                    && self.cave_system.has_capacity(index)
             } else if is_garrison {
                 self.objects
                     .get(&self_id)
@@ -121,7 +136,7 @@ impl super::super::GameLogic {
                 true
             };
             let cancelled = eligible
-                && (is_garrison || is_transport || tunnel_key.is_some())
+                && (is_garrison || is_transport || tunnel_key.is_some() || cave_index.is_some())
                 && self.should_cancel_containment_after_booby_trap_with_effects(
                     other_id, self_id, effects,
                 );
@@ -153,10 +168,34 @@ impl super::super::GameLogic {
                     boarded = false;
                 }
             }
+            let mut cave_capture = None;
+            if boarded && let Some(index) = cave_index {
+                let team = self.objects.get(&self_id).map(|rider| rider.team);
+                let result = team.map(|team| {
+                    self.cave_system
+                        .record_enter(index, self_id, other_id, team)
+                });
+                if let Some((true, event)) = result {
+                    cave_capture = Some((index, event));
+                    self.stamp_contained_by_frame(self_id, self.frame);
+                } else {
+                    if let Some(container) = self.objects.get_mut(&other_id) {
+                        container.remove_occupant_with_partition_owner(
+                            self_id,
+                            &mut self.ownership_events,
+                            &mut self.partition_manager,
+                        );
+                    }
+                    boarded = false;
+                }
+            }
             if boarded {
                 // OpenContain::addToContain records the controlling player
                 // immediately after adding the rider to its roster.
                 self.stamp_player_who_entered(other_id, self_id);
+                if let Some((index, event)) = cave_capture {
+                    self.apply_cave_capture_event(index, event);
+                }
                 let state = self
                     .objects
                     .get(&other_id)
@@ -169,6 +208,7 @@ impl super::super::GameLogic {
                                 .kind
                                 .is_heal_contain()
                             && !container.is_tunnel_network_style_container()
+                            && !container.is_cave_style_container()
                         {
                             AIState::Garrisoned
                         } else {
@@ -196,7 +236,7 @@ impl super::super::GameLogic {
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     us.status.moving = false;
-                    if tunnel_key.is_some() {
+                    if tunnel_key.is_some() || cave_index.is_some() {
                         us.set_status_disabled_held(true);
                     }
                 }
@@ -215,7 +255,7 @@ impl super::super::GameLogic {
                     }
                     self.admit_local_drawable_deselected(self_id);
                     self.play_container_enter_sound(other_id, effects);
-                } else if tunnel_key.is_some() {
+                } else if tunnel_key.is_some() || cave_index.is_some() {
                     self.play_container_enter_sound(other_id, effects);
                 }
             }

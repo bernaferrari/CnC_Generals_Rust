@@ -2149,6 +2149,9 @@ impl GameLogic {
                 );
             }
         }
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            unit.set_status_disabled_held(false);
+        }
         self.apply_cave_capture_event(index, ev);
         true
     }

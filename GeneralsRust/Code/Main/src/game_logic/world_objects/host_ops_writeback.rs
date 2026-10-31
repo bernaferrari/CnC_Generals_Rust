@@ -938,6 +938,13 @@ impl GameLogic {
                     .min(u16::MAX as usize) as u16,
             );
         }
+        if o.is_cave_style_container() {
+            return Some(
+                self.cave_system
+                    .contain_count(o.cave_index)
+                    .min(u16::MAX as usize) as u16,
+            );
+        }
         let count = o
             .building_data
             .as_ref()
@@ -959,6 +966,9 @@ impl GameLogic {
             return self
                 .tunnel_network
                 .contained_for_player(o.tunnel_system_key());
+        }
+        if o.is_cave_style_container() {
+            return self.cave_system.contained_for_index(o.cave_index);
         }
         o.contained_units()
     }
