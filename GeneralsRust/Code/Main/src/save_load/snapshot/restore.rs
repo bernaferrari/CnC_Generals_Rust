@@ -251,17 +251,53 @@ impl SnapshotBuilder {
                     "Invalid OpenContain entrant module owner".into(),
                 ));
             }
-            if object.modules.contains_key("OpenContainEntered")
-                && game_logic
-                    .templates
-                    .get(&object.template_name)
-                    .is_some_and(|template| {
-                        template.contain_module.kind == crate::game_logic::ContainModuleKind::None
-                    })
-            {
-                return Err(SaveLoadError::Corrupted(
-                    "OpenContain entrant is attached to a non-container template".into(),
-                ));
+            if object.modules.contains_key("OpenContainEntered") {
+                let cached = game_logic.templates.get(&object.template_name);
+                let rebuilt;
+                let template = if let Some(content) = &game_logic.receiving_module_content {
+                    let definition = game_logic
+                        .receiving_object_definitions
+                        .as_ref()
+                        .and_then(|definitions| definitions.get(&object.template_name))
+                        .ok_or_else(|| {
+                            SaveLoadError::Corrupted(format!(
+                                "Saved Object '{}' has no receiving definition",
+                                object.template_name
+                            ))
+                        })?;
+                    if let Some(template) = cached.filter(|template| {
+                        template
+                            .receiving_object_definition
+                            .as_ref()
+                            .is_some_and(|existing| std::sync::Arc::ptr_eq(existing, definition))
+                    }) {
+                        Some(template)
+                    } else {
+                        rebuilt = GameLogic::build_template_from_object_definition_with_receiving(
+                            &object.template_name,
+                            definition,
+                            definition.get_primary_texture(),
+                            Some(content),
+                            game_logic.locomotor_definitions.as_ref(),
+                        )
+                        .map_err(|error| {
+                            SaveLoadError::Corrupted(format!(
+                                "Saved Object '{}' has an invalid receiving definition: {error}",
+                                object.template_name
+                            ))
+                        })?;
+                        Some(&rebuilt)
+                    }
+                } else {
+                    cached
+                };
+                if template.is_none_or(|template| {
+                    template.contain_module.kind == crate::game_logic::ContainModuleKind::None
+                }) {
+                    return Err(SaveLoadError::Corrupted(
+                        "OpenContain entrant is attached to a non-container template".into(),
+                    ));
+                }
             }
             if object.modules.iter().any(|(key, value)| {
                 matches!(value, ModuleSnapshot::ActiveWeaponStatus(_))

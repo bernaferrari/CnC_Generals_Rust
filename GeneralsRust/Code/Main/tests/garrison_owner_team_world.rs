@@ -94,6 +94,13 @@ Object OwnedGarrisonRider\n\
  End\n\
  Behavior = AIUpdateInterface Brain\n\
  End\n\
+End\n\
+Object PlainNonContainer\n\
+ KindOf = STRUCTURE SELECTABLE\n\
+ Body = ActiveBody BodyTag\n\
+  MaxHealth = 100\n\
+  InitialHealth = 100\n\
+ End\n\
 End\n"
                 .into(),
         )])
@@ -751,6 +758,9 @@ fn entrant_pulse_survives_bincode_and_direct_xfer_then_clears() {
     let (mut original, host, rider) = world(&map, false);
     original.host_object_mut(host).unwrap().name = "EnteredHost".into();
     enter(&mut original, host, rider);
+    let plain = original
+        .create_object_for_player("PlainNonContainer", 1, Vec3::new(70.0, 0.0, 70.0))
+        .unwrap();
     assert_eq!(
         original.host_object(host).unwrap().player_who_entered,
         Some(2)
@@ -812,6 +822,36 @@ fn entrant_pulse_survives_bincode_and_direct_xfer_then_clears() {
         before
     );
 
+    // This admitted definition has never been instantiated in the receiver.
+    // Rejection must precede replacement of its existing object roster.
+    let mut uncached_container = clone_bincode_snapshot(&snapshot);
+    uncached_container
+        .objects
+        .get_mut(&plain)
+        .unwrap()
+        .modules
+        .insert(
+            "OpenContainEntered".into(),
+            generals_main::save_load::snapshot::ModuleSnapshot::OpenContainEntered(2),
+        );
+    assert!(unchanged.templates.remove("PlainNonContainer").is_some());
+    unchanged
+        .host_object_mut(unchanged_host)
+        .unwrap()
+        .health
+        .current = 321.0;
+    let error = builder
+        .restore_from_snapshot(&uncached_container, &mut unchanged)
+        .expect_err("non-container cannot own an entrant pulse");
+    assert!(format!("{error:?}").contains("non-container template"));
+    assert_eq!(
+        unchanged
+            .host_object(unchanged_host)
+            .map(|object| object.health.current),
+        Some(321.0),
+        "a rejected uncached template must not replace the receiving world"
+    );
+
     let bytes = bincode_legacy::serialize(&snapshot).unwrap();
     let binary: WorldSnapshot = bincode_legacy::deserialize(&bytes).unwrap();
     let mut direct_source = clone_bincode_snapshot(&snapshot);
@@ -825,6 +865,7 @@ fn entrant_pulse_survives_bincode_and_direct_xfer_then_clears() {
     let (mut first, first_host, _) = world(&map, false);
     let (mut second, second_host, _) = world(&map, false);
     assert_eq!((host, host), (first_host, second_host));
+    assert!(first.templates.remove("OwnedGarrison").is_some());
     builder.restore_from_snapshot(&binary, &mut first).unwrap();
     builder.restore_from_snapshot(&direct, &mut second).unwrap();
     for game in [&mut first, &mut second] {
