@@ -1685,12 +1685,11 @@ impl GameLogic {
         leader_is_hacker: bool,
         player_id: Option<u32>,
     ) -> bool {
-        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
         use crate::game_logic::KindOf;
         if !building.is_alive() || building.status.destroyed {
             return false;
         }
-        if is_off_map_default_residual(building.get_position()) != leader_off_map {
+        if building.status.off_map != leader_off_map {
             return false;
         }
         let is_internet = building.is_kind_of(KindOf::FSInternetCenter);
@@ -1725,7 +1724,6 @@ impl GameLogic {
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> gamelogic::GameLogicResult<()> {
-        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
         use crate::game_logic::KindOf;
         let members = self.receiving_garrison_members(team, calling, condition)?;
         let Some(&leader_id) = members.first() else {
@@ -1735,7 +1733,7 @@ impl GameLogic {
             self.host_object(leader_id).map(|obj| {
                 (
                     obj.get_position(),
-                    is_off_map_default_residual(obj.get_position()),
+                    obj.status.off_map,
                     obj.is_kind_of(KindOf::MoneyHacker),
                     obj.owner_player_id,
                 )
@@ -1807,13 +1805,12 @@ impl GameLogic {
         &mut self,
         unit_id: ObjectId,
     ) -> gamelogic::GameLogicResult<()> {
-        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
         use crate::game_logic::KindOf;
         let Some((unit_pos, unit_off_map, unit_is_hacker, player_id)) =
             self.host_object(unit_id).map(|obj| {
                 (
                     obj.get_position(),
-                    is_off_map_default_residual(obj.get_position()),
+                    obj.status.off_map,
                     obj.is_kind_of(KindOf::MoneyHacker),
                     obj.owner_player_id,
                 )

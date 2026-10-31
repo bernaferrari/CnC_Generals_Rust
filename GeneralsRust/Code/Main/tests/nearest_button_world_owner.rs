@@ -102,7 +102,7 @@ fn world_with_target(
     )
     .unwrap();
     let mut game = GameLogic::new();
-    game.admit_object_ini_sources([("Objects.ini".into(), "Object AmericaInfantryMissileDefender\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n Behavior = SpecialAbility Laser\n SpecialPowerTemplate = SpecialAbilityMissileDefenderLaserGuidedMissiles\n End\nEnd\nObject OwnedVehicle\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\n".into())]).unwrap();
+    game.admit_object_ini_sources([("Objects.ini".into(), "Object AmericaInfantryMissileDefender\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n Behavior = SpecialAbility Laser\n SpecialPowerTemplate = SpecialAbilityMissileDefenderLaserGuidedMissiles\n End\nEnd\nObject OwnedVehicle\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\nObject OwnedNearestGarrison\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = GarrisonContain GarrisonTag\n ContainMax = 4\n End\nEnd\n".into())]).unwrap();
     let mut definitions = PlayerTemplateStore::new_owned();
     definitions.apply_source("PlayerTemplate FactionCivilian\n Side = Civilian\nEnd\nPlayerTemplate FactionAmerica\n Side = America\nEnd\n", INILoadType::Overwrite).unwrap();
     game.admit_player_template_definitions(definitions).unwrap();
@@ -268,4 +268,81 @@ fn team_sighting_hook_requires_strictly_inside_vision_range() {
     edge.update();
     edge.update();
     assert_eq!(edge.get_player(1).unwrap().resources.supplies, edge_before);
+}
+
+fn execute_garrison(game: &mut GameLogic, by_team: bool) {
+    let mut action = ScriptAction::new(if by_team {
+        ScriptActionType::TeamGarrisonNearestBuilding
+    } else {
+        ScriptActionType::NamedGarrisonNearestBuilding
+    });
+    action
+        .add_parameter(Parameter::with_string(
+            if by_team {
+                ParameterType::Team
+            } else {
+                ParameterType::Unit
+            },
+            if by_team { "OwnedTeam" } else { "OwnedCaster" }.into(),
+        ))
+        .unwrap();
+    let mut branch = OrCondition::new();
+    branch.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    let mut script = Script::new();
+    script.script_name = "OwnedGarrisonCommand".into();
+    script.is_one_shot = true;
+    script.delay_evaluation_seconds = 0;
+    script.condition = Some(Box::new(branch));
+    script.action = Some(Box::new(action));
+    let mut scripts = ScriptList::new();
+    scripts.append_script(Box::new(script));
+    let engine = ScriptEngine::new().unwrap();
+    engine
+        .set_script_list_for_player(0, Some(Box::new(scripts)))
+        .unwrap();
+    game.update_local_script_engine_with_owner(&engine).unwrap();
+}
+
+#[test]
+fn named_and_team_garrison_use_receiving_map_status() {
+    for by_team in [true, false] {
+        let small_root = tempfile::tempdir().unwrap();
+        let large_root = tempfile::tempdir().unwrap();
+        let off_root = tempfile::tempdir().unwrap();
+        let (mut small, source, _) = world(small_root.path(), 10, true);
+        let (mut large, peer, _) = world(large_root.path(), 20, true);
+        let (mut both_off, third, _) = world(off_root.path(), 8, true);
+        assert_eq!((source, source), (peer, third));
+        let small_building = small
+            .create_object_for_player("OwnedNearestGarrison", 1, glam::Vec3::new(80.0, 0.0, 80.0))
+            .unwrap();
+        let large_building = large
+            .create_object_for_player("OwnedNearestGarrison", 1, glam::Vec3::new(80.0, 0.0, 80.0))
+            .unwrap();
+        let off_building = both_off
+            .create_object_for_player("OwnedNearestGarrison", 1, glam::Vec3::new(80.0, 0.0, 80.0))
+            .unwrap();
+        assert_eq!(
+            (small_building, small_building),
+            (large_building, off_building)
+        );
+        execute_garrison(&mut large, by_team);
+        assert_eq!(
+            large.host_object(peer).unwrap().target,
+            Some(large_building),
+            "positive on-map case, team={by_team}"
+        );
+        execute_garrison(&mut small, by_team);
+        assert_eq!(
+            small.host_object(source).unwrap().target,
+            None,
+            "mixed map status, team={by_team}"
+        );
+        execute_garrison(&mut both_off, by_team);
+        assert_eq!(
+            both_off.host_object(third).unwrap().target,
+            Some(off_building),
+            "positive off-map case, team={by_team}"
+        );
+    }
 }
