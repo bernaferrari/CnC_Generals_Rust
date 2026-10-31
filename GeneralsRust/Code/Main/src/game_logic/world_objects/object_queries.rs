@@ -1197,6 +1197,14 @@ impl GameLogic {
             ));
         }
 
+        if target.is_tunnel_network_style_container() {
+            // TunnelTracker::isValidContainerFor checks the shared count even
+            // when this unit is already in the pool or a local roster is stale.
+            return Some(usize::from(
+                self.tunnel_network.has_capacity(target.tunnel_system_key()),
+            ));
+        }
+
         if target.contained_units().contains(&unit_id) {
             // Retain the historical idempotent Enter behavior.  The caller
             // will not try to add the rider a second time.
@@ -1212,19 +1220,6 @@ impl GameLogic {
                 .authored_rider_change_rider_for_template(&unit.template_name)
                 .map(|_| usize::MAX)
                 .or(Some(0));
-        }
-
-        if target.is_tunnel_network_style_container() {
-            let player_id = target.tunnel_system_key();
-            return Some(
-                if self.tunnel_network.is_in_network(player_id, unit_id)
-                    || self.tunnel_network.has_capacity(player_id)
-                {
-                    1
-                } else {
-                    0
-                },
-            );
         }
 
         if target.normal_enter_uses_transport_slots() {

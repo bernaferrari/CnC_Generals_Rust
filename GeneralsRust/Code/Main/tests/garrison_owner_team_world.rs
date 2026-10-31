@@ -1104,6 +1104,31 @@ fn tunnel_collision_uses_session_shared_pool_and_releases_held_state() {
     enter(&mut game, overflow, second);
     assert_eq!(game.host_object(overflow).unwrap().contained_by, None);
     assert_eq!(game.host_authoritative_contained_units(second).len(), 10);
+    // The shared tracker is full even for an existing rider; C++ checks
+    // capacity without making an exception for existing membership.
+    assert_eq!(
+        game.normal_enter_available_capacity_for(rider, second),
+        Some(0)
+    );
+    // Nor may an entrance-local stale roster make an outside unit admissible.
+    game.host_object_mut(second)
+        .unwrap()
+        .building_data
+        .as_mut()
+        .unwrap()
+        .garrisoned_units
+        .push(overflow);
+    assert_eq!(
+        game.normal_enter_available_capacity_for(overflow, second),
+        Some(0)
+    );
+    game.host_object_mut(second)
+        .unwrap()
+        .building_data
+        .as_mut()
+        .unwrap()
+        .garrisoned_units
+        .retain(|id| *id != overflow);
     assert!(game.exit_tunnel_network_unit(rider, second));
     assert!(!game.host_object(rider).unwrap().status.disabled_held);
     assert!(!game.tunnel_network_residual().is_in_network(key, rider));
