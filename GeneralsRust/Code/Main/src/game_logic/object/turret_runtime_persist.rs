@@ -91,6 +91,7 @@ impl Persist {
         state.max_idle_scan_interval = defaults.max_idle_scan_interval;
         state.fires_while_turning = defaults.fires_while_turning;
         state.has_authored_turret = defaults.has_authored_turret;
+        state.controlled_weapon_slots = defaults.controlled_weapon_slots;
         state.seeded = false;
         if let Some(tuning) = self.tuning {
             tuning.apply(&mut state);

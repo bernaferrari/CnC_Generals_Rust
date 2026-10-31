@@ -19,6 +19,7 @@ const GATTLING_FIRE_ANGLE_SWEEP_DEG: f32 = 3.0;
 #[derive(Debug, Clone)]
 pub struct TurretSpawnSpec {
     pub has_turret: bool,
+    pub controlled_weapon_slots: u32,
     pub enabled: bool,
     pub angle_deg: f32,
     pub pitch_deg: f32,
@@ -45,6 +46,7 @@ impl TurretSpawnSpec {
     pub fn absent() -> Self {
         Self {
             has_turret: false,
+            controlled_weapon_slots: 1,
             enabled: false,
             angle_deg: 0.0,
             pitch_deg: 0.0,
@@ -138,7 +140,7 @@ pub(super) fn turret_spawn_for_receiving_definition(
     turret_spawn_from_definition(definition).unwrap_or_else(TurretSpawnSpec::absent)
 }
 
-pub(super) fn module_has_turret_block(module: &BehaviorModuleDefinition) -> bool {
+fn module_has_turret_block(module: &BehaviorModuleDefinition) -> bool {
     module.attribute("TurretTurnRate").is_some()
         || module.attribute("TurretPitchRate").is_some()
         || module.attribute("NaturalTurretAngle").is_some()
@@ -150,6 +152,10 @@ pub(super) fn module_has_turret_block(module: &BehaviorModuleDefinition) -> bool
 fn parse_turret_module(module: &BehaviorModuleDefinition) -> TurretSpawnSpec {
     let mut spec = TurretSpawnSpec::absent();
     spec.has_turret = true;
+    spec.controlled_weapon_slots = module
+        .attribute("ControlledWeaponSlots")
+        .and_then(super::weapons::parse_turret_weapon_slots)
+        .unwrap_or(1);
 
     let turn_deg = parse_f32_attr(module, "TurretTurnRate");
     let pitch_deg = parse_f32_attr(module, "TurretPitchRate").or(turn_deg);

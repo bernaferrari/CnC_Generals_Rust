@@ -1113,25 +1113,8 @@ impl Object {
         if !self.turret_runtime.has_authored_turret && !self.turret_enabled {
             return false;
         }
-        let mask = self.leftover_turret_controlled_weapon_slots_mask();
+        let mask = self.turret_runtime.controlled_weapon_slots;
         slot < 3 && (mask & (1u32 << slot)) != 0
-    }
-
-    fn leftover_turret_controlled_weapon_slots_mask(&self) -> u32 {
-        if let Some(definition) = self.thing.template.receiving_object_definition.as_deref() {
-            return definition
-                .behavior_modules
-                .iter()
-                .find(|module| super::turret_spawn::module_has_turret_block(module))
-                .and_then(|module| module.attribute("ControlledWeaponSlots"))
-                .and_then(parse_turret_weapon_slots)
-                .unwrap_or(1);
-        }
-        if let Some(mask) = leftover_parse_controlled_weapon_slots(&self.template_name) {
-            return mask;
-        }
-        // leftover TurretAI default when INI is absent: PRIMARY.
-        1
     }
 
     /// C++ WeaponSet.cpp:869-877 — PreferredAgainst KindOf match, ready unless
@@ -1986,21 +1969,8 @@ impl Object {
     }
 }
 
-/// Leftover TurretAIData::parseTWS — `ControlledWeaponSlots = PRIMARY SECONDARY`.
-fn leftover_parse_controlled_weapon_slots(template_name: &str) -> Option<u32> {
-    let manager = crate::assets::get_asset_manager()?;
-    let guard = manager.lock().ok()?;
-    let definition = guard
-        .get_object_definition(template_name)
-        .or_else(|| guard.resolve_object_definition(template_name, None))?;
-    let module = definition
-        .behavior_modules
-        .iter()
-        .find(|module| module.attribute("ControlledWeaponSlots").is_some())?;
-    parse_turret_weapon_slots(module.attribute("ControlledWeaponSlots")?)
-}
-
-fn parse_turret_weapon_slots(raw: &str) -> Option<u32> {
+/// TurretAIData::parseTWS — `ControlledWeaponSlots = PRIMARY SECONDARY`.
+pub(super) fn parse_turret_weapon_slots(raw: &str) -> Option<u32> {
     let mut mask = 0u32;
     for token in raw.split_whitespace() {
         let bit = match token.to_ascii_uppercase().as_str() {

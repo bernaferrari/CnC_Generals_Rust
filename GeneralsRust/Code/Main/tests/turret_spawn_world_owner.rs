@@ -67,6 +67,46 @@ fn disabled_turret_retains_receiving_controlled_slots_independent_of_peer() {
     assert!(!object.turret_enabled);
     assert!(object.is_weapon_slot_on_turret(1));
     assert!(!object.is_weapon_slot_on_turret(0));
+
+    let mut different_definition = world_with_slots("PRIMARY TERTIARY", false);
+    SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut different_definition)
+        .unwrap();
+    let object = different_definition.host_object(a).unwrap();
+    assert!(object.is_weapon_slot_on_turret(0));
+    assert!(!object.is_weapon_slot_on_turret(1));
+    assert!(object.is_weapon_slot_on_turret(2));
+}
+
+#[test]
+fn preexisting_template_receives_its_worlds_authored_turret_definition() {
+    let mut owner = world_with_slots("SECONDARY", false);
+    let mut peer = world_with_slots("PRIMARY", false);
+    // Even a preexisting host template sourced from a different session must
+    // bind the receiving world's paired definition before creating an object.
+    let owner_template = owner.templates.get(TEMPLATE).unwrap().clone();
+    let peer_template = peer.templates.get(TEMPLATE).unwrap().clone();
+    owner.templates.insert(TEMPLATE.into(), peer_template);
+    peer.templates.insert(TEMPLATE.into(), owner_template);
+    let a = owner
+        .create_object(TEMPLATE, Team::USA, Vec3::ZERO)
+        .unwrap();
+    let b = peer.create_object(TEMPLATE, Team::USA, Vec3::ZERO).unwrap();
+    assert_eq!(a, b);
+    assert!(owner.host_object(a).unwrap().is_weapon_slot_on_turret(1));
+    assert!(!owner.host_object(a).unwrap().is_weapon_slot_on_turret(0));
+    assert!(peer.host_object(b).unwrap().is_weapon_slot_on_turret(0));
+    assert!(!peer.host_object(b).unwrap().is_weapon_slot_on_turret(1));
+
+    let snapshot = SnapshotBuilder::new()
+        .create_world_snapshot(&owner)
+        .unwrap();
+    let mut restored = world_with_slots("SECONDARY", false);
+    SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert!(restored.host_object(a).unwrap().is_weapon_slot_on_turret(1));
+    assert!(!restored.host_object(a).unwrap().is_weapon_slot_on_turret(0));
 }
 
 fn assert_spawn(

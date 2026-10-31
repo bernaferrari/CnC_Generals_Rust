@@ -1922,11 +1922,6 @@ impl GameLogic {
             let Some(plan) = content.admitted_template(template_name) else {
                 return false;
             };
-            if let Some(template) = self.templates.get_mut(template_name) {
-                template.receiving_client_template =
-                    Some(crate::game_logic::thing::ReceivingClientTemplate::new(plan));
-                return true;
-            }
             let Some(definition) = self
                 .receiving_object_definitions
                 .as_ref()
@@ -1936,6 +1931,12 @@ impl GameLogic {
                 log::error!("Receiving Object '{template_name}' has no host definition projection");
                 return false;
             };
+            if let Some(template) = self.templates.get_mut(template_name) {
+                template.receiving_object_definition = Some(definition);
+                template.receiving_client_template =
+                    Some(crate::game_logic::thing::ReceivingClientTemplate::new(plan));
+                return true;
+            }
             let mut template = Self::build_template_from_object_definition(
                 template_name,
                 &definition,

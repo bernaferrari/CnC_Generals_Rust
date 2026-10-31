@@ -54,6 +54,9 @@ pub(crate) struct HostTurretExtra {
     pub(crate) seeded: bool,
     #[serde(skip)]
     pub(crate) has_authored_turret: bool,
+    /// Immutable configuration resolved at construction from this template.
+    #[serde(skip)]
+    pub(crate) controlled_weapon_slots: u32,
     #[serde(skip)]
     pub(crate) definition_overridden: bool,
 }
@@ -88,6 +91,7 @@ impl Default for HostTurretExtra {
             sweep_sound_until: 0,
             seeded: false,
             has_authored_turret: false,
+            controlled_weapon_slots: 1,
             definition_overridden: false,
         }
     }
@@ -97,6 +101,7 @@ impl HostTurretExtra {
     pub(crate) fn from_spawn(spec: &super::TurretSpawnSpec) -> Self {
         let mut state = Self::default();
         state.has_authored_turret = spec.has_turret;
+        state.controlled_weapon_slots = spec.controlled_weapon_slots;
         if spec.has_turret {
             state.pitch_rate = spec.pitch_rate_rad;
             state.allows_pitch = spec.allows_pitch;
