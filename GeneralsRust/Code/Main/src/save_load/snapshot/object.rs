@@ -365,6 +365,8 @@ pub enum ModuleSnapshot {
     ActiveWeaponStatus(WeaponFireStatus),
     /// C++ OpenContain::m_playerEnteredMask, represented by its one player ID.
     OpenContainEntered(u32),
+    /// C++ OpenContain::m_doorCloseCountdown in logic frames.
+    OpenContainDoor(u32),
 }
 
 /// AI update module snapshot
@@ -1637,6 +1639,7 @@ impl XferData for ModuleSnapshot {
             ModuleSnapshot::BaseAi(_) => 14,
             ModuleSnapshot::ActiveWeaponStatus(_) => 16,
             ModuleSnapshot::OpenContainEntered(_) => 17,
+            ModuleSnapshot::OpenContainDoor(_) => 18,
         };
         xfer.xfer_u32(&mut disc)?;
         if xfer.get_mode() == XferMode::Save {
@@ -1656,6 +1659,7 @@ impl XferData for ModuleSnapshot {
                     xfer.xfer_u8(&mut value)?;
                 }
                 ModuleSnapshot::OpenContainEntered(player_id) => xfer.xfer_u32(player_id)?,
+                ModuleSnapshot::OpenContainDoor(countdown) => xfer.xfer_u32(countdown)?,
             }
         } else {
             *self = match disc {
@@ -1770,6 +1774,11 @@ impl XferData for ModuleSnapshot {
                     let mut player_id = 0;
                     xfer.xfer_u32(&mut player_id)?;
                     ModuleSnapshot::OpenContainEntered(player_id)
+                }
+                18 => {
+                    let mut countdown = 0;
+                    xfer.xfer_u32(&mut countdown)?;
+                    ModuleSnapshot::OpenContainDoor(countdown)
                 }
                 _ => {
                     return Err(SaveLoadError::Corrupted(format!(

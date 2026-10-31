@@ -112,6 +112,22 @@ Object AuthoredParachute\n\
   AllowInsideKindOf = INFANTRY\n\
   ParachuteOpenDist = 100\n\
  End\n\
+End\n\
+Object SnapshotDoorTransport\n\
+ KindOf = VEHICLE TRANSPORT SELECTABLE\n\
+ Geometry = BOX\n\
+ GeometryMajorRadius = 20\n\
+ GeometryMinorRadius = 10\n\
+ Body = ActiveBody BodyTag\n\
+  MaxHealth = 1000\n\
+  InitialHealth = 1000\n\
+ End\n\
+ Behavior = TransportContain ContainTag\n\
+  ContainMax = 4\n\
+  Slots = 4\n\
+  AllowInsideKindOf = INFANTRY\n\
+  DoorOpenTime = 100\n\
+ End\n\
 End\n"
                 .into(),
         )])
@@ -260,6 +276,123 @@ fn observe_building_entered(world: &mut GameLogic, player: &str) -> bool {
         .update_local_script_engine_with_owner(&engine)
         .unwrap();
     engine.get_counter("ObservedEntry").unwrap().value == 1
+}
+
+#[test]
+fn transport_exit_door_continues_across_bincode_and_direct_xfer() {
+    use generals_main::game_logic::host_enum_table_residual::door_1_closing_model_bit;
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut original, _, rider) = world(&map, false);
+    let transport = original
+        .create_object_for_player("SnapshotDoorTransport", 2, Vec3::new(50.0, 0.0, 50.0))
+        .expect("create authored transport");
+    enter(&mut original, transport, rider);
+    let result = CommandExecutor::new(&mut original, 2)
+        .execute_command(GameCommand {
+            command_type: CommandType::Exit,
+            player_id: 2,
+            command_id: 2,
+            timestamp: std::time::UNIX_EPOCH,
+            selected_units: vec![rider],
+            modifier_keys: ModifierKeys::default(),
+        })
+        .expect("execute passenger exit");
+    assert_eq!(result, CommandResult::Success);
+    let remaining = original
+        .host_object(transport)
+        .unwrap()
+        .door_close_countdown;
+    assert_eq!(remaining, 3, "100 ms arms three logic frames");
+    let plain = original
+        .create_object_for_player("PlainNonContainer", 1, Vec3::new(80.0, 0.0, 80.0))
+        .unwrap();
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&original).unwrap();
+    let mut corrupt = clone_bincode_snapshot(&snapshot);
+    corrupt.objects.get_mut(&plain).unwrap().modules.insert(
+        "OpenContainDoor".into(),
+        generals_main::save_load::snapshot::ModuleSnapshot::OpenContainDoor(2),
+    );
+    let (mut rejecting, rejecting_host, _) = world(&map, false);
+    assert!(rejecting.templates.remove("PlainNonContainer").is_some());
+    rejecting
+        .host_object_mut(rejecting_host)
+        .unwrap()
+        .health
+        .current = 321.0;
+    let error = builder
+        .restore_from_snapshot(&corrupt, &mut rejecting)
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("non-container template"));
+    assert_eq!(
+        rejecting
+            .host_object(rejecting_host)
+            .unwrap()
+            .health
+            .current,
+        321.0
+    );
+    let binary = clone_bincode_snapshot(&snapshot);
+    let mut source = clone_bincode_snapshot(&snapshot);
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    source.xfer(&mut XferSave::new(&mut bytes)).unwrap();
+    let mut direct = WorldSnapshot::default();
+    direct
+        .xfer(&mut XferLoad::new(std::io::Cursor::new(bytes.into_inner())))
+        .unwrap();
+    let (mut first, _, _) = world(&map, false);
+    let (mut second, _, _) = world(&map, false);
+    builder.restore_from_snapshot(&binary, &mut first).unwrap();
+    builder.restore_from_snapshot(&direct, &mut second).unwrap();
+    assert_eq!(
+        first.host_object(transport).unwrap().door_close_countdown,
+        remaining
+    );
+    assert_eq!(
+        second.host_object(transport).unwrap().door_close_countdown,
+        remaining
+    );
+    first
+        .host_object_mut(transport)
+        .unwrap()
+        .set_status_disabled_script_disabled(true);
+    let frame_before_pause = first.get_current_frame();
+    first.update();
+    assert_eq!(first.get_current_frame(), frame_before_pause + 1);
+    assert_eq!(
+        first.host_object(transport).unwrap().door_close_countdown,
+        remaining
+    );
+    first
+        .host_object_mut(transport)
+        .unwrap()
+        .set_status_disabled_script_disabled(false);
+    for _ in 0..remaining {
+        first.update();
+    }
+    let first_transport = first.host_object(transport).unwrap();
+    assert_eq!(first_transport.door_close_countdown, 0);
+    assert_ne!(
+        first_transport.model_condition_bits & (1u128 << door_1_closing_model_bit()),
+        0
+    );
+    assert_eq!(
+        second.host_object(transport).unwrap().door_close_countdown,
+        remaining
+    );
+    for _ in 0..remaining {
+        original.update();
+        second.update();
+    }
+    for game in [&original, &second] {
+        let transport = game.host_object(transport).unwrap();
+        assert_eq!(transport.door_close_countdown, 0);
+        assert_ne!(
+            transport.model_condition_bits & (1u128 << door_1_closing_model_bit()),
+            0
+        );
+    }
 }
 
 #[test]

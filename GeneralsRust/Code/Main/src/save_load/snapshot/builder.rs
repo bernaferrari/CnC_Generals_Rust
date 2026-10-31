@@ -275,6 +275,20 @@ impl SnapshotBuilder {
             );
         }
 
+        if object.door_close_countdown != 0 {
+            if object.get_template().contain_module.kind
+                == crate::game_logic::ContainModuleKind::None
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "OpenContain door timer has no receiving container".into(),
+                ));
+            }
+            modules.insert(
+                "OpenContainDoor".to_owned(),
+                ModuleSnapshot::OpenContainDoor(object.door_close_countdown),
+            );
+        }
+
         modules.insert(
             "ActiveWeaponStatus".to_owned(),
             ModuleSnapshot::ActiveWeaponStatus(object.weapon_fire_status),

@@ -251,7 +251,20 @@ impl SnapshotBuilder {
                     "Invalid OpenContain entrant module owner".into(),
                 ));
             }
-            if object.modules.contains_key("OpenContainEntered") {
+            if object.modules.iter().any(|(key, value)| {
+                matches!(value, ModuleSnapshot::OpenContainDoor(_)) && key != "OpenContainDoor"
+            }) || object
+                .modules
+                .get("OpenContainDoor")
+                .is_some_and(|value| !matches!(value, ModuleSnapshot::OpenContainDoor(_)))
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "Invalid OpenContain door module owner".into(),
+                ));
+            }
+            if object.modules.contains_key("OpenContainEntered")
+                || object.modules.contains_key("OpenContainDoor")
+            {
                 let cached = game_logic.templates.get(&object.template_name);
                 let rebuilt;
                 let template = if let Some(content) = &game_logic.receiving_module_content {
@@ -295,7 +308,7 @@ impl SnapshotBuilder {
                     template.contain_module.kind == crate::game_logic::ContainModuleKind::None
                 }) {
                     return Err(SaveLoadError::Corrupted(
-                        "OpenContain entrant is attached to a non-container template".into(),
+                        "OpenContain state is attached to a non-container template".into(),
                     ));
                 }
             }
@@ -796,6 +809,16 @@ impl SnapshotBuilder {
                         ));
                     }
                     object.player_who_entered = Some(*player_id);
+                }
+                ModuleSnapshot::OpenContainDoor(countdown) => {
+                    if object.get_template().contain_module.kind
+                        == crate::game_logic::ContainModuleKind::None
+                    {
+                        return Err(SaveLoadError::Corrupted(
+                            "OpenContain door timer has no receiving container".into(),
+                        ));
+                    }
+                    object.door_close_countdown = *countdown;
                 }
                 ModuleSnapshot::BaseAi(_) => {}
                 ModuleSnapshot::DozerTasks(_) => {}
