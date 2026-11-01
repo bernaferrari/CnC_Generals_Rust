@@ -56,6 +56,70 @@ fn mark_unit_moving(world: &mut GameLogic, id: ObjectId) {
 }
 
 #[test]
+fn possible_destination_uses_the_receiving_worlds_wide_unit_footprint() {
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("WideDestination.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+
+    let mut owner = world(&map);
+    let mut peer = world(&map);
+    let shape = generals_main::game_logic::HostGeometryInfo {
+        major_radius: 6.0,
+        ..Default::default()
+    };
+    for world in [&mut owner, &mut peer] {
+        world
+            .templates
+            .get_mut("RetryWalker")
+            .unwrap()
+            .geometry_info = shape;
+    }
+    let start = Vec3::new(30.0, 0.0, 30.0);
+    let owner_id = owner
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    let peer_id = peer
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    assert_eq!(owner_id, peer_id);
+    // Model a stale selection cache while the live Thing geometry remains 6.
+    owner.host_object_mut(owner_id).unwrap().selection_radius = 1.0;
+    peer.host_object_mut(peer_id).unwrap().selection_radius = 1.0;
+    let (width, height, mut mask) = owner.snapshot_pathfinding_passability();
+    for (x, y) in [(5, 6), (7, 5)] {
+        mask[(y * width + x) as usize] = true;
+    }
+    assert!(owner.restore_pathfinding_passability(width, height, &mask));
+    let original = Vec3::new(60.0, 0.0, 60.0);
+    let mut owner_dest = original;
+    let mut peer_dest = original;
+    assert!(owner.adjust_to_possible_destination(owner_id, &mut owner_dest));
+    assert!(peer.adjust_to_possible_destination(peer_id, &mut peer_dest));
+    assert_eq!(
+        (
+            (owner_dest.x / 10.0).floor() as i32,
+            (owner_dest.z / 10.0).floor() as i32
+        ),
+        (7, 7)
+    );
+    assert_eq!(
+        peer_dest, original,
+        "another session's blockers changed the destination"
+    );
+}
+
+#[test]
 fn loading_ground_ai_rebuilds_idle_and_moving_goals_in_receiving_session() {
     use generals_main::game_logic::pathfinding::{GridPos, PathfindingGrid};
     let directory = tempfile::tempdir().unwrap();

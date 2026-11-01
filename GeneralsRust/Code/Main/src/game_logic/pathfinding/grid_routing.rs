@@ -1635,14 +1635,13 @@ impl PathfindingGrid {
         let start_cell = self.world_to_grid(start);
         let same_zone = self.zones_connected(start_cell, goal_cell, surfaces, is_crusher);
         if same_zone
-            && self.destination_cell_ok(
+            && self.possible_destination_footprint_ok(
                 goal_cell,
-                surfaces,
-                is_crusher,
+                destination_layer,
+                radius,
+                center_in_cell,
                 seeker_player,
                 crusher_level,
-                destination_layer,
-                ground_source,
             )
         {
             // C++ returns true without rewriting dest when seed is already valid.
@@ -1666,7 +1665,9 @@ impl PathfindingGrid {
                     seeker_player,
                     crusher_level,
                     dest,
+                    radius,
                     center_in_cell,
+                    destination_layer,
                     ground_source,
                 ) {
                     return true;
@@ -1683,7 +1684,9 @@ impl PathfindingGrid {
                     seeker_player,
                     crusher_level,
                     dest,
+                    radius,
                     center_in_cell,
+                    destination_layer,
                     ground_source,
                 ) {
                     return true;
@@ -1701,7 +1704,9 @@ impl PathfindingGrid {
                     seeker_player,
                     crusher_level,
                     dest,
+                    radius,
                     center_in_cell,
+                    destination_layer,
                     ground_source,
                 ) {
                     return true;
@@ -1718,7 +1723,9 @@ impl PathfindingGrid {
                     seeker_player,
                     crusher_level,
                     dest,
+                    radius,
                     center_in_cell,
+                    destination_layer,
                     ground_source,
                 ) {
                     return true;
@@ -1726,8 +1733,73 @@ impl PathfindingGrid {
             }
             delta += 1;
         }
-        let _ = radius;
         false
+    }
+
+    /// C++ checkDestination checks every cell covered by the unit. Terrain
+    /// surface compatibility is checked by the caller's zone test, not here.
+    fn possible_destination_footprint_ok(
+        &self,
+        cell: GridPos,
+        layer: PathfindLayerEnum,
+        radius: i32,
+        center_in_cell: bool,
+        seeker_player: Option<u32>,
+        crusher_level: u8,
+    ) -> bool {
+        let above = radius + i32::from(center_in_cell);
+        for x in (cell.x - radius)..(cell.x + above) {
+            for y in (cell.y - radius)..(cell.y + above) {
+                let pos = GridPos::new(x, y);
+                if !self.is_valid_pos(pos) {
+                    return false;
+                }
+                if self.query_check_for_aircraft {
+                    if self.has_other_aircraft_goal(pos) {
+                        return false;
+                    }
+                    continue;
+                }
+                match self.resolved_cell_type(layer, pos) {
+                    PathfindCellType::Obstacle => {
+                        let ignored = self.query_ignore_goal_id != 0
+                            && self
+                                .obstacle_owner(pos)
+                                .is_some_and(|(id, _, _)| id == self.query_ignore_goal_id);
+                        if !ignored {
+                            return false;
+                        }
+                        continue;
+                    }
+                    PathfindCellType::Impassable | PathfindCellType::BridgeImpassable => {
+                        return false;
+                    }
+                    _ => {}
+                }
+                let bits = self.occupancy_bits(pos, layer);
+                if bits.goal_unit == 0 || bits.goal_unit == self.query_seeker_id {
+                    continue;
+                }
+                let Some(player) = seeker_player else {
+                    return false;
+                };
+                // A missing goal object has no owner and is ignored by C++.
+                if bits.goal == 0 {
+                    continue;
+                }
+                if bits.goal & (self.ally_mask_for(player) | (1u16 << player.min(15))) != 0 {
+                    return false;
+                }
+                // UNIT_PRESENT_FIXED means the position and goal are the
+                // same unit; check that unit's crushability.
+                if bits.pos_unit == bits.goal_unit
+                    && (crusher_level == 0 || crusher_level <= bits.pos_crushable)
+                {
+                    return false;
+                }
+            }
+        }
+        true
     }
 
     /// C++ checkForPossible + checkDestination for adjustToPossibleDestination spiral.
@@ -1740,7 +1812,9 @@ impl PathfindingGrid {
         seeker_player: Option<u32>,
         crusher_level: u8,
         dest: &mut Vec3,
+        radius: i32,
         center_in_cell: bool,
+        layer: PathfindLayerEnum,
         ground_source: &PathfindingGround<'_>,
     ) -> bool {
         if !self.is_valid_pos(cell) {
@@ -1749,20 +1823,29 @@ impl PathfindingGrid {
         if !self.zones_connected(start_cell, cell, surfaces, is_crusher) {
             return false;
         }
-        let layer =
-            self.layer_for_destination(self.grid_to_world(cell, ground_source), ground_source);
-        if !self.destination_cell_ok(
-            cell,
-            surfaces,
-            is_crusher,
-            seeker_player,
-            crusher_level,
-            layer,
-            ground_source,
+        // C++ checkForPossible rejects an impassable candidate center before
+        // checkDestination examines the complete footprint.
+        if matches!(
+            self.resolved_cell_type(layer, cell),
+            PathfindCellType::Obstacle
+                | PathfindCellType::Impassable
+                | PathfindCellType::BridgeImpassable
         ) {
             return false;
         }
+        // checkForPossible writes the candidate before checkDestination;
+        // even a rejected candidate remains observable if the search fails.
         *dest = self.adjust_coord_to_cell_on_layer(cell, center_in_cell, layer, ground_source);
+        if !self.possible_destination_footprint_ok(
+            cell,
+            layer,
+            radius,
+            center_in_cell,
+            seeker_player,
+            crusher_level,
+        ) {
+            return false;
+        }
         true
     }
 

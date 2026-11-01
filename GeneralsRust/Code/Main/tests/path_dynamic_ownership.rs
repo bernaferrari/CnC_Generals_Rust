@@ -6,6 +6,162 @@ use generals_main::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
 use glam::Vec3;
 
 #[test]
+fn possible_destination_checks_the_whole_footprint_on_every_candidate() {
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+
+    let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+    let ground = PathfindingGround::Flat(0.0);
+    // The requested cell and first spiral candidate are clear at their
+    // centers, but each has an impassable cell under the two-cell footprint.
+    grid.set_cell_type(GridPos::new(5, 6), PathfindCellType::Impassable);
+    grid.set_cell_type(GridPos::new(7, 5), PathfindCellType::Impassable);
+    let mut dest = Vec3::new(60.0, 0.0, 60.0);
+    assert!(grid.adjust_to_possible_destination(
+        Vec3::new(30.0, 0.0, 30.0),
+        &mut dest,
+        SURFACE_GROUND,
+        false,
+        6.0,
+        &ground,
+    ));
+    assert_eq!(grid.world_to_grid(dest), GridPos::new(7, 7));
+}
+
+#[test]
+fn possible_destination_does_not_treat_neighboring_water_as_impassable() {
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+    let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+    let ground = PathfindingGround::Flat(0.0);
+    grid.set_cell_type(GridPos::new(5, 6), PathfindCellType::Water);
+    let original = Vec3::new(60.0, 0.0, 60.0);
+    let mut dest = original;
+    assert!(grid.adjust_to_possible_destination(
+        Vec3::new(30.0, 0.0, 30.0),
+        &mut dest,
+        SURFACE_GROUND,
+        false,
+        6.0,
+        &ground,
+    ));
+    assert_eq!(dest, original);
+}
+
+#[test]
+fn rejected_possible_destinations_leave_the_last_zone_candidate() {
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+    let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+    let ground = PathfindingGround::Flat(0.0);
+    for y in 0..20 {
+        for x in 0..20 {
+            grid.set_cell_type(GridPos::new(x, y), PathfindCellType::Impassable);
+        }
+    }
+    grid.set_cell_type(GridPos::new(3, 3), PathfindCellType::Clear);
+    grid.set_cell_type(GridPos::new(7, 6), PathfindCellType::Clear);
+    let original = Vec3::new(60.0, 0.0, 60.0);
+    let mut dest = original;
+    assert!(!grid.adjust_to_possible_destination(
+        Vec3::new(30.0, 0.0, 30.0),
+        &mut dest,
+        SURFACE_GROUND,
+        false,
+        6.0,
+        &ground,
+    ));
+    assert_ne!(
+        dest, original,
+        "C++ checkForPossible writes before checking the footprint"
+    );
+}
+
+#[test]
+fn possible_destination_keeps_the_original_bridge_layer_while_spiraling() {
+    use gamelogic::ai::pathfind_astar::{PathfindCellType, PathfindLayerEnum};
+    use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+    use generals_main::game_logic::pathfinding::PathGoalUpdate;
+
+    let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+    let ground = PathfindingGround::Flat(0.0);
+    grid.stamp_bridge_deck(
+        Vec3::new(30.0, 20.0, 40.0),
+        Vec3::new(30.0, 20.0, 60.0),
+        Vec3::new(130.0, 20.0, 40.0),
+        Vec3::new(130.0, 20.0, 60.0),
+        false,
+        &ground,
+    );
+    let mut dest = Vec3::new(80.0, 20.0, 50.0);
+    let layer = grid.layer_for_destination(dest, &ground);
+    assert_ne!(layer, PathfindLayerEnum::Ground);
+    grid.update_path_goal_cell(PathGoalUpdate {
+        unit_id: 17,
+        player: 0,
+        radius: 2.0,
+        old_cell: (-1, -1),
+        old_layer: 0,
+        new_layer: layer as u8,
+        new_on_ground: false,
+        goal: dest,
+    });
+    // The first candidate is clear on the bridge but blocked on the ground.
+    grid.set_cell_type(GridPos::new(9, 5), PathfindCellType::Impassable);
+    assert!(grid.adjust_to_possible_destination(
+        Vec3::new(60.0, 20.0, 50.0),
+        &mut dest,
+        SURFACE_GROUND,
+        false,
+        2.0,
+        &ground,
+    ));
+    assert_eq!(grid.world_to_grid(dest), GridPos::new(9, 5));
+    assert_eq!(grid.layer_for_destination(dest, &ground), layer);
+}
+
+#[test]
+fn possible_destination_stays_on_ground_under_a_bridge() {
+    use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+    use generals_main::game_logic::pathfinding::PathGoalUpdate;
+
+    let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+    let ground = PathfindingGround::Flat(0.0);
+    grid.stamp_bridge_deck(
+        Vec3::new(30.0, 20.0, 40.0),
+        Vec3::new(30.0, 20.0, 60.0),
+        Vec3::new(130.0, 20.0, 40.0),
+        Vec3::new(130.0, 20.0, 60.0),
+        false,
+        &ground,
+    );
+    let mut dest = Vec3::new(80.0, 0.0, 50.0);
+    grid.update_ground_goal_cell(17, 0, 2.0, false, (-1, -1), dest);
+    let bridge_goal = Vec3::new(90.0, 20.0, 50.0);
+    let bridge = grid.layer_for_destination(bridge_goal, &ground);
+    grid.update_path_goal_cell(PathGoalUpdate {
+        unit_id: 18,
+        player: 0,
+        radius: 2.0,
+        old_cell: (-1, -1),
+        old_layer: 0,
+        new_layer: bridge as u8,
+        new_on_ground: false,
+        goal: bridge_goal,
+    });
+    assert!(grid.adjust_to_possible_destination(
+        Vec3::new(60.0, 0.0, 50.0),
+        &mut dest,
+        SURFACE_GROUND,
+        false,
+        2.0,
+        &ground,
+    ));
+    assert_eq!(grid.world_to_grid(dest), GridPos::new(9, 5));
+    assert_eq!(dest.y, 0.0, "a ground destination moved onto the bridge");
+}
+
+#[test]
 fn same_frame_path_search_reads_current_goal_owner_per_session() {
     let ground = PathfindingGround::Flat(0.0);
     let mut worlds = [GameLogic::new(), GameLogic::new()];

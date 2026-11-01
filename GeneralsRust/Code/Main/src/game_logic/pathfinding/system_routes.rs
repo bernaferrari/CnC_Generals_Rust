@@ -317,7 +317,7 @@ impl PathfindingSystem {
             dest,
             surfaces,
             obj.crusher_level > 0,
-            obj.selection_radius,
+            obj.geometry_info().bounding_circle_radius(),
             ground_source,
         )
     }
