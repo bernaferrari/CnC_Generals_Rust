@@ -616,9 +616,13 @@ fn populate_global_controls(
     })(receiving_manager)
     {
         let mut guard = window.borrow_mut();
-        let setup = get_skirmish_setup();
-        let enabled = setup.game_info().game_info().get_superweapon_restriction() != 0;
-        let _ = guard.gadget_check_box_set_checked(enabled, effects);
+        let enabled = {
+            let setup = get_skirmish_setup();
+            setup.game_info().game_info().get_superweapon_restriction() != 0
+        };
+        effects.with_receiving_manager(receiving_manager, |effects| {
+            let _ = guard.gadget_check_box_set_checked(enabled, effects);
+        });
     }
 }
 
