@@ -131,6 +131,9 @@ impl BaseAiContinuation {
         self.parent_state().unwrap_or(self.ai_state)
     }
     pub(crate) fn validate(&self) -> Result<(), String> {
+        if self.tighten_repath_available.is_some() && self.root_state() != AIState::Moving {
+            return Err("tighten retry requires an active move root".into());
+        }
         if let Some(parent) = &self.parent {
             let goals = &parent.goals;
             if !goals.position.is_finite()

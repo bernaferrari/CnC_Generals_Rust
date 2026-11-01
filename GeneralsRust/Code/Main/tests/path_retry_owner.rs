@@ -1839,4 +1839,155 @@ fn tighten_continuation_is_actor_owned_and_survives_pending_save() {
         flying.host_object(flying_id).unwrap().ai_state(),
         AIState::Moving
     );
+
+    // A retry cannot belong to an idle root. Reject it while the candidate
+    // is detached, without changing either live same-ID session.
+    assert_eq!(peer.host_object(peer_id).unwrap().ai_state(), AIState::Idle);
+    let mut malformed = builder.create_world_snapshot(&peer).unwrap();
+    let mut changed = false;
+    for module in malformed
+        .objects
+        .get_mut(&peer_id)
+        .unwrap()
+        .modules
+        .values_mut()
+    {
+        let Ok(mut value) = serde_json::to_value(&*module) else {
+            continue;
+        };
+        let Some(machine) = value
+            .get_mut("BaseAi")
+            .and_then(|v| v.get_mut("continuation"))
+        else {
+            continue;
+        };
+        machine["tighten_repath_available"] = true.into();
+        *module = serde_json::from_value(value).unwrap();
+        changed = true;
+        break;
+    }
+    assert!(
+        changed,
+        "the malformed snapshot must contain the actor's AI owner"
+    );
+    let receiver_frame = lock_peer.get_current_frame();
+    let receiver_position = lock_peer.host_object(stuck_id).unwrap().get_position();
+    let receiver_state = lock_peer.host_object(stuck_id).unwrap().ai_state();
+    let peer_frame = peer.get_current_frame();
+    let peer_position = peer.host_object(peer_id).unwrap().get_position();
+    let receiver_before = serde_json::to_value(
+        &builder.create_world_snapshot(&lock_peer).unwrap().objects[&stuck_id],
+    )
+    .unwrap();
+    let peer_before =
+        serde_json::to_value(&builder.create_world_snapshot(&peer).unwrap().objects[&peer_id])
+            .unwrap();
+    assert!(
+        builder
+            .restore_from_snapshot(&malformed, &mut lock_peer)
+            .is_err()
+    );
+    assert_eq!(lock_peer.get_current_frame(), receiver_frame);
+    assert_eq!(
+        lock_peer.host_object(stuck_id).unwrap().get_position(),
+        receiver_position
+    );
+    assert_eq!(
+        lock_peer.host_object(stuck_id).unwrap().ai_state(),
+        receiver_state
+    );
+    assert_eq!(peer.get_current_frame(), peer_frame);
+    assert_eq!(
+        peer.host_object(peer_id).unwrap().get_position(),
+        peer_position
+    );
+    assert_eq!(peer.host_object(peer_id).unwrap().ai_state(), AIState::Idle);
+    assert_eq!(
+        serde_json::to_value(
+            &builder.create_world_snapshot(&lock_peer).unwrap().objects[&stuck_id]
+        )
+        .unwrap(),
+        receiver_before
+    );
+    assert_eq!(
+        serde_json::to_value(&builder.create_world_snapshot(&peer).unwrap().objects[&peer_id])
+            .unwrap(),
+        peer_before
+    );
+
+    // An AI temporary move suspends the active tighten state; that valid
+    // owned continuation must still be accepted by save/load.
+    let mut overlay = world(&map);
+    let overlay_id = overlay
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    assert!(overlay.unit_command_tighten_to(overlay_id, Vec3::new(100.0, 0.0, 300.0)));
+    overlay.update_with_dt(1.0 / 30.0);
+    overlay
+        .host_object_mut(overlay_id)
+        .unwrap()
+        .last_command_source =
+        game_engine::common::system::game_common::CommandSourceType::FromAI as u32;
+    assert!(overlay.private_move_to_position(overlay_id, Vec3::new(150.0, 0.0, 250.0)));
+    let overlay_save = builder.create_world_snapshot(&overlay).unwrap();
+    let has_overlay = overlay_save.objects[&overlay_id]
+        .modules
+        .values()
+        .any(|module| {
+            serde_json::to_value(module)
+                .ok()
+                .and_then(|v| {
+                    v.get("BaseAi")
+                        .and_then(|v| v.get("continuation"))
+                        .and_then(|v| v.get("temporary_move"))
+                        .map(|v| !v.is_null())
+                })
+                .unwrap_or(false)
+        });
+    assert!(
+        has_overlay,
+        "the real AI move must create the temporary overlay"
+    );
+    let mut overlay_restored = world(&map);
+    builder
+        .restore_from_snapshot(&overlay_save, &mut overlay_restored)
+        .unwrap();
+    assert_eq!(
+        overlay_restored.host_object(overlay_id).unwrap().ai_state(),
+        AIState::Moving
+    );
+    let mut older_format = builder.create_world_snapshot(&overlay).unwrap();
+    let mut removed = false;
+    for module in older_format
+        .objects
+        .get_mut(&overlay_id)
+        .unwrap()
+        .modules
+        .values_mut()
+    {
+        let Ok(mut value) = serde_json::to_value(&*module) else {
+            continue;
+        };
+        let Some(machine) = value
+            .get_mut("BaseAi")
+            .and_then(|v| v.get_mut("continuation"))
+        else {
+            continue;
+        };
+        assert!(
+            machine
+                .as_object_mut()
+                .unwrap()
+                .remove("tighten_repath_available")
+                .is_some()
+        );
+        *module = serde_json::from_value(value).unwrap();
+        removed = true;
+        break;
+    }
+    assert!(removed);
+    let mut older_restored = world(&map);
+    builder
+        .restore_from_snapshot(&older_format, &mut older_restored)
+        .unwrap();
 }
