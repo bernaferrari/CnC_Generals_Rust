@@ -1662,7 +1662,7 @@ impl PathfindingGrid {
     }
 
     /// C++ `TerrainLogic::objectInteractsWithBridgeEnd` (TerrainLogic.cpp:1799).
-    pub(super) fn object_interacts_with_bridge_end(
+    pub(crate) fn object_interacts_with_bridge_end(
         &self,
         pos: Vec3,
         minor_radius: f32,

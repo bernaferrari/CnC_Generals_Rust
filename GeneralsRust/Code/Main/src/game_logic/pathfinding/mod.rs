@@ -206,6 +206,18 @@ struct LayerOccupancy {
     occ_pos_crushable: HashMap<(i32, i32), u8>,
 }
 
+/// One C++ `Pathfinder::updateGoal` transition, owned by the driving actor.
+pub(crate) struct PathGoalUpdate {
+    pub unit_id: u32,
+    pub player: u32,
+    pub radius: f32,
+    pub old_cell: (i32, i32),
+    pub old_layer: u8,
+    pub new_layer: u8,
+    pub new_on_ground: bool,
+    pub goal: Vec3,
+}
+
 #[derive(Clone, Copy, Default)]
 struct OccBits {
     fixed: u16,

@@ -40,6 +40,126 @@ fn aircraft_world(map: &std::path::Path) -> GameLogic {
 }
 
 #[test]
+fn removed_ground_goal_does_not_return_when_occupancy_is_rebuilt() {
+    use generals_main::game_logic::pathfinding::{GridPos, PathfindingGrid, PathfindingGround};
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("GroundGoal.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+
+    let mut owner = world(&map);
+    let mut peer = world(&map);
+    let start = Vec3::new(100.0, 0.0, 100.0);
+    let goal = Vec3::new(150.0, 0.0, 100.0);
+    let id = owner
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    let peer_id = peer
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    assert_eq!(id, peer_id);
+    for world in [&mut owner, &mut peer] {
+        let unit = world.host_object_mut(id).unwrap();
+        unit.selection_radius = 2.0;
+        unit.pathfind_goal_cell = (15, 10);
+        unit.movement.path = vec![start, goal];
+        unit.movement.target_position = Some(goal);
+    }
+    let ground = PathfindingGround::Flat(0.0);
+    let mut grid = PathfindingGrid::new(410.0, 410.0, 10.0);
+    let cell = GridPos::new(15, 10);
+    grid.update_dynamic_obstacles(owner.host_objects(), &ground);
+    assert_eq!(grid.ground_goal_unit(cell), id.0);
+    assert!(owner.unit_command_tighten_to(id, Vec3::new(150.0, 0.0, 150.0)));
+    assert_eq!(owner.host_object(id).unwrap().pathfind_goal_cell, (-1, -1));
+    assert_eq!(
+        owner.host_object(id).unwrap().movement.path.last(),
+        Some(&goal)
+    );
+    grid.update_dynamic_obstacles(owner.host_objects(), &ground);
+    assert_eq!(
+        grid.ground_goal_unit(cell),
+        0,
+        "old path recreated a removed goal"
+    );
+    grid.update_dynamic_obstacles(peer.host_objects(), &ground);
+    assert_eq!(
+        grid.ground_goal_unit(cell),
+        id.0,
+        "other session lost its goal"
+    );
+
+    let mut layered = world(&map);
+    let layered_id = layered
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    let actor = layered.host_object_mut(layered_id).unwrap();
+    actor.pathfind_goal_cell = (15, 10);
+    actor.pathfind_goal_layer = 2;
+    actor.pathfind_goal_on_ground = false;
+    let builder = SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&layered).unwrap();
+    let mut restored = world(&map);
+    builder
+        .restore_from_snapshot(&saved, &mut restored)
+        .unwrap();
+    let actor = restored.host_object(layered_id).unwrap();
+    assert_eq!(actor.pathfind_goal_cell, (15, 10));
+    assert_eq!(actor.pathfind_goal_layer, 2);
+    assert!(!actor.pathfind_goal_on_ground);
+
+    let mut malformed = builder.create_world_snapshot(&layered).unwrap();
+    let tag = malformed
+        .lifecycle_tail
+        .windows(4)
+        .position(|v| v == b"TMAI")
+        .unwrap();
+    let size = u32::from_le_bytes(
+        malformed.lifecycle_tail[tag + 8..tag + 12]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    let end = tag + 12 + size;
+    assert_eq!(
+        &malformed.lifecycle_tail[end - 14..end - 6],
+        &1_u64.to_le_bytes()
+    );
+    malformed.lifecycle_tail[end - 2] = 0;
+    restored.set_current_frame(7);
+    assert!(
+        builder
+            .restore_from_snapshot(&malformed, &mut restored)
+            .is_err()
+    );
+    assert_eq!(restored.get_current_frame(), 7);
+    assert!(layered.unit_command_tighten_to(layered_id, Vec3::new(160.0, 0.0, 160.0)));
+    let actor = layered.host_object(layered_id).unwrap();
+    assert_eq!(actor.pathfind_goal_cell, (-1, -1));
+    assert_eq!(
+        actor.pathfind_goal_layer, 2,
+        "C++ retains destination layer after removeGoal"
+    );
+    let removed = builder.create_world_snapshot(&layered).unwrap();
+    let mut removed_restored = world(&map);
+    builder
+        .restore_from_snapshot(&removed, &mut removed_restored)
+        .unwrap();
+    let actor = removed_restored.host_object(layered_id).unwrap();
+    assert_eq!(actor.pathfind_goal_cell, (-1, -1));
+    assert_eq!(actor.pathfind_goal_layer, 2);
+}
+
+#[test]
 fn aircraft_registered_goal_is_owned_by_its_session_and_survives_save() {
     let directory = tempfile::tempdir().unwrap();
     let map = directory.path().join("AircraftGoal.map");
@@ -84,7 +204,12 @@ fn aircraft_registered_goal_is_owned_by_its_session_and_survives_save() {
             .try_into()
             .unwrap(),
     ) as usize;
-    let end = tag + 12 + size;
+    let payload_end = tag + 12 + size;
+    assert_eq!(
+        &pending.lifecycle_tail[payload_end - 8..payload_end],
+        &[0; 8]
+    );
+    let end = payload_end - 8;
     assert_eq!(
         &pending.lifecycle_tail[end - 12..end - 4],
         &1_u64.to_le_bytes(),
@@ -107,10 +232,19 @@ fn aircraft_registered_goal_is_owned_by_its_session_and_survives_save() {
     builder
         .restore_from_snapshot(&pending, &mut pending_restored)
         .unwrap();
+    let mut v17 = builder.create_world_snapshot(&owner).unwrap();
+    v17.lifecycle_tail.drain(payload_end - 8..payload_end);
+    v17.lifecycle_tail[tag + 4..tag + 8].copy_from_slice(&17_u32.to_le_bytes());
+    v17.lifecycle_tail[tag + 8..tag + 12].copy_from_slice(&((size - 8) as u32).to_le_bytes());
+    let mut v17_restored = aircraft_world(&map);
+    builder
+        .restore_from_snapshot(&v17, &mut v17_restored)
+        .unwrap();
     for _ in 0..2 {
         owner.update_with_dt(1.0 / 30.0);
         peer.update_with_dt(1.0 / 30.0);
         pending_restored.update_with_dt(1.0 / 30.0);
+        v17_restored.update_with_dt(1.0 / 30.0);
     }
     let goal = owner.host_object(id).unwrap().pathfind_goal_cell;
     let peer_goal = peer.host_object(id).unwrap().pathfind_goal_cell;
@@ -131,6 +265,10 @@ fn aircraft_registered_goal_is_owned_by_its_session_and_survives_save() {
     assert_ne!(goal, peer_goal);
     assert_eq!(
         pending_restored.host_object(id).unwrap().pathfind_goal_cell,
+        goal
+    );
+    assert_eq!(
+        v17_restored.host_object(id).unwrap().pathfind_goal_cell,
         goal
     );
     let mut grid = generals_main::game_logic::pathfinding::PathfindingGrid::new(410.0, 410.0, 10.0);
@@ -245,9 +383,9 @@ fn delayed_request_runs_on_its_actor_deadline_after_save_and_interleaving() {
             .unwrap(),
     ) as usize;
     let end = length + 4 + size;
-    assert_eq!(&legacy.lifecycle_tail[end - 24..end], &[0; 24]);
-    legacy.lifecycle_tail.drain(end - 24..end);
-    legacy.lifecycle_tail[length..length + 4].copy_from_slice(&((size - 24) as u32).to_le_bytes());
+    assert_eq!(&legacy.lifecycle_tail[end - 32..end], &[0; 32]);
+    legacy.lifecycle_tail.drain(end - 32..end);
+    legacy.lifecycle_tail[length..length + 4].copy_from_slice(&((size - 32) as u32).to_le_bytes());
     legacy.lifecycle_tail[version..version + 4].copy_from_slice(&14_u32.to_le_bytes());
     let mut legacy_receiver = world(&map);
     builder
@@ -520,8 +658,8 @@ fn tighten_continuation_is_actor_owned_and_survives_pending_save() {
         .registered_values()
         .filter(|object| object.pathfind_goal_cell != (-1, -1))
         .count();
-    assert_eq!(&malformed.lifecycle_tail[end - 8..end], &[0; 8]);
-    let final_goals_end = end - 8 - (8 + 12 * goal_count);
+    assert_eq!(&malformed.lifecycle_tail[end - 16..end], &[0; 16]);
+    let final_goals_end = end - 16 - (8 + 12 * goal_count);
     assert_eq!(
         &malformed.lifecycle_tail[final_goals_end - 12..final_goals_end - 4],
         &1_u64.to_le_bytes()

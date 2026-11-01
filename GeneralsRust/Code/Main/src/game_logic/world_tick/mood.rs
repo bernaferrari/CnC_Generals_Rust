@@ -548,17 +548,12 @@ impl GameLogic {
                 obj.ultra_accurate,
                 pos,
                 obj.selection_radius,
-                obj.pathfind_goal_cell,
-                obj.is_kind_of(crate::game_logic::KindOf::Immobile),
-                obj.id.0,
-                obj.owner_player_id.unwrap_or(obj.team as u32),
+                obj.pathfind_layer,
             )
         });
-        if let Some((true, true, ultra, pos, radius, old, immobile, uid, player)) = prep {
-            let new_cell = self
-                .pathfinding_system
-                .grid
-                .update_ground_goal_cell(uid, player, radius, immobile, old, pos);
+        if let Some((true, true, ultra, pos, radius, layer)) = prep {
+            self.register_path_goal_on_layer(unit_id, pos, layer);
+            let new_cell = self.objects.get(&unit_id).unwrap().pathfind_goal_cell;
             let goal = if !ultra && new_cell.0 >= 0 && new_cell.1 >= 0 && self.frame <= 1 {
                 let grid = &self.pathfinding_system.grid;
                 let (_, center) =
@@ -589,7 +584,6 @@ impl GameLogic {
             };
             let mut snapped = None;
             if let Some(obj) = self.objects.get_mut(&unit_id) {
-                obj.pathfind_goal_cell = new_cell;
                 if let Some(goal) = goal {
                     obj.set_position_with_effects_and_pose_owners(
                         goal,
@@ -598,24 +592,11 @@ impl GameLogic {
                         &self.host_trigger_world,
                         &self.team_factory,
                     );
-                    snapped = Some((
-                        obj.get_position(),
-                        obj.selection_radius,
-                        obj.pathfind_goal_cell,
-                        obj.is_kind_of(crate::game_logic::KindOf::Immobile),
-                        obj.id.0,
-                        obj.owner_player_id.unwrap_or(obj.team as u32),
-                    ));
+                    snapped = Some((obj.get_position(), obj.pathfind_layer));
                 }
             }
-            if let Some((pos2, radius, old, immobile, uid, player)) = snapped {
-                let cell2 = self
-                    .pathfinding_system
-                    .grid
-                    .update_ground_goal_cell(uid, player, radius, immobile, old, pos2);
-                if let Some(obj) = self.objects.get_mut(&unit_id) {
-                    obj.pathfind_goal_cell = cell2;
-                }
+            if let Some((pos2, layer)) = snapped {
+                self.register_path_goal_on_layer(unit_id, pos2, layer);
             }
         }
         // setCurrentVictim(NULL) clears m_currentVictimID (`target`), not the

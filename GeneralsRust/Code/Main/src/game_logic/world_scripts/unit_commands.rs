@@ -2277,24 +2277,11 @@ impl GameLogic {
                 &ground_source,
             )
         });
-        let (old, radius, player) = self
-            .objects
-            .get(&id)
-            .map(|unit| {
-                (
-                    unit.pathfind_goal_cell,
-                    unit.selection_radius,
-                    unit.owner_player_id.unwrap_or(unit.team as u32),
-                )
-            })
-            .unwrap_or(((-1, -1), 0.0, 0));
-        let cell = self
-            .pathfinding_system
-            .grid
-            .update_ground_goal_cell(id.0, player, radius, false, old, adjusted);
-        if let Some(unit) = self.objects.get_mut(&id) {
-            unit.pathfind_goal_cell = cell;
-        }
+        self.register_path_goal_on_layer(
+            id,
+            adjusted,
+            gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground as u8,
+        );
         adjusted
     }
 

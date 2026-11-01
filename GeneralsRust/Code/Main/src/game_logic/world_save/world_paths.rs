@@ -1094,21 +1094,7 @@ impl GameLogic {
             return Err(destination);
         }
         for &(id, _) in goals {
-            let Some(unit) = self.objects.lookup(&id) else {
-                continue;
-            };
-            let old = unit.pathfind_goal_cell;
-            if old.0 < 0 || old.1 < 0 {
-                continue;
-            }
-            let radius = unit.selection_radius;
-            let uid = unit.id.0;
-            self.pathfinding_system
-                .grid
-                .clear_ground_goal_square(uid, radius, old);
-            if let Some(unit) = self.objects.get_mut(&id) {
-                unit.pathfind_goal_cell = (-1, -1);
-            }
+            self.remove_registered_path_goal(id);
         }
         let mut cx = 0.0f32;
         let mut cz = 0.0f32;
@@ -1951,9 +1937,10 @@ impl GameLogic {
         };
         let old = unit.pathfind_goal_cell;
         let radius = unit.selection_radius;
+        let layer = unit.pathfind_goal_layer;
         self.pathfinding_system
             .grid
-            .clear_ground_goal_square(unit_id.0, radius, old);
+            .clear_path_goal_square(unit_id.0, radius, old, layer);
         if let Some(unit) = self.objects.get_mut(&unit_id) {
             unit.pathfind_goal_cell = (-1, -1);
             unit.pending_quick_path_goal = false;

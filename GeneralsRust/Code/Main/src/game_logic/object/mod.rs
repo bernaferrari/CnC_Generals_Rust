@@ -929,6 +929,12 @@ pub struct Object {
     /// C++ `AIUpdateInterface::m_pathfindGoalCell`. (-1, -1) means unset.
     #[serde(default = "default_unset_pathfind_cell")]
     pub pathfind_goal_cell: (i32, i32),
+    /// C++ `Object::m_destinationLayer` for the registered goal.
+    #[serde(default = "default_pathfind_layer_ground")]
+    pub pathfind_goal_layer: u8,
+    /// Whether registration also claimed ground at a bridge end.
+    #[serde(default = "default_true")]
+    pub pathfind_goal_on_ground: bool,
     /// A completed quick path awaiting the move state's next update.
     #[serde(default)]
     pub(crate) pending_quick_path_goal: bool,

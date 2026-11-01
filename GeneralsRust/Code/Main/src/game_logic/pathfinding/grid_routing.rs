@@ -300,82 +300,38 @@ impl PathfindingGrid {
                     }
                 }
             }
-            // C++ Pathfinder::updateGoal stamps UNIT_GOAL on the destination cell.
-            if !is_aircraft
+            // Rebuild from the actor's registered goal, not its current path.
+            let (gx, gy) = obj.pathfind_goal_cell;
+            if (gx, gy) != (-1, -1)
+                && Self::is_doing_ground_movement_full(obj)
                 && !obj.is_kind_of(KindOf::Immobile)
                 && !obj.is_kind_of(KindOf::Structure)
             {
-                let dest = if obj.do_final_position && obj.movement.path.is_empty() {
-                    Some(obj.final_position)
-                } else {
-                    obj.movement
-                        .path
-                        .last()
-                        .copied()
-                        .or(obj.movement.target_position)
-                };
-                let stored = obj.pathfind_goal_cell;
-                let here = self.cell_for_unit_position(pos, center_in_cell);
-                // Live path / target wins. The stored cell is only the idle
-                // reservation, and only while the unit is still on that cell.
-                // A finished move clears dest; restamping the pre-move cell
-                // would keep the old square reserved.
-                if dest.is_none()
-                    && stored.0 >= 0
-                    && stored.1 >= 0
-                    && here.x == stored.0
-                    && here.y == stored.1
-                {
-                    let goal_cell = GridPos::new(stored.0, stored.1);
-                    for i in (goal_cell.x - radius)..(goal_cell.x + num_above) {
-                        for j in (goal_cell.y - radius)..(goal_cell.y + num_above) {
-                            let p = GridPos::new(i, j);
-                            if self.is_valid_pos(p) {
-                                self.mark_occupancy(
-                                    p,
-                                    player,
-                                    false,
-                                    false,
-                                    true,
-                                    255,
-                                    obj.id.0,
-                                    PathfindLayerEnum::Ground,
-                                );
-                            }
+                let layer = PathfindLayerEnum::from_u32(obj.pathfind_goal_layer as u32);
+                for x in (gx - radius)..(gx + num_above) {
+                    for y in (gy - radius)..(gy + num_above) {
+                        let p = GridPos::new(x, y);
+                        if !self.is_valid_pos(p) {
+                            continue;
                         }
-                    }
-                } else if let Some(goal) = dest {
-                    let goal_layer = self.layer_for_destination(goal, ground_source);
-                    let goal_at_end = self.object_interacts_with_bridge_end(
-                        pos,
-                        obj.selection_radius,
-                        goal_layer,
-                    );
-                    let goal_do_layer = goal_layer != PathfindLayerEnum::Ground;
-                    let goal_do_ground = !goal_do_layer || goal_at_end;
-                    let goal_cell = self.cell_for_unit_position(goal, center_in_cell);
-                    for i in (goal_cell.x - radius)..(goal_cell.x + num_above) {
-                        for j in (goal_cell.y - radius)..(goal_cell.y + num_above) {
-                            let p = GridPos::new(i, j);
-                            if self.is_valid_pos(p) {
-                                if goal_do_ground {
-                                    self.mark_occupancy(
-                                        p,
-                                        player,
-                                        false,
-                                        false,
-                                        true,
-                                        255,
-                                        obj.id.0,
-                                        PathfindLayerEnum::Ground,
-                                    );
-                                }
-                                if goal_do_layer {
-                                    self.mark_occupancy(
-                                        p, player, false, false, true, 255, obj.id.0, goal_layer,
-                                    );
-                                }
-                            }
+                        if obj.pathfind_goal_on_ground {
+                            self.mark_occupancy(
+                                p,
+                                player,
+                                false,
+                                false,
+                                true,
+                                255,
+                                obj.id.0,
+                                PathfindLayerEnum::Ground,
+                            );
+                        }
+                        if layer != PathfindLayerEnum::Ground
+                            && self.layer_cell_type(obj.pathfind_goal_layer, p).is_some()
+                        {
+                            self.mark_occupancy(
+                                p, player, false, false, true, 255, obj.id.0, layer,
+                            );
                         }
                     }
                 }
@@ -595,71 +551,119 @@ impl PathfindingGrid {
         if immobile {
             return old;
         }
-        let (radius, center) = Self::radius_and_center(selection_radius, self.grid_size);
-        let mut num_above = radius;
-        if center {
-            num_above += 1;
+        self.update_path_goal_cell(PathGoalUpdate {
+            unit_id,
+            player,
+            radius: selection_radius,
+            old_cell: old,
+            old_layer: PathfindLayerEnum::Ground as u8,
+            new_layer: PathfindLayerEnum::Ground as u8,
+            new_on_ground: true,
+            goal: pos,
+        })
+    }
+
+    /// Apply an explicitly owned C++ updateGoal transition.
+    pub(crate) fn update_path_goal_cell(&mut self, update: PathGoalUpdate) -> (i32, i32) {
+        let (radius, center) = Self::radius_and_center(update.radius, self.grid_size);
+        let above = radius + i32::from(center);
+        let cell = self.cell_for_unit_position(update.goal, center);
+        if update.old_cell == (cell.x, cell.y) && update.old_layer == update.new_layer {
+            return update.old_cell;
         }
-        let new_cell = self.cell_for_unit_position(pos, center);
-        if old == (new_cell.x, new_cell.y) {
-            return old;
-        }
-        self.clear_ground_goal_square(unit_id, selection_radius, old);
-        for i in (new_cell.x - radius)..(new_cell.x + num_above) {
-            for j in (new_cell.y - radius)..(new_cell.y + num_above) {
-                let p = GridPos::new(i, j);
-                if self.is_valid_pos(p) {
+        self.clear_path_goal_square(
+            update.unit_id,
+            update.radius,
+            update.old_cell,
+            update.old_layer,
+        );
+        let layer = PathfindLayerEnum::from_u32(update.new_layer as u32);
+        for x in (cell.x - radius)..(cell.x + above) {
+            for y in (cell.y - radius)..(cell.y + above) {
+                let pos = GridPos::new(x, y);
+                if !self.is_valid_pos(pos) {
+                    continue;
+                }
+                if update.new_on_ground {
                     self.mark_occupancy(
-                        p,
-                        player,
+                        pos,
+                        update.player,
                         false,
                         false,
                         true,
                         255,
-                        unit_id,
+                        update.unit_id,
                         PathfindLayerEnum::Ground,
+                    );
+                }
+                if layer != PathfindLayerEnum::Ground
+                    && self.layer_cell_type(update.new_layer, pos).is_some()
+                {
+                    self.mark_occupancy(
+                        pos,
+                        update.player,
+                        false,
+                        false,
+                        true,
+                        255,
+                        update.unit_id,
+                        layer,
                     );
                 }
             }
         }
-        (new_cell.x, new_cell.y)
+        (cell.x, cell.y)
     }
 
-    /// C++ `Pathfinder::removeGoal` for the stored ground cell.
+    /// C++ removeGoal on ground and the actor's recorded destination layer.
     pub fn clear_ground_goal_square(
         &mut self,
         unit_id: u32,
         selection_radius: f32,
         old: (i32, i32),
     ) {
-        if old.0 < 0 || old.1 < 0 {
+        self.clear_path_goal_square(
+            unit_id,
+            selection_radius,
+            old,
+            PathfindLayerEnum::Ground as u8,
+        );
+    }
+
+    pub fn clear_path_goal_square(
+        &mut self,
+        unit_id: u32,
+        selection_radius: f32,
+        old: (i32, i32),
+        layer: u8,
+    ) {
+        if old == (-1, -1) {
             return;
         }
         let (radius, center) = Self::radius_and_center(selection_radius, self.grid_size);
-        let mut clear_radius = radius;
-        if clear_radius == 0 {
-            clear_radius += 1;
-        }
-        let mut clear_above = clear_radius;
-        if center {
-            clear_above += 1;
-        }
-        for i in (old.0 - clear_radius)..(old.0 + clear_above) {
-            for j in (old.1 - clear_radius)..(old.1 + clear_above) {
-                let p = GridPos::new(i, j);
-                let Some(idx) = self.bit_index(p) else {
+        let clear_radius = radius.max(1);
+        let clear_above = clear_radius + i32::from(center);
+        for x in (old.0 - clear_radius)..(old.0 + clear_above) {
+            for y in (old.1 - clear_radius)..(old.1 + clear_above) {
+                let pos = GridPos::new(x, y);
+                let Some(idx) = self.bit_index(pos) else {
                     continue;
                 };
-                if self.occ_goal_unit.get(idx).copied() == Some(unit_id) {
-                    if let Some(slot) = self.occ_goal_unit.get_mut(idx) {
-                        *slot = 0;
-                    }
-                    if let Some(slot) = self.occ_goal_mask.get_mut(idx) {
-                        *slot = 0;
-                    }
+                if self.occ_goal_unit[idx] == unit_id {
+                    self.occ_goal_unit[idx] = 0;
+                    self.occ_goal_mask[idx] = 0;
                 }
-                if self.occ_goal_aircraft.get(idx).copied() == Some(unit_id) {
+                if self.occ_goal_aircraft[idx] == unit_id {
                     self.occ_goal_aircraft[idx] = 0;
+                }
+                if layer != PathfindLayerEnum::Ground as u8 {
+                    if let Some(occupancy) = self.layer_occ.get_mut(&layer) {
+                        let key = (x, y);
+                        if occupancy.occ_goal_unit.get(&key).copied() == Some(unit_id) {
+                            occupancy.occ_goal_unit.remove(&key);
+                            occupancy.occ_goal_mask.remove(&key);
+                        }
+                    }
                 }
             }
         }
@@ -677,10 +681,11 @@ impl PathfindingGrid {
         unit_id: u32,
         selection_radius: f32,
         old: (i32, i32),
+        old_layer: u8,
         goal: Vec3,
         adjusts_destination: bool,
     ) -> (i32, i32) {
-        self.clear_ground_goal_square(unit_id, selection_radius, old);
+        self.clear_path_goal_square(unit_id, selection_radius, old, old_layer);
         if !adjusts_destination {
             return (-1, -1);
         }

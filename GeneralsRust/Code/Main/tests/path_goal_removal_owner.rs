@@ -112,6 +112,22 @@ fn overlapping_aircraft_goals_belong_to_the_last_rebuilt_actor() {
 }
 
 #[test]
+fn removing_an_off_grid_goal_clears_its_in_bounds_footprint() {
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
+    let id = aircraft(&mut world, Vec3::new(-10.0, 0.0, 50.0));
+    let actor = world.host_object_mut(id).unwrap();
+    actor.selection_radius = 20.0;
+    actor.pathfind_goal_cell = (-1, 5);
+    let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+    grid.update_dynamic_obstacles(world.host_objects(), &PathfindingGround::Flat(0.0));
+    let cell = GridPos::new(0, 5);
+    assert_eq!(grid.goal_aircraft(cell), id.0);
+    grid.clear_path_goal_square(id.0, 20.0, (-1, 5), 1);
+    assert_eq!(grid.goal_aircraft(cell), 0);
+}
+
+#[test]
 fn bridge_goal_replacement_keeps_only_the_current_owner() {
     let ground = PathfindingGround::Flat(0.0);
     let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
@@ -136,18 +152,34 @@ fn bridge_goal_replacement_keeps_only_the_current_owner() {
     template.add_kind_of(KindOf::Infantry).set_health(100.0);
     world.templates.insert("BridgeUnit".into(), template);
     // Occupancy currently visits object IDs in ascending order.
+    let mut first_id = None;
+    let mut second_id = None;
     for player in [0, 1] {
         let id = world
             .create_object_for_player("BridgeUnit", player, Vec3::ZERO)
             .unwrap();
+        if player == 0 {
+            first_id = Some(id);
+        } else {
+            second_id = Some(id);
+        }
         let unit = world.host_object_mut(id).unwrap();
         unit.cur_locomotor_name = Some("GroundLocomotor".into());
         unit.locomotor_surfaces = generals_main::game_logic::object::LOCO_SURFACE_GROUND;
         unit.selection_radius = 2.0;
         unit.movement.target_position = Some(goal);
+        unit.pathfind_goal_cell = (8, 5);
+        unit.pathfind_goal_layer = layer as u8;
+        unit.pathfind_goal_on_ground = false;
     }
     grid.update_dynamic_obstacles(world.host_objects(), &ground);
     let cell = GridPos::new(8, 5);
     assert!(grid.has_allied_goal_on(cell, Some(1), layer));
     assert!(!grid.has_allied_goal_on(cell, Some(0), layer));
+    grid.update_ground_goal_cell(999, 0, 2.0, false, (-1, -1), goal);
+    grid.clear_path_goal_square(first_id.unwrap().0, 2.0, (8, 5), layer as u8);
+    assert!(grid.has_allied_goal_on(cell, Some(1), layer));
+    grid.clear_path_goal_square(second_id.unwrap().0, 2.0, (8, 5), layer as u8);
+    assert!(!grid.has_allied_goal_on(cell, None, layer));
+    assert_eq!(grid.ground_goal_unit(cell), 999);
 }

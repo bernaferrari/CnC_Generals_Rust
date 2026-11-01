@@ -146,16 +146,16 @@ fn append_while_waiting_survives_the_pending_path_result() {
     let length = tag + 8;
     assert_eq!(
         u32::from_le_bytes(v12.lifecycle_tail[version..version + 4].try_into().unwrap()),
-        17
+        18
     );
     let size =
         u32::from_le_bytes(v12.lifecycle_tail[length..length + 4].try_into().unwrap()) as usize;
     let end = tag + 12 + size;
-    // This fixture has no registered cells or pending quick-path transitions.
-    assert_eq!(&v12.lifecycle_tail[end - 16..end], &[0; 16]);
-    v12.lifecycle_tail.drain(end - 16..end);
-    let size = size - 16;
-    let end = end - 16;
+    // This fixture has no layer records, registered cells, or pending quick paths.
+    assert_eq!(&v12.lifecycle_tail[end - 24..end], &[0; 24]);
+    v12.lifecycle_tail.drain(end - 24..end);
+    let size = size - 24;
+    let end = end - 24;
     // This fixture has no final-goal rows in the V16 extension.
     assert_eq!(&v12.lifecycle_tail[end - 8..end], &[0; 8]);
     v12.lifecycle_tail.drain(end - 8..end);
@@ -357,8 +357,8 @@ fn append_while_waiting_survives_the_pending_path_result() {
     let length =
         u32::from_le_bytes(saved.lifecycle_tail[tag + 8..tag + 12].try_into().unwrap()) as usize;
     let end = tag + 12 + length;
-    assert_eq!(&saved.lifecycle_tail[end - 24..end], &[0; 24]);
-    let last_id = end - 28;
+    assert_eq!(&saved.lifecycle_tail[end - 32..end], &[0; 32]);
+    let last_id = end - 36;
     assert_eq!(
         &saved.lifecycle_tail[last_id..last_id + 4],
         &a.0.to_le_bytes()
