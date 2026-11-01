@@ -1978,8 +1978,14 @@ impl Transition for ScreenFadeTransition {
     }
 
     fn update(&mut self, frame: i32, window_access: &mut TransitionWindowAccess<'_, '_>) {
+        self.draw_state = -1;
+        if !(0..=self.frame_length).contains(&frame) {
+            return;
+        }
         self.draw_state = frame;
-        self.is_finished = true;
+        if frame == 0 || frame == self.frame_length {
+            self.is_finished = true;
+        }
     }
 
     fn reverse(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {

@@ -10,7 +10,7 @@ impl Drop for RestoreDirectory {
 }
 
 #[test]
-fn sound_only_group_preserves_each_receiving_windows_visibility() {
+fn transition_styles_keep_visibility_and_duration_with_receiving_owners() {
     let temp = tempfile::tempdir().unwrap();
     let ini_dir = temp.path().join("Data/INI");
     std::fs::create_dir_all(&ini_dir).unwrap();
@@ -28,6 +28,12 @@ WindowTransition FlashOnly
   Window
     WinName = Test:Sound
     Style = FLASH
+    FrameDelay = 0
+  END
+END
+WindowTransition ScreenFadeOnly
+  Window
+    Style = SCREENFADE
     FrameDelay = 0
   END
 END
@@ -81,6 +87,34 @@ END
             assert!(
                 !visible.borrow().is_hidden(),
                 "skipping flash reveals its window; overlapping sound must leave it revealed"
+            );
+            manager.transition_set_group("ScreenFadeOnly", true, None);
+            assert!(!manager.transitions_finished(), "fade starts unfinished");
+            for frame in 1..30 {
+                manager.update(effects);
+                assert!(
+                    !manager.transitions_finished(),
+                    "fade ended at frame {frame}"
+                );
+            }
+            manager.update(effects);
+            assert!(manager.transitions_finished(), "fade completes at frame 30");
+            manager.transition_reverse("ScreenFadeOnly", None);
+            assert!(
+                !manager.transitions_finished(),
+                "reversed fade starts unfinished"
+            );
+            for frame in (1..30).rev() {
+                manager.update(effects);
+                assert!(
+                    !manager.transitions_finished(),
+                    "reversed fade ended at frame {frame}"
+                );
+            }
+            manager.update(effects);
+            assert!(
+                manager.transitions_finished(),
+                "reversed fade completes at frame 0"
             );
         });
     });
