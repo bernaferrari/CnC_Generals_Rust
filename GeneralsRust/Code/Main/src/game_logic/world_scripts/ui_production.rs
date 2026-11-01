@@ -3398,6 +3398,11 @@ impl GameLogic {
                     let name = rec
                         .unit
                         .and_then(|handle| {
+                            if let Some(name) =
+                                template.prerequisite_definitions.template_name(handle)
+                            {
+                                return Some(name.to_owned());
+                            }
                             if !handle.is_valid() {
                                 return None;
                             }

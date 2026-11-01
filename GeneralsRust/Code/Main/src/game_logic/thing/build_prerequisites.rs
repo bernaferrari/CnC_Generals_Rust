@@ -9,6 +9,11 @@ pub(crate) struct PrerequisiteDefinitions {
 }
 
 impl PrerequisiteDefinitions {
+    /// Resolve a handle from this template's admitted prerequisite catalog.
+    pub(crate) fn template_name(&self, handle: ThingTemplateHandle) -> Option<&str> {
+        self.templates.get(&handle).map(String::as_str)
+    }
+
     pub(super) fn admit(prereqs: &[ProductionPrerequisite]) -> Self {
         Self::resolve(
             prereqs,

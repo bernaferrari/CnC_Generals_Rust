@@ -63,6 +63,11 @@ fn facility_census_resolves_handles_and_unresolved_names_for_each_world() {
         .unwrap();
     peer.host_object_mut(peer_object).unwrap().owner_player_id = Some(1);
     assert!(has_facility(&peer));
+    // Both worlds retain their admitted handle names if the legacy factory
+    // disappears; subsequent direct prerequisite changes remain visible.
+    *get_thing_factory().unwrap() = None;
+    assert!(has_facility(&world));
+    assert!(has_facility(&peer));
     world
         .templates
         .get_mut("Worker")
