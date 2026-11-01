@@ -2,6 +2,55 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 impl GameLogic {
+    /// Run the tighten state before doLocomotor can patch the blocked path.
+    pub(in super::super) fn tick_host_tighten_states(&mut self, object_ids: &[ObjectId]) {
+        for &object_id in object_ids {
+            if let Some(object) = self.objects.get_mut(&object_id) {
+                let ready = !object.has_temporary_ai_move()
+                    && !object.waiting_for_path
+                    && !object.movement.path.is_empty();
+                object.unit_ai_runtime.update_tighten_path_check(ready);
+            }
+            self.update_tighten_blocked_path(object_id);
+        }
+    }
+
+    /// AIMoveAndTightenState::computePath owns one retry when blocked and stuck.
+    /// This is a path request, not a new move order or a locomotor patch.
+    fn update_tighten_blocked_path(&mut self, object_id: ObjectId) {
+        let decision = self.objects.get_mut(&object_id).and_then(|object| {
+            if object.has_temporary_ai_move()
+                || object.waiting_for_path
+                || !object.is_blocked_and_stuck
+            {
+                return None;
+            }
+            let destination = object.requested_destination?;
+            object
+                .unit_ai_runtime
+                .take_tighten_repath()
+                .map(|retry| (retry, destination))
+        });
+        let Some((retry, destination)) = decision else {
+            return;
+        };
+        if !retry {
+            if let Some(object) = self.objects.get_mut(&object_id) {
+                object.set_ai_state(
+                    AIState::Idle,
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                );
+            }
+            return;
+        }
+        let queue_now = self.objects.get_mut(&object_id).is_some_and(|object| {
+            object.begin_request_move_path(destination, self.frame) && object.waiting_for_path
+        });
+        if queue_now && !self.try_install_flying_quick_path(object_id, destination) {
+            self.queue_initialized_path_request(object_id);
+        }
+    }
+
     /// AIUpdate checks this actor's retry after its state update, before the
     /// derived dozer update and the later match-wide pathfinder drain.
     pub(in crate::game_logic) fn update_owned_path_retry(&mut self, object_id: ObjectId) {
@@ -902,14 +951,6 @@ impl GameLogic {
             }
             // C++ AIIdleState::onEnter → resetNextMoodCheckTime, before the scan.
             self.apply_pending_idle_mood_reset_with_effects(object_id, presentation_effects);
-            // AIMoveAndTightenState checks its path on the actor's next AI
-            // update, before the later match-wide pathfinder drain.
-            if let Some(object) = self.objects.get_mut(&object_id) {
-                let ready = !object.has_temporary_ai_move()
-                    && !object.waiting_for_path
-                    && !object.movement.path.is_empty();
-                object.unit_ai_runtime.update_tighten_path_check(ready);
-            }
             // C++ AIIdleState::update: mood scan / attack only — never AI_HUNT wander.
             if let Some(obj) = self.objects.get(&object_id) {
                 if obj.has_temporary_ai_move() && obj.ai_state() != AIState::Dead {

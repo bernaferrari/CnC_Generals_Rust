@@ -1,6 +1,6 @@
 use game_engine::common::{ini::ini_locomotor::LocomotorStore, system::DataChunkOutput};
 use generals_main::game_logic::{
-    GameLogic, GameMode, Object, ObjectId, Player, Team, ThingTemplate,
+    AIState, GameLogic, GameMode, Object, ObjectId, Player, Team, ThingTemplate,
 };
 use generals_main::save_load::SnapshotBuilder;
 use glam::Vec3;
@@ -1687,5 +1687,71 @@ fn tighten_continuation_is_actor_owned_and_survives_pending_save() {
             .unwrap()
             .adjust_destinations(),
         adjustment_after_order
+    );
+
+    // The tighten state owns one blocked retry. It is independent of a
+    // same-ID peer and survives a save between the first and second block.
+    let mut stuck = world(&map);
+    let stuck_id = stuck
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    assert_eq!(stuck_id, peer_id);
+    assert!(stuck.unit_command_tighten_to(stuck_id, Vec3::new(100.0, 0.0, 150.0)));
+    stuck.update_with_dt(1.0 / 30.0);
+    assert!(!stuck.host_object(stuck_id).unwrap().waiting_for_path);
+    assert!(stuck.host_object(stuck_id).unwrap().is_approach_path);
+    stuck.set_current_frame(100);
+    stuck.host_object_mut(stuck_id).unwrap().num_frames_blocked = 61;
+    stuck.update_with_dt(1.0 / 30.0);
+    assert!(
+        stuck.host_object(stuck_id).unwrap().is_approach_path,
+        "blocked frames without isBlockedAndStuck do not consume the retry"
+    );
+    stuck
+        .host_object_mut(stuck_id)
+        .unwrap()
+        .is_blocked_and_stuck = true;
+    stuck.update_with_dt(1.0 / 30.0);
+    assert!(
+        !stuck.host_object(stuck_id).unwrap().is_approach_path,
+        "the first stuck retry uses requestPath, not requestApproachPath"
+    );
+    let saved = builder.create_world_snapshot(&stuck).unwrap();
+    let mut stuck_restored = world(&map);
+    builder
+        .restore_from_snapshot(&saved, &mut stuck_restored)
+        .unwrap();
+    for receiver in [&mut stuck, &mut stuck_restored] {
+        let actor = receiver.host_object_mut(stuck_id).unwrap();
+        actor.waiting_for_path = false;
+        actor.is_blocked_and_stuck = true;
+        receiver.update_with_dt(1.0 / 30.0);
+        assert_ne!(
+            receiver.host_object(stuck_id).unwrap().ai_state(),
+            AIState::Moving,
+            "the second blocked retry fails the tighten state"
+        );
+    }
+    assert!(peer.host_object(peer_id).unwrap().adjust_destinations());
+
+    // The aircraft's ordinary request uses the immediate quick-path route.
+    flying.set_current_frame(100);
+    flying
+        .host_object_mut(flying_id)
+        .unwrap()
+        .is_blocked_and_stuck = true;
+    flying.update_with_dt(1.0 / 30.0);
+    assert_eq!(
+        flying.host_object(flying_id).unwrap().ai_state(),
+        AIState::Moving
+    );
+    flying
+        .host_object_mut(flying_id)
+        .unwrap()
+        .is_blocked_and_stuck = true;
+    flying.update_with_dt(1.0 / 30.0);
+    assert_ne!(
+        flying.host_object(flying_id).unwrap().ai_state(),
+        AIState::Moving
     );
 }

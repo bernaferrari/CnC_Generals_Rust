@@ -60,6 +60,9 @@ pub struct BaseAiContinuation {
     /// AIMoveAndTightenState::m_checkForPath, owned and saved by this actor.
     #[serde(default)]
     pub(crate) tighten_check_for_path: bool,
+    /// The active AIMoveAndTightenState and its single blocked retry.
+    #[serde(default)]
+    pub(crate) tighten_repath_available: Option<bool>,
     pub wander_width: f32,
 
     pub(crate) guard: GuardRuntime,
@@ -97,6 +100,7 @@ impl Default for BaseAiContinuation {
             face_loco_frame: 0,
             adjust_destinations: true,
             tighten_check_for_path: false,
+            tighten_repath_available: None,
             wander_width: 0.0,
 
             guard: Default::default(),
@@ -201,6 +205,7 @@ impl UnitAiRuntime {
     pub(crate) fn enter_root(&mut self, state: AIState) {
         if state != AIState::Moving {
             self.machine.tighten_check_for_path = false;
+            self.machine.tighten_repath_available = None;
         }
         if self.machine.ai_state == AIState::Attacking && state != AIState::Attacking {
             self.machine.attack_original_victim_pos = None;
@@ -397,9 +402,18 @@ impl UnitAiRuntime {
     }
     pub(crate) fn begin_tighten_path_check(&mut self) {
         self.machine.tighten_check_for_path = true;
+        self.machine.tighten_repath_available = Some(true);
     }
     pub(crate) fn cancel_tighten_path_check(&mut self) {
         self.machine.tighten_check_for_path = false;
+        self.machine.tighten_repath_available = None;
+    }
+    /// Return whether the active tighten state can retry, consuming its allowance.
+    pub(crate) fn take_tighten_repath(&mut self) -> Option<bool> {
+        self.machine
+            .tighten_repath_available
+            .as_mut()
+            .map(|available| std::mem::replace(available, false))
     }
     pub(crate) fn update_tighten_path_check(&mut self, path_ready: bool) {
         if self.machine.tighten_check_for_path && path_ready {
@@ -433,6 +447,7 @@ impl BaseAiContinuation {
             && self.wander.is_none()
             && !self.face_active
             && !self.tighten_check_for_path
+            && self.tighten_repath_available.is_none()
             && self.attack_substate == AttackSubState::AimAtTarget
             && self.approach_timestamp == 0
             && self.prev_victim_pos.is_none()
