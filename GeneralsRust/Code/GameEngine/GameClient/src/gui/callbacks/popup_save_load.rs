@@ -2183,6 +2183,13 @@ fn select_live_popup_save_game_matching_like_cpp(
             effects,
         )
         .is_handled();
+    // This helper delivers the parent notification directly rather than
+    // through mouse dispatch. Complete its deferred callback after releasing
+    // the parent and listbox borrows, as named OS clicks already do, so the
+    // selected row enables Load before the next click.
+    if let Some(owner) = effects.window_manager_owner {
+        owner.complete_event_callbacks(effects);
+    }
     handled
 }
 

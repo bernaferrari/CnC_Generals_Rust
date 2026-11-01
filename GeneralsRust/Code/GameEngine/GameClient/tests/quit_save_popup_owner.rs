@@ -76,6 +76,8 @@ fn fixtures(base: &std::path::Path) {
             ("PUSHBUTTON", (120, 80, 200, 110), false)
         } else if *name == "ListboxGames" {
             ("SCROLLLISTBOX", (220, 90, 400, 180), false)
+        } else if *name == "ButtonLoad" {
+            ("PUSHBUTTON", (120, 120, 200, 150), false)
         } else {
             ("USER", (500 + i as i32, 400, 501 + i as i32, 401), true)
         };
@@ -132,6 +134,10 @@ fn nested_popup_opens_closes_and_reopens_on_receiving_client() {
                     "new_save", effects
                 )
             );
+            assert!(effects.with_manager(|m, _| {
+                m.find_window_by_name("PopupSaveLoad.wnd:ButtonLoad")
+                    .is_some_and(|button| button.borrow().is_enabled())
+            }));
         });
         let peer =
             GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted).unwrap();
