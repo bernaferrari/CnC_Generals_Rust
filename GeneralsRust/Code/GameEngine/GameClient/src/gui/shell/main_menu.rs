@@ -1846,9 +1846,10 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = false;
             state.drop_down = DropdownType::Single;
-            Self::show_only_dropdown(
+            Self::set_dropdown_hidden(
                 state,
                 DropdownType::Single,
+                false,
                 effects,
                 selected.as_deref_mut(),
             );

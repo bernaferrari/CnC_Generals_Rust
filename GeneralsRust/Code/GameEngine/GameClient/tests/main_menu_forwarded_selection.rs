@@ -32,6 +32,11 @@ WINDOWTYPE=USER;
 NAME="MainMenu.wnd:MapBorder";
 SCREENRECT=0 0 100 100;
 END
+WINDOW
+WINDOWTYPE=USER;
+NAME="MainMenu.wnd:MapBorder2";
+SCREENRECT=0 0 100 100;
+END
 ENDALLCHILDREN
 END
 "#,
@@ -63,6 +68,11 @@ END
             let multiplayer = manager
                 .find_window_by_name("MainMenu.wnd:MapBorder1")
                 .unwrap();
+            let main = manager
+                .find_window_by_name("MainMenu.wnd:MapBorder2")
+                .unwrap();
+            let _ = single.borrow_mut().hide(true, manager);
+            let _ = multiplayer.borrow_mut().hide(true, manager);
             // Before MainMenuInit, the default Single Player control id is zero.
             // Forwarding this event exercises the same three borrowed windows.
             let result = manager.send_system_message(
@@ -75,6 +85,10 @@ END
             assert!(result.is_handled());
             assert!(!single.borrow().is_hidden());
             assert!(multiplayer.borrow().is_hidden());
+            assert!(
+                !main.borrow().is_hidden(),
+                "C++ starts the transition without hiding the main dropdown"
+            );
         });
     });
     assert!(
