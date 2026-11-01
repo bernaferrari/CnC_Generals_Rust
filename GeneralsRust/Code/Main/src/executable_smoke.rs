@@ -136,6 +136,8 @@ fn run_executable_smoke_with_launch_and_driver(
 // the same order for the source-text honesty assertions.
 include!("executable_smoke/result.rs");
 include!("executable_smoke/status.rs");
+#[path = "executable_smoke/retail_map.rs"]
+mod retail_map;
 include!("executable_smoke/process.rs");
 include!("executable_smoke/bootstrap.rs");
 include!("executable_smoke/frame_loop.rs");

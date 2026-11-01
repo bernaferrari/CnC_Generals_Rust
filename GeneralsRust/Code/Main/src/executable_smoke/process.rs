@@ -101,6 +101,11 @@ pub(crate) fn resolve_runtime_exe_from_candidates(
 }
 
 fn resolve_lone_eagle_map() -> String {
+    if let Some(path) = std::env::var_os("GENERALS_ASSETS_DIR")
+        .and_then(|root| retail_map::lone_eagle_from_assets_root(Path::new(&root)))
+    {
+        return path.to_string_lossy().into_owned();
+    }
     let mut candidates: Vec<PathBuf> = LONE_EAGLE_CANDIDATES.iter().map(PathBuf::from).collect();
     // Walk from CARGO_MANIFEST_DIR (Code/Main) up to repo root and common extract dirs.
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
