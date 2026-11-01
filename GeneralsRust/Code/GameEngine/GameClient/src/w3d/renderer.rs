@@ -19,9 +19,9 @@ use wgpu::{
     AddressMode, BindGroup, BindGroupLayout, BlendState, Buffer, BufferDescriptor, BufferUsages,
     Color, ColorTargetState, ColorWrites, CommandEncoder, CompareFunction, ComputePipeline,
     ComputePipelineDescriptor, DepthBiasState, DepthStencilState, Device, Extent3d, Face,
-    FilterMode, FragmentState, FrontFace, IndexFormat, LoadOp, MultisampleState, Operations,
-    PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, Queue, RenderPass,
-    RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor,
+    FilterMode, FragmentState, FrontFace, IndexFormat, LoadOp, MipmapFilterMode, MultisampleState,
+    Operations, PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, Queue,
+    RenderPass, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor,
     RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor,
     ShaderModule, ShaderStages, StencilFaceState, StencilState, StoreOp, TextureDescriptor,
     TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
@@ -1047,7 +1047,6 @@ impl W3DRenderer {
                 ops: Operations {
                     load: if self.settings.enable_deferred_rendering {
                         LoadOp::Load // Preserve deferred lighting result
-            multiview_mask: None,
                     } else {
                         LoadOp::Clear(Color {
                             r: 0.1,
@@ -1069,6 +1068,7 @@ impl W3DRenderer {
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
 
         render_pass.set_pipeline(&self.forward_pipeline);

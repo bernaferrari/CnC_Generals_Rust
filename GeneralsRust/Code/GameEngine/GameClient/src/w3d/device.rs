@@ -24,8 +24,8 @@ use wgpu::{
     ComputePipeline, Device, DeviceDescriptor, Dx12Compiler, Features, Gles3MinorVersion, Instance,
     InstanceDescriptor, InstanceFlags, Limits, MemoryHints, PowerPreference, PresentMode, Queue,
     RenderPipeline, RequestAdapterOptions, SamplerBindingType, ShaderStages, Surface,
-    SurfaceConfiguration, SurfaceError, TextureFormat, TextureSampleType, TextureUsages,
-    TextureView, TextureViewDimension, util::DeviceExt,
+    SurfaceConfiguration, TextureFormat, TextureSampleType, TextureUsages, TextureView,
+    TextureViewDimension, util::DeviceExt,
 };
 use winit::{
     dpi::PhysicalSize,
@@ -57,7 +57,7 @@ pub enum W3DDeviceError {
     #[error("Failed to create graphics device: {0}")]
     DeviceCreation(#[from] wgpu::RequestDeviceError),
     #[error("Surface error: {0}")]
-    Surface(#[from] SurfaceError),
+    Surface(#[from] ww3d_gpu::GpuError),
     #[error("GPU memory allocation failed: {0}")]
     MemoryAllocation(String),
     #[error("Command buffer creation failed: {0}")]
@@ -341,6 +341,7 @@ impl W3DDevice {
             },
             memory_budget_thresholds: Default::default(),
             backend_options,
+            display: Some(Box::new(window.clone())),
         });
 
         // Create surface
@@ -552,10 +553,8 @@ impl W3DDevice {
     /// Execute the revolutionary rendering pipeline
     pub fn render(&mut self) -> W3DResult<()> {
         // Get current surface texture
-        let surface_texture = self
-            .surface
-            .get_current_texture()
-            .map_err(|e| W3DDeviceError::Surface(e))?;
+        let surface_texture =
+            ww3d_gpu::acquire_surface_texture(&self.surface).map_err(W3DDeviceError::Surface)?;
 
         let surface_view = surface_texture
             .texture
