@@ -20,7 +20,10 @@ fn world(map: &std::path::Path) -> GameLogic {
     let mut locomotors = LocomotorStore::new_owned();
     locomotors.apply_source("Locomotor RetryWalk\n Surfaces = GROUND\n Speed = 30\n Acceleration = 60\n TurnRate = 360\n Appearance = TWO_LEGS\nEnd\n").unwrap();
     world.admit_locomotor_definitions(locomotors).unwrap();
-    world.admit_object_ini_sources([("RetryWalk.ini".into(), "Object RetryWalker\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL RetryWalk\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into())]).unwrap();
+    world.admit_object_ini_sources([
+        ("RetryWalk.ini".into(), "Object RetryWalker\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL RetryWalk\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into()),
+        ("RetryWideWalk.ini".into(), "Object RetryWideWalker\n KindOf = SELECTABLE INFANTRY\n Geometry = BOX\n GeometryMajorRadius = 8\n GeometryMinorRadius = 5\n GeometryHeight = 12\n Locomotor = SET_NORMAL RetryWalk\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into()),
+    ]).unwrap();
     world.start_new_game(GameMode::SinglePlayer);
     assert!(world.load_map(map.to_str().unwrap()));
     world.add_player(Player::new(1, Team::USA, "Owner", true));
@@ -44,12 +47,99 @@ fn aircraft_world(map: &std::path::Path) -> GameLogic {
     world
 }
 
-fn mark_aircraft_moving(world: &mut GameLogic, id: ObjectId) {
+fn mark_unit_moving(world: &mut GameLogic, id: ObjectId) {
     use generals_main::game_logic::{AIState, ObjectAudio, SessionAudio};
     let mut audio = SessionAudio::default();
     let actor = world.host_object_mut(id).unwrap();
     actor.set_ai_state(AIState::Moving, &mut ObjectAudio::queue(&mut audio));
     assert!(actor.host_ai_is_moving());
+}
+
+#[test]
+fn loading_ground_ai_rebuilds_idle_and_moving_goals_in_receiving_session() {
+    use generals_main::game_logic::pathfinding::{GridPos, PathfindingGrid};
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("GroundRestore.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+
+    let mut source = world(&map);
+    let mut peer = world(&map);
+    let idle_pos = Vec3::new(100.0, 0.0, 100.0);
+    let moving_pos = Vec3::new(200.0, 0.0, 100.0);
+    let mut ids = Vec::new();
+    for world in [&mut source, &mut peer] {
+        let idle = world
+            .create_object_for_player("RetryWalker", 1, idle_pos)
+            .unwrap();
+        let moving = world
+            .create_object_for_player("RetryWideWalker", 1, moving_pos)
+            .unwrap();
+        ids.push((idle, moving));
+    }
+    assert_eq!(ids[0], ids[1]);
+    let (idle, moving) = ids[0];
+    assert!(PathfindingGrid::is_doing_ground_movement_full(
+        source.host_object(idle).unwrap()
+    ));
+    assert_eq!(
+        PathfindingGrid::radius_and_center(
+            source.host_object(moving).unwrap().selection_radius,
+            10.0
+        ),
+        (1, false)
+    );
+    source.host_object_mut(moving).unwrap().is_final_goal = true;
+    assert!(source.assign_unit_path(moving, Vec3::new(250.0, 0.0, 150.0), &[]));
+    for _ in 0..3 {
+        source.update_with_dt(1.0 / 30.0);
+    }
+    mark_unit_moving(&mut source, moving);
+    let saved = source.host_object(moving).unwrap().pathfind_goal_cell;
+    assert!(saved.0 >= 0 && saved.1 >= 0);
+    assert!(!source.host_object(idle).unwrap().host_ai_is_moving());
+    {
+        let actor = source.host_object_mut(idle).unwrap();
+        actor.pathfind_goal_layer = 2;
+        actor.pathfind_goal_on_ground = false;
+    }
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).unwrap();
+    let mut restored = world(&map);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+
+    let idle_actor = restored.host_object(idle).unwrap();
+    assert_eq!(idle_actor.pathfind_goal_cell, (10, 10));
+    assert_eq!(idle_actor.pathfind_goal_layer, 1);
+    assert!(idle_actor.pathfind_goal_on_ground);
+    assert_eq!(
+        restored.pathfinding_ground_goal(GridPos::new(10, 10)),
+        Some(idle)
+    );
+    let moving_actor = restored.host_object(moving).unwrap();
+    assert!(moving_actor.host_ai_is_moving());
+    assert_eq!(moving_actor.pathfind_goal_cell, (saved.0 + 1, saved.1 + 1));
+    assert_eq!(
+        moving_actor.pathfind_goal_layer,
+        moving_actor.pathfind_layer
+    );
+    assert_eq!(
+        restored.pathfinding_ground_goal(GridPos::new(saved.0 + 1, saved.1 + 1)),
+        Some(moving)
+    );
+    assert_eq!(peer.pathfinding_ground_goal(GridPos::new(10, 10)), None);
 }
 
 #[test]
@@ -87,6 +177,9 @@ fn current_and_destination_layers_survive_snapshot_independently_per_session() {
         actor.pathfind_goal_on_ground = false;
     }
     peer.host_object_mut(id).unwrap().pathfind_layer = 4;
+    // A moving AI with no saved goal leaves both layer fields unchanged during
+    // C++ loadPostProcess; idle AI instead registers its current layer.
+    mark_unit_moving(&mut source, id);
     let builder = SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&source).unwrap();
     let mut restored = world(&map);
@@ -178,7 +271,7 @@ fn loading_moving_wide_aircraft_recomputes_goal_from_saved_cell_center() {
     for _ in 0..2 {
         source.update_with_dt(1.0 / 30.0);
     }
-    mark_aircraft_moving(&mut source, id);
+    mark_unit_moving(&mut source, id);
     let saved = source.host_object(id).unwrap().pathfind_goal_cell;
     assert!(saved.0 >= 0 && saved.1 >= 0);
 
@@ -314,8 +407,8 @@ fn aircraft_goal_overwrite_survives_rebuild_without_reviving_previous_owner() {
     assert_eq!(owner.pathfinding_aircraft_goal(cell), Some(low));
     assert_eq!(peer.pathfinding_aircraft_goal(cell), Some(high));
     for world in [&mut owner, &mut peer] {
-        mark_aircraft_moving(world, low);
-        mark_aircraft_moving(world, high);
+        mark_unit_moving(world, low);
+        mark_unit_moving(world, high);
     }
 
     // C++ xfers objects in their saved list order and schedules each AI
@@ -435,8 +528,10 @@ fn removed_ground_goal_does_not_return_when_occupancy_is_rebuilt() {
         .unwrap();
     let actor = layered.host_object_mut(layered_id).unwrap();
     actor.pathfind_goal_cell = (15, 10);
+    actor.pathfind_layer = 2;
     actor.pathfind_goal_layer = 2;
     actor.pathfind_goal_on_ground = false;
+    mark_unit_moving(&mut layered, layered_id);
     let builder = SnapshotBuilder::new();
     let saved = builder.create_world_snapshot(&layered).unwrap();
     let mut restored = world(&map);
@@ -604,7 +699,7 @@ fn aircraft_registered_goal_is_owned_by_its_session_and_survives_save() {
     let goal_pos = generals_main::game_logic::pathfinding::GridPos::new(goal.0, goal.1);
     assert_eq!(owner.pathfinding_aircraft_goal(goal_pos), Some(id));
 
-    mark_aircraft_moving(&mut owner, id);
+    mark_unit_moving(&mut owner, id);
     let snapshot = builder.create_world_snapshot(&owner).unwrap();
     let mut restored = aircraft_world(&map);
     builder

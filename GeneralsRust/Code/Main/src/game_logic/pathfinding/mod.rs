@@ -218,6 +218,18 @@ pub(crate) struct PathGoalUpdate {
     pub goal: Vec3,
 }
 
+/// Actor fields changed by its C++ AI loadPostProcess goal registration.
+pub(crate) struct RestoredPathGoal {
+    pub object_id: ObjectId,
+    pub cell: (i32, i32),
+    pub ground_layer: Option<RestoredGroundGoal>,
+}
+
+pub(crate) struct RestoredGroundGoal {
+    pub layer: u8,
+    pub on_ground: bool,
+}
+
 #[derive(Clone, Copy, Default)]
 struct OccBits {
     fixed: u16,

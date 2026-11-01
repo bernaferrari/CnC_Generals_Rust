@@ -1199,16 +1199,20 @@ impl SnapshotBuilder {
         }
         // C++ Pathfinder cells are transient; AI loadPostProcess registers
         // goals again after the receiving actors and their state exist.
-        let restored_aircraft_cells = game_logic
+        let restored_path_goals = game_logic
             .pathfinding_system
             .grid
-            .restore_aircraft_goals(game_logic.objects.read());
-        for (id, cell) in restored_aircraft_cells {
-            game_logic
+            .restore_path_goals(game_logic.objects.read());
+        for goal in restored_path_goals {
+            let object = game_logic
                 .objects
-                .get_mut(&id)
-                .expect("restored aircraft remains registered")
-                .pathfind_goal_cell = cell;
+                .get_mut(&goal.object_id)
+                .expect("restored AI remains registered");
+            object.pathfind_goal_cell = goal.cell;
+            if let Some(ground) = goal.ground_layer {
+                object.pathfind_goal_layer = ground.layer;
+                object.pathfind_goal_on_ground = ground.on_ground;
+            }
         }
         log::info!("World restoration complete");
         Ok(())

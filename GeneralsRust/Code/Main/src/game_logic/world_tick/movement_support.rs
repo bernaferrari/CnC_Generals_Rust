@@ -3287,22 +3287,32 @@ impl GameLogic {
 
     /// Register a goal whose original caller already chose the path layer.
     pub(crate) fn register_path_goal_on_layer(&mut self, unit_id: ObjectId, last: Vec3, layer: u8) {
-        let Some((player, radius, old, old_layer, old_ground, position, ground, aircraft_adjusts)) =
-            self.objects.get(&unit_id).and_then(|unit| {
-                if unit.is_kind_of(KindOf::Immobile) {
-                    return None;
-                }
-                Some((
-                    unit.owner_player_id.unwrap_or(unit.team as u32),
-                    unit.selection_radius,
-                    unit.pathfind_goal_cell,
-                    unit.pathfind_goal_layer,
-                    unit.pathfind_goal_on_ground,
-                    unit.get_position(),
-                    crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(unit),
-                    crate::game_logic::PathfindingGrid::is_aircraft_that_adjusts_destination(unit),
-                ))
-            })
+        let Some((
+            player,
+            radius,
+            minor_radius,
+            old,
+            old_layer,
+            old_ground,
+            position,
+            ground,
+            aircraft_adjusts,
+        )) = self.objects.get(&unit_id).and_then(|unit| {
+            if unit.is_kind_of(KindOf::Immobile) {
+                return None;
+            }
+            Some((
+                unit.owner_player_id.unwrap_or(unit.team as u32),
+                unit.selection_radius,
+                unit.geometry_info().minor_radius,
+                unit.pathfind_goal_cell,
+                unit.pathfind_goal_layer,
+                unit.pathfind_goal_on_ground,
+                unit.get_position(),
+                crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(unit),
+                crate::game_logic::PathfindingGrid::is_aircraft_that_adjusts_destination(unit),
+            ))
+        })
         else {
             return;
         };
@@ -3321,7 +3331,7 @@ impl GameLogic {
                 old_ground
             } else {
                 target_layer == gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground
-                    || grid.object_interacts_with_bridge_end(position, radius, target_layer)
+                    || grid.object_interacts_with_bridge_end(position, minor_radius, target_layer)
             };
             let cell = grid.update_path_goal_cell(crate::game_logic::pathfinding::PathGoalUpdate {
                 unit_id: unit_id.0,

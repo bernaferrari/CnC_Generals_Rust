@@ -196,3 +196,54 @@ fn bridge_goal_replacement_keeps_only_the_current_owner() {
     assert!(!grid.has_allied_goal_on(cell, None, layer));
     assert_eq!(grid.ground_goal_unit(cell), 999);
 }
+
+#[test]
+fn bridge_end_ground_occupancy_uses_live_minor_radius() {
+    use generals_main::game_logic::HostGeometryType;
+
+    let ground = PathfindingGround::Flat(0.0);
+    let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+    grid.stamp_bridge_deck(
+        Vec3::new(30.0, 20.0, 40.0),
+        Vec3::new(30.0, 20.0, 60.0),
+        Vec3::new(130.0, 20.0, 40.0),
+        Vec3::new(130.0, 20.0, 60.0),
+        false,
+        &ground,
+    );
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
+    let mut template = ThingTemplate::new("AsymmetricBridgeUnit");
+    template.add_kind_of(KindOf::Infantry).set_health(100.0);
+    template.geometry_info.geom_type = HostGeometryType::Box;
+    template.geometry_info.major_radius = 20.0;
+    template.geometry_info.minor_radius = 1.0;
+    world
+        .templates
+        .insert("AsymmetricBridgeUnit".into(), template);
+    let id = world
+        .create_object_for_player("AsymmetricBridgeUnit", 0, Vec3::new(42.0, 20.0, 50.0))
+        .unwrap();
+    let actor = world.host_object_mut(id).unwrap();
+    actor.cur_locomotor_name = Some("GroundLocomotor".into());
+    actor.locomotor_surfaces = generals_main::game_logic::object::LOCO_SURFACE_GROUND;
+    let cell = GridPos::new(4, 5);
+    assert!(!grid.is_blocked(cell));
+    grid.update_dynamic_obstacles(world.host_objects(), &ground);
+    assert!(
+        !grid.is_blocked(cell),
+        "the minor radius does not reach the bridge end"
+    );
+
+    let near_id = world
+        .create_object_for_player("AsymmetricBridgeUnit", 0, Vec3::new(35.0, 20.0, 50.0))
+        .unwrap();
+    let near = world.host_object_mut(near_id).unwrap();
+    near.cur_locomotor_name = Some("GroundLocomotor".into());
+    near.locomotor_surfaces = generals_main::game_logic::object::LOCO_SURFACE_GROUND;
+    grid.update_dynamic_obstacles_ignoring(world.host_objects(), Some(id), &ground);
+    assert!(
+        grid.is_blocked(cell),
+        "the same geometry at the end occupies ground"
+    );
+}

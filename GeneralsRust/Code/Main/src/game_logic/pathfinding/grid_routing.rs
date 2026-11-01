@@ -261,8 +261,11 @@ impl PathfindingGrid {
             }
             let pos = obj.get_position();
             let pos_layer = self.layer_for_destination(pos, ground_source);
-            let pos_at_end =
-                self.object_interacts_with_bridge_end(pos, obj.selection_radius, pos_layer);
+            let pos_at_end = self.object_interacts_with_bridge_end(
+                pos,
+                obj.geometry_info().minor_radius,
+                pos_layer,
+            );
             let pos_do_layer = pos_layer != PathfindLayerEnum::Ground;
             let pos_do_ground = !pos_do_layer || pos_at_end;
             let grid_pos = self.cell_for_unit_position(pos, center_in_cell);
@@ -750,17 +753,17 @@ impl PathfindingGrid {
     }
 
     /// Reconstruct transient pathfinder cells after the receiving objects load.
-    pub(crate) fn restore_aircraft_goals(
+    pub(crate) fn restore_path_goals(
         &mut self,
         objects: HostObjectRead<'_>,
-    ) -> Vec<(ObjectId, (i32, i32))> {
+    ) -> Vec<RestoredPathGoal> {
         self.occ_goal_aircraft.fill(0);
         let mut actor_cells = Vec::new();
         // GameLogic::xfer reads the saved object list in order; XferLoad queues
         // each AI module's post-process as it is read. Object admission prepends
         // the restored list, so its reverse is the original callback order.
         for object in objects.registered_values().rev() {
-            if !object.has_ai_update_interface() || Self::is_doing_ground_movement_full(object) {
+            if !object.has_ai_update_interface() {
                 continue;
             }
             let position = if object.host_ai_is_moving() {
@@ -777,19 +780,49 @@ impl PathfindingGrid {
                 // An idle AI instead registers its current object position.
                 object.get_position()
             };
-            let cell = if object.is_kind_of(KindOf::Immobile) {
-                (-1, -1)
+            let (cell, ground_layer) = if object.is_kind_of(KindOf::Immobile) {
+                ((-1, -1), None)
+            } else if Self::is_doing_ground_movement_full(object) {
+                let layer = object.pathfind_layer;
+                let target_layer = PathfindLayerEnum::from_u32(layer as u32);
+                let (_, center) = Self::radius_and_center(object.selection_radius, self.grid_size);
+                let target_cell = self.cell_for_unit_position(position, center);
+                let unchanged = (target_cell.x, target_cell.y) == (-1, -1)
+                    && object.pathfind_goal_layer == layer;
+                let on_ground = target_layer == PathfindLayerEnum::Ground
+                    || self.object_interacts_with_bridge_end(
+                        object.get_position(),
+                        object.geometry_info().minor_radius,
+                        target_layer,
+                    );
+                let cell = self.update_path_goal_cell(PathGoalUpdate {
+                    unit_id: object.id.0,
+                    player: object.owner_player_id.unwrap_or(object.team as u32),
+                    radius: object.selection_radius,
+                    old_cell: (-1, -1),
+                    old_layer: object.pathfind_goal_layer,
+                    new_layer: layer,
+                    new_on_ground: on_ground,
+                    goal: position,
+                });
+                let ground = (!unchanged).then_some(RestoredGroundGoal { layer, on_ground });
+                (cell, ground)
             } else {
-                self.update_aircraft_goal_cell(
+                let cell = self.update_aircraft_goal_cell(
                     object.id.0,
                     object.selection_radius,
                     (-1, -1),
                     object.pathfind_goal_layer,
                     position,
                     Self::is_aircraft_that_adjusts_destination(object),
-                )
+                );
+                (cell, None)
             };
-            actor_cells.push((object.id, cell));
+            actor_cells.push(RestoredPathGoal {
+                object_id: object.id,
+                cell,
+                ground_layer,
+            });
         }
         actor_cells
     }

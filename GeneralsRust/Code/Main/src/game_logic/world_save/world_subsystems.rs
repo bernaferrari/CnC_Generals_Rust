@@ -1272,6 +1272,12 @@ impl GameLogic {
         let id = self.pathfinding_system.grid.goal_aircraft(cell);
         (id != 0).then_some(ObjectId(id))
     }
+
+    /// The unit currently owning a ground-layer pathfinding goal cell.
+    pub fn pathfinding_ground_goal(&self, cell: super::pathfinding::GridPos) -> Option<ObjectId> {
+        let id = self.pathfinding_system.grid.ground_goal_unit(cell);
+        (id != 0).then_some(ObjectId(id))
+    }
     pub(in super::super) fn seed_pathfinding_from_terrain(&mut self) {
         self.seed_pathfinding_from_terrain_with_effects(&mut Default::default())
     }
