@@ -3381,6 +3381,10 @@ impl GameLogic {
     pub(crate) fn build_facility_template_names(&self) -> std::collections::HashSet<String> {
         const MAX_BF: usize = 32;
         let mut names = std::collections::HashSet::new();
+        // Resolve the existing legacy factory's linked list once per census,
+        // rather than walking it once for every prerequisite. Keep the first
+        // template for duplicate IDs, matching find_by_template_id.
+        let mut template_names_by_id = None;
         for template in self.templates.values() {
             if template.kind_of.contains(&KindOf::CommandCenter) {
                 names.insert(template.name.to_ascii_lowercase());
@@ -3393,7 +3397,30 @@ impl GameLogic {
                     }
                     let name = rec
                         .unit
-                        .and_then(leftover_template_name_for_handle)
+                        .and_then(|handle| {
+                            if !handle.is_valid() {
+                                return None;
+                            }
+                            let id = u16::try_from(handle.value()).ok()?;
+                            let names = template_names_by_id.get_or_insert_with(|| {
+                                let guard =
+                                    game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+                                let factory = guard.as_ref()?;
+                                let mut names = std::collections::HashMap::new();
+                                let mut current = factory.first_template().cloned();
+                                while let Some(template) = current {
+                                    names
+                                        .entry(template.get_template_id())
+                                        .or_insert_with(|| template.get_name().to_string());
+                                    current = template.get_next_template();
+                                }
+                                Some(names)
+                            });
+                            match names {
+                                Some(names) => names.get(&id).cloned(),
+                                None => leftover_template_name_for_handle(handle),
+                            }
+                        })
                         .or_else(|| (!rec.name.is_empty()).then(|| rec.name.clone()));
                     if let Some(name) = name {
                         names.insert(name.to_ascii_lowercase());
