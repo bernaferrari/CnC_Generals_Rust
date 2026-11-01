@@ -43,7 +43,7 @@ impl PathfindingGrid {
             ground_connect: vec![0u8; cells],
             query_layer: PathfindLayerEnum::Ground as u8,
             query_seeker_id: 0,
-            query_ignore_goal_id: 0,
+            query_ignore_unit_id: 0,
             query_check_for_aircraft: false,
             query_from: None,
             query_orig_dest: None,
@@ -311,9 +311,10 @@ impl PathfindingGrid {
         self.is_static_blocked(pos)
             || self.bit_index(pos).is_some_and(|idx| {
                 Self::bit_test(&self.explicit_dynamic_bits, idx)
-                    || self.occ_pos_unit[idx] != 0
+                    || (self.occ_pos_unit[idx] != 0
+                        && self.occ_pos_unit[idx] != self.query_ignore_unit_id)
                     || (self.occ_goal_unit[idx] != 0
-                        && self.occ_goal_unit[idx] != self.query_ignore_goal_id)
+                        && self.occ_goal_unit[idx] != self.query_ignore_unit_id)
             })
     }
 
@@ -1227,7 +1228,7 @@ impl PathfindingGrid {
         self.occ_goal_unit.fill(0);
         self.occ_goal_aircraft.fill(0);
         self.layer_occ.clear();
-        self.query_ignore_goal_id = 0;
+        self.query_ignore_unit_id = 0;
     }
 
     /// Refresh derived obstacles without disturbing event-owned goals.

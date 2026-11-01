@@ -274,6 +274,30 @@ impl OccBits {
             pos_crushable,
         }
     }
+
+    /// The receiver can ignore a unit for this observation without changing
+    /// the cell's position or goal owner.
+    fn ignoring_unit(mut self, id: u32) -> Self {
+        if id == 0 {
+            return self;
+        }
+        if self.goal_unit == id {
+            self.goal = 0;
+            self.goal_unit = 0;
+        }
+        if self.pos_unit == id {
+            self.fixed = 0;
+            self.moving = 0;
+            self.infantry = 0;
+            self.crushable = 0;
+            self.pos_unit = 0;
+            self.pos_player = 0;
+            self.pos_moving = false;
+            self.pos_infantry = false;
+            self.pos_crushable = 0;
+        }
+        self
+    }
 }
 
 /// Receiver-specific state for one synchronous possible-destination query.
@@ -378,8 +402,8 @@ pub struct PathfindingGrid {
     query_layer: u8,
     /// Seeker ObjectID for `checkDestination` own-goal skip.
     query_seeker_id: u32,
-    /// Goal owner excluded by the current path request, without changing cells.
-    query_ignore_goal_id: u32,
+    /// Unit excluded from the current query's occupancy observations.
+    query_ignore_unit_id: u32,
     /// C++ `checkDestination` `checkForAircraft` (HOVER/WINGS).
     query_check_for_aircraft: bool,
     /// C++ `checkForAdjust` unit position (leftover `check_for_adjust_ex` from).

@@ -202,7 +202,8 @@ impl PathfindingGrid {
         self.update_dynamic_obstacles_ignoring(objects, None, ground_source);
     }
 
-    /// Same occupancy stamp, skipping `ignore` (C++ `ignoreObstacle(goalObject)`).
+    /// Rebuild occupancy and select the unit ignored by this query. The
+    /// ignored unit remains in its cell; only query observations filter it.
     pub fn update_dynamic_obstacles_ignoring(
         &mut self,
         objects: HostObjectRead<'_>,
@@ -210,7 +211,7 @@ impl PathfindingGrid {
         ground_source: &PathfindingGround<'_>,
     ) {
         self.clear_dynamic_observations();
-        self.query_ignore_goal_id = ignore.map_or(0, |id| id.0);
+        self.query_ignore_unit_id = ignore.map_or(0, |id| id.0);
         self.refresh_goal_owner_masks(objects);
 
         // C++ iterates TheGameLogic's insertion-ordered object list
@@ -229,7 +230,7 @@ impl PathfindingGrid {
             } else {
                 obj.is_alive()
             };
-            if !alive || ignore == Some(obj.id) {
+            if !alive {
                 continue;
             }
             if is_aircraft {
@@ -1617,7 +1618,7 @@ impl PathfindingGrid {
     ) -> bool {
         let receiver = PossibleDestinationReceiver {
             seeker_id: self.query_seeker_id,
-            ignore_id: self.query_ignore_goal_id,
+            ignore_id: self.query_ignore_unit_id,
             aircraft: self.query_check_for_aircraft,
             player: seeker_player,
             crusher_level,

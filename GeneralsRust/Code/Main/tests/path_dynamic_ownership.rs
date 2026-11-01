@@ -6,6 +6,127 @@ use generals_main::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
 use glam::Vec3;
 
 #[test]
+fn ignored_query_does_not_replace_the_receiving_worlds_fixed_occupant() {
+    let mut worlds = [GameLogic::new(), GameLogic::new()];
+    let mut ids = Vec::new();
+    for world in &mut worlds {
+        world.add_player(Player::new(0, Team::USA, "Owner", true));
+        world.add_player(Player::new(1, Team::GLA, "Other", false));
+        let mut template = ThingTemplate::new("IgnoredOccupant");
+        template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        world.templates.insert("IgnoredOccupant".into(), template);
+        let position = Vec3::new(50.0, 0.0, 50.0);
+        let first = world
+            .create_object_for_player("IgnoredOccupant", 0, position)
+            .unwrap();
+        let second = world
+            .create_object_for_player("IgnoredOccupant", 1, position)
+            .unwrap();
+        for id in [first, second] {
+            let actor = world.host_object_mut(id).unwrap();
+            actor.selection_radius = 1.0;
+            actor.crushable_level = 255;
+        }
+        ids.push(first);
+    }
+    assert_eq!(ids[0], ids[1]);
+    let ground = PathfindingGround::Flat(0.0);
+    let position = Vec3::new(50.0, 0.0, 50.0);
+    let cell = GridPos::new(5, 5);
+    let mut systems = [
+        PathfindingSystem::new(100.0, 100.0),
+        PathfindingSystem::new(100.0, 100.0),
+    ];
+    for (system, id) in systems.iter_mut().zip(&ids) {
+        system
+            .grid
+            .update_ground_goal_cell(id.0, 0, 1.0, false, (-1, -1), position);
+    }
+    systems[0].grid.update_dynamic_obstacles_ignoring(
+        worlds[0].host_objects(),
+        Some(ids[0]),
+        &ground,
+    );
+    systems[1]
+        .grid
+        .update_dynamic_obstacles(worlds[1].host_objects(), &ground);
+    assert!(
+        !systems[0].grid.is_blocked(cell),
+        "the request ignores its selected occupant"
+    );
+    assert!(
+        systems[1].grid.is_blocked(cell),
+        "another session is unaffected"
+    );
+    systems[0].set_ignore_obstacle(None);
+    assert!(
+        systems[0].grid.is_blocked(cell),
+        "ending the ignore reveals the still-owned cell without rebuilding"
+    );
+    assert_ne!(
+        systems[0]
+            .grid
+            .occupancy_extra_cost(cell, Some(0), false, 0),
+        u32::MAX / 8,
+        "the overlapping enemy did not replace the fixed owner"
+    );
+}
+
+#[test]
+fn pathfinder_obstacle_ignore_and_receiver_unit_ignore_are_independent() {
+    let ground = PathfindingGround::Flat(0.0);
+    let mut worlds = [GameLogic::new(), GameLogic::new()];
+    let mut targets = Vec::new();
+    let mut movers = Vec::new();
+    for (index, world) in worlds.iter_mut().enumerate() {
+        world.add_player(Player::new(0, Team::USA, "Owner", true));
+        let mut template = ThingTemplate::new("IgnoreContextMover");
+        template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        world
+            .templates
+            .insert("IgnoreContextMover".into(), template);
+        let target = world
+            .create_object_for_player("IgnoreContextMover", 0, Vec3::new(50.0, 0.0, 50.0))
+            .unwrap();
+        let mover = world
+            .create_object_for_player("IgnoreContextMover", 0, Vec3::new(20.0, 0.0, 20.0))
+            .unwrap();
+        world.host_object_mut(target).unwrap().selection_radius = 1.0;
+        if index == 1 {
+            world.host_object_mut(mover).unwrap().ignored_obstacle_id = Some(target);
+        }
+        targets.push(target);
+        movers.push(mover);
+    }
+    assert_eq!(targets[0], targets[1]);
+    assert_eq!(movers[0], movers[1]);
+    let mut systems = [
+        PathfindingSystem::new(100.0, 100.0),
+        PathfindingSystem::new(100.0, 100.0),
+    ];
+    systems[0].set_ignore_obstacle(Some(targets[0]));
+    for index in 0..2 {
+        let _ = systems[index].find_path_ex(
+            Vec3::new(20.0, 0.0, 20.0),
+            Vec3::new(80.0, 0.0, 80.0),
+            worlds[index].host_objects(),
+            false,
+            Some(movers[index]),
+            &ground,
+        );
+    }
+    let target_cell = GridPos::new(5, 5);
+    assert!(
+        systems[0].grid.is_blocked(target_cell),
+        "pathfinder terrain ignore must not become the receiver's ignored unit"
+    );
+    assert!(
+        !systems[1].grid.is_blocked(target_cell),
+        "the other receiver's own ignored unit applies only in its session"
+    );
+}
+
+#[test]
 fn goal_changes_immediately_update_position_flags_in_each_world() {
     let mut worlds = [GameLogic::new(), GameLogic::new()];
     let mut ids = Vec::new();

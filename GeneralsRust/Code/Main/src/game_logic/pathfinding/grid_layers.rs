@@ -1208,7 +1208,8 @@ impl PathfindingGrid {
 
     /// C++ `getCell(layer, x, y)` occupancy. Missing layer cells fall back to ground.
     pub(super) fn occupancy_bits(&self, pos: GridPos, layer: PathfindLayerEnum) -> OccBits {
-        self.filter_ignored_goal(self.raw_occupancy_bits(pos, layer))
+        self.raw_occupancy_bits(pos, layer)
+            .ignoring_unit(self.query_ignore_unit_id)
     }
 
     /// Cell observations without the current search's ignore filter.
@@ -1242,13 +1243,6 @@ impl PathfindingGrid {
         )
     }
 
-    fn filter_ignored_goal(&self, mut bits: OccBits) -> OccBits {
-        if self.query_ignore_goal_id != 0 && bits.goal_unit == self.query_ignore_goal_id {
-            bits.goal = 0;
-            bits.goal_unit = 0;
-        }
-        bits
-    }
     pub(super) fn occupancy_cost(
         &self,
         pos: GridPos,

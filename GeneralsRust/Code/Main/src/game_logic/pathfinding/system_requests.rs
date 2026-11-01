@@ -71,6 +71,9 @@ impl PathfindingSystem {
             self.seeker_is_dozer = o.is_kind_of(KindOf::Dozer);
             self.seeker_downhill_only = o.downhill_only;
             self.seeker_can_path_through_units = o.can_path_through_units;
+            // C++ checkForMovement reads this from the receiving AI, while
+            // Pathfinder::m_ignoreObstacleID independently controls terrain.
+            self.grid.query_ignore_unit_id = o.ignored_obstacle_id.map_or(0, |id| id.0);
             let radius = o.geometry_info().bounding_circle_radius();
             self.seeker_path_diameter = PathfindingGrid::path_diameter_for_unit(
                 radius,
@@ -91,6 +94,7 @@ impl PathfindingSystem {
             self.seeker_is_dozer = false;
             self.seeker_downhill_only = false;
             self.seeker_can_path_through_units = false;
+            self.grid.query_ignore_unit_id = 0;
         }
     }
 
@@ -256,7 +260,8 @@ impl PathfindingSystem {
                 self.ignore_obstacle_id,
                 ground_source,
             );
-            // Do not cache an ignore-filtered occupancy stamp.
+            // Until movement owns position cells, ignored searches still need
+            // a fresh roster observation rather than a stale frame cache.
             self.dynamic_obstacle_frame = u64::MAX;
             return;
         }
@@ -272,7 +277,7 @@ impl PathfindingSystem {
     /// C++ `AIUpdateInterface::ignoreObstacle` for the next `find_path_ex_*`.
     pub fn set_ignore_obstacle(&mut self, id: Option<ObjectId>) {
         self.ignore_obstacle_id = id;
-        self.grid.query_ignore_goal_id = id.map_or(0, |id| id.0);
+        self.grid.query_ignore_unit_id = id.map_or(0, |id| id.0);
         if id.is_some() {
             self.dynamic_obstacle_frame = u64::MAX;
         }
@@ -728,6 +733,7 @@ impl PathfindingSystem {
             let dest_layer_cells = layer_cells(dest_layer_id);
             let seeker = self.seeker_player;
             let seeker_inf = self.seeker_is_infantry;
+            let ignored_unit = self.grid.query_ignore_unit_id;
             let ally_mask = seeker.map(|p| self.grid.ally_mask_for(p)).unwrap_or(0);
             let ignore_cells_for_extra = ignore_cells.as_ref();
             let extra = move |c: GridCoord| {
@@ -793,7 +799,7 @@ impl PathfindingSystem {
                     pos_moving,
                     pos_crushable: pos_cr,
                     ..
-                } = bits;
+                } = bits.ignoring_unit(ignored_unit);
                 // C++ INFANTRY_MOVES_THROUGH_INFANTRY: stream even when a goal is set.
                 if seeker_inf && infantry != 0 && (fixed | moving) == infantry {
                     return 0;
