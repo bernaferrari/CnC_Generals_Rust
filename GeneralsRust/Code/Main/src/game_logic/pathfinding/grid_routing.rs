@@ -193,6 +193,105 @@ impl PathfindingGrid {
         path
     }
 
+    /// Apply the original `Pathfinder::updatePos` transition. The AI owner
+    /// retains the returned cell; a layer change removes its old layer first.
+    pub fn update_path_position_cell(
+        &mut self,
+        footprint: &PathPositionFootprint,
+        old_cell: (i32, i32),
+        position: Vec3,
+    ) -> (i32, i32) {
+        let (_, center) = Self::radius_and_center(footprint.radius, self.grid_size);
+        let cell = self.cell_for_unit_position(position, center);
+        if old_cell == (cell.x, cell.y) {
+            return old_cell;
+        }
+        self.clear_path_position_square(
+            footprint.unit_id,
+            footprint.radius,
+            old_cell,
+            footprint.layer,
+        );
+        self.stamp_path_position_cell(footprint, cell);
+        (cell.x, cell.y)
+    }
+
+    fn stamp_path_position_cell(&mut self, footprint: &PathPositionFootprint, cell: GridPos) {
+        let (radius, center) = Self::radius_and_center(footprint.radius, self.grid_size);
+        let layer = PathfindLayerEnum::from_u32(footprint.layer as u32);
+        let above = radius + i32::from(center);
+        for x in (cell.x - radius)..(cell.x + above) {
+            for y in (cell.y - radius)..(cell.y + above) {
+                let pos = GridPos::new(x, y);
+                if !self.is_valid_pos(pos) {
+                    continue;
+                }
+                if layer != PathfindLayerEnum::Ground {
+                    self.mark_occupancy(
+                        pos,
+                        footprint.player,
+                        footprint.infantry,
+                        false,
+                        footprint.crushable_level,
+                        footprint.unit_id,
+                        layer,
+                    );
+                }
+                if footprint.on_ground || layer == PathfindLayerEnum::Ground {
+                    self.mark_occupancy(
+                        pos,
+                        footprint.player,
+                        footprint.infantry,
+                        false,
+                        footprint.crushable_level,
+                        footprint.unit_id,
+                        PathfindLayerEnum::Ground,
+                    );
+                }
+            }
+        }
+    }
+
+    /// C++ `removePos`: remove only this actor's previous position cells,
+    /// including ground cells at a bridge end. The actor clears its own cell.
+    pub fn clear_path_position_square(
+        &mut self,
+        unit_id: u32,
+        radius: f32,
+        old: (i32, i32),
+        layer: u8,
+    ) {
+        if old.0 < 0 || old.1 < 0 {
+            return;
+        }
+        let (radius, center) = Self::radius_and_center(radius, self.grid_size);
+        let above = radius + i32::from(center);
+        for x in (old.0 - radius)..(old.0 + above) {
+            for y in (old.1 - radius)..(old.1 + above) {
+                let Some(idx) = self.bit_index(GridPos::new(x, y)) else {
+                    continue;
+                };
+                if self.occ_pos_unit[idx] == unit_id {
+                    self.occ_pos_unit[idx] = 0;
+                    self.occ_pos_player[idx] = 0;
+                    self.occ_pos_flags[idx] = 0;
+                    self.occ_pos_crushable[idx] = 0;
+                }
+                if layer != PathfindLayerEnum::Ground as u8 {
+                    if let Some(occ) = self.layer_occ.get_mut(&layer) {
+                        let key = (x, y);
+                        if occ.occ_pos_unit.get(&key).copied() == Some(unit_id) {
+                            occ.occ_pos_unit.remove(&key);
+                            occ.occ_pos_player.remove(&key);
+                            occ.occ_pos_flags.remove(&key);
+                            occ.occ_pos_crushable.remove(&key);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Update dynamic obstacles based on unit positions
     pub fn update_dynamic_obstacles(
         &mut self,
@@ -250,12 +349,6 @@ impl PathfindingGrid {
 
             let player = obj.owner_player_id.unwrap_or(obj.team as u32);
             let infantry = obj.is_kind_of(KindOf::Infantry);
-            let (radius, center_in_cell) =
-                Self::radius_and_center(obj.selection_radius, self.grid_size);
-            let mut num_above = radius;
-            if center_in_cell {
-                num_above += 1;
-            }
             let pos = obj.get_position();
             let pos_layer = self.layer_for_destination(pos, ground_source);
             let pos_at_end = self.object_interacts_with_bridge_end(
@@ -265,37 +358,25 @@ impl PathfindingGrid {
             );
             let pos_do_layer = pos_layer != PathfindLayerEnum::Ground;
             let pos_do_ground = !pos_do_layer || pos_at_end;
-            let grid_pos = self.cell_for_unit_position(pos, center_in_cell);
-            for i in (grid_pos.x - radius)..(grid_pos.x + num_above) {
-                for j in (grid_pos.y - radius)..(grid_pos.y + num_above) {
-                    let p = GridPos::new(i, j);
-                    if self.is_valid_pos(p) {
-                        // C++ canCrushOrSquish TEST_CRUSH_OR_SQUISH: module
-                        // presence is crush-through even at CrushableLevel 255.
-                        let crushable = if obj.has_squish_collide {
-                            0
-                        } else {
-                            obj.crushable_level
-                        };
-                        if pos_do_ground {
-                            self.mark_occupancy(
-                                p,
-                                player,
-                                infantry,
-                                false,
-                                crushable,
-                                obj.id.0,
-                                PathfindLayerEnum::Ground,
-                            );
-                        }
-                        if pos_do_layer {
-                            self.mark_occupancy(
-                                p, player, infantry, false, crushable, obj.id.0, pos_layer,
-                            );
-                        }
-                    }
-                }
-            }
+            // This roster reconstruction remains transitional. Once pose
+            // callbacks own position changes, they pass the actor's real old
+            // cell and current geometry instead of rebuilding with this cache.
+            let footprint = PathPositionFootprint {
+                unit_id: obj.id.0,
+                player,
+                radius: obj.selection_radius,
+                layer: pos_layer as u8,
+                on_ground: pos_do_ground,
+                infantry,
+                crushable_level: if obj.has_squish_collide {
+                    0
+                } else {
+                    obj.crushable_level
+                },
+            };
+            let (_, center) = Self::radius_and_center(footprint.radius, self.grid_size);
+            let cell = self.cell_for_unit_position(pos, center);
+            self.stamp_path_position_cell(&footprint, cell);
         }
     }
 
@@ -2305,7 +2386,7 @@ impl PathfindingGrid {
             }
         }
         let occupied_by_ignored =
-            ignore_obstacle.is_some_and(|id| id != 0 && self.dynamic_pos_unit(cell) == id);
+            ignore_obstacle.is_some_and(|id| id != 0 && self.ground_position_unit(cell) == id);
         if !allow_pinched && self.is_pinched(cell) && !occupied_by_ignored {
             return false;
         }
@@ -2313,7 +2394,7 @@ impl PathfindingGrid {
         // fixed occupants (AIPathfind.cpp:5007). The driving follower supplies
         // its receiver; the last search's query_seeker_id is not this identity.
         let occupied_by_receiver =
-            receiver.is_some_and(|id| id != 0 && self.dynamic_pos_unit(cell) == id);
+            receiver.is_some_and(|id| id != 0 && self.ground_position_unit(cell) == id);
         if !occupied_by_ignored
             && !occupied_by_receiver
             && self.occupancy_blocks_line(cell, seeker_player, crusher_level)

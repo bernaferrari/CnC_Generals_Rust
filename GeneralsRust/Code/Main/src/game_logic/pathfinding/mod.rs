@@ -214,6 +214,17 @@ pub struct PathGoalUpdate {
     pub goal: Vec3,
 }
 
+/// Actor information needed by `Pathfinder::updatePos`.
+pub struct PathPositionFootprint {
+    pub unit_id: u32,
+    pub player: u32,
+    pub radius: f32,
+    pub layer: u8,
+    pub on_ground: bool,
+    pub infantry: bool,
+    pub crushable_level: u8,
+}
+
 /// Actor fields changed by its C++ AI loadPostProcess goal registration.
 pub(crate) struct RestoredPathGoal {
     pub object_id: ObjectId,

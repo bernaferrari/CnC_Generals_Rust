@@ -606,7 +606,7 @@ fn reissued_build_stays_constructing() {
 }
 
 #[test]
-fn ignored_structure_is_not_dynamically_stamped() {
+fn ignored_structure_keeps_its_stored_position() {
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
@@ -636,7 +636,7 @@ fn ignored_structure_is_not_dynamically_stamped() {
             .update_dynamic_obstacles(logic.objects.read(), &ground_source)
     });
     assert_eq!(
-        logic.pathfinding_system.grid.dynamic_pos_unit(cell),
+        logic.pathfinding_system.grid.ground_position_unit(cell),
         pad_id.0,
         "a live structure stamps its cell"
     );
@@ -658,9 +658,9 @@ fn ignored_structure_is_not_dynamically_stamped() {
             .update_dynamic_obstacles_ignoring(logic.objects.read(), Some(pad_id), &ground_source)
     });
     assert_eq!(
-        logic.pathfinding_system.grid.dynamic_pos_unit(cell),
-        0,
-        "ignoreObstacle skips the structure before the occupancy stamp"
+        logic.pathfinding_system.grid.ground_position_unit(cell),
+        pad_id.0,
+        "an ignore request must not erase the stored occupant"
     );
 }
 #[test]

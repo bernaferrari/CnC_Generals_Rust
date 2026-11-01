@@ -129,7 +129,8 @@ impl PathfindingGrid {
         Some(pos.y as usize * self.width as usize + pos.x as usize)
     }
 
-    pub(crate) fn dynamic_pos_unit(&self, pos: GridPos) -> u32 {
+    /// Last position owner on the ground layer, or zero when unoccupied.
+    pub fn ground_position_unit(&self, pos: GridPos) -> u32 {
         self.bit_index(pos)
             .and_then(|idx| self.occ_pos_unit.get(idx).copied())
             .unwrap_or(0)
