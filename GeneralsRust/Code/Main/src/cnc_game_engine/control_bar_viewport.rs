@@ -154,6 +154,7 @@ impl CnCGameEngine {
             ui,
             cursor_mouse,
         ) = self.game_client.window_owner_campaign_menu_and_host_mut();
+        let mut emitted_messages = Vec::new();
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
             control_bar_observation:Some(control_bar_observation),
             diplomacy_world: None,
@@ -173,7 +174,7 @@ impl CnCGameEngine {
             game_ending,
             tooltips_disabled,
             cursor_mouse,
-            emitted_messages: None,
+            emitted_messages: Some(&mut emitted_messages),
             campaign_manager: Some(campaign_manager),
             main_menu: Some(main_menu),
             window_manager_owner: Some(receiving_window_manager),
@@ -192,6 +193,9 @@ impl CnCGameEngine {
                 manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME);
             context.update_control_bar_animations(parent, manager);
         });
+        if let Err(error) = self.complete_receiving_menu_event_messages(emitted_messages) {
+            log::error!("Control bar callback completion failed: {error}");
+        }
     }
 
     pub(super) fn set_owned_control_bar_scheme(&mut self, side: &str) {

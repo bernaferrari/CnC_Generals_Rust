@@ -149,3 +149,79 @@ fn native_hover_clear_updates_only_its_actual_client_mouse() {
         0
     );
 }
+
+#[test]
+fn stationary_control_bar_tooltip_uses_receiving_callback_sink() {
+    use game_client_rust::gui::callbacks::control_bar_callbacks::ControlBarViewport;
+    use game_client_rust::gui::control_bar::{ControlBar, HostControlBarInputProvenance};
+    use game_client_rust::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource;
+    use game_client_rust::gui::window_manager::ControlBarInputContext;
+
+    struct Viewport;
+    impl ControlBarViewport for Viewport {
+        fn display_size(&self) -> (u32, u32) {
+            (800, 600)
+        }
+        fn set_height_px(&mut self, _: i32) {}
+    }
+
+    let mut owner = client();
+    let mut peer = client();
+    peer.input_mouse_mut()
+        .unwrap()
+        .set_cursor_tooltip("peer".into(), None, None, None);
+    owner.with_window_event_effects(None, |effects| {
+        effects.with_manager(|manager, effects| {
+            let window = manager
+                .create_window(None, 0, 0, 100, 100, effects)
+                .unwrap();
+            window
+                .borrow_mut()
+                .set_control_bar_tooltip_callback(|_, _, _, _| {});
+        });
+    });
+    let window_owner = owner.window_manager_owner();
+    let mut bar = ControlBar::new();
+    let mut viewport = Viewport;
+    let mut messages = Vec::new();
+    let mut context = ControlBarInputContext {
+        control_bar_observation: None,
+        menu_audio: None,
+        diplomacy_world: None,
+        input_provenance: HostControlBarInputProvenance::InjectedOrUnknown,
+        client_frame: Some(1),
+        logic_frame: Some(1),
+        ui: None,
+        menus: None,
+        ime: None,
+        upgrade_tooltip: UpgradeTooltipSource::Standalone,
+        camera_options: None,
+        replay_menu: None,
+        replay_version: None,
+        observer_roster: None,
+        control_bar: &mut bar,
+        viewport: &mut viewport,
+        replay: false,
+        game_ending: false,
+        tooltips_disabled: false,
+        cursor_mouse: owner.input_mouse_mut(),
+        window_manager_owner: Some(&window_owner),
+        campaign_manager: None,
+        menu_world: None,
+        menu_host: None,
+        window_videos: None,
+        in_game_movies: None,
+        script_display: None,
+        main_menu: None,
+        emitted_messages: Some(&mut messages),
+    };
+    window_owner.with_manager(|manager| manager.refresh_control_bar_tooltip(10, 10, &mut context));
+    owner.complete_window_event_messages(messages, None);
+    assert_eq!(
+        peer.input_mouse()
+            .unwrap()
+            .cursor_tooltip_state()
+            .tooltip_text,
+        "peer"
+    );
+}
