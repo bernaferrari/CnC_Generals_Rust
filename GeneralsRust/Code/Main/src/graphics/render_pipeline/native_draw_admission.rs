@@ -482,13 +482,28 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
         let Some(selected) = state.take_native_condition_to_install() else {
             return;
         };
-        // C++ setModelState applies transition and wait keys only when a
-        // current state exists. The first real state can be installed directly
-        // even when it carries those keys. Later transitions remain fail-closed
-        // until their full pending-state behavior is admitted.
-        let has_previous_state = state.native_selected_condition.is_some();
-        if (has_previous_state
-            && (!selected.transition_key.is_empty() || !selected.allow_to_finish_key.is_empty()))
+        // C++ setModelState can wait or select a transition only when the
+        // current state has a transition key. With no current key, installing
+        // the requested real state is direct even if it carries its own keys.
+        // Keep potentially pending transitions unavailable until their full
+        // sequencing is admitted.
+        let needs_transition = match state.native_selected_condition.as_ref() {
+            None => false,
+            Some(_)
+                if matches!(
+                    &state.installed_draw_pose,
+                    InstalledDrawObject::AwaitingAdmission
+                ) =>
+            {
+                !selected.transition_key.is_empty() || !selected.allow_to_finish_key.is_empty()
+            }
+            Some(current) => {
+                !current.transition_key.is_empty()
+                    && (selected.allow_to_finish_key == current.transition_key
+                        || !selected.transition_key.is_empty())
+            }
+        };
+        if needs_transition
             || selected.is_transition
             || selected.animations.len() > 1
             || selected.flags & ((1 << 0) | (1 << 5) | (1 << 7) | (1 << 8) | (1 << 9)) != 0
