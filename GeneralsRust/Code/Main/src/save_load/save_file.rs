@@ -1155,7 +1155,10 @@ impl SaveFileManager {
             filename: "quicksave".to_string(),
             display_name: "Quick Save".to_string(),
             description: "Quick save".to_string(),
-            map_name: "Unknown".to_string(), // Would get from game state
+            map_name: game_logic
+                .map_definition_source
+                .clone()
+                .unwrap_or_else(|| "Unknown".to_string()),
             campaign_side: None,
             mission_number: None,
             save_date: SystemTime::now(),
@@ -1192,7 +1195,10 @@ impl SaveFileManager {
             filename: format!("autosave_{}", timestamp),
             display_name: "Auto Save".to_string(),
             description: format!("Automatic save at {}", timestamp),
-            map_name: "Unknown".to_string(),
+            map_name: game_logic
+                .map_definition_source
+                .clone()
+                .unwrap_or_else(|| "Unknown".to_string()),
             campaign_side: None,
             mission_number: None,
             save_date: SystemTime::now(),
