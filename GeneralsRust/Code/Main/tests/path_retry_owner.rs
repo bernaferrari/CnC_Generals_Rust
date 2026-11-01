@@ -1696,7 +1696,7 @@ fn tighten_continuation_is_actor_owned_and_survives_pending_save() {
         .create_object_for_player("RetryWalker", 1, start)
         .unwrap();
     assert_eq!(stuck_id, peer_id);
-    assert!(stuck.unit_command_tighten_to(stuck_id, Vec3::new(100.0, 0.0, 150.0)));
+    assert!(stuck.unit_command_tighten_to(stuck_id, Vec3::new(100.0, 0.0, 300.0)));
     stuck.update_with_dt(1.0 / 30.0);
     assert!(!stuck.host_object(stuck_id).unwrap().waiting_for_path);
     assert!(stuck.host_object(stuck_id).unwrap().is_approach_path);
@@ -1717,6 +1717,91 @@ fn tighten_continuation_is_actor_owned_and_survives_pending_save() {
         "the first stuck retry uses requestPath, not requestApproachPath"
     );
     let saved = builder.create_world_snapshot(&stuck).unwrap();
+    // Restore a locked live actor using the same serialized machine state
+    // that the production save/load boundary consumes.
+    let mut locked_save = builder.create_world_snapshot(&stuck).unwrap();
+    let mut found_machine = false;
+    for module in locked_save
+        .objects
+        .get_mut(&stuck_id)
+        .unwrap()
+        .modules
+        .values_mut()
+    {
+        let Ok(mut value) = serde_json::to_value(&*module) else {
+            continue;
+        };
+        let Some(machine) = value
+            .get_mut("BaseAi")
+            .and_then(|v| v.get_mut("continuation"))
+        else {
+            continue;
+        };
+        machine["locked"] = true.into();
+        *module = serde_json::from_value(value).unwrap();
+        found_machine = true;
+        break;
+    }
+    assert!(
+        found_machine,
+        "the test must lock the saved live AI machine"
+    );
+    let mut locked = world(&map);
+    builder
+        .restore_from_snapshot(&locked_save, &mut locked)
+        .unwrap();
+    let mut lock_peer = world(&map);
+    builder
+        .restore_from_snapshot(&saved, &mut lock_peer)
+        .unwrap();
+    {
+        use generals_main::game_logic::{ObjectAudio, SessionAudio};
+        let mut audio = SessionAudio::default();
+        let actor = locked.host_object_mut(stuck_id).unwrap();
+        actor.set_ai_state(AIState::Idle, &mut ObjectAudio::queue(&mut audio));
+        assert_eq!(
+            actor.ai_state(),
+            AIState::Moving,
+            "an external state change remains locked"
+        );
+    }
+    for _ in 0..35 {
+        if !locked.host_object(stuck_id).unwrap().waiting_for_path {
+            break;
+        }
+        locked.update_with_dt(1.0 / 30.0);
+    }
+    assert!(!locked.host_object(stuck_id).unwrap().waiting_for_path);
+    locked
+        .host_object_mut(stuck_id)
+        .unwrap()
+        .is_blocked_and_stuck = true;
+    locked.update_with_dt(1.0 / 30.0);
+    assert_eq!(
+        locked.host_object(stuck_id).unwrap().ai_state(),
+        AIState::Idle,
+        "the state's own failure transitions even when external changes are locked"
+    );
+    assert_eq!(
+        lock_peer.host_object(stuck_id).unwrap().ai_state(),
+        AIState::Moving
+    );
+    let locked_after = builder.create_world_snapshot(&locked).unwrap();
+    let mut locked_reloaded = world(&map);
+    builder
+        .restore_from_snapshot(&locked_after, &mut locked_reloaded)
+        .unwrap();
+    {
+        use generals_main::game_logic::{ObjectAudio, SessionAudio};
+        let mut audio = SessionAudio::default();
+        let actor = locked_reloaded.host_object_mut(stuck_id).unwrap();
+        actor.set_ai_state(AIState::Moving, &mut ObjectAudio::queue(&mut audio));
+        assert_eq!(
+            actor.ai_state(),
+            AIState::Idle,
+            "the lock survives the internal transition and reload"
+        );
+    }
     let mut stuck_restored = world(&map);
     builder
         .restore_from_snapshot(&saved, &mut stuck_restored)

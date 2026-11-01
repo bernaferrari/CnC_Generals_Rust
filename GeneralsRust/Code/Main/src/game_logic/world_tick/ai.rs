@@ -36,7 +36,7 @@ impl GameLogic {
         };
         if !retry {
             if let Some(object) = self.objects.get_mut(&object_id) {
-                object.set_ai_state(
+                object.set_ai_root_state_from_result(
                     AIState::Idle,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );

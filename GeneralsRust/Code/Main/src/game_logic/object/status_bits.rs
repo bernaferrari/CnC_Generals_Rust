@@ -1,5 +1,11 @@
 use super::*;
 
+#[derive(PartialEq, Eq)]
+enum AiTransitionOrigin {
+    External,
+    StateResult,
+}
+
 impl Object {
     pub fn select(&mut self) {
         if self.is_selectable() {
@@ -1055,7 +1061,7 @@ impl Object {
     /// moving/attacking status bits from the authoritative ordinal.
 
     pub fn set_ai_state(&mut self, state: AIState, audio: &mut crate::game_logic::ObjectAudio<'_>) {
-        self.set_ai_state_entry(state, audio, false, None);
+        self.set_ai_state_entry(state, audio, false, None, AiTransitionOrigin::External);
     }
     pub(crate) fn set_ai_state_at_frame(
         &mut self,
@@ -1063,7 +1069,21 @@ impl Object {
         frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        self.set_ai_state_entry(state, audio, false, Some(frame));
+        self.set_ai_state_entry(
+            state,
+            audio,
+            false,
+            Some(frame),
+            AiTransitionOrigin::External,
+        );
+    }
+    /// Apply a root state's own result without unlocking external commands.
+    pub(crate) fn set_ai_root_state_from_result(
+        &mut self,
+        state: AIState,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+    ) {
+        self.set_ai_state_entry(state, audio, false, None, AiTransitionOrigin::StateResult);
     }
     pub(crate) fn set_ai_child_state(
         &mut self,
@@ -1073,7 +1093,7 @@ impl Object {
         if !self.unit_ai_runtime.can_enter_child() || self.unit_ai_runtime.machine_locked() {
             return false;
         }
-        self.set_ai_state_entry(state, audio, true, None);
+        self.set_ai_state_entry(state, audio, true, None, AiTransitionOrigin::External);
         true
     }
     fn set_ai_state_entry(
@@ -1082,8 +1102,9 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         nested: bool,
         frame: Option<u32>,
+        origin: AiTransitionOrigin,
     ) {
-        if self.unit_ai_runtime.machine_locked() {
+        if self.unit_ai_runtime.machine_locked() && origin == AiTransitionOrigin::External {
             return;
         }
 
