@@ -40,14 +40,18 @@ fn lookup_window_chain(
     lent: &[&GameWindow],
 ) -> Option<Rc<RefCell<GameWindow>>> {
     for window in windows.iter().skip(start) {
-        let (is_match, children) = with_lookup_window(window, selected, lent, |value| {
-            (matches(value), value.children().to_vec())
+        // The lookup only reads the tree; keep this immutable borrow while
+        // descending instead of cloning every child list we visit. Lent
+        // windows are still read through the exact active callback borrow.
+        let found = with_lookup_window(window, selected, lent, |value| {
+            if matches(value) {
+                Some(window.clone())
+            } else {
+                lookup_window_chain(value.children(), 0, matches, selected, lent)
+            }
         });
-        if is_match {
-            return Some(window.clone());
-        }
-        if let Some(found) = lookup_window_chain(&children, 0, matches, selected, lent) {
-            return Some(found);
+        if found.is_some() {
+            return found;
         }
     }
     None
