@@ -30,6 +30,8 @@ pub(super) struct RuntimeHostSnapshot {
     pub(super) logic_steps: u32,
     /// Friendly under-construction structures (local player team).
     pub(super) under_construction: u32,
+    /// One friendly scaffold's template and frozen construction fraction.
+    pub(super) construction_sample: String,
     /// Match damage applied residual (host combat honesty).
     pub(super) match_damage_applied: f32,
     /// Match kill events residual (host combat honesty).
@@ -356,6 +358,7 @@ impl RuntimeHostBridge {
             logic_frame: 0,
             logic_steps: 0,
             under_construction: 0,
+            construction_sample: "-".to_string(),
             match_damage_applied: 0.0,
             match_kills: 0,
             selected_count: 0,
@@ -429,6 +432,10 @@ impl RuntimeHostBridge {
         payload.push_str(&format!(
             "under_construction={}\n",
             snapshot.under_construction
+        ));
+        payload.push_str(&format!(
+            "construction_sample={}\n",
+            snapshot.construction_sample
         ));
         payload.push_str(&format!(
             "match_damage_applied={:.3}\n",

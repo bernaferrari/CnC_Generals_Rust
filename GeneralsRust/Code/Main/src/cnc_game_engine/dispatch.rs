@@ -1120,6 +1120,32 @@ impl CnCGameEngine {
                 )
             };
 
+        // Use the same frozen frame and friendly/liveness filter as the count.
+        // The diagnostic can distinguish a slowly building scaffold from one
+        // whose builder never reaches its BUILD action.
+        let construction_sample = self
+            .last_presentation_frame
+            .as_ref()
+            .and_then(|frame| {
+                let team = frame.local_team();
+                frame
+                    .objects
+                    .iter()
+                    .find(|object| {
+                        object.team == team
+                            && !object.destroyed
+                            && !object.sold
+                            && object.under_construction
+                    })
+                    .map(|object| {
+                        format!(
+                            "{}:{:.6}",
+                            object.template_name, object.construction_percent
+                        )
+                    })
+            })
+            .unwrap_or_else(|| "-".to_string());
+
         {
             let (d, k) = self.host_game_logic().health_events.cumulative_totals();
             self.match_damage_applied = d;
@@ -1189,6 +1215,7 @@ impl CnCGameEngine {
             logic_frame: self.presentation_or_boot_logic_frame(),
             logic_steps: self.presentation_or_boot_logic_steps(),
             under_construction,
+            construction_sample,
             match_damage_applied: self.match_damage_applied,
             match_kills: self.match_kills,
             selected_count,
