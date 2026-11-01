@@ -36,6 +36,15 @@ impl GameLogic {
         let Some(mut object) = self.objects.remove(&id) else {
             return Ok(None);
         };
+        // Object::~Object first removes its pathfinder entries after unlinking.
+        if !object.is_kind_of(KindOf::Immobile) {
+            self.pathfinding_system.grid.clear_path_goal_square(
+                id.0,
+                object.selection_radius,
+                object.pathfind_goal_cell,
+                object.pathfind_goal_layer,
+            );
+        }
         // GameLogic.cpp2501–2506 removes BOTH lookup and original list before
         // friend_deleteInstance. The owned value keeps its original team until
         // Object.cpp604 sendObjectDestroyed completes, then setTeam(NULL)607.
@@ -55,7 +64,10 @@ impl GameLogic {
         self.partition_manager.unregister_object(id.0);
         // Object::~Object removes group membership after partition teardown,
         // before module destruction.
-        self.leave_ai_group_with_birth(id, &std::sync::Arc::downgrade(&object.visual_draw_identity_token));
+        self.leave_ai_group_with_birth(
+            id,
+            &std::sync::Arc::downgrade(&object.visual_draw_identity_token),
+        );
         object.partition_namespace = Default::default();
         object.host_trigger_world = Default::default();
         object.team_factory.clear();

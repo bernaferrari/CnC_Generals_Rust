@@ -55,6 +55,7 @@ fn aircraft_goal_projection_uses_half_cell_footprints_on_the_driving_grid() {
     object.pathfind_goal_cell = (cell.x, cell.y);
     assert_eq!(PathfindingGrid::radius_and_center(8.0, 10.0), (1, false));
     let mut objects = registered_path_fixture([(object.id, object)]);
+    grid.restore_aircraft_goals(objects.read());
     let claims = grid.aircraft_goal_claims(objects.read(), 8);
     let expected = HashSet::from([
         GridPos::new(7, 7),
@@ -72,6 +73,7 @@ fn aircraft_goal_projection_uses_half_cell_footprints_on_the_driving_grid() {
     }
     assert_eq!(grid.goal_aircraft(GridPos::new(6, 6)), 0);
     objects.get_mut(&ObjectId(7)).unwrap().selection_radius = 2.0;
+    grid.restore_aircraft_goals(objects.read());
     assert_eq!(
         grid.aircraft_goal_claims(objects.read(), 8),
         HashSet::from([GridPos::new(8, 8)])
@@ -84,14 +86,13 @@ fn aircraft_goal_projection_uses_half_cell_footprints_on_the_driving_grid() {
 
 #[test]
 fn aircraft_goal_projection_excludes_non_reserving_runtime_states() {
-    let grid = PathfindingGrid::new(200.0, 200.0, 10.0);
     let goal = Vec3::new(80.0, 40.0, 80.0);
     let mut object = aircraft(1, LocomotorAppearance::Hover, goal);
     let claims = |object: &Object| {
-        grid.aircraft_goal_claims(
-            registered_path_fixture([(object.id, object.clone())]).read(),
-            2,
-        )
+        let objects = registered_path_fixture([(object.id, object.clone())]);
+        let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+        grid.restore_aircraft_goals(objects.read());
+        grid.aircraft_goal_claims(objects.read(), 2)
     };
     assert!(!claims(&object).is_empty());
     object.cur_locomotor_name = None;
@@ -128,6 +129,10 @@ fn aircraft_attack_query_uses_current_goals_instead_of_old_occupancy() {
     world
         .objects
         .admit(ObjectId(2), aircraft(2, LocomotorAppearance::Wings, dest));
+    world
+        .pathfinding_system
+        .grid
+        .restore_aircraft_goals(world.objects.read());
     ({
         let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
         world
@@ -649,9 +654,10 @@ fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
             }
         };
     }
-    // Reverse the disagreement. A dead host cannot acquire a reservation from
-    // a healthy foreign same-ID entity, nor retain its earlier cached footprint.
+    // Reverse the disagreement and deliver the local removal event. A healthy
+    // foreign same-ID entity cannot recreate the removed local reservation.
     driving.objects.get_mut(&hover).unwrap().health.current = 0.0;
+    driving.remove_registered_path_goal(hover);
     shadow
         .world_mut()
         .world_mut()
@@ -661,7 +667,7 @@ fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
     let dead_attack = adjusted(&driving, wings, dest);
     assert_ne!(
         dead_attack, baseline_attack,
-        "the local HP change has a real effect"
+        "the local removal has a real effect"
     );
     {
         {

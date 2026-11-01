@@ -31,12 +31,99 @@ fn aircraft_world(map: &std::path::Path) -> GameLogic {
     let mut world = GameLogic::new();
     let mut locomotors = LocomotorStore::new_owned();
     locomotors.apply_source("Locomotor RetryFly\n Surfaces = AIR\n Speed = 30\n MinSpeed = 10\n MinTurnSpeed = 10\n Acceleration = 60\n TurnRate = 120\n Appearance = WINGS\nEnd\n").unwrap();
+    locomotors.apply_source("Locomotor RetryGround\n Surfaces = GROUND\n Speed = 30\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\n").unwrap();
     world.admit_locomotor_definitions(locomotors).unwrap();
-    world.admit_object_ini_sources([("RetryFly.ini".into(), "Object RetryFlyer\n KindOf = SELECTABLE VEHICLE AIRCRAFT\n Locomotor = SET_NORMAL RetryFly\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into())]).unwrap();
+    world.admit_object_ini_sources([("RetryFly.ini".into(), "Object RetryFlyer\n KindOf = SELECTABLE VEHICLE AIRCRAFT\n Locomotor = SET_NORMAL RetryFly\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into()), ("RetryGround.ini".into(), "Object RetryGroundUnit\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL RetryGround\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into())]).unwrap();
     world.start_new_game(GameMode::SinglePlayer);
     assert!(world.load_map(map.to_str().unwrap()));
     world.add_player(Player::new(1, Team::USA, "Owner", true));
     world
+}
+
+#[test]
+fn aircraft_goal_overwrite_survives_rebuild_without_reviving_previous_owner() {
+    use generals_main::game_logic::pathfinding::GridPos;
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("GoalOrder.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+
+    let mut owner = aircraft_world(&map);
+    let mut peer = aircraft_world(&map);
+    let mut ids = Vec::new();
+    for world in [&mut owner, &mut peer] {
+        let low = world
+            .create_object_for_player("RetryFlyer", 1, Vec3::new(100.0, 0.0, 100.0))
+            .unwrap();
+        let high = world
+            .create_object_for_player("RetryFlyer", 1, Vec3::new(110.0, 0.0, 100.0))
+            .unwrap();
+        let ground_a = world
+            .create_object_for_player("RetryGroundUnit", 1, Vec3::new(250.0, 0.0, 250.0))
+            .unwrap();
+        let ground_b = world
+            .create_object_for_player("RetryGroundUnit", 1, Vec3::new(260.0, 0.0, 250.0))
+            .unwrap();
+        ids.push((low, high, ground_a, ground_b));
+    }
+    assert_eq!(ids[0], ids[1]);
+    let (low, high, ground_a, ground_b) = ids[0];
+    let goal = Vec3::new(150.0, 0.0, 150.0);
+    for (world, order) in [(&mut owner, [high, low]), (&mut peer, [low, high])] {
+        for id in order {
+            world.host_object_mut(id).unwrap().is_final_goal = true;
+            assert!(world.assign_unit_path(id, goal, &[]));
+            for _ in 0..2 {
+                world.update_with_dt(1.0 / 30.0);
+            }
+        }
+    }
+    let (x, y) = owner.host_object(low).unwrap().pathfind_goal_cell;
+    assert_eq!(owner.host_object(high).unwrap().pathfind_goal_cell, (x, y));
+    let cell = GridPos::new(x, y);
+    assert_eq!(owner.pathfinding_aircraft_goal(cell), Some(low));
+    assert_eq!(peer.pathfinding_aircraft_goal(cell), Some(high));
+
+    assert!(owner.assign_unit_path(ground_a, Vec3::new(300.0, 0.0, 250.0), &[]));
+    for _ in 0..3 {
+        owner.update_with_dt(1.0 / 30.0);
+    }
+    assert_eq!(
+        owner.pathfinding_aircraft_goal(cell),
+        Some(low),
+        "rebuild changed registration order"
+    );
+    assert!(owner.unit_command_tighten_to(low, Vec3::new(190.0, 0.0, 190.0)));
+    assert_eq!(owner.pathfinding_aircraft_goal(cell), None);
+    assert!(owner.assign_unit_path(ground_b, Vec3::new(300.0, 0.0, 260.0), &[]));
+    for _ in 0..3 {
+        owner.update_with_dt(1.0 / 30.0);
+    }
+    assert_eq!(
+        owner.pathfinding_aircraft_goal(cell),
+        None,
+        "overwritten owner returned"
+    );
+    assert_eq!(peer.pathfinding_aircraft_goal(cell), Some(high));
+    peer.destroy_object(high).unwrap();
+    for _ in 0..2 {
+        peer.update_with_dt(1.0 / 30.0);
+    }
+    assert!(peer.host_object(high).is_none());
+    assert_eq!(peer.pathfinding_aircraft_goal(cell), None);
+    peer.reset();
+    assert_eq!(peer.pathfinding_aircraft_goal(cell), None);
+    assert_eq!(owner.pathfinding_aircraft_goal(cell), None);
 }
 
 #[test]
@@ -271,11 +358,8 @@ fn aircraft_registered_goal_is_owned_by_its_session_and_survives_save() {
         v17_restored.host_object(id).unwrap().pathfind_goal_cell,
         goal
     );
-    let mut grid = generals_main::game_logic::pathfinding::PathfindingGrid::new(410.0, 410.0, 10.0);
-    let ground = generals_main::game_logic::pathfinding::PathfindingGround::Flat(0.0);
     let goal_pos = generals_main::game_logic::pathfinding::GridPos::new(goal.0, goal.1);
-    grid.update_dynamic_obstacles(owner.host_objects(), &ground);
-    assert_eq!(grid.goal_aircraft(goal_pos), id.0);
+    assert_eq!(owner.pathfinding_aircraft_goal(goal_pos), Some(id));
 
     let snapshot = builder.create_world_snapshot(&owner).unwrap();
     let mut restored = aircraft_world(&map);
@@ -283,12 +367,12 @@ fn aircraft_registered_goal_is_owned_by_its_session_and_survives_save() {
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
     assert_eq!(restored.host_object(id).unwrap().pathfind_goal_cell, goal);
+    assert_eq!(restored.pathfinding_aircraft_goal(goal_pos), Some(id));
     assert!(owner.unit_command_tighten_to(id, Vec3::new(150.0, 0.0, 150.0)));
     assert_eq!(owner.host_object(id).unwrap().pathfind_goal_cell, (-1, -1));
-    grid.update_dynamic_obstacles(owner.host_objects(), &ground);
     assert_ne!(
-        grid.goal_aircraft(goal_pos),
-        id.0,
+        owner.pathfinding_aircraft_goal(goal_pos),
+        Some(id),
         "rebuild resurrected the removed claim"
     );
     assert_eq!(peer.host_object(id).unwrap().pathfind_goal_cell, peer_goal);

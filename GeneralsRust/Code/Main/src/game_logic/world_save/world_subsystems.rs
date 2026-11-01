@@ -1266,6 +1266,12 @@ impl GameLogic {
             .grid
             .is_static_blocked(super::pathfinding::GridPos::new(x, y))
     }
+
+    /// The aircraft currently owning a pathfinding goal cell in this session.
+    pub fn pathfinding_aircraft_goal(&self, cell: super::pathfinding::GridPos) -> Option<ObjectId> {
+        let id = self.pathfinding_system.grid.goal_aircraft(cell);
+        (id != 0).then_some(ObjectId(id))
+    }
     pub(in super::super) fn seed_pathfinding_from_terrain(&mut self) {
         self.seed_pathfinding_from_terrain_with_effects(&mut Default::default())
     }

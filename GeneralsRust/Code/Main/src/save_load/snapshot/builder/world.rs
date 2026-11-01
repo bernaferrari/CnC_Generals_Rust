@@ -515,7 +515,11 @@ impl SnapshotBuilder {
         for object in snapshot.objects.values() {
             for module in object.modules.values() {
                 if let ModuleSnapshot::OpenContainEntered(player_id) = module {
-                    if !snapshot.players.iter().any(|player| player.id == *player_id) {
+                    if !snapshot
+                        .players
+                        .iter()
+                        .any(|player| player.id == *player_id)
+                    {
                         return Err(SaveLoadError::Corrupted(format!(
                             "OpenContain entrant references absent player {player_id}"
                         )));
@@ -790,7 +794,7 @@ impl SnapshotBuilder {
         // The outgoing timeline's path requests must not coexist with the
         // newly admitted objects and saved AI requests. C++ world reset calls
         // AI::reset -> Pathfinder::reset before loading the replacement.
-        game_logic.pathfinding_system.reset_pending_paths();
+        game_logic.pathfinding_system.reset_for_new_timeline();
         // Restore before Objects are reconstructed and invoke creation callbacks.
         let debris_mask = game_logic.current_dynamic_debris_skip_mask();
         game_logic
@@ -1185,6 +1189,12 @@ impl SnapshotBuilder {
         } else {
             game_logic.reattach_legacy_partition_after_restore();
         }
+        // C++ Pathfinder cells are transient; AI loadPostProcess registers
+        // goals again after the receiving actors and their state exist.
+        game_logic
+            .pathfinding_system
+            .grid
+            .restore_aircraft_goals(game_logic.objects.read());
         log::info!("World restoration complete");
         Ok(())
     }

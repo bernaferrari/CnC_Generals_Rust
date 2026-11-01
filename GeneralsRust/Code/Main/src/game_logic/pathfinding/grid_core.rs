@@ -1224,12 +1224,17 @@ impl PathfindingGrid {
     }
 
     pub fn clear_dynamic_blocks(&mut self) {
+        self.clear_dynamic_observations();
+        self.occ_goal_aircraft.fill(0);
+    }
+
+    /// Refresh derived obstacles without disturbing event-owned aircraft goals.
+    pub(super) fn clear_dynamic_observations(&mut self) {
         self.explicit_dynamic_bits.fill(0);
         self.occ_fixed_mask.fill(0);
         self.occ_moving_mask.fill(0);
         self.occ_goal_mask.fill(0);
         self.occ_goal_unit.fill(0);
-        self.occ_goal_aircraft.fill(0);
         self.occ_infantry_mask.fill(0);
         self.occ_fixed_max_crushable.fill(0);
         self.occ_pos_unit.fill(0);

@@ -209,7 +209,7 @@ impl PathfindingGrid {
         ignore: Option<ObjectId>,
         ground_source: &PathfindingGround<'_>,
     ) {
-        self.clear_dynamic_blocks();
+        self.clear_dynamic_observations();
 
         // C++ iterates TheGameLogic's insertion-ordered object list
         // (getFirstObject/getNextObject); HashMap order would randomize which
@@ -231,9 +231,6 @@ impl PathfindingGrid {
                 continue;
             }
             if is_aircraft {
-                if Self::is_aircraft_that_adjusts_destination(obj) {
-                    self.stamp_aircraft_goal_from_object(obj);
-                }
                 // C++ updatePos: !isDoingGroundMovement → removePos and return.
                 // JetAIUpdate never grounds; parked/taxiing jets do not stamp UNIT_PRESENT.
                 if !Self::is_doing_ground_movement(obj) {
@@ -676,7 +673,8 @@ impl PathfindingGrid {
     }
 
     /// C++ `Pathfinder::updateAircraftGoal`: replace the actor's old claim.
-    pub(crate) fn update_aircraft_goal_cell(
+    /// The caller stores the returned cell on the owning actor.
+    pub fn update_aircraft_goal_cell(
         &mut self,
         unit_id: u32,
         selection_radius: f32,
@@ -734,30 +732,28 @@ impl PathfindingGrid {
         Some((cell, radius, radius + i32::from(center)))
     }
 
-    /// Current roster claims, without the seeker's own reservation. Match the
-    /// grid rebuild's visitation order when two goals claim the same cell.
+    /// Current grid claims, excluding the seeker's own reservation.
     pub(super) fn aircraft_goal_claims(
         &self,
-        objects: HostObjectRead<'_>,
+        _objects: HostObjectRead<'_>,
         seeker: u32,
     ) -> HashSet<GridPos> {
-        let mut owners = HashMap::new();
-        let mut actors: Vec<_> = objects.registered_values().collect();
-        actors.sort_by_key(|obj| obj.id);
-        for obj in actors {
-            let Some((cell, radius, num_above)) = self.aircraft_goal_footprint(obj) else {
-                continue;
-            };
-            for i in (cell.x - radius)..(cell.x + num_above) {
-                for j in (cell.y - radius)..(cell.y + num_above) {
-                    owners.insert(GridPos::new(i, j), obj.id.0);
-                }
-            }
-        }
-        owners
-            .into_iter()
-            .filter_map(|(cell, owner)| (owner != seeker).then_some(cell))
+        self.occ_goal_aircraft
+            .iter()
+            .enumerate()
+            .filter_map(|(index, &owner)| {
+                (owner != 0 && owner != seeker)
+                    .then(|| GridPos::new(index as i32 % self.width, index as i32 / self.width))
+            })
             .collect()
+    }
+
+    /// Reconstruct transient pathfinder cells after the receiving objects load.
+    pub(crate) fn restore_aircraft_goals(&mut self, objects: HostObjectRead<'_>) {
+        self.occ_goal_aircraft.fill(0);
+        for object in objects.registered_values() {
+            self.stamp_aircraft_goal_from_object(object);
+        }
     }
 
     /// C++ `Pathfinder::updateAircraftGoal`, on the driving grid only.

@@ -35,12 +35,22 @@ fn removing_a_goal_clears_its_aircraft_claim_without_touching_other_owners() {
     let id = aircraft(&mut world, Vec3::new(80.0, 0.0, 80.0));
     let other = aircraft(&mut world, Vec3::new(140.0, 0.0, 140.0));
     let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+    grid.update_aircraft_goal_cell(id.0, 8.0, (-1, -1), 0, Vec3::new(80.0, 0.0, 80.0), true);
+    grid.update_aircraft_goal_cell(
+        other.0,
+        8.0,
+        (-1, -1),
+        0,
+        Vec3::new(140.0, 0.0, 140.0),
+        true,
+    );
     grid.update_dynamic_obstacles(world.host_objects(), &PathfindingGround::Flat(0.0));
     let mut peer_world = GameLogic::new();
     peer_world.add_player(Player::new(0, Team::USA, "Peer", true));
     let peer_id = aircraft(&mut peer_world, Vec3::new(80.0, 0.0, 80.0));
     assert_eq!(id, peer_id);
     let mut peer = PathfindingGrid::new(200.0, 200.0, 10.0);
+    peer.update_aircraft_goal_cell(id.0, 8.0, (-1, -1), 0, Vec3::new(80.0, 0.0, 80.0), true);
     peer.update_dynamic_obstacles(peer_world.host_objects(), &PathfindingGround::Flat(0.0));
     let owned = GridPos::new(8, 8);
     let neighbor = GridPos::new(14, 14);
@@ -98,12 +108,14 @@ fn replacing_a_ground_goal_replaces_the_recorded_owner() {
 }
 
 #[test]
-fn overlapping_aircraft_goals_belong_to_the_last_rebuilt_actor() {
+fn overlapping_aircraft_goals_belong_to_the_last_registered_actor() {
     let mut world = GameLogic::new();
     world.add_player(Player::new(0, Team::USA, "Owner", true));
     let first = aircraft(&mut world, Vec3::new(80.0, 0.0, 80.0));
     let second = aircraft(&mut world, Vec3::new(80.0, 0.0, 80.0));
     let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+    grid.update_aircraft_goal_cell(first.0, 8.0, (-1, -1), 0, Vec3::new(80.0, 0.0, 80.0), true);
+    grid.update_aircraft_goal_cell(second.0, 8.0, (-1, -1), 0, Vec3::new(80.0, 0.0, 80.0), true);
     grid.update_dynamic_obstacles(world.host_objects(), &PathfindingGround::Flat(0.0));
     let cell = GridPos::new(8, 8);
     assert_eq!(grid.goal_aircraft(cell), second.0);
@@ -120,6 +132,7 @@ fn removing_an_off_grid_goal_clears_its_in_bounds_footprint() {
     actor.selection_radius = 20.0;
     actor.pathfind_goal_cell = (-1, 5);
     let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+    grid.update_aircraft_goal_cell(id.0, 20.0, (-1, -1), 0, Vec3::new(-10.0, 0.0, 50.0), true);
     grid.update_dynamic_obstacles(world.host_objects(), &PathfindingGround::Flat(0.0));
     let cell = GridPos::new(0, 5);
     assert_eq!(grid.goal_aircraft(cell), id.0);

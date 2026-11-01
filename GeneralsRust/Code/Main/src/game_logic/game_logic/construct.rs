@@ -1634,7 +1634,7 @@ impl GameLogic {
         // load_map does not call reset, so preserve_host_players still keeps AI.
         // GameLogic::reset -> AI::reset -> Pathfinder::reset clears the
         // receiving match's queued object IDs before the next match starts.
-        self.pathfinding_system.reset_pending_paths();
+        self.pathfinding_system.reset_for_new_timeline();
         self.ai_manager = AIManager::with_team_factory(self.team_factory.clone());
         // GameLogic.cpp resets the ScriptEngine after Object teardown and AI.
         // The owned command queue is not the already-admitted native command

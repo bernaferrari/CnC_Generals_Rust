@@ -196,8 +196,7 @@ impl PathfindingSystem {
                 target_radius,
             )
         };
-        // The driving roster supplies the only goal reservations for this
-        // query. Core's standalone AI model may belong to another match.
+        // Query the driving session's event-owned pathfinder reservations.
         let claimed = self.grid.aircraft_goal_claims(objects, seeker);
 
         let mut out = dest;
@@ -309,11 +308,7 @@ impl PathfindingSystem {
                 }
             }
         }
-        if cells.is_empty() {
-            None
-        } else {
-            Some(cells)
-        }
+        if cells.is_empty() { None } else { Some(cells) }
     }
 
     /// C++ `processPathfindQueue` reset of `m_cumulativeCellsAllocated` + extent.
@@ -978,8 +973,9 @@ impl PathfindingSystem {
         self.pending_paths.drain(..).collect()
     }
 
-    pub(crate) fn reset_pending_paths(&mut self) {
+    pub(crate) fn reset_for_new_timeline(&mut self) {
         self.pending_paths.clear();
+        self.grid.clear_dynamic_blocks();
     }
 
     pub fn pending_path_count(&self) -> usize {
