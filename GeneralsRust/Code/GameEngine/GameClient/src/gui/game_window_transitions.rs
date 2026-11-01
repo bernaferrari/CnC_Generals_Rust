@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use glam::Vec2;
 
-use super::game_window::{Color, GameWindow, WindowDrawData, WindowStatus, resolve_window_text};
+use super::game_window::{Color, GameWindow, WindowDrawData, WindowStatus};
 use super::ui_renderer::UIRect;
 use super::window_manager::TransitionWindowAccess;
 use crate::display::image::get_mapped_image_collection;
@@ -1650,22 +1650,21 @@ impl Transition for TextTypeTransition {
         window_access: &mut TransitionWindowAccess<'_, '_>,
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
-        if let Some(win_rc) = win {
-            let win_ref = window_access.borrow_window(&win_rc);
+        if let Some(win_rc) = &win {
+            let win_ref = window_access.borrow_window(win_rc);
             let (w, h) = win_ref.get_size();
             let (x, y) = win_ref.get_screen_position();
             self.size = ICoord2D { x: w, y: h };
             self.pos = ICoord2D { x, y };
-            self.full_text = resolve_window_text(win_ref.get_text());
-        }
-        let length = self.full_text.chars().count() as i32;
-        if length > 0 {
-            self.frame_length = length.min(30);
         }
         self.is_forward = false;
         self.update(0, window_access);
         self.is_finished = false;
         self.is_forward = true;
+        if let Some(win_rc) = &win {
+            self.full_text = window_access.borrow_window(win_rc).get_text().to_owned();
+        }
+        self.frame_length = (self.full_text.chars().count() as i32).min(30);
         self.partial_text.clear();
     }
 
@@ -2976,7 +2975,6 @@ impl GameWindowTransitionsHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_text::GameText;
 
     #[test]
     fn fade_transition_finishes_on_last_forward_frame() {
@@ -3015,15 +3013,14 @@ mod tests {
     }
 
     #[test]
-    fn text_type_transition_localizes_window_text_on_init() {
-        let _ = GameText::init_runtime_strings();
+    fn text_type_transition_keeps_window_text_on_init() {
         let win = Rc::new(RefCell::new(GameWindow::new()));
-        win.borrow_mut().set_text("GUI:Back").unwrap();
+        win.borrow_mut().set_text("  GUI:Back ").unwrap();
         let mut transition = TextTypeTransition::new();
 
         transition.init(Some(win), &HashMap::new(), (800, 600));
 
-        assert_eq!(transition.full_text, "BACK");
+        assert_eq!(transition.full_text, "  GUI:Back ");
     }
 
     #[test]

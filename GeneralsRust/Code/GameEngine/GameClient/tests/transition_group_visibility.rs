@@ -44,6 +44,13 @@ WindowTransition CountOnly
     FrameDelay = 0
   END
 END
+WindowTransition TypeOnly
+  Window
+    WinName = Test:Sound
+    Style = TYPETEXT
+    FrameDelay = 0
+  END
+END
 "#,
     )
     .unwrap();
@@ -134,6 +141,30 @@ END
             }
             assert_eq!(visible.borrow().get_text(), " 15 units ");
             assert!(manager.transitions_finished());
+            visible.borrow_mut().set_text("  X  ").unwrap();
+            manager.transition_set_group("TypeOnly", true, None);
+            for frame in 1..5 {
+                manager.update(effects);
+                assert!(
+                    visible.borrow().is_hidden(),
+                    "typing revealed at frame {frame}"
+                );
+                assert!(hidden.borrow().is_hidden());
+            }
+            manager.update(effects);
+            assert!(!visible.borrow().is_hidden(), "typing reveals at frame 5");
+            assert_eq!(visible.borrow().get_text(), "  X  ");
+            manager.transition_remove("TypeOnly", true, None);
+            visible.borrow_mut().set_text("").unwrap();
+            manager.transition_set_group("TypeOnly", true, None);
+            for _ in 0..30 {
+                manager.update(effects);
+            }
+            assert!(
+                visible.borrow().is_hidden(),
+                "empty text has no positive-frame update"
+            );
+            assert!(!manager.transitions_finished());
         });
     });
     second.with_window_event_effects(None, |effects| {
