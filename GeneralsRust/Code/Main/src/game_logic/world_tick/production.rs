@@ -1803,6 +1803,15 @@ impl GameLogic {
                 base_pos.y = h;
             }
 
+            let building_radius = self.objects.registered_values().find_map(|object| {
+                let position = object.get_position();
+                (object.owner_player_id == Some(pid)
+                    && object.is_kind_of(crate::game_logic::KindOf::Structure)
+                    && position.x == base_pos.x
+                    && position.z == base_pos.z)
+                    .then(|| object.geometry_info().bounding_sphere_radius())
+            });
+
             // C++ placeNetworkBuildingsForPlayer: units at Player_%d_Rally when present.
             let want_idx = if player.start_position >= 0 {
                 player.start_position as u32
@@ -1849,12 +1858,21 @@ impl GameLogic {
                 // queries after the previous birth's dirty partition phase.
                 self.update_owned_partition_with_effects(effects)?;
 
-                // C++ uses rally as findPositionAround center; invented yard offsets
-                // only when the map has no Player_N_Rally.
-                let mut unit_pos = if let Some(rally) = rally_pos {
-                    rally
+                // GameLogic.cpp: find a clear point around the rally (or the
+                // yard-offset center) before creating each starting unit.
+                let mut unit_pos = if let Some(radius) = building_radius {
+                    let center = rally_pos.unwrap_or(base_pos + Vec3::new(0.0, 0.0, -radius / 2.0));
+                    let Some(position) = self.find_owned_starting_unit_position(center, radius)
+                    else {
+                        continue;
+                    };
+                    position
                 } else {
-                    base_pos + Vec3::new(40.0 + (i as f32) * 12.0, 0.0, -40.0 - (i as f32) * 6.0)
+                    // Retain the mapless setup path when no starting yard exists.
+                    rally_pos.unwrap_or(
+                        base_pos
+                            + Vec3::new(40.0 + (i as f32) * 12.0, 0.0, -40.0 - (i as f32) * 6.0),
+                    )
                 };
                 if let Some(h) = self.terrain_height_at(Vec3::new(unit_pos.x, 0.0, unit_pos.z)) {
                     unit_pos.y = h;

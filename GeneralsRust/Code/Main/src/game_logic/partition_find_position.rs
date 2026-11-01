@@ -46,6 +46,23 @@ fn find_position_around(
     None
 }
 impl GameLogic {
+    /// GameLogic.cpp places each starting unit using the receiving partition,
+    /// with the starting building's radius and an instance-owned random angle.
+    pub(crate) fn find_owned_starting_unit_position(
+        &self,
+        center: Vec3,
+        building_radius: f32,
+    ) -> Option<Vec3> {
+        let start = std::f32::consts::TAU * (self.logic_random.next_u32() as f32 / u32::MAX as f32);
+        find_position_around(
+            center,
+            building_radius * 0.7,
+            building_radius * 1.3,
+            start,
+            |candidate, angle| self.try_owned_ground_position(candidate, center.y, angle, None),
+        )
+    }
+
     /// Source ParachuteContain: min0/max100/FPF_NONE/no relation or path source.
     /// Failure preserves the original target, as the C++ in/out argument does.
     pub(crate) fn find_owned_parachute_landing_position(
