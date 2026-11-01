@@ -262,6 +262,9 @@ impl PathfindingSystem {
         if self.dynamic_obstacle_frame != self.logic_frame {
             self.grid.update_dynamic_obstacles(objects, ground_source);
             self.dynamic_obstacle_frame = self.logic_frame;
+        } else {
+            // Object ownership can change between searches in one logic frame.
+            self.grid.refresh_goal_owner_masks(objects);
         }
     }
 

@@ -211,23 +211,7 @@ impl PathfindingGrid {
     ) {
         self.clear_dynamic_observations();
         self.query_ignore_goal_id = ignore.map_or(0, |id| id.0);
-
-        // C++ resolves the registered goal object when checking its owner. Keep
-        // the event-written IDs intact while refreshing this derived player mask.
-        let player_mask = |id: u32| {
-            objects.lookup(&ObjectId(id)).map_or(0, |obj| {
-                let player = obj.owner_player_id.unwrap_or(obj.team as u32);
-                1u16 << player.min(15)
-            })
-        };
-        for (mask, &id) in self.occ_goal_mask.iter_mut().zip(&self.occ_goal_unit) {
-            *mask = if id == 0 { 0 } else { player_mask(id) };
-        }
-        for occ in self.layer_occ.values_mut() {
-            for (&cell, &id) in &occ.occ_goal_unit {
-                occ.occ_goal_mask.insert(cell, player_mask(id));
-            }
-        }
+        self.refresh_goal_owner_masks(objects);
 
         // C++ iterates TheGameLogic's insertion-ordered object list
         // (getFirstObject/getNextObject); HashMap order would randomize which
@@ -317,6 +301,25 @@ impl PathfindingGrid {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    pub(super) fn refresh_goal_owner_masks(&mut self, objects: HostObjectRead<'_>) {
+        // C++ resolves the registered goal object when checking its owner. Keep
+        // the event-written IDs intact while refreshing this derived player mask.
+        let player_mask = |id: u32| {
+            objects.lookup(&ObjectId(id)).map_or(0, |obj| {
+                let player = obj.owner_player_id.unwrap_or(obj.team as u32);
+                1u16 << player.min(15)
+            })
+        };
+        for (mask, &id) in self.occ_goal_mask.iter_mut().zip(&self.occ_goal_unit) {
+            *mask = if id == 0 { 0 } else { player_mask(id) };
+        }
+        for occ in self.layer_occ.values_mut() {
+            for (&cell, &id) in &occ.occ_goal_unit {
+                occ.occ_goal_mask.insert(cell, player_mask(id));
             }
         }
     }

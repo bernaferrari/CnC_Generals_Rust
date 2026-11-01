@@ -1,7 +1,69 @@
 //! C++ PathfindCell::setGoalUnit retains a position occupant after goal removal.
-use generals_main::game_logic::pathfinding::{GridPos, PathfindingGrid, PathfindingGround};
+use generals_main::game_logic::pathfinding::{
+    GridPos, PathfindingGrid, PathfindingGround, PathfindingSystem,
+};
 use generals_main::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
 use glam::Vec3;
+
+#[test]
+fn same_frame_path_search_reads_current_goal_owner_per_session() {
+    let ground = PathfindingGround::Flat(0.0);
+    let mut worlds = [GameLogic::new(), GameLogic::new()];
+    let mut ids = Vec::new();
+    for world in &mut worlds {
+        world.add_player(Player::new(0, Team::USA, "First", true));
+        world.add_player(Player::new(1, Team::China, "Second", true));
+        let mut template = ThingTemplate::new("GoalOwner");
+        template.add_kind_of(KindOf::Infantry).set_health(100.0);
+        world.templates.insert("GoalOwner".into(), template);
+        ids.push(
+            world
+                .create_object_for_player("GoalOwner", 0, Vec3::new(50.0, 0.0, 50.0))
+                .unwrap(),
+        );
+    }
+    assert_eq!(ids[0], ids[1]);
+    let mut systems = [
+        PathfindingSystem::new(200.0, 200.0),
+        PathfindingSystem::new(200.0, 200.0),
+    ];
+    let goal = Vec3::new(50.0, 0.0, 50.0);
+    let cell = GridPos::new(5, 5);
+    for (system, world) in systems.iter_mut().zip(&worlds) {
+        system
+            .grid
+            .update_ground_goal_cell(ids[0].0, 0, 2.0, false, (-1, -1), goal);
+        system.note_logic_frame(17);
+        let _ = system.find_path_ex(
+            Vec3::new(10.0, 0.0, 10.0),
+            goal,
+            world.host_objects(),
+            false,
+            None,
+            &ground,
+        );
+        assert!(system.grid.has_allied_goal(cell, Some(0)));
+    }
+    worlds[0].host_object_mut(ids[0]).unwrap().owner_player_id = Some(1);
+    let _ = systems[0].find_path_ex(
+        Vec3::new(10.0, 0.0, 10.0),
+        goal,
+        worlds[0].host_objects(),
+        false,
+        None,
+        &ground,
+    );
+    assert_eq!(systems[0].grid.ground_goal_unit(cell), ids[0].0);
+    assert!(
+        !systems[0].grid.has_allied_goal(cell, Some(0)),
+        "same-frame search saw the previous owner"
+    );
+    assert!(systems[0].grid.has_allied_goal(cell, Some(1)));
+    assert!(
+        systems[1].grid.has_allied_goal(cell, Some(0)),
+        "another session changed"
+    );
+}
 
 #[test]
 fn goal_removal_preserves_other_blockers_and_isolated_grids() {
