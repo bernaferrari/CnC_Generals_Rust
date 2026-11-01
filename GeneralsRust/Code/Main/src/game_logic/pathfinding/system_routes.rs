@@ -101,7 +101,7 @@ impl PathfindingSystem {
             let unit_radius = self
                 .seeker_id
                 .and_then(|id| objects.lookup(&id))
-                .map(|o| o.selection_radius)
+                .map(|o| o.geometry_info().bounding_circle_radius())
                 .unwrap_or(0.0);
             let cell = self.grid.world_to_grid(goal);
             let crusher_level = if is_crusher || self.seeker_crusher_level > 0 {
@@ -405,7 +405,11 @@ impl PathfindingSystem {
             .seeker_id
             .and_then(|id| objects.lookup(&id))
             .map(|o| {
-                PathfindingGrid::radius_and_center(o.selection_radius, self.grid.grid_size()).0
+                PathfindingGrid::radius_and_center(
+                    o.geometry_info().bounding_circle_radius(),
+                    self.grid.grid_size(),
+                )
+                .0
             })
             .unwrap_or_else(|| (self.seeker_path_diameter.max(1) / 2).max(0));
         let crusher_level = if is_crusher {
@@ -1455,8 +1459,10 @@ impl PathfindingSystem {
         let is_dozer = mover.is_kind_of(KindOf::Dozer);
         let is_harvester = mover.is_kind_of(KindOf::Harvester);
         let mover_infantry = mover.is_kind_of(KindOf::Infantry);
-        let (radius, center_in_cell) =
-            PathfindingGrid::radius_and_center(mover.selection_radius, self.grid.grid_size());
+        let (radius, center_in_cell) = PathfindingGrid::radius_and_center(
+            mover.geometry_info().bounding_circle_radius(),
+            self.grid.grid_size(),
+        );
         let mut num_above = radius;
         if center_in_cell {
             num_above += 1;

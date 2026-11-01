@@ -6,6 +6,108 @@ use generals_main::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
 use glam::Vec3;
 
 #[test]
+fn landing_destination_uses_the_receivers_live_geometry() {
+    use generals_main::game_logic::thing::HostGeometryType;
+
+    let ground = PathfindingGround::Flat(0.0);
+    let mut worlds = [GameLogic::new(), GameLogic::new()];
+    let mut ids = Vec::new();
+    for (index, world) in worlds.iter_mut().enumerate() {
+        world.add_player(Player::new(0, Team::USA, "Owner", true));
+        let mut template = ThingTemplate::new("LandingAircraft");
+        template.add_kind_of(KindOf::Aircraft).set_health(100.0);
+        template.geometry_info.geom_type = HostGeometryType::Cylinder;
+        template.geometry_info.major_radius = if index == 0 { 20.0 } else { 1.0 };
+        template.geometry_info.authored = true;
+        world.templates.insert("LandingAircraft".into(), template);
+        let id = world
+            .create_object_for_player("LandingAircraft", 0, Vec3::new(20.0, 0.0, 20.0))
+            .unwrap();
+        // A cached selection bound can differ from the object's current geometry.
+        world.host_object_mut(id).unwrap().selection_radius = 1.0;
+        ids.push(id);
+    }
+    assert_eq!(ids[0], ids[1]);
+    let mut systems = [
+        PathfindingSystem::new(200.0, 200.0),
+        PathfindingSystem::new(200.0, 200.0),
+    ];
+    for system in &mut systems {
+        system
+            .grid
+            .set_cell_obstacle_owned(GridPos::new(6, 5), false, false, 99, None, None);
+    }
+    let from = Vec3::new(20.0, 0.0, 20.0);
+    let goal = Vec3::new(50.0, 0.0, 50.0);
+    let wide = systems[0].adjust_landing_destination_for(
+        ids[0].0,
+        worlds[0].host_objects(),
+        from,
+        goal,
+        &ground,
+    );
+    let narrow = systems[1].adjust_landing_destination_for(
+        ids[1].0,
+        worlds[1].host_objects(),
+        from,
+        goal,
+        &ground,
+    );
+    assert_ne!(
+        wide, goal,
+        "the wide aircraft must avoid an obstacle in its landing footprint"
+    );
+    assert_eq!(
+        narrow, goal,
+        "another world's narrow aircraft can use the destination"
+    );
+}
+
+#[test]
+fn moving_allies_uses_the_movers_live_geometry() {
+    use generals_main::game_logic::thing::HostGeometryType;
+
+    let mut worlds = [GameLogic::new(), GameLogic::new()];
+    let mut movers = Vec::new();
+    let mut allies = Vec::new();
+    for (index, world) in worlds.iter_mut().enumerate() {
+        world.add_player(Player::new(0, Team::USA, "Owner", true));
+        let mut mover = ThingTemplate::new("WideMover");
+        mover.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        mover.geometry_info.geom_type = HostGeometryType::Cylinder;
+        mover.geometry_info.major_radius = if index == 0 { 20.0 } else { 1.0 };
+        mover.geometry_info.authored = true;
+        world.templates.insert("WideMover".into(), mover);
+        let mut ally = ThingTemplate::new("IdleAlly");
+        ally.add_kind_of(KindOf::Infantry).set_health(100.0);
+        world.templates.insert("IdleAlly".into(), ally);
+        let mover_id = world
+            .create_object_for_player("WideMover", 0, Vec3::new(30.0, 0.0, 50.0))
+            .unwrap();
+        world.host_object_mut(mover_id).unwrap().selection_radius = 1.0;
+        movers.push(mover_id);
+        allies.push(
+            world
+                .create_object_for_player("IdleAlly", 0, Vec3::new(60.0, 0.0, 50.0))
+                .unwrap(),
+        );
+    }
+    assert_eq!(movers[0], movers[1]);
+    assert_eq!(allies[0], allies[1]);
+    let path = [Vec3::new(30.0, 0.0, 50.0), Vec3::new(50.0, 0.0, 50.0)];
+    let system = PathfindingSystem::new(200.0, 200.0);
+    assert_eq!(
+        system.allies_to_nudge_off_path(movers[0], &path, worlds[0].host_objects()),
+        vec![allies[0]]
+    );
+    assert!(
+        system
+            .allies_to_nudge_off_path(movers[1], &path, worlds[1].host_objects())
+            .is_empty()
+    );
+}
+
+#[test]
 fn possible_destination_uses_each_receivers_ignore_and_goal_identity() {
     use generals_main::game_logic::ObjectId;
     let ground = PathfindingGround::Flat(0.0);

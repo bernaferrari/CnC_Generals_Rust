@@ -71,13 +71,14 @@ impl PathfindingSystem {
             self.seeker_is_dozer = o.is_kind_of(KindOf::Dozer);
             self.seeker_downhill_only = o.downhill_only;
             self.seeker_can_path_through_units = o.can_path_through_units;
+            let radius = o.geometry_info().bounding_circle_radius();
             self.seeker_path_diameter = PathfindingGrid::path_diameter_for_unit(
-                o.selection_radius,
+                radius,
                 self.grid.grid_size(),
                 o.is_kind_of(KindOf::Vehicle),
             );
             self.seeker_center_in_cell =
-                PathfindingGrid::radius_and_center(o.selection_radius, self.grid.grid_size()).1;
+                PathfindingGrid::radius_and_center(radius, self.grid.grid_size()).1;
         } else {
             self.seeker_player = None;
             self.seeker_is_infantry = false;
@@ -223,7 +224,7 @@ impl PathfindingSystem {
         self.grid.query_seeker_id = seeker;
         let unit_radius = objects
             .lookup(&ObjectId(seeker))
-            .map(|o| o.selection_radius)
+            .map(|o| o.geometry_info().bounding_circle_radius())
             .unwrap_or(0.0);
         let adj = self.adjust_to_landing_destination_radius(from, dest, unit_radius, ground_source);
         self.grid.query_seeker_id = 0;
