@@ -6,7 +6,7 @@ pub(super) enum NativeCollectSource<'a> {
     FrozenPreview,
 }
 
-pub(crate) trait NativeFrameRenderReceiver {
+pub trait NativeFrameRenderReceiver {
     fn actor_draw_candidate_is_current(
         &self,
         key: game_client::core::PresentationDirectDrawableBindingKey,

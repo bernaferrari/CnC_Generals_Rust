@@ -68,6 +68,88 @@ impl RenderPipeline {
             ) -> std::result::Result<Option<Mat4>, String>,
         >,
     ) -> Result<()> {
+        if self.forward_pass.renderer.has_active_frame() {
+            return Err(anyhow::anyhow!(
+                "render pipeline already owns an active frame"
+            ));
+        }
+        let result = self.execute_inner(
+            graphics_system,
+            #[cfg(feature = "game_client")]
+            render_bridge,
+            view_matrix,
+            projection_matrix,
+            camera_position,
+            time,
+            allow_sync_model_loads,
+            deferred_startup_model_load_budget,
+            skip_world_scene,
+            #[cfg(not(feature = "game_client"))]
+            direct_scene_decision_resolver,
+            #[cfg(feature = "game_client")]
+            native_receiver,
+            #[cfg(feature = "game_client")]
+            native_radius_items,
+            #[cfg(feature = "game_client")]
+            prepared_particles,
+            #[cfg(feature = "game_client")]
+            snow,
+            #[cfg(feature = "game_client")]
+            filter_scroll,
+            #[cfg(feature = "game_client")]
+            filter_logic_frame,
+            ui_overlay,
+            #[cfg(not(feature = "game_client"))]
+            complete_physics_visual,
+        );
+        if result.is_err() {
+            self.forward_pass.discard_unsubmitted_frame_work();
+        }
+        result
+    }
+
+    fn execute_inner(
+        &mut self,
+        graphics_system: &mut GraphicsSystem,
+        #[cfg(feature = "game_client")]
+        render_bridge: &mut game_client::render_bridge::RenderBridge,
+        // Immutable presentation boundary: world collect reads only
+        // `self.presentation_frame` (engine always seeds a frame before execute).
+        view_matrix: &Mat4,
+        projection_matrix: &Mat4,
+        camera_position: Vec3,
+        time: f32,
+        allow_sync_model_loads: bool,
+        deferred_startup_model_load_budget: usize,
+        skip_world_scene: bool,
+        // Called synchronously after frozen collection and before sort/forward.
+        // Main owns this callback and may resolve candidates against
+        // GameClient; RenderPipeline itself remains free of GameClient/live
+        // logic access. It returns Main-owned, full-keyed decisions that are
+        // revalidated against this exact frozen sidecar before item mutation.
+        #[cfg(not(feature = "game_client"))] mut direct_scene_decision_resolver: Option<
+            &mut dyn FnMut(
+                &[FrozenDirectDrawableSceneCandidate],
+            ) -> Vec<FrozenDirectDrawableSceneDecision>,
+        >,
+        #[cfg(feature = "game_client")] native_receiver: &mut dyn NativeFrameRenderReceiver,
+        #[cfg(feature = "game_client")] native_radius_items: Vec<
+            game_client::effects::decals::DecalRenderItem,
+        >,
+        #[cfg(feature = "game_client")] prepared_particles: Option<
+            game_client::effects::particle_renderer::ParticleRenderFrame,
+        >,
+        #[cfg(feature = "game_client")] snow: &game_client::snow::SnowRenderState,
+        #[cfg(feature = "game_client")] filter_scroll: glam::Vec2,
+        #[cfg(feature = "game_client")] filter_logic_frame: u32,
+        ui_overlay: Option<&mut crate::graphics::ui_render_pass::NativeUiOverlay<'_>>,
+        #[cfg(not(feature = "game_client"))] complete_physics_visual: Option<
+            &mut dyn FnMut(
+                &mut crate::presentation_frame::UnitRenderInput,
+                &crate::presentation_frame::PresentationFrame,
+            ) -> std::result::Result<Option<Mat4>, String>,
+        >,
+    ) -> Result<()> {
         #[cfg(feature = "game_client")]
         let native_terrain_viewport = self.tactical_viewport.pixel_rect();
         #[cfg(feature = "game_client")]

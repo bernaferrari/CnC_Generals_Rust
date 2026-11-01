@@ -47,6 +47,12 @@ fn failed_frame_acquisition_discards_the_unsubmitted_callbacks() {
     let mut peer = WgpuMainRenderer::from_engine(Default::default()).unwrap();
     owner.enqueue_scoped_post_frame_pass(ScopedNativePass::TerrainWater);
     owner.begin_frame().unwrap();
+    owner.discard_queued_frame_callbacks();
+    assert_eq!(
+        owner.post_frame_callbacks.len(),
+        1,
+        "an active frame owns its queued work"
+    );
     let active_start = owner.frame_start;
     assert!(owner.begin_frame().is_err());
     assert_eq!(

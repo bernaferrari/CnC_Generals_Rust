@@ -3,7 +3,7 @@
 use super::*;
 use installed_draw_pose::{NativeCameraPoseUnavailable, ObjectVisualState};
 
-pub(crate) struct NativeInstalledPoseLoan<'a> {
+pub struct NativeInstalledPoseLoan<'a> {
     #[cfg(feature = "game_client")]
     pub(super) pending_native_props: &'a mut game_client::terrain::terrain_visual::TerrainPropQueue,
     pub(super) native_drawable_lifetimes:

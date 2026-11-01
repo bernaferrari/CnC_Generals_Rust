@@ -459,8 +459,16 @@ impl WgpuMainRenderer {
 
     /// Drop work queued for a frame that could not be started.
     pub fn discard_queued_frame_callbacks(&mut self) {
+        if self.pending_frame.is_some() {
+            return;
+        }
         self.pre_scene_callbacks.clear();
         self.post_frame_callbacks.clear();
+    }
+
+    /// Whether this renderer currently owns an acquired engine frame.
+    pub fn has_active_frame(&self) -> bool {
+        self.pending_frame.is_some()
     }
 
     /// Present the frame.

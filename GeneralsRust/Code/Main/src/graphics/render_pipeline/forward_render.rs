@@ -27,6 +27,16 @@ use game_client::effects::{ParticleRenderer, get_particle_system_manager};
 use game_client::system::smudge::get_smudge_manager;
 
 impl ForwardPass {
+    /// Retire work belonging to an attempt that never acquired its own frame.
+    pub(super) fn discard_unsubmitted_frame_work(&mut self) {
+        if self.renderer.has_active_frame() {
+            return;
+        }
+        self.renderer.discard_queued_frame_callbacks();
+        #[cfg(feature = "game_client")]
+        self.pending_client_effects.clear();
+    }
+
     /// Produce the GPU palette from the exact binding frozen on the render
     /// item. This compatibility helper can only resolve the item's own model;
     /// an HMODEL source key that differs from `item.model_name` fails closed.

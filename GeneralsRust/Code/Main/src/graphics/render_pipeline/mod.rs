@@ -662,7 +662,7 @@ pub(super) fn apply_frozen_direct_scene_decisions_to_render_items(
 
 /// Final camera after the synchronous filter postRender continuation.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct FilterCameraMatrices {
+pub struct FilterCameraMatrices {
     pub view: Mat4,
     pub projection: Mat4,
     pub position: Vec3,
@@ -997,5 +997,9 @@ struct NativeClientEffectFrame {
 
 #[cfg(feature = "game_client")]
 mod native_frame_receiver;
-#[cfg(feature = "game_client")]
+#[cfg(all(feature = "game_client", feature = "integration-tests"))]
+pub use native_frame_receiver::NativeFrameRenderReceiver;
+#[cfg(all(feature = "game_client", not(feature = "integration-tests")))]
 pub(crate) use native_frame_receiver::NativeFrameRenderReceiver;
+#[cfg(feature = "integration-tests")]
+pub use native_pose_loan::NativeInstalledPoseLoan;

@@ -38,6 +38,8 @@ pub mod render_pipeline;
 pub(crate) mod radar_view;
 pub mod selection_renderer;
 pub(crate) mod ui_radar;
+#[cfg(feature = "integration-tests")]
+pub use ui_radar::NativeRadarFrame;
 pub mod ui_render_pass;
 pub mod world_anim_layout;
 pub use floating_text_layout::{

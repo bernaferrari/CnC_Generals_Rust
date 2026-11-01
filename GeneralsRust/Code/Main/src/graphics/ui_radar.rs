@@ -12,7 +12,7 @@ use game_engine::common::system::radar::{Coord3D, RadarPresentation, RadarSystem
 use std::sync::Arc;
 
 #[derive(Clone)]
-pub(crate) struct NativeRadarFrame {
+pub struct NativeRadarFrame {
     camera: RadarCamera,
     radar: Option<Arc<RadarPresentation>>,
 }
