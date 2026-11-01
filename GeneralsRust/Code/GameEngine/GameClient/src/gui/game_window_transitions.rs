@@ -1813,14 +1813,15 @@ impl Transition for CountUpTransition {
                 self.frame_length = 0;
                 return;
             }
-            self.full_text = resolve_window_text(window_access.borrow_window(&win_rc).get_text());
+            self.full_text = window_access.borrow_window(&win_rc).get_text().to_owned();
         }
         self.is_forward = false;
         self.update(0, window_access);
         self.is_finished = false;
         self.is_forward = true;
 
-        self.int_value = self.full_text.trim().parse::<i32>().unwrap_or(0);
+        self.int_value =
+            game_engine::common::ini::parse_decimal_integer_prefix(&self.full_text).unwrap_or(0);
         if self.int_value < 30 {
             self.count_state = 1;
             self.frame_length = self.int_value.min(30);

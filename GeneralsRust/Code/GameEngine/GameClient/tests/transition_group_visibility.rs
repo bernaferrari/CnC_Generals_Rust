@@ -37,6 +37,13 @@ WindowTransition ScreenFadeOnly
     FrameDelay = 0
   END
 END
+WindowTransition CountOnly
+  Window
+    WinName = Test:Sound
+    Style = COUNTUP
+    FrameDelay = 0
+  END
+END
 "#,
     )
     .unwrap();
@@ -116,6 +123,17 @@ END
                 manager.transitions_finished(),
                 "reversed fade completes at frame 0"
             );
+            visible.borrow_mut().set_text(" 15 units ").unwrap();
+            manager.transition_set_group("CountOnly", true, None);
+            assert_eq!(visible.borrow().get_text(), "0");
+            manager.update(effects);
+            assert_eq!(visible.borrow().get_text(), "1");
+            assert!(hidden.borrow().is_hidden());
+            for _ in 1..15 {
+                manager.update(effects);
+            }
+            assert_eq!(visible.borrow().get_text(), " 15 units ");
+            assert!(manager.transitions_finished());
         });
     });
     second.with_window_event_effects(None, |effects| {
