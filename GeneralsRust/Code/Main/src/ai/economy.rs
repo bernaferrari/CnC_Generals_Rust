@@ -1026,32 +1026,45 @@ impl AIPlayer {
             Self::aidata_supply_center_safe_radius(ai_data),
             template_r,
         );
-        let candidates = game_logic.host_objects().registered_values().map(|other| {
-            let p = other.get_position();
-            gamelogic::ai::ai_player::LeftoverLocationSafeCandidate {
-                x: p.x,
-                y: p.z,
-                is_destroyed: other.status.destroyed,
-                is_effectively_dead: other.status.effectively_dead || !other.is_alive(),
-                is_harvester: other.is_kind_of(KindOf::Harvester),
-                is_dozer: other.is_kind_of(KindOf::Dozer),
-                stealthed: other.status.stealthed,
-                detected: other.status.detected,
-                disguised: other.status.disguised,
-                is_enemy: other.team != self.team && other.team != Team::Neutral,
-                insignificant_building_rejected: other.is_non_faction_structure()
-                    && match other.thing().template.contain_module.kind {
-                        crate::game_logic::ContainModuleKind::Garrison => {
-                            other.occupants.is_empty()
-                        }
-                        crate::game_logic::ContainModuleKind::None => {
-                            other.thing().template.garrison_contain_max.is_some()
-                                && other.occupants.is_empty()
-                        }
-                        _ => true,
-                    },
-            }
-        });
+        let radius_sqr = radius * radius;
+        // The original partition range test happens before the expensive
+        // affiliation and KindOf filters. Keep its exact comparison, including
+        // boundary and NaN behavior, before building candidate observations.
+        let candidates = game_logic
+            .host_objects()
+            .registered_values()
+            .filter(|other| {
+                let p = other.get_position();
+                let dx = p.x - pos.x;
+                let dy = p.z - pos.z;
+                !(dx * dx + dy * dy > radius_sqr)
+            })
+            .map(|other| {
+                let p = other.get_position();
+                gamelogic::ai::ai_player::LeftoverLocationSafeCandidate {
+                    x: p.x,
+                    y: p.z,
+                    is_destroyed: other.status.destroyed,
+                    is_effectively_dead: other.status.effectively_dead || !other.is_alive(),
+                    is_harvester: other.is_kind_of(KindOf::Harvester),
+                    is_dozer: other.is_kind_of(KindOf::Dozer),
+                    stealthed: other.status.stealthed,
+                    detected: other.status.detected,
+                    disguised: other.status.disguised,
+                    is_enemy: other.team != self.team && other.team != Team::Neutral,
+                    insignificant_building_rejected: other.is_non_faction_structure()
+                        && match other.thing().template.contain_module.kind {
+                            crate::game_logic::ContainModuleKind::Garrison => {
+                                other.occupants.is_empty()
+                            }
+                            crate::game_logic::ContainModuleKind::None => {
+                                other.thing().template.garrison_contain_max.is_some()
+                                    && other.occupants.is_empty()
+                            }
+                            _ => true,
+                        },
+                }
+            });
         gamelogic::ai::ai_player::leftover_is_location_safe(pos.x, pos.z, radius, candidates)
     }
 
