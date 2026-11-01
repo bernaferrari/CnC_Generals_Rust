@@ -715,6 +715,7 @@ impl PathfindingGrid {
     /// Project C++ `updateAircraftGoal` from this match's registered cell.
     /// Ground movers (including unmanned helipad aircraft) reserve ground goals.
     /// The footprint is derived on demand; it is never published into Core AI.
+    #[cfg(test)]
     fn aircraft_goal_footprint(&self, obj: &Object) -> Option<(GridPos, i32, i32)> {
         if !obj.is_alive()
             || obj.is_kind_of(KindOf::Immobile)
@@ -759,33 +760,42 @@ impl PathfindingGrid {
         // each AI module's post-process as it is read. Object admission prepends
         // the restored list, so its reverse is the original callback order.
         for object in objects.registered_values().rev() {
-            if !object.has_ai_update_interface() {
+            if !object.has_ai_update_interface() || Self::is_doing_ground_movement_full(object) {
                 continue;
             }
-            if !Self::is_doing_ground_movement_full(object) && !object.host_ai_is_moving() {
-                // AIUpdateInterface::loadPostProcess clears an idle goal and
-                // calls updateGoal at the current position (AIUpdate.cpp:5231).
-                let cell = if object.is_kind_of(KindOf::Immobile) {
-                    (-1, -1)
-                } else {
-                    self.update_aircraft_goal_cell(
-                        object.id.0,
-                        object.selection_radius,
-                        (-1, -1),
-                        object.pathfind_goal_layer,
-                        object.get_position(),
-                        Self::is_aircraft_that_adjusts_destination(object),
-                    )
-                };
-                actor_cells.push((object.id, cell));
+            let position = if object.host_ai_is_moving() {
+                let (x, y) = object.pathfind_goal_cell;
+                if x < 0 || y < 0 {
+                    continue;
+                }
+                // C++ rebuilds a position at the saved cell's center, then
+                // updateAircraftGoal applies this object's centering rule.
+                let corner = self.cell_corner_xz(GridPos::new(x, y));
+                let half = self.grid_size * 0.5;
+                Vec3::new(corner.x + half, 0.0, corner.y + half)
             } else {
-                self.stamp_aircraft_goal_from_object(object);
-            }
+                // An idle AI instead registers its current object position.
+                object.get_position()
+            };
+            let cell = if object.is_kind_of(KindOf::Immobile) {
+                (-1, -1)
+            } else {
+                self.update_aircraft_goal_cell(
+                    object.id.0,
+                    object.selection_radius,
+                    (-1, -1),
+                    object.pathfind_goal_layer,
+                    position,
+                    Self::is_aircraft_that_adjusts_destination(object),
+                )
+            };
+            actor_cells.push((object.id, cell));
         }
         actor_cells
     }
 
     /// C++ `Pathfinder::updateAircraftGoal`, on the driving grid only.
+    #[cfg(test)]
     pub(super) fn stamp_aircraft_goal_from_object(&mut self, obj: &Object) {
         let Some((cell, radius, num_above)) = self.aircraft_goal_footprint(obj) else {
             return;

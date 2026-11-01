@@ -33,7 +33,11 @@ fn aircraft_world(map: &std::path::Path) -> GameLogic {
     locomotors.apply_source("Locomotor RetryFly\n Surfaces = AIR\n Speed = 30\n MinSpeed = 10\n MinTurnSpeed = 10\n Acceleration = 60\n TurnRate = 120\n Appearance = WINGS\nEnd\n").unwrap();
     locomotors.apply_source("Locomotor RetryGround\n Surfaces = GROUND\n Speed = 30\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\n").unwrap();
     world.admit_locomotor_definitions(locomotors).unwrap();
-    world.admit_object_ini_sources([("RetryFly.ini".into(), "Object RetryFlyer\n KindOf = SELECTABLE VEHICLE AIRCRAFT\n Locomotor = SET_NORMAL RetryFly\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into()), ("RetryGround.ini".into(), "Object RetryGroundUnit\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL RetryGround\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into())]).unwrap();
+    world.admit_object_ini_sources([
+        ("RetryFly.ini".into(), "Object RetryFlyer\n KindOf = SELECTABLE VEHICLE AIRCRAFT\n Locomotor = SET_NORMAL RetryFly\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into()),
+        ("RetryWideFly.ini".into(), "Object RetryWideFlyer\n KindOf = SELECTABLE VEHICLE AIRCRAFT\n Geometry = BOX\n GeometryMajorRadius = 8\n GeometryMinorRadius = 5\n GeometryHeight = 12\n Locomotor = SET_NORMAL RetryFly\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into()),
+        ("RetryGround.ini".into(), "Object RetryGroundUnit\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL RetryGround\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into()),
+    ]).unwrap();
     world.start_new_game(GameMode::SinglePlayer);
     assert!(world.load_map(map.to_str().unwrap()));
     world.add_player(Player::new(1, Team::USA, "Owner", true));
@@ -46,6 +50,74 @@ fn mark_aircraft_moving(world: &mut GameLogic, id: ObjectId) {
     let actor = world.host_object_mut(id).unwrap();
     actor.set_ai_state(AIState::Moving, &mut ObjectAudio::queue(&mut audio));
     assert!(actor.host_ai_is_moving());
+}
+
+#[test]
+fn loading_moving_wide_aircraft_recomputes_goal_from_saved_cell_center() {
+    use generals_main::game_logic::pathfinding::{GridPos, PathfindingGrid};
+
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("WideAircraft.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+
+    let mut source = aircraft_world(&map);
+    let mut peer = aircraft_world(&map);
+    let position = Vec3::new(100.0, 0.0, 100.0);
+    let id = source
+        .create_object_for_player("RetryWideFlyer", 1, position)
+        .unwrap();
+    let peer_id = peer
+        .create_object_for_player("RetryWideFlyer", 1, position)
+        .unwrap();
+    assert_eq!(id, peer_id);
+    let (radius, centered) =
+        PathfindingGrid::radius_and_center(source.host_object(id).unwrap().selection_radius, 10.0);
+    assert_eq!((radius, centered), (1, false));
+    source.host_object_mut(id).unwrap().is_final_goal = true;
+    assert!(source.assign_unit_path(id, Vec3::new(150.0, 0.0, 150.0), &[]));
+    for _ in 0..2 {
+        source.update_with_dt(1.0 / 30.0);
+    }
+    mark_aircraft_moving(&mut source, id);
+    let saved = source.host_object(id).unwrap().pathfind_goal_cell;
+    assert!(saved.0 >= 0 && saved.1 >= 0);
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).unwrap();
+    let mut restored = aircraft_world(&map);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert!(restored.host_object(id).unwrap().host_ai_is_moving());
+    let expected = (saved.0 + 1, saved.1 + 1);
+    assert_eq!(
+        restored.host_object(id).unwrap().pathfind_goal_cell,
+        expected
+    );
+    assert_eq!(
+        restored.pathfinding_aircraft_goal(GridPos::new(expected.0, expected.1)),
+        Some(id)
+    );
+    assert_eq!(
+        restored.pathfinding_aircraft_goal(GridPos::new(saved.0 - 1, saved.1 - 1)),
+        None
+    );
+    assert_eq!(source.host_object(id).unwrap().pathfind_goal_cell, saved);
+    assert_eq!(
+        peer.pathfinding_aircraft_goal(GridPos::new(expected.0, expected.1)),
+        None
+    );
 }
 
 #[test]
