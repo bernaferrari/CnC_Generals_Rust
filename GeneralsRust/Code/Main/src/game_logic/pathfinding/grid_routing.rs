@@ -749,14 +749,40 @@ impl PathfindingGrid {
     }
 
     /// Reconstruct transient pathfinder cells after the receiving objects load.
-    pub(crate) fn restore_aircraft_goals(&mut self, objects: HostObjectRead<'_>) {
+    pub(crate) fn restore_aircraft_goals(
+        &mut self,
+        objects: HostObjectRead<'_>,
+    ) -> Vec<(ObjectId, (i32, i32))> {
         self.occ_goal_aircraft.fill(0);
+        let mut actor_cells = Vec::new();
         // GameLogic::xfer reads the saved object list in order; XferLoad queues
         // each AI module's post-process as it is read. Object admission prepends
         // the restored list, so its reverse is the original callback order.
         for object in objects.registered_values().rev() {
-            self.stamp_aircraft_goal_from_object(object);
+            if !object.has_ai_update_interface() {
+                continue;
+            }
+            if !Self::is_doing_ground_movement_full(object) && !object.host_ai_is_moving() {
+                // AIUpdateInterface::loadPostProcess clears an idle goal and
+                // calls updateGoal at the current position (AIUpdate.cpp:5231).
+                let cell = if object.is_kind_of(KindOf::Immobile) {
+                    (-1, -1)
+                } else {
+                    self.update_aircraft_goal_cell(
+                        object.id.0,
+                        object.selection_radius,
+                        (-1, -1),
+                        object.pathfind_goal_layer,
+                        object.get_position(),
+                        Self::is_aircraft_that_adjusts_destination(object),
+                    )
+                };
+                actor_cells.push((object.id, cell));
+            } else {
+                self.stamp_aircraft_goal_from_object(object);
+            }
         }
+        actor_cells
     }
 
     /// C++ `Pathfinder::updateAircraftGoal`, on the driving grid only.

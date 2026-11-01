@@ -20,6 +20,13 @@ fn aircraft(id: u32, appearance: LocomotorAppearance, goal: Vec3) -> Object {
     object
 }
 
+fn stamp_fixture_goals(grid: &mut PathfindingGrid, objects: HostObjectRead<'_>) {
+    grid.clear_dynamic_blocks();
+    for object in objects.registered_values().rev() {
+        grid.stamp_aircraft_goal_from_object(object);
+    }
+}
+
 fn set_goal(world: &mut GameLogic, id: ObjectId, goal: Option<Vec3>) {
     world.objects.get_mut(&id).unwrap().movement.target_position = goal;
     if let Some(goal) = goal {
@@ -55,7 +62,7 @@ fn aircraft_goal_projection_uses_half_cell_footprints_on_the_driving_grid() {
     object.pathfind_goal_cell = (cell.x, cell.y);
     assert_eq!(PathfindingGrid::radius_and_center(8.0, 10.0), (1, false));
     let mut objects = registered_path_fixture([(object.id, object)]);
-    grid.restore_aircraft_goals(objects.read());
+    stamp_fixture_goals(&mut grid, objects.read());
     let claims = grid.aircraft_goal_claims(objects.read(), 8);
     let expected = HashSet::from([
         GridPos::new(7, 7),
@@ -73,7 +80,7 @@ fn aircraft_goal_projection_uses_half_cell_footprints_on_the_driving_grid() {
     }
     assert_eq!(grid.goal_aircraft(GridPos::new(6, 6)), 0);
     objects.get_mut(&ObjectId(7)).unwrap().selection_radius = 2.0;
-    grid.restore_aircraft_goals(objects.read());
+    stamp_fixture_goals(&mut grid, objects.read());
     assert_eq!(
         grid.aircraft_goal_claims(objects.read(), 8),
         HashSet::from([GridPos::new(8, 8)])
@@ -91,7 +98,7 @@ fn aircraft_goal_projection_excludes_non_reserving_runtime_states() {
     let claims = |object: &Object| {
         let objects = registered_path_fixture([(object.id, object.clone())]);
         let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
-        grid.restore_aircraft_goals(objects.read());
+        stamp_fixture_goals(&mut grid, objects.read());
         grid.aircraft_goal_claims(objects.read(), 2)
     };
     assert!(!claims(&object).is_empty());
@@ -129,10 +136,7 @@ fn aircraft_attack_query_uses_current_goals_instead_of_old_occupancy() {
     world
         .objects
         .admit(ObjectId(2), aircraft(2, LocomotorAppearance::Wings, dest));
-    world
-        .pathfinding_system
-        .grid
-        .restore_aircraft_goals(world.objects.read());
+    stamp_fixture_goals(&mut world.pathfinding_system.grid, world.objects.read());
     ({
         let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
         world
@@ -465,6 +469,14 @@ fn authored_aircraft_save_load_continues_owned_goal_changes() {
     }
     let dest = Vec3::new(75.0, 40.0, 75.0);
     let (mut source, hover, wings) = authored_world(dest);
+    let mut audio = crate::game_logic::SessionAudio::default();
+    for id in [hover, wings] {
+        source.objects.get_mut(&id).unwrap().set_ai_state(
+            crate::game_logic::AIState::Moving,
+            &mut crate::game_logic::ObjectAudio::queue(&mut audio),
+        );
+        assert!(source.objects[&id].host_ai_is_moving());
+    }
     ({
         let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
         source

@@ -40,6 +40,65 @@ fn aircraft_world(map: &std::path::Path) -> GameLogic {
     world
 }
 
+fn mark_aircraft_moving(world: &mut GameLogic, id: ObjectId) {
+    use generals_main::game_logic::{AIState, ObjectAudio, SessionAudio};
+    let mut audio = SessionAudio::default();
+    let actor = world.host_object_mut(id).unwrap();
+    actor.set_ai_state(AIState::Moving, &mut ObjectAudio::queue(&mut audio));
+    assert!(actor.host_ai_is_moving());
+}
+
+#[test]
+fn loading_idle_aircraft_registers_its_current_position_in_its_own_grid() {
+    use generals_main::game_logic::pathfinding::GridPos;
+
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("IdleAircraft.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+
+    let mut source = aircraft_world(&map);
+    let mut peer = aircraft_world(&map);
+    let position = Vec3::new(100.0, 0.0, 100.0);
+    let id = source
+        .create_object_for_player("RetryFlyer", 1, position)
+        .unwrap();
+    let peer_id = peer
+        .create_object_for_player("RetryFlyer", 1, position)
+        .unwrap();
+    assert_eq!(id, peer_id);
+    let actor = source.host_object(id).unwrap();
+    assert!(actor.has_ai_update_interface());
+    assert!(!actor.host_ai_is_moving());
+    assert!(generals_main::game_logic::pathfinding::PathfindingGrid::is_aircraft_that_adjusts_destination(actor));
+    assert_eq!(actor.pathfind_goal_cell, (-1, -1));
+    let cell = GridPos::new(10, 10);
+    assert_eq!(peer.pathfinding_aircraft_goal(cell), None);
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).unwrap();
+    let mut restored = aircraft_world(&map);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert_eq!(
+        restored.host_object(id).unwrap().pathfind_goal_cell,
+        (10, 10)
+    );
+    assert_eq!(restored.pathfinding_aircraft_goal(cell), Some(id));
+    assert_eq!(peer.pathfinding_aircraft_goal(cell), None);
+}
+
 #[test]
 fn aircraft_goal_overwrite_survives_rebuild_without_reviving_previous_owner() {
     use generals_main::game_logic::pathfinding::GridPos;
@@ -93,6 +152,10 @@ fn aircraft_goal_overwrite_survives_rebuild_without_reviving_previous_owner() {
     let cell = GridPos::new(x, y);
     assert_eq!(owner.pathfinding_aircraft_goal(cell), Some(low));
     assert_eq!(peer.pathfinding_aircraft_goal(cell), Some(high));
+    for world in [&mut owner, &mut peer] {
+        mark_aircraft_moving(world, low);
+        mark_aircraft_moving(world, high);
+    }
 
     // C++ xfers objects in their saved list order and schedules each AI
     // loadPostProcess immediately after reading that object's modules.
@@ -103,6 +166,7 @@ fn aircraft_goal_overwrite_survives_rebuild_without_reviving_previous_owner() {
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
+    assert!(restored.host_object(low).unwrap().host_ai_is_moving());
     assert_eq!(restored.pathfinding_aircraft_goal(cell), Some(low));
     let peer_snapshot = builder.create_world_snapshot(&peer).unwrap();
     let mut restored_peer = aircraft_world(&map);
@@ -379,11 +443,13 @@ fn aircraft_registered_goal_is_owned_by_its_session_and_survives_save() {
     let goal_pos = generals_main::game_logic::pathfinding::GridPos::new(goal.0, goal.1);
     assert_eq!(owner.pathfinding_aircraft_goal(goal_pos), Some(id));
 
+    mark_aircraft_moving(&mut owner, id);
     let snapshot = builder.create_world_snapshot(&owner).unwrap();
     let mut restored = aircraft_world(&map);
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
+    assert!(restored.host_object(id).unwrap().host_ai_is_moving());
     assert_eq!(restored.host_object(id).unwrap().pathfind_goal_cell, goal);
     assert_eq!(restored.pathfinding_aircraft_goal(goal_pos), Some(id));
     assert!(owner.unit_command_tighten_to(id, Vec3::new(150.0, 0.0, 150.0)));
