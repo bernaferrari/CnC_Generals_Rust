@@ -142,6 +142,7 @@ include!("executable_smoke/process.rs");
 include!("executable_smoke/bootstrap.rs");
 include!("executable_smoke/frame_loop.rs");
 include!("executable_smoke/construction_wait.rs");
+include!("executable_smoke/windowed_navigation.rs");
 include!("executable_smoke/command_status.rs");
 include!("executable_smoke/gameplay_chain.rs");
 include!("executable_smoke/presentation.rs");

@@ -156,6 +156,7 @@ struct SmokeRunState {
     // Windowed phase-20 substep: 0=menu nav inject, 1=start_game, 2=gameplay order inject.
     windowed_inject_step: u8,
     windowed_menu_nav_sent: bool,
+    windowed_menu_nav_started: Option<Instant>,
     windowed_gameplay_order_sent: bool,
 }
 
@@ -627,6 +628,13 @@ fn smoke_phase_windowed_inject(
             || st.saw_wnd_widget_tree_nav;
         let nav_miss = snap.last_gameplay_cmd.starts_with("winit_menu_nav_miss")
             || snap.last_gameplay_cmd.starts_with("winit_menu_nav_partial");
+        let navigation_wait = st.windowed_menu_nav_started.map_or(NavigationWait::Wait, |start| {
+            windowed_navigation_wait(
+                start.elapsed(),
+                st.commanded_at.map_or(Duration::ZERO, |last| last.elapsed()),
+                nav_miss,
+            )
+        });
         // Sequential honesty path (not forge):
         // 1) winit_menu_nav only → latch menu_click via inject
         // 2) after nav_ok residual, start_game → match_started
@@ -642,6 +650,7 @@ fn smoke_phase_windowed_inject(
         {
             let _ = write_control(&control_path, &["winit_menu_nav"]);
             st.windowed_menu_nav_sent = true;
+            st.windowed_menu_nav_started = Some(Instant::now());
             st.windowed_inject_step = 1;
             st.commanded_at = Some(Instant::now());
             result.detail.push_str(" windowed_winit_menu_nav;");
@@ -657,6 +666,7 @@ fn smoke_phase_windowed_inject(
             // Proceed with nav after wait; claim stays false without live_frame.
             let _ = write_control(&control_path, &["winit_menu_nav"]);
             st.windowed_menu_nav_sent = true;
+            st.windowed_menu_nav_started = Some(Instant::now());
             st.windowed_inject_step = 1;
             st.commanded_at = Some(Instant::now());
             result
@@ -664,11 +674,11 @@ fn smoke_phase_windowed_inject(
                 .push_str(" windowed_winit_menu_nav_no_live_frame;");
         } else if st.windowed_menu_nav_sent
             && !st.windowed_start_sent
-            && nav_miss
+            && !nav_ok
             && ready
             && snap.state == "Menu"
             && shell_ready
-            && st.windowed_inject_step < 4
+            && navigation_wait == NavigationWait::Retry
         {
             let _ = write_control(&control_path, &["winit_menu_nav"]);
             st.windowed_inject_step = st.windowed_inject_step.saturating_add(1);
@@ -692,10 +702,7 @@ fn smoke_phase_windowed_inject(
         } else if !st.windowed_start_sent
             && st.windowed_menu_nav_sent
             && !nav_ok
-            && ready
-            && st.commanded_at
-                .map(|t| t.elapsed() > Duration::from_secs(12))
-                .unwrap_or(false)
+            && navigation_wait == NavigationWait::TimedOut
         {
             // Grace start after inject attempts (claim stays false without
             // menu_click → match chain).
