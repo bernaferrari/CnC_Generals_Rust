@@ -287,7 +287,7 @@ impl CnCGameEngine {
             .get("name")
             .cloned()
             .unwrap_or_else(|| format!("PauseSave-{slot}"));
-        if matches!(self.current_state, GameState::InGame) {
+        if matches!(self.current_state, GameState::InGame) && !self.game_paused {
             self.toggle_pause()?;
         }
         let mut wnd_ok = false;
@@ -327,6 +327,19 @@ impl CnCGameEngine {
                 && self.with_receiving_menu_effects(|effects| {
                     drive_os_wnd_quit_menu_save_load_like_cpp(effects)
                 })?;
+            if !quit_layout {
+                self.pending_popup_save_slot = None;
+                self.pending_popup_save_display_name = None;
+                self.runtime_host_last_gameplay_cmd = "save_fail_wnd_missing".into();
+                return Ok(());
+            }
+            // The retail entrance transition hides this button for several
+            // UI frames. Wait for the actual hit instead of driving the popup
+            // independently and clearing the requested slot prematurely.
+            if !quit_save_load {
+                self.runtime_host_last_gameplay_cmd = "save_wait_wnd_quit".into();
+                return Ok(());
+            }
             let bind = self.with_receiving_menu_effects(|effects| {
                 effects.with_manager(|manager, effects| {
                     ensure_live_popup_save_load_layout(manager, effects)
@@ -360,7 +373,7 @@ impl CnCGameEngine {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "wnd_pause".to_string());
-        if matches!(self.current_state, GameState::InGame) {
+        if matches!(self.current_state, GameState::InGame) && !self.game_paused {
             self.toggle_pause()?;
         }
         if !self.save_file_manager.save_exists(&slot) {
@@ -395,6 +408,14 @@ impl CnCGameEngine {
                 && self.with_receiving_menu_effects(|effects| {
                     drive_os_wnd_quit_menu_save_load_like_cpp(effects)
                 })?;
+            if !quit_layout {
+                self.runtime_host_last_gameplay_cmd = "load_fail_wnd_missing".into();
+                return Ok(());
+            }
+            if !quit_save_load {
+                self.runtime_host_last_gameplay_cmd = "load_wait_wnd_quit".into();
+                return Ok(());
+            }
             let bind = self.with_receiving_menu_effects(|effects| {
                 effects.with_manager(|manager, effects| {
                     ensure_live_popup_save_load_layout(manager, effects)

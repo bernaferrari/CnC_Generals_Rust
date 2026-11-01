@@ -287,6 +287,16 @@ fn smoke_drive_gameplay_chain(
         st.gameplay_step = 6;
         st.commanded_at = Some(Instant::now());
     } else if st.gameplay_step == 6
+        && launch == ExecutableSmokeLaunch::Windowed
+        && snap.last_gameplay_cmd.starts_with("save_wait_wnd_quit")
+        && st.save_retry_started.map(|start| start.elapsed() < Duration::from_secs(30)).unwrap_or(true)
+    {
+        st.save_retry_started.get_or_insert_with(Instant::now);
+        if st.commanded_at.map(|sent| sent.elapsed() >= Duration::from_secs(1)).unwrap_or(true) {
+            let _ = write_control(&control_path, &["pause_save|slot=wnd_pause|via=PopupSaveLoad.wnd"]);
+            st.commanded_at = Some(Instant::now());
+        }
+    } else if st.gameplay_step == 6
         && (snap.last_gameplay_cmd.starts_with("save_ok")
             || snap.last_gameplay_cmd.starts_with("save_fail")
             || st.commanded_at
@@ -313,6 +323,7 @@ fn smoke_drive_gameplay_chain(
     } else if st.gameplay_step == 7
         && (snap.last_gameplay_cmd.starts_with("load_ok")
             || snap.last_gameplay_cmd.starts_with("load_fail")
+            || snap.last_gameplay_cmd.starts_with("load_wait_wnd_quit")
             || st.commanded_at
                 .map(|t| t.elapsed() > Duration::from_secs(20))
                 .unwrap_or(false))
@@ -332,7 +343,8 @@ fn smoke_drive_gameplay_chain(
                 .map(|t| t.elapsed() < Duration::from_secs(18))
                 .unwrap_or(false);
             if retry_budget
-                && snap.last_gameplay_cmd.starts_with("load_fail")
+                && (snap.last_gameplay_cmd.starts_with("load_fail")
+                    || snap.last_gameplay_cmd.starts_with("load_wait_wnd_quit"))
                 && st.commanded_at
                     .map(|t| t.elapsed() >= Duration::from_secs(2))
                     .unwrap_or(false)
