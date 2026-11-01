@@ -1208,12 +1208,17 @@ impl PathfindingGrid {
 
     /// C++ `getCell(layer, x, y)` occupancy. Missing layer cells fall back to ground.
     pub(super) fn occupancy_bits(&self, pos: GridPos, layer: PathfindLayerEnum) -> OccBits {
+        self.filter_ignored_goal(self.raw_occupancy_bits(pos, layer))
+    }
+
+    /// Cell observations without the current search's ignore filter.
+    pub(super) fn raw_occupancy_bits(&self, pos: GridPos, layer: PathfindLayerEnum) -> OccBits {
         if (layer as u8) > PathfindLayerEnum::Ground as u8
             && self.layer_cell_type(layer as u8, pos).is_some()
         {
             if let Some(occ) = self.layer_occ.get(&(layer as u8)) {
                 let key = (pos.x, pos.y);
-                return self.filter_ignored_goal(OccBits {
+                return OccBits {
                     fixed: occ.occ_fixed_mask.get(&key).copied().unwrap_or(0),
                     moving: occ.occ_moving_mask.get(&key).copied().unwrap_or(0),
                     goal: occ.occ_goal_mask.get(&key).copied().unwrap_or(0),
@@ -1225,14 +1230,14 @@ impl PathfindingGrid {
                     pos_moving: occ.occ_pos_flags.get(&key).copied().unwrap_or(0) & 1 != 0,
                     pos_infantry: occ.occ_pos_flags.get(&key).copied().unwrap_or(0) & 2 != 0,
                     pos_crushable: occ.occ_pos_crushable.get(&key).copied().unwrap_or(0),
-                });
+                };
             }
             return OccBits::default();
         }
         let Some(idx) = self.bit_index(pos) else {
             return OccBits::default();
         };
-        self.filter_ignored_goal(OccBits {
+        OccBits {
             fixed: self.occ_fixed_mask.get(idx).copied().unwrap_or(0),
             moving: self.occ_moving_mask.get(idx).copied().unwrap_or(0),
             goal: self.occ_goal_mask.get(idx).copied().unwrap_or(0),
@@ -1244,7 +1249,7 @@ impl PathfindingGrid {
             pos_moving: self.occ_pos_flags.get(idx).copied().unwrap_or(0) & 1 != 0,
             pos_infantry: self.occ_pos_flags.get(idx).copied().unwrap_or(0) & 2 != 0,
             pos_crushable: self.occ_pos_crushable.get(idx).copied().unwrap_or(0),
-        })
+        }
     }
 
     fn filter_ignored_goal(&self, mut bits: OccBits) -> OccBits {

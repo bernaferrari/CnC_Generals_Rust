@@ -196,20 +196,27 @@ impl PathfindingSystem {
                     None => {
                         // C++ doPathfind / dozer packed goal: adjustToPossibleDestination
                         // then retry computePath (weaker than checkForAdjust).
-                        let unit_radius = self
-                            .seeker_id
-                            .and_then(|id| objects.lookup(&id))
-                            .map(|o| o.selection_radius)
-                            .unwrap_or(0.0);
                         let mut possible = goal;
-                        if !self.adjust_to_possible_destination(
-                            start,
-                            &mut possible,
-                            surfaces,
-                            is_crusher,
-                            unit_radius,
-                            ground_source,
-                        ) {
+                        let adjusted =
+                            if let Some(obj) = self.seeker_id.and_then(|id| objects.lookup(&id)) {
+                                self.grid.adjust_to_possible_destination_for_object(
+                                    obj,
+                                    start,
+                                    &mut possible,
+                                    surfaces,
+                                    ground_source,
+                                )
+                            } else {
+                                self.adjust_to_possible_destination(
+                                    start,
+                                    &mut possible,
+                                    surfaces,
+                                    is_crusher,
+                                    0.0,
+                                    ground_source,
+                                )
+                            };
+                        if !adjusted {
                             return None;
                         }
                         let retry_grid = self
@@ -312,12 +319,28 @@ impl PathfindingSystem {
         } else {
             SURFACE_GROUND
         };
-        self.adjust_to_possible_destination(
+        self.adjust_to_possible_destination_for_inputs(
+            obj,
             obj.get_position(),
             dest,
             surfaces,
-            obj.crusher_level > 0,
-            obj.geometry_info().bounding_circle_radius(),
+            ground_source,
+        )
+    }
+
+    pub(crate) fn adjust_to_possible_destination_for_inputs(
+        &self,
+        obj: &Object,
+        start: Vec3,
+        dest: &mut Vec3,
+        surfaces: u32,
+        ground_source: &PathfindingGround<'_>,
+    ) -> bool {
+        self.grid.adjust_to_possible_destination_for_object(
+            obj,
+            start,
+            dest,
+            surfaces,
             ground_source,
         )
     }

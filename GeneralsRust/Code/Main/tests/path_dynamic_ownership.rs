@@ -6,6 +6,152 @@ use generals_main::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
 use glam::Vec3;
 
 #[test]
+fn possible_destination_uses_each_receivers_ignore_and_goal_identity() {
+    use generals_main::game_logic::ObjectId;
+    let ground = PathfindingGround::Flat(0.0);
+    let mut worlds = [GameLogic::new(), GameLogic::new()];
+    let mut ids = Vec::new();
+    for world in &mut worlds {
+        world.add_player(Player::new(0, Team::USA, "Owner", true));
+        let mut template = ThingTemplate::new("ContextMover");
+        template.add_kind_of(KindOf::Infantry).set_health(100.0);
+        world.templates.insert("ContextMover".into(), template);
+        ids.push(
+            world
+                .create_object_for_player("ContextMover", 0, Vec3::new(20.0, 0.0, 20.0))
+                .unwrap(),
+        );
+    }
+    assert_eq!(ids[0], ids[1]);
+    let mut systems = [
+        PathfindingSystem::new(200.0, 200.0),
+        PathfindingSystem::new(200.0, 200.0),
+    ];
+    let cell = GridPos::new(5, 5);
+    let goal = Vec3::new(50.0, 0.0, 50.0);
+    for system in &mut systems {
+        system
+            .grid
+            .set_cell_obstacle_owned(cell, false, false, 99, None, None);
+        system.grid.set_query_seeker_id(999);
+    }
+    // A previous search's context must not leak into either receiver.
+    systems[0].set_ignore_obstacle(Some(ObjectId(88)));
+    systems[1].set_ignore_obstacle(Some(ObjectId(99)));
+    worlds[0]
+        .host_object_mut(ids[0])
+        .unwrap()
+        .ignored_obstacle_id = Some(ObjectId(99));
+    let mut ignored = goal;
+    let mut ordinary = goal;
+    assert!(systems[0].adjust_to_possible_destination_for(
+        worlds[0].host_object(ids[0]).unwrap(),
+        &mut ignored,
+        &ground
+    ));
+    assert!(systems[1].adjust_to_possible_destination_for(
+        worlds[1].host_object(ids[1]).unwrap(),
+        &mut ordinary,
+        &ground
+    ));
+    assert_eq!(
+        ignored, goal,
+        "the receiver's ignored obstacle must not block it"
+    );
+    assert_ne!(
+        ordinary, goal,
+        "another receiver must not inherit that ignore"
+    );
+
+    systems[0]
+        .grid
+        .set_cell_type(cell, gamelogic::ai::pathfind_astar::PathfindCellType::Clear);
+    systems[0]
+        .grid
+        .update_ground_goal_cell(ids[0].0, 0, 1.0, false, (-1, -1), goal);
+    worlds[0]
+        .host_object_mut(ids[0])
+        .unwrap()
+        .ignored_obstacle_id = None;
+    let mut own_goal = goal;
+    assert!(systems[0].adjust_to_possible_destination_for(
+        worlds[0].host_object(ids[0]).unwrap(),
+        &mut own_goal,
+        &ground
+    ));
+    assert_eq!(own_goal, goal, "the receiver must recognize its own goal");
+}
+
+#[test]
+fn possible_destination_uses_the_receivers_aircraft_goal_rules() {
+    use generals_main::game_logic::object::{LOCO_SURFACE_AIR, LocomotorAppearance};
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
+    let mut template = ThingTemplate::new("ContextAircraft");
+    template
+        .add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(100.0);
+    world.templates.insert("ContextAircraft".into(), template);
+    let id = world
+        .create_object_for_player("ContextAircraft", 0, Vec3::new(20.0, 0.0, 20.0))
+        .unwrap();
+    let actor = world.host_object_mut(id).unwrap();
+    actor.cur_locomotor_name = Some("AircraftLocomotor".into());
+    actor.loco_appearance = LocomotorAppearance::Wings;
+    actor.locomotor_surfaces = LOCO_SURFACE_AIR;
+    let ground = PathfindingGround::Flat(0.0);
+    let mut system = PathfindingSystem::new(200.0, 200.0);
+    let goal = Vec3::new(50.0, 0.0, 50.0);
+    system
+        .grid
+        .set_cell_obstacle_owned(GridPos::new(5, 5), false, false, 99, None, None);
+    system
+        .grid
+        .update_aircraft_goal_cell(id.0, 1.0, (-1, -1), 0, goal, true);
+    system.grid.set_query_seeker_id(999);
+    let mut own_goal = goal;
+    assert!(system.adjust_to_possible_destination_for(
+        world.host_object(id).unwrap(),
+        &mut own_goal,
+        &ground
+    ));
+    assert_eq!(
+        own_goal, goal,
+        "an aircraft can use its own aircraft goal even over an obstacle"
+    );
+    system
+        .grid
+        .update_aircraft_goal_cell(77, 1.0, (-1, -1), 0, goal, true);
+    let mut occupied = goal;
+    assert!(system.adjust_to_possible_destination_for(
+        world.host_object(id).unwrap(),
+        &mut occupied,
+        &ground
+    ));
+    assert_ne!(occupied, goal, "another aircraft's goal must be avoided");
+    system.grid.stamp_bridge_deck(
+        Vec3::new(30.0, 20.0, 40.0),
+        Vec3::new(30.0, 20.0, 60.0),
+        Vec3::new(130.0, 20.0, 40.0),
+        Vec3::new(130.0, 20.0, 60.0),
+        false,
+        &ground,
+    );
+    let mut bridge_goal = Vec3::new(50.0, 20.0, 50.0);
+    let original_bridge_goal = bridge_goal;
+    assert!(system.adjust_to_possible_destination_for(
+        world.host_object(id).unwrap(),
+        &mut bridge_goal,
+        &ground,
+    ));
+    assert_eq!(
+        bridge_goal, original_bridge_goal,
+        "a ground reservation must not block a distinct bridge cell"
+    );
+}
+
+#[test]
 fn possible_destination_checks_the_whole_footprint_on_every_candidate() {
     use gamelogic::ai::pathfind_astar::PathfindCellType;
     use gamelogic::ai::pathfind_complete::SURFACE_GROUND;

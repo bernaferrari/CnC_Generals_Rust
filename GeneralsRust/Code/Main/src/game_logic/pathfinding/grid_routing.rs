@@ -1619,6 +1619,61 @@ impl PathfindingGrid {
         crusher_level: u8,
         ground_source: &PathfindingGround<'_>,
     ) -> bool {
+        let receiver = PossibleDestinationReceiver {
+            seeker_id: self.query_seeker_id,
+            ignore_id: self.query_ignore_goal_id,
+            aircraft: self.query_check_for_aircraft,
+            player: seeker_player,
+            crusher_level,
+        };
+        self.adjust_to_possible_destination_with_receiver(
+            start,
+            dest,
+            surfaces,
+            is_crusher,
+            unit_radius,
+            receiver,
+            ground_source,
+        )
+    }
+
+    /// Resolve the C++ checkDestination receiver from the object for this call.
+    pub(super) fn adjust_to_possible_destination_for_object(
+        &self,
+        obj: &Object,
+        start: Vec3,
+        dest: &mut Vec3,
+        surfaces: u32,
+        ground_source: &PathfindingGround<'_>,
+    ) -> bool {
+        let receiver = PossibleDestinationReceiver {
+            seeker_id: obj.id.0,
+            ignore_id: obj.ignored_obstacle_id.map_or(0, |id| id.0),
+            aircraft: Self::is_aircraft_that_adjusts_destination(obj),
+            player: obj.owner_player_id.or(Some(obj.team as u32)),
+            crusher_level: obj.crusher_level,
+        };
+        self.adjust_to_possible_destination_with_receiver(
+            start,
+            dest,
+            surfaces,
+            obj.crusher_level > 0,
+            obj.geometry_info().bounding_circle_radius(),
+            receiver,
+            ground_source,
+        )
+    }
+
+    fn adjust_to_possible_destination_with_receiver(
+        &self,
+        start: Vec3,
+        dest: &mut Vec3,
+        surfaces: u32,
+        is_crusher: bool,
+        unit_radius: f32,
+        receiver: PossibleDestinationReceiver,
+        ground_source: &PathfindingGround<'_>,
+    ) -> bool {
         let (radius, center_in_cell) = Self::radius_and_center(unit_radius, self.grid_size);
         // C++: if (!center) adjustDest += PATHFIND_CELL_SIZE_F/2 before worldToCell.
         let mut adjust_dest = *dest;
@@ -1640,8 +1695,7 @@ impl PathfindingGrid {
                 destination_layer,
                 radius,
                 center_in_cell,
-                seeker_player,
-                crusher_level,
+                receiver,
             )
         {
             // C++ returns true without rewriting dest when seed is already valid.
@@ -1662,8 +1716,7 @@ impl PathfindingGrid {
                     start_cell,
                     surfaces,
                     is_crusher,
-                    seeker_player,
-                    crusher_level,
+                    receiver,
                     dest,
                     radius,
                     center_in_cell,
@@ -1681,8 +1734,7 @@ impl PathfindingGrid {
                     start_cell,
                     surfaces,
                     is_crusher,
-                    seeker_player,
-                    crusher_level,
+                    receiver,
                     dest,
                     radius,
                     center_in_cell,
@@ -1701,8 +1753,7 @@ impl PathfindingGrid {
                     start_cell,
                     surfaces,
                     is_crusher,
-                    seeker_player,
-                    crusher_level,
+                    receiver,
                     dest,
                     radius,
                     center_in_cell,
@@ -1720,8 +1771,7 @@ impl PathfindingGrid {
                     start_cell,
                     surfaces,
                     is_crusher,
-                    seeker_player,
-                    crusher_level,
+                    receiver,
                     dest,
                     radius,
                     center_in_cell,
@@ -1744,8 +1794,7 @@ impl PathfindingGrid {
         layer: PathfindLayerEnum,
         radius: i32,
         center_in_cell: bool,
-        seeker_player: Option<u32>,
-        crusher_level: u8,
+        receiver: PossibleDestinationReceiver,
     ) -> bool {
         let above = radius + i32::from(center_in_cell);
         for x in (cell.x - radius)..(cell.x + above) {
@@ -1754,18 +1803,26 @@ impl PathfindingGrid {
                 if !self.is_valid_pos(pos) {
                     return false;
                 }
-                if self.query_check_for_aircraft {
-                    if self.has_other_aircraft_goal(pos) {
+                if receiver.aircraft {
+                    // updateAircraftGoal registers on ground cells. A present
+                    // bridge/wall cell has its own aircraft-goal field in C++.
+                    if layer != PathfindLayerEnum::Ground
+                        && self.layer_cell_type(layer as u8, pos).is_some()
+                    {
+                        continue;
+                    }
+                    let aircraft_goal = self.goal_aircraft(pos);
+                    if aircraft_goal != 0 && aircraft_goal != receiver.seeker_id {
                         return false;
                     }
                     continue;
                 }
                 match self.resolved_cell_type(layer, pos) {
                     PathfindCellType::Obstacle => {
-                        let ignored = self.query_ignore_goal_id != 0
+                        let ignored = receiver.ignore_id != 0
                             && self
                                 .obstacle_owner(pos)
-                                .is_some_and(|(id, _, _)| id == self.query_ignore_goal_id);
+                                .is_some_and(|(id, _, _)| id == receiver.ignore_id);
                         if !ignored {
                             return false;
                         }
@@ -1776,11 +1833,14 @@ impl PathfindingGrid {
                     }
                     _ => {}
                 }
-                let bits = self.occupancy_bits(pos, layer);
-                if bits.goal_unit == 0 || bits.goal_unit == self.query_seeker_id {
+                let bits = self.raw_occupancy_bits(pos, layer);
+                if bits.goal_unit == 0
+                    || bits.goal_unit == receiver.seeker_id
+                    || bits.goal_unit == receiver.ignore_id
+                {
                     continue;
                 }
-                let Some(player) = seeker_player else {
+                let Some(player) = receiver.player else {
                     return false;
                 };
                 // A missing goal object has no owner and is ignored by C++.
@@ -1793,7 +1853,7 @@ impl PathfindingGrid {
                 // UNIT_PRESENT_FIXED means the position and goal are the
                 // same unit; check that unit's crushability.
                 if bits.pos_unit == bits.goal_unit
-                    && (crusher_level == 0 || crusher_level <= bits.pos_crushable)
+                    && (receiver.crusher_level == 0 || receiver.crusher_level <= bits.pos_crushable)
                 {
                     return false;
                 }
@@ -1809,8 +1869,7 @@ impl PathfindingGrid {
         start_cell: GridPos,
         surfaces: u32,
         is_crusher: bool,
-        seeker_player: Option<u32>,
-        crusher_level: u8,
+        receiver: PossibleDestinationReceiver,
         dest: &mut Vec3,
         radius: i32,
         center_in_cell: bool,
@@ -1836,14 +1895,7 @@ impl PathfindingGrid {
         // checkForPossible writes the candidate before checkDestination;
         // even a rejected candidate remains observable if the search fails.
         *dest = self.adjust_coord_to_cell_on_layer(cell, center_in_cell, layer, ground_source);
-        if !self.possible_destination_footprint_ok(
-            cell,
-            layer,
-            radius,
-            center_in_cell,
-            seeker_player,
-            crusher_level,
-        ) {
+        if !self.possible_destination_footprint_ok(cell, layer, radius, center_in_cell, receiver) {
             return false;
         }
         true

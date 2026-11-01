@@ -250,6 +250,16 @@ struct OccBits {
     pos_crushable: u8,
 }
 
+/// Receiver-specific state for one synchronous possible-destination query.
+#[derive(Clone, Copy)]
+struct PossibleDestinationReceiver {
+    seeker_id: u32,
+    ignore_id: u32,
+    aircraft: bool,
+    player: Option<u32>,
+    crusher_level: u8,
+}
+
 /// C++ `LAYER_WALL = LAYER_LAST = 15` (GameType.h:167).
 const LAYER_WALL_ID: u8 = 15;
 /// C++ `MAX_WALL_PIECES` (AIPathfind.h:181).

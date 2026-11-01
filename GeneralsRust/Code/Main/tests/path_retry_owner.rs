@@ -120,6 +120,71 @@ fn possible_destination_uses_the_receiving_worlds_wide_unit_footprint() {
 }
 
 #[test]
+fn possible_destination_uses_the_receiving_actors_own_goal() {
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("DestinationReceiver.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+    let mut owner = world(&map);
+    let mut peer = world(&map);
+    let start = Vec3::new(100.0, 0.0, 100.0);
+    let goal = Vec3::new(150.0, 0.0, 100.0);
+    let a = owner
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    let b = peer
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    assert_eq!(a, b);
+    for world in [&mut owner, &mut peer] {
+        world.host_object_mut(a).unwrap().is_final_goal = true;
+        assert!(world.assign_unit_path_exact(a, goal, &[]));
+    }
+    let other = peer
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    peer.host_object_mut(other).unwrap().is_final_goal = true;
+    assert!(peer.assign_unit_path_exact(other, goal, &[]));
+    let mut owner_dest = goal;
+    let mut peer_dest = goal;
+    assert!(owner.adjust_to_possible_destination(a, &mut owner_dest));
+    assert!(peer.adjust_to_possible_destination(b, &mut peer_dest));
+    assert_eq!(
+        owner_dest, goal,
+        "the receiving actor must recognize its own registered goal"
+    );
+    assert_ne!(
+        peer_dest, goal,
+        "another actor's goal in the peer world must remain occupied"
+    );
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&owner).unwrap();
+    let mut restored = world(&map);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    peer.reset();
+    for world in [&owner, &restored] {
+        let mut after_load = goal;
+        assert!(world.adjust_to_possible_destination(a, &mut after_load));
+        assert_eq!(
+            after_load, goal,
+            "save/load or a peer reset changed the receiver's own goal"
+        );
+    }
+}
+
+#[test]
 fn loading_ground_ai_rebuilds_idle_and_moving_goals_in_receiving_session() {
     use generals_main::game_logic::pathfinding::{GridPos, PathfindingGrid};
     let directory = tempfile::tempdir().unwrap();
@@ -784,6 +849,15 @@ fn aircraft_registered_goal_is_owned_by_its_session_and_survives_save() {
     assert!(restored.host_object(id).unwrap().host_ai_is_moving());
     assert_eq!(restored.host_object(id).unwrap().pathfind_goal_cell, goal);
     assert_eq!(restored.pathfinding_aircraft_goal(goal_pos), Some(id));
+    for world in [&owner, &restored] {
+        let mut own_goal = Vec3::new(100.0, 0.0, 150.0);
+        assert!(world.adjust_to_possible_destination(id, &mut own_goal));
+        assert_eq!(
+            own_goal,
+            Vec3::new(100.0, 0.0, 150.0),
+            "aircraft must recognize its own goal after restore"
+        );
+    }
     assert!(owner.unit_command_tighten_to(id, Vec3::new(150.0, 0.0, 150.0)));
     assert_eq!(owner.host_object(id).unwrap().pathfind_goal_cell, (-1, -1));
     assert_ne!(

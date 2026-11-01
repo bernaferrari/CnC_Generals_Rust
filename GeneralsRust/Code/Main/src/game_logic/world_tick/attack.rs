@@ -3146,14 +3146,16 @@ impl GameLogic {
                                 self.pathfinding_height_samples.as_ref(),
                                 &self.pathfinding_system.grid,
                             );
-                        self.pathfinding_system.adjust_to_possible_destination(
-                            start,
-                            &mut dest,
-                            loco,
-                            is_crusher,
-                            unit_radius,
-                            &ground_source,
-                        )
+                        self.objects.lookup(&id).is_some_and(|obj| {
+                            self.pathfinding_system
+                                .adjust_to_possible_destination_for_inputs(
+                                    obj,
+                                    start,
+                                    &mut dest,
+                                    loco,
+                                    &ground_source,
+                                )
+                        })
                     }) {
                         self.pathfinding_system.set_adjust_goal(saved_adjust);
                         return false;
