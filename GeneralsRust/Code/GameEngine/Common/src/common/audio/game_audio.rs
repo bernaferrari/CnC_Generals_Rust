@@ -3479,8 +3479,23 @@ impl RodioPlaybackHook {
             )
         })?;
         let duration_ms = AudioManager::duration_ms_from_audio_data(audio_data.as_ref());
-        let cursor = Cursor::new(CachedAudioBytes(audio_data));
-        let source = Decoder::new(cursor)
+        #[cfg(feature = "audio")]
+        let source: Box<dyn Source<Item = f32> + Send> =
+            if super::retail_adpcm::is_ima_wave(&audio_data) {
+                Box::new(
+                    super::retail_adpcm::decode(audio_data.clone()).map_err(|e| {
+                        format!("Failed to decode audio file '{}': {}", file_path, e)
+                    })?,
+                )
+            } else {
+                Box::new(
+                    Decoder::new(Cursor::new(CachedAudioBytes(audio_data))).map_err(|e| {
+                        format!("Failed to decode audio file '{}': {}", file_path, e)
+                    })?,
+                )
+            };
+        #[cfg(not(feature = "audio"))]
+        let source = Decoder::new(Cursor::new(CachedAudioBytes(audio_data)))
             .map_err(|e| format!("Failed to decode audio file '{}': {}", file_path, e))?;
         let stream_handle = get_rodio_stream_handle()
             .ok_or_else(|| "Audio output stream not available".to_string())?;
