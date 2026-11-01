@@ -96,6 +96,8 @@ mod command_phase;
 #[cfg(feature = "game_client")]
 mod control_bar_bridge;
 mod control_bar_viewport;
+#[cfg(feature = "game_client")]
+mod observer_counts;
 mod dispatch;
 mod display_clock;
 mod eva_delivery;

@@ -731,6 +731,7 @@ fn receiving_observer_roster_from_world(
         );
         players = ordered;
     }
+    let counts = super::observer_counts::count_observer_objects(world);
     let mut compact_button = 0usize;
     Some(NativeObserverRoster {
         players: players
@@ -740,20 +741,7 @@ fn receiving_observer_roster_from_world(
                     .player_template_identity(p.id)
                     .and_then(|identity| world.resolve_player_template_identity(identity));
                 let color = p.color_rgb;
-                let count = |required: u128, forbidden: u128| {
-                    world
-                        .get_objects()
-                        .registered_values()
-                        .filter(|object| {
-                            world.player_owner_for_host_object(object) == Some(p.id)
-                                && object.is_kind_of_multi(required, forbidden)
-                        })
-                        .count() as i32
-                };
-                const SCORE: u128 = 1u128 << 35;
-                const STRUCTURE: u128 = 1u128 << 7;
-                const SCORE_CREATE: u128 = 1u128 << 36;
-                const SCORE_DESTROY: u128 = 1u128 << 37;
+                let count = counts.get(&p.id).copied().unwrap_or_default();
                 let team_key = if multiplayer && !p.is_observer {
                     let compact_index = compact_button;
                     compact_button += 1;
@@ -796,10 +784,8 @@ fn receiving_observer_roster_from_world(
                     money: p.resources.supplies as i32,
                     power_produced: p.energy_production_at(world.frame),
                     power_consumed: p.power_consumed,
-                    num_units: count(SCORE, STRUCTURE),
-                    num_buildings: count(SCORE | STRUCTURE, 0)
-                        + count(SCORE_CREATE | STRUCTURE, 0)
-                        + count(SCORE_DESTROY | STRUCTURE, 0),
+                    num_units: count.units,
+                    num_buildings: count.buildings,
                     units_killed: p.statistics.score_keeper().get_total_units_destroyed(),
                     units_lost: p.statistics.score_keeper().get_total_units_lost(),
                 })
