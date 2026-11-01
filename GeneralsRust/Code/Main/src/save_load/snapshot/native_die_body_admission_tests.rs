@@ -57,7 +57,7 @@ fn replace_receipt(snapshot: &mut WorldSnapshot, record: Option<Record>) {
         }
         assert!(
             [
-                b"CPRJ", b"PCOI", b"GMSH", b"BDKD", b"NLFC", b"ODIS", b"RDCK", b"OLST"
+                b"CPRJ", b"PCOI", b"GMSH", b"BDKD", b"NLFC", b"ODIS", b"RDCK", b"OLST", b"OLYR"
             ]
             .contains(&tag)
         );

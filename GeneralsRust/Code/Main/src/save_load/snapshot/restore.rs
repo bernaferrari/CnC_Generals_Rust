@@ -86,6 +86,7 @@ impl SnapshotBuilder {
             saved_order,
             &HashMap::new(),
             &HashMap::new(),
+            &HashMap::new(),
             game_logic,
         )
     }
@@ -102,6 +103,7 @@ impl SnapshotBuilder {
         saved_order: Option<&[ObjectId]>,
         geometry: &HashMap<ObjectId, crate::game_logic::HostGeometryInfo>,
         script_status_flags: &HashMap<ObjectId, bool>,
+        current_layers: &HashMap<ObjectId, u8>,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         self.validate_object_restore_admission(objects, game_logic)?;
@@ -171,6 +173,7 @@ impl SnapshotBuilder {
                 body_kinds.get(&snapshot.id).copied(),
                 native_lifecycle.get(&snapshot.id),
                 script_status_flags.get(&snapshot.id).copied(),
+                current_layers.get(&snapshot.id).copied(),
                 game_logic,
             )?;
             max_id = max_id.max(id.0);
@@ -214,7 +217,7 @@ impl SnapshotBuilder {
         snapshot: &ObjectSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        self.restore_object_with_body_kind(snapshot, None, None, None, game_logic)
+        self.restore_object_with_body_kind(snapshot, None, None, None, None, game_logic)
     }
 
     pub(super) fn validate_object_restore_admission(
@@ -387,6 +390,7 @@ impl SnapshotBuilder {
         body_kind: Option<crate::game_logic::thing::BodyKind>,
         native_lifecycle: Option<&crate::game_logic::native_lifecycle::NativeLifecycleRuntime>,
         script_status_disabled: Option<bool>,
+        current_layer: Option<u8>,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         game_logic
@@ -479,6 +483,10 @@ impl SnapshotBuilder {
             temporary_weapons,
             game_logic.body_damage_policy(),
         );
+        // Object::xfer restores m_layer before its behavior modules.
+        if let Some(layer) = current_layer {
+            object.pathfind_layer = layer;
+        }
         object.partition_cash_value = partition_cash;
         if let Some(threat) = receiving_partition_threat {
             object.partition_threat_value = threat;

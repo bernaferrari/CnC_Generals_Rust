@@ -278,7 +278,7 @@ fn native_die_capsule_completed_live_slot_rejects_capture_and_detached_restore()
     while &snapshot.lifecycle_tail[offset..offset + 4] != TAG {
         assert!(
             [
-                b"CPRJ", b"PCOI", b"GMSH", b"BDKD", b"NLFC", b"ODIS", b"RDCK", b"OLST"
+                b"CPRJ", b"PCOI", b"GMSH", b"BDKD", b"NLFC", b"ODIS", b"RDCK", b"OLST", b"OLYR"
             ]
             .contains(
                 &snapshot.lifecycle_tail[offset..offset + 4]
@@ -550,7 +550,7 @@ fn replace_ndie(
         }
         assert!(
             [
-                b"CPRJ", b"PCOI", b"GMSH", b"BDKD", b"NLFC", b"ODIS", b"RDCK", b"OLST"
+                b"CPRJ", b"PCOI", b"GMSH", b"BDKD", b"NLFC", b"ODIS", b"RDCK", b"OLST", b"OLYR"
             ]
             .contains(&tag.try_into().unwrap())
         );

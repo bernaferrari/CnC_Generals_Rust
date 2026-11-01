@@ -53,6 +53,95 @@ fn mark_aircraft_moving(world: &mut GameLogic, id: ObjectId) {
 }
 
 #[test]
+fn current_and_destination_layers_survive_snapshot_independently_per_session() {
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("ObjectLayer.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+
+    let mut source = world(&map);
+    let mut peer = world(&map);
+    let position = Vec3::new(100.0, 0.0, 100.0);
+    let id = source
+        .create_object_for_player("RetryWalker", 1, position)
+        .unwrap();
+    assert_eq!(
+        peer.create_object_for_player("RetryWalker", 1, position)
+            .unwrap(),
+        id
+    );
+    {
+        let actor = source.host_object_mut(id).unwrap();
+        actor.pathfind_layer = 3;
+        actor.pathfind_goal_layer = 2;
+        actor.pathfind_goal_on_ground = false;
+    }
+    peer.host_object_mut(id).unwrap().pathfind_layer = 4;
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).unwrap();
+    let mut restored = world(&map);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    let actor = restored.host_object(id).unwrap();
+    assert_eq!(actor.pathfind_layer, 3);
+    assert_eq!(actor.pathfind_goal_layer, 2);
+    assert!(!actor.pathfind_goal_on_ground);
+    assert_eq!(peer.host_object(id).unwrap().pathfind_layer, 4);
+
+    let tag = snapshot
+        .lifecycle_tail
+        .windows(4)
+        .position(|v| v == b"OLYR")
+        .unwrap();
+    let size = u32::from_le_bytes(
+        snapshot.lifecycle_tail[tag + 8..tag + 12]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    assert_eq!(size, 5);
+    let mut invalid_layer = builder.create_world_snapshot(&source).unwrap();
+    invalid_layer.lifecycle_tail[tag + 16] = u8::MAX;
+    let mut invalid_receiver = builder.create_world_snapshot(&source).unwrap();
+    invalid_receiver.lifecycle_tail[tag + 12..tag + 16].copy_from_slice(&0_u32.to_le_bytes());
+    let mut duplicate = builder.create_world_snapshot(&source).unwrap();
+    let row = duplicate.lifecycle_tail[tag + 12..tag + 17].to_vec();
+    duplicate.lifecycle_tail.splice(tag + 17..tag + 17, row);
+    duplicate.lifecycle_tail[tag + 8..tag + 12].copy_from_slice(&10_u32.to_le_bytes());
+    restored.set_current_frame(7);
+    for invalid in [&invalid_layer, &invalid_receiver, &duplicate] {
+        assert!(
+            builder
+                .restore_from_snapshot(invalid, &mut restored)
+                .is_err()
+        );
+        assert_eq!(restored.get_current_frame(), 7);
+        assert_eq!(restored.host_object(id).unwrap().pathfind_layer, 3);
+    }
+    let mut older = builder.create_world_snapshot(&source).unwrap();
+    older.lifecycle_tail.drain(tag..tag + 12 + size);
+    let mut older_restored = world(&map);
+    builder
+        .restore_from_snapshot(&older, &mut older_restored)
+        .unwrap();
+    assert_eq!(older_restored.host_object(id).unwrap().pathfind_layer, 1);
+    assert_eq!(
+        older_restored.host_object(id).unwrap().pathfind_goal_layer,
+        2
+    );
+}
+
+#[test]
 fn loading_moving_wide_aircraft_recomputes_goal_from_saved_cell_center() {
     use generals_main::game_logic::pathfinding::{GridPos, PathfindingGrid};
 

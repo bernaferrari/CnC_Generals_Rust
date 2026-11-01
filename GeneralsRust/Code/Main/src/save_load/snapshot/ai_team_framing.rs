@@ -29,6 +29,7 @@ fn known(tag: &[u8]) -> bool {
             | b"ODIS"
             | b"RDCK"
             | b"OLST"
+            | b"OLYR"
             | b"NDIE"
             | b"SPCD"
             | b"BPPL"

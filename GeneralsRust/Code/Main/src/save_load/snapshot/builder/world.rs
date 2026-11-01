@@ -169,6 +169,7 @@ impl SnapshotBuilder {
                 super::super::original_disabled_persist::append(&mut bytes, game_logic)?;
                 super::super::repair_dock_persist::append(&mut bytes, game_logic)?;
                 super::super::object_order_persist::append(&mut bytes, game_logic)?;
+                super::super::object_layer_persist::append(&mut bytes, game_logic)?;
                 super::super::native_die_persist::append(&mut bytes, game_logic)?;
                 super::super::special_power_cooldown_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
@@ -624,8 +625,14 @@ impl SnapshotBuilder {
             object_order.saved_order.as_deref(),
             &snapshot.objects,
         )?;
+        let object_layers =
+            super::super::object_layer_persist::decode(object_order.legacy_tail.as_ref())?;
+        let current_layers = super::super::object_layer_persist::validate(
+            object_layers.records.as_deref(),
+            &snapshot.objects,
+        )?;
         let native_die =
-            super::super::native_die_persist::decode(object_order.legacy_tail.as_ref())?;
+            super::super::native_die_persist::decode(object_layers.legacy_tail.as_ref())?;
         let native_die_runtimes = super::super::native_die_persist::validate(
             &native_die,
             snapshot,
@@ -839,6 +846,7 @@ impl SnapshotBuilder {
             &super::super::original_disabled_persist::script_status_flags(
                 original_disabled.records.as_deref(),
             ),
+            &current_layers,
             game_logic,
         )?;
         super::super::garrison_team_identity_persist::apply_rows(
