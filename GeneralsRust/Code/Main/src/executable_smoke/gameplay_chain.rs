@@ -128,6 +128,11 @@ fn smoke_drive_gameplay_chain(
                 st.saw_construct_under_construction,
                 snap.under_construction,
                 elapsed,
+                construction_timeout(
+                    std::env::var("EXECUTABLE_SMOKE_CONSTRUCTION_TIMEOUT_SECS")
+                        .ok()
+                        .as_deref(),
+                ),
             ) {
                 ConstructionWait::Pending => {}
                 ConstructionWait::Ready => {
