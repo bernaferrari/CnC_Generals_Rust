@@ -226,6 +226,35 @@ fn parse_named_audio_definition(
     Ok(())
 }
 
+/// Parse one named definition into the receiving manager without a singleton.
+pub(crate) fn parse_named_audio_definition_into(
+    ini: &mut INI,
+    manager: &mut crate::common::audio::game_audio::AudioManager,
+    sound_type: AudioType,
+    default_name: &str,
+    add_track: bool,
+) -> INIResult<()> {
+    let name = ini
+        .get_next_value_token()
+        .or_else(|| ini.get_first_token())
+        .ok_or(INIError::InvalidData)?;
+    // The original inserts before looking up Default*, including self-defaults.
+    let _ = manager.new_audio_event_info(name.clone());
+    let mut event = if let Some(default_info) = manager.find_audio_event_info(default_name) {
+        if add_track {
+            manager.add_track_name(name.clone());
+        }
+        engine_info_to_ini(default_info.as_ref())
+    } else {
+        AudioEventInfo::new(name.clone(), sound_type)
+    };
+    event.audio_name = name;
+    event.sound_type = sound_type;
+    event.parse_audio_fields(ini)?;
+    manager.register_audio_event_info(event.to_engine_info());
+    Ok(())
+}
+
 /// Audio Event Information structure
 #[derive(Debug, Clone)]
 pub struct AudioEventInfo {

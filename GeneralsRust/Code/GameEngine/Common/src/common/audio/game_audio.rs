@@ -1341,6 +1341,11 @@ impl AudioManager {
         self.music_tracks.push(track_name);
     }
 
+    /// C++ track names in admission order for this audio manager.
+    pub fn music_track_names(&self) -> &[AsciiString] {
+        &self.music_tracks
+    }
+
     pub fn set_music_track_name(&mut self, track_name: String) {
         self.current_music_track = track_name;
     }
