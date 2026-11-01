@@ -751,7 +751,10 @@ impl PathfindingGrid {
     /// Reconstruct transient pathfinder cells after the receiving objects load.
     pub(crate) fn restore_aircraft_goals(&mut self, objects: HostObjectRead<'_>) {
         self.occ_goal_aircraft.fill(0);
-        for object in objects.registered_values() {
+        // GameLogic::xfer reads the saved object list in order; XferLoad queues
+        // each AI module's post-process as it is read. Object admission prepends
+        // the restored list, so its reverse is the original callback order.
+        for object in objects.registered_values().rev() {
             self.stamp_aircraft_goal_from_object(object);
         }
     }

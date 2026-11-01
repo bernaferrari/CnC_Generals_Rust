@@ -94,6 +94,24 @@ fn aircraft_goal_overwrite_survives_rebuild_without_reviving_previous_owner() {
     assert_eq!(owner.pathfinding_aircraft_goal(cell), Some(low));
     assert_eq!(peer.pathfinding_aircraft_goal(cell), Some(high));
 
+    // C++ xfers objects in their saved list order and schedules each AI
+    // loadPostProcess immediately after reading that object's modules.
+    // Loading prepends the object list, so post-process order is its reverse.
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&owner).unwrap();
+    let mut restored = aircraft_world(&map);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert_eq!(restored.pathfinding_aircraft_goal(cell), Some(low));
+    let peer_snapshot = builder.create_world_snapshot(&peer).unwrap();
+    let mut restored_peer = aircraft_world(&map);
+    builder
+        .restore_from_snapshot(&peer_snapshot, &mut restored_peer)
+        .unwrap();
+    assert_eq!(restored_peer.pathfinding_aircraft_goal(cell), Some(low));
+    assert_eq!(peer.pathfinding_aircraft_goal(cell), Some(high));
+
     assert!(owner.assign_unit_path(ground_a, Vec3::new(300.0, 0.0, 250.0), &[]));
     for _ in 0..3 {
         owner.update_with_dt(1.0 / 30.0);
