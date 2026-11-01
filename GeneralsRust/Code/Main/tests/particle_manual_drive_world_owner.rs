@@ -1,6 +1,9 @@
 use generals_main::command_system::SpecialPowerType;
 use generals_main::game_logic::{GameLogic, GameMode, ObjectId, Player, Team};
-use generals_main::save_load::{Snapshot, SnapshotBuilder, WorldSnapshot, XferLoad, XferSave};
+use generals_main::save_load::{
+    Snapshot, SnapshotBuilder, WorldSnapshot, XferLoad, XferSave,
+    WORLD_SNAPSHOT_BINCODE_VERSION, WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
+};
 use glam::Vec3;
 use std::io::Cursor;
 
@@ -60,12 +63,12 @@ fn xfer_roundtrip(snapshot: &mut WorldSnapshot) -> WorldSnapshot {
     decoded
 }
 
-fn rewrite_oxfr_v10_as_v9(bytes: &mut Vec<u8>, particle_strikes: usize, beams: usize) -> usize {
+fn rewrite_oxfr_v11_as_v9(bytes: &mut Vec<u8>, particle_strikes: usize, beams: usize, objects: usize) -> usize {
     let record = bytes
         .windows(4)
         .enumerate()
         .find_map(|(offset, window)| {
-            if window != b"OXFR" || bytes.get(offset + 4..offset + 8)? != 10_u32.to_le_bytes() {
+            if window != b"OXFR" || bytes.get(offset + 4..offset + 8)? != 11_u32.to_le_bytes() {
                 return None;
             }
             let len = u32::from_le_bytes(bytes.get(offset + 8..offset + 12)?.try_into().ok()?) as usize;
@@ -76,11 +79,17 @@ fn rewrite_oxfr_v10_as_v9(bytes: &mut Vec<u8>, particle_strikes: usize, beams: u
             (locator_len == (len as u32).to_le_bytes() && footer == b"OXFE")
                 .then_some((offset, payload_end, record_end, len))
         })
-        .expect("framed OXFR v10 record");
+        .expect("framed OXFR v11 record");
     let (start, payload_end, end, payload_len) = record;
-    // The v10 additions are the final two Vecs plus their presence bool.
-    let removed = 8 + 16 * particle_strikes + 8 + 16 * beams + 1;
-    let new_len = payload_len.checked_sub(removed).expect("v10 sidecar suffix");
+    // V11 appends an optional per-object off-map vector after V10's two
+    // particle-drive vectors and presence flag. Verify that suffix before
+    // stripping it so this fixture cannot silently corrupt a later schema.
+    let off_map_len = 1 + 8 + 5 * objects;
+    let off_map_start = payload_end.checked_sub(off_map_len).expect("v11 off-map suffix");
+    assert_eq!(bytes[off_map_start], 1, "off-map vector must be present");
+    assert_eq!(u64::from_le_bytes(bytes[off_map_start + 1..off_map_start + 9].try_into().unwrap()), objects as u64);
+    let removed = 8 + 16 * particle_strikes + 8 + 16 * beams + 1 + off_map_len;
+    let new_len = payload_len.checked_sub(removed).expect("v11 sidecar suffix");
     let payload = bytes[start + 12..payload_end - removed].to_vec();
     let mut replacement = Vec::with_capacity(20 + payload.len());
     replacement.extend_from_slice(b"OXFR");
@@ -141,15 +150,15 @@ fn authored_settings_are_instance_owned_and_survive_queued_and_active_save_paths
 
     let builder = SnapshotBuilder::new();
     let mut queued = builder.create_world_snapshot(&first).unwrap();
-    assert_eq!(queued.version, 38);
+    assert_eq!(queued.version, WORLD_SNAPSHOT_BINCODE_VERSION);
 
     // Save before impact. Both codecs must restore the queued record's exact
     // source settings; the fixed-step route below then resolves the real strike.
-    // Recreate a genuine v37/OXFR9 stream: v10's final two vectors and marker
+    // Recreate a v37/OXFR9 stream: remove the later particle and off-map fields
     // are absent in the prior schema, while the fixed positional body is same.
     let mut v37_bincode = builder.create_world_snapshot(&first).unwrap();
     v37_bincode.version = 37;
-    rewrite_oxfr_v10_as_v9(&mut v37_bincode.lifecycle_tail, 1, 0);
+    rewrite_oxfr_v11_as_v9(&mut v37_bincode.lifecycle_tail, 1, 0, queued.objects.len());
     let v37_bytes = bincode::serde::encode_to_vec(&v37_bincode, bincode::config::legacy()).unwrap();
     let (v37_decoded, v37_used): (WorldSnapshot, usize) =
         bincode::serde::decode_from_slice(&v37_bytes, bincode::config::legacy()).unwrap();
@@ -169,7 +178,7 @@ fn authored_settings_are_instance_owned_and_survive_queued_and_active_save_paths
     assert_strike(&queued_bincode_world, first_strike, 90.0, 240.0, 3);
 
     let queued_direct = xfer_roundtrip(&mut queued);
-    assert_eq!(queued_direct.version, 38);
+    assert_eq!(queued_direct.version, WORLD_SNAPSHOT_DIRECT_XFER_VERSION);
     let mut queued_direct_world = world(90, 240, "100ms").0;
     builder
         .restore_from_snapshot(&queued_direct, &mut queued_direct_world)
@@ -177,7 +186,7 @@ fn authored_settings_are_instance_owned_and_survive_queued_and_active_save_paths
     assert_strike(&queued_direct_world, first_strike, 90.0, 240.0, 3);
 
     // Direct Xfer readers retain v37 support. A v37/OXFR9 stream re-saved by
-    // the current writer becomes v38/OXFR10 with explicit compatibility rows.
+    // the current writer upgrades it to the current format with compatibility rows.
     let mut v37_direct_bytes = Cursor::new(Vec::new());
     queued.xfer(&mut XferSave::new(&mut v37_direct_bytes)).unwrap();
     let mut v37_direct_wire = v37_direct_bytes.into_inner();
@@ -187,7 +196,7 @@ fn authored_settings_are_instance_owned_and_survive_queued_and_active_save_paths
         .position(|window| window == queued.lifecycle_tail)
         .expect("direct Xfer lifecycle tail bytes");
     let tail_length_offset = tail_offset - 4;
-    let removed = rewrite_oxfr_v10_as_v9(&mut v37_direct_wire, 1, 0);
+    let removed = rewrite_oxfr_v11_as_v9(&mut v37_direct_wire, 1, 0, queued.objects.len());
     let legacy_tail_len = (queued.lifecycle_tail.len() - removed) as u32;
     v37_direct_wire[tail_length_offset..tail_length_offset + 4]
         .copy_from_slice(&legacy_tail_len.to_le_bytes());
@@ -198,7 +207,7 @@ fn authored_settings_are_instance_owned_and_survive_queued_and_active_save_paths
     assert_strike(&v37_direct_world, first_strike, 20.0, 40.0, 15);
     let mut upgraded_wire = Cursor::new(Vec::new());
     v37_direct.xfer(&mut XferSave::new(&mut upgraded_wire)).unwrap();
-    assert_eq!(v37_direct.version, 38);
+    assert_eq!(v37_direct.version, WORLD_SNAPSHOT_DIRECT_XFER_VERSION);
     let mut upgraded = WorldSnapshot::default();
     upgraded.xfer(&mut XferLoad::new(Cursor::new(upgraded_wire.into_inner()))).unwrap();
     let mut upgraded_world = world(90, 240, "100ms").0;
