@@ -1453,83 +1453,13 @@ impl GameLogic {
                         &mut effects.reborrow_for_object(&mut self.partition_manager),
                     );
                 }
-                // Host residual: path toward target, then ensure the unit is inside
-                // weapon range this command so combat can apply real HP damage on
-                // large maps (path marches otherwise take longer than smoke waits).
-                if let Some(tpos) = self.objects.get(&target_id).map(|t| t.get_position()) {
+                // AIGroup issues the attack order; locomotion advances on later updates.
+                if let Some(tpos) = self
+                    .objects
+                    .get(&target_id)
+                    .map(|target| target.get_position())
+                {
                     let _ = self.assign_unit_attack_path(object_id, Some(target_id), tpos);
-                    if let Some(attacker) = self.objects.get(&object_id) {
-                        if !attacker.can_attack() {
-                            // leave unarmed units alone
-                        } else {
-                            let under =
-                                crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
-                            let range = attacker
-                                .selected_weapon_slot()
-                                .and_then(|slot| attacker.weapon_slot(slot).map(|w| (slot, w)))
-                                .map(|(slot, w)| {
-                                    (attacker.effective_weapon_range_for_slot_with_solo_set(
-                                        slot,
-                                        w.range,
-                                        &self.solo_weapon_bonus_set,
-                                    ) - under)
-                                        .max(0.0)
-                                })
-                                .unwrap_or(50.0);
-                            let from = attacker.get_position();
-                            let mut dir = tpos - from;
-                            dir.y = 0.0;
-                            let dist = dir.length();
-                            if dist > range * 0.8 {
-                                // Movement authority: no range-snap teleport. Path was
-                                // already issued via assign_unit_attack_path; GameWorld
-                                // integrates the march. Host-only residual may still snap
-                                // for short smoke waits when authority is off.
-                                {
-                                    let dir = if dist > 1.0 {
-                                        dir / dist
-                                    } else {
-                                        glam::Vec3::new(1.0, 0.0, 0.0)
-                                    };
-                                    let stand = tpos - dir * (range * 0.55);
-                                    let stand = glam::Vec3::new(stand.x, from.y, stand.z);
-                                    if let Some(a) = self.objects.get_mut(&object_id) {
-                                        a.set_position_with_partition_owner(
-                                            stand,
-                                            frame,
-                                            effects,
-                                            &mut self.partition_manager,
-                                        );
-                                        a.attack_target_with_operation(
-                                            target_id,
-                                            &mut self.attack_events,
-                                            &mut crate::game_logic::ObjectAudio::queue(
-                                                &mut self.queued_audio_events,
-                                            ),
-                                            self.frame,
-                                            &mut effects
-                                                .reborrow_for_object(&mut self.partition_manager),
-                                        );
-                                        // Host-immediate engagement residual (host-only
-                                        // path when movement auth is off).
-                                        a.set_ai_state(
-                                            AIState::Attacking,
-                                            &mut crate::game_logic::ObjectAudio::queue(
-                                                &mut self.queued_audio_events,
-                                            ),
-                                        );
-                                        {}
-                                        a.set_status_attacking(true);
-                                        a.set_status_moving(false);
-                                        a.movement.velocity = glam::Vec3::ZERO;
-
-                                        a.movement.target_position = None;
-                                        a.movement.path.clear();
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
             }
             // C++ VoiceAttack / VoiceAttackAir from ThingTemplate INI (not UnitVoiceAttack).

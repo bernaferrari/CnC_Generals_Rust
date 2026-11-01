@@ -9,6 +9,22 @@ fn world(range: f32, weapon_name: &str) -> (GameLogic, ObjectId, ObjectId, Objec
     world_with_scatter(range, weapon_name, 0.0)
 }
 
+#[test]
+fn selected_attack_order_does_not_teleport_either_session() {
+    let (mut owner, attacker, target, _) = world(0.0, "OrderMovementWeapon");
+    let (mut peer, peer_attacker, peer_target, _) = world(0.0, "OrderMovementWeapon");
+    assert_eq!((attacker, target), (peer_attacker, peer_target));
+    for game in [&mut owner, &mut peer] {
+        assert!(game.set_registered_object_position(target, Vec3::new(500.0, 0.0, 20.0)));
+        game.select_objects_no_sound(1, vec![attacker]);
+    }
+    let start = owner.host_object(attacker).unwrap().get_position();
+    owner.command_attack(1, target);
+    assert_eq!(owner.host_object(attacker).unwrap().target, Some(target));
+    assert_eq!(owner.host_object(attacker).unwrap().get_position(), start);
+    assert_eq!(peer.host_object(attacker).unwrap().get_position(), start);
+}
+
 fn world_with_scatter(
     range: f32,
     weapon_name: &str,
