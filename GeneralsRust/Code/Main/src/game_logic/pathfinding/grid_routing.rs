@@ -210,6 +210,24 @@ impl PathfindingGrid {
         ground_source: &PathfindingGround<'_>,
     ) {
         self.clear_dynamic_observations();
+        self.query_ignore_goal_id = ignore.map_or(0, |id| id.0);
+
+        // C++ resolves the registered goal object when checking its owner. Keep
+        // the event-written IDs intact while refreshing this derived player mask.
+        let player_mask = |id: u32| {
+            objects.lookup(&ObjectId(id)).map_or(0, |obj| {
+                let player = obj.owner_player_id.unwrap_or(obj.team as u32);
+                1u16 << player.min(15)
+            })
+        };
+        for (mask, &id) in self.occ_goal_mask.iter_mut().zip(&self.occ_goal_unit) {
+            *mask = if id == 0 { 0 } else { player_mask(id) };
+        }
+        for occ in self.layer_occ.values_mut() {
+            for (&cell, &id) in &occ.occ_goal_unit {
+                occ.occ_goal_mask.insert(cell, player_mask(id));
+            }
+        }
 
         // C++ iterates TheGameLogic's insertion-ordered object list
         // (getFirstObject/getNextObject); HashMap order would randomize which
@@ -300,42 +318,6 @@ impl PathfindingGrid {
                     }
                 }
             }
-            // Rebuild from the actor's registered goal, not its current path.
-            let (gx, gy) = obj.pathfind_goal_cell;
-            if (gx, gy) != (-1, -1)
-                && Self::is_doing_ground_movement_full(obj)
-                && !obj.is_kind_of(KindOf::Immobile)
-                && !obj.is_kind_of(KindOf::Structure)
-            {
-                let layer = PathfindLayerEnum::from_u32(obj.pathfind_goal_layer as u32);
-                for x in (gx - radius)..(gx + num_above) {
-                    for y in (gy - radius)..(gy + num_above) {
-                        let p = GridPos::new(x, y);
-                        if !self.is_valid_pos(p) {
-                            continue;
-                        }
-                        if obj.pathfind_goal_on_ground {
-                            self.mark_occupancy(
-                                p,
-                                player,
-                                false,
-                                false,
-                                true,
-                                255,
-                                obj.id.0,
-                                PathfindLayerEnum::Ground,
-                            );
-                        }
-                        if layer != PathfindLayerEnum::Ground
-                            && self.layer_cell_type(obj.pathfind_goal_layer, p).is_some()
-                        {
-                            self.mark_occupancy(
-                                p, player, false, false, true, 255, obj.id.0, layer,
-                            );
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -371,7 +353,7 @@ impl PathfindingGrid {
         layer: PathfindLayerEnum,
     ) -> bool {
         let bits = self.occupancy_bits(pos, layer);
-        if bits.goal == 0 {
+        if bits.goal_unit == 0 {
             return false;
         }
         let Some(player) = seeker_player else {
@@ -564,7 +546,7 @@ impl PathfindingGrid {
     }
 
     /// Apply an explicitly owned C++ updateGoal transition.
-    pub(crate) fn update_path_goal_cell(&mut self, update: PathGoalUpdate) -> (i32, i32) {
+    pub fn update_path_goal_cell(&mut self, update: PathGoalUpdate) -> (i32, i32) {
         let (radius, center) = Self::radius_and_center(update.radius, self.grid_size);
         let above = radius + i32::from(center);
         let cell = self.cell_for_unit_position(update.goal, center);

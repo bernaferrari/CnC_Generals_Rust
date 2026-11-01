@@ -19,6 +19,33 @@ impl PathfindingGrid {
         }
     }
 
+    /// Carry event-owned goal cells into a replacement grid. Actor goal cells
+    /// continue to use the same grid coordinates until their next updateGoal.
+    pub(crate) fn inherit_goal_ownership(&mut self, previous: &Self) {
+        for y in 0..previous.height.min(self.height) {
+            for x in 0..previous.width.min(self.width) {
+                let pos = GridPos::new(x, y);
+                let (Some(old), Some(new)) = (previous.bit_index(pos), self.bit_index(pos)) else {
+                    continue;
+                };
+                self.occ_goal_unit[new] = previous.occ_goal_unit[old];
+                self.occ_goal_mask[new] = previous.occ_goal_mask[old];
+                self.occ_goal_aircraft[new] = previous.occ_goal_aircraft[old];
+            }
+        }
+        for (&layer, old) in &previous.layer_occ {
+            let current = self.layer_occ.entry(layer).or_default();
+            for (&(x, y), &id) in &old.occ_goal_unit {
+                if x >= 0 && y >= 0 && x < self.width && y < self.height {
+                    current.occ_goal_unit.insert((x, y), id);
+                    if let Some(&mask) = old.occ_goal_mask.get(&(x, y)) {
+                        current.occ_goal_mask.insert((x, y), mask);
+                    }
+                }
+            }
+        }
+    }
+
     pub(crate) fn reclassify_ground(&mut self) {
         let bridges = std::mem::take(&mut self.bridge_layers);
         let order = std::mem::take(&mut self.flight_bridge_order);

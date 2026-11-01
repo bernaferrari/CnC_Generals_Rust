@@ -1213,7 +1213,7 @@ impl PathfindingGrid {
         {
             if let Some(occ) = self.layer_occ.get(&(layer as u8)) {
                 let key = (pos.x, pos.y);
-                return OccBits {
+                return self.filter_ignored_goal(OccBits {
                     fixed: occ.occ_fixed_mask.get(&key).copied().unwrap_or(0),
                     moving: occ.occ_moving_mask.get(&key).copied().unwrap_or(0),
                     goal: occ.occ_goal_mask.get(&key).copied().unwrap_or(0),
@@ -1225,14 +1225,14 @@ impl PathfindingGrid {
                     pos_moving: occ.occ_pos_flags.get(&key).copied().unwrap_or(0) & 1 != 0,
                     pos_infantry: occ.occ_pos_flags.get(&key).copied().unwrap_or(0) & 2 != 0,
                     pos_crushable: occ.occ_pos_crushable.get(&key).copied().unwrap_or(0),
-                };
+                });
             }
             return OccBits::default();
         }
         let Some(idx) = self.bit_index(pos) else {
             return OccBits::default();
         };
-        OccBits {
+        self.filter_ignored_goal(OccBits {
             fixed: self.occ_fixed_mask.get(idx).copied().unwrap_or(0),
             moving: self.occ_moving_mask.get(idx).copied().unwrap_or(0),
             goal: self.occ_goal_mask.get(idx).copied().unwrap_or(0),
@@ -1244,7 +1244,15 @@ impl PathfindingGrid {
             pos_moving: self.occ_pos_flags.get(idx).copied().unwrap_or(0) & 1 != 0,
             pos_infantry: self.occ_pos_flags.get(idx).copied().unwrap_or(0) & 2 != 0,
             pos_crushable: self.occ_pos_crushable.get(idx).copied().unwrap_or(0),
+        })
+    }
+
+    fn filter_ignored_goal(&self, mut bits: OccBits) -> OccBits {
+        if self.query_ignore_goal_id != 0 && bits.goal_unit == self.query_ignore_goal_id {
+            bits.goal = 0;
+            bits.goal_unit = 0;
         }
+        bits
     }
     pub(super) fn occupancy_cost(
         &self,

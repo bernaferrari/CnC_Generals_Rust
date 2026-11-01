@@ -207,7 +207,7 @@ struct LayerOccupancy {
 }
 
 /// One C++ `Pathfinder::updateGoal` transition, owned by the driving actor.
-pub(crate) struct PathGoalUpdate {
+pub struct PathGoalUpdate {
     pub unit_id: u32,
     pub player: u32,
     pub radius: f32,
@@ -350,6 +350,8 @@ pub struct PathfindingGrid {
     query_layer: u8,
     /// Seeker ObjectID for `checkDestination` own-goal skip.
     query_seeker_id: u32,
+    /// Goal owner excluded by the current path request, without changing cells.
+    query_ignore_goal_id: u32,
     /// C++ `checkDestination` `checkForAircraft` (HOVER/WINGS).
     query_check_for_aircraft: bool,
     /// C++ `checkForAdjust` unit position (leftover `check_for_adjust_ex` from).

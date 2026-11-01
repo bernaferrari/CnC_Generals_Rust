@@ -47,6 +47,7 @@ impl PathfindingGrid {
             ground_connect: vec![0u8; cells],
             query_layer: PathfindLayerEnum::Ground as u8,
             query_seeker_id: 0,
+            query_ignore_goal_id: 0,
             query_check_for_aircraft: false,
             query_from: None,
             query_orig_dest: None,
@@ -315,7 +316,8 @@ impl PathfindingGrid {
             || self.bit_index(pos).is_some_and(|idx| {
                 Self::bit_test(&self.explicit_dynamic_bits, idx)
                     || self.occ_pos_unit[idx] != 0
-                    || self.occ_goal_unit[idx] != 0
+                    || (self.occ_goal_unit[idx] != 0
+                        && self.occ_goal_unit[idx] != self.query_ignore_goal_id)
             })
     }
 
@@ -1225,23 +1227,35 @@ impl PathfindingGrid {
 
     pub fn clear_dynamic_blocks(&mut self) {
         self.clear_dynamic_observations();
+        self.occ_goal_mask.fill(0);
+        self.occ_goal_unit.fill(0);
         self.occ_goal_aircraft.fill(0);
+        self.layer_occ.clear();
+        self.query_ignore_goal_id = 0;
     }
 
-    /// Refresh derived obstacles without disturbing event-owned aircraft goals.
+    /// Refresh derived obstacles without disturbing event-owned goals.
     pub(super) fn clear_dynamic_observations(&mut self) {
         self.explicit_dynamic_bits.fill(0);
         self.occ_fixed_mask.fill(0);
         self.occ_moving_mask.fill(0);
-        self.occ_goal_mask.fill(0);
-        self.occ_goal_unit.fill(0);
         self.occ_infantry_mask.fill(0);
         self.occ_fixed_max_crushable.fill(0);
         self.occ_pos_unit.fill(0);
         self.occ_pos_player.fill(0);
         self.occ_pos_flags.fill(0);
         self.occ_pos_crushable.fill(0);
-        self.layer_occ.clear();
+        self.layer_occ.retain(|_, occ| {
+            occ.occ_fixed_mask.clear();
+            occ.occ_moving_mask.clear();
+            occ.occ_infantry_mask.clear();
+            occ.occ_fixed_max_crushable.clear();
+            occ.occ_pos_unit.clear();
+            occ.occ_pos_player.clear();
+            occ.occ_pos_flags.clear();
+            occ.occ_pos_crushable.clear();
+            !occ.occ_goal_unit.is_empty()
+        });
     }
 
     pub fn is_pinched(&self, pos: GridPos) -> bool {

@@ -268,6 +268,7 @@ impl PathfindingSystem {
     /// C++ `AIUpdateInterface::ignoreObstacle` for the next `find_path_ex_*`.
     pub fn set_ignore_obstacle(&mut self, id: Option<ObjectId>) {
         self.ignore_obstacle_id = id;
+        self.grid.query_ignore_goal_id = id.map_or(0, |id| id.0);
         if id.is_some() {
             self.dynamic_obstacle_frame = u64::MAX;
         }
@@ -975,6 +976,8 @@ impl PathfindingSystem {
 
     pub(crate) fn reset_for_new_timeline(&mut self) {
         self.pending_paths.clear();
+        self.ignore_obstacle_id = None;
+        self.dynamic_obstacle_frame = u64::MAX;
         self.grid.clear_dynamic_blocks();
     }
 

@@ -464,7 +464,7 @@ fn aircraft_goal_overwrite_survives_rebuild_without_reviving_previous_owner() {
 
 #[test]
 fn removed_ground_goal_does_not_return_when_occupancy_is_rebuilt() {
-    use generals_main::game_logic::pathfinding::{GridPos, PathfindingGrid, PathfindingGround};
+    use generals_main::game_logic::pathfinding::GridPos;
     let directory = tempfile::tempdir().unwrap();
     let map = directory.path().join("GroundGoal.map");
     let mut data = DataChunkOutput::new();
@@ -494,32 +494,44 @@ fn removed_ground_goal_does_not_return_when_occupancy_is_rebuilt() {
     for world in [&mut owner, &mut peer] {
         let unit = world.host_object_mut(id).unwrap();
         unit.selection_radius = 2.0;
-        unit.pathfind_goal_cell = (15, 10);
-        unit.movement.path = vec![start, goal];
-        unit.movement.target_position = Some(goal);
+        unit.is_final_goal = true;
+        assert!(world.assign_unit_path_exact(id, goal, &[]));
     }
-    let ground = PathfindingGround::Flat(0.0);
-    let mut grid = PathfindingGrid::new(410.0, 410.0, 10.0);
-    let cell = GridPos::new(15, 10);
-    grid.update_dynamic_obstacles(owner.host_objects(), &ground);
-    assert_eq!(grid.ground_goal_unit(cell), id.0);
+    let (x, y) = owner.host_object(id).unwrap().pathfind_goal_cell;
+    let cell = GridPos::new(x, y);
+    assert_eq!(owner.pathfinding_ground_goal(cell), Some(id));
+    owner.override_world_size(500.0, 500.0);
+    assert_eq!(
+        owner.pathfinding_ground_goal(cell),
+        Some(id),
+        "grid replacement lost the registered goal"
+    );
+    assert_eq!(
+        peer.pathfinding_ground_goal(cell),
+        Some(id),
+        "grid replacement affected another session"
+    );
     assert!(owner.unit_command_tighten_to(id, Vec3::new(150.0, 0.0, 150.0)));
     assert_eq!(owner.host_object(id).unwrap().pathfind_goal_cell, (-1, -1));
     assert_eq!(
         owner.host_object(id).unwrap().movement.path.last(),
         Some(&goal)
     );
-    grid.update_dynamic_obstacles(owner.host_objects(), &ground);
     assert_eq!(
-        grid.ground_goal_unit(cell),
-        0,
-        "old path recreated a removed goal"
+        owner.pathfinding_ground_goal(cell),
+        None,
+        "old path retained a removed goal"
     );
-    grid.update_dynamic_obstacles(peer.host_objects(), &ground);
     assert_eq!(
-        grid.ground_goal_unit(cell),
-        id.0,
+        peer.pathfinding_ground_goal(cell),
+        Some(id),
         "other session lost its goal"
+    );
+    assert!(peer.load_map(map.to_str().unwrap()));
+    assert_eq!(
+        peer.pathfinding_ground_goal(cell),
+        None,
+        "map replacement retained a retired actor's goal"
     );
 
     let mut layered = world(&map);

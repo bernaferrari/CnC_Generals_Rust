@@ -363,6 +363,9 @@ impl GameLogic {
         self.objects
             .retire_owned_scalar_stamps(&mut self.partition_manager);
         self.objects.clear();
+        // A newly admitted map must not inherit reservations or requests
+        // belonging to the objects retired above.
+        self.pathfinding_system.reset_for_new_timeline();
         self.ai_groups.clear_groups();
         self.partition_manager =
             crate::game_logic::partition_manager::PartitionManager::with_scalar_owner(
@@ -1063,6 +1066,9 @@ impl GameLogic {
                     replacement_pathfinding
                         .grid
                         .inherit_bridge_admission(&mut self.pathfinding_system.grid);
+                    replacement_pathfinding
+                        .grid
+                        .inherit_goal_ownership(&self.pathfinding_system.grid);
                     self.pathfinding_system = replacement_pathfinding;
                     self.refresh_pathfinding_ai_definitions();
                     log::info!(
@@ -1211,6 +1217,9 @@ impl GameLogic {
                     replacement_pathfinding
                         .grid
                         .inherit_bridge_admission(&mut self.pathfinding_system.grid);
+                    replacement_pathfinding
+                        .grid
+                        .inherit_goal_ownership(&self.pathfinding_system.grid);
                     self.pathfinding_system = replacement_pathfinding;
                     self.refresh_pathfinding_ai_definitions();
                 }

@@ -837,6 +837,9 @@ impl GameLogic {
         replacement
             .grid
             .inherit_bridge_admission(&mut self.pathfinding_system.grid);
+        replacement
+            .grid
+            .inherit_goal_ownership(&self.pathfinding_system.grid);
         self.pathfinding_system = replacement;
         self.refresh_pathfinding_ai_definitions();
         // Terrain-provided extent must seed TheRadar samples (C++ newMap).

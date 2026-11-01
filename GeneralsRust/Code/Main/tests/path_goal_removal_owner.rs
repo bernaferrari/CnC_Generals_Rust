@@ -1,6 +1,8 @@
 //! C++ Pathfinder::removeGoal clears only this unit's reservations.
 use generals_main::game_logic::object::{LOCO_SURFACE_AIR, LocomotorAppearance};
-use generals_main::game_logic::pathfinding::{GridPos, PathfindingGrid, PathfindingGround};
+use generals_main::game_logic::pathfinding::{
+    GridPos, PathGoalUpdate, PathfindingGrid, PathfindingGround,
+};
 use generals_main::game_logic::{
     GameLogic, KindOf, ObjectId, ObjectType, Player, Team, ThingTemplate,
 };
@@ -164,7 +166,6 @@ fn bridge_goal_replacement_keeps_only_the_current_owner() {
     let mut template = ThingTemplate::new("BridgeUnit");
     template.add_kind_of(KindOf::Infantry).set_health(100.0);
     world.templates.insert("BridgeUnit".into(), template);
-    // Occupancy currently visits object IDs in ascending order.
     let mut first_id = None;
     let mut second_id = None;
     for player in [0, 1] {
@@ -184,6 +185,16 @@ fn bridge_goal_replacement_keeps_only_the_current_owner() {
         unit.pathfind_goal_cell = (8, 5);
         unit.pathfind_goal_layer = layer as u8;
         unit.pathfind_goal_on_ground = false;
+        grid.update_path_goal_cell(PathGoalUpdate {
+            unit_id: id.0,
+            player,
+            radius: 2.0,
+            old_cell: (-1, -1),
+            old_layer: 0,
+            new_layer: layer as u8,
+            new_on_ground: false,
+            goal,
+        });
     }
     grid.update_dynamic_obstacles(world.host_objects(), &ground);
     let cell = GridPos::new(8, 5);
@@ -245,5 +256,83 @@ fn bridge_end_ground_occupancy_uses_live_minor_radius() {
     assert!(
         grid.is_blocked(cell),
         "the same geometry at the end occupies ground"
+    );
+}
+
+#[test]
+fn ignored_goal_keeps_its_owner_and_tracks_the_receiving_player() {
+    let ground = PathfindingGround::Flat(0.0);
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "First", true));
+    world.add_player(Player::new(1, Team::China, "Second", true));
+    let mut template = ThingTemplate::new("GoalOwnerUnit");
+    template.add_kind_of(KindOf::Infantry).set_health(100.0);
+    world.templates.insert("GoalOwnerUnit".into(), template);
+    let id = world
+        .create_object_for_player("GoalOwnerUnit", 0, Vec3::new(50.0, 0.0, 50.0))
+        .unwrap();
+    let actor = world.host_object_mut(id).unwrap();
+    actor.cur_locomotor_name = Some("GroundLocomotor".into());
+    actor.locomotor_surfaces = generals_main::game_logic::object::LOCO_SURFACE_GROUND;
+    actor.selection_radius = 2.0;
+    actor.pathfind_goal_cell = (5, 5);
+    let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+    let cell = GridPos::new(5, 5);
+    grid.update_ground_goal_cell(id.0, 0, 2.0, false, (-1, -1), Vec3::new(50.0, 0.0, 50.0));
+    grid.update_dynamic_obstacles_ignoring(world.host_objects(), Some(id), &ground);
+    assert_eq!(
+        grid.ground_goal_unit(cell),
+        id.0,
+        "ignore must not erase the registered goal"
+    );
+    assert!(!grid.has_allied_goal(cell, Some(0)));
+    grid.update_dynamic_obstacles(world.host_objects(), &ground);
+    assert!(grid.has_allied_goal(cell, Some(0)));
+
+    world.host_object_mut(id).unwrap().owner_player_id = Some(1);
+    grid.update_dynamic_obstacles(world.host_objects(), &ground);
+    assert!(!grid.has_allied_goal(cell, Some(0)));
+    assert!(grid.has_allied_goal(cell, Some(1)));
+}
+
+#[test]
+fn ground_goal_refresh_preserves_last_writer_without_resurrection() {
+    let ground = PathfindingGround::Flat(0.0);
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
+    let mut template = ThingTemplate::new("OrderedGoalUnit");
+    template.add_kind_of(KindOf::Infantry);
+    world.templates.insert("OrderedGoalUnit".into(), template);
+    let position = Vec3::new(50.0, 0.0, 50.0);
+    let first = world
+        .create_object_for_player("OrderedGoalUnit", 0, position)
+        .unwrap();
+    let second = world
+        .create_object_for_player("OrderedGoalUnit", 0, position)
+        .unwrap();
+    for id in [first, second] {
+        let actor = world.host_object_mut(id).unwrap();
+        actor.cur_locomotor_name = Some("GroundLocomotor".into());
+        actor.locomotor_surfaces = generals_main::game_logic::object::LOCO_SURFACE_GROUND;
+        actor.selection_radius = 2.0;
+        actor.pathfind_goal_cell = (5, 5);
+        actor.pathfind_goal_on_ground = true;
+    }
+    let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+    let cell = GridPos::new(5, 5);
+    grid.update_ground_goal_cell(second.0, 0, 2.0, false, (-1, -1), position);
+    grid.update_ground_goal_cell(first.0, 0, 2.0, false, (-1, -1), position);
+    grid.update_dynamic_obstacles(world.host_objects(), &ground);
+    assert_eq!(
+        grid.ground_goal_unit(cell),
+        first.0,
+        "refresh reordered goal writes"
+    );
+    grid.clear_ground_goal_square(first.0, 2.0, (5, 5));
+    grid.update_dynamic_obstacles(world.host_objects(), &ground);
+    assert_eq!(
+        grid.ground_goal_unit(cell),
+        0,
+        "an overwritten goal returned"
     );
 }
