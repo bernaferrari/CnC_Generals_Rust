@@ -8,9 +8,9 @@ fn retail_file_matches_reference() {
     use std::{path::PathBuf, sync::Arc};
     let wav = PathBuf::from(std::env::var_os("RETAIL_IMA_WAV").unwrap());
     let reference = PathBuf::from(std::env::var_os("RETAIL_IMA_REFERENCE_F32LE").unwrap());
-    let decoded: Vec<f32> = retail_adpcm::decode(Arc::new(std::fs::read(wav).unwrap()))
+    let decoded = retail_adpcm::decode(Arc::new(std::fs::read(wav).unwrap()))
         .unwrap()
-        .collect();
+        .samples;
     let raw = std::fs::read(reference).unwrap();
     let expected: Vec<f32> = raw
         .chunks_exact(4)

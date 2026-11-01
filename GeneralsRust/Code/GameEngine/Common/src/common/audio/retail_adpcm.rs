@@ -1,5 +1,5 @@
-//! Decode retail IMA ADPCM WAV files for native playback.
-use std::{io::Cursor, num::NonZero, sync::Arc};
+//! Decode retail IMA ADPCM WAV files into interleaved samples.
+use std::{io::Cursor, sync::Arc};
 use symphonia::core::{
     codecs::audio::{AudioDecoderOptions, CODEC_ID_NULL_AUDIO},
     formats::{FormatOptions, probe::Hint},
@@ -33,12 +33,21 @@ fn wave_chunk<'a>(bytes: &'a [u8], name: &[u8; 4]) -> Option<&'a [u8]> {
     None
 }
 
-/// Only select this path for IMA WAV; all other formats retain Rodio's decoder.
-pub(super) fn is_ima_wave(bytes: &[u8]) -> bool {
+/// Whether a WAV contains IMA ADPCM samples.
+pub fn is_ima_wave(bytes: &[u8]) -> bool {
     wave_chunk(bytes, b"fmt ").and_then(|chunk| chunk.get(..2)) == Some(&[0x11, 0])
 }
 
-pub(super) fn decode(bytes: Arc<Vec<u8>>) -> Result<rodio::buffer::SamplesBuffer, String> {
+/// Device-independent PCM data for a single playback request.
+#[derive(Debug)]
+pub struct DecodedImaWave {
+    pub channels: u16,
+    pub sample_rate: u32,
+    pub samples: Vec<f32>,
+}
+
+/// Decode the complete WAV and discard padding beyond its declared frame count.
+pub fn decode(bytes: Arc<Vec<u8>>) -> Result<DecodedImaWave, String> {
     let declared_frames = wave_chunk(&bytes, b"fact")
         .and_then(|chunk| chunk.get(..4))
         .map(|raw| u32::from_le_bytes(raw.try_into().unwrap()) as u64);
@@ -115,17 +124,19 @@ pub(super) fn decode(bytes: Arc<Vec<u8>>) -> Result<rodio::buffer::SamplesBuffer
     if samples.is_empty() {
         return Err("no audio samples".into());
     }
-    Ok(rodio::buffer::SamplesBuffer::new(
-        NonZero::new(channels).ok_or("zero channels")?,
-        NonZero::new(rate).ok_or("zero sample rate")?,
+    if channels == 0 || rate == 0 {
+        return Err("invalid audio channel count or sample rate".into());
+    }
+    Ok(DecodedImaWave {
+        channels,
+        sample_rate: rate,
         samples,
-    ))
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rodio::Source;
 
     #[test]
     fn decodes_multiple_ima_blocks_with_expected_samples() {
@@ -134,9 +145,9 @@ mod tests {
         let bytes = include_bytes!("fixtures/ima_mono.wav").to_vec();
         assert!(is_ima_wave(&bytes));
         let source = decode(Arc::new(bytes)).unwrap();
-        assert_eq!(source.channels().get(), 1);
-        assert_eq!(source.sample_rate().get(), 8000);
-        let samples: Vec<_> = source.collect();
+        assert_eq!(source.channels, 1);
+        assert_eq!(source.sample_rate, 8000);
+        let samples = source.samples;
         // The fact chunk excludes the padding in the final compressed block.
         assert_eq!(samples.len(), 160);
         let expected = [
@@ -154,9 +165,9 @@ mod tests {
     fn decodes_interleaved_stereo_channels() {
         let bytes = include_bytes!("fixtures/ima_stereo.wav").to_vec();
         let source = decode(Arc::new(bytes)).unwrap();
-        assert_eq!(source.channels().get(), 2);
-        assert_eq!(source.sample_rate().get(), 8000);
-        let samples: Vec<_> = source.collect();
+        assert_eq!(source.channels, 2);
+        assert_eq!(source.sample_rate, 8000);
+        let samples = source.samples;
         assert_eq!(samples.len(), 320);
         let expected = [
             0, 0, 11, 11, 41, 41, 104, 104, 240, 240, 533, 533, 1164, -98, 2521, -1455,

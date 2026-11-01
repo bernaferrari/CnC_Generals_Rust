@@ -37,8 +37,8 @@ mod audio_paths;
 pub mod audio_request;
 
 pub mod dynamic_audio_event_info;
-#[cfg(all(not(target_arch = "wasm32"), feature = "audio"))]
-mod retail_adpcm;
+#[cfg(feature = "audio")]
+pub mod retail_adpcm;
 pub mod game_audio;
 pub mod game_music;
 pub mod game_sounds;

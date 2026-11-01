@@ -3482,11 +3482,14 @@ impl RodioPlaybackHook {
         #[cfg(feature = "audio")]
         let source: Box<dyn Source<Item = f32> + Send> =
             if super::retail_adpcm::is_ima_wave(&audio_data) {
-                Box::new(
-                    super::retail_adpcm::decode(audio_data.clone()).map_err(|e| {
-                        format!("Failed to decode audio file '{}': {}", file_path, e)
-                    })?,
-                )
+                let decoded = super::retail_adpcm::decode(audio_data.clone()).map_err(|e| {
+                    format!("Failed to decode audio file '{}': {}", file_path, e)
+                })?;
+                Box::new(rodio::buffer::SamplesBuffer::new(
+                    std::num::NonZero::new(decoded.channels).expect("decoder validated channels"),
+                    std::num::NonZero::new(decoded.sample_rate).expect("decoder validated sample rate"),
+                    decoded.samples,
+                ))
             } else {
                 Box::new(
                     Decoder::new(Cursor::new(CachedAudioBytes(audio_data))).map_err(|e| {
