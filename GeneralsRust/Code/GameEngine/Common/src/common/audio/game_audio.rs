@@ -1858,6 +1858,51 @@ impl AudioManager {
         AudioPathSettings::from_settings(&self.audio_settings)
     }
 
+    /// Apply parsed settings to this receiving manager and initialize its mix.
+    pub fn apply_receiving_audio_settings(
+        &mut self,
+        src: &crate::common::ini::ini_audio_settings::AudioSettings,
+    ) {
+        self.audio_settings.audio_root = src.audio_root.clone();
+        self.audio_settings.sounds_folder = src.sounds_folder.clone();
+        self.audio_settings.music_folder = src.music_folder.clone();
+        self.audio_settings.streaming_folder = src.streaming_folder.clone();
+        self.audio_settings.sounds_extension = src.sounds_extension.clone();
+        self.audio_settings.use_digital = src.use_digital;
+        self.audio_settings.use_midi = src.use_midi;
+        self.audio_settings.output_rate = src.output_rate;
+        self.audio_settings.output_bits = src.output_bits;
+        self.audio_settings.output_channels = src.output_channels;
+        self.audio_settings.sample_count_2d = src.sample_count_2d;
+        self.audio_settings.sample_count_3d = src.sample_count_3d;
+        self.audio_settings.stream_count = src.stream_count;
+        self.audio_settings.min_volume = src.min_volume;
+        self.audio_settings.global_min_range = src.global_min_range;
+        self.audio_settings.global_max_range = src.global_max_range;
+        self.audio_settings.drawable_ambient_frames = src.drawable_ambient_frames;
+        self.audio_settings.fade_audio_frames = src.fade_audio_frames;
+        self.audio_settings.max_cache_size = src.max_cache_size;
+        self.audio_settings.relative_2d_volume = src.relative_2d_volume;
+        self.audio_settings.default_sound_volume = src.default_sound_volume;
+        self.audio_settings.default_3d_sound_volume = src.default_3d_sound_volume;
+        self.audio_settings.default_speech_volume = src.default_speech_volume;
+        self.audio_settings.default_music_volume = src.default_music_volume;
+        self.audio_settings.preferred_sound_volume = src.preferred_sound_volume;
+        self.audio_settings.preferred_3d_sound_volume = src.preferred_3d_sound_volume;
+        self.audio_settings.preferred_speech_volume = src.preferred_speech_volume;
+        self.audio_settings.preferred_music_volume = src.preferred_music_volume;
+        self.audio_settings.microphone_desired_height_above_terrain =
+            src.microphone_desired_height_above_terrain;
+        self.audio_settings
+            .microphone_max_percentage_between_ground_and_camera =
+            src.microphone_max_percentage_between_ground_and_camera;
+        self.audio_settings.zoom_min_distance = src.zoom_min_distance;
+        self.audio_settings.zoom_max_distance = src.zoom_max_distance;
+        self.audio_settings.zoom_sound_volume_percentage_amount =
+            src.zoom_sound_volume_percentage_amount;
+        self.init();
+    }
+
     pub fn get_audio_settings(&self) -> &AudioSettings {
         &self.audio_settings
     }
@@ -3985,46 +4030,7 @@ fn apply_loaded_audio_settings_to_manager() {
     };
 
     if let Some(parsed) = crate::common::ini::ini_audio_settings::get_audio_settings() {
-        let src = parsed.read();
-        guard.audio_settings.audio_root = src.audio_root.clone();
-        guard.audio_settings.sounds_folder = src.sounds_folder.clone();
-        guard.audio_settings.music_folder = src.music_folder.clone();
-        guard.audio_settings.streaming_folder = src.streaming_folder.clone();
-        guard.audio_settings.sounds_extension = src.sounds_extension.clone();
-        guard.audio_settings.use_digital = src.use_digital;
-        guard.audio_settings.use_midi = src.use_midi;
-        guard.audio_settings.output_rate = src.output_rate;
-        guard.audio_settings.output_bits = src.output_bits;
-        guard.audio_settings.output_channels = src.output_channels;
-        guard.audio_settings.sample_count_2d = src.sample_count_2d;
-        guard.audio_settings.sample_count_3d = src.sample_count_3d;
-        guard.audio_settings.stream_count = src.stream_count;
-        guard.audio_settings.min_volume = src.min_volume;
-        guard.audio_settings.global_min_range = src.global_min_range;
-        guard.audio_settings.global_max_range = src.global_max_range;
-        guard.audio_settings.drawable_ambient_frames = src.drawable_ambient_frames;
-        guard.audio_settings.fade_audio_frames = src.fade_audio_frames;
-        guard.audio_settings.max_cache_size = src.max_cache_size;
-        guard.audio_settings.relative_2d_volume = src.relative_2d_volume;
-        guard.audio_settings.default_sound_volume = src.default_sound_volume;
-        guard.audio_settings.default_3d_sound_volume = src.default_3d_sound_volume;
-        guard.audio_settings.default_speech_volume = src.default_speech_volume;
-        guard.audio_settings.default_music_volume = src.default_music_volume;
-        guard.audio_settings.preferred_sound_volume = src.preferred_sound_volume;
-        guard.audio_settings.preferred_3d_sound_volume = src.preferred_3d_sound_volume;
-        guard.audio_settings.preferred_speech_volume = src.preferred_speech_volume;
-        guard.audio_settings.preferred_music_volume = src.preferred_music_volume;
-        guard.audio_settings.microphone_desired_height_above_terrain =
-            src.microphone_desired_height_above_terrain;
-        guard
-            .audio_settings
-            .microphone_max_percentage_between_ground_and_camera =
-            src.microphone_max_percentage_between_ground_and_camera;
-        guard.audio_settings.zoom_min_distance = src.zoom_min_distance;
-        guard.audio_settings.zoom_max_distance = src.zoom_max_distance;
-        guard.audio_settings.zoom_sound_volume_percentage_amount =
-            src.zoom_sound_volume_percentage_amount;
-        guard.init();
+        guard.apply_receiving_audio_settings(&parsed.read());
     }
 
     if let Some(parsed) = crate::common::ini::ini_misc_audio::get_misc_audio() {

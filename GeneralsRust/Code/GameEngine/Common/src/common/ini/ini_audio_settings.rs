@@ -802,6 +802,21 @@ fn preferred_volume_from_options(
 fn apply_option_preferences_to_settings(settings: &mut AudioSettings) {
     let mut prefs = UserPreferences::new();
     let _ = prefs.load("Options.ini");
+    apply_receiving_preferences(settings, &prefs);
+}
+
+/// Parse C++ AudioSettings into the caller's instance using its own options.
+pub(crate) fn parse_audio_settings_definition_into(
+    ini: &mut INI,
+    settings: &mut AudioSettings,
+    prefs: &UserPreferences,
+) -> INIResult<()> {
+    ini.init_from_ini_with_fields(settings, FIELD_PARSE_TABLE)?;
+    apply_receiving_preferences(settings, prefs);
+    Ok(())
+}
+
+fn apply_receiving_preferences(settings: &mut AudioSettings, prefs: &UserPreferences) {
     let relative = settings.relative_2d_volume;
     settings.preferred_sound_volume = preferred_volume_from_options(
         prefs.get_float("SFXVolume"),

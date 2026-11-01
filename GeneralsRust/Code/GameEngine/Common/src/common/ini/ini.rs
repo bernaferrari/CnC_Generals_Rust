@@ -1739,7 +1739,7 @@ impl INI {
         &mut self,
         store: &mut PlayerTemplateStore,
     ) -> INIResult<()> {
-        self.parse_file_with_owned_definitions(Some(store), None, None, None, None)
+        self.parse_file_with_owned_definitions(Some(store), None, None, None, None, None)
     }
 
     /// Parse Weather blocks into this load's detached definition chain.
@@ -1748,7 +1748,7 @@ impl INI {
         store: &mut Option<super::ini_weather::WeatherSetting>,
         updates: &mut Vec<super::ini_weather::WeatherSetting>,
     ) -> INIResult<()> {
-        self.parse_file_with_owned_definitions(None, Some(store), Some(updates), None, None)
+        self.parse_file_with_owned_definitions(None, Some(store), Some(updates), None, None, None)
     }
 
     /// Parse a file and deliver each MapCache block to a borrowed insertion sink.
@@ -1760,7 +1760,8 @@ impl INI {
         sink: &mut dyn FnMut(String, super::ini_map_cache::MapMetaData),
     ) -> INIResult<()> {
         self.prep_file(&filename, load_type)?;
-        let result = self.parse_file_with_owned_definitions(None, None, None, Some(sink), None);
+        let result =
+            self.parse_file_with_owned_definitions(None, None, None, Some(sink), None, None);
         self.un_prep_file();
         result
     }
@@ -1770,7 +1771,7 @@ impl INI {
         &mut self,
         sink: &mut dyn FnMut(String, super::ini_map_cache::MapMetaData),
     ) -> INIResult<()> {
-        self.parse_file_with_owned_definitions(None, None, None, Some(sink), None)
+        self.parse_file_with_owned_definitions(None, None, None, Some(sink), None, None)
     }
 
     /// Prepare file for reading
@@ -1844,7 +1845,7 @@ impl INI {
 
     /// Parse the entire file
     fn parse_file(&mut self) -> INIResult<()> {
-        self.parse_file_with_owned_definitions(None, None, None, None, None)
+        self.parse_file_with_owned_definitions(None, None, None, None, None, None)
     }
 
     /// Admit MusicTrack, AudioEvent and DialogEvent blocks to this manager.
@@ -1854,7 +1855,24 @@ impl INI {
         &mut self,
         manager: &mut crate::common::audio::game_audio::AudioManager,
     ) -> INIResult<()> {
-        self.parse_file_with_owned_definitions(None, None, None, None, Some(manager))
+        self.parse_file_with_owned_definitions(None, None, None, None, Some(manager), None)
+    }
+
+    /// Parse AudioSettings into this instance with its own user preferences.
+    /// Other blocks are skipped rather than dispatched through legacy globals.
+    pub fn parse_current_file_into_audio_settings(
+        &mut self,
+        settings: &mut super::ini_audio_settings::AudioSettings,
+        prefs: &crate::common::user_preferences::UserPreferences,
+    ) -> INIResult<()> {
+        self.parse_file_with_owned_definitions(
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some((settings, prefs)),
+        )
     }
 
     fn parse_file_with_owned_definitions(
@@ -1864,6 +1882,10 @@ impl INI {
         mut weather_updates: Option<&mut Vec<super::ini_weather::WeatherSetting>>,
         mut map_cache_sink: Option<&mut dyn FnMut(String, super::ini_map_cache::MapMetaData)>,
         mut audio_manager: Option<&mut crate::common::audio::game_audio::AudioManager>,
+        mut audio_settings: Option<(
+            &mut super::ini_audio_settings::AudioSettings,
+            &crate::common::user_preferences::UserPreferences,
+        )>,
     ) -> INIResult<()> {
         let mut skipping_corrupt_block = false;
         while !self.end_of_file {
@@ -1872,6 +1894,16 @@ impl INI {
             let Some(first_token) = self.get_first_token() else {
                 continue;
             };
+            if let Some((settings, prefs)) = audio_settings.as_mut() {
+                if first_token.eq_ignore_ascii_case("AudioSettings") {
+                    super::ini_audio_settings::parse_audio_settings_definition_into(
+                        self, settings, prefs,
+                    )?;
+                } else {
+                    consume_block_with_nesting(self)?;
+                }
+                continue;
+            }
             if let Some(manager) = audio_manager.as_deref_mut() {
                 use super::ini_audio_event_info::{AudioType, parse_named_audio_definition_into};
                 if first_token.eq_ignore_ascii_case("MusicTrack") {
