@@ -1739,7 +1739,7 @@ impl INI {
         &mut self,
         store: &mut PlayerTemplateStore,
     ) -> INIResult<()> {
-        self.parse_file_with_owned_definitions(Some(store), None, None, None, None, None)
+        self.parse_file_with_owned_definitions(Some(store), None, None, None, None, None, None)
     }
 
     /// Parse Weather blocks into this load's detached definition chain.
@@ -1748,7 +1748,15 @@ impl INI {
         store: &mut Option<super::ini_weather::WeatherSetting>,
         updates: &mut Vec<super::ini_weather::WeatherSetting>,
     ) -> INIResult<()> {
-        self.parse_file_with_owned_definitions(None, Some(store), Some(updates), None, None, None)
+        self.parse_file_with_owned_definitions(
+            None,
+            Some(store),
+            Some(updates),
+            None,
+            None,
+            None,
+            None,
+        )
     }
 
     /// Parse a file and deliver each MapCache block to a borrowed insertion sink.
@@ -1761,7 +1769,7 @@ impl INI {
     ) -> INIResult<()> {
         self.prep_file(&filename, load_type)?;
         let result =
-            self.parse_file_with_owned_definitions(None, None, None, Some(sink), None, None);
+            self.parse_file_with_owned_definitions(None, None, None, Some(sink), None, None, None);
         self.un_prep_file();
         result
     }
@@ -1771,7 +1779,7 @@ impl INI {
         &mut self,
         sink: &mut dyn FnMut(String, super::ini_map_cache::MapMetaData),
     ) -> INIResult<()> {
-        self.parse_file_with_owned_definitions(None, None, None, Some(sink), None, None)
+        self.parse_file_with_owned_definitions(None, None, None, Some(sink), None, None, None)
     }
 
     /// Prepare file for reading
@@ -1845,7 +1853,7 @@ impl INI {
 
     /// Parse the entire file
     fn parse_file(&mut self) -> INIResult<()> {
-        self.parse_file_with_owned_definitions(None, None, None, None, None, None)
+        self.parse_file_with_owned_definitions(None, None, None, None, None, None, None)
     }
 
     /// Admit MusicTrack, AudioEvent and DialogEvent blocks to this manager.
@@ -1855,7 +1863,7 @@ impl INI {
         &mut self,
         manager: &mut crate::common::audio::game_audio::AudioManager,
     ) -> INIResult<()> {
-        self.parse_file_with_owned_definitions(None, None, None, None, Some(manager), None)
+        self.parse_file_with_owned_definitions(None, None, None, None, Some(manager), None, None)
     }
 
     /// Parse AudioSettings into this instance with its own user preferences.
@@ -1872,7 +1880,16 @@ impl INI {
             None,
             None,
             Some((settings, prefs)),
+            None,
         )
+    }
+
+    /// Parse MiscAudio into a caller-owned object, skipping other block types.
+    pub fn parse_current_file_into_misc_audio(
+        &mut self,
+        audio: &mut super::ini_misc_audio::MiscAudio,
+    ) -> INIResult<()> {
+        self.parse_file_with_owned_definitions(None, None, None, None, None, None, Some(audio))
     }
 
     fn parse_file_with_owned_definitions(
@@ -1886,6 +1903,7 @@ impl INI {
             &mut super::ini_audio_settings::AudioSettings,
             &crate::common::user_preferences::UserPreferences,
         )>,
+        mut misc_audio: Option<&mut super::ini_misc_audio::MiscAudio>,
     ) -> INIResult<()> {
         let mut skipping_corrupt_block = false;
         while !self.end_of_file {
@@ -1894,6 +1912,14 @@ impl INI {
             let Some(first_token) = self.get_first_token() else {
                 continue;
             };
+            if let Some(audio) = misc_audio.as_deref_mut() {
+                if first_token.eq_ignore_ascii_case("MiscAudio") {
+                    super::ini_misc_audio::parse_misc_audio_into(self, audio)?;
+                } else {
+                    consume_block_with_nesting(self)?;
+                }
+                continue;
+            }
             if let Some((settings, prefs)) = audio_settings.as_mut() {
                 if first_token.eq_ignore_ascii_case("AudioSettings") {
                     super::ini_audio_settings::parse_audio_settings_definition_into(

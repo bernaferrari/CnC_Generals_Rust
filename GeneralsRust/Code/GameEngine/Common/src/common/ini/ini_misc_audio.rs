@@ -703,6 +703,11 @@ pub fn get_misc_audio() -> Option<Arc<RwLock<MiscAudio>>> {
 /// INI parsing function for MiscAudio definition (matches C++ interface)
 ///
 /// This is the main entry point for parsing MiscAudio definitions from INI files
+/// Parse this block into the caller's MiscAudio, without publishing a singleton.
+pub(crate) fn parse_misc_audio_into(ini: &mut INI, audio: &mut MiscAudio) -> INIResult<()> {
+    ini.init_from_ini_with_fields(audio, FIELD_PARSE_TABLE)
+}
+
 pub fn parse_misc_audio(ini: &mut INI) -> INIResult<()> {
     // Get or create global misc audio
     let misc_audio_handle = ensure_misc_audio();

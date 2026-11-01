@@ -1903,6 +1903,43 @@ impl AudioManager {
         self.init();
     }
 
+    /// Apply the receiving world's parsed MiscAudio UI mappings.
+    pub fn apply_receiving_misc_audio(
+        &mut self,
+        src: &crate::common::ini::ini_misc_audio::MiscAudio,
+    ) {
+        self.misc_audio.ui_sounds.clear();
+        let insert =
+            |map: &mut std::collections::HashMap<String, AudioEventRts>,
+             name: &str,
+             event: &crate::common::ini::ini_misc_audio::AudioEventRTS| {
+                let event_name = event.playable_event_name();
+                if !event_name.is_empty() {
+                    map.insert(name.to_string(), AudioEventRts::with_event_name(event_name));
+                }
+            };
+        insert(
+            &mut self.misc_audio.ui_sounds,
+            "RadarNotifyUnitUnderAttackSound",
+            &src.radar_unit_under_attack_sound,
+        );
+        insert(
+            &mut self.misc_audio.ui_sounds,
+            "RadarNotifyHarvesterUnderAttackSound",
+            &src.radar_harvester_under_attack_sound,
+        );
+        insert(
+            &mut self.misc_audio.ui_sounds,
+            "RadarNotifyStructureUnderAttackSound",
+            &src.radar_structure_under_attack_sound,
+        );
+        insert(
+            &mut self.misc_audio.ui_sounds,
+            "RadarNotifyInfiltrationSound",
+            &src.radar_infiltration_sound,
+        );
+    }
+
     pub fn get_audio_settings(&self) -> &AudioSettings {
         &self.audio_settings
     }
@@ -4034,38 +4071,9 @@ fn apply_loaded_audio_settings_to_manager() {
     }
 
     if let Some(parsed) = crate::common::ini::ini_misc_audio::get_misc_audio() {
-        let src = parsed.read();
-        guard.misc_audio.ui_sounds.clear();
-        let insert =
-            |map: &mut std::collections::HashMap<String, AudioEventRts>,
-             name: &str,
-             event: &crate::common::ini::ini_misc_audio::AudioEventRTS| {
-                let event_name = event.playable_event_name();
-                if !event_name.is_empty() {
-                    map.insert(name.to_string(), AudioEventRts::with_event_name(event_name));
-                }
-            };
-        insert(
-            &mut guard.misc_audio.ui_sounds,
-            "RadarNotifyUnitUnderAttackSound",
-            &src.radar_unit_under_attack_sound,
-        );
-        insert(
-            &mut guard.misc_audio.ui_sounds,
-            "RadarNotifyHarvesterUnderAttackSound",
-            &src.radar_harvester_under_attack_sound,
-        );
-        insert(
-            &mut guard.misc_audio.ui_sounds,
-            "RadarNotifyStructureUnderAttackSound",
-            &src.radar_structure_under_attack_sound,
-        );
-        insert(
-            &mut guard.misc_audio.ui_sounds,
-            "RadarNotifyInfiltrationSound",
-            &src.radar_infiltration_sound,
-        );
+        guard.apply_receiving_misc_audio(&parsed.read());
     }
+
 }
 
 #[cfg(test)]
