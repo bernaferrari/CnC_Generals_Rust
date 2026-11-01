@@ -2619,52 +2619,12 @@ impl TransitionGroup {
         for win in &mut self.transition_windows {
             win.init(window_lookup, screen_size, window_access);
         }
-        // GameWindowTransitionsStyles.cpp:77-133: a transition STARTS with the
-        // window hidden (FLASH::init winHide(TRUE)). Apply that start state to
-        // EVERY window in the group, not only FLASH/BUTTONFLASH styles, so no
-        // group window can flash visible before its first authored frame.
-        self.set_all_windows_hidden(true, window_access);
-    }
-
-    /// Drive every group window to one visibility bit. Style-level frame math
-    /// (per-window frame delays, lookup misses) can leave HIDDEN bits set on
-    /// live windows after a group completes, is skipped, or is swapped out
-    /// mid-flight — the Skirmish-unhittable class of bug.
-    fn set_all_windows_hidden(
-        &mut self,
-        hide: bool,
-        window_access: &mut TransitionWindowAccess<'_, '_>,
-    ) {
-        for win in &mut self.transition_windows {
-            let Some(win_rc) = win.win.as_ref().and_then(|w| w.upgrade()) else {
-                continue;
-            };
-            let _ = window_access.hide_window(&win_rc, hide);
-        }
-    }
-
-    /// Authored end visibility: a group finishing forward ends with every
-    /// window unhidden (FLASH/BUTTONFLASH winHide(FALSE) at the final frame);
-    /// a group finishing in reverse ends hidden (MainMenu.cpp SP/Back uses
-    /// the reverse to close a dropdown).
-    fn apply_authored_end_visibility(
-        &mut self,
-        window_access: &mut TransitionWindowAccess<'_, '_>,
-    ) {
-        let hide = self.is_reversed();
-        self.set_all_windows_hidden(hide, window_access);
     }
 
     fn update(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.current_frame += self.direction_multiplier;
         for win in &mut self.transition_windows {
             win.update(self.current_frame, window_access);
-        }
-        if self.is_finished() {
-            // Final frame reached: enforce the authored end state on every
-            // group window, not only the ones whose per-style frame math
-            // happened to land on the unhide frame.
-            self.apply_authored_end_visibility(window_access);
         }
     }
 
@@ -2695,9 +2655,6 @@ impl TransitionGroup {
         for win in &mut self.transition_windows {
             win.skip(window_access);
         }
-        // skip() must land on the authored END state, not whatever frame the
-        // per-style skip math stops at.
-        self.apply_authored_end_visibility(window_access);
     }
 
     fn draw(

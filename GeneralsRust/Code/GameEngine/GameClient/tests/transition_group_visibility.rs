@@ -1,0 +1,103 @@
+use game_client_rust::core::game_client::GameClient;
+use game_engine::common::name_key_generator::NameKeyGenerator;
+use std::path::PathBuf;
+
+struct RestoreDirectory(PathBuf);
+impl Drop for RestoreDirectory {
+    fn drop(&mut self) {
+        std::env::set_current_dir(&self.0).unwrap();
+    }
+}
+
+#[test]
+fn sound_only_group_preserves_each_receiving_windows_visibility() {
+    let temp = tempfile::tempdir().unwrap();
+    let ini_dir = temp.path().join("Data/INI");
+    std::fs::create_dir_all(&ini_dir).unwrap();
+    std::fs::write(
+        ini_dir.join("WindowTransitions.ini"),
+        r#"
+WindowTransition SoundOnly
+  Window
+    WinName = Test:Sound
+    Style = REVERSESOUND
+    FrameDelay = 0
+  END
+END
+WindowTransition FlashOnly
+  Window
+    WinName = Test:Sound
+    Style = FLASH
+    FrameDelay = 0
+  END
+END
+"#,
+    )
+    .unwrap();
+    // This integration test has its own process; the current directory is
+    // restored before the temporary content is deleted.
+    let _restore = RestoreDirectory(std::env::current_dir().unwrap());
+    std::env::set_current_dir(temp.path()).unwrap();
+    let mut first = GameClient::new().unwrap();
+    let mut second = GameClient::new().unwrap();
+    let id = NameKeyGenerator::name_to_key("Test:Sound") as i32;
+    let setup = |client: &mut GameClient, hidden| {
+        client.with_window_event_effects(None, |effects| {
+            effects.with_manager(|manager, effects| {
+                manager.init();
+                let window = manager
+                    .create_window_with_id(None, 0, 0, 20, 20, id, effects)
+                    .unwrap();
+                let _ = window.borrow_mut().hide(hidden, manager);
+                window
+            })
+        })
+    };
+    let visible = setup(&mut first, false);
+    let hidden = setup(&mut second, true);
+    first.with_window_event_effects(None, |effects| {
+        effects.with_manager(|manager, effects| {
+            manager.transition_set_group("SoundOnly", true, None);
+            assert!(
+                !visible.borrow().is_hidden(),
+                "sound init must not hide its window"
+            );
+            manager.update(effects);
+            assert!(
+                !visible.borrow().is_hidden(),
+                "sound update must not hide its window"
+            );
+            manager.transition_remove("SoundOnly", true, None);
+            assert!(
+                !visible.borrow().is_hidden(),
+                "sound skip must not change visibility"
+            );
+            manager.transition_set_group("FlashOnly", true, None);
+            assert!(
+                visible.borrow().is_hidden(),
+                "the flash style hides on init"
+            );
+            manager.transition_set_group("SoundOnly", true, None);
+            assert!(
+                !visible.borrow().is_hidden(),
+                "skipping flash reveals its window; overlapping sound must leave it revealed"
+            );
+        });
+    });
+    second.with_window_event_effects(None, |effects| {
+        effects.with_manager(|manager, effects| {
+            manager.transition_set_group("SoundOnly", true, None);
+            assert!(
+                hidden.borrow().is_hidden(),
+                "sound init must not reveal a peer window"
+            );
+            manager.update(effects);
+            manager.transition_reverse("SoundOnly", None);
+            manager.transition_remove("SoundOnly", true, None);
+            assert!(
+                hidden.borrow().is_hidden(),
+                "sound must not reveal a hidden peer window"
+            );
+        });
+    });
+}
