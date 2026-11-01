@@ -3558,9 +3558,8 @@ pub fn apply_first_run_dropdown_reveal_visibility_for_tests(
     })
 }
 
-/// Host inject residual: flip `not_shown` so menu→match gadgets are eligible
-/// for under-cursor hit tests. Intentionally avoids `transition_set_group` and
-/// hide/show WM drains (op-queue hang class mid control-command apply).
+/// Reveal the receiving main dropdown for the host's first-input route.
+/// The original also starts transition groups, which remain separate here.
 pub fn soft_reveal_main_menu_for_host_inject(effects: &mut WindowEventEffects<'_>) -> bool {
     effects.with_main_menu(|menu, effects| {
         let mut state = &mut menu.state;
@@ -3569,6 +3568,8 @@ pub fn soft_reveal_main_menu_for_host_inject(effects: &mut WindowEventEffects<'_
         }
         state.initial_gadget_delay = 1;
         state.drop_down = DropdownType::Main;
+        MainMenu::win_hide_dropdown_main_false(effects, None);
+        set_main_menu_cursor_visibility(true, effects);
         state.not_shown = false;
         true
     })
