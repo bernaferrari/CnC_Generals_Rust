@@ -40,7 +40,7 @@ impl GameLogic {
         if !object.is_kind_of(KindOf::Immobile) {
             self.pathfinding_system.grid.clear_path_goal_square(
                 id.0,
-                object.selection_radius,
+                object.geometry_info().bounding_circle_radius(),
                 object.pathfind_goal_cell,
                 object.pathfind_goal_layer,
             );

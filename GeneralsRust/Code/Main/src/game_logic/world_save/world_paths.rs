@@ -1936,7 +1936,7 @@ impl GameLogic {
             return;
         };
         let old = unit.pathfind_goal_cell;
-        let radius = unit.selection_radius;
+        let radius = unit.geometry_info().bounding_circle_radius();
         let layer = unit.pathfind_goal_layer;
         self.pathfinding_system
             .grid

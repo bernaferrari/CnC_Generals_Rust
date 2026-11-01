@@ -56,6 +56,203 @@ fn mark_unit_moving(world: &mut GameLogic, id: ObjectId) {
 }
 
 #[test]
+fn ground_goal_lifecycle_uses_live_geometry_in_each_world() {
+    use generals_main::game_logic::pathfinding::GridPos;
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("GoalLiveGeometry.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+    let mut owner = world(&map);
+    let mut peer = world(&map);
+    owner
+        .templates
+        .get_mut("RetryWalker")
+        .unwrap()
+        .geometry_info
+        .major_radius = 20.0;
+    let start = Vec3::new(100.0, 0.0, 100.0);
+    let goal = Vec3::new(150.0, 0.0, 100.0);
+    let id = owner
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    let peer_id = peer
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    assert_eq!(id, peer_id);
+    for world in [&mut owner, &mut peer] {
+        let unit = world.host_object_mut(id).unwrap();
+        unit.selection_radius = 1.0;
+        unit.is_final_goal = true;
+        assert!(world.assign_unit_path_exact(id, goal, &[]));
+    }
+    let edge = GridPos::new(13, 8);
+    let center = GridPos::new(15, 10);
+    assert_eq!(
+        owner.pathfinding_ground_goal(edge),
+        Some(id),
+        "live wide shape must register its complete footprint"
+    );
+    assert_eq!(
+        peer.pathfinding_ground_goal(edge),
+        None,
+        "the peer has a narrow shape"
+    );
+    assert_eq!(peer.pathfinding_ground_goal(center), Some(id));
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&owner).unwrap();
+    let mut restored = world(&map);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    let (x, y) = restored.host_object(id).unwrap().pathfind_goal_cell;
+    assert_eq!(
+        restored.pathfinding_ground_goal(GridPos::new(x - 2, y - 2)),
+        Some(id),
+        "load must register the live wide footprint"
+    );
+
+    owner
+        .templates
+        .get_mut("RetryWalker")
+        .unwrap()
+        .geometry_info
+        .major_radius = 1.0;
+    let other = owner
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    owner.host_object_mut(other).unwrap().is_final_goal = true;
+    assert!(owner.assign_unit_path_exact(other, goal, &[]));
+    assert_eq!(owner.pathfinding_ground_goal(center), Some(other));
+    assert!(owner.unit_command_tighten_to(id, Vec3::new(190.0, 0.0, 190.0)));
+    assert_eq!(
+        owner.pathfinding_ground_goal(edge),
+        None,
+        "removal must clear the live footprint"
+    );
+    assert_eq!(
+        owner.pathfinding_ground_goal(center),
+        Some(other),
+        "removal must keep the newer owner's cell"
+    );
+    assert_eq!(
+        peer.pathfinding_ground_goal(center),
+        Some(id),
+        "the peer world must remain unchanged"
+    );
+    restored.destroy_object(id).unwrap();
+    restored.update_with_dt(1.0 / 30.0);
+    assert!(
+        restored.host_object(id).is_none(),
+        "the actor must reach physical retirement"
+    );
+    assert_eq!(
+        restored.pathfinding_ground_goal(GridPos::new(x - 2, y - 2)),
+        None,
+        "physical retirement must clear the live footprint"
+    );
+}
+
+#[test]
+fn aircraft_goal_lifecycle_uses_live_geometry_in_each_world() {
+    use generals_main::game_logic::pathfinding::GridPos;
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("AircraftGoalLiveGeometry.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+    let mut owner = aircraft_world(&map);
+    let mut peer = aircraft_world(&map);
+    owner
+        .templates
+        .get_mut("RetryFlyer")
+        .unwrap()
+        .geometry_info
+        .major_radius = 20.0;
+    let start = Vec3::new(100.0, 0.0, 100.0);
+    let goal = Vec3::new(150.0, 0.0, 100.0);
+    let id = owner
+        .create_object_for_player("RetryFlyer", 1, start)
+        .unwrap();
+    let peer_id = peer
+        .create_object_for_player("RetryFlyer", 1, start)
+        .unwrap();
+    assert_eq!(id, peer_id);
+    for world in [&mut owner, &mut peer] {
+        let unit = world.host_object_mut(id).unwrap();
+        unit.selection_radius = 1.0;
+        unit.is_final_goal = true;
+        assert!(world.assign_unit_path_exact(id, goal, &[]));
+    }
+    let edge = GridPos::new(13, 8);
+    let center = GridPos::new(15, 10);
+    assert_eq!(
+        owner.pathfinding_aircraft_goal(edge),
+        Some(id),
+        "the wide live shape must register all aircraft cells"
+    );
+    assert_eq!(
+        peer.pathfinding_aircraft_goal(edge),
+        None,
+        "the peer has a smaller shape"
+    );
+    assert_eq!(peer.pathfinding_aircraft_goal(center), Some(id));
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&owner).unwrap();
+    let mut restored = aircraft_world(&map);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    let (x, y) = restored.host_object(id).unwrap().pathfind_goal_cell;
+    assert_eq!(
+        restored.pathfinding_aircraft_goal(GridPos::new(x - 2, y - 2)),
+        Some(id),
+        "load must register the live aircraft footprint"
+    );
+    assert!(owner.unit_command_tighten_to(id, Vec3::new(190.0, 0.0, 190.0)));
+    assert_eq!(
+        owner.pathfinding_aircraft_goal(edge),
+        None,
+        "removal must clear the live aircraft footprint"
+    );
+    assert_eq!(
+        peer.pathfinding_aircraft_goal(center),
+        Some(id),
+        "the peer world must remain unchanged"
+    );
+    restored.destroy_object(id).unwrap();
+    restored.update_with_dt(1.0 / 30.0);
+    assert!(
+        restored.host_object(id).is_none(),
+        "the aircraft must reach physical retirement"
+    );
+    assert_eq!(
+        restored.pathfinding_aircraft_goal(GridPos::new(x - 2, y - 2)),
+        None,
+        "physical retirement must clear the live aircraft footprint"
+    );
+}
+
+#[test]
 fn possible_destination_uses_the_receiving_worlds_wide_unit_footprint() {
     let directory = tempfile::tempdir().unwrap();
     let map = directory.path().join("WideDestination.map");

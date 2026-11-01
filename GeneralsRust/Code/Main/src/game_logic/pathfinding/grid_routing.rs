@@ -716,7 +716,8 @@ impl PathfindingGrid {
         if x == -1 && y == -1 {
             return None;
         }
-        let (radius, center) = Self::radius_and_center(obj.selection_radius, self.grid_size);
+        let (radius, center) =
+            Self::radius_and_center(obj.geometry_info().bounding_circle_radius(), self.grid_size);
         let cell = GridPos::new(x, y);
         Some((cell, radius, radius + i32::from(center)))
     }
@@ -751,6 +752,7 @@ impl PathfindingGrid {
             if !object.has_ai_update_interface() {
                 continue;
             }
+            let radius = object.geometry_info().bounding_circle_radius();
             let position = if object.host_ai_is_moving() {
                 let (x, y) = object.pathfind_goal_cell;
                 if x < 0 || y < 0 {
@@ -770,7 +772,7 @@ impl PathfindingGrid {
             } else if Self::is_doing_ground_movement_full(object) {
                 let layer = object.pathfind_layer;
                 let target_layer = PathfindLayerEnum::from_u32(layer as u32);
-                let (_, center) = Self::radius_and_center(object.selection_radius, self.grid_size);
+                let (_, center) = Self::radius_and_center(radius, self.grid_size);
                 let target_cell = self.cell_for_unit_position(position, center);
                 let unchanged = (target_cell.x, target_cell.y) == (-1, -1)
                     && object.pathfind_goal_layer == layer;
@@ -783,7 +785,7 @@ impl PathfindingGrid {
                 let cell = self.update_path_goal_cell(PathGoalUpdate {
                     unit_id: object.id.0,
                     player: object.owner_player_id.unwrap_or(object.team as u32),
-                    radius: object.selection_radius,
+                    radius,
                     old_cell: (-1, -1),
                     old_layer: object.pathfind_goal_layer,
                     new_layer: layer,
@@ -795,7 +797,7 @@ impl PathfindingGrid {
             } else {
                 let cell = self.update_aircraft_goal_cell(
                     object.id.0,
-                    object.selection_radius,
+                    radius,
                     (-1, -1),
                     object.pathfind_goal_layer,
                     position,

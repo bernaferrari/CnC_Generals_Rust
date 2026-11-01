@@ -3303,7 +3303,7 @@ impl GameLogic {
             }
             Some((
                 unit.owner_player_id.unwrap_or(unit.team as u32),
-                unit.selection_radius,
+                unit.geometry_info().bounding_circle_radius(),
                 unit.geometry_info().minor_radius,
                 unit.pathfind_goal_cell,
                 unit.pathfind_goal_layer,
