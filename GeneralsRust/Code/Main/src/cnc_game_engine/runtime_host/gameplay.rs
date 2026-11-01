@@ -386,7 +386,7 @@ impl CnCGameEngine {
             use game_client::gui::callbacks::{
                 drive_os_wnd_popup_save_load_load_named_and_confirm_like_cpp,
                 drive_os_wnd_quit_menu_save_load_like_cpp, ensure_live_popup_save_load_layout,
-                ensure_live_quit_menu_layout,
+                ensure_live_quit_menu_layout, live_popup_save_load_is_visible,
             };
             self.host_publish_popup_save_load_inventory();
 
@@ -404,6 +404,23 @@ impl CnCGameEngine {
                 effects
                     .with_manager(|manager, effects| ensure_live_quit_menu_layout(manager, effects))
             })?;
+            let popup_visible = self.with_receiving_menu_effects(|effects| {
+                effects.with_manager(|manager, _| live_popup_save_load_is_visible(manager))
+            })?;
+            // A successful save may leave the existing popup open with the
+            // old inventory. Back out through its real WND button and reopen
+            // it so the menu initializes from the newly published save list.
+            if popup_visible
+                && !self.with_receiving_menu_effects(|effects| {
+                    game_client::gui::dispatch_os_click_named_window(
+                        "PopupSaveLoad.wnd:ButtonBack",
+                        effects,
+                    )
+                })?
+            {
+                self.runtime_host_last_gameplay_cmd = "load_wait_wnd_quit".into();
+                return Ok(());
+            }
             let quit_save_load = quit_layout
                 && self.with_receiving_menu_effects(|effects| {
                     drive_os_wnd_quit_menu_save_load_like_cpp(effects)

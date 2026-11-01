@@ -1966,6 +1966,18 @@ fn live_popup_save_load_layout(
     })(receiving_manager)
 }
 
+/// Whether the receiving manager displays the popup over the QuitMenu.
+pub fn live_popup_save_load_is_visible(
+    receiving_manager: &mut crate::gui::window_manager::WindowManager,
+) -> bool {
+    live_popup_save_load_layout(receiving_manager)
+        .is_some_and(|layout| !layout.borrow().is_hidden())
+        && live_popup_save_load_window_visible(
+            "PopupSaveLoad.wnd:ListboxGames",
+            receiving_manager,
+        )
+}
+
 fn retail_popup_save_load_controls_present(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) -> bool {

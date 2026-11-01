@@ -101,14 +101,37 @@ fn nested_popup_opens_closes_and_reopens_on_receiving_client() {
         client.with_window_event_effects(None, |effects| {
             toggle_quit_menu_receiving(false, effects, None);
             assert!(effects.with_manager(|m, e| ensure_live_quit_menu_layout(m, e)));
+            assert!(!effects.with_manager(|m, _| {
+                game_client_rust::gui::callbacks::live_popup_save_load_is_visible(m)
+            }));
             assert!(drive_os_wnd_quit_menu_save_load_like_cpp(effects));
             assert!(effects.with_manager(|m, e| ensure_live_popup_save_load_layout(m, e)));
+            assert!(effects.with_manager(|m, _| {
+                game_client_rust::gui::callbacks::live_popup_save_load_is_visible(m)
+            }));
+        });
+        client.publish_popup_save_load_entries(vec![
+            game_client_rust::gui::callbacks::PopupSaveLoadEntry {
+                filename: "new_save".into(),
+                description: "new_save".into(),
+                ..Default::default()
+            },
+        ]);
+        client.with_window_event_effects(None, |effects| {
             assert!(game_client_rust::gui::dispatch_os_click_named_window(
                 "PopupSaveLoad.wnd:ButtonBack",
                 effects
             ));
+            assert!(!effects.with_manager(|m, _| {
+                game_client_rust::gui::callbacks::live_popup_save_load_is_visible(m)
+            }));
             assert!(drive_os_wnd_quit_menu_save_load_like_cpp(effects));
             assert!(effects.with_manager(|m, e| ensure_live_popup_save_load_layout(m, e)));
+            assert!(
+                game_client_rust::gui::callbacks::select_live_popup_save_game_named_like_cpp(
+                    "new_save", effects
+                )
+            );
         });
         let peer =
             GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted).unwrap();
