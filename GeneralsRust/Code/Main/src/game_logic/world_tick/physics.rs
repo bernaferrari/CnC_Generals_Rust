@@ -781,9 +781,6 @@ impl GameLogic {
         prop_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
-        #[cfg(feature = "game_client")]
-        let fx_operation_environment = self.observe_object_fx_environment();
-
         let (level, cpos, speed) = {
             let Some(c) = self.objects.get(&crusher_id) else {
                 return false;

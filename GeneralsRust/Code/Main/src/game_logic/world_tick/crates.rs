@@ -1484,9 +1484,6 @@ impl GameLogic {
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        #[cfg(feature = "game_client")]
-        let fx_operation_environment = self.observe_object_fx_environment();
-
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_battle_bus::battle_bus_undeath_passenger_damage;
 
@@ -1515,8 +1512,6 @@ impl GameLogic {
             if !*pending {
                 continue;
             }
-            #[cfg(feature = "game_client")]
-            let fx_operation_environment = self.observe_object_fx_environment();
             if let Some(bus) = self.objects.get_mut(bus_id) {
                 if let Some(body) = bus.battle_bus_body.as_mut() {
                     body.pending_passenger_damage = false;
@@ -1532,8 +1527,6 @@ impl GameLogic {
         }
 
         for (pid, dmg) in passenger_hits {
-            #[cfg(feature = "game_client")]
-            let fx_operation_environment = self.observe_object_fx_environment();
             if let Some(p) = self.objects.get_mut(&pid) {
                 if p.is_alive() {
                     let _ = {
@@ -1611,8 +1604,6 @@ impl GameLogic {
 
         for bus_id in empty_kills {
             self.battle_bus.record_empty_hulk_destruction();
-            #[cfg(feature = "game_client")]
-            let fx_operation_environment = self.observe_object_fx_environment();
             if let Some(bus) = self.objects.get_mut(&bus_id) {
                 if let Some(body) = bus.battle_bus_body.as_mut() {
                     body.mark_real_death();
