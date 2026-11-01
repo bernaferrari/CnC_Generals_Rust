@@ -38,6 +38,15 @@ impl GameLogic {
         };
         // Object::~Object first removes its pathfinder entries after unlinking.
         if !object.is_kind_of(KindOf::Immobile) {
+            if self.pathfinding_system.map_ready && object.has_ai_update_interface() {
+                self.pathfinding_system.grid.clear_path_position_square(
+                    id.0,
+                    object.geometry_info().bounding_circle_radius(),
+                    object.pathfind_cur_cell,
+                    object.pathfind_layer,
+                );
+                object.pathfind_cur_cell = (-1, -1);
+            }
             self.pathfinding_system.grid.clear_path_goal_square(
                 id.0,
                 object.geometry_info().bounding_circle_radius(),

@@ -5,6 +5,97 @@ use generals_main::game_logic::{
 use generals_main::save_load::SnapshotBuilder;
 use glam::Vec3;
 
+fn saved_position_cells_len(world: &GameLogic) -> usize {
+    8 + 12
+        * world
+            .host_objects()
+            .registered_values()
+            .filter(|object| object.pathfind_cur_cell != (-1, -1))
+            .count()
+}
+
+#[test]
+fn registered_movement_updates_only_its_receiving_session_position_cells() {
+    use generals_main::game_logic::pathfinding::GridPos;
+
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("PositionOwner.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+    let mut worlds = [world(&map), world(&map)];
+    let mut ids = Vec::new();
+    for world in &mut worlds {
+        let id = world
+            .create_object_for_player("RetryWalker", 1, Vec3::new(100.0, 0.0, 100.0))
+            .unwrap();
+        let actor = world.host_object_mut(id).unwrap();
+        actor.cur_locomotor_name = Some("RetryWalk".into());
+        actor.locomotor_surfaces = gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+        ids.push(id);
+    }
+    assert_eq!(ids[0], ids[1]);
+    assert!(worlds[0].set_registered_object_position(ids[0], Vec3::new(120.0, 0.0, 100.0)));
+    assert_eq!(
+        worlds[0].pathfinding_ground_position(GridPos::new(12, 10)),
+        Some(ids[0])
+    );
+    assert_eq!(
+        worlds[1].pathfinding_ground_position(GridPos::new(12, 10)),
+        None
+    );
+    assert!(worlds[1].set_registered_object_position(ids[1], Vec3::new(140.0, 0.0, 100.0)));
+    assert!(worlds[0].set_registered_object_position(ids[0], Vec3::new(130.0, 0.0, 100.0)));
+    assert_eq!(
+        worlds[0].pathfinding_ground_position(GridPos::new(12, 10)),
+        None
+    );
+    assert_eq!(
+        worlds[0].pathfinding_ground_position(GridPos::new(13, 10)),
+        Some(ids[0])
+    );
+    assert_eq!(
+        worlds[1].pathfinding_ground_position(GridPos::new(14, 10)),
+        Some(ids[1])
+    );
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&worlds[0]).unwrap();
+    let mut restored = world(&map);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert_eq!(
+        restored.host_object(ids[0]).unwrap().pathfind_cur_cell,
+        (13, 10)
+    );
+    assert_eq!(
+        restored.pathfinding_ground_position(GridPos::new(13, 10)),
+        Some(ids[0])
+    );
+    assert!(restored.set_registered_object_position(ids[0], Vec3::new(150.0, 0.0, 100.0)));
+    assert_eq!(
+        restored.pathfinding_ground_position(GridPos::new(13, 10)),
+        None
+    );
+    assert_eq!(
+        restored.pathfinding_ground_position(GridPos::new(15, 10)),
+        Some(ids[0])
+    );
+    assert_eq!(
+        worlds[1].pathfinding_ground_position(GridPos::new(14, 10)),
+        Some(ids[1])
+    );
+}
+
 #[test]
 fn rapid_retry_uses_the_original_unsigned_frame_comparison() {
     let mut unit = Object::new(ThingTemplate::new("Retry"), ObjectId(1), Team::USA);
@@ -961,7 +1052,7 @@ fn removed_ground_goal_does_not_return_when_occupancy_is_rebuilt() {
             .try_into()
             .unwrap(),
     ) as usize;
-    let end = tag + 12 + size;
+    let end = tag + 12 + size - saved_position_cells_len(&layered);
     assert_eq!(
         &malformed.lifecycle_tail[end - 14..end - 6],
         &1_u64.to_le_bytes()
@@ -1036,7 +1127,8 @@ fn aircraft_registered_goal_is_owned_by_its_session_and_survives_save() {
             .try_into()
             .unwrap(),
     ) as usize;
-    let payload_end = tag + 12 + size;
+    let actual_payload_end = tag + 12 + size;
+    let payload_end = actual_payload_end - saved_position_cells_len(&owner);
     assert_eq!(
         &pending.lifecycle_tail[payload_end - 8..payload_end],
         &[0; 8]
@@ -1065,9 +1157,11 @@ fn aircraft_registered_goal_is_owned_by_its_session_and_survives_save() {
         .restore_from_snapshot(&pending, &mut pending_restored)
         .unwrap();
     let mut v17 = builder.create_world_snapshot(&owner).unwrap();
-    v17.lifecycle_tail.drain(payload_end - 8..payload_end);
+    v17.lifecycle_tail
+        .drain(payload_end - 8..actual_payload_end);
     v17.lifecycle_tail[tag + 4..tag + 8].copy_from_slice(&17_u32.to_le_bytes());
-    v17.lifecycle_tail[tag + 8..tag + 12].copy_from_slice(&((size - 8) as u32).to_le_bytes());
+    v17.lifecycle_tail[tag + 8..tag + 12]
+        .copy_from_slice(&((size - 8 - saved_position_cells_len(&owner)) as u32).to_le_bytes());
     let mut v17_restored = aircraft_world(&map);
     builder
         .restore_from_snapshot(&v17, &mut v17_restored)
@@ -1222,10 +1316,12 @@ fn delayed_request_runs_on_its_actor_deadline_after_save_and_interleaving() {
             .try_into()
             .unwrap(),
     ) as usize;
-    let end = length + 4 + size;
+    let actual_end = length + 4 + size;
+    let end = actual_end - saved_position_cells_len(&original);
     assert_eq!(&legacy.lifecycle_tail[end - 32..end], &[0; 32]);
-    legacy.lifecycle_tail.drain(end - 32..end);
-    legacy.lifecycle_tail[length..length + 4].copy_from_slice(&((size - 32) as u32).to_le_bytes());
+    legacy.lifecycle_tail.drain(end - 32..actual_end);
+    legacy.lifecycle_tail[length..length + 4]
+        .copy_from_slice(&((size - 32 - saved_position_cells_len(&original)) as u32).to_le_bytes());
     legacy.lifecycle_tail[version..version + 4].copy_from_slice(&14_u32.to_le_bytes());
     let mut legacy_receiver = world(&map);
     builder
@@ -1492,7 +1588,7 @@ fn tighten_continuation_is_actor_owned_and_survives_pending_save() {
             .try_into()
             .unwrap(),
     ) as usize;
-    let end = tag + 12 + size;
+    let end = tag + 12 + size - saved_position_cells_len(&original);
     let goal_count = original
         .host_objects()
         .registered_values()

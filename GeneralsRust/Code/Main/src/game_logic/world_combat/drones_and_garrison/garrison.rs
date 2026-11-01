@@ -196,16 +196,15 @@ impl GameLogic {
                 .objects
                 .get(&cid)
                 .is_some_and(|c| !c.is_enclosing_garrison_container());
-            if pin_station {
-                if let Some(occ) = self.objects.get_mut(&garrisoned_id) {
-                    occ.set_position_with_effects_and_pose_owners(
-                        fire_pos,
-                        self.frame,
-                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                        &self.host_trigger_world,
-                        &self.team_factory,
-                    );
-                }
+            if pin_station
+                && !self.set_owned_object_position_with_effects(
+                    garrisoned_id,
+                    fire_pos,
+                    self.frame,
+                    presentation_effects,
+                )
+            {
+                return;
             }
         }
         if !self.fire_owned_passive_weapon_with_effects(
@@ -388,21 +387,22 @@ impl GameLogic {
                     &mut self.objects,
                     &mut self.partition_manager,
                     &mut self.ai_groups,
+                    &mut self.pathfinding_system,
                     containment_actor_id,
                     Some(container_id),
                     true,
                 );
-                let occupant = self
-                    .objects
-                    .get_mut(&containment_actor_id)
-                    .expect("containment operation preserves this birth");
-                occupant.set_position_with_effects_and_pose_owners(
+                if !self.set_owned_object_position_with_effects(
+                    containment_actor_id,
                     position,
                     self.frame,
-                    &mut ui.reborrow_for_object(&mut self.partition_manager),
-                    &self.host_trigger_world,
-                    &self.team_factory,
-                );
+                    ui,
+                ) {
+                    continue;
+                }
+                let Some(occupant) = self.objects.get_mut(&containment_actor_id) else {
+                    continue;
+                };
                 occupant.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
@@ -1051,6 +1051,7 @@ impl GameLogic {
                     &mut self.objects,
                     &mut self.partition_manager,
                     &mut self.ai_groups,
+                    &mut self.pathfinding_system,
                     containment_actor_id,
                     None,
                     true,
@@ -1082,11 +1083,62 @@ impl GameLogic {
                 };
                 unit.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
                 if !is_garrison {
-                    unit.pathfind_layer = container_layer;
+                    let _ = unit;
+                    self.set_owned_pathfinder_layer(containment_actor_id, container_layer);
                 }
             }
         }
         let skip_follow = !is_garrison && exit_count <= 0;
+        // OpenContain::exitObjectViaDoor re-registers an idle vehicle's own
+        // footprint and goal before asking where the passenger can exit.
+        let refresh_container = !is_garrison
+            && !skip_follow
+            && self
+                .objects
+                .get(&unit_id)
+                .is_some_and(|unit| unit.has_ai_update_interface())
+            && self.objects.get(&container_id).is_some_and(|container| {
+                container.is_kind_of(KindOf::Vehicle)
+                    && !container.is_kind_of(KindOf::Immobile)
+                    && container.has_ai_update_interface()
+                    && container.ai_state() == AIState::Idle
+            });
+        if refresh_container {
+            if let Some(container) = self.objects.get_mut(&container_id) {
+                let radius = container.geometry_info().bounding_circle_radius();
+                if self.pathfinding_system.map_ready {
+                    self.pathfinding_system.grid.clear_path_position_square(
+                        container_id.0,
+                        radius,
+                        container.pathfind_cur_cell,
+                        container.pathfind_layer,
+                    );
+                    container.pathfind_cur_cell = (-1, -1);
+                }
+                self.pathfinding_system.grid.clear_path_goal_square(
+                    container_id.0,
+                    radius,
+                    container.pathfind_goal_cell,
+                    container.pathfind_goal_layer,
+                );
+                container.pathfind_goal_cell = (-1, -1);
+            }
+            self.update_owned_pathfinder_position(container_id);
+            if let Some(position) = self
+                .objects
+                .get(&container_id)
+                .map(|container| container.get_position())
+            {
+                self.register_path_goal(container_id, position);
+            }
+        }
+        if !is_garrison && !skip_follow {
+            if let Some(unit) = self.objects.get_mut(&unit_id) {
+                unit.ignored_obstacle_id = None;
+                unit.ignore_collisions_with = None;
+                unit.ignore_collisions_until_frame = self.frame.saturating_add(30);
+            }
+        }
         if is_garrison || !skip_follow {
             let _ = self.adjust_to_possible_destination(unit_id, &mut door_end);
         }
@@ -1097,6 +1149,7 @@ impl GameLogic {
                 &mut self.objects,
                 &mut self.partition_manager,
                 &mut self.ai_groups,
+                &mut self.pathfinding_system,
                 containment_actor_id,
                 None,
                 true,
@@ -1129,7 +1182,12 @@ impl GameLogic {
                 };
                 unit.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
                 if !is_garrison {
-                    unit.pathfind_layer = container_layer;
+                    let _ = unit;
+                    self.set_owned_pathfinder_layer(containment_actor_id, container_layer);
+                    unit = match self.objects.get_mut(&containment_actor_id) {
+                        Some(object) => object,
+                        None => return,
+                    };
                 }
             }
             if !skip_follow {
@@ -1176,7 +1234,7 @@ impl GameLogic {
             }
             // OpenContain only. GarrisonContain::exitObjectViaDoor does not
             // call ignoreObstacle or setIgnoreCollisionTime.
-            if !is_garrison {
+            if !is_garrison && skip_follow {
                 unit.ignored_obstacle_id = None;
                 unit.ignore_collisions_with = None;
                 unit.ignore_collisions_until_frame = self.frame.saturating_add(30);
@@ -1312,14 +1370,15 @@ impl GameLogic {
             )
         });
         if let Some(gid) = gun_id {
+            if !self.set_owned_object_position_with_effects(
+                gid,
+                pos,
+                self.frame,
+                presentation_effects,
+            ) {
+                return;
+            }
             if let Some(gun) = self.objects.get_mut(&gid) {
-                gun.set_position_with_effects_and_pose_owners(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                    &self.host_trigger_world,
-                    &self.team_factory,
-                );
                 if let Some(target) = aim_at {
                     // C++ GarrisonContain::trackTargets Coord2D::toAngle();
                     // leftover dy.atan2(dx). Host Y-up ground plane is XZ.

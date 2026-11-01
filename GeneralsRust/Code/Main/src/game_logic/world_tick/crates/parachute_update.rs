@@ -341,27 +341,7 @@ impl GameLogic {
         id: ObjectId,
         layer: u8,
     ) {
-        let Some(object) = self.objects.get_mut(&id) else {
-            return;
-        };
-        if object.pathfind_layer == layer {
-            return;
-        }
-        object.pathfind_layer = layer;
-        let terrain_owner = self.world_services.terrain();
-        let terrain = terrain_owner
-            .read()
-            .unwrap_or_else(|error| error.into_inner());
-        let ground = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
-            &terrain,
-            self.map_loaded,
-            self.terrain.as_ref(),
-            self.pathfinding_height_samples.as_ref(),
-            &self.pathfinding_system.grid,
-        );
-        self.pathfinding_system
-            .grid
-            .update_dynamic_obstacles(self.objects.read(), &ground);
+        self.set_owned_pathfinder_layer(id, layer);
     }
 
     fn update_parachute_open_contain_owned(

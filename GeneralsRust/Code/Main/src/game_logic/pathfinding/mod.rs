@@ -230,6 +230,8 @@ pub(crate) struct RestoredPathGoal {
     pub object_id: ObjectId,
     pub cell: (i32, i32),
     pub ground_layer: Option<RestoredGroundGoal>,
+    /// Idle AI resets and rebuilds this cell during C++ loadPostProcess.
+    pub position_cell: Option<(i32, i32)>,
 }
 
 pub(crate) struct RestoredGroundGoal {
@@ -876,6 +878,8 @@ fn clear_cell_for_diameter_impl(
 pub struct PathfindingSystem {
     ai_definitions: std::sync::Arc<game_engine::common::ini::AIData>,
     pub grid: PathfindingGrid,
+    /// C++ `Pathfinder::m_isMapReady`; constructors leave it false.
+    pub(crate) map_ready: bool,
     flow_fields: HashMap<ObjectId, FlowField>, // Flow fields for different goals
     /// Active host logic frame (set via note_logic_frame).
     logic_frame: u64,

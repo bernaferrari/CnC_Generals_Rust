@@ -1343,6 +1343,9 @@ impl GameLogic {
             }
         }
 
+        // C++ Pathfinder::newMap marks the classified grid ready before
+        // mission scripts and starting-object creation can move actors.
+        self.pathfinding_system.map_ready = true;
         let scripts_started = Instant::now();
         report_progress(
             &mut self.session_view.audio_random,

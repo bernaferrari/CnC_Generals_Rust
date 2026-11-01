@@ -331,9 +331,7 @@ impl<'a> CommandExecutor<'a> {
                             self.game_logic
                                 .unit_command_move_free(*unit_id, *goal, destination);
                     } else {
-                        let _ = self
-                            .game_logic
-                            .unit_command_script_move_to(*unit_id, *goal);
+                        let _ = self.game_logic.unit_command_script_move_to(*unit_id, *goal);
                     }
                 }
                 if from_player {
@@ -392,9 +390,7 @@ impl<'a> CommandExecutor<'a> {
         self.apply_group_desired_speed(units, true);
         let mut move_destination = destination;
         let mut goals = self.group_move_destinations(units, move_destination);
-        if goals.len() > 1
-            && self.compute_ground_path_should_group(units, destination)
-        {
+        if goals.len() > 1 && self.compute_ground_path_should_group(units, destination) {
             match self
                 .game_logic
                 .assign_shared_formation_paths_for_script(&goals, destination)
@@ -904,7 +900,7 @@ impl<'a> CommandExecutor<'a> {
         movers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         let mut any = false;
         let mut heli_idx = 0i32;
-        for (unit_id, _, is_heli) in movers {
+        for &(unit_id, _, is_heli) in &movers {
             let dest = if is_heli {
                 let slot = Self::helicopter_offset(destination, heli_idx);
                 heli_idx += 1;
@@ -917,6 +913,11 @@ impl<'a> CommandExecutor<'a> {
             {
                 any = true;
             }
+        }
+        // AIGroup::groupTightenToPosition updates each member's position
+        // after all commands have been issued, in the same visitation order.
+        for &(unit_id, _, _) in &movers {
+            self.game_logic.update_owned_pathfinder_position(unit_id);
         }
         if any {
             self.apply_player_stealth_mood_delay(units);

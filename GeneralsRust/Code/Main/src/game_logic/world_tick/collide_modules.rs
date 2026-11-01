@@ -229,6 +229,7 @@ impl super::super::GameLogic {
                     &mut self.objects,
                     &mut self.partition_manager,
                     &mut self.ai_groups,
+                    &mut self.pathfinding_system,
                     self_id,
                     Some(other_id),
                     enclosing,

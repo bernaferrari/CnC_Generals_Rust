@@ -1235,6 +1235,11 @@ impl PathfindingGrid {
     /// Refresh derived obstacles without disturbing event-owned goals.
     pub(super) fn clear_dynamic_observations(&mut self) {
         self.explicit_dynamic_bits.fill(0);
+        self.clear_position_cells();
+    }
+
+    /// Clear transient position owners when a receiving map is rebuilt.
+    pub(super) fn clear_position_cells(&mut self) {
         self.occ_pos_unit.fill(0);
         self.occ_pos_player.fill(0);
         self.occ_pos_flags.fill(0);

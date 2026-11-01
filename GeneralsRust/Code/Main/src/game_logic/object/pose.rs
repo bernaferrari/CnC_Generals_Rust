@@ -1731,6 +1731,16 @@ impl crate::game_logic::GameLogic {
                 );
             }
         }
+        // C++ updates pathfinder occupancy after terrain notification and
+        // before trigger exit/entry, while the actor is still registered.
+        if reaction.trigger
+            && self
+                .objects
+                .get(&id)
+                .is_some_and(|object| reaction.still_applies(object))
+        {
+            self.update_owned_pathfinder_position(id);
+        }
         let team_id = {
             let Some(object) = self.objects.get_mut(&id) else {
                 return false;
@@ -1747,6 +1757,64 @@ impl crate::game_logic::GameLogic {
             self.team_factory.mark_team_entered_exited(team_id);
         }
         true
+    }
+}
+
+impl crate::game_logic::GameLogic {
+    /// C++ Pathfinder::updatePos, operating on the driving session's actor and grid.
+    pub(crate) fn update_owned_pathfinder_position(&mut self, id: ObjectId) {
+        if !self.pathfinding_system.map_ready {
+            return;
+        }
+        let Some(object) = self.objects.get_mut(&id) else {
+            return;
+        };
+        if object.is_kind_of(KindOf::Immobile) || !object.has_ai_update_interface() {
+            return;
+        }
+        let radius = object.geometry_info().bounding_circle_radius();
+        let layer = object.pathfind_layer;
+        if !crate::game_logic::pathfinding::PathfindingGrid::is_doing_ground_movement(object) {
+            let old = object.pathfind_cur_cell;
+            if old.0 >= 0 && old.1 >= 0 {
+                self.pathfinding_system
+                    .grid
+                    .clear_path_position_square(id.0, radius, old, layer);
+                object.pathfind_cur_cell = (-1, -1);
+            }
+            return;
+        }
+        let position = object.get_position();
+        let footprint = self.pathfinding_system.grid.path_position_footprint(object);
+        object.pathfind_cur_cell = self.pathfinding_system.grid.update_path_position_cell(
+            &footprint,
+            object.pathfind_cur_cell,
+            position,
+        );
+    }
+
+    /// C++ Object::setLayer removes the old position before publishing the new layer.
+    pub(in crate::game_logic) fn set_owned_pathfinder_layer(&mut self, id: ObjectId, layer: u8) {
+        let Some(object) = self.objects.get_mut(&id) else {
+            return;
+        };
+        if object.pathfind_layer == layer {
+            return;
+        }
+        if self.pathfinding_system.map_ready
+            && !object.is_kind_of(KindOf::Immobile)
+            && object.has_ai_update_interface()
+        {
+            self.pathfinding_system.grid.clear_path_position_square(
+                id.0,
+                object.geometry_info().bounding_circle_radius(),
+                object.pathfind_cur_cell,
+                object.pathfind_layer,
+            );
+            object.pathfind_cur_cell = (-1, -1);
+        }
+        object.pathfind_layer = layer;
+        self.update_owned_pathfinder_position(id);
     }
 }
 

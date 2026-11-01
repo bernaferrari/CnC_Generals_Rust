@@ -583,16 +583,12 @@ impl GameLogic {
                 None
             };
             let mut snapped = None;
-            if let Some(obj) = self.objects.get_mut(&unit_id) {
-                if let Some(goal) = goal {
-                    obj.set_position_with_effects_and_pose_owners(
-                        goal,
-                        self.frame,
-                        &mut effects.reborrow_for_object(&mut self.partition_manager),
-                        &self.host_trigger_world,
-                        &self.team_factory,
-                    );
-                    snapped = Some((obj.get_position(), obj.pathfind_layer));
+            if let Some(goal) = goal {
+                if self.set_owned_object_position_with_effects(unit_id, goal, self.frame, effects) {
+                    snapped = self
+                        .objects
+                        .get(&unit_id)
+                        .map(|obj| (obj.get_position(), obj.pathfind_layer));
                 }
             }
             if let Some((pos2, layer)) = snapped {

@@ -2,7 +2,8 @@
 //! A parking link is not a Contain module and is handled at its own boundary.
 use super::PartitionManager;
 use crate::game_logic::game_logic::ai_group_owner::AiGroupOwner;
-use crate::game_logic::{GameLogic, HostObjectStore, ObjectId};
+use crate::game_logic::pathfinding::PathfindingSystem;
+use crate::game_logic::{GameLogic, HostObjectStore, KindOf, ObjectId};
 use std::sync::Arc;
 impl GameLogic {
     /// Explicit split fields permit audio/movement loans to remain independent.
@@ -12,6 +13,7 @@ impl GameLogic {
         objects: &mut HostObjectStore,
         partition: &mut PartitionManager,
         ai_groups: &mut AiGroupOwner,
+        pathfinding: &mut PathfindingSystem,
         id: ObjectId,
         container: Option<ObjectId>,
         enclosing: bool,
@@ -25,9 +27,25 @@ impl GameLogic {
         // replaying the world-removal and leaveGroup phase for the same link.
         let is_new_container = actor.contained_by != container;
         if container.is_some() && enclosing && is_new_container {
-            change_world_membership(objects, partition, ai_groups, id, false, &mut Vec::new());
+            change_world_membership(
+                objects,
+                partition,
+                ai_groups,
+                pathfinding,
+                id,
+                false,
+                &mut Vec::new(),
+            );
         } else if container.is_none() && was_enclosed {
-            change_world_membership(objects, partition, ai_groups, id, true, &mut Vec::new());
+            change_world_membership(
+                objects,
+                partition,
+                ai_groups,
+                pathfinding,
+                id,
+                true,
+                &mut Vec::new(),
+            );
         }
         objects
             .get_mut(&id)
@@ -39,6 +57,7 @@ fn change_world_membership(
     objects: &mut HostObjectStore,
     partition: &mut PartitionManager,
     ai_groups: &mut AiGroupOwner,
+    pathfinding: &mut PathfindingSystem,
     id: ObjectId,
     add: bool,
     path: &mut Vec<ObjectId>,
@@ -62,6 +81,35 @@ fn change_world_membership(
             partition.unregister_object(id.0);
         }
         actor.set_drawable_hidden(!add);
+        // OpenContain removes the rider from the pathfinder after hiding it.
+        // Mobile position and goal cells remain owned by the receiving grid.
+        if !add
+            && !actor.is_kind_of(KindOf::Mine)
+            && !actor.is_kind_of(KindOf::Projectile)
+            && !actor.is_kind_of(KindOf::BridgeTower)
+            && !actor.is_kind_of(KindOf::BlastCrater)
+            && !(actor.get_template().fence_width > 0.0 && !actor.is_kind_of(KindOf::DefensiveWall))
+            && !actor.is_kind_of(KindOf::Immobile)
+            && actor.has_ai_update_interface()
+        {
+            let radius = actor.geometry_info().bounding_circle_radius();
+            if pathfinding.map_ready {
+                pathfinding.grid.clear_path_position_square(
+                    id.0,
+                    radius,
+                    actor.pathfind_cur_cell,
+                    actor.pathfind_layer,
+                );
+                actor.pathfind_cur_cell = (-1, -1);
+            }
+            pathfinding.grid.clear_path_goal_square(
+                id.0,
+                radius,
+                actor.pathfind_goal_cell,
+                actor.pathfind_goal_layer,
+            );
+            actor.pathfind_goal_cell = (-1, -1);
+        }
     }
     let children = objects
         .get(&id)
@@ -76,7 +124,15 @@ fn change_world_membership(
             .get(&child_id)
             .expect("contained item remains installed until physical retirement");
         if !actor.is_enclosing_container_for(child) {
-            change_world_membership(objects, partition, ai_groups, child_id, add, path);
+            change_world_membership(
+                objects,
+                partition,
+                ai_groups,
+                pathfinding,
+                child_id,
+                add,
+                path,
+            );
         }
     }
     assert_eq!(path.pop(), Some(id));

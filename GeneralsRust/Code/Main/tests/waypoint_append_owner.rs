@@ -1,6 +1,15 @@
 use generals_main::game_logic::{GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate};
 use glam::Vec3;
 
+fn saved_position_cells_len(world: &GameLogic) -> usize {
+    8 + 12
+        * world
+            .host_objects()
+            .registered_values()
+            .filter(|object| object.pathfind_cur_cell != (-1, -1))
+            .count()
+}
+
 fn world() -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
     world.add_player(Player::new(0, Team::USA, "Owner", true));
@@ -146,11 +155,15 @@ fn append_while_waiting_survives_the_pending_path_result() {
     let length = tag + 8;
     assert_eq!(
         u32::from_le_bytes(v12.lifecycle_tail[version..version + 4].try_into().unwrap()),
-        18
+        19
     );
     let size =
         u32::from_le_bytes(v12.lifecycle_tail[length..length + 4].try_into().unwrap()) as usize;
     let end = tag + 12 + size;
+    let position_len = saved_position_cells_len(&world);
+    v12.lifecycle_tail.drain(end - position_len..end);
+    let size = size - position_len;
+    let end = end - position_len;
     // This fixture has no layer records, registered cells, or pending quick paths.
     assert_eq!(&v12.lifecycle_tail[end - 24..end], &[0; 24]);
     v12.lifecycle_tail.drain(end - 24..end);
@@ -327,6 +340,22 @@ fn append_while_waiting_survives_the_pending_path_result() {
         vec![b, a]
     );
     let mut saved = builder.create_world_snapshot(&source).unwrap();
+    let position_len = saved_position_cells_len(&source);
+    let objects = source.host_objects();
+    let layer_count = objects
+        .registered_values()
+        .filter(|object| object.pathfind_goal_layer != 1)
+        .count();
+    let suffix_len = 32
+        + 4 * objects
+            .registered_values()
+            .filter(|object| object.is_final_goal)
+            .count()
+        + 12 * objects
+            .registered_values()
+            .filter(|object| object.pathfind_goal_cell != (-1, -1))
+            .count()
+        + 6 * layer_count;
     let peer_unit = untouched_peer
         .create_object_for_player("WaypointWalker", 1, Vec3::new(100.0, 0.0, 100.0))
         .unwrap();
@@ -356,9 +385,10 @@ fn append_while_waiting_survives_the_pending_path_result() {
         .unwrap();
     let length =
         u32::from_le_bytes(saved.lifecycle_tail[tag + 8..tag + 12].try_into().unwrap()) as usize;
-    let end = tag + 12 + length;
-    assert_eq!(&saved.lifecycle_tail[end - 32..end], &[0; 32]);
-    let last_id = end - 36;
+    let end = tag + 12 + length - position_len;
+    let quick_end = end - 8 - 6 * layer_count;
+    assert_eq!(&saved.lifecycle_tail[quick_end - 8..quick_end], &[0; 8]);
+    let last_id = end - suffix_len - 4;
     assert_eq!(
         &saved.lifecycle_tail[last_id..last_id + 4],
         &a.0.to_le_bytes()

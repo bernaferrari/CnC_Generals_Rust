@@ -926,6 +926,9 @@ pub struct Object {
     /// 10 cells so the locomotor does not brake before the hit.
     #[serde(default)]
     pub path_extra_distance: f32,
+    /// C++ `AIUpdateInterface::m_pathfindCurCell`, owned by this actor.
+    #[serde(default = "default_unset_pathfind_cell")]
+    pub pathfind_cur_cell: (i32, i32),
     /// C++ `AIUpdateInterface::m_pathfindGoalCell`. (-1, -1) means unset.
     #[serde(default = "default_unset_pathfind_cell")]
     pub pathfind_goal_cell: (i32, i32),

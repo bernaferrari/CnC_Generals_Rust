@@ -283,6 +283,7 @@ impl GameLogic {
                         &mut self.objects,
                         &mut self.partition_manager,
                         &mut self.ai_groups,
+                        &mut self.pathfinding_system,
                         containment_actor_id,
                         None,
                         true,
@@ -323,6 +324,7 @@ impl GameLogic {
                         &mut self.objects,
                         &mut self.partition_manager,
                         &mut self.ai_groups,
+                        &mut self.pathfinding_system,
                         containment_actor_id,
                         Some(valid),
                         true,
@@ -747,14 +749,25 @@ impl GameLogic {
                 unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
-                unit.set_position_with_effects_and_pose_owners(
+                if !self.set_owned_object_position_with_effects(
+                    uid,
                     pos + offset,
                     tree_move_frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                    &self.host_trigger_world,
-                    &self.team_factory,
-                );
-                {}
+                    effects,
+                ) {
+                    if let Some(container) = self.objects.get_mut(&container_id) {
+                        let _ = container.remove_occupant_with_partition_owner(
+                            uid,
+                            &mut self.ownership_events,
+                            &mut self.partition_manager,
+                        );
+                    }
+                    continue;
+                }
+                let unit = self
+                    .objects
+                    .get_mut(&uid)
+                    .expect("position callback preserves this birth");
                 unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
@@ -764,6 +777,7 @@ impl GameLogic {
                     &mut self.objects,
                     &mut self.partition_manager,
                     &mut self.ai_groups,
+                    &mut self.pathfinding_system,
                     containment_actor_id,
                     None,
                     true,
@@ -837,14 +851,26 @@ impl GameLogic {
                 unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
-                unit.set_position_with_effects_and_pose_owners(
+                if !self.set_owned_object_position_with_effects(
+                    uid,
                     pos + offset,
                     tree_move_frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                    &self.host_trigger_world,
-                    &self.team_factory,
-                );
-                {}
+                    effects,
+                ) {
+                    if let Some(structure) = self.objects.get_mut(&structure_id) {
+                        let _ = structure.remove_occupant_with_partition_owner(
+                            uid,
+                            &mut self.ownership_events,
+                            &mut self.partition_manager,
+                        );
+                    }
+                    self.sell_passengers_ejected = self.sell_passengers_ejected.saturating_add(1);
+                    continue;
+                }
+                let unit = self
+                    .objects
+                    .get_mut(&uid)
+                    .expect("position callback preserves this birth");
                 unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
@@ -853,6 +879,7 @@ impl GameLogic {
                     &mut self.objects,
                     &mut self.partition_manager,
                     &mut self.ai_groups,
+                    &mut self.pathfinding_system,
                     containment_actor_id,
                     None,
                     true,
@@ -941,6 +968,7 @@ impl GameLogic {
                                 &mut self.objects,
                                 &mut self.partition_manager,
                                 &mut self.ai_groups,
+                                &mut self.pathfinding_system,
                                 containment_actor_id,
                                 None,
                                 true,

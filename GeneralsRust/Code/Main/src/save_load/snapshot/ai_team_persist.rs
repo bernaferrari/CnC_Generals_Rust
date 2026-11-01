@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 const TMAI_MAGIC: &[u8; 4] = b"TMAI";
 // V15 stores the actor's absolute C++ retry frame in queue_for_path_frames;
 // older versions stored a remaining countdown in the same encoded slot.
-const TMAI_VERSION: u32 = 18;
+const TMAI_VERSION: u32 = 19;
 
 fn default_fast_as_possible_order() -> f32 {
     999_999.0
@@ -240,6 +240,12 @@ struct PathGoalLayerPersist {
 struct AiTeamPersistPayloadV18 {
     previous: AiTeamPersistPayloadV17,
     goal_layers: Vec<PathGoalLayerPersist>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct AiTeamPersistPayloadV19 {
+    previous: AiTeamPersistPayloadV18,
+    position_cells: Vec<PathGoalCellPersist>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1022,6 +1028,21 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
         previous: payload,
         goal_layers,
     };
+    let mut position_cells: Vec<_> = game_logic
+        .host_objects()
+        .registered()
+        .filter_map(|(id, object)| {
+            (object.pathfind_cur_cell != (-1, -1)).then_some(PathGoalCellPersist {
+                receiver: id.0,
+                cell: object.pathfind_cur_cell,
+            })
+        })
+        .collect();
+    position_cells.sort_unstable_by_key(|row| row.receiver);
+    let payload = AiTeamPersistPayloadV19 {
+        previous: payload,
+        position_cells,
+    };
     let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
@@ -1067,6 +1088,7 @@ pub(super) struct PreparedAiTeam {
     goal_cells: Option<Vec<PathGoalCellPersist>>,
     pending_quick_goals: Option<Vec<u32>>,
     goal_layers: Option<Vec<PathGoalLayerPersist>>,
+    position_cells: Option<Vec<PathGoalCellPersist>>,
     absolute_retry_frames: bool,
 }
 pub(super) fn prepare_from_lifecycle_tail(
@@ -1096,6 +1118,7 @@ pub(super) fn prepare_from_lifecycle_tail(
         && version != 15
         && version != 16
         && version != 17
+        && version != 18
         && version != TMAI_VERSION
     {
         return Err(SaveLoadError::Corrupted(format!(
@@ -1117,6 +1140,7 @@ pub(super) fn prepare_from_lifecycle_tail(
     let mut goal_cells = None;
     let mut pending_quick_goals = None;
     let mut goal_layers = None;
+    let mut position_cells = None;
     let payload = if version >= 11 {
         let envelope: AiTeamPersistPayloadV11 = if version >= 12 {
             let current: AiTeamPersistPayloadV12 = if version >= 13 {
@@ -1124,10 +1148,20 @@ pub(super) fn prepare_from_lifecycle_tail(
                     let v14: AiTeamPersistPayloadV14 = if version >= 16 {
                         let v16: AiTeamPersistPayloadV16 = if version >= 17 {
                             let v17: AiTeamPersistPayloadV17 = if version >= 18 {
-                                let v18: AiTeamPersistPayloadV18 =
+                                let v18: AiTeamPersistPayloadV18 = if version >= 19 {
+                                    let v19: AiTeamPersistPayloadV19 =
+                                        bincode_legacy::deserialize(encoded).map_err(|err| {
+                                            SaveLoadError::Corrupted(format!(
+                                                "TMAI v19 decode: {err}"
+                                            ))
+                                        })?;
+                                    position_cells = Some(v19.position_cells);
+                                    v19.previous
+                                } else {
                                     bincode_legacy::deserialize(encoded).map_err(|err| {
                                         SaveLoadError::Corrupted(format!("TMAI v18 decode: {err}"))
-                                    })?;
+                                    })?
+                                };
                                 goal_layers = Some(v18.goal_layers);
                                 v18.previous
                             } else {
@@ -1443,6 +1477,19 @@ pub(super) fn prepare_from_lifecycle_tail(
             ));
         }
     }
+    if let Some(rows) = &position_cells {
+        let mut seen = std::collections::HashSet::new();
+        if rows.iter().any(|row| {
+            row.receiver == 0
+                || !receivers.contains(&ObjectId(row.receiver))
+                || !seen.insert(row.receiver)
+                || row.cell == (-1, -1)
+        }) {
+            return Err(SaveLoadError::Corrupted(
+                "invalid TMAI path-position receivers".into(),
+            ));
+        }
+    }
     Ok(Some(PreparedAiTeam {
         payload,
         movement_runtime,
@@ -1453,6 +1500,7 @@ pub(super) fn prepare_from_lifecycle_tail(
         goal_cells,
         pending_quick_goals,
         goal_layers,
+        position_cells,
         absolute_retry_frames: version >= 15,
     }))
 }
@@ -1471,11 +1519,24 @@ pub(super) fn apply_prepared(
         goal_cells,
         pending_quick_goals,
         goal_layers,
+        position_cells,
         absolute_retry_frames,
     }) = prepared
     else {
         return;
     };
+    if let Some(rows) = position_cells {
+        for object in game_logic.objects.registered_values_mut() {
+            object.pathfind_cur_cell = (-1, -1);
+        }
+        for row in rows {
+            game_logic
+                .objects
+                .get_mut(&ObjectId(row.receiver))
+                .expect("validated position receiver")
+                .pathfind_cur_cell = row.cell;
+        }
+    }
     // Historical labels-only capsules retain their known label observations;
     // they cannot recover an ID or an empty completion that old producers lost.
     for object in game_logic.objects.registered_values_mut() {

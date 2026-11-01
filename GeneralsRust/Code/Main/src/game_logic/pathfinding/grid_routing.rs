@@ -292,7 +292,30 @@ impl PathfindingGrid {
         }
     }
 
-    /// Update dynamic obstacles based on unit positions
+    /// Read the current actor geometry and bridge intersection for a position event.
+    pub fn path_position_footprint(&self, object: &Object) -> PathPositionFootprint {
+        let layer = PathfindLayerEnum::from_u32(object.pathfind_layer as u32);
+        PathPositionFootprint {
+            unit_id: object.id.0,
+            player: object.owner_player_id.unwrap_or(object.team as u32),
+            radius: object.geometry_info().bounding_circle_radius(),
+            layer: object.pathfind_layer,
+            on_ground: layer == PathfindLayerEnum::Ground
+                || self.object_interacts_with_bridge_end(
+                    object.get_position(),
+                    object.geometry_info().minor_radius,
+                    layer,
+                ),
+            infantry: object.is_kind_of(KindOf::Infantry),
+            crushable_level: if object.has_squish_collide {
+                0
+            } else {
+                object.crushable_level
+            },
+        }
+    }
+
+    /// Refresh the derived facts used by an occupancy query.
     pub fn update_dynamic_obstacles(
         &mut self,
         objects: HostObjectRead<'_>,
@@ -301,82 +324,55 @@ impl PathfindingGrid {
         self.update_dynamic_obstacles_ignoring(objects, None, ground_source);
     }
 
-    /// Rebuild occupancy and select the unit ignored by this query. The
-    /// ignored unit remains in its cell; only query observations filter it.
+    /// Select the ignored unit for this query. Position owners are updated by
+    /// their session's movement and lifecycle events, never by a roster scan.
     pub fn update_dynamic_obstacles_ignoring(
         &mut self,
         objects: HostObjectRead<'_>,
         ignore: Option<ObjectId>,
-        ground_source: &PathfindingGround<'_>,
+        _ground_source: &PathfindingGround<'_>,
     ) {
-        self.clear_dynamic_observations();
         self.query_ignore_unit_id = ignore.map_or(0, |id| id.0);
         self.refresh_goal_owner_masks(objects);
+        self.refresh_position_owner_facts(objects);
+    }
 
-        // C++ iterates TheGameLogic's insertion-ordered object list
-        // (getFirstObject/getNextObject); HashMap order would randomize which
-        // unit owns a contested cell's single m_posUnitID. Sort by ObjectID.
-        let mut stamp_order: Vec<&Object> = objects.registered_values().collect();
-        stamp_order.sort_by_key(|o| o.id);
-        for obj in stamp_order {
-            let is_aircraft = obj.is_kind_of(KindOf::Aircraft)
-                || obj.object_type == crate::game_logic::ObjectType::Aircraft
-                || obj.chinook_ai.is_some();
-            // Aircraft goals belong to these host objects, even when another
-            // match's presentation shadow happens to reuse their numeric IDs.
-            let alive = if is_aircraft {
-                obj.is_alive()
-            } else {
-                obj.is_alive()
-            };
-            if !alive {
-                continue;
+    // C++ resolves each position owner when evaluating a path. These are
+    // derived query facts, not a second authority for the occupied cell.
+    pub(super) fn refresh_position_owner_facts(&mut self, objects: HostObjectRead<'_>) {
+        let facts = |id: u32| {
+            objects
+                .lookup(&ObjectId(id))
+                .map(|object| {
+                    let player = object.owner_player_id.unwrap_or(object.team as u32);
+                    (
+                        1u16 << player.min(15),
+                        (object.is_kind_of(KindOf::Infantry) as u8) << 1,
+                        if object.has_squish_collide {
+                            0
+                        } else {
+                            object.crushable_level
+                        },
+                    )
+                })
+                .unwrap_or_default()
+        };
+        for (((&id, player), flags), crushable) in self
+            .occ_pos_unit
+            .iter()
+            .zip(&mut self.occ_pos_player)
+            .zip(&mut self.occ_pos_flags)
+            .zip(&mut self.occ_pos_crushable)
+        {
+            (*player, *flags, *crushable) = facts(id);
+        }
+        for occupancy in self.layer_occ.values_mut() {
+            for (&cell, &id) in &occupancy.occ_pos_unit {
+                let (player, flags, crushable) = facts(id);
+                occupancy.occ_pos_player.insert(cell, player);
+                occupancy.occ_pos_flags.insert(cell, flags);
+                occupancy.occ_pos_crushable.insert(cell, crushable);
             }
-            if is_aircraft {
-                // C++ updatePos: !isDoingGroundMovement → removePos and return.
-                // JetAIUpdate never grounds; parked/taxiing jets do not stamp UNIT_PRESENT.
-                if !Self::is_doing_ground_movement(obj) {
-                    continue;
-                }
-            }
-            // C++ examineNeighboringCells occupancy: infantry + vehicles + structures.
-            if !(obj.is_kind_of(KindOf::Vehicle)
-                || obj.is_kind_of(KindOf::Structure)
-                || obj.is_kind_of(KindOf::Infantry))
-            {
-                continue;
-            }
-
-            let player = obj.owner_player_id.unwrap_or(obj.team as u32);
-            let infantry = obj.is_kind_of(KindOf::Infantry);
-            let pos = obj.get_position();
-            let pos_layer = self.layer_for_destination(pos, ground_source);
-            let pos_at_end = self.object_interacts_with_bridge_end(
-                pos,
-                obj.geometry_info().minor_radius,
-                pos_layer,
-            );
-            let pos_do_layer = pos_layer != PathfindLayerEnum::Ground;
-            let pos_do_ground = !pos_do_layer || pos_at_end;
-            // This roster reconstruction remains transitional. Once pose
-            // callbacks own position changes, they pass the actor's real old
-            // cell and current geometry instead of rebuilding with this cache.
-            let footprint = PathPositionFootprint {
-                unit_id: obj.id.0,
-                player,
-                radius: obj.selection_radius,
-                layer: pos_layer as u8,
-                on_ground: pos_do_ground,
-                infantry,
-                crushable_level: if obj.has_squish_collide {
-                    0
-                } else {
-                    obj.crushable_level
-                },
-            };
-            let (_, center) = Self::radius_and_center(footprint.radius, self.grid_size);
-            let cell = self.cell_for_unit_position(pos, center);
-            self.stamp_path_position_cell(&footprint, cell);
         }
     }
 
@@ -817,8 +813,10 @@ impl PathfindingGrid {
     pub(crate) fn restore_path_goals(
         &mut self,
         objects: HostObjectRead<'_>,
+        map_ready: bool,
     ) -> Vec<RestoredPathGoal> {
         self.occ_goal_aircraft.fill(0);
+        self.clear_position_cells();
         let mut actor_cells = Vec::new();
         // GameLogic::xfer reads the saved object list in order; XferLoad queues
         // each AI module's post-process as it is read. Object admission prepends
@@ -828,7 +826,8 @@ impl PathfindingGrid {
                 continue;
             }
             let radius = object.geometry_info().bounding_circle_radius();
-            let position = if object.host_ai_is_moving() {
+            let moving = object.host_ai_is_moving();
+            let position = if moving {
                 let (x, y) = object.pathfind_goal_cell;
                 if x < 0 || y < 0 {
                     continue;
@@ -880,10 +879,42 @@ impl PathfindingGrid {
                 );
                 (cell, None)
             };
+            let position_cell = if moving {
+                None
+            } else if map_ready
+                && !object.is_kind_of(KindOf::Immobile)
+                && Self::is_doing_ground_movement_full(object)
+            {
+                let layer = object.pathfind_layer;
+                let layer_enum = PathfindLayerEnum::from_u32(layer as u32);
+                let on_ground = layer_enum == PathfindLayerEnum::Ground
+                    || self.object_interacts_with_bridge_end(
+                        object.get_position(),
+                        object.geometry_info().minor_radius,
+                        layer_enum,
+                    );
+                let footprint = PathPositionFootprint {
+                    unit_id: object.id.0,
+                    player: object.owner_player_id.unwrap_or(object.team as u32),
+                    radius,
+                    layer,
+                    on_ground,
+                    infantry: object.is_kind_of(KindOf::Infantry),
+                    crushable_level: if object.has_squish_collide {
+                        0
+                    } else {
+                        object.crushable_level
+                    },
+                };
+                Some(self.update_path_position_cell(&footprint, (-1, -1), object.get_position()))
+            } else {
+                Some((-1, -1))
+            };
             actor_cells.push(RestoredPathGoal {
                 object_id: object.id,
                 cell,
                 ground_layer,
+                position_cell,
             });
         }
         actor_cells

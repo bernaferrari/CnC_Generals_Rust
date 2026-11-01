@@ -1,9 +1,59 @@
 //! C++ PathfindCell::setGoalUnit retains a position occupant after goal removal.
 use generals_main::game_logic::pathfinding::{
-    GridPos, PathfindingGrid, PathfindingGround, PathfindingSystem,
+    GridPos, PathPositionFootprint, PathfindingGrid, PathfindingGround, PathfindingSystem,
 };
-use generals_main::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+use generals_main::game_logic::{GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate};
 use glam::Vec3;
+
+fn register_position(grid: &mut PathfindingGrid, world: &GameLogic, id: ObjectId, layer: u8) {
+    let object = world.host_object(id).unwrap();
+    grid.update_path_position_cell(
+        &PathPositionFootprint {
+            unit_id: id.0,
+            player: object.owner_player_id.unwrap_or(object.team as u32),
+            radius: object.selection_radius,
+            layer,
+            on_ground: layer == 0,
+            infantry: object.is_kind_of(KindOf::Infantry),
+            crushable_level: object.crushable_level,
+        },
+        (-1, -1),
+        object.get_position(),
+    );
+}
+
+#[test]
+fn query_reads_current_position_owners_player_without_rebuilding_the_cell() {
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
+    world.add_player(Player::new(1, Team::GLA, "Enemy", false));
+    let mut template = ThingTemplate::new("TransferableOccupant");
+    template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+    world
+        .templates
+        .insert("TransferableOccupant".into(), template);
+    let id = world
+        .create_object_for_player("TransferableOccupant", 0, Vec3::new(50.0, 0.0, 50.0))
+        .unwrap();
+    let actor = world.host_object_mut(id).unwrap();
+    actor.selection_radius = 1.0;
+    actor.crushable_level = 255;
+    let mut grid = PathfindingGrid::new(100.0, 100.0, 10.0);
+    register_position(&mut grid, &world, id, 0);
+    let cell = GridPos::new(5, 5);
+    grid.update_dynamic_obstacles(world.host_objects(), &PathfindingGround::Flat(0.0));
+    assert_ne!(
+        grid.occupancy_extra_cost(cell, Some(0), false, 0),
+        u32::MAX / 8
+    );
+    world.host_object_mut(id).unwrap().owner_player_id = Some(1);
+    grid.update_dynamic_obstacles(world.host_objects(), &PathfindingGround::Flat(0.0));
+    assert_eq!(grid.ground_position_unit(cell), id.0);
+    assert_eq!(
+        grid.occupancy_extra_cost(cell, Some(0), false, 0),
+        u32::MAX / 8
+    );
+}
 
 #[test]
 fn ignored_query_does_not_replace_the_receiving_worlds_fixed_occupant() {
@@ -37,10 +87,11 @@ fn ignored_query_does_not_replace_the_receiving_worlds_fixed_occupant() {
         PathfindingSystem::new(100.0, 100.0),
         PathfindingSystem::new(100.0, 100.0),
     ];
-    for (system, id) in systems.iter_mut().zip(&ids) {
+    for ((system, id), world) in systems.iter_mut().zip(&ids).zip(&worlds) {
         system
             .grid
             .update_ground_goal_cell(id.0, 0, 1.0, false, (-1, -1), position);
+        register_position(&mut system.grid, world, *id, 0);
     }
     systems[0].grid.update_dynamic_obstacles_ignoring(
         worlds[0].host_objects(),
@@ -106,6 +157,7 @@ fn pathfinder_obstacle_ignore_and_receiver_unit_ignore_are_independent() {
     ];
     systems[0].set_ignore_obstacle(Some(targets[0]));
     for index in 0..2 {
+        register_position(&mut systems[index].grid, &worlds[index], targets[index], 0);
         let _ = systems[index].find_path_ex(
             Vec3::new(20.0, 0.0, 20.0),
             Vec3::new(80.0, 0.0, 80.0),
@@ -150,7 +202,8 @@ fn goal_changes_immediately_update_position_flags_in_each_world() {
         PathfindingGrid::new(100.0, 100.0, 10.0),
         PathfindingGrid::new(100.0, 100.0, 10.0),
     ];
-    for (grid, world) in grids.iter_mut().zip(&worlds) {
+    for ((grid, world), id) in grids.iter_mut().zip(&worlds).zip(&ids) {
+        register_position(grid, world, *id, 0);
         grid.update_dynamic_obstacles(world.host_objects(), &ground);
     }
     let cell = GridPos::new(5, 5);
@@ -204,6 +257,8 @@ fn fixed_occupant_cannot_be_overwritten_by_a_later_position_stamp() {
     }
     let mut grid = PathfindingGrid::new(100.0, 100.0, 10.0);
     grid.update_ground_goal_cell(first.0, 0, 1.0, false, (-1, -1), position);
+    register_position(&mut grid, &world, first, 0);
+    register_position(&mut grid, &world, second, 0);
     grid.update_dynamic_obstacles(world.host_objects(), &PathfindingGround::Flat(0.0));
     assert_ne!(
         grid.occupancy_extra_cost(GridPos::new(5, 5), Some(0), false, 0),
@@ -243,6 +298,7 @@ fn bridge_goal_changes_the_layer_occupant_without_a_refresh() {
     actor.selection_radius = 1.0;
     actor.crushable_level = 255;
     actor.status.moving = true;
+    register_position(&mut grid, &world, id, layer as u8);
     grid.update_dynamic_obstacles(world.host_objects(), &ground);
     grid.set_query_seeker_id(id.0);
     let cell = GridPos::new(8, 5);
@@ -829,8 +885,10 @@ fn explicit_unblock_and_goal_removal_do_not_erase_a_live_position() {
     assert_eq!(id, peer_id);
     peer.host_object_mut(peer_id).unwrap().selection_radius = 2.0;
     let mut grid = PathfindingGrid::new(100.0, 100.0, 10.0);
+    register_position(&mut grid, &world, id, 0);
     grid.update_dynamic_obstacles(world.host_objects(), &PathfindingGround::Flat(0.0));
     let mut peer_grid = PathfindingGrid::new(100.0, 100.0, 10.0);
+    register_position(&mut peer_grid, &peer, peer_id, 0);
     peer_grid.update_dynamic_obstacles(peer.host_objects(), &PathfindingGround::Flat(0.0));
     let cell = GridPos::new(5, 5);
     assert!(grid.is_blocked(cell));
@@ -846,9 +904,9 @@ fn explicit_unblock_and_goal_removal_do_not_erase_a_live_position() {
     assert!(peer_grid.is_blocked(GridPos::new(7, 7)));
     grid.clear_dynamic_blocks();
     assert!(!grid.is_blocked(cell));
-    grid.update_dynamic_obstacles(world.host_objects(), &PathfindingGround::Flat(0.0));
+    register_position(&mut grid, &world, id, 0);
     assert!(
         grid.is_blocked(cell),
-        "rebuild lost the current position owner"
+        "a new position event must restore the owner after reset"
     );
 }

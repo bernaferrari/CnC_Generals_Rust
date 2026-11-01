@@ -11,6 +11,7 @@ impl PathfindingSystem {
         Self {
             ai_definitions: std::sync::Arc::new(game_engine::common::ini::AIData::default()),
             grid: PathfindingGrid::new_with_origin(origin, world_width, world_height, GRID_SIZE),
+            map_ready: false,
             flow_fields: HashMap::new(),
             logic_frame: 0,
             dynamic_obstacle_frame: u64::MAX,
@@ -271,6 +272,7 @@ impl PathfindingSystem {
         } else {
             // Object ownership can change between searches in one logic frame.
             self.grid.refresh_goal_owner_masks(objects);
+            self.grid.refresh_position_owner_facts(objects);
         }
     }
 
@@ -986,6 +988,7 @@ impl PathfindingSystem {
     }
 
     pub(crate) fn reset_for_new_timeline(&mut self) {
+        self.map_ready = false;
         self.pending_paths.clear();
         self.ignore_obstacle_id = None;
         self.dynamic_obstacle_frame = u64::MAX;

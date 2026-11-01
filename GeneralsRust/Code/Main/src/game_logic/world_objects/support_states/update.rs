@@ -1314,26 +1314,26 @@ impl GameLogic {
                             &mut self.objects,
                             &mut self.partition_manager,
                             &mut self.ai_groups,
+                            &mut self.pathfinding_system,
                             containment_actor_id,
                             Some(container_id),
                             enclosing_garrison,
                         );
-                        let obj = self
-                            .objects
-                            .get_mut(&containment_actor_id)
-                            .expect("containment operation preserves this birth");
                         // C++ onContaining snaps enclosing occupants to the building
                         // origin. Fire Base (IsEnclosingContainer=No) stays at stations.
                         if enclosing_garrison || !container_is_structure {
-                            obj.set_position_with_effects_and_pose_owners(
+                            if !self.set_owned_object_position_with_effects(
+                                containment_actor_id,
                                 container_pos,
                                 tree_move_frame,
-                                &mut effects.reborrow_for_object(&mut self.partition_manager),
-                                &self.host_trigger_world,
-                                &self.team_factory,
-                            );
-                            {}
+                                effects,
+                            ) {
+                                continue;
+                            }
                         }
+                        let Some(obj) = self.objects.get_mut(&containment_actor_id) else {
+                            continue;
+                        };
                         let __ai_st = if container_is_heal_contain || container_is_tunnel_network {
                             // C++ HealContain / TunnelContain::isGarrisonable is FALSE.
                             // Tunnel occupants are DISABLED_HELD and never shoot out
@@ -3312,17 +3312,18 @@ impl GameLogic {
                                             ),
                                             1,
                                         );
-                                    if let Some(obj) = self.objects.get_mut(&object_id) {
-                                        let mut pos = obj.get_position();
+                                    if let Some(mut pos) = self
+                                        .objects
+                                        .get(&object_id)
+                                        .map(|object| object.get_position())
+                                    {
                                         pos.x += dx;
                                         pos.z += dz;
-                                        obj.set_position_with_effects_and_pose_owners(
+                                        self.set_owned_object_position_with_effects(
+                                            object_id,
                                             pos,
                                             tree_move_frame,
-                                            &mut effects
-                                                .reborrow_for_object(&mut self.partition_manager),
-                                            &self.host_trigger_world,
-                                            &self.team_factory,
+                                            effects,
                                         );
                                     }
                                 }
@@ -3955,6 +3956,7 @@ impl GameLogic {
                                 &mut self.objects,
                                 &mut self.partition_manager,
                                 &mut self.ai_groups,
+                                &mut self.pathfinding_system,
                                 containment_actor_id,
                                 None,
                                 true,
@@ -4015,6 +4017,7 @@ impl GameLogic {
                                 &mut self.objects,
                                 &mut self.partition_manager,
                                 &mut self.ai_groups,
+                                &mut self.pathfinding_system,
                                 containment_actor_id,
                                 None,
                                 true,
@@ -4037,6 +4040,7 @@ impl GameLogic {
                                 &mut self.objects,
                                 &mut self.partition_manager,
                                 &mut self.ai_groups,
+                                &mut self.pathfinding_system,
                                 containment_actor_id,
                                 None,
                                 true,
@@ -4059,22 +4063,22 @@ impl GameLogic {
                             &mut self.objects,
                             &mut self.partition_manager,
                             &mut self.ai_groups,
+                            &mut self.pathfinding_system,
                             containment_actor_id,
                             Some(container_id),
                             enclosing,
                         );
-                        let obj = self
-                            .objects
-                            .get_mut(&containment_actor_id)
-                            .expect("containment operation preserves this birth");
-                        obj.set_position_with_effects_and_pose_owners(
+                        if !self.set_owned_object_position_with_effects(
+                            containment_actor_id,
                             pin_pos,
                             tree_move_frame,
-                            &mut effects.reborrow_for_object(&mut self.partition_manager),
-                            &self.host_trigger_world,
-                            &self.team_factory,
-                        );
-                        {}
+                            effects,
+                        ) {
+                            continue;
+                        }
+                        let Some(obj) = self.objects.get_mut(&containment_actor_id) else {
+                            continue;
+                        };
                         obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                             &mut self.queued_audio_events,
                         ));

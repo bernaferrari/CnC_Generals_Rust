@@ -614,6 +614,7 @@ impl GameLogic {
                         &mut self.objects,
                         &mut self.partition_manager,
                         &mut self.ai_groups,
+                        &mut self.pathfinding_system,
                         containment_actor_id,
                         None,
                         true,
@@ -690,6 +691,7 @@ impl GameLogic {
                                 &mut self.objects,
                                 &mut self.partition_manager,
                                 &mut self.ai_groups,
+                                &mut self.pathfinding_system,
                                 containment_actor_id,
                                 None,
                                 true,
@@ -1208,8 +1210,8 @@ impl GameLogic {
         source_id: Option<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (bool, bool) {
-        use crate::game_logic::host_base_defense::HostHiveDamageClass;
         use crate::game_logic::combat::DamageType;
+        use crate::game_logic::host_base_defense::HostHiveDamageClass;
 
         // This legacy helper accepts only the old damage class, so map it to a
         // representative native type and route through the same receiving

@@ -2706,6 +2706,7 @@ impl GameLogic {
                     &mut self.objects,
                     &mut self.partition_manager,
                     &mut self.ai_groups,
+                    &mut self.pathfinding_system,
                     containment_actor_id,
                     None,
                     true,
@@ -2902,18 +2903,15 @@ impl GameLogic {
         unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         ));
-        unit.set_position_with_effects_and_pose_owners(
-            drop_position,
-            self.frame,
-            &mut effects.reborrow_for_object(&mut self.partition_manager),
-            &self.host_trigger_world,
-            &self.team_factory,
-        );
-        let containment_actor_id = unit.id;
+        if !self.set_owned_object_position_with_effects(id, drop_position, self.frame, effects) {
+            return Ok(false);
+        }
+        let containment_actor_id = id;
         Self::set_owned_containment_in_parts(
             &mut self.objects,
             &mut self.partition_manager,
             &mut self.ai_groups,
+            &mut self.pathfinding_system,
             containment_actor_id,
             None,
             true,

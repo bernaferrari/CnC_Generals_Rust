@@ -1477,16 +1477,8 @@ impl GameLogic {
                         spawn_pos.y = h;
                     }
                 }
-                if let Some(unit) = self.objects.get_mut(&new_id) {
-                    {
-                        unit.set_position_with_effects_and_pose_owners(
-                            spawn_pos,
-                            pose_frame,
-                            &mut ui.reborrow_for_object(&mut self.partition_manager),
-                            &self.host_trigger_world,
-                            &self.team_factory,
-                        );
-                    }
+                if !self.set_owned_object_position_with_effects(new_id, spawn_pos, pose_frame, ui) {
+                    continue;
                 }
                 // C++ QueueProductionExitUpdate.cpp:91-105: kick after snap when
                 // creationInAir (not AllowAirborneCreation). startingForce =

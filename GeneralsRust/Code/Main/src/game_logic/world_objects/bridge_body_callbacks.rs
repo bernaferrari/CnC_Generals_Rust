@@ -386,8 +386,8 @@ impl GameLogic {
     ) {
         self.visit_owned_bridge_on_die_recipients(bridge_id, |owner, id, physics| {
             // setLayer precedes getPhysics/kill in the original callback.
+            owner.set_owned_pathfinder_layer(id, gamelogic::path::PathfindLayerEnum::Ground as u8);
             if let Some(object) = owner.objects.get_mut(&id) {
-                object.pathfind_layer = gamelogic::path::PathfindLayerEnum::Ground as u8;
                 if physics {
                     object.allow_to_fall = true;
                 }

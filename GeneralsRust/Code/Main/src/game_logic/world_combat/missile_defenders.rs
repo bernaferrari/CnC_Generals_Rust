@@ -1961,13 +1961,13 @@ impl GameLogic {
         let (ox, oz) = drone_spawn_offset_from_master(kind);
         let spawn_pos = Vec3::new(master_pos.x + ox, master_pos.y, master_pos.z + oz);
         let creation = self.create_object_for_owner_or_team_with_birth_checked(
-                drone_tpl_name,
-                team,
-                owner_player_id,
-                spawn_pos,
-                interpreter,
-                presentation_effects,
-            );
+            drone_tpl_name,
+            team,
+            owner_player_id,
+            spawn_pos,
+            interpreter,
+            presentation_effects,
+        );
         let (drone_id, drone_birth) = match creation {
             Ok(Some(created)) => created,
             Ok(None) => return Ok(None),
@@ -2242,6 +2242,7 @@ impl GameLogic {
                 &mut self.objects,
                 &mut self.partition_manager,
                 &mut self.ai_groups,
+                &mut self.pathfinding_system,
                 containment_actor_id,
                 None,
                 true,
@@ -2571,6 +2572,7 @@ impl GameLogic {
                 &mut self.objects,
                 &mut self.partition_manager,
                 &mut self.ai_groups,
+                &mut self.pathfinding_system,
                 containment_actor_id,
                 None,
                 true,

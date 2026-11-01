@@ -801,6 +801,7 @@ impl SnapshotBuilder {
         // The outgoing timeline's path requests must not coexist with the
         // newly admitted objects and saved AI requests. C++ world reset calls
         // AI::reset -> Pathfinder::reset before loading the replacement.
+        let pathfinder_ready = game_logic.pathfinding_system.map_ready;
         game_logic.pathfinding_system.reset_for_new_timeline();
         // Restore before Objects are reconstructed and invoke creation callbacks.
         let debris_mask = game_logic.current_dynamic_debris_skip_mask();
@@ -1199,16 +1200,20 @@ impl SnapshotBuilder {
         }
         // C++ Pathfinder cells are transient; AI loadPostProcess registers
         // goals again after the receiving actors and their state exist.
+        game_logic.pathfinding_system.map_ready = pathfinder_ready;
         let restored_path_goals = game_logic
             .pathfinding_system
             .grid
-            .restore_path_goals(game_logic.objects.read());
+            .restore_path_goals(game_logic.objects.read(), pathfinder_ready);
         for goal in restored_path_goals {
             let object = game_logic
                 .objects
                 .get_mut(&goal.object_id)
                 .expect("restored AI remains registered");
             object.pathfind_goal_cell = goal.cell;
+            if let Some(position_cell) = goal.position_cell {
+                object.pathfind_cur_cell = position_cell;
+            }
             if let Some(ground) = goal.ground_layer {
                 object.pathfind_goal_layer = ground.layer;
                 object.pathfind_goal_on_ground = ground.on_ground;

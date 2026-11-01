@@ -303,6 +303,10 @@ fn bridge_end_ground_occupancy_uses_live_minor_radius() {
     let actor = world.host_object_mut(id).unwrap();
     actor.cur_locomotor_name = Some("GroundLocomotor".into());
     actor.locomotor_surfaces = generals_main::game_logic::object::LOCO_SURFACE_GROUND;
+    actor.pathfind_layer = grid.layer_for_destination(actor.get_position(), &ground) as u8;
+    let actor = world.host_object(id).unwrap();
+    let footprint = grid.path_position_footprint(actor);
+    grid.update_path_position_cell(&footprint, (-1, -1), actor.get_position());
     let cell = GridPos::new(4, 5);
     assert!(!grid.is_blocked(cell));
     grid.update_dynamic_obstacles(world.host_objects(), &ground);
@@ -317,6 +321,10 @@ fn bridge_end_ground_occupancy_uses_live_minor_radius() {
     let near = world.host_object_mut(near_id).unwrap();
     near.cur_locomotor_name = Some("GroundLocomotor".into());
     near.locomotor_surfaces = generals_main::game_logic::object::LOCO_SURFACE_GROUND;
+    near.pathfind_layer = grid.layer_for_destination(near.get_position(), &ground) as u8;
+    let near = world.host_object(near_id).unwrap();
+    let footprint = grid.path_position_footprint(near);
+    grid.update_path_position_cell(&footprint, (-1, -1), near.get_position());
     grid.update_dynamic_obstacles_ignoring(world.host_objects(), Some(id), &ground);
     assert!(
         grid.is_blocked(cell),

@@ -387,25 +387,27 @@ impl GameLogic {
                         &mut self.objects,
                         &mut self.partition_manager,
                         &mut self.ai_groups,
+                        &mut self.pathfinding_system,
                         containment_actor_id,
                         None,
                         true,
                     );
-                    let unit = self
-                        .objects
-                        .get_mut(&containment_actor_id)
-                        .expect("containment operation preserves this birth");
-                    unit.set_position_with_effects_and_pose_owners(
+                    if !self.set_owned_object_position_with_effects(
+                        containment_actor_id,
                         start,
                         tree_move_frame,
-                        &mut effects.reborrow_for_object(&mut self.partition_manager),
-                        &self.host_trigger_world,
-                        &self.team_factory,
-                    );
-                    unit.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
+                        effects,
+                    ) {
+                        continue;
+                    }
+                    if let Some(unit) = self.objects.get_mut(&containment_actor_id) {
+                        unit.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
+                    }
                     // OpenContain.cpp:1086 setLayer before adjustToPossibleDestination.
-                    unit.pathfind_layer = layer;
-                    unit.ignored_obstacle_id = None;
+                    self.set_owned_pathfinder_layer(containment_actor_id, layer);
+                    if let Some(unit) = self.objects.get_mut(&containment_actor_id) {
+                        unit.ignored_obstacle_id = None;
+                    }
                 }
                 let _ = self.adjust_to_possible_destination(uid, &mut door_end);
                 if let Some(unit) = self.objects.get_mut(&uid) {

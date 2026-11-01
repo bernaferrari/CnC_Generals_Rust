@@ -1499,9 +1499,11 @@ impl GameLogic {
             // unchanged for this and all other GameLogic owners.
             if let Some(object) = self.objects.get_mut(&id) {
                 object.producer_id = Some(source_id);
-                if generic.preserve_layer && source_layer != 1 {
-                    object.pathfind_layer = source_layer;
-                }
+            }
+            if generic.preserve_layer && source_layer != 1 {
+                self.set_owned_pathfinder_layer(id, source_layer);
+            }
+            if let Some(object) = self.objects.get_mut(&id) {
                 // C++ doStuffToObj: override the first existing LifetimeUpdate
                 // only when the nugget authored a positive maximum. The setter
                 // consumes this receiving world's RNG after factory creation.

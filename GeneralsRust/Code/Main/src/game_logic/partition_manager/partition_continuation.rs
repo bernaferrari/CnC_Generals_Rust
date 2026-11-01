@@ -339,8 +339,11 @@ mod tests {
                     .create_object(&template.name, Team::USA, glam::Vec3::ZERO)
                     .unwrap();
                 assert_eq!(id, other);
-                owner.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-                peer.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+                owner
+                    .update_owned_partition_with_effects(&mut Default::default())
+                    .unwrap();
+                peer.update_owned_partition_with_effects(&mut Default::default())
+                    .unwrap();
                 let peer_before =
                     bincode_legacy::serialize(&peer.capture_partition_continuation().unwrap())
                         .unwrap();
@@ -424,7 +427,9 @@ mod tests {
                         .collect::<Vec<_>>(),
                     vec![a.0, b.0]
                 );
-                owner.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+                owner
+                    .update_owned_partition_with_effects(&mut Default::default())
+                    .unwrap();
                 let old_cells = owner.partition_manager.cells.clone();
                 let old = owner.objects[&a].get_position();
                 owner
@@ -476,8 +481,12 @@ mod tests {
                         .unwrap(),
                     history
                 );
-                owner.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-                restored.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+                owner
+                    .update_owned_partition_with_effects(&mut Default::default())
+                    .unwrap();
+                restored
+                    .update_owned_partition_with_effects(&mut Default::default())
+                    .unwrap();
                 assert_eq!(
                     bincode_legacy::serialize(&owner.capture_partition_continuation().unwrap())
                         .unwrap(),
@@ -534,8 +543,11 @@ mod tests {
                         glam::Vec3::new(0., 0., 200.),
                     )
                     .unwrap();
-                owner.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-                peer.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+                owner
+                    .update_owned_partition_with_effects(&mut Default::default())
+                    .unwrap();
+                peer.update_owned_partition_with_effects(&mut Default::default())
+                    .unwrap();
                 let peer_before =
                     bincode_legacy::serialize(&peer.capture_partition_continuation().unwrap())
                         .unwrap();
@@ -568,7 +580,9 @@ mod tests {
                         .iter()
                         .any(|row| row.object_id == jet.0 && row.update_cells)
                 );
-                owner.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+                owner
+                    .update_owned_partition_with_effects(&mut Default::default())
+                    .unwrap();
                 let before = owner.objects[&jet].get_orientation();
                 let _ = owner.attack_aim_at_target_update(jet, victim, 0.25);
                 assert!((owner.objects[&jet].get_orientation() - before).abs() > 0.01);
@@ -621,7 +635,9 @@ mod tests {
                         glam::Vec3::new(500., 0., 500.),
                     )
                     .unwrap();
-                owner.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+                owner
+                    .update_owned_partition_with_effects(&mut Default::default())
+                    .unwrap();
                 for _ in 0..4 {
                     assert!(
                         owner.apply_shock_wave_at_impact(
@@ -692,7 +708,9 @@ mod tests {
                 let b = owner
                     .create_object("PartitionCallbackMine", Team::China, position)
                     .unwrap();
-                owner.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+                owner
+                    .update_owned_partition_with_effects(&mut Default::default())
+                    .unwrap();
                 let mut visits = Vec::new();
                 let mut born = None;
                 let mut queued = None;
@@ -848,6 +866,7 @@ mod tests {
                     &mut owner.objects,
                     &mut owner.partition_manager,
                     &mut owner.ai_groups,
+                    &mut owner.pathfinding_system,
                     rider,
                     Some(chute),
                     false,
@@ -855,7 +874,9 @@ mod tests {
                 // A direct non-enclosing entry leaves both actors in their groups.
                 assert_eq!(owner.ai_group_id_of(chute), Some(group));
                 assert_eq!(owner.ai_group_id_of(rider), Some(group));
-                owner.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+                owner
+                    .update_owned_partition_with_effects(&mut Default::default())
+                    .unwrap();
                 let old_chute =
                     Arc::downgrade(&owner.partition_manager.object_cells[&chute.0].identity);
                 let old_rider =
@@ -865,6 +886,7 @@ mod tests {
                     &mut owner.objects,
                     &mut owner.partition_manager,
                     &mut owner.ai_groups,
+                    &mut owner.pathfinding_system,
                     chute,
                     Some(carrier),
                     true,
@@ -886,6 +908,7 @@ mod tests {
                     &mut owner.objects,
                     &mut owner.partition_manager,
                     &mut owner.ai_groups,
+                    &mut owner.pathfinding_system,
                     chute,
                     Some(carrier),
                     true,
@@ -896,6 +919,7 @@ mod tests {
                     &mut owner.objects,
                     &mut owner.partition_manager,
                     &mut owner.ai_groups,
+                    &mut owner.pathfinding_system,
                     chute,
                     None,
                     true,

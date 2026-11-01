@@ -158,6 +158,7 @@ impl GameLogic {
             &mut self.objects,
             &mut self.partition_manager,
             &mut self.ai_groups,
+            &mut self.pathfinding_system,
             rider_id,
             None,
             false,

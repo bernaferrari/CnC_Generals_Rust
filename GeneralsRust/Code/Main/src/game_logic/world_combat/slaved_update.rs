@@ -194,10 +194,8 @@ impl GameLogic {
                 self.defect_host_object_with_effects(id, master_team, 0, presentation_effects)?;
             }
         }
-        if let Some(drone) = self.objects.get_mut(&id) {
-            if data.stay_on_master_layer {
-                drone.pathfind_layer = master_layer;
-            }
+        if data.stay_on_master_layer {
+            self.set_owned_pathfinder_layer(id, master_layer);
         }
         if let Some(master) = self.objects.get_mut(&master_id) {
             master.set_weapon_bonus_drone_spotting(false);

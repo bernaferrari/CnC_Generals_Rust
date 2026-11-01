@@ -3455,17 +3455,16 @@ impl GameLogic {
 
             // Factory return-equivalent boundary: caller placement must never
             // become observable during constructor, onCreate or Drawable birth.
-            let Some(object) = self.objects.get_mut(&id) else {
+            if self.objects.get(&id).is_none() {
                 return Err(gamelogic::GameLogicError::Configuration(format!(
                     "Object {id} disappeared during factory initialization"
                 )));
-            };
-            object.set_position_with_partition_owner(
-                position,
-                self.frame,
-                ui,
-                &mut self.partition_manager,
-            );
+            }
+            if !self.set_owned_object_position_with_effects(id, position, self.frame, ui) {
+                return Err(gamelogic::GameLogicError::Configuration(format!(
+                    "Object {id} disappeared during factory placement"
+                )));
+            }
             if crate::game_logic::host_bridge_behavior::is_bridge_span_template(template_name) {
                 let object = self
                     .objects
