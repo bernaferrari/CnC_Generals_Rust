@@ -126,7 +126,7 @@ fn overlapping_aircraft_goals_belong_to_the_last_registered_actor() {
 }
 
 #[test]
-fn removing_an_off_grid_goal_clears_its_in_bounds_footprint() {
+fn removing_an_off_grid_aircraft_goal_keeps_its_edge_until_reset() {
     let mut world = GameLogic::new();
     world.add_player(Player::new(0, Team::USA, "Owner", true));
     let id = aircraft(&mut world, Vec3::new(-10.0, 0.0, 50.0));
@@ -139,7 +139,72 @@ fn removing_an_off_grid_goal_clears_its_in_bounds_footprint() {
     let cell = GridPos::new(0, 5);
     assert_eq!(grid.goal_aircraft(cell), id.0);
     grid.clear_path_goal_square(id.0, 20.0, (-1, 5), 1);
-    assert_eq!(grid.goal_aircraft(cell), 0);
+    assert_eq!(
+        grid.goal_aircraft(cell),
+        id.0,
+        "C++ removeGoal skips cells when either old coordinate is negative"
+    );
+    grid.clear_dynamic_blocks();
+    assert_eq!(
+        grid.goal_aircraft(cell),
+        0,
+        "timeline reset clears the old reservation"
+    );
+}
+
+#[test]
+fn off_grid_ground_goal_replacement_keeps_only_its_own_old_edge() {
+    let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+    let mut peer = PathfindingGrid::new(200.0, 200.0, 10.0);
+    let off_grid = Vec3::new(-10.0, 0.0, 50.0);
+    let edge = GridPos::new(0, 3);
+    let center = GridPos::new(0, 5);
+    for grid in [&mut grid, &mut peer] {
+        assert_eq!(
+            grid.update_ground_goal_cell(11, 0, 20.0, false, (-1, -1), off_grid),
+            (-1, 5)
+        );
+        grid.update_ground_goal_cell(22, 0, 1.0, false, (-1, -1), Vec3::new(0.0, 0.0, 50.0));
+        assert_eq!(grid.ground_goal_unit(edge), 11);
+        assert_eq!(grid.ground_goal_unit(center), 22);
+    }
+    grid.update_ground_goal_cell(11, 0, 20.0, false, (-1, 5), Vec3::new(40.0, 0.0, 50.0));
+    assert_eq!(
+        grid.ground_goal_unit(edge),
+        11,
+        "replacing an off-grid goal must retain the old edge"
+    );
+    assert_eq!(
+        grid.ground_goal_unit(center),
+        22,
+        "the newer owner's overlapping cell must remain intact"
+    );
+    assert_eq!(
+        peer.ground_goal_unit(edge),
+        11,
+        "the peer grid is independent"
+    );
+    grid.clear_dynamic_blocks();
+    assert_eq!(grid.ground_goal_unit(edge), 0);
+    assert_eq!(peer.ground_goal_unit(edge), 11);
+}
+
+#[test]
+fn removing_a_goal_with_negative_y_keeps_its_ground_edge() {
+    let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+    let off_grid = Vec3::new(50.0, 0.0, -10.0);
+    assert_eq!(
+        grid.update_ground_goal_cell(11, 0, 20.0, false, (-1, -1), off_grid),
+        (5, -1)
+    );
+    let edge = GridPos::new(3, 0);
+    assert_eq!(grid.ground_goal_unit(edge), 11);
+    grid.clear_ground_goal_square(11, 20.0, (5, -1));
+    assert_eq!(
+        grid.ground_goal_unit(edge),
+        11,
+        "negative y has the same original removal guard"
+    );
 }
 
 #[test]

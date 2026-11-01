@@ -622,7 +622,9 @@ impl PathfindingGrid {
         old: (i32, i32),
         layer: u8,
     ) {
-        if old == (-1, -1) {
+        // C++ removeGoal clears the saved actor cell, but only visits the
+        // previous footprint when both coordinates were nonnegative.
+        if old.0 < 0 || old.1 < 0 {
             return;
         }
         let (radius, center) = Self::radius_and_center(selection_radius, self.grid_size);

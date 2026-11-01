@@ -253,6 +253,75 @@ fn aircraft_goal_lifecycle_uses_live_geometry_in_each_world() {
 }
 
 #[test]
+fn off_grid_ground_goal_edge_follows_original_removal_and_load_boundaries() {
+    use generals_main::game_logic::pathfinding::GridPos;
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("OffGridGoal.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+    let mut owner = world(&map);
+    let mut peer = world(&map);
+    for world in [&mut owner, &mut peer] {
+        world
+            .templates
+            .get_mut("RetryWalker")
+            .unwrap()
+            .geometry_info
+            .major_radius = 20.0;
+    }
+    let start = Vec3::new(100.0, 0.0, 100.0);
+    let goal = Vec3::new(-10.0, 0.0, 50.0);
+    let id = owner
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    let peer_id = peer
+        .create_object_for_player("RetryWalker", 1, start)
+        .unwrap();
+    assert_eq!(id, peer_id);
+    for world in [&mut owner, &mut peer] {
+        world.host_object_mut(id).unwrap().is_final_goal = true;
+        assert!(world.assign_unit_path_exact(id, goal, &[]));
+        assert_eq!(world.host_object(id).unwrap().pathfind_goal_cell, (-1, 5));
+    }
+    let edge = GridPos::new(0, 3);
+    assert_eq!(owner.pathfinding_ground_goal(edge), Some(id));
+    assert!(owner.unit_command_tighten_to(id, Vec3::new(190.0, 0.0, 190.0)));
+    assert_eq!(owner.host_object(id).unwrap().pathfind_goal_cell, (-1, -1));
+    assert_eq!(
+        owner.pathfinding_ground_goal(edge),
+        Some(id),
+        "C++ removeGoal skips off-grid cell cleanup"
+    );
+    assert_eq!(peer.pathfinding_ground_goal(edge), Some(id));
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&owner).unwrap();
+    let mut restored = world(&map);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert_eq!(
+        restored.pathfinding_ground_goal(edge),
+        None,
+        "a cleared saved goal does not reconstruct the edge"
+    );
+    peer.reset();
+    assert_eq!(peer.pathfinding_ground_goal(edge), None);
+    assert_eq!(owner.pathfinding_ground_goal(edge), Some(id));
+    owner.reset();
+    assert_eq!(owner.pathfinding_ground_goal(edge), None);
+}
+
+#[test]
 fn possible_destination_uses_the_receiving_worlds_wide_unit_footprint() {
     let directory = tempfile::tempdir().unwrap();
     let map = directory.path().join("WideDestination.map");
