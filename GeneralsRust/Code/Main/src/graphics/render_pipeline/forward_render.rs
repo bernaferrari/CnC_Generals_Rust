@@ -560,6 +560,7 @@ impl ForwardPass {
         // Check if renderer is ready before attempting to render
         // This prevents crashes when engine is shutting down or not initialized
         if !self.is_ready() {
+            self.renderer.discard_queued_frame_callbacks();
             warn!("ForwardPass::render - engine not ready, skipping frame");
             return Ok(());
         }

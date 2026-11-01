@@ -1,4 +1,94 @@
 use super::*;
+
+#[test]
+#[ignore = "requires a native GPU; run explicitly with --include-ignored"]
+fn repeated_native_post_frame_failures_finish_and_submit_each_frame() {
+    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 16,
+        height: 16,
+        ..Default::default()
+    })
+    .unwrap();
+    let mut renderer = WgpuMainRenderer::from_engine(Default::default()).unwrap();
+    let mut failures = 0;
+    let mut native = |kind, _: &mut ww3d_engine::RenderFrame| {
+        assert_eq!(kind, ScopedNativePass::ClientEffects);
+        failures += 1;
+        Err(RendererError::InvalidOperation(
+            "expected missing effect frame".into(),
+        ))
+    };
+    let initial_submits = ww3d_engine::total_owned_submits();
+    for _ in 0..4100 {
+        renderer.enqueue_scoped_post_frame_pass(ScopedNativePass::ClientEffects);
+        renderer.begin_frame().unwrap();
+        renderer
+            .end_frame_with_scoped_native_passes(false, None, Some(&mut native))
+            .unwrap();
+        assert!(!ww3d_engine::frame_is_active());
+    }
+    drop(native);
+    assert_eq!(failures, 4100);
+    assert_eq!(ww3d_engine::total_owned_submits() - initial_submits, 4100);
+    drop(renderer);
+    ww3d_engine::shutdown().unwrap();
+}
+
+#[test]
+#[ignore = "requires a native GPU; run explicitly with --include-ignored"]
+fn failed_frame_acquisition_discards_the_unsubmitted_callbacks() {
+    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 16,
+        height: 16,
+        ..Default::default()
+    })
+    .unwrap();
+    let mut owner = WgpuMainRenderer::from_engine(Default::default()).unwrap();
+    let mut peer = WgpuMainRenderer::from_engine(Default::default()).unwrap();
+    owner.enqueue_scoped_post_frame_pass(ScopedNativePass::TerrainWater);
+    owner.begin_frame().unwrap();
+    let active_start = owner.frame_start;
+    assert!(owner.begin_frame().is_err());
+    assert_eq!(
+        owner.frame_start, active_start,
+        "the active frame keeps its timing"
+    );
+    assert_eq!(
+        owner.post_frame_callbacks.len(),
+        1,
+        "the active frame keeps its work"
+    );
+    for _ in 0..64 {
+        peer.enqueue_scoped_pre_scene_pass(ScopedNativePass::TerrainGround);
+        peer.enqueue_scoped_post_frame_pass(ScopedNativePass::ClientEffects);
+        assert!(peer.begin_frame().is_err());
+        assert!(peer.pre_scene_callbacks.is_empty());
+        assert!(peer.post_frame_callbacks.is_empty());
+    }
+    let mut observed = Vec::new();
+    let mut record = |kind, _: &mut ww3d_engine::RenderFrame| {
+        observed.push(kind);
+        Ok(())
+    };
+    owner
+        .end_frame_with_scoped_native_passes(false, None, Some(&mut record))
+        .unwrap();
+    peer.enqueue_scoped_post_frame_pass(ScopedNativePass::ClientEffects);
+    peer.begin_frame().unwrap();
+    peer.end_frame_with_scoped_native_passes(false, None, Some(&mut record))
+        .unwrap();
+    drop(record);
+    assert_eq!(
+        observed,
+        [
+            ScopedNativePass::TerrainWater,
+            ScopedNativePass::ClientEffects
+        ]
+    );
+    drop(peer);
+    drop(owner);
+    ww3d_engine::shutdown().unwrap();
+}
 #[test]
 #[ignore = "requires a native GPU; run explicitly with --include-ignored"]
 fn scoped_native_passes_keep_callback_positions_and_borrow_only_the_driving_frame() {

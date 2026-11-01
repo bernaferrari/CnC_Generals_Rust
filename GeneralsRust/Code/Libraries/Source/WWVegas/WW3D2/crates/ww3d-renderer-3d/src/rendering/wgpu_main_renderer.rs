@@ -397,18 +397,18 @@ impl WgpuMainRenderer {
     /// only reads the clock; `self.frame_start` below is this renderer's own
     /// stats clock (frame_accumulator in end_frame), not the logic dt chain.
     pub fn begin_frame(&mut self) -> RendererResult<()> {
-        self.last_surface_presented = false;
-        self.frame_start = Instant::now();
-        self.shadow_caster_submissions.clear();
-        self.shadow_caster_count_hint = 0;
-
         if self.pending_frame.is_some() {
             return Err(RendererError::InvalidOperation(
                 "frame already active".into(),
             ));
         }
 
-        match ww3d_engine::begin_render() {
+        self.last_surface_presented = false;
+        self.frame_start = Instant::now();
+        self.shadow_caster_submissions.clear();
+        self.shadow_caster_count_hint = 0;
+
+        let result = (|| match ww3d_engine::begin_render() {
             Ok(frame) => {
                 if let Err(err) = Self::prepare_renderer_frame(&self.renderer) {
                     if let Err(end_err) = ww3d_engine::end_render(frame) {
@@ -450,7 +450,17 @@ impl WgpuMainRenderer {
                 "engine frame already active".into(),
             )),
             Err(err) => Err(RendererError::RenderError(err.to_string())),
+        })();
+        if result.is_err() {
+            self.discard_queued_frame_callbacks();
         }
+        result
+    }
+
+    /// Drop work queued for a frame that could not be started.
+    pub fn discard_queued_frame_callbacks(&mut self) {
+        self.pre_scene_callbacks.clear();
+        self.post_frame_callbacks.clear();
     }
 
     /// Present the frame.
