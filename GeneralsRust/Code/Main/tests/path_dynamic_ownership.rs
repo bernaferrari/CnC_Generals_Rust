@@ -130,6 +130,40 @@ fn possible_destination_uses_the_receivers_aircraft_goal_rules() {
         &ground
     ));
     assert_ne!(occupied, goal, "another aircraft's goal must be avoided");
+    let mut ground_template = ThingTemplate::new("ContextGround");
+    ground_template
+        .add_kind_of(KindOf::Infantry)
+        .set_health(100.0);
+    world
+        .templates
+        .insert("ContextGround".into(), ground_template);
+    let ground_id = world
+        .create_object_for_player("ContextGround", 0, Vec3::new(20.0, 0.0, 20.0))
+        .unwrap();
+    world
+        .host_object_mut(ground_id)
+        .unwrap()
+        .ignored_obstacle_id = Some(generals_main::game_logic::ObjectId(99));
+    let mut ignored_ground = goal;
+    assert!(system.adjust_to_possible_destination_for(
+        world.host_object(ground_id).unwrap(),
+        &mut ignored_ground,
+        &ground
+    ));
+    assert_eq!(
+        ignored_ground, goal,
+        "the following ground receiver must use its own ignore ID"
+    );
+    let mut occupied_again = goal;
+    assert!(system.adjust_to_possible_destination_for(
+        world.host_object(id).unwrap(),
+        &mut occupied_again,
+        &ground
+    ));
+    assert_ne!(
+        occupied_again, goal,
+        "the ground request must not alter aircraft goal checks"
+    );
     system.grid.stamp_bridge_deck(
         Vec3::new(30.0, 20.0, 40.0),
         Vec3::new(30.0, 20.0, 60.0),
