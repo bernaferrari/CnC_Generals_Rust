@@ -5,6 +5,8 @@
 
 use super::prelude::*;
 
+mod registered_order;
+
 #[derive(Debug, Default)]
 pub struct HostObjectStore {
     map: HashMap<ObjectId, Object>,
@@ -468,19 +470,7 @@ impl HostObjectStore {
     /// Bounded mutable registered traversal without unsafe or cloning Objects.
     /// This allocation holds references only, never competing gameplay state.
     pub fn registered_mut(&mut self) -> impl Iterator<Item = (&ObjectId, &mut Object)> {
-        let order: HashMap<_, _> = self
-            .registration_order
-            .iter()
-            .enumerate()
-            .map(|(index, id)| (*id, index))
-            .collect();
-        let mut rows: Vec<_> = self
-            .map
-            .iter_mut()
-            .filter(|(id, _)| order.contains_key(*id))
-            .collect();
-        rows.sort_by_key(|(id, _)| order.get(*id).copied().expect("registered traversal index"));
-        rows.into_iter()
+        registered_order::registered_mut(&mut self.map, &self.registration_order)
     }
 }
 
