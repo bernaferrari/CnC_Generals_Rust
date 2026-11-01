@@ -1218,38 +1218,28 @@ impl PathfindingGrid {
         {
             if let Some(occ) = self.layer_occ.get(&(layer as u8)) {
                 let key = (pos.x, pos.y);
-                return OccBits {
-                    fixed: occ.occ_fixed_mask.get(&key).copied().unwrap_or(0),
-                    moving: occ.occ_moving_mask.get(&key).copied().unwrap_or(0),
-                    goal: occ.occ_goal_mask.get(&key).copied().unwrap_or(0),
-                    infantry: occ.occ_infantry_mask.get(&key).copied().unwrap_or(0),
-                    crushable: occ.occ_fixed_max_crushable.get(&key).copied().unwrap_or(0),
-                    goal_unit: occ.occ_goal_unit.get(&key).copied().unwrap_or(0),
-                    pos_unit: occ.occ_pos_unit.get(&key).copied().unwrap_or(0),
-                    pos_player: occ.occ_pos_player.get(&key).copied().unwrap_or(0),
-                    pos_moving: occ.occ_pos_flags.get(&key).copied().unwrap_or(0) & 1 != 0,
-                    pos_infantry: occ.occ_pos_flags.get(&key).copied().unwrap_or(0) & 2 != 0,
-                    pos_crushable: occ.occ_pos_crushable.get(&key).copied().unwrap_or(0),
-                };
+                return OccBits::from_cell(
+                    occ.occ_goal_mask.get(&key).copied().unwrap_or(0),
+                    occ.occ_goal_unit.get(&key).copied().unwrap_or(0),
+                    occ.occ_pos_unit.get(&key).copied().unwrap_or(0),
+                    occ.occ_pos_player.get(&key).copied().unwrap_or(0),
+                    occ.occ_pos_flags.get(&key).copied().unwrap_or(0),
+                    occ.occ_pos_crushable.get(&key).copied().unwrap_or(0),
+                );
             }
             return OccBits::default();
         }
         let Some(idx) = self.bit_index(pos) else {
             return OccBits::default();
         };
-        OccBits {
-            fixed: self.occ_fixed_mask.get(idx).copied().unwrap_or(0),
-            moving: self.occ_moving_mask.get(idx).copied().unwrap_or(0),
-            goal: self.occ_goal_mask.get(idx).copied().unwrap_or(0),
-            infantry: self.occ_infantry_mask.get(idx).copied().unwrap_or(0),
-            crushable: self.occ_fixed_max_crushable.get(idx).copied().unwrap_or(0),
-            goal_unit: self.occ_goal_unit.get(idx).copied().unwrap_or(0),
-            pos_unit: self.occ_pos_unit.get(idx).copied().unwrap_or(0),
-            pos_player: self.occ_pos_player.get(idx).copied().unwrap_or(0),
-            pos_moving: self.occ_pos_flags.get(idx).copied().unwrap_or(0) & 1 != 0,
-            pos_infantry: self.occ_pos_flags.get(idx).copied().unwrap_or(0) & 2 != 0,
-            pos_crushable: self.occ_pos_crushable.get(idx).copied().unwrap_or(0),
-        }
+        OccBits::from_cell(
+            self.occ_goal_mask[idx],
+            self.occ_goal_unit[idx],
+            self.occ_pos_unit[idx],
+            self.occ_pos_player[idx],
+            self.occ_pos_flags[idx],
+            self.occ_pos_crushable[idx],
+        )
     }
 
     fn filter_ignored_goal(&self, mut bits: OccBits) -> OccBits {
@@ -1586,7 +1576,6 @@ impl PathfindingGrid {
         &mut self,
         pos: GridPos,
         player: u32,
-        moving: bool,
         infantry: bool,
         goal: bool,
         crushable_level: u8,
@@ -1605,23 +1594,15 @@ impl PathfindingGrid {
                 occ.occ_goal_unit.insert(key, unit_id);
                 return;
             }
-            // C++ setPosUnit: a single m_posUnitID per cell; the newest
-            // stamp wins (updatePos iterates units in frame order).
+            let previous = occ.occ_pos_unit.get(&key).copied().unwrap_or(0);
+            let goal_id = occ.occ_goal_unit.get(&key).copied().unwrap_or(0);
+            if previous != 0 && previous == goal_id {
+                return;
+            }
             occ.occ_pos_unit.insert(key, unit_id);
             occ.occ_pos_player.insert(key, bit);
-            occ.occ_pos_flags
-                .insert(key, (moving as u8) | ((infantry as u8) << 1));
+            occ.occ_pos_flags.insert(key, (infantry as u8) << 1);
             occ.occ_pos_crushable.insert(key, crushable_level);
-            if infantry {
-                *occ.occ_infantry_mask.entry(key).or_insert(0) |= bit;
-            }
-            if moving {
-                *occ.occ_moving_mask.entry(key).or_insert(0) |= bit;
-            } else {
-                *occ.occ_fixed_mask.entry(key).or_insert(0) |= bit;
-                let crush = occ.occ_fixed_max_crushable.entry(key).or_insert(0);
-                *crush = (*crush).max(crushable_level);
-            }
             return;
         }
         let Some(idx) = self.bit_index(pos) else {
@@ -1636,42 +1617,14 @@ impl PathfindingGrid {
             }
             return;
         }
-        if let Some(slot) = self.occ_pos_unit.get_mut(idx) {
-            *slot = unit_id;
+        let previous = self.occ_pos_unit[idx];
+        if previous != 0 && previous == self.occ_goal_unit[idx] {
+            return;
         }
-        if let Some(slot) = self.occ_pos_player.get_mut(idx) {
-            *slot = bit;
-        }
-        if let Some(slot) = self.occ_pos_flags.get_mut(idx) {
-            *slot = (moving as u8) | ((infantry as u8) << 1);
-        }
-        if let Some(slot) = self.occ_pos_crushable.get_mut(idx) {
-            *slot = crushable_level;
-        }
-        // The pos stamp IS the fixed/moving record (C++ updatePos): keep the
-        // bitset view in lockstep so identity-less readers still see it.
-        if moving {
-            if let Some(slot) = self.occ_moving_mask.get_mut(idx) {
-                *slot |= bit;
-            }
-            if infantry {
-                if let Some(slot) = self.occ_infantry_mask.get_mut(idx) {
-                    *slot |= bit;
-                }
-            }
-        } else {
-            if let Some(slot) = self.occ_fixed_mask.get_mut(idx) {
-                *slot |= bit;
-            }
-            if let Some(slot) = self.occ_fixed_max_crushable.get_mut(idx) {
-                *slot = (*slot).max(crushable_level);
-            }
-            if infantry {
-                if let Some(slot) = self.occ_infantry_mask.get_mut(idx) {
-                    *slot |= bit;
-                }
-            }
-        }
+        self.occ_pos_unit[idx] = unit_id;
+        self.occ_pos_player[idx] = bit;
+        self.occ_pos_flags[idx] = (infantry as u8) << 1;
+        self.occ_pos_crushable[idx] = crushable_level;
     }
 
     /// C++ `TerrainLogic::objectInteractsWithBridgeEnd` (TerrainLogic.cpp:1799).

@@ -701,11 +701,8 @@ impl PathfindingSystem {
 
         let (exact_path, examined) = {
             let width = self.grid.width;
-            let occ_fixed = self.grid.occ_fixed_mask.clone();
-            let occ_moving = self.grid.occ_moving_mask.clone();
             let occ_goal = self.grid.occ_goal_mask.clone();
-            let occ_infantry = self.grid.occ_infantry_mask.clone();
-            let occ_crush = self.grid.occ_fixed_max_crushable.clone();
+            let occ_goal_unit = self.grid.occ_goal_unit.clone();
             let occ_pos_unit = self.grid.occ_pos_unit.clone();
             let occ_pos_player = self.grid.occ_pos_player.clone();
             let occ_pos_flags = self.grid.occ_pos_flags.clone();
@@ -762,36 +759,41 @@ impl PathfindingSystem {
                     return 0;
                 }
                 let idx = c.y as usize * width as usize + c.x as usize;
-                let (fixed, moving, goal_m, infantry, crush, pos_u, pos_p, pos_flags, pos_cr) =
-                    if let Some(lid) = layer_id {
-                        if let Some(occ) = layer_occ.get(&lid) {
-                            (
-                                occ.occ_fixed_mask.get(&key).copied().unwrap_or(0),
-                                occ.occ_moving_mask.get(&key).copied().unwrap_or(0),
-                                occ.occ_goal_mask.get(&key).copied().unwrap_or(0),
-                                occ.occ_infantry_mask.get(&key).copied().unwrap_or(0),
-                                occ.occ_fixed_max_crushable.get(&key).copied().unwrap_or(0),
-                                occ.occ_pos_unit.get(&key).copied().unwrap_or(0),
-                                occ.occ_pos_player.get(&key).copied().unwrap_or(0),
-                                occ.occ_pos_flags.get(&key).copied().unwrap_or(0),
-                                occ.occ_pos_crushable.get(&key).copied().unwrap_or(0),
-                            )
-                        } else {
-                            (0, 0, 0, 0, 0, 0, 0, 0, 0)
-                        }
-                    } else {
-                        (
-                            occ_fixed.get(idx).copied().unwrap_or(0),
-                            occ_moving.get(idx).copied().unwrap_or(0),
-                            occ_goal.get(idx).copied().unwrap_or(0),
-                            occ_infantry.get(idx).copied().unwrap_or(0),
-                            occ_crush.get(idx).copied().unwrap_or(0),
-                            occ_pos_unit.get(idx).copied().unwrap_or(0),
-                            occ_pos_player.get(idx).copied().unwrap_or(0),
-                            occ_pos_flags.get(idx).copied().unwrap_or(0),
-                            occ_pos_crush.get(idx).copied().unwrap_or(0),
+                let bits = if let Some(lid) = layer_id {
+                    if let Some(occ) = layer_occ.get(&lid) {
+                        OccBits::from_cell(
+                            occ.occ_goal_mask.get(&key).copied().unwrap_or(0),
+                            occ.occ_goal_unit.get(&key).copied().unwrap_or(0),
+                            occ.occ_pos_unit.get(&key).copied().unwrap_or(0),
+                            occ.occ_pos_player.get(&key).copied().unwrap_or(0),
+                            occ.occ_pos_flags.get(&key).copied().unwrap_or(0),
+                            occ.occ_pos_crushable.get(&key).copied().unwrap_or(0),
                         )
-                    };
+                    } else {
+                        OccBits::default()
+                    }
+                } else {
+                    OccBits::from_cell(
+                        occ_goal.get(idx).copied().unwrap_or(0),
+                        occ_goal_unit.get(idx).copied().unwrap_or(0),
+                        occ_pos_unit.get(idx).copied().unwrap_or(0),
+                        occ_pos_player.get(idx).copied().unwrap_or(0),
+                        occ_pos_flags.get(idx).copied().unwrap_or(0),
+                        occ_pos_crush.get(idx).copied().unwrap_or(0),
+                    )
+                };
+                let OccBits {
+                    fixed,
+                    moving,
+                    goal: goal_m,
+                    infantry,
+                    crushable: crush,
+                    pos_unit: pos_u,
+                    pos_player: pos_p,
+                    pos_moving,
+                    pos_crushable: pos_cr,
+                    ..
+                } = bits;
                 // C++ INFANTRY_MOVES_THROUGH_INFANTRY: stream even when a goal is set.
                 if seeker_inf && infantry != 0 && (fixed | moving) == infantry {
                     return 0;
@@ -815,7 +817,6 @@ impl PathfindingSystem {
                 // C++ checkForMovement verdict on the cell's single m_posUnitID
                 // (AIPathfind.cpp:5020-5066): ally fixed → allyFixed cost, enemy
                 // uncrushable → impassable. Bitset view only when no identity.
-                let pos_moving = pos_flags & 1 != 0;
                 if pos_u != 0 {
                     if (pos_p & friend) == 0 {
                         let crushable = crusher_level > 0 && crusher_level > pos_cr;

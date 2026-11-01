@@ -25,19 +25,15 @@ impl PathfindingGrid {
             cell_types: vec![PathfindCellType::Clear as u8; cells],
             pinched_bits: vec![0u64; words],
             terrain_zones: vec![0u16; cells],
-            occ_fixed_mask: vec![0u16; cells],
             occ_goal_unit: vec![0u32; cells],
             occ_pos_unit: vec![0u32; cells],
             occ_pos_player: vec![0u16; cells],
             occ_pos_flags: vec![0u8; cells],
             occ_pos_crushable: vec![0u8; cells],
             occ_goal_aircraft: vec![0u32; cells],
-            occ_moving_mask: vec![0u16; cells],
             fence_bits: vec![0u64; words],
             transparent_bits: vec![0u64; words],
             occ_goal_mask: vec![0u16; cells],
-            occ_infantry_mask: vec![0u16; cells],
-            occ_fixed_max_crushable: vec![0u8; cells],
             path_zones: vec![0u16; cells],
             ground_water_zones: Vec::new(),
             ground_cliff_zones: Vec::new(),
@@ -1237,19 +1233,11 @@ impl PathfindingGrid {
     /// Refresh derived obstacles without disturbing event-owned goals.
     pub(super) fn clear_dynamic_observations(&mut self) {
         self.explicit_dynamic_bits.fill(0);
-        self.occ_fixed_mask.fill(0);
-        self.occ_moving_mask.fill(0);
-        self.occ_infantry_mask.fill(0);
-        self.occ_fixed_max_crushable.fill(0);
         self.occ_pos_unit.fill(0);
         self.occ_pos_player.fill(0);
         self.occ_pos_flags.fill(0);
         self.occ_pos_crushable.fill(0);
         self.layer_occ.retain(|_, occ| {
-            occ.occ_fixed_mask.clear();
-            occ.occ_moving_mask.clear();
-            occ.occ_infantry_mask.clear();
-            occ.occ_fixed_max_crushable.clear();
             occ.occ_pos_unit.clear();
             occ.occ_pos_player.clear();
             occ.occ_pos_flags.clear();

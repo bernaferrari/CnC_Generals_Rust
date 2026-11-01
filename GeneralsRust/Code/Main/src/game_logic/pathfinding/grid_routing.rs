@@ -248,12 +248,6 @@ impl PathfindingGrid {
             }
 
             let player = obj.owner_player_id.unwrap_or(obj.team as u32);
-            let moving = !obj.is_kind_of(KindOf::Structure)
-                && (obj.status.moving
-                    || obj.waiting_for_path
-                    || obj.movement.target_position.is_some()
-                    || !obj.movement.path.is_empty()
-                    || obj.movement.velocity.length_squared() > 0.25);
             let infantry = obj.is_kind_of(KindOf::Infantry);
             let (radius, center_in_cell) =
                 Self::radius_and_center(obj.selection_radius, self.grid_size);
@@ -286,7 +280,6 @@ impl PathfindingGrid {
                             self.mark_occupancy(
                                 p,
                                 player,
-                                moving,
                                 infantry,
                                 false,
                                 crushable,
@@ -296,7 +289,7 @@ impl PathfindingGrid {
                         }
                         if pos_do_layer {
                             self.mark_occupancy(
-                                p, player, moving, infantry, false, crushable, obj.id.0, pos_layer,
+                                p, player, infantry, false, crushable, obj.id.0, pos_layer,
                             );
                         }
                     }
@@ -574,7 +567,6 @@ impl PathfindingGrid {
                         pos,
                         update.player,
                         false,
-                        false,
                         true,
                         255,
                         update.unit_id,
@@ -587,7 +579,6 @@ impl PathfindingGrid {
                     self.mark_occupancy(
                         pos,
                         update.player,
-                        false,
                         false,
                         true,
                         255,
@@ -1390,8 +1381,9 @@ impl PathfindingGrid {
             self.height,
             &self.cell_types,
             &self.fence_bits,
-            &self.occ_fixed_mask,
-            &self.occ_fixed_max_crushable,
+            &self.occ_pos_unit,
+            &self.occ_goal_unit,
+            &self.occ_pos_crushable,
             crusher,
             cell,
             path_diameter,

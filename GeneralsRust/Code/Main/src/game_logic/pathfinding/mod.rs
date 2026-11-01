@@ -190,17 +190,13 @@ struct HostBridgeLayer {
 /// C++ PathfindLayer pos/goal occupancy (`updatePos` / `updateGoal`).
 #[derive(Debug, Clone, Default)]
 struct LayerOccupancy {
-    occ_fixed_mask: HashMap<(i32, i32), u16>,
-    occ_moving_mask: HashMap<(i32, i32), u16>,
     occ_goal_mask: HashMap<(i32, i32), u16>,
-    occ_infantry_mask: HashMap<(i32, i32), u16>,
-    occ_fixed_max_crushable: HashMap<(i32, i32), u8>,
     occ_goal_unit: HashMap<(i32, i32), u32>,
     /// C++ `PathfindCellInfo::m_posUnitID` single-occupant identity. 0 = none.
     occ_pos_unit: HashMap<(i32, i32), u32>,
     /// Owner player bit of `occ_pos_unit`.
     occ_pos_player: HashMap<(i32, i32), u16>,
-    /// posUnit traits: bit0 moving, bit1 infantry.
+    /// posUnit traits: bit1 infantry; movement follows goal/position identity.
     occ_pos_flags: HashMap<(i32, i32), u8>,
     /// CrushableLevel of `occ_pos_unit`.
     occ_pos_crushable: HashMap<(i32, i32), u8>,
@@ -248,6 +244,36 @@ struct OccBits {
     pos_infantry: bool,
     /// CrushableLevel of `pos_unit`.
     pos_crushable: u8,
+}
+
+impl OccBits {
+    /// C++ PathfindCell::setPosUnit/setGoalUnit: a position is fixed only
+    /// while its owner is also the goal owner of this cell.
+    fn from_cell(
+        goal: u16,
+        goal_unit: u32,
+        pos_unit: u32,
+        pos_player: u16,
+        flags: u8,
+        pos_crushable: u8,
+    ) -> Self {
+        let present = pos_unit != 0;
+        let fixed = present && goal_unit == pos_unit;
+        let infantry = present && flags & 2 != 0;
+        Self {
+            fixed: if fixed { pos_player } else { 0 },
+            moving: if present && !fixed { pos_player } else { 0 },
+            goal,
+            infantry: if infantry { pos_player } else { 0 },
+            crushable: if fixed { pos_crushable } else { 0 },
+            goal_unit,
+            pos_unit,
+            pos_player,
+            pos_moving: present && !fixed,
+            pos_infantry: infantry,
+            pos_crushable,
+        }
+    }
 }
 
 /// Receiver-specific state for one synchronous possible-destination query.
@@ -300,14 +326,10 @@ pub struct PathfindingGrid {
     occ_pos_unit: Vec<u32>,
     /// Owner player bit of `occ_pos_unit`.
     occ_pos_player: Vec<u16>,
-    /// posUnit traits: bit0 moving, bit1 infantry.
+    /// posUnit traits: bit1 infantry; movement follows goal/position identity.
     occ_pos_flags: Vec<u8>,
     /// CrushableLevel of `occ_pos_unit`.
     occ_pos_crushable: Vec<u8>,
-    /// Players with a stopped/fixed occupant in this cell (bit i = player i).
-    occ_fixed_mask: Vec<u16>,
-    /// Players with a moving occupant in this cell.
-    occ_moving_mask: Vec<u16>,
     /// C++ PathfindCellInfo::m_obstacleIsFence.
     fence_bits: Vec<u64>,
     /// C++ PathfindCellInfo::m_obstacleIsTransparent (KINDOF_CAN_SEE_THROUGH).
@@ -318,10 +340,6 @@ pub struct PathfindingGrid {
     occ_goal_unit: Vec<u32>,
     /// C++ `PathfindCell::getGoalAircraft` (LAYER_GROUND). 0 = none.
     occ_goal_aircraft: Vec<u32>,
-    /// Players with infantry occupying this cell.
-    occ_infantry_mask: Vec<u16>,
-    /// Max CrushableLevel among fixed occupants (canCrushOrSquish).
-    occ_fixed_max_crushable: Vec<u8>,
     /// Structure-aware zone ids (obstacles split zones). 0 = uninitialized.
     path_zones: Vec<u16>,
     /// C++ `m_groundWaterZones` — leftover `build_surface_combiners`.
@@ -723,7 +741,8 @@ fn clear_cell_for_diameter_impl(
     height: i32,
     cell_types: &[u8],
     fence_bits: &[u64],
-    occ_fixed: &[u16],
+    occ_pos: &[u32],
+    occ_goal: &[u32],
     occ_crush: &[u8],
     crusher: bool,
     cell: GridPos,
@@ -775,8 +794,8 @@ fn clear_cell_for_diameter_impl(
                 }
             }
             if path_diameter >= 2 {
-                let fixed = occ_fixed.get(idx).copied().unwrap_or(0);
-                if fixed != 0 {
+                let occupant = occ_pos.get(idx).copied().unwrap_or(0);
+                if occupant != 0 && occ_goal.get(idx).copied().unwrap_or(0) == occupant {
                     let crushable = occ_crush.get(idx).copied().unwrap_or(0);
                     if crusher {
                         if crushable > 1 {
@@ -808,7 +827,8 @@ fn clear_cell_for_diameter_impl(
         height,
         cell_types,
         fence_bits,
-        occ_fixed,
+        occ_pos,
+        occ_goal,
         occ_crush,
         crusher,
         cell,

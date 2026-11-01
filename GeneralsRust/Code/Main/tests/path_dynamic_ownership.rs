@@ -6,6 +6,162 @@ use generals_main::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
 use glam::Vec3;
 
 #[test]
+fn goal_changes_immediately_update_position_flags_in_each_world() {
+    let mut worlds = [GameLogic::new(), GameLogic::new()];
+    let mut ids = Vec::new();
+    for (index, world) in worlds.iter_mut().enumerate() {
+        world.add_player(Player::new(0, Team::USA, "Owner", true));
+        let mut template = ThingTemplate::new("FlagMover");
+        template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        world.templates.insert("FlagMover".into(), template);
+        let id = world
+            .create_object_for_player("FlagMover", 0, Vec3::new(50.0, 0.0, 50.0))
+            .unwrap();
+        let actor = world.host_object_mut(id).unwrap();
+        actor.selection_radius = 1.0;
+        actor.crushable_level = 255;
+        actor.status.moving = index == 0;
+        ids.push(id);
+    }
+    assert_eq!(ids[0], ids[1]);
+    let ground = PathfindingGround::Flat(0.0);
+    let mut grids = [
+        PathfindingGrid::new(100.0, 100.0, 10.0),
+        PathfindingGrid::new(100.0, 100.0, 10.0),
+    ];
+    for (grid, world) in grids.iter_mut().zip(&worlds) {
+        grid.update_dynamic_obstacles(world.host_objects(), &ground);
+    }
+    let cell = GridPos::new(5, 5);
+    assert_eq!(grids[0].clear_cell_for_diameter(false, cell, 2), 2);
+    grids[0].update_ground_goal_cell(
+        ids[0].0,
+        0,
+        1.0,
+        false,
+        (-1, -1),
+        Vec3::new(50.0, 0.0, 50.0),
+    );
+    assert_eq!(
+        grids[0].clear_cell_for_diameter(false, cell, 2),
+        1,
+        "own goal makes the occupant fixed immediately"
+    );
+    assert_eq!(
+        grids[1].clear_cell_for_diameter(false, cell, 2),
+        2,
+        "the peer world is unchanged"
+    );
+    grids[0].clear_ground_goal_square(ids[0].0, 1.0, (5, 5));
+    assert_eq!(
+        grids[0].clear_cell_for_diameter(false, cell, 2),
+        2,
+        "removing the goal makes the occupant moving again"
+    );
+}
+
+#[test]
+fn fixed_occupant_cannot_be_overwritten_by_a_later_position_stamp() {
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
+    world.add_player(Player::new(1, Team::GLA, "Other", false));
+    let mut template = ThingTemplate::new("OverlapMover");
+    template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+    world.templates.insert("OverlapMover".into(), template);
+    let position = Vec3::new(50.0, 0.0, 50.0);
+    let first = world
+        .create_object_for_player("OverlapMover", 0, position)
+        .unwrap();
+    let second = world
+        .create_object_for_player("OverlapMover", 1, position)
+        .unwrap();
+    for id in [first, second] {
+        let actor = world.host_object_mut(id).unwrap();
+        actor.selection_radius = 1.0;
+        actor.crushable_level = 255;
+        actor.status.moving = true;
+    }
+    let mut grid = PathfindingGrid::new(100.0, 100.0, 10.0);
+    grid.update_ground_goal_cell(first.0, 0, 1.0, false, (-1, -1), position);
+    grid.update_dynamic_obstacles(world.host_objects(), &PathfindingGround::Flat(0.0));
+    assert_ne!(
+        grid.occupancy_extra_cost(GridPos::new(5, 5), Some(0), false, 0),
+        u32::MAX / 8,
+        "the fixed first owner must survive the second position stamp"
+    );
+}
+
+#[test]
+fn bridge_goal_changes_the_layer_occupant_without_a_refresh() {
+    use gamelogic::ai::pathfind_astar::PathfindLayerEnum;
+    use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+    use generals_main::game_logic::pathfinding::PathGoalUpdate;
+
+    let ground = PathfindingGround::Flat(0.0);
+    let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+    grid.stamp_bridge_deck(
+        Vec3::new(30.0, 20.0, 40.0),
+        Vec3::new(30.0, 20.0, 60.0),
+        Vec3::new(130.0, 20.0, 40.0),
+        Vec3::new(130.0, 20.0, 60.0),
+        false,
+        &ground,
+    );
+    let position = Vec3::new(80.0, 20.0, 50.0);
+    let layer = grid.layer_for_destination(position, &ground);
+    assert_ne!(layer, PathfindLayerEnum::Ground);
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
+    let mut template = ThingTemplate::new("BridgeMover");
+    template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+    world.templates.insert("BridgeMover".into(), template);
+    let id = world
+        .create_object_for_player("BridgeMover", 0, position)
+        .unwrap();
+    let actor = world.host_object_mut(id).unwrap();
+    actor.selection_radius = 1.0;
+    actor.crushable_level = 255;
+    actor.status.moving = true;
+    grid.update_dynamic_obstacles(world.host_objects(), &ground);
+    grid.set_query_seeker_id(id.0);
+    let cell = GridPos::new(8, 5);
+    let destination = |grid: &PathfindingGrid| {
+        grid.adjust_destination_on_layer(
+            cell,
+            SURFACE_GROUND,
+            false,
+            400,
+            Some(0),
+            0,
+            layer,
+            &ground,
+        )
+    };
+    assert_eq!(destination(&grid), Some(cell));
+    grid.update_path_goal_cell(PathGoalUpdate {
+        unit_id: id.0,
+        player: 0,
+        radius: 1.0,
+        old_cell: (-1, -1),
+        old_layer: 0,
+        new_layer: layer as u8,
+        new_on_ground: false,
+        goal: position,
+    });
+    assert_ne!(
+        destination(&grid),
+        Some(cell),
+        "the actor's goal makes its bridge position fixed"
+    );
+    grid.clear_path_goal_square(id.0, 1.0, (8, 5), layer as u8);
+    assert_eq!(
+        destination(&grid),
+        Some(cell),
+        "removing the goal makes the bridge position moving again"
+    );
+}
+
+#[test]
 fn landing_destination_uses_the_receivers_live_geometry() {
     use generals_main::game_logic::thing::HostGeometryType;
 

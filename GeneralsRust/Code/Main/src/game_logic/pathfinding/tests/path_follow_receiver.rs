@@ -6,10 +6,20 @@ fn grid() -> PathfindingGrid {
 }
 
 fn stamp(grid: &mut PathfindingGrid, cell: GridPos, receiver: u32, moving: bool) {
+    if !moving {
+        grid.mark_occupancy(
+            cell,
+            1,
+            true,
+            true,
+            255,
+            receiver,
+            PathfindLayerEnum::Ground,
+        );
+    }
     grid.mark_occupancy(
         cell,
         1,
-        moving,
         true,
         false,
         255,
