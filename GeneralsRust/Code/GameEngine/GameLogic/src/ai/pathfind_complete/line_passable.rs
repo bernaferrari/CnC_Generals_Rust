@@ -242,87 +242,86 @@ impl PathfindingSystem {
         ignore_obstacle_id: Option<ObjectID>,
         observations: Option<&PathfindObservations>,
     ) -> Result<bool, String> {
-        let dx = to.x - from.x;
-        let dy = to.y - from.y;
-        let distance = (dx * dx + dy * dy).sqrt();
-        if distance < 0.1 {
-            return Ok(true);
-        }
+        let mut observation_error = None;
+        let result =
+            self.iterate_cells_along_line_world(from, to, layer, |previous, coord, _, _| {
+                let Some(resolved_layer) = self.pathfinder.resolved_layer_at(coord, layer) else {
+                    return 1;
+                };
 
-        let steps = (distance / (PATHFIND_CELL_SIZE_F * 0.5)).ceil() as i32;
-        let steps = steps.max(1);
-
-        for i in 0..=steps {
-            let t = i as f32 / steps as f32;
-            let sample = Coord3D::new(from.x + dx * t, from.y + dy * t, 0.0);
-            let coord = GridCoord::from_world(&sample);
-            // C++ getCell falls back to ground when the requested elevated
-            // slot is absent or CELL_IMPASSABLE; the callback sees the
-            // resolved cell's layer and pinch flag.
-            let Some(resolved_layer) = self.pathfinder.resolved_layer_at(coord, layer) else {
-                return Ok(false);
-            };
-
-            {
-                let pathfinder = &self.pathfinder;
-                // C++: if (!allowPinched && to->getPinched()) bail.
-                if !allow_pinched
-                    && pathfinder.is_pinched_on_layer(coord, resolved_layer) == Some(true)
-                {
-                    return Ok(false);
+                // C++ linePassableCallback observes occupancy before pinching and
+                // before either the clear-deck shortcut or surface validation.
+                if obj_id != INVALID_ID {
+                    let mut info = CheckMovementInfo {
+                        cell: coord,
+                        layer: resolved_layer,
+                        center_in_cell,
+                        radius: footprint_radius,
+                        consider_transient,
+                        acceptable_surfaces: surfaces,
+                        ..Default::default()
+                    };
+                    let movement = match ignore_obstacle_id {
+                        Some(ignore_id) => self.check_for_movement_with_observations(
+                            obj_id,
+                            &mut info,
+                            ignore_id,
+                            observations,
+                        ),
+                        None if observations.is_some() => self
+                            .check_for_movement_with_observations(
+                                obj_id,
+                                &mut info,
+                                INVALID_ID,
+                                observations,
+                            ),
+                        None => Ok(self.check_for_movement(obj_id, &mut info)),
+                    };
+                    match movement {
+                        Err(error) => {
+                            observation_error = Some(error);
+                            return 1;
+                        }
+                        Ok(false) => return 1,
+                        Ok(true) if info.ally_fixed_count > 0 || info.enemy_fixed => return 1,
+                        Ok(true) => {}
+                    }
                 }
-                if !pathfinder.is_passable_on_layer_with_ignore(
+
+                if !allow_pinched
+                    && self.pathfinder.is_pinched_on_layer(coord, resolved_layer) == Some(true)
+                {
+                    return 1;
+                }
+
+                let previous_layer = previous
+                    .and_then(|previous| self.pathfinder.resolved_layer_at(previous, layer));
+                if resolved_layer != PathfindLayerEnum::Ground
+                    && previous_layer == Some(resolved_layer)
+                    && self
+                        .pathfinder
+                        .get_cell_type_on_layer(coord, resolved_layer)
+                        == Some(PathfindCellType::Clear)
+                {
+                    return 0;
+                }
+
+                if self.pathfinder.is_passable_on_layer_with_ignore(
                     coord,
                     resolved_layer,
                     surfaces,
                     is_crusher,
                     ignore_cells,
                 ) {
-                    return Ok(false);
+                    0
+                } else {
+                    1
                 }
-            }
-
-            // C++ checkForMovement; bail on allyFixedCount || enemyFixed.
-            if obj_id != INVALID_ID {
-                let mut info = CheckMovementInfo {
-                    cell: coord,
-                    layer: resolved_layer,
-                    center_in_cell,
-                    radius: footprint_radius,
-                    consider_transient,
-                    acceptable_surfaces: surfaces,
-                    ..Default::default()
-                };
-                let can_move = match ignore_obstacle_id {
-                    Some(ignore_id) => self.check_for_movement_with_observations(
-                        obj_id,
-                        &mut info,
-                        ignore_id,
-                        observations,
-                    ),
-                    None => {
-                        if observations.is_some() {
-                            self.check_for_movement_with_observations(
-                                obj_id,
-                                &mut info,
-                                INVALID_ID,
-                                observations,
-                            )
-                        } else {
-                            Ok(self.check_for_movement(obj_id, &mut info))
-                        }
-                    }
-                }?;
-                if !can_move {
-                    return Ok(false);
-                }
-                if info.ally_fixed_count > 0 || info.enemy_fixed {
-                    return Ok(false);
-                }
-            }
+            });
+        match observation_error {
+            Some(error) => Err(error),
+            None => Ok(result == 0),
         }
-
-        Ok(true)
     }
 
     /// Check if ground path is passable

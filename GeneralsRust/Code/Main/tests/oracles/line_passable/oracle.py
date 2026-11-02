@@ -28,7 +28,7 @@ constexpr int LAYER_GROUND=1;
 struct CellCoord { int x=0,y=0; };
 struct Object { int getCrusherLevel() const { return 0; } };
 struct PathfindCell {
- enum { CELL_CLEAR=0 }; int layer=1, type=0; bool pinched=false;
+ enum { CELL_CLEAR=0, CELL_WATER=1 }; int layer=1, type=0; bool pinched=false;
  int getLayer() const { return layer; } int getType() const { return type; }
  bool getPinched() const { return pinched; }
 };
@@ -43,7 +43,9 @@ struct LinePassableStruct {
 struct Pathfinder {
  int seen=0, validations=0;
  bool checkForMovement(Object *, TCheckMovementInfo &info) { seen=info.layer; return true; }
- bool validMovementPosition(bool,int,PathfindCell *,PathfindCell *) { validations++; return true; }
+ bool validMovementPosition(bool,int surfaces,PathfindCell *to,PathfindCell *) {
+  validations++; return surfaces != 2 || to->getType() == PathfindCell::CELL_WATER;
+ }
  static Int linePassableCallback(Pathfinder *,PathfindCell *,PathfindCell *,Int,Int,void *);
 };
 __METHOD__
@@ -52,12 +54,20 @@ void run(const char *label, PathfindCell &from, PathfindCell &to) {
  auto result=Pathfinder::linePassableCallback(&finder,&from,&to,6,7,&info);
  std::cout << label << " " << result << " " << finder.seen << " " << finder.validations << "\n";
 }
+void water_run(const char *label, PathfindCell *from, PathfindCell &to) {
+ Pathfinder finder; LinePassableStruct info; info.acceptableSurfaces=2;
+ auto result=Pathfinder::linePassableCallback(&finder,from,&to,6,7,&info);
+ std::cout << label << " " << result << " " << finder.seen << " " << finder.validations << "\n";
+}
 int main() {
  PathfindCell deck{2,0,false}, deck_pinched{2,0,true}, ground_pinched{1,0,true}, ground{1,0,false};
  run("deck",deck,deck);
  run("deck-pinched",deck,deck_pinched);
  run("ground-fallback-pinched",deck,ground_pinched);
  run("ground",deck,ground);
+ water_run("water-to-clear-deck",&deck,deck);
+ water_run("first-clear-deck",nullptr,deck);
+ water_run("ground-to-clear-deck",&ground,deck);
 }
 '''.replace('__METHOD__', method)
 with tempfile.TemporaryDirectory(prefix='line-passable-') as directory:
@@ -66,7 +76,8 @@ with tempfile.TemporaryDirectory(prefix='line-passable-') as directory:
     subprocess.run(['c++', '-std=c++17', str(source_file), '-o', str(binary)], check=True)
     actual = subprocess.check_output([str(binary)], text=True)
     expected = ('deck 0 2 0\ndeck-pinched 1 2 0\nground-fallback-pinched 1 1 0\n'
-                'ground 0 1 1\n')
+                'ground 0 1 1\nwater-to-clear-deck 0 2 0\nfirst-clear-deck 1 2 1\n'
+                'ground-to-clear-deck 1 2 1\n')
     if actual != expected:
         raise SystemExit(f'unexpected C++ result: {actual!r}')
     print(actual, end='')

@@ -43,6 +43,7 @@ Int record(Pathfinder *, PathfindCell *from, PathfindCell *to, Int, Int, void *)
     if (from) std::cout << " " << from->x << "," << from->y << ">" << to->x << "," << to->y;
     return 0;
 }
+Int reject_first(Pathfinder *, PathfindCell *, PathfindCell *, Int, Int, void *) { return 1; }
 void test(const char *name, ICoord2D from, ICoord2D to) {
     Pathfinder p; std::cout << name; p.iterateCellsAlongLine(from,to,LAYER_GROUND,record,nullptr); std::cout << "\n";
 }
@@ -53,6 +54,10 @@ int main() {
     test("reverse", {6,4}, {2,2});
     test("horizontal", {2,2}, {5,2});
     test("same", {2,2}, {2,2});
+    test("intermediate", {6,5}, {8,6});
+    Pathfinder p;
+    std::cout << "boundary " << p.iterateCellsAlongLine({31,2},{32,2},LAYER_GROUND,record,nullptr) << "\n";
+    std::cout << "same-reject " << p.iterateCellsAlongLine({2,2},{2,2},LAYER_GROUND,reject_first,nullptr) << "\n";
 }
 '''.replace('__METHOD__', method)
 with tempfile.TemporaryDirectory(prefix='closest-line-') as directory:
@@ -65,7 +70,9 @@ with tempfile.TemporaryDirectory(prefix='closest-line-') as directory:
                 "diagonal 2,2>2,3 2,3>3,3 3,3>3,4 3,4>4,4 4,4>4,5\n"
                 "reverse 6,4>6,3 6,3>5,3 5,3>4,3 4,3>4,2 4,2>3,2 3,2>2,2 2,2>2,1\n"
                 "horizontal 2,2>3,2 3,2>4,2 4,2>5,2\n"
-                "same 2,2>2,3\n")
+                "same 2,2>2,3\n"
+                "intermediate 6,5>6,6 6,6>7,6 7,6>8,6 8,6>8,7\n"
+                "boundary 0\nsame-reject 1\n")
     if actual != expected:
         raise SystemExit(f'unexpected original result: {actual!r}')
     print(actual, end='')
