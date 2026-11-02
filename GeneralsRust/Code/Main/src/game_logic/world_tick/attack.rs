@@ -272,21 +272,25 @@ impl GameLogic {
             }
         }
         for id in stop {
-            let (attack_move_child, has_parent) =
-                self.objects.get(&id).map_or((false, false), |unit| {
-                    (
-                        unit.unit_ai_runtime.root_state() == AIState::AttackMoving
-                            && unit.unit_ai_runtime.parent_state() == Some(AIState::AttackMoving),
-                        unit.unit_ai_runtime.parent_state().is_some(),
-                    )
-                });
+            let (attack_move_child, parent) = self.objects.get(&id).map_or((false, None), |unit| {
+                (
+                    unit.unit_ai_runtime.root_state() == AIState::AttackMoving
+                        && unit.unit_ai_runtime.parent_state() == Some(AIState::AttackMoving),
+                    unit.unit_ai_runtime.parent_state(),
+                )
+            });
             if attack_move_child {
                 self.complete_attack_move_child_attack_owned(id)?;
             } else {
                 self.attack_state_exit(id);
                 self.stop_attack_decision_aware(id);
-                if has_parent {
-                    if !self.enter_ai_idle_child_owned(id) {
+                if let Some(parent) = parent {
+                    let entered = if parent == AIState::Hunting {
+                        self.enter_ai_idle_child_from_result_owned(id)
+                    } else {
+                        self.enter_ai_idle_child_owned(id)
+                    };
+                    if !entered {
                         return Err(gamelogic::GameLogicError::Configuration(
                             "nested attack could not return to its parent Idle child".into(),
                         ));

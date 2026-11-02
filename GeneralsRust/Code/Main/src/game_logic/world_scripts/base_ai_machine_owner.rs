@@ -321,6 +321,11 @@ impl GameLogic {
         self.enter_ai_idle_child_with_origin(id, ChildIdleOrigin::External)
     }
 
+    /// A child machine's result does not pass through the outer lock.
+    pub(crate) fn enter_ai_idle_child_from_result_owned(&mut self, id: ObjectId) -> bool {
+        self.enter_ai_idle_child_with_origin(id, ChildIdleOrigin::StateResult)
+    }
+
     fn enter_ai_idle_child_with_origin(&mut self, id: ObjectId, origin: ChildIdleOrigin) -> bool {
         let Some(unit) = self.objects.get(&id) else {
             return false;
@@ -415,7 +420,7 @@ impl GameLogic {
         unit.movement.velocity = Vec3::ZERO;
         unit.set_status_moving(false);
         unit.set_locomotor_goal_none();
-        if !self.enter_ai_idle_child_with_origin(id, ChildIdleOrigin::StateResult) {
+        if !self.enter_ai_idle_child_from_result_owned(id) {
             return Err(gamelogic::GameLogicError::Configuration(
                 "AttackMove child could not re-enter Idle".into(),
             ));

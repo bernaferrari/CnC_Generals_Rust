@@ -1073,6 +1073,124 @@ fn locked_attack_move_parent_allows_child_attack_to_finish() {
 }
 
 #[test]
+fn locked_hunt_parent_allows_child_attack_to_finish() {
+    use generals_main::game_logic::{AIState, ObjectAudio, SessionAudio};
+    use generals_main::save_load::{SnapshotBuilder, WorldSnapshot};
+
+    fn machine(snapshot: &WorldSnapshot, id: ObjectId) -> serde_json::Value {
+        let module = snapshot.objects[&id]
+            .modules
+            .get("ReceivingBaseAI")
+            .unwrap();
+        serde_json::to_value(module).unwrap()["BaseAi"]["continuation"].clone()
+    }
+    fn admit_players(session: &mut GameLogic) {
+        let player = session.get_player_mut(1).unwrap();
+        player.is_human = false;
+        player.alliance_team = 1;
+        player.units_should_hunt = true;
+        session.add_ai_opponent(1, Team::USA, generals_main::ai::AIDifficulty::Hard);
+        let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
+        enemy.alliance_team = 2;
+        session.add_player(enemy);
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut source, actor, _, _) = world_with_options(&map, true, true, false);
+    admit_players(&mut source);
+    let victim = source
+        .create_object_for_player("GroupUnit", 2, Vec3::new(45.0, 0.0, 40.0))
+        .unwrap();
+    let target = source.host_object_mut(victim).unwrap();
+    target.health.current = 10_000.0;
+    target.health.maximum = 10_000.0;
+    hunt(&mut source);
+    for _ in 0..240 {
+        let unit = source.host_object(actor).unwrap();
+        if unit.target == Some(victim) {
+            break;
+        }
+        source.update_with_dt(1.0 / 30.0);
+    }
+    let builder = SnapshotBuilder::new();
+    let mut saved = builder.create_world_snapshot(&source).unwrap();
+    let before = machine(&saved, actor);
+    assert_eq!(
+        before["ai_state"],
+        serde_json::to_value(AIState::Attacking).unwrap()
+    );
+    assert_eq!(
+        before["parent"]["state"],
+        serde_json::to_value(AIState::Hunting).unwrap()
+    );
+    let module = saved
+        .objects
+        .get_mut(&actor)
+        .unwrap()
+        .modules
+        .get_mut("ReceivingBaseAI")
+        .unwrap();
+    let mut value = serde_json::to_value(&*module).unwrap();
+    value["BaseAi"]["continuation"]["locked"] = true.into();
+    *module = serde_json::from_value(value).unwrap();
+    let (mut receiver, receiver_id, _, _) = world_with_options(&map, true, true, false);
+    let (mut peer, peer_id, _, _) = world_with_options(&map, true, true, false);
+    admit_players(&mut receiver);
+    admit_players(&mut peer);
+    assert_eq!((actor, actor), (receiver_id, peer_id));
+    builder
+        .restore_from_snapshot(&saved, &mut receiver)
+        .unwrap();
+    builder.restore_from_snapshot(&saved, &mut peer).unwrap();
+    receiver.destroy_object(victim).unwrap();
+    // Hunt currently records its attack child without entering the aiming
+    // body (hq-vc6c0j). Mark this child active to isolate its return path.
+    receiver
+        .host_object_mut(actor)
+        .unwrap()
+        .status
+        .is_aiming_weapon = true;
+    receiver.update_with_dt(1.0 / 30.0);
+    let after = builder.create_world_snapshot(&receiver).unwrap();
+    let body = machine(&after, actor);
+    assert_eq!(
+        body["ai_state"],
+        serde_json::to_value(AIState::Idle).unwrap()
+    );
+    assert_eq!(
+        body["parent"]["state"],
+        serde_json::to_value(AIState::Hunting).unwrap()
+    );
+    assert!(receiver.host_object(actor).unwrap().is_hunting());
+    assert_eq!(
+        machine(&builder.create_world_snapshot(&peer).unwrap(), actor),
+        machine(&saved, actor)
+    );
+    let mut audio = SessionAudio::default();
+    receiver
+        .host_object_mut(actor)
+        .unwrap()
+        .set_ai_state(AIState::Idle, &mut ObjectAudio::queue(&mut audio));
+    assert!(receiver.host_object(actor).unwrap().is_hunting());
+    let (mut reloaded, reloaded_id, _, _) = world_with_options(&map, true, true, false);
+    admit_players(&mut reloaded);
+    assert_eq!(reloaded_id, actor);
+    builder
+        .restore_from_snapshot(&after, &mut reloaded)
+        .unwrap();
+    assert_eq!(
+        machine(&builder.create_world_snapshot(&reloaded).unwrap(), actor),
+        body
+    );
+    reloaded
+        .host_object_mut(actor)
+        .unwrap()
+        .set_ai_state(AIState::Idle, &mut ObjectAudio::queue(&mut audio));
+    assert!(reloaded.host_object(actor).unwrap().is_hunting());
+}
+
+#[test]
 fn guard_replacement_saves_only_the_active_type_in_each_session() {
     let root = tempfile::tempdir().unwrap();
     let map = map_file_with_area(root.path(), 0);
