@@ -75,7 +75,8 @@ impl GameLogic {
                 let missing = glam::Vec3::new(-1000.0, -1000.0, 0.0);
                 let is_human = unit
                     .and_then(|u| u.owner_player_id)
-                    .map(|pid| self.is_local_player(pid))
+                    .and_then(|pid| self.get_player(pid))
+                    .map(|player| player.is_human)
                     .unwrap_or(true);
                 let p1 = r1
                     .and_then(|i| self.objects.get(&i).map(|o| o.get_position()))

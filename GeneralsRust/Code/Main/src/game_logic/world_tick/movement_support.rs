@@ -428,7 +428,8 @@ impl GameLogic {
                     let fallback = obj.move_away_destination.unwrap_or(from);
                     let is_human = obj
                         .owner_player_id
-                        .map(|pid| self.is_local_player(pid))
+                        .and_then(|pid| self.get_player(pid))
+                        .map(|player| player.is_human)
                         .unwrap_or(true);
                     let rep_pos = self
                         .objects
