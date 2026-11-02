@@ -455,6 +455,17 @@ pub struct MainMenu {
     first_time_running_game: bool,
 }
 
+#[cfg(not(feature = "network"))]
+fn network_compat<'a>(
+    effects: &crate::gui::game_window::WindowEventEffects<'a>,
+) -> &'a crate::game_network_compat::NetworkCompatState {
+    effects
+        .window_manager_owner
+        .expect("main menu network stub requires WindowManagerOwner")
+        .network_compat()
+}
+
+
 impl MainMenu {
     fn hide_receiving_window_with_lent(
         manager: &mut crate::gui::window_manager::WindowManager,
@@ -855,7 +866,7 @@ impl MainMenu {
             }
         });
 
-        if get_peer_message_queue()
+        if get_peer_message_queue(network_compat(effects))
             .and_then(|queue| queue.lock().ok().map(|queue| !queue.is_connected()))
             .unwrap_or(false)
         {
@@ -948,7 +959,7 @@ impl MainMenu {
             state.just_entered = false;
         }
 
-        if let Ok(mut manager_guard) = download_manager().lock() {
+        if let Ok(mut manager_guard) = download_manager(network_compat(effects)).lock() {
             let should_update = manager_guard
                 .as_ref()
                 .map(|manager| !manager.is_done())
@@ -1521,7 +1532,7 @@ impl MainMenu {
     }
 
     fn start_downloading_patches(effects: &mut WindowEventEffects<'_>) {
-        let has_queued_downloads = download_manager()
+        let has_queued_downloads = download_manager(network_compat(effects))
             .lock()
             .ok()
             .and_then(|guard| {
@@ -1552,7 +1563,7 @@ impl MainMenu {
 
         effects.with_main_menu(|menu, effects| menu.handle_canceled_download(false, effects, None));
 
-        if let Ok(mut guard) = download_manager().lock() {
+        if let Ok(mut guard) = download_manager(network_compat(effects)).lock() {
             if let Some(manager) = guard.as_mut() {
                 let _ = manager.download_next_queued_file();
             }

@@ -288,7 +288,7 @@ impl WindowManager {
                 "DownloadMenuInit" => {
                     layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
                         effects.with_manager(|manager, effects| {
-                            download_menu_init(layout, None, manager)
+                            download_menu_init(layout, None, manager, effects)
                         });
                     }));
                     None

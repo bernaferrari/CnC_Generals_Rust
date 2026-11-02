@@ -52,6 +52,9 @@ struct WindowManagerOwnerState {
     widget_tree_navigation_observed: Cell<bool>,
     /// LAN / Skirmish shell transition flags (C++ file-statics on those menus).
     menu_shell_flags: super::menu_shell_flags::MenuShellFlags,
+    /// Offline network stub queues / facade (not(feature = "network")).
+    #[cfg(not(feature = "network"))]
+    network_compat: crate::game_network_compat::NetworkCompatState,
 }
 
 /// Persistent owner for one native client's WND tree and its re-entry queues.
@@ -115,6 +118,8 @@ impl WindowManagerOwner {
                 last_widget_tree_click_used: Cell::new(false),
                 widget_tree_navigation_observed: Cell::new(false),
                 menu_shell_flags: super::menu_shell_flags::MenuShellFlags::new(),
+                #[cfg(not(feature = "network"))]
+                network_compat: crate::game_network_compat::NetworkCompatState::new(),
             }),
         }
     }
@@ -130,6 +135,13 @@ impl WindowManagerOwner {
     pub fn menu_shell_flags(&self) -> &super::menu_shell_flags::MenuShellFlags {
         &self.state.menu_shell_flags
     }
+
+    /// Offline network stub state for this client (`not(feature = "network")`).
+    #[cfg(not(feature = "network"))]
+    pub fn network_compat(&self) -> &crate::game_network_compat::NetworkCompatState {
+        &self.state.network_compat
+    }
+
     pub(crate) fn record_widget_tree_click_used(&self, used: bool) {
         self.state.last_widget_tree_click_used.set(used);
     }

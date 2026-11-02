@@ -1420,7 +1420,7 @@ impl ScriptCallbackRegistry {
             Box::new(|layout, effects| cb::score_screen_init(layout, None, effects)),
         );
         self.register_layout_init("DownloadMenuInit", |layout, effects| {
-            effects.with_manager(|manager, effects| cb::download_menu_init(layout, None, manager))
+            effects.with_manager(|manager, effects| cb::download_menu_init(layout, None, manager, effects))
         });
         self.layout_init.insert(
             "DifficultySelectInit".into(),

@@ -61,9 +61,10 @@ fn toggle_script_display_debug_callback(
 fn toggle_demo_network_runtime() {
     #[cfg(not(feature = "network"))]
     {
-        if let Some(network) = game_network::get_network() {
-            network.toggle_network_on();
-        }
+        // Offline stub: demo cheat toggles the receiving owner's facade when the
+        // meta dispatcher later gains a WindowManagerOwner loan. Until then the
+        // cheat is a no-op (no process network singleton).
+        log::debug!("DEMO_TOGGLE_NETWORK ignored offline without NetworkCompatState loan");
     }
 
     #[cfg(feature = "network")]

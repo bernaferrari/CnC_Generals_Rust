@@ -85,6 +85,9 @@ pub struct PlayerDisconnectInfo {
 pub struct DisconnectMenu {
     /// Window reference
     window: Option<std::rc::Rc<std::cell::RefCell<GameWindow>>>,
+    /// Offline network facade for chat/quit/vote (from NetworkCompatState).
+    #[cfg(not(feature = "network"))]
+    network: Option<std::sync::Arc<game_network::NetworkFacade>>,
 
     /// Player information
     players: HashMap<u32, PlayerDisconnectInfo>,
@@ -133,9 +136,17 @@ pub struct DisconnectMenu {
 
 impl DisconnectMenu {
     /// Create new DisconnectMenu
+    /// Attach the receiving client's offline network facade.
+    #[cfg(not(feature = "network"))]
+    pub fn bind_network_compat(&mut self, state: &game_network::NetworkCompatState) {
+        self.network = game_network::get_network(state);
+    }
+
     pub fn new() -> Self {
         Self {
             window: None,
+            #[cfg(not(feature = "network"))]
+            network: None,
             players: HashMap::new(),
             player_name_controls: Vec::with_capacity(PLAYER_NAME_TEXT_CONTROLS.len()),
             player_timeout_controls: Vec::with_capacity(PLAYER_TIMEOUT_TEXT_CONTROLS.len()),
@@ -253,6 +264,11 @@ impl DisconnectMenu {
         if !self.is_initialized {
             log::warn!("DisconnectMenu::show called before initialization");
             return;
+        }
+
+        #[cfg(not(feature = "network"))]
+        if let Some(owner) = effects.window_manager_owner {
+            self.bind_network_compat(owner.network_compat());
         }
 
         log::info!("Showing disconnect menu: {}", reason);
@@ -674,6 +690,12 @@ impl DisconnectMenu {
     }
 
     pub fn send_chat(&self, text: &str) {
+        #[cfg(not(feature = "network"))]
+        let Some(network) = self.network.clone() else {
+            log::warn!("send_chat ignored; network not initialized");
+            return;
+        };
+        #[cfg(feature = "network")]
         let Some(network) = get_network() else {
             log::warn!("send_chat ignored; network not initialized");
             return;
@@ -714,6 +736,12 @@ impl DisconnectMenu {
     }
 
     pub fn quit_game(&self) {
+        #[cfg(not(feature = "network"))]
+        let Some(network) = self.network.clone() else {
+            log::warn!("quit_game ignored; network not initialized");
+            return;
+        };
+        #[cfg(feature = "network")]
         let Some(network) = get_network() else {
             log::warn!("quit_game ignored; network not initialized");
             return;
@@ -738,6 +766,12 @@ impl DisconnectMenu {
     }
 
     pub fn vote_for_player(&self, slot: u8) {
+        #[cfg(not(feature = "network"))]
+        let Some(network) = self.network.clone() else {
+            log::warn!("vote_for_player ignored; network not initialized");
+            return;
+        };
+        #[cfg(feature = "network")]
         let Some(network) = get_network() else {
             log::warn!("vote_for_player ignored; network not initialized");
             return;

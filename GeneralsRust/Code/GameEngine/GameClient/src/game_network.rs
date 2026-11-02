@@ -7,8 +7,7 @@ use game_engine::common::ascii_string::AsciiString;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 #[path = "../../GameNetwork/src/game_info/mod.rs"]
 mod game_info_port;
@@ -30,18 +29,30 @@ pub mod game_info {
     }
 }
 
-#[derive(Default)]
-pub struct NetworkFacade;
+pub struct NetworkFacade {
+    /// C++ TheNetwork / network-on latch — per facade (Send-safe for async chat).
+    network_on: std::sync::atomic::AtomicBool,
+}
 
-static NETWORK_ON: AtomicBool = AtomicBool::new(true);
+impl Default for NetworkFacade {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl NetworkFacade {
+    pub fn new() -> Self {
+        Self {
+            network_on: std::sync::atomic::AtomicBool::new(true),
+        }
+    }
+
     pub fn toggle_network_on(&self) {
-        NETWORK_ON.fetch_xor(true, Ordering::SeqCst);
+        let _ = self.network_on.fetch_xor(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn is_network_on(&self) -> bool {
-        NETWORK_ON.load(Ordering::SeqCst)
+        self.network_on.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     pub async fn send_disconnect_chat_message(
@@ -73,10 +84,6 @@ impl NetworkFacade {
     }
 }
 
-pub fn get_network() -> Option<Arc<NetworkFacade>> {
-    static NETWORK: OnceLock<Arc<NetworkFacade>> = OnceLock::new();
-    Some(NETWORK.get_or_init(|| Arc::new(NetworkFacade)).clone())
-}
 
 pub mod network {
     use super::{NetworkFacade, get_network};
@@ -85,8 +92,8 @@ pub mod network {
     pub struct Network;
 
     impl Network {
-        pub fn from_global() -> Option<Arc<NetworkFacade>> {
-            get_network()
+        pub fn from_state(state: &super::NetworkCompatState) -> Option<Arc<NetworkFacade>> {
+            get_network(state)
         }
     }
 }
@@ -309,10 +316,6 @@ pub mod download_manager {
         End,
     }
 
-    thread_local! {
-        static DOWNLOAD_MANAGER: RefCell<Option<Arc<GuiThreadLock<Option<DownloadManager>>>>> =
-            const { RefCell::new(None) };
-    }
 
     impl Default for DownloadEvent {
         fn default() -> Self {
@@ -386,18 +389,17 @@ pub mod download_manager {
         }
     }
 
-    /// GUI-thread download slot. THREAD: stub build — no FTP task exists, so
-    /// the slot is per-thread state (see [`GuiThreadLock`]).
-    pub fn download_manager() -> Arc<GuiThreadLock<Option<DownloadManager>>> {
-        DOWNLOAD_MANAGER.with(|slot| {
-            slot.borrow_mut()
-                .get_or_insert_with(|| Arc::new(GuiThreadLock::new(None)))
-                .clone()
-        })
+    /// GUI-thread download slot — owned on [`NetworkCompatState`].
+    pub fn download_manager(
+        state: &super::NetworkCompatState,
+    ) -> Arc<GuiThreadLock<Option<DownloadManager>>> {
+        state
+            .download_manager()
+            .expect("download manager slot")
     }
 
-    pub fn set_download_manager(manager: Option<DownloadManager>) {
-        let slot = download_manager();
+    pub fn set_download_manager(state: &super::NetworkCompatState, manager: Option<DownloadManager>) {
+        let slot = download_manager(state);
         let mut guard = slot
             .lock()
             .expect("download manager slot re-entered on the GUI thread");
@@ -478,22 +480,14 @@ pub mod gamespy {
             }
         }
 
-        /// GUI-thread ladder list. THREAD: stub build — no ladder task exists,
-        /// so the slot is per-thread state (see [`GuiThreadLock`]).
-        pub fn get_ladder_list() -> Option<Arc<GuiThreadLock<LadderList>>> {
-            Some(LADDER_LIST.with(|slot| {
-                slot.borrow_mut()
-                    .get_or_insert_with(|| Arc::new(GuiThreadLock::new(LadderList::default())))
-                    .clone()
-            }))
+        /// GUI-thread ladder list — owned on [`NetworkCompatState`].
+        pub fn get_ladder_list(
+            state: &super::super::NetworkCompatState,
+        ) -> Option<Arc<GuiThreadLock<LadderList>>> {
+            state.ladder_list()
         }
 
         pub fn init_ladder_list() {}
-
-        thread_local! {
-            static LADDER_LIST: RefCell<Option<Arc<GuiThreadLock<LadderList>>>> =
-                const { RefCell::new(None) };
-        }
 
         pub fn set_ladder_map_provider(_provider: Arc<dyn LadderMapProvider>) {}
     }
@@ -618,19 +612,11 @@ pub mod gamespy {
             ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
         }
 
-        /// GUI-thread GameSpy slot. THREAD: stub build — no GameSpy task
-        /// exists, so the slot is per-thread state (see [`GuiThreadLock`]).
-        pub fn get_gamespy_info() -> Option<Arc<GuiThreadLock<GameSpyInfo>>> {
-            Some(GAMESPY_INFO.with(|slot| {
-                slot.borrow_mut()
-                    .get_or_insert_with(|| Arc::new(GuiThreadLock::new(GameSpyInfo::default())))
-                    .clone()
-            }))
-        }
-
-        thread_local! {
-            static GAMESPY_INFO: RefCell<Option<Arc<GuiThreadLock<GameSpyInfo>>>> =
-                const { RefCell::new(None) };
+        /// GUI-thread GameSpy slot — owned on [`NetworkCompatState`].
+        pub fn get_gamespy_info(
+            state: &super::super::NetworkCompatState,
+        ) -> Option<Arc<GuiThreadLock<GameSpyInfo>>> {
+            state.gamespy_info()
         }
 
         pub fn tear_down_gamespy() {}
@@ -710,21 +696,11 @@ pub mod gamespy {
             }
         }
 
-        /// GUI-thread peer queue. THREAD: stub build — no peer task exists, so
-        /// the queue is per-thread state (see [`GuiThreadLock`]).
-        pub fn get_peer_message_queue() -> Option<Arc<GuiThreadLock<PeerMessageQueue>>> {
-            Some(PEER_MESSAGE_QUEUE.with(|slot| {
-                slot.borrow_mut()
-                    .get_or_insert_with(|| {
-                        Arc::new(GuiThreadLock::new(PeerMessageQueue::default()))
-                    })
-                    .clone()
-            }))
-        }
-
-        thread_local! {
-            static PEER_MESSAGE_QUEUE: RefCell<Option<Arc<GuiThreadLock<PeerMessageQueue>>>> =
-                const { RefCell::new(None) };
+        /// GUI-thread peer queue — owned on [`NetworkCompatState`].
+        pub fn get_peer_message_queue(
+            state: &super::super::NetworkCompatState,
+        ) -> Option<Arc<GuiThreadLock<PeerMessageQueue>>> {
+            state.peer_message_queue()
         }
 
         pub fn teardown_peer_message_queue() {}
@@ -794,21 +770,11 @@ pub mod gamespy {
             }
         }
 
-        /// GUI-thread persistent-storage queue. THREAD: stub build — no PS
-        /// task exists, so the queue is per-thread state (see [`GuiThreadLock`]).
-        pub fn get_ps_message_queue() -> Option<Arc<GuiThreadLock<GameSpyPSMessageQueue>>> {
-            Some(PS_MESSAGE_QUEUE.with(|slot| {
-                slot.borrow_mut()
-                    .get_or_insert_with(|| {
-                        Arc::new(GuiThreadLock::new(GameSpyPSMessageQueue::default()))
-                    })
-                    .clone()
-            }))
-        }
-
-        thread_local! {
-            static PS_MESSAGE_QUEUE: RefCell<Option<Arc<GuiThreadLock<GameSpyPSMessageQueue>>>> =
-                const { RefCell::new(None) };
+        /// GUI-thread persistent-storage queue — owned on [`NetworkCompatState`].
+        pub fn get_ps_message_queue(
+            state: &super::super::NetworkCompatState,
+        ) -> Option<Arc<GuiThreadLock<GameSpyPSMessageQueue>>> {
+            state.ps_message_queue()
         }
 
         pub fn teardown_ps_message_queue() {}
@@ -859,21 +825,11 @@ pub mod gamespy {
             }
         }
 
-        /// GUI-thread buddy queue. THREAD: stub build — no buddy task exists,
-        /// so the queue is per-thread state (see [`GuiThreadLock`]).
-        pub fn get_buddy_message_queue() -> Option<Arc<GuiThreadLock<BuddyMessageQueue>>> {
-            Some(BUDDY_MESSAGE_QUEUE.with(|slot| {
-                slot.borrow_mut()
-                    .get_or_insert_with(|| {
-                        Arc::new(GuiThreadLock::new(BuddyMessageQueue::default()))
-                    })
-                    .clone()
-            }))
-        }
-
-        thread_local! {
-            static BUDDY_MESSAGE_QUEUE: RefCell<Option<Arc<GuiThreadLock<BuddyMessageQueue>>>> =
-                const { RefCell::new(None) };
+        /// GUI-thread buddy queue — owned on [`NetworkCompatState`].
+        pub fn get_buddy_message_queue(
+            state: &super::super::NetworkCompatState,
+        ) -> Option<Arc<GuiThreadLock<BuddyMessageQueue>>> {
+            state.buddy_message_queue()
         }
 
         pub fn teardown_buddy_message_queue() {}
@@ -903,21 +859,150 @@ pub mod gamespy {
 
         pub fn init_ping_queue() {}
 
-        /// GUI-thread ping queue. THREAD: stub build — no ping task exists, so
-        /// the queue is per-thread state (see [`GuiThreadLock`]).
-        pub fn get_ping_queue() -> Option<Arc<GuiThreadLock<PingQueue>>> {
-            Some(PING_QUEUE.with(|slot| {
-                slot.borrow_mut()
-                    .get_or_insert_with(|| Arc::new(GuiThreadLock::new(PingQueue::default())))
-                    .clone()
-            }))
-        }
-
-        thread_local! {
-            static PING_QUEUE: RefCell<Option<Arc<GuiThreadLock<PingQueue>>>> =
-                const { RefCell::new(None) };
+        /// GUI-thread ping queue — owned on [`NetworkCompatState`].
+        pub fn get_ping_queue(
+            state: &super::super::NetworkCompatState,
+        ) -> Option<Arc<GuiThreadLock<PingQueue>>> {
+            state.ping_queue()
         }
 
         pub fn teardown_ping_queue() {}
     }
+}
+
+
+/// Per-client network stub state (download / GameSpy / peer / buddy / ping queues).
+///
+/// C++ kept these as process singletons; offline (`not(feature = "network")`) Rust
+/// owns them on WindowManagerOwner so multiple GameClients never share TLS slots.
+pub struct NetworkCompatState {
+    pub facade: Arc<NetworkFacade>,
+    download_manager: RefCell<Option<Arc<GuiThreadLock<Option<download_manager::DownloadManager>>>>>,
+    ladder_list: RefCell<Option<Arc<GuiThreadLock<gamespy::ladder_defs::LadderList>>>>,
+    gamespy_info: RefCell<Option<Arc<GuiThreadLock<gamespy::peer_defs::GameSpyInfo>>>>,
+    peer_message_queue: RefCell<Option<Arc<GuiThreadLock<gamespy::peer_thread::PeerMessageQueue>>>>,
+    ps_message_queue: RefCell<
+        Option<Arc<GuiThreadLock<gamespy::persistent_storage_thread::GameSpyPSMessageQueue>>>,
+    >,
+    buddy_message_queue:
+        RefCell<Option<Arc<GuiThreadLock<gamespy::buddy_thread::BuddyMessageQueue>>>>,
+    ping_queue: RefCell<Option<Arc<GuiThreadLock<gamespy::ping_thread::PingQueue>>>>,
+}
+
+impl Default for NetworkCompatState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl NetworkCompatState {
+    pub fn new() -> Self {
+        Self {
+            facade: Arc::new(NetworkFacade::new()),
+            download_manager: RefCell::new(None),
+            ladder_list: RefCell::new(None),
+            gamespy_info: RefCell::new(None),
+            peer_message_queue: RefCell::new(None),
+            ps_message_queue: RefCell::new(None),
+            buddy_message_queue: RefCell::new(None),
+            ping_queue: RefCell::new(None),
+        }
+    }
+
+    pub fn ladder_list(
+        &self,
+    ) -> Option<Arc<GuiThreadLock<gamespy::ladder_defs::LadderList>>> {
+        Some(
+            self.ladder_list
+                .borrow_mut()
+                .get_or_insert_with(|| {
+                    Arc::new(GuiThreadLock::new(gamespy::ladder_defs::LadderList::default()))
+                })
+                .clone(),
+        )
+    }
+
+    pub fn gamespy_info(
+        &self,
+    ) -> Option<Arc<GuiThreadLock<gamespy::peer_defs::GameSpyInfo>>> {
+        Some(
+            self.gamespy_info
+                .borrow_mut()
+                .get_or_insert_with(|| {
+                    Arc::new(GuiThreadLock::new(gamespy::peer_defs::GameSpyInfo::default()))
+                })
+                .clone(),
+        )
+    }
+
+    pub fn peer_message_queue(
+        &self,
+    ) -> Option<Arc<GuiThreadLock<gamespy::peer_thread::PeerMessageQueue>>> {
+        Some(
+            self.peer_message_queue
+                .borrow_mut()
+                .get_or_insert_with(|| {
+                    Arc::new(GuiThreadLock::new(
+                        gamespy::peer_thread::PeerMessageQueue::default(),
+                    ))
+                })
+                .clone(),
+        )
+    }
+
+    pub fn ps_message_queue(
+        &self,
+    ) -> Option<Arc<GuiThreadLock<gamespy::persistent_storage_thread::GameSpyPSMessageQueue>>> {
+        Some(
+            self.ps_message_queue
+                .borrow_mut()
+                .get_or_insert_with(|| {
+                    Arc::new(GuiThreadLock::new(
+                        gamespy::persistent_storage_thread::GameSpyPSMessageQueue::default(),
+                    ))
+                })
+                .clone(),
+        )
+    }
+
+    pub fn buddy_message_queue(
+        &self,
+    ) -> Option<Arc<GuiThreadLock<gamespy::buddy_thread::BuddyMessageQueue>>> {
+        Some(
+            self.buddy_message_queue
+                .borrow_mut()
+                .get_or_insert_with(|| {
+                    Arc::new(GuiThreadLock::new(
+                        gamespy::buddy_thread::BuddyMessageQueue::default(),
+                    ))
+                })
+                .clone(),
+        )
+    }
+
+    pub fn ping_queue(&self) -> Option<Arc<GuiThreadLock<gamespy::ping_thread::PingQueue>>> {
+        Some(
+            self.ping_queue
+                .borrow_mut()
+                .get_or_insert_with(|| {
+                    Arc::new(GuiThreadLock::new(gamespy::ping_thread::PingQueue::default()))
+                })
+                .clone(),
+        )
+    }
+
+    pub fn download_manager(
+        &self,
+    ) -> Option<Arc<GuiThreadLock<Option<download_manager::DownloadManager>>>> {
+        Some(
+            self.download_manager
+                .borrow_mut()
+                .get_or_insert_with(|| Arc::new(GuiThreadLock::new(None)))
+                .clone(),
+        )
+    }
+}
+
+pub fn get_network(state: &NetworkCompatState) -> Option<Arc<NetworkFacade>> {
+    Some(state.facade.clone())
 }

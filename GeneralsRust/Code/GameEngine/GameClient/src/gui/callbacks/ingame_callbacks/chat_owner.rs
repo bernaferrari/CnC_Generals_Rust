@@ -393,7 +393,14 @@ fn toggle_selected(
         let mask = facts.player_mask(&chat_type);
         let mut filtered = text;
         get_language_filter().filter_line(&mut filtered);
-        if let Some(network) = game_network::get_network() {
+        #[cfg(not(feature = "network"))]
+        let network = effects
+            .window_manager_owner
+            .map(|owner| owner.network_compat())
+            .and_then(game_network::get_network);
+        #[cfg(feature = "network")]
+        let network = game_network::get_network();
+        if let Some(network) = network {
             let _ = pollster::block_on(network.send_chat_message(filtered.clone(), mask as u8));
         } else {
             warn!("send_chat ignored; network not initialized");

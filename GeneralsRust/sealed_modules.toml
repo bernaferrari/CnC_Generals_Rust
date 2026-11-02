@@ -172,3 +172,7 @@ path = "Code/GameEngine/GameLogic/src/world/entity_generation.rs"
 cpp = "GeneralsMD/Code/GameEngine/Include/GameLogic/GameLogic.h"
 note = "Per-world EntityHandle epoch via SessionLogicFlags; 0 process globals; fail-closed reuse defense."
 
+
+path = "Code/GameEngine/GameClient/src/game_network.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameNetwork"
+note = "Offline NetworkCompatState on WindowManagerOwner; removed TLS queues + process NETWORK_ON; getters take &NetworkCompatState."
