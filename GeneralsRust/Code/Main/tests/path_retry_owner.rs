@@ -1449,8 +1449,8 @@ fn queued_search_uses_the_current_owners_locomotor_surfaces() {
     );
     assert_eq!(
         water_unit.movement.path.last().copied(),
-        Some(goal),
-        "the original closest search tunnels from an invalid starting surface"
+        Some(Vec3::new(105.0, 0.0, 155.0)),
+        "the original closest search ends at the adjusted goal cell after tunneling"
     );
     assert_eq!(
         restored_unit.movement.path, water_unit.movement.path,

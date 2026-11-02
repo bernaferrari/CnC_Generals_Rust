@@ -88,8 +88,8 @@ fn assert_live_closest_controller() {
     );
     assert_eq!(
         h.movement.path,
-        vec![Vec3::new(150.0, 0.0, 150.0)],
-        "human search remains at its starting cell"
+        vec![Vec3::new(155.0, 0.0, 155.0)],
+        "human search remains at the adjusted center of its starting cell"
     );
     assert_eq!(
         missing.movement.path, h.movement.path,

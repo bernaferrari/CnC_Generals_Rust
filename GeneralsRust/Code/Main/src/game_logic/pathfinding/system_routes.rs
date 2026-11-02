@@ -1328,11 +1328,11 @@ impl PathfindingSystem {
             if cx == goal_grid.x && cy == goal_grid.y {
                 let goal_ok = goal_accept_ok;
                 if goal_ok || closest_cell.is_none() {
-                    found_goal_cell = true;
                     closest_cell = Some((cell, layer, 0.0));
                     break;
                 } else {
                     found_goal_cell = true;
+                    continue;
                 }
             } else if !tunnel
                 && (!started_stuck
@@ -1369,6 +1369,9 @@ impl PathfindingSystem {
                 if better {
                     closest_cell = Some((cell, layer, dist_sqr));
                 }
+            }
+            if found_goal_cell {
+                continue;
             }
             let f_hop = g + heuristic(cell);
             self.grid.enqueue_connect_layer(
@@ -1439,37 +1442,45 @@ impl PathfindingSystem {
             }
         }
         let (best_cell, best_layer, _) = closest_cell?;
-        let to_pos = if found_goal_cell && best_cell == goal_grid {
-            goal
-        } else {
-            self.grid
-                .grid_to_world_on_layer(best_cell, best_layer, ground_source)
-        };
-        // C++ buildActualPath follows the parents from this very search.
-        // Running a second search would discard the tunneling decisions.
         let start_key = (start.x, start.y, start_lid);
         let mut cursor = (best_cell.x, best_cell.y, best_layer as u8);
+        // C++ buildActualPath backs off a pinched goal if its parent is open.
+        if best_layer == PathfindLayerEnum::Ground && self.grid.is_pinched(best_cell) {
+            if let Some(&parent) = parents.get(&cursor) {
+                let parent_cell = GridPos::new(parent.0, parent.1);
+                let parent_layer = PathfindLayerEnum::from_u32(parent.2 as u32);
+                if parent_layer != PathfindLayerEnum::Ground || !self.grid.is_pinched(parent_cell) {
+                    cursor = parent;
+                }
+            }
+        }
+        // C++ prependCells follows this search's parent chain. It skips the
+        // start cell, except for a one-cell path, and adjusts every cell for
+        // the mover's centering rule before prepending the actual start.
         let mut cells = vec![cursor];
         while cursor != start_key {
             cursor = *parents.get(&cursor)?;
             cells.push(cursor);
         }
         cells.reverse();
+        let skip_start = usize::from(cells.len() > 1);
         let mut path: Vec<Vec3> = cells
             .into_iter()
+            .skip(skip_start)
             .map(|(x, y, layer)| {
-                self.grid.grid_to_world_on_layer(
+                self.grid.adjust_coord_to_cell_on_layer(
                     GridPos::new(x, y),
+                    center_in_cell,
                     PathfindLayerEnum::from_u32(layer as u32),
                     ground_source,
                 )
             })
             .collect();
-        if let Some(first) = path.first_mut() {
-            *first = from;
-        }
-        if let Some(last) = path.last_mut() {
-            *last = to_pos;
+        if path
+            .first()
+            .is_some_and(|point| point.x != from.x || point.z != from.z)
+        {
+            path.insert(0, from);
         }
         Some(
             self.grid

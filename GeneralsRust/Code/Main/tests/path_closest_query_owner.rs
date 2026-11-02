@@ -454,3 +454,120 @@ fn closest_search_tunnels_from_an_invalid_surface_until_goal_or_valid_exit() {
         "without tunneling a water-only unit cannot cross ground cells"
     );
 }
+
+#[test]
+fn closest_same_cell_preserves_original_start_before_cell_center() {
+    let make = |position| {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::USA, "Owner", true));
+        let mut template = ThingTemplate::new("Mover");
+        template.add_kind_of(KindOf::Infantry).set_health(100.0);
+        world.templates.insert("Mover".into(), template);
+        let mover = world
+            .create_object_for_player("Mover", 0, position)
+            .unwrap();
+        (world, PathfindingSystem::new(200.0, 200.0), mover)
+    };
+    let from = Vec3::new(21.0, 0.0, 52.0);
+    let (world, mut finder, mover) = make(from);
+    let goal = Vec3::new(22.0, 0.0, 53.0);
+    let path = finder
+        .find_closest_path(
+            from,
+            goal,
+            SURFACE_GROUND,
+            false,
+            true,
+            0.0,
+            &PathfindingGround::Flat(0.0),
+            world.host_objects(),
+            mover,
+        )
+        .expect("same-cell closest path");
+    assert_eq!(
+        path,
+        vec![from, Vec3::new(25.0, 0.0, 55.0)],
+        "original prependCells keeps the actual start before the cell center"
+    );
+
+    let centered = Vec3::new(25.0, 0.0, 55.0);
+    let (world, mut finder, mover) = make(centered);
+    let path = finder
+        .find_closest_path(
+            centered,
+            goal,
+            SURFACE_GROUND,
+            false,
+            true,
+            0.0,
+            &PathfindingGround::Flat(0.0),
+            world.host_objects(),
+            mover,
+        )
+        .expect("centered closest path");
+    assert_eq!(path, vec![centered]);
+}
+
+#[test]
+fn closest_same_cell_uses_even_footprint_inset() {
+    use generals_main::game_logic::HostGeometryType;
+    let from = Vec3::new(21.0, 0.0, 52.0);
+    let goal = Vec3::new(22.0, 0.0, 53.0);
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
+    let mut template = ThingTemplate::new("WideMover");
+    template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+    template.geometry_info.geom_type = HostGeometryType::Sphere;
+    template.geometry_info.major_radius = 8.0;
+    template.geometry_info.authored = true;
+    world.templates.insert("WideMover".into(), template);
+    let mover = world
+        .create_object_for_player("WideMover", 0, from)
+        .unwrap();
+    let mut finder = PathfindingSystem::new(200.0, 200.0);
+    let path = finder
+        .find_closest_path(
+            from,
+            goal,
+            SURFACE_GROUND,
+            false,
+            true,
+            0.0,
+            &PathfindingGround::Flat(0.0),
+            world.host_objects(),
+            mover,
+        )
+        .expect("same-cell closest path");
+    assert_eq!(path, vec![from, Vec3::new(20.5, 0.0, 50.5)]);
+}
+
+#[test]
+fn closest_path_backs_off_a_pinched_goal_to_its_open_parent() {
+    let (world, mut finder, mover, _) = make_world();
+    let from = Vec3::new(25.0, 0.0, 55.0);
+    let goal = Vec3::new(75.0, 0.0, 55.0);
+    let goal_cell = finder.grid.world_to_grid(goal);
+    finder.grid.set_pinched(goal_cell, true);
+    let path = finder
+        .find_closest_path(
+            from,
+            goal,
+            SURFACE_GROUND,
+            false,
+            true,
+            0.0,
+            &PathfindingGround::Flat(0.0),
+            world.host_objects(),
+            mover,
+        )
+        .expect("closest path to pinched goal");
+    let end_cell = finder.grid.world_to_grid(*path.last().unwrap());
+    assert_ne!(
+        end_cell, goal_cell,
+        "C++ buildActualPath backs off a pinched goal"
+    );
+    assert!(
+        !finder.grid.is_pinched(end_cell),
+        "the selected parent is not pinched"
+    );
+}
