@@ -9,3 +9,8 @@
 # path = "Code/Libraries/Source/WWVegas/Example"
 # cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/Example"
 # note = "Example sealed module."
+
+[[module]]
+path = "Code/GameEngine/GameLogic/src/supply_system/gathering.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/RTS/ResourceGatheringManager.cpp"
+note = "Player-owned ResourceGatheringManager; Vec IDs (C++ std::list); scoring via precomputed transfer/clear maps from resource.rs."
