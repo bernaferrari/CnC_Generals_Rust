@@ -2980,3 +2980,14 @@ fn owned_adjust_candidate_applies_human_logical_extent() {
     ));
     assert_eq!((goal.x, goal.y), (40.5, 40.5));
 }
+
+#[test]
+fn quick_path_truncates_destination_and_clips_zone_cell() {
+    let mut world = PathfindingSystem::new(8, 8);
+    world.new_map();
+    let from = Coord3D::new(5.0, 5.0, 0.0);
+    let just_outside = Coord3D::new(-1.0, 5.0, 0.0);
+    assert!(world.client_safe_quick_does_path_exist(SURFACE_GROUND, &from, &just_outside));
+    let clearly_outside = Coord3D::new(-11.0, 5.0, 0.0);
+    assert!(!world.client_safe_quick_does_path_exist(SURFACE_GROUND, &from, &clearly_outside));
+}

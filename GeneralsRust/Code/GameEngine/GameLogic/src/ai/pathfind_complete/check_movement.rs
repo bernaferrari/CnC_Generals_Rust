@@ -343,26 +343,29 @@ impl PathfindingSystem {
         if let Some(from_pos) =
             from.filter(|_| !owner.is_some_and(|owner| owner.source.is_kind_of(KindOf::Aircraft)))
         {
-            let path_exists = self.client_safe_quick_does_path_exist_ignoring(
+            let path_exists = self.client_safe_quick_does_path_exist_with_observations(
                 surfaces,
                 from_pos,
                 dest,
                 quick_ignore,
+                observations,
             );
-            let adjusted_path_exists = self.client_safe_quick_does_path_exist_ignoring(
+            let adjusted_path_exists = self.client_safe_quick_does_path_exist_with_observations(
                 surfaces,
                 from_pos,
                 &adjust_dest,
                 quick_ignore,
+                observations,
             );
             let mut ok = adjusted_path_exists;
             if !path_exists {
                 // C++: if (!pathExists) { if (clientSafeQuick(dest, adjustDest)) ok }
-                if self.client_safe_quick_does_path_exist_ignoring(
+                if self.client_safe_quick_does_path_exist_with_observations(
                     surfaces,
                     dest,
                     &adjust_dest,
                     quick_ignore,
+                    observations,
                 ) {
                     ok = true;
                 }

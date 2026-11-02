@@ -490,18 +490,35 @@ impl PathfindingSystem {
         coord: GridCoord,
         ignore_obstacle_id: Option<ObjectID>,
     ) -> bool {
+        self.valid_movement_cell_on_layer(
+            surfaces,
+            is_crusher,
+            coord,
+            PathfindLayerEnum::Ground,
+            ignore_obstacle_id,
+        )
+    }
+
+    pub(crate) fn valid_movement_cell_on_layer(
+        &self,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        coord: GridCoord,
+        layer: PathfindLayerEnum,
+        ignore_obstacle_id: Option<ObjectID>,
+    ) -> bool {
         if !self.is_valid_coord(coord) {
             return false;
         }
         let pathfinder = &self.pathfinder;
         if let Some(ignored) = ignore_obstacle_id.filter(|id| *id != INVALID_ID) {
             if matches!(
-                pathfinder.obstacle_observation_at(coord, PathfindLayerEnum::Ground),
+                pathfinder.obstacle_observation_at(coord, layer),
                 Some((PathfindCellType::Obstacle, Some(owner), _)) if owner == ignored
             ) {
                 return true;
             }
         }
-        pathfinder.is_passable(coord, surfaces, is_crusher)
+        pathfinder.is_passable_on_layer(coord, layer, surfaces, is_crusher)
     }
 }

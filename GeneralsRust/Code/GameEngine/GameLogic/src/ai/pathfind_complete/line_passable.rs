@@ -972,29 +972,65 @@ impl PathfindingSystem {
         to: &Coord3D,
         ignore_obstacle_id: Option<ObjectID>,
     ) -> bool {
-        // C++ validMovementPosition(false, destLayer, locoSet, to)
-        if !self.valid_movement_position(surfaces, false, to, ignore_obstacle_id) {
+        self.client_safe_quick_does_path_exist_with_observations(
+            surfaces,
+            from,
+            to,
+            ignore_obstacle_id,
+            None,
+        )
+    }
+
+    pub(crate) fn client_safe_quick_does_path_exist_with_observations(
+        &self,
+        surfaces: LocomotorSurfaceTypeMask,
+        from: &Coord3D,
+        to: &Coord3D,
+        ignore_obstacle_id: Option<ObjectID>,
+        observations: Option<&PathfindObservations<'_>>,
+    ) -> bool {
+        let destination_layer = observations.map_or(PathfindLayerEnum::Ground, |world| {
+            PathfindLayerEnum::from_u32(world.terrain.get_layer_for_destination(to) as u32)
+        });
+        // C++ validMovementPosition uses truncating coordinates; worldToCell
+        // below uses floor and clips before reading the zone cells.
+        let destination = Self::world_to_cell_trunc(to);
+        if !self.valid_movement_cell_on_layer(
+            surfaces,
+            false,
+            destination,
+            destination_layer,
+            ignore_obstacle_id,
+        ) {
             return false;
         }
-        // C++: no goals on cliffs
-        if self.get_cell_type(to) == Some(PathfindCellType::Cliff) {
+        let from_layer = observations.map_or(PathfindLayerEnum::Ground, |world| {
+            PathfindLayerEnum::from_u32(world.terrain.get_layer_for_destination(from) as u32)
+        });
+        let clipped = |position: &Coord3D| {
+            let coord = GridCoord::from_world(position);
+            GridCoord::new(
+                coord.x.clamp(0, self.width.saturating_sub(1) as i32),
+                coord.y.clamp(0, self.height.saturating_sub(1) as i32),
+            )
+        };
+        let Some((start_type, start_zone)) = self.cell_type_and_zone(from_layer, clipped(from))
+        else {
+            return false;
+        };
+        let Some((goal_type, goal_zone)) = self.cell_type_and_zone(destination_layer, clipped(to))
+        else {
+            return false;
+        };
+        if goal_type == PathfindCellType::Cliff {
             return false;
         }
-        // AIPathfind.cpp:8011–8045 uses terrain connectivity when either
-        // endpoint is inside a building, rather than treating its obstacle
-        // zone as a disconnected terrain island.
-        let start = GridCoord::from_world(from);
-        let goal = GridCoord::from_world(to);
         let zones = &self.zones;
-        let start_zone = zones.zone_at(start);
-        let goal_zone = zones.zone_at(goal);
-        let start_obstacle = self.get_cell_type(from) == Some(PathfindCellType::Obstacle);
-        let goal_obstacle = self.get_cell_type(to) == Some(PathfindCellType::Obstacle);
         let start_effective = zones.get_effective_zone(surfaces, false, start_zone);
-        if start_obstacle && start_effective == 0 {
+        if start_type == PathfindCellType::Obstacle && start_effective == 0 {
             return true;
         }
-        if start_obstacle || goal_obstacle {
+        if start_type == PathfindCellType::Obstacle || goal_type == PathfindCellType::Obstacle {
             let terrain_effective = |zone| {
                 zones.get_effective_terrain_zone(zones.get_effective_zone(
                     surfaces,

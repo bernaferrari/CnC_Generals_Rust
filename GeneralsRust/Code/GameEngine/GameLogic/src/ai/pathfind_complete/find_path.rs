@@ -34,11 +34,12 @@ impl PathfindingSystem {
         let downhill_only =
             downhill_only.unwrap_or_else(|| Self::object_is_downhill_only(request.object_id));
         // C++ findPath: clientSafeQuickDoesPathExist first.
-        if !self.client_safe_quick_does_path_exist_ignoring(
+        if !self.client_safe_quick_does_path_exist_with_observations(
             request.surfaces,
             &request.from,
             &request.to,
             request.ignore_obstacle_id,
+            observations,
         ) {
             return Ok(PathResult::none());
         }

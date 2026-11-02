@@ -1588,3 +1588,104 @@ fn native_adjust_destination_respects_owned_goal_reservations() {
     });
     assert_eq!(GridCoord::from_world(&goal), cell);
 }
+
+#[test]
+fn native_adjust_uses_bridge_layer_for_quick_path_gate() {
+    use crate::ai::pathfind_astar::{GridCoord, PathfindCellType};
+    let mut game = NativeMatch::new(155.0);
+    let bridge_center = Coord3D::new(45.0, 45.0, 20.0);
+    let bounds = (GridCoord::new(2, 2), GridCoord::new(6, 6));
+    let layer = game.pathfinder.add_bridge(bounds);
+    assert_ne!(layer, crate::path::PathfindLayerEnum::Ground);
+    let info = crate::terrain::TerrainLogic::bridge_info_from_parts(
+        bridge_center,
+        0.0,
+        25.0,
+        25.0,
+        crate::common::INVALID_ID,
+    );
+    game.terrain
+        .prepend_bridge_on_layer(info, "OwnedBridge".into(), layer);
+    game.pathfinder
+        .pathfinding_system_mut()
+        .set_cell_type(&bridge_center, PathfindCellType::Water);
+    assert_eq!(
+        game.terrain.get_layer_for_destination(&bridge_center) as u32,
+        layer as u32
+    );
+    game.source
+        .write()
+        .unwrap()
+        .set_position(&bridge_center)
+        .unwrap();
+    let source = Arc::clone(&game.source);
+    let owner = source.write().unwrap();
+    let locomotors =
+        crate::locomotor::LocomotorSet::from_surfaces(crate::locomotor::SURFACE_GROUND);
+    let mut goal = bridge_center;
+    game.operate(10, |world| {
+        assert!(
+            world
+                .adjust_destination(
+                    &owner,
+                    &locomotors,
+                    &mut goal,
+                    crate::common::INVALID_ID,
+                    false
+                )
+                .unwrap()
+        )
+    });
+    assert_eq!(
+        GridCoord::from_world(&goal),
+        GridCoord::new(4, 4),
+        "the passable bridge cell must not be rejected as ground water"
+    );
+    assert_eq!(goal.z, bridge_center.z);
+    let observations = crate::ai::pathfind_complete::PathfindObservations {
+        factory: &game.factory,
+        players: &game.players,
+        terrain: &game.terrain,
+    };
+    let grid = game.pathfinder.pathfinding_system_mut();
+    assert!(grid.client_safe_quick_does_path_exist_with_observations(
+        crate::locomotor::SURFACE_GROUND,
+        &bridge_center,
+        &bridge_center,
+        None,
+        Some(&observations),
+    ));
+    assert!(!grid.client_safe_quick_does_path_exist_with_observations(
+        crate::locomotor::SURFACE_GROUND,
+        &bridge_center,
+        &Coord3D::new(45.0, 45.0, 0.0),
+        None,
+        Some(&observations),
+    ));
+
+    let mut peer = NativeMatch::new(155.0);
+    assert_eq!(owner.get_id(), peer.source.read().unwrap().get_id());
+    peer.pathfinder
+        .pathfinding_system_mut()
+        .set_cell_type(&bridge_center, PathfindCellType::Water);
+    peer.source
+        .write()
+        .unwrap()
+        .set_position(&bridge_center)
+        .unwrap();
+    let peer_source = Arc::clone(&peer.source);
+    let peer_owner = peer_source.write().unwrap();
+    let mut peer_goal = bridge_center;
+    let accepted = peer.operate(10, |world| {
+        world
+            .adjust_destination(
+                &peer_owner,
+                &locomotors,
+                &mut peer_goal,
+                crate::common::INVALID_ID,
+                false,
+            )
+            .unwrap()
+    });
+    assert!(!accepted || GridCoord::from_world(&peer_goal) != GridCoord::new(4, 4));
+}
