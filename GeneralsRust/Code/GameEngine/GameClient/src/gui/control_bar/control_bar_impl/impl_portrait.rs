@@ -312,17 +312,33 @@ impl ControlBar {
             .into_iter()
             .filter(|name| !name.is_empty())
             .map(|name| {
-                let is_completed = leftover_object_or_player_has_upgrade(&obj, &name);
+                let upgrade = self
+                    .receiving_upgrade_catalog
+                    .as_ref()
+                    .and_then(|catalog| catalog.find_upgrade(&name));
+                let is_completed = upgrade.as_ref().is_some_and(|upgrade| {
+                    obj.has_upgrade(upgrade)
+                        || obj.get_controlling_player().is_some_and(|player| {
+                            player
+                                .read()
+                                .ok()
+                                .is_some_and(|player| player.has_upgrade_complete(upgrade))
+                        })
+                });
                 UpgradeCameoState {
-                    button_image: resolve_upgrade_cameo_button_image(
-                        &name,
-                        Some(context_commands.as_slice()),
-                        self.receiving_upgrade_catalog.as_ref(),
-                        self.receiving_upgrade_actions.as_deref(),
-                    ),
+                    button_image: if upgrade.is_some() {
+                        resolve_upgrade_cameo_button_image(
+                            &name,
+                            Some(context_commands.as_slice()),
+                            self.receiving_upgrade_catalog.as_ref(),
+                            self.receiving_upgrade_actions.as_deref(),
+                        )
+                    } else {
+                        String::new()
+                    },
                     upgrade_name: name,
                     is_completed,
-                    is_visible: true,
+                    is_visible: upgrade.is_some(),
                 }
             })
             .collect();
@@ -1061,22 +1077,4 @@ pub fn leftover_authored_upgrade_cameo_names(template_name: &str) -> [String; 5]
         }
     }
     names
-}
-
-/// C++ `obj->hasUpgrade(ut) || player->hasUpgradeComplete(ut)`.
-fn leftover_object_or_player_has_upgrade(obj: &gamelogic::object::Object, name: &str) -> bool {
-    let Some(upgrade) =
-        gamelogic::upgrade::center::with_upgrade_center(|center| center.find_upgrade(name))
-    else {
-        return false;
-    };
-    if obj.has_upgrade(upgrade.as_ref()) {
-        return true;
-    }
-    obj.get_controlling_player().is_some_and(|player_arc| {
-        player_arc
-            .read()
-            .ok()
-            .is_some_and(|player| player.has_upgrade_complete(upgrade.as_ref()))
-    })
 }
