@@ -70,6 +70,7 @@ pub use control_bar_resizer::{
 };
 pub mod control_bar_structure_inventory;
 pub use control_bar_structure_inventory::{
+    StructureInventoryLatch,
     MAX_STRUCTURE_INVENTORY_BUTTONS, ResidualStructureInventoryAction,
     STRUCTURE_INVENTORY_EVACUATE_COMMAND_NAME, STRUCTURE_INVENTORY_EVACUATE_ID,
     STRUCTURE_INVENTORY_EXIT_COMMAND_NAME, STRUCTURE_INVENTORY_STOP_COMMAND_NAME,
@@ -226,6 +227,8 @@ pub struct ControlBarContext {
     pub construction_queue: Vec<ProductionItem>,
     pub observer_player_stats: Vec<(String, i32, i32, i32, i32, i32)>,
     pub last_recorded_inventory_count: u32,
+    /// Owned garrison inventory presentation latch (was process atomics).
+    pub structure_inventory_latch: control_bar_structure_inventory::StructureInventoryLatch,
     pub ui_dirty: bool,
     /// C++ `m_containData[].objectID` — per-slot occupant for StructureExit.
     pub contain_data: Vec<Option<u32>>,
@@ -300,6 +303,7 @@ impl Default for ControlBarContext {
             construction_queue: Vec::new(),
             observer_player_stats: Vec::new(),
             last_recorded_inventory_count: 0,
+            structure_inventory_latch: Default::default(),
             ui_dirty: false,
             contain_data: Vec::new(),
             observer_look_at_player: None,

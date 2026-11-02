@@ -80,3 +80,7 @@ path = "Code/GameEngine/GameLogic/src/system/world_logic_managers.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameLogic"
 note = "Per-world Arc bundle for stealth/detection/beacon/cave/command managers; no process OnceLocks."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/control_bar/control_bar_structure_inventory.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBarStructureInventory.cpp"
+note = "Garrison inventory latch owned on ControlBarContext; 6 process atomics removed; peel helpers take &mut StructureInventoryLatch."
