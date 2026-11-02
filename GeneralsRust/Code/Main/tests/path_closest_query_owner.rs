@@ -707,3 +707,54 @@ fn closest_clipping_rejects_empty_grids_and_nonfinite_coordinates() {
             .is_none()
     );
 }
+
+#[test]
+fn closest_path_distinguishes_ground_and_bridge_cells_at_the_same_coordinates() {
+    use generals_main::game_logic::HostGeometryType;
+
+    let ground = PathfindingGround::Flat(0.0);
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
+    let mut unit = ThingTemplate::new("Mover");
+    unit.add_kind_of(KindOf::Vehicle).set_health(100.0);
+    unit.geometry_info.geom_type = HostGeometryType::Sphere;
+    unit.geometry_info.major_radius = 2.0;
+    unit.geometry_info.authored = true;
+    world.templates.insert("Mover".into(), unit);
+    let mover = world
+        .create_object_for_player("Mover", 0, Vec3::new(85.0, 0.0, 55.0))
+        .unwrap();
+    let mut finder = PathfindingSystem::new(200.0, 200.0);
+    finder.grid.stamp_bridge_deck(
+        Vec3::new(30.0, 20.0, 40.0),
+        Vec3::new(30.0, 20.0, 60.0),
+        Vec3::new(130.0, 20.0, 40.0),
+        Vec3::new(130.0, 20.0, 60.0),
+        false,
+        &ground,
+    );
+    let on_ground = Vec3::new(85.0, 0.0, 55.0);
+    let on_bridge = Vec3::new(85.0, 20.0, 55.0);
+    for (layer, from, to) in [(1, on_ground, on_bridge), (2, on_bridge, on_ground)] {
+        let object = world.host_object_mut(mover).unwrap();
+        object.pathfind_layer = layer;
+        let path = finder
+            .find_closest_path(
+                from,
+                to,
+                SURFACE_GROUND,
+                false,
+                true,
+                0.0,
+                &ground,
+                world.host_objects(),
+                mover,
+            )
+            .expect("path between bridge and ground");
+        assert_eq!(*path.last().unwrap(), to, "layer {layer}: {path:?}");
+        assert!(
+            path.len() > 1,
+            "changing layers requires travel to a connection: {path:?}"
+        );
+    }
+}

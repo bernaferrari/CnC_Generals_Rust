@@ -1229,7 +1229,13 @@ impl PathfindingSystem {
                             .is_some_and(|(owner_id, _, _)| owner_id == ignored_id)
                 })
         };
-        let start_layer = PathfindLayerEnum::from_u32(unit.pathfind_layer as u32);
+        let requested_start_layer = PathfindLayerEnum::from_u32(unit.pathfind_layer as u32);
+        let start_layer = self.grid.path_cell_on_layer(start, requested_start_layer).0;
+        let requested_goal_layer = self.grid.layer_for_destination(clipped_goal, ground_source);
+        let goal_layer = self
+            .grid
+            .path_cell_on_layer(goal_grid, requested_goal_layer)
+            .0;
         let seeker_player = unit.owner_player_id;
         let footprint = MovementFootprint {
             mover,
@@ -1262,13 +1268,13 @@ impl PathfindingSystem {
         let goal_accept_ok = self.seeker_can_path_through_units
             || self.grid.check_destination_for_object(
                 goal_grid,
-                start_layer,
+                goal_layer,
                 radius,
                 center_in_cell,
                 unit,
                 objects,
             )
-            || is_ignored_owned_obstacle(goal_grid, start_layer);
+            || is_ignored_owned_obstacle(goal_grid, goal_layer);
         let mut closest_cell: Option<(GridPos, PathfindLayerEnum, f32)> = None;
         let mut closest_screen_sqr = f32::MAX;
         let mut found_goal_cell = false;
@@ -1330,7 +1336,7 @@ impl PathfindingSystem {
             }
             let cell = GridPos::new(cx, cy);
             let layer = PathfindLayerEnum::from_u32(lid as u32);
-            if cx == goal_grid.x && cy == goal_grid.y {
+            if cell == goal_grid && layer == goal_layer {
                 let goal_ok = goal_accept_ok;
                 if goal_ok || closest_cell.is_none() {
                     closest_cell = Some((cell, layer, 0.0));
