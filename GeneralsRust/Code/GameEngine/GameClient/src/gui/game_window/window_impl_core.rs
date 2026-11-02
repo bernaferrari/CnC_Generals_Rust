@@ -617,6 +617,15 @@ impl GameWindow {
         Ok(())
     }
 
+    /// Clear the image in an enabled draw-data slot.
+    pub fn clear_enabled_image(&mut self, index: usize) -> WindowResult<()> {
+        if index >= MAX_DRAW_DATA {
+            return Err(WindowError::InvalidParameter);
+        }
+        self.inst_data.enabled_draw_data[index].image = None;
+        Ok(())
+    }
+
     /// Get enabled draw data for the specified index.
     pub fn get_enabled_draw_data(&self, index: usize) -> Option<WindowDrawData> {
         if index >= MAX_DRAW_DATA {

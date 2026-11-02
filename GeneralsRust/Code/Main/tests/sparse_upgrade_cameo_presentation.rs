@@ -40,7 +40,21 @@ fn selected_world_preserves_sparse_upgrade_cameo_positions() {
     client.set_in_game_ui_subsystem(Default::default());
     client.with_window_event_effects(None, |effects| {
         effects.with_manager(|manager, effects| {
+            let windows: Vec<_> = (1..=5)
+                .map(|index| {
+                    let window = manager.create_window(None, 0, 0, 40, 40, effects).unwrap();
+                    window
+                        .borrow_mut()
+                        .set_name(&format!("ControlBar.wnd:UnitUpgrade{index}"));
+                    window
+                })
+                .collect();
             frame.apply_to_control_bar(&mut bar, manager, effects);
+            assert!(windows[0].borrow().is_hidden());
+            assert!(!windows[1].borrow().is_hidden());
+            assert!(windows[2].borrow().is_hidden());
+            assert!(windows[3].borrow().is_hidden());
+            assert!(!windows[4].borrow().is_hidden());
         })
     });
     let slots = &bar.get_portrait_state().upgrade_cameos;

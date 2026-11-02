@@ -1478,6 +1478,7 @@ impl PresentationFrame {
                 0.0
             },
         );
+        control_bar.apply_upgrade_cameos_to_windows(manager);
     }
 
     /// Selection IDs for multi-consumer apply (player list or object.selected flags).

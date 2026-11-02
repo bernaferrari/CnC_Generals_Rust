@@ -169,7 +169,9 @@ impl ControlBar {
         // live instance ticks. Apply it so CommandWindow HIDDEN is cleared InGame.
         self.apply_pending_control_bar_stage(receiving_manager, effects);
         self.apply_live_hook_events(true, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone, receiving_manager, effects);
-        self.update_body(delta_time, true, None, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone, None, receiving_manager, effects)
+        self.update_body(delta_time, true, None, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone, None, receiving_manager, effects)?;
+        self.apply_upgrade_cameos_to_windows(receiving_manager);
+        Ok(())
     }
 
     /// Native viewport/stage changes are already admitted on this instance.
@@ -182,7 +184,9 @@ impl ControlBar {
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.apply_live_hook_events(false, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone, receiving_manager, effects);
-        self.update_body(delta_time, false, None, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone, None, receiving_manager, effects)
+        self.update_body(delta_time, false, None, crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone, None, receiving_manager, effects)?;
+        self.apply_upgrade_cameos_to_windows(receiving_manager);
+        Ok(())
     }
 
     pub fn update_owned_with_observers(
@@ -199,6 +203,7 @@ impl ControlBar {
             // Reassert only native selectable identities from the receiving map.
             self.refresh_observer_windows_owned(roster, receiving_manager);
         }
+        self.apply_upgrade_cameos_to_windows(receiving_manager);
         Ok(())
     }
     pub fn update_owned_receiving(
@@ -237,6 +242,7 @@ impl ControlBar {
                 self.refresh_observer_windows_owned(roster, receiving_manager);
             }
         }
+        self.apply_upgrade_cameos_to_windows(receiving_manager);
         Ok(())
     }
     fn update_body(

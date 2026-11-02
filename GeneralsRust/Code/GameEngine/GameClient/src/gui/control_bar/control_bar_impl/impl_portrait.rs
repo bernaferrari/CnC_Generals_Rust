@@ -1,6 +1,51 @@
 // Split from `gui/control_bar/control_bar.rs` dump. Included by `control_bar_impl/mod.rs`.
 
 impl ControlBar {
+    /// Apply C++'s five right-HUD upgrade windows to this manager's tree.
+    pub fn apply_upgrade_cameos_to_windows(
+        &self,
+        manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        for index in 0..MAX_RIGHT_HUD_UPGRADE_CAMEOS {
+            let name = format!("ControlBar.wnd:UnitUpgrade{}", index + 1);
+            let Some(window) = manager.find_window_by_name(&name) else {
+                continue;
+            };
+            let cameo = self.portrait_state.upgrade_cameos.get(index);
+            let visible = cameo.is_some_and(|cameo| cameo.is_visible);
+            if window.borrow().is_hidden() == visible {
+                let _ = window.borrow_mut().hide(!visible, manager);
+            }
+            let Some(cameo) = cameo.filter(|cameo| cameo.is_visible) else {
+                continue;
+            };
+            let current_image = window
+                .borrow()
+                .get_enabled_draw_data(0)
+                .and_then(|data| data.image)
+                .map(|image| image.name);
+            if current_image.as_deref() != Some(cameo.button_image.as_str()) {
+                let image = if cameo.button_image.is_empty() {
+                    None
+                } else {
+                    manager.win_find_image(&cameo.button_image)
+                };
+                let mut window = window.borrow_mut();
+                if let Some(image) = image {
+                    let _ = window.set_enabled_image(0, image);
+                } else {
+                    let _ = window.clear_enabled_image(0);
+                }
+            }
+            let mut window = window.borrow_mut();
+            use crate::gui::game_window::WindowStatus;
+            window.set_status(WindowStatus::USE_OVERLAY_STATES);
+            if window.get_status().contains(WindowStatus::ENABLED) != cameo.is_completed {
+                let _ = window.enable(cameo.is_completed);
+            }
+        }
+    }
+
     // ---------------------------------------------------------------------------
     // Star image / general button flash
     // C++ ControlBar.cpp:1621-1647
