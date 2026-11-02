@@ -235,6 +235,7 @@ pub use lzopipe::LzoPipe;
 pub use lzostraw::LzoStraw;
 pub use md5::*;
 pub use misc::{
+    MiscVideoState,
     debug_windowed, delay, get_free_video_memory, get_video_hardware_capabilities,
     prep_direct_draw, process_dd_result, reset_video_mode, set_debug_windowed, set_palette,
     set_palette_raw, set_surfaces_restored, set_video_mode, surfaces_restored,

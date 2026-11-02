@@ -150,3 +150,8 @@ path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/renderin
 cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/sphereobj.cpp"
 note = "Sphere LOD mesh/cost tables owned per SphereRenderObjClass; TLS SPHERE_MESH_ARRAY/LOD_COSTS removed; 3->0 globals."
 
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WWLib/src/misc.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWLib/misc.h"
+note = "MiscVideoState owns palette/windowed/surfaces/audio-focus; process Mutex/atomics removed; 4->0 globals."
+
