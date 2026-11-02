@@ -175,3 +175,64 @@ fn move_away_uses_ground_identity_after_leaving_the_bridge() {
         "the ground destination footprint includes the impassable cell: {path:?}"
     );
 }
+
+#[test]
+fn safe_search_uses_the_receiving_objects_layer_under_a_bridge() {
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_main::game_logic::pathfinding::GridPos;
+    let ground = PathfindingGround::Flat(0.0);
+    let mut results = Vec::new();
+    for layer in [1, 2] {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::USA, "Owner", true));
+        let mut unit = ThingTemplate::new("Mover");
+        unit.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        unit.geometry_info.geom_type = HostGeometryType::Sphere;
+        unit.geometry_info.major_radius = 2.0;
+        unit.geometry_info.authored = true;
+        world.templates.insert("Mover".into(), unit);
+        let from = Vec3::new(85.0, 20.0, 55.0);
+        let mover = world.create_object_for_player("Mover", 0, from).unwrap();
+        world.host_object_mut(mover).unwrap().pathfind_layer = layer;
+        let mut finder = PathfindingSystem::new(400.0, 400.0);
+        finder.grid.stamp_bridge_deck(
+            Vec3::new(30.0, 20.0, 40.0),
+            Vec3::new(30.0, 20.0, 60.0),
+            Vec3::new(130.0, 20.0, 40.0),
+            Vec3::new(130.0, 20.0, 60.0),
+            false,
+            &ground,
+        );
+        finder
+            .grid
+            .set_cell_type(GridPos::new(9, 5), PathfindCellType::Impassable);
+        let path = finder
+            .find_safe_path_from(
+                from,
+                from,
+                from,
+                8.0,
+                SURFACE_GROUND,
+                false,
+                true,
+                &ground,
+                world.host_objects(),
+                mover,
+            )
+            .unwrap();
+        results.push((
+            finder.grid.world_to_grid(*path.last().unwrap()),
+            *path.last().unwrap(),
+        ));
+    }
+    assert_ne!(
+        results[0].0,
+        GridPos::new(9, 5),
+        "ground mover cannot cross the ground obstacle"
+    );
+    assert_eq!(
+        results[1],
+        (GridPos::new(9, 5), Vec3::new(95.0, 20.0, 55.0)),
+        "the separate bridge cell is clear"
+    );
+}

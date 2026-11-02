@@ -1,5 +1,51 @@
 use super::*;
 
+/// Per-search facts used when examining every cell covered by a mover.
+struct MovementFootprint {
+    mover: ObjectId,
+    start: GridPos,
+    radius: i32,
+    center_in_cell: bool,
+    seeker_player: Option<u32>,
+    is_infantry: bool,
+    crusher_level: u8,
+    ally_mask: u16,
+}
+
+impl MovementFootprint {
+    fn cost(
+        &self,
+        grid: &PathfindingGrid,
+        position: GridPos,
+        layer: PathfindLayerEnum,
+    ) -> Option<f32> {
+        let above = self.radius + i32::from(self.center_in_cell);
+        let mut cost = 0.0f32;
+        for x in position.x - self.radius..position.x + above {
+            for y in position.y - self.radius..position.y + above {
+                let cell = GridPos::new(x, y);
+                if !grid.is_valid_pos(cell) {
+                    return None;
+                }
+                if grid.occupancy_bits(cell, layer).pos_unit == self.mover.0 {
+                    continue;
+                }
+                let cell_cost = grid.occupancy_cost_on_layer(
+                    cell,
+                    self.seeker_player,
+                    self.is_infantry,
+                    self.crusher_level,
+                    self.ally_mask,
+                    Some(self.start),
+                    layer,
+                )?;
+                cost = cost.max(cell_cost);
+            }
+        }
+        Some(cost)
+    }
+}
+
 fn enqueue_closest_path_node(
     open: &mut BinaryHeap<std::cmp::Reverse<(i32, u64, i32, i32, i32, u8)>>,
     next_order: &mut u64,
@@ -619,33 +665,17 @@ impl PathfindingSystem {
             .unwrap_or(0);
         // C++ checkForMovement inspects the full footprint before setting
         // m_isTunneling; path-through-units is a separate AI property.
-        let footprint_cost = |position: GridPos, layer: PathfindLayerEnum| -> Option<f32> {
-            let above = radius + i32::from(center_in_cell);
-            let mut cost = 0.0f32;
-            for x in position.x - radius..position.x + above {
-                for y in position.y - radius..position.y + above {
-                    let footprint_cell = GridPos::new(x, y);
-                    if !self.grid.is_valid_pos(footprint_cell) {
-                        return None;
-                    }
-                    let bits = self.grid.occupancy_bits(footprint_cell, layer);
-                    if bits.pos_unit == mover.0 {
-                        continue;
-                    }
-                    let cell_cost = self.grid.occupancy_cost_on_layer(
-                        footprint_cell,
-                        seeker_player,
-                        self.seeker_is_infantry,
-                        crusher_level,
-                        ally_mask,
-                        Some(start_index),
-                        layer,
-                    )?;
-                    cost = cost.max(cell_cost);
-                }
-            }
-            Some(cost)
+        let footprint = MovementFootprint {
+            mover,
+            start: start_index,
+            radius,
+            center_in_cell,
+            seeker_player,
+            is_infantry: self.seeker_is_infantry,
+            crusher_level,
+            ally_mask,
         };
+        let footprint_cost = |position, layer| footprint.cost(&self.grid, position, layer);
         let mut tunneling = !self.grid.valid_movement_position(
             physical_start,
             start_layer,
@@ -907,6 +937,10 @@ impl PathfindingSystem {
         objects: HostObjectRead<'_>,
         mover: ObjectId,
     ) -> Option<Vec<Vec3>> {
+        objects.lookup(&mover)?;
+        self.bind_seeker_from_mover(objects, Some(mover));
+        self.apply_seeker_human_flag();
+        let is_human = self.seeker_is_human;
         self.find_safe_path_from(
             from,
             repulsor,
@@ -914,7 +948,7 @@ impl PathfindingSystem {
             repulsor_radius,
             surfaces,
             is_crusher,
-            true,
+            is_human,
             ground_source,
             objects,
             mover,
@@ -922,10 +956,10 @@ impl PathfindingSystem {
     }
 
     /// C++ `Pathfinder::findSafePath` with two repulsors, human extent,
-    /// destination_cell_ok, then `findPath` to the flee cell.
+    /// object-owned destination checks, and a route from the search's parents.
     pub fn find_safe_path_from(
         &mut self,
-        from: Vec3,
+        _from: Vec3,
         repulsor1: Vec3,
         repulsor2: Vec3,
         repulsor_radius: f32,
@@ -936,28 +970,41 @@ impl PathfindingSystem {
         objects: HostObjectRead<'_>,
         mover: ObjectId,
     ) -> Option<Vec<Vec3>> {
-        objects.lookup(&mover)?;
+        let unit = objects.lookup(&mover)?;
+        let from = unit.get_position();
         self.ensure_dynamic_obstacles(objects, ground_source);
         self.bind_seeker_from_mover(objects, Some(mover));
         self.grid.query_seeker_id = mover.0;
         self.grid.set_query_is_human(is_human);
         self.grid
             .set_query_footprint(self.seeker_path_diameter, is_crusher);
-        self.sync_crate_astar();
-        let start = self
-            .grid
-            .cell_for_unit_position(from, self.seeker_center_in_cell);
-        if !self.grid.is_valid_pos(start) {
-            return None;
-        }
-        let radius_sqr = repulsor_radius * repulsor_radius;
+        let start = self.grid.clamp_pos(self.grid.world_to_grid(from));
+        let (radius, center_in_cell) = PathfindingGrid::radius_and_center(
+            unit.geometry_info().bounding_circle_radius(),
+            self.grid.grid_size(),
+        );
         let crusher_level = if is_crusher {
             self.seeker_crusher_level.max(1)
         } else {
             0
         };
         let seeker_player = self.seeker_player;
-        let start_layer = self.grid.layer_for_destination(from, ground_source);
+        let ally_mask = seeker_player
+            .map(|p| self.grid.ally_mask_for(p))
+            .unwrap_or(0);
+        let footprint = MovementFootprint {
+            mover,
+            start,
+            radius,
+            center_in_cell,
+            seeker_player,
+            is_infantry: self.seeker_is_infantry,
+            crusher_level,
+            ally_mask,
+        };
+        let radius_sqr = repulsor_radius * repulsor_radius;
+        let requested_layer = PathfindLayerEnum::from_u32(unit.pathfind_layer as u32);
+        let (start_layer, _) = self.grid.path_cell_on_layer(start, requested_layer);
         let start_lid = start_layer as u8;
         const MAX_CELLS: i32 = 2000;
         const COST_ORTHO: i32 = 10;
@@ -972,31 +1019,26 @@ impl PathfindingSystem {
             (-1, -1),
             (1, -1),
         ];
-        let mut open: BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32, u8)>> = BinaryHeap::new();
+        let mut open: BinaryHeap<std::cmp::Reverse<(i32, u64, i32, i32, u8)>> = BinaryHeap::new();
+        let mut next_order = 1u64;
         let mut g_score: HashMap<(i32, i32, u8), i32> = HashMap::new();
         let mut closed: HashSet<(i32, i32, u8)> = HashSet::new();
+        let mut parents: HashMap<(i32, i32, u8), (i32, i32, u8)> = HashMap::new();
         open.push(std::cmp::Reverse((0, 0, start.x, start.y, start_lid)));
         g_score.insert((start.x, start.y, start_lid), 0);
-        let mut farthest: Option<(GridPos, PathfindLayerEnum, f32)> = None;
+        let mut farthest_distance_sqr = 0.0f32;
         let mut found: Option<(GridPos, PathfindLayerEnum)> = None;
         let mut cell_count = 0i32;
-        while let Some(std::cmp::Reverse((_f, g, cx, cy, lid))) = open.pop() {
+        while let Some(std::cmp::Reverse((g, _, cx, cy, lid))) = open.pop() {
             let key = (cx, cy, lid);
             if !closed.insert(key) {
                 continue;
             }
             let cell = GridPos::new(cx, cy);
             let layer = PathfindLayerEnum::from_u32(lid as u32);
-            // C++ findSafePath measures from adjustCoordToCell (cell center
-            // when centerInCell); grid_to_world returns the cell CORNER.
-            let world = {
-                let mut w = self.grid.grid_to_world_on_layer(cell, layer, ground_source);
-                if self.seeker_center_in_cell {
-                    w.x += self.grid.grid_size() * 0.5;
-                    w.z += self.grid.grid_size() * 0.5;
-                }
-                w
-            };
+            let world =
+                self.grid
+                    .adjust_coord_to_cell_on_layer(cell, center_in_cell, layer, ground_source);
             let d1 = {
                 let dx = world.x - repulsor1.x;
                 let dz = world.z - repulsor1.z;
@@ -1008,58 +1050,55 @@ impl PathfindingSystem {
                 dx * dx + dz * dz
             };
             let nearest = d1.min(d2);
-            let mut ok = nearest > radius_sqr;
-            if open.is_empty() && cell_count > 0 {
-                // Faithful C++ exhaustion clause (AIPathfind.cpp:10945-47),
-                // but the picked flee cell must still clear both repulsors —
-                // C++ findSafePath only terminates on a checkDestination-pass
-                // outside the radii, never inside one.
-                ok = nearest > radius_sqr;
+            // The C++ open list contains only live nodes. Discard stale heap
+            // entries before applying its exhausted-search condition.
+            while let Some(std::cmp::Reverse((_, _, x, y, layer_id))) = open.peek() {
+                if !closed.contains(&(*x, *y, *layer_id)) {
+                    break;
+                }
+                open.pop();
             }
-            if farthest.map(|(_, _, d)| nearest > d).unwrap_or(true) {
-                farthest = Some((cell, layer, nearest));
+            let mut ok = nearest > radius_sqr || (open.is_empty() && cell_count > 0);
+            if nearest > farthest_distance_sqr {
+                farthest_distance_sqr = nearest;
                 if cell_count > MAX_CELLS {
                     ok = true;
                 }
             }
             if ok
-                && self.grid.destination_cell_ok(
+                && self.grid.check_destination_for_object(
                     cell,
-                    surfaces,
-                    is_crusher,
-                    seeker_player,
-                    crusher_level,
                     layer,
-                    ground_source,
+                    radius,
+                    center_in_cell,
+                    unit,
+                    objects,
                 )
-                && self.grid.human_extent_allows(cell, is_human)
             {
                 found = Some((cell, layer));
                 break;
             }
-            let layer_enqueued = {
-                let mut enqueue = |f, g, x, y, layer| {
-                    open.push(std::cmp::Reverse((f, g, x, y, layer)));
-                };
-                self.grid.enqueue_connect_layer(
-                    cell,
-                    layer,
-                    g,
-                    g,
-                    &closed,
-                    &mut g_score,
-                    &mut enqueue,
-                )
-            };
-            if layer_enqueued {
-                cell_count += 1;
+            if let Some(connected) = self.grid.connect_layer_of(cell, layer) {
+                let (actual, _) = self.grid.path_cell_on_layer(cell, connected);
+                let next = (cx, cy, actual as u8);
+                if !g_score.contains_key(&next) {
+                    g_score.insert(next, g);
+                    parents.insert(next, key);
+                    open.push(std::cmp::Reverse((g, next_order, cx, cy, actual as u8)));
+                    next_order += 1;
+                }
             }
             let mut neighbor_flags = [false; 8];
             for (i, (dx, dy)) in deltas.iter().enumerate() {
                 let nx = cx + dx;
                 let ny = cy + dy;
                 let nc = GridPos::new(nx, ny);
-                if !self.grid.is_valid_pos(nc) || closed.contains(&(nx, ny, lid)) {
+                if !self.grid.is_valid_pos(nc) {
+                    continue;
+                }
+                let (next_layer, _) = self.grid.path_cell_on_layer(nc, layer);
+                let nkey = (nx, ny, next_layer as u8);
+                if g_score.contains_key(&nkey) {
                     continue;
                 }
                 if !self.grid.human_extent_allows(nc, is_human) {
@@ -1070,68 +1109,73 @@ impl PathfindingSystem {
                 }
                 if !self
                     .grid
-                    .cell_passable_for_layer(nc, layer, surfaces, is_crusher)
-                    && !(self.grid.is_obstacle_fence(nc) && is_crusher)
+                    .cell_passable_for_layer(nc, next_layer, surfaces, is_crusher)
                 {
                     continue;
                 }
                 neighbor_flags[i] = true;
-                let step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
-                let ng = g + step;
-                let nkey = (nx, ny, lid);
-                if g_score.get(&nkey).is_some_and(|&og| ng >= og) {
+                let Some(occupied_cost) = footprint.cost(&self.grid, nc, layer) else {
                     continue;
-                }
+                };
+                let step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
+                let ng = g + step + (occupied_cost * 10.0).round() as i32;
                 g_score.insert(nkey, ng);
-                open.push(std::cmp::Reverse((ng, ng, nx, ny, lid)));
+                parents.insert(nkey, key);
+                open.push(std::cmp::Reverse((
+                    ng,
+                    next_order,
+                    nx,
+                    ny,
+                    next_layer as u8,
+                )));
+                next_order += 1;
                 cell_count += 1;
             }
         }
-        let (dest, dest_layer) = if let Some((cell, layer)) = found {
-            (cell, layer)
-        } else if let Some((cell, layer, d)) = farthest {
-            // C++ findSafePath only ever accepts a checkDestination-pass cell
-            // OUTSIDE the repulsor radii; an exhausted-search fallback must
-            // never park the unit closer than the radius either.
-            if !self.grid.destination_cell_ok(
-                cell,
-                surfaces,
-                is_crusher,
-                seeker_player,
-                crusher_level,
-                layer,
-                ground_source,
-            ) || d <= radius_sqr
-            {
-                return None;
+        let (dest, dest_layer) = found?;
+        let mut key = (dest.x, dest.y, dest_layer as u8);
+        if key.2 == PathfindLayerEnum::Ground as u8 && self.grid.is_pinched(dest) {
+            if let Some(&parent) = parents.get(&key) {
+                if parent.2 != PathfindLayerEnum::Ground as u8
+                    || !self.grid.is_pinched(GridPos::new(parent.0, parent.1))
+                {
+                    key = parent;
+                }
             }
-            (cell, layer)
-        } else {
-            return None;
-        };
-        if dest == start {
-            return None;
         }
-        // C++ buildActualPath: the flee path is rebuilt through A* to the
-        // validated safe cell. No straight-line fail-open exists in C++
-        // (AIUpdate findSafePath) — a direct from→goal segment would march
-        // back inside both repulsor radii.
-        let path = self.find_path_via_crate(
-            start,
-            dest,
-            from,
+        let mut cells = Vec::new();
+        while let Some(&parent) = parents.get(&key) {
+            cells.push(key);
+            key = parent;
+        }
+        cells.reverse();
+        if cells.is_empty() {
+            cells.push(key);
+        }
+        let mut path = vec![from];
+        for (x, y, layer) in cells {
+            let position = self.grid.adjust_coord_to_cell_on_layer(
+                GridPos::new(x, y),
+                center_in_cell,
+                PathfindLayerEnum::from_u32(layer as u32),
+                ground_source,
+            );
+            if path
+                .last()
+                .is_some_and(|last| last.x == position.x && last.z == position.z)
+            {
+                continue;
+            }
+            path.push(position);
+        }
+        Some(self.grid.optimize_ground_path_ex(
+            &path,
             surfaces,
             is_crusher,
-            start_layer,
-            dest_layer,
+            seeker_player,
+            crusher_level,
             ground_source,
-            objects,
-            None,
-        )?;
-        if path.len() < 2 {
-            return None;
-        }
-        Some(path)
+        ))
     }
 
     /// C++ `Pathfinder::findClosestPath` (AIPathfind.cpp:8739+).

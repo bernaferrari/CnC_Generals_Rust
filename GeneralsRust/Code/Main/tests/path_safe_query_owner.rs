@@ -6,6 +6,10 @@ use generals_main::game_logic::{
 use glam::Vec3;
 
 fn make_world() -> (GameLogic, ObjectId, ObjectId) {
+    make_world_at(Vec3::new(100.0, 0.0, 100.0))
+}
+
+fn make_world_at(position: Vec3) -> (GameLogic, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
     world.add_player(Player::new(0, Team::USA, "Owner", true));
     for (name, radius) in [("Large", 10.0), ("Small", 2.0)] {
@@ -17,10 +21,10 @@ fn make_world() -> (GameLogic, ObjectId, ObjectId) {
         world.templates.insert(name.into(), unit);
     }
     let large = world
-        .create_object_for_player("Large", 0, Vec3::new(100.0, 0.0, 100.0))
+        .create_object_for_player("Large", 0, position)
         .unwrap();
     let small = world
-        .create_object_for_player("Small", 0, Vec3::new(100.0, 0.0, 100.0))
+        .create_object_for_player("Small", 0, position)
         .unwrap();
     (world, large, small)
 }
@@ -148,5 +152,146 @@ fn safe_query_uses_its_own_human_extent_policy() {
     assert!(
         route.is_some(),
         "an AI mover must not inherit the previous human extent restriction"
+    );
+}
+
+#[test]
+fn safe_search_accepts_the_last_reachable_cell_inside_the_repulsor() {
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_main::game_logic::pathfinding::GridPos;
+    let from = Vec3::new(105.0, 0.0, 105.0);
+    let (world, _, mover) = make_world_at(from);
+    let (peer, _, peer_mover) = make_world_at(from);
+    assert_eq!(mover, peer_mover);
+    let ground = PathfindingGround::Flat(0.0);
+    let mut finder = PathfindingSystem::new(400.0, 400.0);
+    let mut peer_finder = PathfindingSystem::new(400.0, 400.0);
+    for f in [&mut finder, &mut peer_finder] {
+        for x in 9..=12 {
+            for y in 9..=11 {
+                if (x, y) != (10, 10) && (x, y) != (11, 10) {
+                    f.grid
+                        .set_cell_type(GridPos::new(x, y), PathfindCellType::Impassable);
+                }
+            }
+        }
+    }
+    let query = |f: &mut PathfindingSystem, w: &GameLogic, id| {
+        f.find_safe_path_from(
+            from,
+            from,
+            from,
+            100.0,
+            SURFACE_GROUND,
+            false,
+            true,
+            &ground,
+            w.host_objects(),
+            id,
+        )
+        .expect("the original accepts the last valid reachable cell")
+    };
+    let expected = query(&mut peer_finder, &peer, peer_mover);
+    let result = query(&mut finder, &world, mover);
+    assert_eq!(
+        finder.grid.world_to_grid(*result.last().unwrap()),
+        GridPos::new(11, 10)
+    );
+    assert!((*result.last().unwrap() - from).length() < 100.0);
+    assert_eq!(query(&mut peer_finder, &peer, peer_mover), expected);
+}
+
+#[test]
+fn safe_search_can_return_the_already_safe_start() {
+    let from = Vec3::new(105.0, 0.0, 105.0);
+    let (world, _, mover) = make_world_at(from);
+    let mut finder = PathfindingSystem::new(400.0, 400.0);
+    let repulsor = Vec3::new(10.0, 0.0, 10.0);
+    let route = finder
+        .find_safe_path_from(
+            Vec3::new(305.0, 0.0, 305.0),
+            repulsor,
+            repulsor,
+            20.0,
+            SURFACE_GROUND,
+            false,
+            true,
+            &PathfindingGround::Flat(0.0),
+            world.host_objects(),
+            mover,
+        )
+        .expect("the original builds a short path when the start is already safe");
+    assert_eq!(route, vec![from]);
+}
+
+#[test]
+fn single_repulsor_wrapper_uses_the_receiving_computers_extent_policy() {
+    use generals_main::game_logic::pathfinding::GridPos;
+    let (mut world, _, mover) = make_world();
+    world.get_player_mut(0).unwrap().is_human = false;
+    let mut finder = PathfindingSystem::new(400.0, 400.0);
+    finder.set_human_player_mask(0);
+    finder
+        .grid
+        .set_logical_extent(GridPos::new(0, 0), GridPos::new(5, 5));
+    let from = Vec3::new(100.0, 0.0, 100.0);
+    let route = finder.find_safe_path(
+        from,
+        from,
+        40.0,
+        SURFACE_GROUND,
+        false,
+        &PathfindingGround::Flat(0.0),
+        world.host_objects(),
+        mover,
+    );
+    assert!(
+        route.is_some(),
+        "computer movement may search outside the human logical extent"
+    );
+}
+
+#[test]
+fn safe_search_does_not_walk_through_an_uncrushable_enemy() {
+    use generals_main::game_logic::pathfinding::{GridPos, PathPositionFootprint};
+    let from = Vec3::new(105.0, 0.0, 105.0);
+    let (mut world, _, mover) = make_world_at(from);
+    world.add_player(Player::new(1, Team::GLA, "Enemy", false));
+    let enemy_pos = Vec3::new(115.0, 0.0, 105.0);
+    let enemy = world
+        .create_object_for_player("Small", 1, enemy_pos)
+        .unwrap();
+    let mut finder = PathfindingSystem::new(400.0, 400.0);
+    finder
+        .grid
+        .set_logical_extent(GridPos::new(10, 10), GridPos::new(11, 10));
+    finder.grid.update_path_position_cell(
+        &PathPositionFootprint {
+            unit_id: enemy.0,
+            player: 1,
+            radius: 2.0,
+            layer: 0,
+            on_ground: true,
+            infantry: false,
+            crushable_level: 0,
+        },
+        (-1, -1),
+        enemy_pos,
+    );
+    let route = finder.find_safe_path_from(
+        from,
+        from,
+        from,
+        100.0,
+        SURFACE_GROUND,
+        false,
+        true,
+        &PathfindingGround::Flat(0.0),
+        world.host_objects(),
+        mover,
+    );
+    assert!(
+        route.is_none(),
+        "the only neighbor is occupied by an uncrushable enemy: {route:?}"
     );
 }
