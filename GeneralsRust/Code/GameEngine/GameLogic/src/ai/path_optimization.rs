@@ -28,8 +28,20 @@ impl PathOptimizer {
         layers: &[PathfindLayerEnum],
         passability_checker: impl Fn(&Coord3D, &Coord3D, PathfindLayerEnum) -> bool,
     ) -> (Vec<Coord3D>, Vec<PathfindLayerEnum>) {
+        self.try_optimize(waypoints, layers, |from, to, layer| {
+            Ok::<_, std::convert::Infallible>(passability_checker(from, to, layer))
+        })
+        .unwrap_or_else(|never| match never {})
+    }
+
+    pub(crate) fn try_optimize<E>(
+        &self,
+        waypoints: &[Coord3D],
+        layers: &[PathfindLayerEnum],
+        mut passability_checker: impl FnMut(&Coord3D, &Coord3D, PathfindLayerEnum) -> Result<bool, E>,
+    ) -> Result<(Vec<Coord3D>, Vec<PathfindLayerEnum>), E> {
         if waypoints.len() <= 2 {
-            return (waypoints.to_vec(), layers.to_vec());
+            return Ok((waypoints.to_vec(), layers.to_vec()));
         }
 
         let mut optimized_waypoints = Vec::new();
@@ -78,7 +90,7 @@ impl PathOptimizer {
                 let anchor_pos = waypoints[anchor_idx];
                 let test_pos = waypoints[test_idx];
 
-                let mut is_passable = passability_checker(&anchor_pos, &test_pos, layer);
+                let mut is_passable = passability_checker(&anchor_pos, &test_pos, layer)?;
                 if !is_passable {
                     is_passable = self.is_simple_path_segment(&waypoints[anchor_idx..=test_idx]);
                 }
@@ -100,7 +112,7 @@ impl PathOptimizer {
             }
         }
 
-        (optimized_waypoints, optimized_layers)
+        Ok((optimized_waypoints, optimized_layers))
     }
 
     /// Optimize ground paths specifically (removes jig-jogs)

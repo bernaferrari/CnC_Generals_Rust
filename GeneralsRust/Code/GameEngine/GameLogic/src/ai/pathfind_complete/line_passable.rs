@@ -36,7 +36,6 @@ impl PathfindingSystem {
         );
         let obj_id = request.object_id;
 
-        let error = std::cell::RefCell::new(None);
         // Line passability checker — C++ isLinePassable(..., blocked, false).
         let passability = |from: &Coord3D, to: &Coord3D, layer: PathfindLayerEnum| {
             self.is_line_passable_with_observations(
@@ -54,21 +53,12 @@ impl PathfindingSystem {
                 Some(request.ignore_obstacle_id.unwrap_or(INVALID_ID)),
                 observations,
             )
-            .unwrap_or_else(|cause| {
-                *error.borrow_mut() = Some(cause);
-                false
-            })
         };
 
         // C++ buildActualPath calls Path::optimize only. optimizeGroundPath
         // belongs to buildGroundPath and must not run over this already-pruned
         // node sequence, where it could collapse the bridge-layer span again.
-        let optimized = self.optimizer.optimize(waypoints, layers, passability);
-        if let Some(error) = error.into_inner() {
-            Err(error)
-        } else {
-            Ok(optimized)
-        }
+        self.optimizer.try_optimize(waypoints, layers, passability)
     }
 
     pub(crate) fn world_pos_for_coord(
