@@ -1338,6 +1338,7 @@ impl GameClient {
             &mut guard.superweapon_strip,
             &entries,
             self.frame,
+            &mut guard.eva,
         );
         let packed: Vec<crate::core::subsystems::PresentationSuperweaponTimerResidual> =
             crate::gui::ingame_ui::live_superweapon_draw_entries(&mut guard.superweapon_strip)
@@ -2766,7 +2767,9 @@ impl GameClient {
         }
 
         if self.input_authority == ClientInputAuthority::StandaloneCore {
-            crate::eva::update_eva_system();
+            if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+                crate::eva::update_eva_system(&mut ui.eva);
+            }
         }
 
         Ok(())

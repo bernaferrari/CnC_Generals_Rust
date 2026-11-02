@@ -346,7 +346,11 @@ impl InGameUI {
     }
 
     /// C++ postDraw SW block state (InGameUI.cpp:3487-3697).
-    pub fn update_superweapon_timers(&mut self, current_frame: u32) {
+    pub fn update_superweapon_timers(
+        &mut self,
+        current_frame: u32,
+        eva: &mut crate::eva::Eva,
+    ) {
         Self::update_superweapon_timer_entries(
             &mut self.superweapon_timers,
             self.superweapon_hidden_by_script,
@@ -354,6 +358,7 @@ impl InGameUI {
             &mut self.superweapon_last_flash_frame,
             &mut self.superweapon_used_flash_color,
             current_frame,
+            eva,
         );
     }
 
@@ -366,6 +371,7 @@ impl InGameUI {
         last_flash_frame: &mut u32,
         used_flash_color: &mut bool,
         current_frame: u32,
+        eva: &mut crate::eva::Eva,
     ) {
         const LOGICFRAMES_PER_SECOND: u32 = 30;
         if current_frame == 0 {
@@ -465,7 +471,7 @@ impl InGameUI {
             } as i32;
 
             if is_ready && !timers[i].eva_ready_played {
-                Self::announce_superweapon_ready(object_id, power_type);
+                Self::announce_superweapon_ready(object_id, power_type, eva);
                 timers[i].eva_ready_played = true;
             } else if !is_ready {
                 timers[i].eva_ready_played = false;
@@ -511,6 +517,7 @@ impl InGameUI {
     fn announce_superweapon_ready(
         object_id: ObjectID,
         power_type: gamelogic::object::special_power_types::SpecialPowerType,
+        eva: &mut crate::eva::Eva,
     ) {
         use gamelogic::object::special_power_types::SpecialPowerType;
         let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
@@ -579,7 +586,7 @@ impl InGameUI {
             }
             _ => return,
         };
-        crate::eva::with_eva(|eva| eva.set_should_play(message));
+        eva.set_should_play(message);
     }
 
     pub fn get_superweapon_timers(&self) -> &[SuperweaponTimerData] {
@@ -799,7 +806,7 @@ impl InGameUI {
         self.update_military_subtitle();
         self.update_floating_texts();
         self.update_named_timers();
-        self.update_superweapon_timers(self.current_frame);
+        self.update_superweapon_timers(self.current_frame, &mut ui.state.eva);
         self.last_ui_logic_frame = self.current_frame;
         self.handle_build_placements(ui);
         self.handle_radius_cursor(input, ui);
@@ -810,7 +817,7 @@ impl InGameUI {
         self.expire_hints();
         self.expire_messages();
         self.update_floating_texts();
-        self.update_superweapon_timers(frame);
+        self.update_superweapon_timers(frame, &mut ui.state.eva);
         self.update_named_timers();
         self.update_military_subtitle();
         self.handle_build_placements(ui);
@@ -820,9 +827,9 @@ impl InGameUI {
         }
     }
 
-    pub fn post_draw(&mut self, frame: u32) {
+    pub fn post_draw(&mut self, frame: u32, eva: &mut crate::eva::Eva) {
         self.current_frame = frame;
-        self.update_superweapon_timers(frame);
+        self.update_superweapon_timers(frame, eva);
         self.update_named_timers();
     }
 
@@ -1291,6 +1298,7 @@ pub fn live_superweapon_strip_sync(
     strip: &mut LiveSuperweaponStrip,
     entries: &[(i32, String, ObjectID, u32)],
     frame: u32,
+    eva: &mut crate::eva::Eva,
 ) {
     strip.timers.retain(|t| {
         entries
@@ -1315,11 +1323,15 @@ pub fn live_superweapon_strip_sync(
         );
         strip.timers.push(timer);
     }
-    live_superweapon_strip_update(strip, frame);
+    live_superweapon_strip_update(strip, frame, eva);
 }
 
 /// Tick the live strip countdown/READY/EVA state (C++ postDraw SW block).
-pub fn live_superweapon_strip_update(strip: &mut LiveSuperweaponStrip, frame: u32) {
+pub fn live_superweapon_strip_update(
+    strip: &mut LiveSuperweaponStrip,
+    frame: u32,
+    eva: &mut crate::eva::Eva,
+) {
     let LiveSuperweaponStrip {
         timers,
         flash_duration,
@@ -1333,6 +1345,7 @@ pub fn live_superweapon_strip_update(strip: &mut LiveSuperweaponStrip, frame: u3
         last_flash_frame,
         used_flash_color,
         frame,
+        eva,
     );
 }
 

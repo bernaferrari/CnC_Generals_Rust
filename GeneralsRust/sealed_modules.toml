@@ -188,3 +188,8 @@ path = "Code/GameEngine/GameClient/src/message_stream/meta_event_impl/state.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/MessageStream/MetaEvent.cpp"
 note = "Meta demo/cheat latches on InGameUISubsystem::meta_demo; removed TLS Cells; dispatch/helpers/tests take &mut MetaDemoState."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/eva.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Eva.cpp"
+note = "Eva + host/residual latches owned on InGameUISubsystem::eva; removed THE_EVA TLS and residual atomics; APIs take &mut Eva."
+

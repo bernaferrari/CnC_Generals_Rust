@@ -1201,6 +1201,8 @@ pub struct PresentationSuperweaponTimerResidual {
 pub struct InGameUISubsystem {
     /// Meta-event demo/cheat toggles (was process TLS in meta_event_impl/state).
     pub meta_demo: crate::meta_demo_state::MetaDemoState,
+    /// EVA speaker (was process TLS THE_EVA + host/residual latches).
+    pub eva: crate::eva::Eva,
     pub(crate) legacy_production_pause_requests: Vec<(u32, bool)>,
     pub(crate) host_control_bar_transport: Option<crate::gui::control_bar::HostControlBarTransport>,
     pub(crate) pending_control_bar_stage: Option<crate::gui::control_bar::ControlBarStage>,

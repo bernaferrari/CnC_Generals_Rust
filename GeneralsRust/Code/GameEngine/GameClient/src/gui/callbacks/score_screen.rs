@@ -1992,7 +1992,7 @@ fn score_end_frame(parent: &Option<Rc<RefCell<GameWindow>>>) -> u32 {
 // The native admission requires a bound completed-match snapshot. The
 // remaining standalone Core clock dependency is tracked separately (hq-6v2cq8).
 fn leftover_score_logic_frame() -> u32 {
-    crate::eva::eva_logic_frame()
+    TheGameLogic::get_frame()
 }
 
 fn leftover_academy_from_live_notify(player: &Player) -> gamelogic::player::AcademyStats {

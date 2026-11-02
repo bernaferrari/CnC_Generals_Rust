@@ -40,13 +40,22 @@ fn independent_eva_sources_and_failed_candidate_do_not_change_other_speakers() {
 }
 
 #[test]
-fn native_client_reset_does_not_reset_the_standalone_eva() {
-    game_client_rust::eva::set_eva_enabled(false);
-    let mut client = GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted)
-        .expect("native hosted client");
-    client.reset().expect("reset native client");
-    assert!(!game_client_rust::eva::with_eva(|eva| eva.is_enabled()));
-    game_client_rust::eva::set_eva_enabled(true);
+fn each_client_owns_an_independent_eva_speaker() {
+    let mut a = GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted)
+        .expect("client a");
+    let mut b = GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted)
+        .expect("client b");
+    a.set_in_game_ui_subsystem(Default::default());
+    b.set_in_game_ui_subsystem(Default::default());
+    {
+        let eva_a = &mut a.in_game_ui_subsystem_mut().unwrap().eva;
+        eva_a.set_enabled(false);
+        assert!(!eva_a.is_enabled());
+    }
+    assert!(b.in_game_ui_subsystem().unwrap().eva.is_enabled());
+    a.reset().expect("reset a");
+    // reset re-enables the client's own speaker
+    assert!(a.in_game_ui_subsystem().unwrap().eva.is_enabled());
 }
 
 #[derive(Default)]
