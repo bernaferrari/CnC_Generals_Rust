@@ -388,29 +388,6 @@ fn astar_cell_type(ty: crate::path::PathfindCellType) -> PathfindCellType {
     }
 }
 
-pub(crate) fn ignored_obstacle_cells(
-    ignore_obstacle_id: Option<ObjectID>,
-) -> Option<HashSet<GridCoord>> {
-    // Wave 262: empty dual-world → None.
-    if dual_world_registry_unavailable() {
-        return None;
-    }
-
-    let object_id = ignore_obstacle_id?;
-    if object_id == INVALID_ID {
-        return None;
-    }
-
-    let positions = OBJECT_REGISTRY
-        .with_object(object_id, |guard| object_footprint_positions(guard))
-        .flatten()?;
-    let mut cells = HashSet::with_capacity(positions.len());
-    for pos in positions {
-        cells.insert(GridCoord::from_world(&pos));
-    }
-    if cells.is_empty() { None } else { Some(cells) }
-}
-
 /// Cohen–Sutherland style cell-line clip against inclusive grid extent (lo, hi).
 /// Matches C++ ClipLine2D usage in Pathfinder::clip.
 pub(crate) fn clip_line_cells(

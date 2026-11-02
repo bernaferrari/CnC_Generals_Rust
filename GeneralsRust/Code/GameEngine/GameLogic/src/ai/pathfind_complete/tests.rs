@@ -3027,3 +3027,43 @@ fn line_obstacle_owner_is_resolved_per_layer() {
         Some(&explicit_cells)
     ));
 }
+
+#[test]
+fn destination_footprint_uses_the_receiving_layer_obstacle_owner() {
+    let mut world = PathfindingSystem::new(8, 8);
+    let mut peer = PathfindingSystem::new(8, 8);
+    let center = GridCoord::new(3, 3);
+    let obstacle = GridCoord::new(4, 3);
+    for grid in [&mut world, &mut peer] {
+        for x in 2..=4 {
+            for y in 2..=4 {
+                grid.pathfinder.set_cell_type_on_layer(
+                    GridCoord::new(x, y),
+                    PathfindLayerEnum::Top,
+                    PathfindCellType::Clear,
+                );
+            }
+        }
+    }
+    world
+        .pathfinder
+        .set_cell_obstacle_id(obstacle, 41, false, false);
+    world.pathfinder.set_cell_obstacle_id_on_layer(
+        obstacle,
+        PathfindLayerEnum::Top,
+        42,
+        false,
+        false,
+    );
+    peer.pathfinder
+        .set_cell_obstacle_id(obstacle, 42, false, false);
+    let valid = |grid: &PathfindingSystem, layer, owner| {
+        grid.is_destination_valid(center, layer, SURFACE_GROUND, false, 1, true, owner)
+    };
+    assert!(valid(&world, PathfindLayerEnum::Ground, Some(41)));
+    assert!(!valid(&peer, PathfindLayerEnum::Ground, Some(41)));
+    assert!(!valid(&world, PathfindLayerEnum::Top, Some(41)));
+    assert!(valid(&world, PathfindLayerEnum::Top, Some(42)));
+    assert!(!valid(&world, PathfindLayerEnum::Ground, Some(INVALID_ID)));
+    assert!(valid(&world, PathfindLayerEnum::Ground, Some(41)));
+}

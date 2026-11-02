@@ -408,61 +408,30 @@ impl PathfindingSystem {
     pub(crate) fn is_destination_valid_with_observations(
         &self,
         cell: GridCoord,
-        _layer: PathfindLayerEnum,
+        layer: PathfindLayerEnum,
         surfaces: LocomotorSurfaceTypeMask,
         is_crusher: bool,
         radius: i32,
         center_in_cell: bool,
         ignore_obstacle_id: Option<ObjectID>,
-        observations: Option<&PathfindObservations<'_>>,
+        _observations: Option<&PathfindObservations<'_>>,
     ) -> bool {
         if !self.is_valid_coord(cell) {
             return false;
         }
-        let ignore_cells = match observations {
-            Some(observations) => observations.ignored_cells(ignore_obstacle_id),
-            None => ignored_obstacle_cells(ignore_obstacle_id),
-        };
-        self.is_destination_valid_with_ignored_cells(
-            cell,
-            _layer,
-            surfaces,
-            is_crusher,
-            radius,
-            center_in_cell,
-            ignore_cells.as_ref(),
-        )
-    }
-
-    pub(crate) fn is_destination_valid_with_ignored_cells(
-        &self,
-        cell: GridCoord,
-        _layer: PathfindLayerEnum,
-        surfaces: LocomotorSurfaceTypeMask,
-        is_crusher: bool,
-        radius: i32,
-        center_in_cell: bool,
-        ignore_cells: Option<&HashSet<GridCoord>>,
-    ) -> bool {
-        if !self.is_valid_coord(cell) {
-            return false;
-        }
-        let pathfinder = &self.pathfinder;
-
-        // Check all cells in the unit's footprint
         let mut num_cells_above = radius;
         if center_in_cell {
             num_cells_above += 1;
         }
-        let start_x = cell.x - radius;
-        let end_x = cell.x + num_cells_above;
-        let start_y = cell.y - radius;
-        let end_y = cell.y + num_cells_above;
-
-        for x in start_x..end_x {
-            for y in start_y..end_y {
-                let coord = GridCoord::new(x, y);
-                if !pathfinder.is_passable_with_ignore(coord, surfaces, is_crusher, ignore_cells) {
+        for x in (cell.x - radius)..(cell.x + num_cells_above) {
+            for y in (cell.y - radius)..(cell.y + num_cells_above) {
+                if !self.valid_movement_cell_on_layer(
+                    surfaces,
+                    is_crusher,
+                    GridCoord::new(x, y),
+                    layer,
+                    ignore_obstacle_id,
+                ) {
                     return false;
                 }
             }

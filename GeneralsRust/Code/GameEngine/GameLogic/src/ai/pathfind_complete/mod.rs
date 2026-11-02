@@ -9,7 +9,6 @@
 
 #![allow(unused_imports)]
 
-pub(crate) use super::object_footprint_positions;
 pub(crate) use super::path_optimization::PathOptimizer;
 pub use super::pathfind_astar::{
     AStarPathfinder, COST_DIAGONAL, COST_ORTHOGONAL, GridCoord, PATHFIND_CELL_SIZE,
@@ -69,5 +68,4 @@ pub use types::{
 pub(crate) use block_zones::{BlockCombiner, ZoneManager};
 pub(crate) use types::{
     GoalCell, ObjectPathQueue, clip_line_cells, dual_world_registry_unavailable,
-    ignored_obstacle_cells,
 };

@@ -62,24 +62,4 @@ impl PathfindObservations<'_> {
     pub(crate) fn relationship(&self, source: &Object, target: &Object) -> Relationship {
         source.relationship_to_with_players(target, self.players)
     }
-    pub(crate) fn ignored_cells(&self, id: Option<ObjectID>) -> Option<HashSet<GridCoord>> {
-        let object = self.object(id.filter(|id| *id != INVALID_ID)?)?;
-        let object = object
-            .read()
-            .expect("admitted path observation object poisoned");
-        let cells: HashSet<_> =
-            crate::ai::object_footprint_positions_with_height(&object, |x, y| {
-                self.terrain.get_layer_height(
-                    x,
-                    y,
-                    crate::path::PathfindLayerEnum::Ground,
-                    None,
-                    false,
-                )
-            })?
-            .into_iter()
-            .map(|position| GridCoord::from_world(&position))
-            .collect();
-        (!cells.is_empty()).then_some(cells)
-    }
 }
