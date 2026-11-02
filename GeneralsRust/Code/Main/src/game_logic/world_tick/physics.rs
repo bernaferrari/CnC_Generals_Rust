@@ -425,7 +425,7 @@ impl GameLogic {
                             (prev.movement.path.len() >= 2).then(|| prev.movement.path.clone())
                         })
                     });
-                if a_path.len() >= 2 {
+                if !a_path.is_empty() {
                     if self.objects.get(&other_id).is_some() {
                         let yield_path = self.find_move_away_path_with_retry(
                             other_id,
@@ -486,7 +486,7 @@ impl GameLogic {
                             (prev.movement.path.len() >= 2).then(|| prev.movement.path.clone())
                         })
                     });
-                if other_path.len() >= 2 {
+                if !other_path.is_empty() {
                     if self.objects.get(&a_id).is_some() {
                         let yield_path = self.find_move_away_path_with_retry(
                             a_id,

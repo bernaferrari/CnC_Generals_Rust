@@ -645,3 +645,64 @@ fn move_away_destination_accepts_the_movers_ignored_obstacle() {
         vec![Vec3::new(100.0, 0.0, 100.0), Vec3::new(100.5, 0.0, 100.5)]
     );
 }
+
+#[test]
+fn move_away_accepts_short_avoided_paths_and_checks_the_second_path() {
+    let (world, other, mover) = make_world();
+    let ground = PathfindingGround::Flat(0.0);
+    let mut finder = PathfindingSystem::new(400.0, 400.0);
+    let far = [Vec3::new(20.0, 0.0, 300.0), Vec3::new(180.0, 0.0, 300.0)];
+    let lone_node = [Vec3::new(100.0, 0.0, 100.0)];
+    let query = |finder: &mut PathfindingSystem, primary: &[Vec3], secondary| {
+        finder.get_move_away_from_path(
+            primary,
+            secondary,
+            &ground,
+            world.host_objects(),
+            mover,
+            other,
+        )
+    };
+    let baseline = query(&mut finder, &far, None).expect("unobstructed move-away route");
+    for short in [&[][..], &lone_node[..]] {
+        let route = query(&mut finder, short, None)
+            .expect("a non-null short path still triggers the search");
+        assert_eq!(route, baseline);
+        assert_ne!(
+            route.last(),
+            route.first(),
+            "the mover must leave its starting cell"
+        );
+    }
+    let crossing = [Vec3::new(20.0, 0.0, 100.0), Vec3::new(180.0, 0.0, 100.0)];
+    let avoiding_both =
+        query(&mut finder, &lone_node, Some(&crossing)).expect("route avoiding the second path");
+    assert_ne!(
+        avoiding_both.last(),
+        baseline.last(),
+        "the second path still restricts the destination"
+    );
+}
+
+#[test]
+fn collision_moves_away_from_a_single_node_path() {
+    let (mut world, mover, yielding) = tiny_collision_world();
+    let (peer, _, peer_yielding) = tiny_collision_world();
+    let actor = world.host_object_mut(mover).unwrap();
+    actor.allow_collide_force = false;
+    actor.movement.path = vec![Vec3::ZERO];
+    actor.request_other_move_away = Some(yielding);
+    world.try_physics_collide(mover, yielding, 1.0).unwrap();
+    let unit = world.host_object(yielding).unwrap();
+    assert_eq!(unit.move_away_from, Some(mover));
+    assert!(
+        unit.movement.path.len() >= 2,
+        "the unit receives a move-away route"
+    );
+    assert!(
+        !peer
+            .host_object(peer_yielding)
+            .unwrap()
+            .can_path_through_units
+    );
+}

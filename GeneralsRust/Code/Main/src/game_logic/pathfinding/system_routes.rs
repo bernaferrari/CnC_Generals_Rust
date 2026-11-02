@@ -545,9 +545,6 @@ impl PathfindingSystem {
         mover: ObjectId,
         other: ObjectId,
     ) -> Option<Vec<Vec3>> {
-        if path_to_avoid.len() < 2 {
-            return None;
-        }
         let unit = objects.lookup(&mover).filter(|unit| unit.is_alive())?;
         let from = unit.get_position();
         let surfaces = if unit.locomotor_surfaces != 0 {
