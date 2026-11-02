@@ -261,11 +261,13 @@ impl Quaternion {
     /// Generate a random unit quaternion
     /// Matches the C++ implementation approach
     pub fn randomize(&mut self) {
+                let mut rng = crate::WwMathRng::default();
+
         // Use a simple random approach matching C++ style
-        self.x = WWMath::random_float();
-        self.y = WWMath::random_float();
-        self.z = WWMath::random_float();
-        self.w = WWMath::random_float();
+        self.x = WWMath::random_float(&mut rng);
+        self.y = WWMath::random_float(&mut rng);
+        self.z = WWMath::random_float(&mut rng);
+        self.w = WWMath::random_float(&mut rng);
 
         self.normalize();
     }

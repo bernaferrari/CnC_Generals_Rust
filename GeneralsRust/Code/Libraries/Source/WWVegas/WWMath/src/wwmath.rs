@@ -35,6 +35,25 @@ struct TrigTables {
 
 static TRIG_TABLES: OnceLock<TrigTables> = OnceLock::new();
 
+/// MSVC-style LCG state for `WWMath::Random_Float` (owned; not a process global).
+#[derive(Debug, Clone, Copy)]
+pub struct WwMathRng {
+    state: u32,
+}
+
+impl WwMathRng {
+    /// C++ `srand`-equivalent seed. Default seed `1` matches the old TLS initial state.
+    pub const fn new(seed: u32) -> Self {
+        Self { state: if seed == 0 { 1 } else { seed } }
+    }
+}
+
+impl Default for WwMathRng {
+    fn default() -> Self {
+        Self::new(1)
+    }
+}
+
 /// Collection of mathematical utility functions
 pub struct WWMath;
 
@@ -344,18 +363,18 @@ impl WWMath {
     }
 
     /// Generate a random float between 0 and 1
-    pub fn random_float() -> f32 {
-        Self::random_float_improved()
+    pub fn random_float(rng: &mut WwMathRng) -> f32 {
+        Self::random_float_improved(rng)
     }
 
     /// Generate a random float between 0 and 1 (inclusive of 0, exclusive of 1)
-    pub fn unit_random() -> f32 {
-        Self::random_float_improved()
+    pub fn unit_random(rng: &mut WwMathRng) -> f32 {
+        Self::random_float_improved(rng)
     }
 
     /// Generate a random float in a range
-    pub fn random_float_range(min: f32, max: f32) -> f32 {
-        Self::random_float() * (max - min) + min
+    pub fn random_float_range(min: f32, max: f32, rng: &mut WwMathRng) -> f32 {
+        Self::random_float(rng) * (max - min) + min
     }
 
     /// Convert float to byte (0-255)
@@ -504,19 +523,13 @@ impl WWMath {
     }
 
     /// Better random number generator matching C++ `WWMath::Random_Float`.
-    pub fn random_float_improved() -> f32 {
-        use std::cell::RefCell;
-
-        thread_local! {
-            static RNG_STATE: RefCell<u32> = const { RefCell::new(1) };
-        }
-
-        RNG_STATE.with(|state| {
-            let mut s = state.borrow_mut();
-            let (next, bits) = Self::extract_msvc_rand_12bit(*s);
-            *s = next;
-            (bits as f32) / 0xFFF as f32
-        })
+    ///
+    /// C++ used process `rand()` state. Rust takes an explicit [`WwMathRng`] so
+    /// parallel game instances do not share a mutable process global.
+    pub fn random_float_improved(rng: &mut WwMathRng) -> f32 {
+        let (next, bits) = Self::extract_msvc_rand_12bit(rng.state);
+        rng.state = next;
+        (bits as f32) / 0xFFF as f32
     }
 
     /// Ensure lookup tables are initialized
@@ -1052,7 +1065,8 @@ mod tests {
     fn test_random_generation() {
         // Test that random values are in expected range
         for _ in 0..100 {
-            let val = WWMath::random_float_improved();
+            let mut rng = WwMathRng::default();
+            let val = WWMath::random_float_improved(&mut rng);
             assert!(
                 val >= 0.0 && val <= 1.0,
                 "Random value out of range: {}",
@@ -1063,7 +1077,8 @@ mod tests {
         let min = 5.0;
         let max = 10.0;
         for _ in 0..100 {
-            let val = WWMath::random_float_range(min, max);
+            let mut rng = WwMathRng::default();
+            let val = WWMath::random_float_range(min, max, &mut rng);
             assert!(
                 val >= min && val <= max,
                 "Random range value out of bounds: {}",

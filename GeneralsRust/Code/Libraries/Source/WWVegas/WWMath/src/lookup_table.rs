@@ -374,15 +374,6 @@ impl Default for LookupTableManager {
     }
 }
 
-// Global table manager instance
-lazy_static::lazy_static! {
-    static ref GLOBAL_MANAGER: LookupTableManager = LookupTableManager::default();
-}
-
-/// Get the global lookup table manager.
-pub fn global_table_manager() -> &'static LookupTableManager {
-    &GLOBAL_MANAGER
-}
 
 #[cfg(test)]
 mod tests {
@@ -512,10 +503,9 @@ mod tests {
     }
 
     #[test]
-    fn test_global_table_manager() {
-        let manager = global_table_manager();
-
-        // Should have default table
+    fn test_owned_table_manager() {
+        // Default seeds DefaultTable; `new()` starts empty for caller-owned catalogs.
+        let manager = LookupTableManager::default();
         let default_table = manager.get_table("DefaultTable");
         assert!(default_table.is_some());
 
