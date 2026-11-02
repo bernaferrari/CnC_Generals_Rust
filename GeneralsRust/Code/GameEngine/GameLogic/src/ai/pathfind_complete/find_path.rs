@@ -677,7 +677,7 @@ impl PathfindingSystem {
             let dy = (goal_grid.y - c.y).abs();
             let dmin = dx.min(dy);
             let dmax = dx.max(dy);
-            COST_DIAG * dmin + COST_ORTHO * (dmax - dmin)
+            COST_ORTHO * dmax + (COST_ORTHO * dmin) / 2
         };
 
         type CellKey = (i32, i32, u8);
@@ -826,13 +826,14 @@ impl PathfindingSystem {
                 if downhill_only && ground_height(cell) < ground_height(nc) {
                     continue;
                 }
-                let mut movement_valid = self.valid_movement_cell_on_layer(
+                let terrain_valid = self.valid_movement_cell_on_layer(
                     surfaces,
                     is_crusher,
                     nc,
                     layer,
                     terrain_ignore,
                 );
+                let mut movement_valid = terrain_valid;
                 let mut dozer_crossing = false;
                 if !movement_valid && is_dozer {
                     if let Some((PathfindCellType::Obstacle, Some(owner), _)) =
@@ -888,16 +889,55 @@ impl PathfindingSystem {
                     .pathfinder
                     .resolved_layer_at(nc, layer)
                     .unwrap_or(layer);
-                if movement_valid
-                    && occupancy_clear
-                    && !self
-                        .pathfinder
-                        .is_pinched_on_layer(nc, resolved_layer)
-                        .unwrap_or(false)
-                {
+                let pinched = self
+                    .pathfinder
+                    .is_pinched_on_layer(nc, resolved_layer)
+                    .unwrap_or(false);
+                if movement_valid && occupancy_clear && !pinched {
                     tunneling = false;
                 }
-                let step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
+                // PathfindCell::costSoFar adds a turn penalty and one
+                // diagonal cost for a pinched cell. examineNeighboringCells
+                // then adds its separate terrain and occupancy surcharges.
+                let mut step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
+                if pinched {
+                    step += COST_DIAG + COST_ORTHO;
+                }
+                if let Some(&(px, py, _)) = parents.get(&key) {
+                    let previous = (cx - px, cy - py);
+                    let current = (nx - cx, ny - cy);
+                    if previous != current {
+                        let dot = previous.0 * current.0 + previous.1 * current.1;
+                        step += if dot > 0 {
+                            4
+                        } else if dot == 0 {
+                            8
+                        } else {
+                            16
+                        };
+                    }
+                }
+                if info.ally_moving && (nx - start.x).abs() < 10 && (ny - start.y).abs() < 10 {
+                    step += 3 * COST_DIAG;
+                }
+                if info.ally_fixed_count > 0 {
+                    step += 3 * COST_DIAG;
+                }
+                if let Some((cell_type, _, _)) = self.pathfinder.obstacle_observation_at(nc, layer)
+                {
+                    if cell_type == PathfindCellType::Cliff
+                        && !pinched
+                        && (ground_height(cell) - ground_height(nc)).abs() < PATHFIND_CELL_SIZE_F
+                    {
+                        step += 7 * COST_DIAG;
+                    }
+                    if cell_type == PathfindCellType::Obstacle {
+                        step += 100 * COST_ORTHO;
+                    }
+                }
+                if tunneling && !terrain_valid {
+                    step += 10 * COST_ORTHO;
+                }
                 let ng = g + step;
                 if g_score.get(&neighbor_key).is_some_and(|&og| ng >= og) {
                     continue;

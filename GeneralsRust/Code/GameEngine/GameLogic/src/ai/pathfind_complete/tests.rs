@@ -3883,3 +3883,36 @@ fn closest_dozer_crosses_only_obstacles_allowed_by_its_factory() {
     }
     assert_eq!(allowed.waypoints, allowed_again.waypoints);
 }
+
+#[test]
+fn closest_path_avoids_expensive_pinched_cell_when_detour_is_cheaper() {
+    let mut world = PathfindingSystem::new(9, 5);
+    world.new_map();
+    let start = GridCoord::new(1, 2);
+    let goal = GridCoord::new(7, 2);
+    world.pathfinder.set_pinched(GridCoord::new(4, 2), true);
+    let result = world.find_closest_path(PathRequest {
+        object_id: INVALID_ID,
+        from: start.to_world(0.0),
+        to: goal.to_world(0.0),
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        unit_radius: 0.0,
+        allow_partial: true,
+        move_allies: false,
+        ignore_obstacle_id: None,
+        is_human: false,
+    });
+    assert!(result.success);
+    assert_eq!(
+        GridCoord::from_world(result.waypoints.last().unwrap()),
+        goal
+    );
+    assert!(
+        result
+            .waypoints
+            .iter()
+            .any(|point| GridCoord::from_world(point).y != start.y),
+        "the shorter geometric route pays both C++ pinched-cell costs"
+    );
+}
