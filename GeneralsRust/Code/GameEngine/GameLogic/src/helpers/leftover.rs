@@ -599,36 +599,35 @@ impl TheTacticalView {
 /// Terrain visual effects bridge (matching C++ TheTerrainVisual).
 pub struct TheTerrainVisual;
 
-static TERRAIN_VISUAL_RAW_HEIGHT: std::sync::LazyLock<Mutex<Option<fn(i32, i32, i32)>>> =
-    std::sync::LazyLock::new(|| Mutex::new(None));
-static TERRAIN_VISUAL_LIGHTING_CHANGED: std::sync::LazyLock<Mutex<Option<fn()>>> =
-    std::sync::LazyLock::new(|| Mutex::new(None));
-static TERRAIN_VISUAL_ADD_PROP: std::sync::LazyLock<
-    Mutex<Option<fn(u32, [f32; 3], f32, f32, &str)>>,
-> = std::sync::LazyLock::new(|| Mutex::new(None));
-static TERRAIN_VISUAL_PENDING_PROPS: std::sync::LazyLock<
-    Mutex<Vec<(u32, [f32; 3], f32, f32, String)>>,
-> = std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
+fn terrain_visuals() -> Arc<crate::system::engine_stores::WorldServices> {
+    crate::system::engine_stores::active_services()
+}
 
 /// Register the live GameClient `W3DTerrainVisual::setRawMapHeight` hook.
 pub fn register_terrain_visual_raw_height_hook(hook: Option<fn(i32, i32, i32)>) {
-    if let Ok(mut slot) = TERRAIN_VISUAL_RAW_HEIGHT.lock() {
-        *slot = hook;
-    }
+    *terrain_visuals()
+        .client_visuals()
+        .terrain_visual_raw_height
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = hook;
 }
 
 /// Register the live GameClient `staticLightingChanged` hook.
 pub fn register_terrain_visual_lighting_changed_hook(hook: Option<fn()>) {
-    if let Ok(mut slot) = TERRAIN_VISUAL_LIGHTING_CHANGED.lock() {
-        *slot = hook;
-    }
+    *terrain_visuals()
+        .client_visuals()
+        .terrain_visual_lighting_changed
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = hook;
 }
 
 /// Register the live GameClient `TheTerrainRenderObject->addProp` hook.
 pub fn register_terrain_visual_add_prop_hook(hook: Option<fn(u32, [f32; 3], f32, f32, &str)>) {
-    if let Ok(mut slot) = TERRAIN_VISUAL_ADD_PROP.lock() {
-        *slot = hook;
-    }
+    *terrain_visuals()
+        .client_visuals()
+        .terrain_visual_add_prop
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = hook;
 }
 
 impl TheTerrainVisual {
@@ -639,19 +638,27 @@ impl TheTerrainVisual {
 
     /// C++ `W3DTerrainVisual::setRawMapHeight` — playable-grid coords.
     pub fn set_raw_map_height(&self, x: i32, y: i32, height: i32) {
-        if let Ok(slot) = TERRAIN_VISUAL_RAW_HEIGHT.lock() {
-            if let Some(hook) = *slot {
-                hook(x, y, height);
-            }
+        let services = terrain_visuals();
+        let slot = services
+            .client_visuals()
+            .terrain_visual_raw_height
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if let Some(hook) = *slot {
+            hook(x, y, height);
         }
     }
 
     /// C++ `HeightMapRenderObjClass::staticLightingChanged`.
     pub fn static_lighting_changed(&self) {
-        if let Ok(slot) = TERRAIN_VISUAL_LIGHTING_CHANGED.lock() {
-            if let Some(hook) = *slot {
-                hook();
-            }
+        let services = terrain_visuals();
+        let slot = services
+            .client_visuals()
+            .terrain_visual_lighting_changed
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if let Some(hook) = *slot {
+            hook();
         }
     }
 
@@ -668,26 +675,37 @@ impl TheTerrainVisual {
             return;
         }
         let location = [position.x, position.y, position.z];
+        let visuals = terrain_visuals();
         let mut forwarded = false;
-        if let Ok(slot) = TERRAIN_VISUAL_ADD_PROP.lock() {
+        {
+            let slot = visuals
+                .client_visuals()
+                .terrain_visual_add_prop
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
             if let Some(hook) = *slot {
                 hook(drawable_id, location, angle, scale, model_name);
                 forwarded = true;
             }
         }
         if !forwarded {
-            if let Ok(mut pending) = TERRAIN_VISUAL_PENDING_PROPS.lock() {
-                pending.push((drawable_id, location, angle, scale, model_name.to_string()));
-            }
+            visuals
+                .client_visuals()
+                .terrain_visual_pending_props
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .push((drawable_id, location, angle, scale, model_name.to_string()));
         }
     }
 
     /// Drain props queued before the GameClient terrain hook was registered.
     pub fn take_pending_props(&self) -> Vec<(u32, [f32; 3], f32, f32, String)> {
-        TERRAIN_VISUAL_PENDING_PROPS
+        terrain_visuals()
+            .client_visuals()
+            .terrain_visual_pending_props
             .lock()
             .map(|mut pending| pending.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|_| Vec::new())
     }
 
     pub fn add_water_velocity(&self, _x: Real, _y: Real, _velocity: Real, _preferred_height: Real) {
@@ -774,6 +792,53 @@ impl TheTerrainVisual {
     /// C++ `transform.Set_Z_Translation` + `setWaterTransform`.
     pub fn set_water_transform_z(&self, height: Real) {
         crate::terrain_water::set_transform_z(height);
+    }
+}
+
+#[cfg(test)]
+mod terrain_visual_ownership_tests {
+    use super::*;
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+    use std::sync::{Arc, Barrier, Mutex};
+    use std::thread;
+
+    #[test]
+    fn parallel_worlds_keep_independent_pending_props() {
+        let barrier = Arc::new(Barrier::new(2));
+        let results = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = Vec::new();
+        for (seed, name) in [(11u32, "alpha"), (22u32, "beta")] {
+            let barrier = Arc::clone(&barrier);
+            let results = Arc::clone(&results);
+            let name = name.to_string();
+            handles.push(thread::spawn(move || {
+                let services = new_world_services();
+                with_world_services(&services, || {
+                    barrier.wait();
+                    TheTerrainVisual.add_prop(
+                        seed,
+                        Coord3D::new(seed as f32, 0.0, 0.0),
+                        0.0,
+                        1.0,
+                        &name,
+                    );
+                    barrier.wait();
+                    let pending = TheTerrainVisual.take_pending_props();
+                    results.lock().unwrap().push((seed, pending));
+                });
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let mut got = results.lock().unwrap();
+        got.sort_by_key(|(seed, _)| *seed);
+        assert_eq!(got[0].1.len(), 1);
+        assert_eq!(got[0].1[0].0, 11);
+        assert_eq!(got[0].1[0].4, "alpha");
+        assert_eq!(got[1].1.len(), 1);
+        assert_eq!(got[1].1[0].0, 22);
+        assert_eq!(got[1].1[0].4, "beta");
     }
 }
 

@@ -282,6 +282,10 @@ pub(crate) struct ClientVisualState {
     pub(crate) host_fx_poses: Mutex<HashMap<ObjectID, HostFxObjectPose>>,
     /// GameClient terrain-water callbacks for this world/session only.
     pub(crate) water_hooks: Mutex<crate::terrain_water::VisualWaterHooks>,
+    pub(crate) terrain_visual_raw_height: Mutex<Option<fn(i32, i32, i32)>>,
+    pub(crate) terrain_visual_lighting_changed: Mutex<Option<fn()>>,
+    pub(crate) terrain_visual_add_prop: Mutex<Option<fn(u32, [f32; 3], f32, f32, &str)>>,
+    pub(crate) terrain_visual_pending_props: Mutex<Vec<(u32, [f32; 3], f32, f32, String)>>,
 }
 
 impl Default for ClientVisualState {
@@ -296,6 +300,10 @@ impl Default for ClientVisualState {
             weapon_recoils: Mutex::new(Vec::new()),
             host_fx_poses: Mutex::new(HashMap::new()),
             water_hooks: Mutex::new(crate::terrain_water::VisualWaterHooks::default()),
+            terrain_visual_raw_height: Mutex::new(None),
+            terrain_visual_lighting_changed: Mutex::new(None),
+            terrain_visual_add_prop: Mutex::new(None),
+            terrain_visual_pending_props: Mutex::new(Vec::new()),
         }
     }
 }
