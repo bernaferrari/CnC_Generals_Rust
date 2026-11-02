@@ -453,6 +453,7 @@ mod group_ground;
 mod group_ground_owner;
 #[cfg(test)]
 mod group_ground_tests;
+mod pathfinder_clip;
 #[cfg(test)]
 mod searched_layer_tests;
 mod system_attack;

@@ -1,8 +1,6 @@
 //! Owned `Pathfinder::findGroundPath` group request (AIPathfind.cpp:6980).
 use super::*;
 
-#[path = "group_ground_clip.rs"]
-mod clip;
 #[path = "group_ground_optimize.rs"]
 mod optimize;
 #[path = "group_ground_search.rs"]
@@ -35,7 +33,7 @@ impl PathfindingGrid {
             return None;
         }
         let start_layer = self.layer_for_destination(from, ground_source) as u8;
-        let (clipped_from_pos, clipped_to_pos) = clip::clip(self, from, to);
+        let (clipped_from_pos, clipped_to_pos) = pathfinder_clip::clip(self, from, to);
         // C++ worldToCell clamps after the segment clip, including when the
         // segment lies wholly outside the extent (AIPathfind.h:935-945).
         let clipped_from = self.clamp_pos(self.world_to_grid(clipped_from_pos));

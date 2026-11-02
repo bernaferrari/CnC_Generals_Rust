@@ -1193,6 +1193,9 @@ impl PathfindingSystem {
         objects: HostObjectRead<'_>,
         mover: ObjectId,
     ) -> Option<Vec<Vec3>> {
+        if self.grid.width <= 0 || self.grid.height <= 0 || !from.is_finite() || !goal.is_finite() {
+            return None;
+        }
         let unit = objects.lookup(&mover)?;
         self.ensure_dynamic_obstacles(objects, ground_source);
         self.bind_seeker_from_mover(objects, Some(mover));
@@ -1200,19 +1203,21 @@ impl PathfindingSystem {
         self.grid.set_query_is_human(is_human);
         self.sync_crate_astar();
         self.grid.query_seeker_id = self.seeker_id.map(|id| id.0).unwrap_or(0);
-        let start = self
-            .grid
-            .cell_for_unit_position(from, self.seeker_center_in_cell);
-        let goal_grid = self
-            .grid
-            .cell_for_unit_position(goal, self.seeker_center_in_cell);
-        if !self.grid.is_valid_pos(start) || !self.grid.is_valid_pos(goal_grid) {
-            return None;
-        }
         let (radius, center_in_cell) = PathfindingGrid::radius_and_center(
             unit.geometry_info().bounding_circle_radius(),
             self.grid.grid_size(),
         );
+        // C++ shifts only the destination for even footprints, clips the
+        // segment, then resolves both endpoints through getClippedCell.
+        let mut adjusted_goal = goal;
+        if !center_in_cell {
+            adjusted_goal.x += self.grid.grid_size() * 0.5;
+            adjusted_goal.z += self.grid.grid_size() * 0.5;
+        }
+        let (clipped_from, clipped_goal) = pathfinder_clip::clip(&self.grid, from, adjusted_goal);
+        let start = self.grid.clamp_pos(self.grid.world_to_grid(clipped_from));
+        let original_start = self.grid.clamp_pos(self.grid.world_to_grid(from));
+        let goal_grid = self.grid.clamp_pos(self.grid.world_to_grid(clipped_goal));
         let ignored_obstacle = self.ignore_obstacle_id.map(|id| id.0).filter(|id| *id != 0);
         let is_ignored_owned_obstacle = |cell: GridPos, layer: PathfindLayerEnum| {
             layer == PathfindLayerEnum::Ground
@@ -1228,7 +1233,7 @@ impl PathfindingSystem {
         let seeker_player = unit.owner_player_id;
         let footprint = MovementFootprint {
             mover,
-            start,
+            start: original_start,
             radius,
             center_in_cell,
             seeker_player,

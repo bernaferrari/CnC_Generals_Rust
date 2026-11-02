@@ -571,3 +571,139 @@ fn closest_path_backs_off_a_pinched_goal_to_its_open_parent() {
         "the selected parent is not pinched"
     );
 }
+
+#[test]
+fn closest_search_clips_or_clamps_outside_endpoints_like_cpp() {
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
+    let mut template = ThingTemplate::new("ClipMover");
+    template.add_kind_of(KindOf::Infantry).set_health(100.0);
+    world.templates.insert("ClipMover".into(), template);
+    let mover = world
+        .create_object_for_player("ClipMover", 0, Vec3::new(25.0, 0.0, 55.0))
+        .unwrap();
+    let ground = PathfindingGround::Flat(0.0);
+    for (name, from, goal, expected_end) in [
+        (
+            "goal-right",
+            Vec3::new(25.0, 0.0, 55.0),
+            Vec3::new(250.0, 0.0, 55.0),
+            Vec3::new(195.0, 0.0, 55.0),
+        ),
+        (
+            "start-left",
+            Vec3::new(-25.0, 0.0, 55.0),
+            Vec3::new(75.0, 0.0, 55.0),
+            Vec3::new(75.0, 0.0, 55.0),
+        ),
+        (
+            "diagonal",
+            Vec3::new(-30.0, 0.0, 20.0),
+            Vec3::new(230.0, 0.0, 160.0),
+            Vec3::new(195.0, 0.0, 145.0),
+        ),
+        (
+            "exterior",
+            Vec3::new(-50.0, 0.0, 55.0),
+            Vec3::new(-20.0, 0.0, 75.0),
+            Vec3::new(5.0, 0.0, 75.0),
+        ),
+    ] {
+        let mut finder = PathfindingSystem::new(200.0, 200.0);
+        let path = finder
+            .find_closest_path(
+                from,
+                goal,
+                SURFACE_GROUND,
+                false,
+                true,
+                0.0,
+                &ground,
+                world.host_objects(),
+                mover,
+            )
+            .unwrap_or_else(|| panic!("{name}: closest path"));
+        assert_eq!(
+            path.first().copied(),
+            Some(from),
+            "{name}: preserve original start"
+        );
+        assert_eq!(
+            path.last().copied(),
+            Some(expected_end),
+            "{name}: C++ clipped goal cell"
+        );
+    }
+}
+
+#[test]
+fn closest_clipping_uses_the_unshifted_start_for_even_footprints() {
+    use generals_main::game_logic::HostGeometryType;
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
+    let mut template = ThingTemplate::new("WideClipMover");
+    template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+    template.geometry_info.geom_type = HostGeometryType::Sphere;
+    template.geometry_info.major_radius = 8.0;
+    template.geometry_info.authored = true;
+    world.templates.insert("WideClipMover".into(), template);
+    let from = Vec3::new(25.0, 0.0, 55.0);
+    let mover = world
+        .create_object_for_player("WideClipMover", 0, from)
+        .unwrap();
+    let mut finder = PathfindingSystem::new(200.0, 200.0);
+    let path = finder
+        .find_closest_path(
+            from,
+            Vec3::new(250.0, 0.0, 55.0),
+            SURFACE_GROUND,
+            false,
+            true,
+            0.0,
+            &PathfindingGround::Flat(0.0),
+            world.host_objects(),
+            mover,
+        )
+        .expect("even-footprint clipped path");
+    assert_eq!(path.first().copied(), Some(from));
+    assert_eq!(path.last().copied(), Some(Vec3::new(190.5, 0.0, 60.5)));
+}
+
+#[test]
+fn closest_clipping_rejects_empty_grids_and_nonfinite_coordinates() {
+    let (world, mut finder, mover, _) = make_world();
+    let ground = PathfindingGround::Flat(0.0);
+    let from = Vec3::new(25.0, 0.0, 55.0);
+    let goal = Vec3::new(75.0, 0.0, 55.0);
+    assert!(
+        finder
+            .find_closest_path(
+                from,
+                Vec3::splat(f32::NAN),
+                SURFACE_GROUND,
+                false,
+                true,
+                0.0,
+                &ground,
+                world.host_objects(),
+                mover
+            )
+            .is_none()
+    );
+    let mut empty = PathfindingSystem::new(0.0, 0.0);
+    assert!(
+        empty
+            .find_closest_path(
+                from,
+                goal,
+                SURFACE_GROUND,
+                false,
+                true,
+                0.0,
+                &ground,
+                world.host_objects(),
+                mover
+            )
+            .is_none()
+    );
+}
