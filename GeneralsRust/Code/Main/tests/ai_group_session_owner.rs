@@ -1280,6 +1280,147 @@ fn guard_keeps_parent_after_real_aggressor_hit() {
 }
 
 #[test]
+fn guard_retaliation_load_restarts_the_original_chase_deadline() {
+    use generals_main::save_load::SnapshotBuilder;
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut world, victim, actor, _) = world_with_options(&map, true, true, false);
+    let player = world.get_player_mut(1).unwrap();
+    player.is_human = true;
+    player.alliance_team = 1;
+    player.logical_retaliation_mode_enabled = true;
+    let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
+    enemy.alliance_team = 2;
+    world.add_player(enemy);
+    let attacker = world
+        .create_object_for_player("GroupUnit", 2, Vec3::new(45.0, 0.0, 40.0))
+        .unwrap();
+    assert!(world.try_friends_retaliate(victim, attacker) > 0);
+    let frames = world.host_guard_chase_unit_frames();
+    let builder = SnapshotBuilder::new();
+    let mut snapshot = builder.create_world_snapshot(&world).unwrap();
+    let module = snapshot
+        .objects
+        .get_mut(&actor)
+        .unwrap()
+        .modules
+        .get_mut("ReceivingBaseAI")
+        .unwrap();
+    let mut value = serde_json::to_value(&*module).unwrap();
+    value["BaseAi"]["continuation"]["guard"]["chase_give_up_frame"] = 1.into();
+    *module = serde_json::from_value(value).unwrap();
+    let expected = (snapshot.frame_number as u32).wrapping_add(frames);
+    builder
+        .restore_from_snapshot(&snapshot, &mut world)
+        .unwrap();
+    assert_eq!(
+        world
+            .host_object(actor)
+            .unwrap()
+            .guard_chase_give_up_frame(),
+        Some(expected)
+    );
+    // Outer also reconstructs its deadline in C++ loadPostProcess.
+    let module = snapshot
+        .objects
+        .get_mut(&actor)
+        .unwrap()
+        .modules
+        .get_mut("ReceivingBaseAI")
+        .unwrap();
+    let mut value = serde_json::to_value(&*module).unwrap();
+    value["BaseAi"]["continuation"]["guard"]["chase_phase"] = "Outer".into();
+    *module = serde_json::from_value(value).unwrap();
+    builder
+        .restore_from_snapshot(&snapshot, &mut world)
+        .unwrap();
+    assert_eq!(
+        world
+            .host_object(actor)
+            .unwrap()
+            .guard_chase_give_up_frame(),
+        Some(expected)
+    );
+}
+
+#[test]
+fn guard_aggressor_load_restarts_the_original_chase_deadline() {
+    use generals_main::game_logic::GuardChasePhase;
+    use generals_main::save_load::SnapshotBuilder;
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut world, actor, _, _) = world_with_options(&map, true, true, false);
+    let player = world.get_player_mut(1).unwrap();
+    player.is_human = false;
+    player.alliance_team = 1;
+    world.add_ai_opponent(1, Team::USA, generals_main::ai::AIDifficulty::Hard);
+    let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
+    enemy.alliance_team = 2;
+    world.add_player(enemy);
+    guard_position(&mut world, "HuntTeam", "OwnedWaypoint");
+    let attacker = world
+        .create_object_for_player("GroupUnit", 2, Vec3::new(45.0, 0.0, 40.0))
+        .unwrap();
+    world.host_object_mut(attacker).unwrap().health.current = 10_000.0;
+    world.host_object_mut(actor).unwrap().last_damage_source = Some(attacker);
+    for _ in 0..60 {
+        world.update_with_dt(1.0 / 30.0);
+        if world.host_object(actor).unwrap().guard_chase_phase() == GuardChasePhase::Aggressor {
+            break;
+        }
+    }
+    assert_eq!(
+        world.host_object(actor).unwrap().guard_chase_phase(),
+        GuardChasePhase::Aggressor
+    );
+    let frames = world.host_guard_chase_unit_frames();
+    let builder = SnapshotBuilder::new();
+    let mut snapshot = builder.create_world_snapshot(&world).unwrap();
+    let module = snapshot
+        .objects
+        .get_mut(&actor)
+        .unwrap()
+        .modules
+        .get_mut("ReceivingBaseAI")
+        .unwrap();
+    let mut value = serde_json::to_value(&*module).unwrap();
+    value["BaseAi"]["continuation"]["guard"]["chase_give_up_frame"] = 1.into();
+    *module = serde_json::from_value(value).unwrap();
+    let expected = (snapshot.frame_number as u32).wrapping_add(frames);
+    builder
+        .restore_from_snapshot(&snapshot, &mut world)
+        .unwrap();
+    assert_eq!(
+        world
+            .host_object(actor)
+            .unwrap()
+            .guard_chase_give_up_frame(),
+        Some(expected)
+    );
+    // Outer also reconstructs its deadline in C++ loadPostProcess.
+    let module = snapshot
+        .objects
+        .get_mut(&actor)
+        .unwrap()
+        .modules
+        .get_mut("ReceivingBaseAI")
+        .unwrap();
+    let mut value = serde_json::to_value(&*module).unwrap();
+    value["BaseAi"]["continuation"]["guard"]["chase_phase"] = "Outer".into();
+    *module = serde_json::from_value(value).unwrap();
+    builder
+        .restore_from_snapshot(&snapshot, &mut world)
+        .unwrap();
+    assert_eq!(
+        world
+            .host_object(actor)
+            .unwrap()
+            .guard_chase_give_up_frame(),
+        Some(expected)
+    );
+}
+
+#[test]
 fn guard_aggressor_attack_keeps_the_receiving_guard_parent() {
     use generals_main::game_logic::AIState;
     use generals_main::save_load::SnapshotBuilder;
@@ -1406,9 +1547,14 @@ fn guard_aggressor_attack_keeps_the_receiving_guard_parent() {
         generals_main::game_logic::GuardChasePhase::None
     );
     let restored = builder.create_world_snapshot(&owner).unwrap();
+    let mut expected = value;
+    expected["BaseAi"]["continuation"]["guard"]["chase_give_up_frame"] = (snapshot.frame_number
+        as u32)
+        .wrapping_add(owner.host_guard_chase_unit_frames())
+        .into();
     assert_eq!(
         serde_json::to_value(&restored.objects[&actor].modules["ReceivingBaseAI"]).unwrap(),
-        value
+        expected
     );
     owner.destroy_object(victim).unwrap();
     owner.update_with_dt(1.0 / 30.0);

@@ -1219,6 +1219,9 @@ impl SnapshotBuilder {
                 object.pathfind_goal_on_ground = ground.on_ground;
             }
         }
+        // Guard state loadPostProcess reconstructs its attack deadline after
+        // the saved nemesis and the receiving session's frame are available.
+        game_logic.restore_guard_chase_deadlines_after_load();
         log::info!("World restoration complete");
         Ok(())
     }

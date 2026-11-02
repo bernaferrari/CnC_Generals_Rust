@@ -245,6 +245,41 @@ impl GameLogic {
         (inner, outer)
     }
 
+    /// Restore the deadline established by C++ Guard Outer and Aggressor
+    /// state entry after all saved objects have been admitted. The child
+    /// attack state and its entry effects are not reconstructed here.
+    pub(crate) fn restore_guard_chase_deadlines_after_load(&mut self) {
+        let entries: Vec<_> =
+            self.objects
+                .registered_keys()
+                .copied()
+                .filter_map(|id| {
+                    let object = self.objects.get(&id)?;
+                    let phase = object.guard_chase_phase();
+                    let root = object.unit_ai_runtime.root_state();
+                    let nemesis = match (root, phase) {
+                        (
+                            AIState::GuardRetaliating,
+                            GuardChasePhase::Outer | GuardChasePhase::RetaliateAggressor,
+                        ) => object.guard_retaliate_victim(),
+                        (
+                            AIState::GuardingArea | AIState::GuardingObject,
+                            GuardChasePhase::Outer,
+                        ) if object.guard_mode != GuardMode::WithoutPursuit => object.target,
+                        (
+                            AIState::GuardingArea | AIState::GuardingObject,
+                            GuardChasePhase::Aggressor,
+                        ) => object.last_damage_source.or(object.target),
+                        _ => None,
+                    }?;
+                    self.objects.contains_key(&nemesis).then_some((id, phase))
+                })
+                .collect();
+        for (id, phase) in entries {
+            self.begin_guard_chase(id, phase);
+        }
+    }
+
     fn begin_guard_chase(&mut self, object_id: ObjectId, phase: GuardChasePhase) {
         let frames = self.host_guard_chase_unit_frames();
         let now = self.frame;
