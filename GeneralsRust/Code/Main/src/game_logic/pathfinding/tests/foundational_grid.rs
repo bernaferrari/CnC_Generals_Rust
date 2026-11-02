@@ -1898,9 +1898,9 @@ fn blocked_route_does_not_walk_the_click() {
     }
 }
 
-/// hq-3biqe: assign_unit_path must pass real is_crusher into live A*.
+/// C++ locomotors need the RUBBLE surface even when the mover is a crusher.
 #[test]
-fn assign_unit_path_crusher_walks_rubble() {
+fn assign_unit_path_rubble_capable_crusher_walks_rubble() {
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     logic.force_map_loaded_for_path_test(false);
@@ -1923,7 +1923,7 @@ fn assign_unit_path_crusher_walks_rubble() {
         .expect("overlord");
     if let Some(u) = logic.host_object_mut(id) {
         u.crusher_level = 2;
-        u.locomotor_surfaces = SURFACE_GROUND;
+        u.locomotor_surfaces = SURFACE_GROUND | SURFACE_RUBBLE;
         u.movement.max_speed = 20.0;
     }
     assert!(
@@ -2056,8 +2056,13 @@ fn destroyed_building_stamps_rubble_not_clear() {
         "infantry cannot walk rubble at full ground surfaces"
     );
     assert!(
-        sys.grid.cell_passable_for(cell, SURFACE_GROUND, true),
-        "crushers walk rubble"
+        !sys.grid.cell_passable_for(cell, SURFACE_GROUND, true),
+        "a crusher still needs the rubble surface"
+    );
+    assert!(
+        sys.grid
+            .cell_passable_for(cell, SURFACE_GROUND | SURFACE_RUBBLE, true),
+        "rubble-capable locomotors can walk rubble"
     );
 }
 

@@ -151,13 +151,12 @@ fn right_click_move_uses_unit_locomotor_surfaces() {
     assert!(hover.movement.target_position.is_some());
 }
 
-/// C++ `validMovementPosition`: crushers enter CELL_RUBBLE without a RUBBLE
-/// locomotor bit (AIPathfind.cpp:4840 / crate `is_passable`). Live host
-/// used to hardcode `is_crusher=false`, so Overlords treated rubble like
-/// infantry.
+/// C++ `validMovementPosition` requires the RUBBLE locomotor surface even
+/// for crushers; a rubble-capable unit can cross where ground-only units cannot.
 #[test]
-fn crusher_paths_rubble_that_blocks_non_crusher() {
+fn rubble_capable_unit_paths_rubble_that_blocks_ground_only_unit() {
     use crate::game_logic::LOCO_SURFACE_GROUND;
+    use crate::game_logic::object::LOCO_SURFACE_RUBBLE;
     use gamelogic::ai::pathfind_astar::PathfindCellType;
     let mut logic = GameLogic::new();
     let start = Vec3::new(10.0, 0.0, 10.0);
@@ -186,14 +185,14 @@ fn crusher_paths_rubble_that_blocks_non_crusher() {
     tmpl.add_kind_of(KindOf::Vehicle);
     let mut tank = Object::new(tmpl, tank_id, Team::USA);
     tank.set_position(start);
-    tank.locomotor_surfaces = LOCO_SURFACE_GROUND;
+    tank.locomotor_surfaces = LOCO_SURFACE_GROUND | LOCO_SURFACE_RUBBLE;
     tank.crusher_level = 1;
     logic.objects.insert(tank_id, tank);
     logic.move_object_with_pathfinding_for_test(tank_id, goal, None);
     let tank = logic.objects.get(&tank_id).expect("overlord");
     assert!(
         tank.movement.path.len() >= 2,
-        "crusher_level>0 must path CELL_RUBBLE (AIPathfind.cpp:8170)"
+        "a rubble-capable locomotor must path through CELL_RUBBLE"
     );
     assert!(tank.movement.target_position.is_some());
 }

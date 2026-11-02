@@ -113,12 +113,7 @@ impl AStarPathfinder {
         // This matches C++ behavior where pinched cells add COST_DIAGONAL but are not blocked
 
         let cell_surfaces = Self::valid_locomotor_surfaces_for_cell_type(cell.get_type());
-        if (cell_surfaces & surfaces) != 0 {
-            return true;
-        }
-
-        // Crushers may still enter rubble without a RUBBLE locomotor bit.
-        cell.get_type() == PathfindCellType::Rubble && is_crusher
+        (cell_surfaces & surfaces) != 0
     }
 
     pub fn is_impassable_cell(&self, coord: GridCoord) -> bool {

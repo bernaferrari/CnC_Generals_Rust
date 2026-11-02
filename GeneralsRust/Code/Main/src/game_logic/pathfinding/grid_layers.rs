@@ -1109,7 +1109,7 @@ impl PathfindingGrid {
         self.cell_type(cell)
     }
 
-    pub(super) fn type_passable_for(ty: PathfindCellType, surfaces: u32, is_crusher: bool) -> bool {
+    pub(super) fn type_passable_for(ty: PathfindCellType, surfaces: u32) -> bool {
         let cell_surfaces = match ty {
             PathfindCellType::Obstacle
             | PathfindCellType::Impassable
@@ -1119,10 +1119,7 @@ impl PathfindingGrid {
             PathfindCellType::Rubble => SURFACE_RUBBLE | SURFACE_AIR,
             PathfindCellType::Cliff => SURFACE_CLIFF | SURFACE_AIR,
         };
-        if (cell_surfaces & surfaces) != 0 {
-            return true;
-        }
-        ty == PathfindCellType::Rubble && is_crusher
+        (cell_surfaces & surfaces) != 0
     }
 
     /// `cell_passable_for` on `layer` (C++ `validMovementPosition(..., layer, ...)`).
@@ -1140,7 +1137,7 @@ impl PathfindingGrid {
         if actual_layer == PathfindLayerEnum::Ground && self.is_obstacle_fence(pos) && is_crusher {
             return true;
         }
-        Self::type_passable_for(cell_type, surfaces, is_crusher)
+        Self::type_passable_for(cell_type, surfaces)
     }
 
     pub(super) fn cell_center_xz(&self, pos: GridPos) -> (f32, f32) {
