@@ -151,3 +151,123 @@ fn closest_query_recognizes_the_driving_units_own_goal_after_another_search() {
         "restoring the peer must not change the original session"
     );
 }
+
+#[test]
+fn closest_search_uses_current_controller_extent_after_another_query() {
+    use generals_main::game_logic::pathfinding::GridPos;
+    let (mut world, mut finder, human, computer) = make_world();
+    let (mut peer, mut peer_finder, peer_human, peer_computer) = make_world();
+    assert_eq!((human, computer), (peer_human, peer_computer));
+    for (w, id) in [(&mut world, computer), (&mut peer, peer_computer)] {
+        w.add_player(Player::new(1, Team::GLA, "Computer", false));
+        w.host_object_mut(id).unwrap().owner_player_id = Some(1);
+    }
+    for f in [&mut finder, &mut peer_finder] {
+        f.set_human_player_mask(1);
+        f.grid
+            .set_logical_extent(GridPos::new(0, 0), GridPos::new(9, 19));
+    }
+    let ground = PathfindingGround::Flat(0.0);
+    let from = Vec3::new(25.0, 0.0, 55.0);
+    let goal = Vec3::new(145.0, 0.0, 55.0);
+    let seed_human = |f: &mut PathfindingSystem, w: &GameLogic, id| {
+        f.find_path_ex_surfaces(
+            from,
+            Vec3::new(65.0, 0.0, 55.0),
+            w.host_objects(),
+            false,
+            SURFACE_GROUND,
+            false,
+            Some(id),
+            &ground,
+        )
+        .expect("human seed path");
+    };
+    let query = |f: &mut PathfindingSystem, w: &GameLogic, id, is_human| {
+        f.find_closest_path(
+            from,
+            goal,
+            SURFACE_GROUND,
+            false,
+            is_human,
+            0.0,
+            &ground,
+            w.host_objects(),
+            id,
+        )
+        .expect("closest path")
+    };
+    let baseline = query(&mut peer_finder, &peer, peer_computer, false);
+    assert_eq!(
+        peer_finder.grid.world_to_grid(*baseline.last().unwrap()),
+        GridPos::new(14, 5)
+    );
+    seed_human(&mut finder, &world, human);
+    let after_human = query(&mut finder, &world, computer, false);
+    assert_eq!(
+        finder.grid.world_to_grid(*after_human.last().unwrap()),
+        GridPos::new(14, 5),
+        "computer can traverse beyond the human extent"
+    );
+    let human_path = query(&mut finder, &world, human, true);
+    assert!(
+        finder.grid.world_to_grid(*human_path.last().unwrap()).x <= 9,
+        "human remains inside the logical extent"
+    );
+    assert_eq!(
+        query(&mut peer_finder, &peer, peer_computer, false),
+        baseline,
+        "peer finder stays independent"
+    );
+}
+
+#[test]
+fn closest_goal_checks_the_receiving_units_whole_footprint() {
+    use generals_main::game_logic::HostGeometryType;
+    use generals_main::game_logic::pathfinding::GridPos;
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
+    for (name, radius) in [("Wide", 10.0), ("Ally", 2.0)] {
+        let mut unit = ThingTemplate::new(name);
+        unit.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        unit.geometry_info.geom_type = HostGeometryType::Sphere;
+        unit.geometry_info.major_radius = radius;
+        unit.geometry_info.authored = true;
+        world.templates.insert(name.into(), unit);
+    }
+    let mover = world
+        .create_object_for_player("Wide", 0, Vec3::new(25.0, 0.0, 55.0))
+        .unwrap();
+    let ally = world
+        .create_object_for_player("Ally", 0, Vec3::new(180.0, 0.0, 180.0))
+        .unwrap();
+    let mut finder = PathfindingSystem::new(200.0, 200.0);
+    let from = Vec3::new(25.0, 0.0, 55.0);
+    let goal = Vec3::new(100.0, 0.0, 50.0);
+    finder.grid.update_ground_goal_cell(
+        ally.0,
+        0,
+        2.0,
+        false,
+        (-1, -1),
+        Vec3::new(95.0, 0.0, 45.0),
+    );
+    let path = finder
+        .find_closest_path(
+            from,
+            goal,
+            SURFACE_GROUND,
+            false,
+            true,
+            0.0,
+            &PathfindingGround::Flat(0.0),
+            world.host_objects(),
+            mover,
+        )
+        .expect("a nearby reachable candidate");
+    assert_ne!(
+        finder.grid.world_to_grid(*path.last().unwrap()),
+        GridPos::new(10, 5),
+        "the allied goal occupies the receiving unit's destination footprint"
+    );
+}

@@ -1422,11 +1422,11 @@ impl PathfindingGrid {
         }
     }
 
-    /// C++ checkDestination for the receiving move-away search. Unlike
+    /// C++ checkDestination for the receiving object. Unlike
     /// adjustDestination, this examines the requested footprint once and does
     /// not apply surface, logical-extent or path-diameter checks to each cell.
     /// Team relationships still use the session's player masks pending hq-6xymwm.
-    pub(super) fn check_move_away_destination(
+    pub(super) fn check_destination_for_object(
         &self,
         cell: GridPos,
         layer: PathfindLayerEnum,

@@ -192,6 +192,7 @@ impl PathfindingSystem {
                     dest_layer,
                     ground_source,
                     objects,
+                    None,
                 ) {
                     Some(p) => p,
                     None => {
@@ -234,6 +235,7 @@ impl PathfindingSystem {
                             retry_layer,
                             ground_source,
                             objects,
+                            None,
                         )?
                     }
                 }
@@ -482,6 +484,7 @@ impl PathfindingSystem {
                 dest_layer,
                 ground_source,
                 objects,
+                None,
             )
         };
         let mut prefix = try_goal(goal_pos);
@@ -713,7 +716,7 @@ impl PathfindingSystem {
             let layer = PathfindLayerEnum::from_u32(lid as u32);
             if cell_pos != start_index
                 && !overlaps(cell_pos)
-                && self.grid.check_move_away_destination(
+                && self.grid.check_destination_for_object(
                     cell_pos,
                     layer,
                     radius,
@@ -1123,6 +1126,7 @@ impl PathfindingSystem {
             dest_layer,
             ground_source,
             objects,
+            None,
         )?;
         if path.len() < 2 {
             return None;
@@ -1145,9 +1149,11 @@ impl PathfindingSystem {
         objects: HostObjectRead<'_>,
         mover: ObjectId,
     ) -> Option<Vec<Vec3>> {
-        objects.lookup(&mover)?;
+        let unit = objects.lookup(&mover)?;
         self.ensure_dynamic_obstacles(objects, ground_source);
         self.bind_seeker_from_mover(objects, Some(mover));
+        self.seeker_is_human = is_human;
+        self.grid.set_query_is_human(is_human);
         self.sync_crate_astar();
         self.grid.query_seeker_id = self.seeker_id.map(|id| id.0).unwrap_or(0);
         let start = self
@@ -1162,12 +1168,10 @@ impl PathfindingSystem {
         if is_human && !self.grid.human_extent_allows(start, true) {
             return None;
         }
-        let crusher_level = if is_crusher {
-            self.seeker_crusher_level.max(1)
-        } else {
-            0
-        };
-        let seeker_player = self.seeker_player;
+        let (radius, center_in_cell) = PathfindingGrid::radius_and_center(
+            unit.geometry_info().bounding_circle_radius(),
+            self.grid.grid_size(),
+        );
         let ignored_obstacle = self.ignore_obstacle_id.map(|id| id.0).filter(|id| *id != 0);
         let is_ignored_owned_obstacle = |cell: GridPos, layer: PathfindLayerEnum| {
             layer == PathfindLayerEnum::Ground
@@ -1195,14 +1199,13 @@ impl PathfindingSystem {
         let mut closed: HashSet<(i32, i32, u8)> = HashSet::new();
         // Leftover goal accept honors canPathThroughUnits (per-pop C++ check).
         let goal_accept_ok = self.seeker_can_path_through_units
-            || self.grid.destination_cell_ok(
+            || self.grid.check_destination_for_object(
                 goal_grid,
-                surfaces,
-                is_crusher,
-                seeker_player,
-                crusher_level,
                 start_layer,
-                ground_source,
+                radius,
+                center_in_cell,
+                unit,
+                objects,
             )
             || is_ignored_owned_obstacle(goal_grid, start_layer);
         let mut closest_cell: Option<(GridPos, PathfindLayerEnum, f32)> = None;
@@ -1275,16 +1278,14 @@ impl PathfindingSystem {
                 } else {
                     found_goal_cell = true;
                 }
-            } else if self.grid.destination_cell_ok(
+            } else if self.grid.check_destination_for_object(
                 cell,
-                surfaces,
-                is_crusher,
-                seeker_player,
-                crusher_level,
                 layer,
-                ground_source,
-            ) || is_ignored_owned_obstacle(cell, layer)
-            {
+                radius,
+                center_in_cell,
+                unit,
+                objects,
+            ) {
                 let dx = (goal_grid.x - cx).abs() as f32;
                 let dy = (goal_grid.y - cy).abs() as f32;
                 let dist_screen = dx * dx + dy * dy;
@@ -1379,6 +1380,7 @@ impl PathfindingSystem {
             best_layer,
             ground_source,
             objects,
+            Some(is_human),
         ) {
             let mut world = path;
             if let Some(first) = world.first_mut() {

@@ -507,9 +507,15 @@ impl PathfindingSystem {
         dest_layer: PathfindLayerEnum,
         ground_source: &PathfindingGround<'_>,
         objects: HostObjectRead<'_>,
+        human_override: Option<bool>,
     ) -> Option<Vec<Vec3>> {
         self.sync_crate_astar();
-        self.apply_seeker_human_flag();
+        if let Some(is_human) = human_override {
+            self.seeker_is_human = is_human;
+            self.grid.set_query_is_human(is_human);
+        } else {
+            self.apply_seeker_human_flag();
+        }
         self.grid.query_seeker_id = self.seeker_id.map(|id| id.0).unwrap_or(0);
         self.grid
             .set_query_footprint(self.seeker_path_diameter, is_crusher);
