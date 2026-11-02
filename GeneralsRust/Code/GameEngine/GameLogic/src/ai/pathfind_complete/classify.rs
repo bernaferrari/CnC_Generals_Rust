@@ -1,5 +1,35 @@
 use super::*;
 
+#[derive(Clone, Copy)]
+struct FootprintObstacle {
+    id: ObjectID,
+    is_rubble: bool,
+    is_transparent: bool,
+}
+
+impl FootprintObstacle {
+    fn from_object(obj: &crate::object::Object, insert: bool) -> Result<Self, String> {
+        let is_rubble = if insert {
+            match obj.get_body_module() {
+                Some(body) => {
+                    body.lock()
+                        .map_err(|_| "pathfinding footprint body lock poisoned")?
+                        .get_damage_state()
+                        == crate::common::BodyDamageType::Rubble
+                }
+                None => false,
+            }
+        } else {
+            false
+        };
+        Ok(Self {
+            id: obj.get_id(),
+            is_rubble,
+            is_transparent: obj.is_kind_of(KindOf::CanSeeThrough),
+        })
+    }
+}
+
 impl PathfindingSystem {
     /// C++ `LineInRegion` style segment vs AABB (2D).
     pub(crate) fn line_in_region(
@@ -801,54 +831,57 @@ impl PathfindingSystem {
     }
 
     /// Mark/remove an object's footprint cells as obstacles.
-    /// Matches C++ `Pathfinder::classifyObjectFootprint` (AIPathfind.cpp:4093+).
-    pub fn classify_object_footprint(&mut self, obj: &crate::object::Object) {
-        self.classify_object_footprint_ex(obj, true);
+    /// C++ reference: `Pathfinder::classifyObjectFootprint` (AIPathfind.cpp:4093+).
+    /// Unit occupancy and wall removal remain separate operations.
+    pub fn classify_object_footprint(&mut self, obj: &crate::object::Object) -> Result<(), String> {
+        self.classify_object_footprint_ex(obj, true)
     }
 
     /// C++ `classifyObjectFootprint(obj, insert)`.
-    pub fn classify_object_footprint_ex(&mut self, obj: &crate::object::Object, insert: bool) {
+    pub fn classify_object_footprint_ex(
+        &mut self,
+        obj: &crate::object::Object,
+        insert: bool,
+    ) -> Result<(), String> {
         use crate::common::KindOf;
 
         if obj.is_kind_of(KindOf::Mine)
             || obj.is_kind_of(KindOf::Projectile)
             || obj.is_kind_of(KindOf::BridgeTower)
         {
-            return;
+            return Ok(());
         }
 
         let fence_width = obj.get_template().get_fence_width();
         if fence_width > 0.0 && !obj.is_kind_of(KindOf::DefensiveWall) {
-            self.classify_fence(obj, insert, fence_width);
-            return;
+            return self.classify_fence(obj, insert, fence_width);
         }
 
         if !insert {
             // C++ permanent blast crater footprints never remove.
             if obj.is_kind_of(KindOf::BlastCrater) {
-                return;
+                return Ok(());
             }
-            self.remove_object_footprint(obj);
-            return;
+            return self.remove_object_footprint(obj);
         }
 
         if !obj.is_kind_of(KindOf::Structure) {
-            return;
+            return Ok(());
         }
         if obj.is_mobile() {
-            return;
+            return Ok(());
         }
         let geo = obj.get_geometry_info();
         if geo.get_is_small() {
-            return;
+            return Ok(());
         }
         if obj.get_height_above_terrain() > PATHFIND_CELL_SIZE_F
             && !obj.is_kind_of(KindOf::BlastCrater)
         {
-            return;
+            return Ok(());
         }
 
-        self.internal_classify_object_footprint(obj, true);
+        self.internal_classify_object_footprint(obj, true)
     }
 
     /// C++ `Pathfinder::classifyFence` (AIPathfind.cpp:3983+).
@@ -857,7 +890,7 @@ impl PathfindingSystem {
         obj: &crate::object::Object,
         insert: bool,
         fence_width: f32,
-    ) {
+    ) -> Result<(), String> {
         let pos = obj.get_position();
         let angle = obj.get_orientation();
         let halfsize_x = fence_width * 0.5;
@@ -869,11 +902,11 @@ impl PathfindingSystem {
         let ydy = -c * STEP_SIZE;
         let xdx = c * STEP_SIZE;
         let xdy = s * STEP_SIZE;
-        let num_steps_x = ((2.0 * halfsize_x / STEP_SIZE).ceil() as i32).max(1);
-        let num_steps_y = ((2.0 * halfsize_y / STEP_SIZE).ceil() as i32).max(1);
+        let num_steps_x = (2.0 * halfsize_x / STEP_SIZE).ceil() as i32;
+        let num_steps_y = (2.0 * halfsize_y / STEP_SIZE).ceil() as i32;
         let mut tl_x = pos.x - fence_offset * c - halfsize_y * s;
         let mut tl_y = pos.y + halfsize_y * c - fence_offset * s;
-        let obj_id = obj.get_id();
+        let obstacle = FootprintObstacle::from_object(obj, insert)?;
         let mut lo_x = i32::MAX;
         let mut lo_y = i32::MAX;
         let mut hi_x = i32::MIN;
@@ -887,7 +920,7 @@ impl PathfindingSystem {
                 let cx = ((x + 0.5) / PATHFIND_CELL_SIZE_F).floor() as i32;
                 let cy = ((y + 0.5) / PATHFIND_CELL_SIZE_F).floor() as i32;
                 if cx >= 0 && cy >= 0 && (cx as usize) < self.width && (cy as usize) < self.height {
-                    if self.set_or_clear_obstacle_cell(cx, cy, obj_id, true, insert) {
+                    if self.set_or_clear_obstacle_cell(cx, cy, obstacle, true, insert) {
                         did = true;
                     }
                     lo_x = lo_x.min(cx);
@@ -906,6 +939,7 @@ impl PathfindingSystem {
             self.zones.mark_zones_dirty(insert);
             self.refresh_pinched_bounds(lo_x, lo_y, hi_x, hi_y);
         }
+        Ok(())
     }
 
     /// C++ `internal_classifyObjectFootprint` box/cylinder raster.
@@ -913,15 +947,18 @@ impl PathfindingSystem {
         &mut self,
         obj: &crate::object::Object,
         insert: bool,
-    ) {
+    ) -> Result<(), String> {
         let pos = obj.get_position();
         let geo = obj.get_geometry_info();
-        let obj_id = obj.get_id();
+        let obstacle = FootprintObstacle::from_object(obj, insert)?;
         let mut lo_x = i32::MAX;
         let mut lo_y = i32::MAX;
         let mut hi_x = i32::MIN;
         let mut hi_y = i32::MIN;
-        let mut did = false;
+        let mut visited_cell = false;
+
+        // C++ marks box/circle zones dirty before touching any footprint cell.
+        self.zones.mark_zones_dirty(insert);
 
         match geo.get_geometry_type() {
             game_engine::system::geometry::GeometryType::Box => {
@@ -934,8 +971,8 @@ impl PathfindingSystem {
                 let ydy = -c * STEP_SIZE;
                 let xdx = c * STEP_SIZE;
                 let xdy = s * STEP_SIZE;
-                let num_steps_x = ((2.0 * halfsize_x / STEP_SIZE).ceil() as i32).max(1);
-                let num_steps_y = ((2.0 * halfsize_y / STEP_SIZE).ceil() as i32).max(1);
+                let num_steps_x = (2.0 * halfsize_x / STEP_SIZE).ceil() as i32;
+                let num_steps_y = (2.0 * halfsize_y / STEP_SIZE).ceil() as i32;
                 let mut tl_x = pos.x - halfsize_x * c - halfsize_y * s;
                 let mut tl_y = pos.y + halfsize_y * c - halfsize_x * s;
                 for _iy in 0..num_steps_y {
@@ -949,9 +986,8 @@ impl PathfindingSystem {
                             && (cx as usize) < self.width
                             && (cy as usize) < self.height
                         {
-                            if self.set_or_clear_obstacle_cell(cx, cy, obj_id, false, insert) {
-                                did = true;
-                            }
+                            self.set_or_clear_obstacle_cell(cx, cy, obstacle, false, insert);
+                            visited_cell = true;
                             lo_x = lo_x.min(cx);
                             lo_y = lo_y.min(cy);
                             hi_x = hi_x.max(cx);
@@ -967,14 +1003,16 @@ impl PathfindingSystem {
             game_engine::system::geometry::GeometryType::Sphere
             | game_engine::system::geometry::GeometryType::Cylinder => {
                 let radius = geo.get_major_radius();
-                let center = GridCoord::from_world(pos);
-                let radius_cells = (radius / PATHFIND_CELL_SIZE_F).ceil() as i32 + 1;
-                let effective_radius = radius + PATHFIND_CELL_SIZE_F * 0.4;
-                let eff2 = effective_radius * effective_radius;
-                for dy in -radius_cells..=radius_cells {
-                    for dx in -radius_cells..=radius_cells {
-                        let cx = center.x + dx;
-                        let cy = center.y + dy;
+                let top_x = (0.5 + (pos.x - radius) / PATHFIND_CELL_SIZE_F).floor() as i32 - 1;
+                let top_y = (0.5 + (pos.y - radius) / PATHFIND_CELL_SIZE_F).floor() as i32 - 1;
+                let size = radius / PATHFIND_CELL_SIZE_F + 0.4;
+                let bottom_x = (top_x as f32 + 2.0 * size + 2.0) as i32;
+                let bottom_y = (top_y as f32 + 2.0 * size + 2.0) as i32;
+                let center_x = pos.x / PATHFIND_CELL_SIZE_F;
+                let center_y = pos.y / PATHFIND_CELL_SIZE_F;
+                let radius_squared = size * size;
+                for cy in top_y..bottom_y {
+                    for cx in top_x..bottom_x {
                         if cx < 0
                             || cy < 0
                             || (cx as usize) >= self.width
@@ -982,16 +1020,13 @@ impl PathfindingSystem {
                         {
                             continue;
                         }
-                        let cell_center = self
-                            .world_pos_for_coord(GridCoord::new(cx, cy), PathfindLayerEnum::Ground);
-                        let ddx = cell_center.x - pos.x;
-                        let ddy = cell_center.y - pos.y;
-                        if ddx * ddx + ddy * ddy > eff2 {
+                        let dx = cx as f32 + 0.5 - center_x;
+                        let dy = cy as f32 + 0.5 - center_y;
+                        if dx * dx + dy * dy > radius_squared {
                             continue;
                         }
-                        if self.set_or_clear_obstacle_cell(cx, cy, obj_id, false, insert) {
-                            did = true;
-                        }
+                        self.set_or_clear_obstacle_cell(cx, cy, obstacle, false, insert);
+                        visited_cell = true;
                         lo_x = lo_x.min(cx);
                         lo_y = lo_y.min(cy);
                         hi_x = hi_x.max(cx);
@@ -1001,56 +1036,66 @@ impl PathfindingSystem {
             }
         }
 
-        if did {
-            self.zones.mark_zones_dirty(insert);
+        if visited_cell {
             self.refresh_pinched_bounds(lo_x, lo_y, hi_x, hi_y);
         }
+        Ok(())
     }
 
-    pub(crate) fn remove_object_footprint(&mut self, obj: &crate::object::Object) {
+    pub(crate) fn remove_object_footprint(
+        &mut self,
+        obj: &crate::object::Object,
+    ) -> Result<(), String> {
         // Re-raster with insert=false using geometry (and fence path).
         let fence_width = obj.get_template().get_fence_width();
         if fence_width > 0.0 && !obj.is_kind_of(crate::common::KindOf::DefensiveWall) {
-            self.classify_fence(obj, false, fence_width);
-            return;
+            return self.classify_fence(obj, false, fence_width);
         }
         if obj.is_kind_of(crate::common::KindOf::Structure) && !obj.is_mobile() {
             let geo = obj.get_geometry_info();
             if !geo.get_is_small() {
-                self.internal_classify_object_footprint(obj, false);
+                self.internal_classify_object_footprint(obj, false)?;
             }
         }
+        Ok(())
     }
 
-    pub(crate) fn set_or_clear_obstacle_cell(
+    fn set_or_clear_obstacle_cell(
         &mut self,
         cx: i32,
         cy: i32,
-        obj_id: ObjectID,
+        obstacle: FootprintObstacle,
         is_fence: bool,
         insert: bool,
     ) -> bool {
-        // Wave 262: empty dual-world → fail-closed.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
         let coord = GridCoord::new(cx, cy);
-        // C++ m_obstacleIsTransparent from KINDOF_CAN_SEE_THROUGH_STRUCTURE.
-        let is_transparent = OBJECT_REGISTRY
-            .with_object(obj_id, |g| g.is_kind_of(KindOf::CanSeeThrough))
-            .unwrap_or(false);
-        {
-            let pathfinder = &mut self.pathfinder;
-            if insert {
-                pathfinder.set_cell_type(coord, PathfindCellType::Obstacle);
-                pathfinder.set_cell_obstacle_id(coord, obj_id, is_fence, is_transparent);
-                true
-            } else if pathfinder.clear_cell_obstacle_id(coord, obj_id) {
-                true
-            } else {
-                false
+        let pathfinder = &mut self.pathfinder;
+        let Some(cell_type) = pathfinder.get_cell_type(coord) else {
+            return false;
+        };
+        if insert {
+            if !matches!(
+                cell_type,
+                PathfindCellType::Clear | PathfindCellType::Impassable
+            ) {
+                return false;
             }
+            if obstacle.is_rubble {
+                pathfinder.set_cell_type(coord, PathfindCellType::Rubble);
+            } else {
+                pathfinder.set_cell_obstacle_id(
+                    coord,
+                    obstacle.id,
+                    is_fence,
+                    obstacle.is_transparent,
+                );
+            }
+            true
+        } else if cell_type == PathfindCellType::Rubble {
+            pathfinder.set_cell_type(coord, PathfindCellType::Clear);
+            false
+        } else {
+            pathfinder.clear_cell_obstacle_id(coord, obstacle.id)
         }
     }
 
