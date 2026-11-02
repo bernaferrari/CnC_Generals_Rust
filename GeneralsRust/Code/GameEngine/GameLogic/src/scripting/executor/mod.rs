@@ -9,6 +9,7 @@
 //! Split into focused submodules by action/condition family.
 
 use super::core::*;
+use std::sync::atomic::Ordering;
 use super::engine::{
     CanonicalScriptExecutionDriver, ScriptExecutionDriver, TFade, get_area_tracker,
     get_named_object_tracker,
@@ -53,7 +54,6 @@ use game_engine::common::system::radar::{RadarEventType, get_radar_system};
 use once_cell::sync::Lazy;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 /// Live host drain: team/named attacks when leftover `OBJECT_REGISTRY` is empty.
@@ -1248,7 +1248,6 @@ mod host_script_queue_ownership_tests {
     }
 }
 
-static SCRIPT_TEMP_GROUP_ID: AtomicU32 = AtomicU32::new(1);
 
 /// Script execution error
 #[derive(Debug, Clone)]

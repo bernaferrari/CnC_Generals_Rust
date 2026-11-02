@@ -33,7 +33,7 @@ pub struct WorldAnimationEntry {
 }
 
 #[derive(Debug, Default)]
-struct InGameUIState {
+pub(crate) struct InGameUIState {
     displayed_max_warning: bool,
     floating_texts: Vec<FloatingTextEntry>,
     world_animations: Vec<WorldAnimationEntry>,
@@ -60,8 +60,9 @@ struct SuperweaponEntry {
     ready_frame: UnsignedInt,
 }
 
-static IN_GAME_UI_STATE: Lazy<RwLock<InGameUIState>> =
-    Lazy::new(|| RwLock::new(InGameUIState::default()));
+fn in_game_ui_state() -> std::sync::Arc<crate::system::engine_stores::WorldServices> {
+    crate::system::engine_stores::active_services()
+}
 
 /// TheInGameUI singleton - in-game user interface (matching C++ TheInGameUI)
 pub struct TheInGameUI;
@@ -73,7 +74,8 @@ impl TheInGameUI {
             guard.set_selected(true);
             guard.flash_as_selected();
         }
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.last_selection_frame = TheGameLogic::get_frame();
         }
 
@@ -102,7 +104,8 @@ impl TheInGameUI {
         if let Ok(mut guard) = drawable.write() {
             guard.set_selected(false);
         }
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.last_selection_frame = TheGameLogic::get_frame();
         }
 
@@ -128,7 +131,8 @@ impl TheInGameUI {
 
     /// Set displayed maximum warning.
     pub fn set_displayed_max_warning(show: bool) {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.displayed_max_warning = show;
         }
     }
@@ -139,7 +143,8 @@ impl TheInGameUI {
         position: &Coord3D,
         color: crate::common::Color,
     ) -> Result<(), GameError> {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.floating_texts.push(FloatingTextEntry {
                 text: text.to_string(),
                 position: *position,
@@ -157,7 +162,8 @@ impl TheInGameUI {
         duration_seconds: Real,
         z_rise_per_second: Real,
     ) {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.world_animations.push(WorldAnimationEntry {
                 animation_name: animation_name.to_string(),
                 position: *position,
@@ -170,7 +176,8 @@ impl TheInGameUI {
     }
 
     pub fn take_world_animations() -> Vec<WorldAnimationEntry> {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             return std::mem::take(&mut state.world_animations);
         }
         Vec::new()
@@ -179,7 +186,8 @@ impl TheInGameUI {
     /// Display a message to the player.
     /// Matches C++ InGameUI message display functionality
     pub fn display_message(message: &str) {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.messages.push(message.to_string());
         }
         log::info!("UI Message: {}", message);
@@ -187,7 +195,8 @@ impl TheInGameUI {
     /// Drain displayed UI messages (C++ `TheInGameUI->message` output; the HUD
     /// consumes these, tests and hosts use this to observe/clear them).
     pub fn drain_displayed_messages() -> Vec<String> {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             std::mem::take(&mut state.messages)
         } else {
             Vec::new()
@@ -231,7 +240,8 @@ impl TheInGameUI {
         template: &SpecialPowerTemplate,
         ready_frame: UnsignedInt,
     ) {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.superweapons.retain(|entry| {
                 !(entry.player_index == player_index
                     && entry.object_id == object_id
@@ -252,7 +262,8 @@ impl TheInGameUI {
     /// strip against this each frame, mirroring the C++ same-process
     /// `m_superweapons` map (addSuperweapon / removeSuperweapon).
     pub fn superweapon_entries() -> Vec<(Int, String, ObjectID, UnsignedInt)> {
-        if let Ok(state) = IN_GAME_UI_STATE.read() {
+        let __ui = in_game_ui_state();
+        if let Ok(state) = __ui.in_game_ui().read() {
             return state
                 .superweapons
                 .iter()
@@ -275,7 +286,8 @@ impl TheInGameUI {
         object_id: ObjectID,
         template: &SpecialPowerTemplate,
     ) {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.superweapons.retain(|entry| {
                 !(entry.player_index == player_index
                     && entry.object_id == object_id
@@ -287,21 +299,24 @@ impl TheInGameUI {
 
     /// Remove a worker from the idle worker UI list.
     pub fn remove_idle_worker(object: &crate::object::Object, player_index: Int) {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.idle_workers.remove(object.get_id(), player_index);
         }
     }
 
     /// Add a worker to the idle worker UI list.
     pub fn add_idle_worker(object: &crate::object::Object, player_index: Int) {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.idle_workers.add(object.get_id(), player_index);
         }
     }
 
     /// Drain pending idle worker add/remove events (matches InGameUI idle worker bookkeeping).
     pub fn take_idle_worker_events() -> Vec<IdleWorkerEvent> {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             return state.idle_workers.take();
         }
         Vec::new()
@@ -310,7 +325,8 @@ impl TheInGameUI {
     /// C++ parity: InGameUI::clearPopupMessageData().
     /// Sets a flag consumed by GameClient's popup handler.
     pub fn request_popup_message_clear() {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.popup_clear_requested = true;
         }
     }
@@ -318,7 +334,8 @@ impl TheInGameUI {
     /// Consume and return whether a popup clear was requested.
     /// Called by GameClient's popup handler each frame.
     pub fn consume_popup_clear_request() -> bool {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             return std::mem::take(&mut state.popup_clear_requested);
         }
         false
@@ -327,14 +344,16 @@ impl TheInGameUI {
     /// C++ ScriptActions::doDisableInput / doEnableInput.
     /// `true` = disable (teardown), `false` = enable (restore mouse).
     pub fn request_cinematic_input_lock(disable: bool) {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.cinematic_input_lock = Some(disable);
         }
     }
 
     /// Consume a pending cinematic input-lock request.
     pub fn take_cinematic_input_lock() -> Option<bool> {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             return state.cinematic_input_lock.take();
         }
         None
@@ -345,7 +364,8 @@ impl TheInGameUI {
         if old_player < 0 || new_player < 0 {
             return;
         }
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             for entry in &mut state.superweapons {
                 if entry.object_id == object_id && entry.player_index == old_player {
                     entry.player_index = new_player;
@@ -930,26 +950,31 @@ pub enum EvaEvent {
 }
 
 #[derive(Debug, Default)]
-struct EvaState {
-    enabled: bool,
-    queued: Vec<EvaEvent>,
+pub(crate) struct EvaState {
+    pub(crate) enabled: bool,
+    pub(crate) queued: Vec<EvaEvent>,
+}
+
+impl EvaState {
+    pub(crate) fn new_enabled() -> Self {
+        Self {
+            enabled: true,
+            queued: Vec::new(),
+        }
+    }
 }
 
 pub struct TheEva;
 
 impl TheEva {
-    fn state() -> &'static Mutex<EvaState> {
-        static EVA_STATE: OnceLock<Mutex<EvaState>> = OnceLock::new();
-        EVA_STATE.get_or_init(|| {
-            Mutex::new(EvaState {
-                enabled: true,
-                queued: Vec::new(),
-            })
-        })
+    fn state_arc() -> std::sync::Arc<std::sync::Mutex<EvaState>> {
+        std::sync::Arc::clone(
+            crate::system::engine_stores::active_services().eva(),
+        )
     }
 
     pub fn set_should_play(event: EvaEvent) -> Result<(), GameError> {
-        let state = Self::state();
+        let state = Self::state_arc();
         let mut guard = state.lock().map_err(|_| GameError::LockError)?;
         // C++ Eva.cpp:339-345 latches the flag regardless of m_enabled; the
         // disabled update (Eva.cpp:267-269) returns before the flag clear, so
@@ -960,7 +985,7 @@ impl TheEva {
     }
 
     pub fn set_enabled(enabled: bool) -> Result<(), GameError> {
-        let state = Self::state();
+        let state = Self::state_arc();
         let mut guard = state.lock().map_err(|_| GameError::LockError)?;
         guard.enabled = enabled;
         if !enabled {
@@ -970,18 +995,67 @@ impl TheEva {
     }
 
     pub fn is_enabled() -> Result<bool, GameError> {
-        let state = Self::state();
+        let state = Self::state_arc();
         let guard = state.lock().map_err(|_| GameError::LockError)?;
         Ok(guard.enabled)
     }
 
     pub fn drain_events() -> Result<Vec<EvaEvent>, GameError> {
-        let state = Self::state();
+        let state = Self::state_arc();
         let mut guard = state.lock().map_err(|_| GameError::LockError)?;
         let drained = guard.queued.drain(..).collect();
         Ok(drained)
     }
 }
+
+
+#[cfg(test)]
+mod in_game_ui_eva_ownership_tests {
+    use super::*;
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+    use std::sync::{Arc, Barrier, Mutex};
+    use std::thread;
+
+    #[test]
+    fn parallel_worlds_keep_independent_in_game_ui_and_eva() {
+        let barrier = Arc::new(Barrier::new(2));
+        let results = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = Vec::new();
+        for seed in [0i32, 1i32] {
+            let barrier = Arc::clone(&barrier);
+            let results = Arc::clone(&results);
+            handles.push(thread::spawn(move || {
+                let services = new_world_services();
+                with_world_services(&services, || {
+                    TheInGameUI::display_message(&format!("msg-{seed}"));
+                    TheEva::set_should_play(EvaEvent::LowPower).unwrap();
+                    if seed == 1 {
+                        TheEva::set_enabled(false).unwrap();
+                    }
+                    barrier.wait();
+                    let msgs = TheInGameUI::drain_displayed_messages();
+                    let enabled = TheEva::is_enabled().unwrap();
+                    let drained = TheEva::drain_events().unwrap();
+                    results.lock().unwrap().push((seed, msgs, enabled, drained.len()));
+                    barrier.wait();
+                });
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let mut got = results.lock().unwrap();
+        got.sort_by_key(|(s, _, _, _)| *s);
+        assert_eq!(got[0].1, vec!["msg-0".to_string()]);
+        assert!(got[0].2);
+        assert_eq!(got[0].3, 1);
+        assert_eq!(got[1].1, vec!["msg-1".to_string()]);
+        assert!(!got[1].2);
+        // disabled clears queue on set_enabled(false)
+        assert_eq!(got[1].3, 0);
+    }
+}
+
 
 /// TheScriptEngine singleton facade for minimal global script state.
 /// Legacy callbacks follow the engine driving the synchronous operation.

@@ -17,7 +17,7 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{DataChunkInfo, DataChunkInput, DataChunkOutput};
 use game_engine::common::system::{Xfer, XferStatus, XferVersion};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 
 pub const MAX_PARMS: usize = 12;
@@ -45,7 +45,6 @@ const K_SCRIPT_DATA_VERSION_2: u16 = 2;
 const K_SCRIPT_ACTION_VERSION_2: u16 = 2;
 const K_SCRIPT_CONDITION_VERSION_4: u16 = 4;
 const K_SCRIPT_OR_CONDITION_DATA_VERSION_1: u16 = 1;
-static SCRIPT_GROUP_ID: AtomicU32 = AtomicU32::new(0);
 
 pub use crate::common::Coord3D;
 
@@ -2121,7 +2120,11 @@ pub struct ScriptGroup {
 
 impl ScriptGroup {
     pub fn new() -> Self {
-        let id = SCRIPT_GROUP_ID.fetch_add(1, Ordering::Relaxed) + 1;
+        let id = crate::system::engine_stores::active_services()
+            .session_flags()
+            .script_group_name_id
+            .fetch_add(1, Ordering::Relaxed)
+            + 1;
         Self {
             first_script: None,
             group_name: format!("Script Group {}", id),

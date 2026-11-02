@@ -3106,7 +3106,10 @@ impl ScriptActionDispatcher<'_> {
         };
 
         // C++ script actions use short-lived groups; avoid contending on global AI write lock.
-        let group_id = SCRIPT_TEMP_GROUP_ID.fetch_add(1, Ordering::Relaxed);
+        let group_id = crate::system::engine_stores::active_services()
+            .session_flags()
+            .script_temp_group_id
+            .fetch_add(1, Ordering::Relaxed);
         let group = Arc::new(RwLock::new(AiGroup::new(group_id)));
 
         if let Ok(mut group_guard) = group.write() {

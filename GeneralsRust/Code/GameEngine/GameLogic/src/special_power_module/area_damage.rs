@@ -325,8 +325,12 @@ impl AreaDamageApplicator {
             tick_rate
         );
 
-        let id = DAMAGE_OVER_TIME_NEXT_ID.fetch_add(1, Ordering::Relaxed);
-        let mut fields = DAMAGE_OVER_TIME_FIELDS
+        let services = dot_services();
+        let id = services
+            .damage_over_time_next_id()
+            .fetch_add(1, Ordering::Relaxed);
+        let mut fields = services
+            .damage_over_time_fields()
             .lock()
             .expect("DOT field lock poisoned");
         fields.push(DamageOverTimeField {
@@ -344,7 +348,7 @@ impl AreaDamageApplicator {
 }
 
 #[derive(Debug, Clone)]
-struct DamageOverTimeField {
+pub(crate) struct DamageOverTimeField {
     id: ObjectID,
     config: AreaDamageConfig,
     center: Coord3D,
@@ -354,12 +358,14 @@ struct DamageOverTimeField {
     attacker_id: ObjectID,
 }
 
-static DAMAGE_OVER_TIME_NEXT_ID: AtomicU32 = AtomicU32::new(50000);
-static DAMAGE_OVER_TIME_FIELDS: Lazy<Mutex<Vec<DamageOverTimeField>>> =
-    Lazy::new(|| Mutex::new(Vec::new()));
+fn dot_services() -> std::sync::Arc<crate::system::engine_stores::WorldServices> {
+    crate::system::engine_stores::active_services()
+}
 
 pub fn update_damage_over_time(current_frame: UnsignedInt) {
-    let mut fields = DAMAGE_OVER_TIME_FIELDS
+    let services = dot_services();
+    let mut fields = services
+        .damage_over_time_fields()
         .lock()
         .expect("DOT field lock poisoned");
     fields.retain_mut(|field| {
@@ -388,7 +394,9 @@ pub fn clear_damage_over_time(
 ) -> usize {
     let mut removed = 0usize;
     let radius_sqr = radius * radius;
-    let mut fields = DAMAGE_OVER_TIME_FIELDS
+    let services = dot_services();
+    let mut fields = services
+        .damage_over_time_fields()
         .lock()
         .expect("DOT field lock poisoned");
 

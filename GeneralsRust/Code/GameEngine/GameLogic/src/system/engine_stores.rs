@@ -7,7 +7,8 @@
 //! presentation callbacks. It carries services independently of Core runtime;
 //! asking for Core AI inside a Main service scope is an explicit error.
 use crate::ai::AI;
-use crate::helpers::ClientVisualState;
+use crate::helpers::{ClientVisualState, EvaState, InGameUIState};
+use crate::special_power_module::area_damage::DamageOverTimeField;
 use crate::system::game_logic::RadarUpdate;
 use crate::system::shroud_manager::ShroudManager;
 use crate::system::world_logic_managers::WorldLogicManagers;
@@ -16,7 +17,7 @@ use game_engine::common::ini::ini_ai_data::{self, AIDataStore};
 use game_engine::common::system::upgrade as common_upgrade;
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicI32};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32};
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
 
 /// Per-world session flags formerly process atomics on `TheGameLogic` bridge.
@@ -35,6 +36,9 @@ pub struct SessionLogicFlags {
     pub hulk_max_lifetime_override: AtomicI32,
     pub input_enabled: AtomicBool,
     pub radar_attack_glow: AtomicBool,
+    pub script_temp_group_id: AtomicU32,
+    /// C++ ScriptGroup default-name counter (was process SCRIPT_GROUP_ID).
+    pub script_group_name_id: AtomicU32,
 }
 
 impl Default for SessionLogicFlags {
@@ -54,6 +58,8 @@ impl Default for SessionLogicFlags {
             hulk_max_lifetime_override: AtomicI32::new(-1),
             input_enabled: AtomicBool::new(true),
             radar_attack_glow: AtomicBool::new(false),
+            script_temp_group_id: AtomicU32::new(1),
+            script_group_name_id: AtomicU32::new(0),
         }
     }
 }
@@ -69,6 +75,16 @@ pub struct WorldServices {
     host_script_requests: crate::scripting::executor::HostScriptRequestQueues,
     session_flags: SessionLogicFlags,
     logic_managers: WorldLogicManagers,
+    in_game_ui: RwLock<InGameUIState>,
+    eva: Arc<Mutex<EvaState>>,
+    control_bar_ui_hooks: Mutex<Option<std::sync::Arc<dyn crate::control_bar::ControlBarUiHooks>>>,
+    control_bar_bridge: RwLock<Option<std::sync::Arc<crate::control_bar::ControlBarBridge>>>,
+    damage_over_time_fields: Mutex<Vec<DamageOverTimeField>>,
+    damage_over_time_next_id: AtomicU32,
+    /// Nested world-stage depth for the published services (was process TLS).
+    staging_depth: AtomicU32,
+    staging_deferred_team_effects:
+        Mutex<Vec<crate::team::TeamFactoryDeferredEffects>>,
 }
 impl WorldServices {
     fn engine_defaults() -> Self {
@@ -80,6 +96,14 @@ impl WorldServices {
             host_script_requests: crate::scripting::executor::HostScriptRequestQueues::default(),
             session_flags: SessionLogicFlags::default(),
             logic_managers: WorldLogicManagers::default(),
+            in_game_ui: RwLock::new(InGameUIState::default()),
+            eva: Arc::new(Mutex::new(EvaState::new_enabled())),
+            control_bar_ui_hooks: Mutex::new(None),
+            control_bar_bridge: RwLock::new(None),
+            damage_over_time_fields: Mutex::new(Vec::new()),
+            damage_over_time_next_id: AtomicU32::new(50000),
+            staging_depth: AtomicU32::new(0),
+            staging_deferred_team_effects: Mutex::new(Vec::new()),
         }
     }
     /// Snapshot engine content; fresh mutable per-world services. Inert.
@@ -94,6 +118,14 @@ impl WorldServices {
             host_script_requests: crate::scripting::executor::HostScriptRequestQueues::default(),
             session_flags: SessionLogicFlags::default(),
             logic_managers: WorldLogicManagers::default(),
+            in_game_ui: RwLock::new(InGameUIState::default()),
+            eva: Arc::new(Mutex::new(EvaState::new_enabled())),
+            control_bar_ui_hooks: Mutex::new(None),
+            control_bar_bridge: RwLock::new(None),
+            damage_over_time_fields: Mutex::new(Vec::new()),
+            damage_over_time_next_id: AtomicU32::new(50000),
+            staging_depth: AtomicU32::new(0),
+            staging_deferred_team_effects: Mutex::new(Vec::new()),
         }
     }
     pub fn terrain(&self) -> &Arc<RwLock<crate::terrain::TerrainLogic>> {
@@ -116,6 +148,36 @@ impl WorldServices {
     }
     pub(crate) fn logic_managers(&self) -> &WorldLogicManagers {
         &self.logic_managers
+    }
+    pub(crate) fn in_game_ui(&self) -> &RwLock<InGameUIState> {
+        &self.in_game_ui
+    }
+    pub(crate) fn eva(&self) -> &Arc<Mutex<EvaState>> {
+        &self.eva
+    }
+    pub(crate) fn control_bar_ui_hooks(
+        &self,
+    ) -> &Mutex<Option<std::sync::Arc<dyn crate::control_bar::ControlBarUiHooks>>> {
+        &self.control_bar_ui_hooks
+    }
+    pub(crate) fn control_bar_bridge(
+        &self,
+    ) -> &RwLock<Option<std::sync::Arc<crate::control_bar::ControlBarBridge>>> {
+        &self.control_bar_bridge
+    }
+    pub(crate) fn damage_over_time_fields(&self) -> &Mutex<Vec<DamageOverTimeField>> {
+        &self.damage_over_time_fields
+    }
+    pub(crate) fn damage_over_time_next_id(&self) -> &AtomicU32 {
+        &self.damage_over_time_next_id
+    }
+    pub(crate) fn staging_depth(&self) -> &AtomicU32 {
+        &self.staging_depth
+    }
+    pub(crate) fn staging_deferred_team_effects(
+        &self,
+    ) -> &Mutex<Vec<crate::team::TeamFactoryDeferredEffects>> {
+        &self.staging_deferred_team_effects
     }
 }
 /// Standalone Core runtime; AI is mandatory, never optional or deferred.
