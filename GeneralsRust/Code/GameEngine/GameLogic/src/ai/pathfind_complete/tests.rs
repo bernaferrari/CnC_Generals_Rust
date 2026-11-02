@@ -2521,3 +2521,56 @@ fn cpp_destination_uses_cell_identity_not_surface_or_registry() {
         "a different obstacle remains blocked"
     );
 }
+
+#[test]
+fn aircraft_destination_respects_resolved_cell_layer() {
+    let factory = crate::object::object_factory::ObjectFactory::new();
+    let players = crate::player::PlayerList::new();
+    let terrain = crate::terrain::TerrainLogic::new();
+    let observations = PathfindObservations {
+        factory: &factory,
+        players: &players,
+        terrain: &terrain,
+    };
+    let mut world = PathfindingSystem::new(8, 8);
+    world.new_map();
+    let cell = GridCoord::new(4, 4);
+    let pos = cell.to_world(0.0);
+    world.update_aircraft_goal(&pos, 99, 0, true);
+    let request = PathRequest {
+        object_id: 100,
+        from: pos,
+        to: pos,
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        unit_radius: 0.0,
+        allow_partial: false,
+        move_allies: false,
+        ignore_obstacle_id: None,
+        is_human: false,
+    };
+    let accepts = |world: &PathfindingSystem, layer| {
+        world.check_destination_with_observations(
+            &request,
+            cell,
+            layer,
+            0,
+            true,
+            Some(true),
+            Some(&observations),
+        )
+    };
+    assert!(!accepts(&world, PathfindLayerEnum::Ground));
+    assert!(
+        !accepts(&world, PathfindLayerEnum::Top),
+        "missing bridge cell resolves to reserved ground"
+    );
+    world
+        .pathfinder
+        .set_cell_type_on_layer(cell, PathfindLayerEnum::Top, PathfindCellType::Clear);
+    assert!(
+        accepts(&world, PathfindLayerEnum::Top),
+        "a ground reservation does not reserve the bridge cell"
+    );
+    assert!(!accepts(&world, PathfindLayerEnum::Ground));
+}

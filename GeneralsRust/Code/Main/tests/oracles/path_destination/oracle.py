@@ -40,7 +40,7 @@ struct PathfindCell {
     Int getFlags() const { return NO_UNITS; }
     ObjectID getGoalUnit() const { return goal; }
 };
-struct AI { ObjectID ignored; ObjectID getIgnoredObstacleID() const { return ignored; } Bool isAircraftThatAdjustsDestination() const { return false; } };
+struct AI { ObjectID ignored; bool aircraft = false; ObjectID getIgnoredObstacleID() const { return ignored; } Bool isAircraftThatAdjustsDestination() const { return aircraft; } };
 struct Object { AI ai; ObjectID id; const AI* getAIUpdateInterface() const { return &ai; } const AI* getAI() const { return &ai; } ObjectID getID() const { return id; } Int getRelationship(Object*) const { return 0; } Bool canCrushOrSquish(Object*, Int) const { return false; } };
 struct Logic { Object* findObjectByID(ObjectID) const { return nullptr; } } logic; Logic *TheGameLogic = &logic;
 struct Pathfinder { PathfindCell *cell; PathfindCell* getCell(PathfindLayerEnum, Int, Int) { return cell; } Bool checkDestination(const Object*, Int, Int, PathfindLayerEnum, Int, Bool); };
@@ -52,6 +52,10 @@ int main() {
     PathfindCell water{PathfindCell::CELL_WATER, nullptr}, accepted{PathfindCell::CELL_OBSTACLE, &matching}, rejected{PathfindCell::CELL_OBSTACLE, &other}, blocked{PathfindCell::CELL_IMPASSABLE, nullptr};
     Pathfinder finder{nullptr};
     for (auto *cell : {&water, &accepted, &rejected, &blocked}) { finder.cell = cell; std::cout << finder.checkDestination(&unit, 0, 0, 1, 0, true) << ' '; }
+    unit.ai.aircraft = true; PathfindCell ground{PathfindCell::CELL_CLEAR, nullptr, 99, true}, bridge{PathfindCell::CELL_CLEAR, nullptr};
+    finder.cell = &ground; std::cout << finder.checkDestination(&unit, 0, 0, 1, 0, true) << ' ';
+    finder.cell = &bridge; std::cout << finder.checkDestination(&unit, 0, 0, 2, 0, true) << ' ';
+    finder.cell = &ground; std::cout << finder.checkDestination(&unit, 0, 0, 2, 0, true) << ' ';
     std::cout << '\n';
 }
 '''
@@ -63,6 +67,6 @@ with tempfile.TemporaryDirectory(prefix='path-destination-') as directory:
     source.write_text(program)
     subprocess.run(['c++', '-std=c++17', str(source), '-o', str(binary)], check=True)
     actual = subprocess.check_output([str(binary)], text=True)
-    if actual != '1 1 0 0 \n':
+    if actual != '1 1 0 0 0 1 0 \n':
         raise SystemExit(f'unexpected C++ result: {actual!r}')
     print(actual, end='')

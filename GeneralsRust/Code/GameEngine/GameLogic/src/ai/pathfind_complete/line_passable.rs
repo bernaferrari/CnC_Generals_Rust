@@ -479,7 +479,15 @@ impl PathfindingSystem {
             };
 
             if check_for_aircraft {
-                let goal_aircraft = self.get_goal_aircraft(coord);
+                // updateAircraftGoal stamps ground cells only. A bridge cell
+                // has its own reservation, even at the same coordinates.
+                let goal_aircraft = if pathfinder.resolved_layer_at(coord, layer)
+                    == Some(PathfindLayerEnum::Ground)
+                {
+                    self.get_goal_aircraft(coord)
+                } else {
+                    INVALID_ID
+                };
                 if goal_aircraft == INVALID_ID || goal_aircraft == request.object_id {
                     return;
                 }
