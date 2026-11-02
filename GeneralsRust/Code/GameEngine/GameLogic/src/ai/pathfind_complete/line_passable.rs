@@ -477,13 +477,15 @@ impl PathfindingSystem {
                 ok = false;
                 return;
             };
+            let Some(cell_layer) = pathfinder.resolved_layer_at(coord, layer) else {
+                ok = false;
+                return;
+            };
 
             if check_for_aircraft {
                 // updateAircraftGoal stamps ground cells only. A bridge cell
                 // has its own reservation, even at the same coordinates.
-                let goal_aircraft = if pathfinder.resolved_layer_at(coord, layer)
-                    == Some(PathfindLayerEnum::Ground)
-                {
+                let goal_aircraft = if cell_layer == PathfindLayerEnum::Ground {
                     self.get_goal_aircraft(coord)
                 } else {
                     INVALID_ID
@@ -512,7 +514,7 @@ impl PathfindingSystem {
                 _ => {}
             }
 
-            let goal_unit = self.get_goal_unit(coord, layer);
+            let goal_unit = self.get_goal_unit(coord, cell_layer);
             if goal_unit == INVALID_ID
                 || goal_unit == request.object_id
                 || request.ignore_obstacle_id == Some(goal_unit)
@@ -525,7 +527,7 @@ impl PathfindingSystem {
                 return;
             }
             const UNIT_PRESENT_FIXED: u8 = 0x03;
-            let fixed = Self::cell_occupancy_flags(goal_unit, self.pos_unit_at(coord, layer))
+            let fixed = Self::cell_occupancy_flags(goal_unit, self.pos_unit_at(coord, cell_layer))
                 == UNIT_PRESENT_FIXED;
             let occupied = super::check_movement::observe_movement_pair(
                 request.object_id,

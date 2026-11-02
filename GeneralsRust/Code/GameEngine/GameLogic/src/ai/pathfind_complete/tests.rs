@@ -2671,6 +2671,10 @@ fn destination_respects_allied_and_fixed_enemy_goal_units() {
         ),
         "a fixed enemy that cannot be crushed blocks the destination"
     );
+    assert!(
+        !world.check_destination(&request, cell, PathfindLayerEnum::Top, 0, true, Some(false)),
+        "a bridge fallback must observe the fixed ground unit"
+    );
     world.clear_pos_cells(
         ENEMY,
         ICoord2D::new(cell.x, cell.y),
@@ -2774,4 +2778,68 @@ fn destination_occupancy_uses_the_receiving_factory() {
     };
     assert!(!check(&ally));
     assert!(check(&enemy));
+}
+
+#[test]
+fn destination_goal_occupancy_follows_resolved_bridge_cell() {
+    let factory = crate::object::object_factory::ObjectFactory::new();
+    let players = crate::player::PlayerList::new();
+    let terrain = crate::terrain::TerrainLogic::new();
+    let observations = PathfindObservations {
+        factory: &factory,
+        players: &players,
+        terrain: &terrain,
+    };
+    let mut world = PathfindingSystem::new(8, 8);
+    world.new_map();
+    let cell = GridCoord::new(4, 4);
+    let pos = cell.to_world(0.0);
+    let request = PathRequest {
+        object_id: INVALID_ID,
+        from: pos,
+        to: pos,
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        unit_radius: 0.0,
+        allow_partial: false,
+        move_allies: false,
+        ignore_obstacle_id: None,
+        is_human: false,
+    };
+    let center = ICoord2D::new(cell.x, cell.y);
+    world.set_goal_cells(42, center, 0, true, PathfindLayerEnum::Ground, true, false);
+    let check = |world: &PathfindingSystem, layer| {
+        world.check_destination_with_observations(
+            &request,
+            cell,
+            layer,
+            0,
+            true,
+            Some(false),
+            Some(&observations),
+        )
+    };
+    assert!(!check(&world, PathfindLayerEnum::Ground));
+    assert!(
+        !check(&world, PathfindLayerEnum::Top),
+        "a missing bridge cell selects the occupied ground cell"
+    );
+    world
+        .pathfinder
+        .set_cell_type_on_layer(cell, PathfindLayerEnum::Top, PathfindCellType::Clear);
+    assert!(
+        check(&world, PathfindLayerEnum::Top),
+        "a bridge cell has its own occupancy"
+    );
+    world.set_goal_cells(43, center, 0, true, PathfindLayerEnum::Top, false, true);
+    assert!(!check(&world, PathfindLayerEnum::Top));
+    world.pathfinder.set_cell_type_on_layer(
+        cell,
+        PathfindLayerEnum::Top,
+        PathfindCellType::Impassable,
+    );
+    assert!(
+        !check(&world, PathfindLayerEnum::Top),
+        "an impassable bridge cell falls back to occupied ground"
+    );
 }
