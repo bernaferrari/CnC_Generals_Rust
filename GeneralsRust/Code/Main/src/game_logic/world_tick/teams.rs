@@ -928,11 +928,20 @@ impl GameLogic {
                 }
             }
 
-            // C++ hasAttackedMeAndICanReturnFire on RETURN/IDLE.
-            let last = self
-                .objects
-                .get_mut(&id)
-                .and_then(|o| o.consume_clearable_last_attacker());
+            // C++ checks this condition on RETURN/IDLE, not while a live
+            // Aggressor, Inner, or Outer attack child is still running.
+            let active_chase = alive
+                && self
+                    .objects
+                    .get(&id)
+                    .is_some_and(|object| object.guard_chase_phase() != GuardChasePhase::None);
+            let last = if active_chase {
+                None
+            } else {
+                self.objects
+                    .get_mut(&id)
+                    .and_then(|o| o.consume_clearable_last_attacker())
+            };
             if let Some(aid) = last {
                 if aid != id {
                     let legal = self

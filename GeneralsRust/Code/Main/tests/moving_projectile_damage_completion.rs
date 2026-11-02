@@ -280,9 +280,8 @@ fn projectile_damage_fx_continues_after_restore_and_peer_reset() {
     assert_eq!(loaded.next_damage_fx_time, original.next_damage_fx_time);
     let deadline = original.next_damage_fx_time;
 
-    // Version 21 had the same payload without the trailing FX-throttle rows.
-    // Build that exact encoding from the captured version 22 record and check
-    // that a receiving session resets fields absent from the older format.
+    // Version 21 predates both FX-throttle rows and the v23 clearable-attacker
+    // set. Remove both trailing fields and check the receiving defaults.
     let mut legacy = builder.create_world_snapshot(&running.world).unwrap();
     let mut rows: Vec<_> = legacy
         .objects
@@ -305,15 +304,28 @@ fn projectile_damage_fx_continues_after_restore_and_peer_reset() {
             .unwrap(),
     ) as usize;
     let end = marker + 12 + length;
+    let mut cleared: Vec<u32> = legacy
+        .objects
+        .keys()
+        .filter_map(|id| {
+            let object = running.world.host_object(*id).unwrap();
+            (object.last_damage_source.is_some() && object.clearable_last_attacker().is_none())
+                .then_some(id.0)
+        })
+        .collect();
+    cleared.sort_unstable();
+    let encoded_cleared = bincode_legacy::serialize(&cleared).unwrap();
+    let rows_end = end - encoded_cleared.len();
+    assert_eq!(&legacy.lifecycle_tail[rows_end..end], &encoded_cleared);
     assert_eq!(
-        &legacy.lifecycle_tail[end - encoded_rows.len()..end],
+        &legacy.lifecycle_tail[rows_end - encoded_rows.len()..rows_end],
         &encoded_rows
     );
     let mut bad = builder.create_world_snapshot(&running.world).unwrap();
     rows[0].0 = u32::MAX;
     let bad_rows = bincode_legacy::serialize(&rows).unwrap();
     assert_eq!(bad_rows.len(), encoded_rows.len());
-    bad.lifecycle_tail[end - bad_rows.len()..end].copy_from_slice(&bad_rows);
+    bad.lifecycle_tail[rows_end - bad_rows.len()..rows_end].copy_from_slice(&bad_rows);
     assert!(
         builder
             .restore_from_snapshot(&bad, &mut after_load.world)
@@ -327,10 +339,13 @@ fn projectile_damage_fx_continues_after_restore_and_peer_reset() {
             .next_damage_fx_time,
         deadline
     );
-    legacy.lifecycle_tail.drain(end - encoded_rows.len()..end);
+    legacy
+        .lifecycle_tail
+        .drain(rows_end - encoded_rows.len()..end);
     legacy.lifecycle_tail[marker + 4..marker + 8].copy_from_slice(&21u32.to_le_bytes());
-    legacy.lifecycle_tail[marker + 8..marker + 12]
-        .copy_from_slice(&((length - encoded_rows.len()) as u32).to_le_bytes());
+    legacy.lifecycle_tail[marker + 8..marker + 12].copy_from_slice(
+        &((length - encoded_rows.len() - encoded_cleared.len()) as u32).to_le_bytes(),
+    );
     builder
         .restore_from_snapshot(&legacy, &mut after_load.world)
         .unwrap();

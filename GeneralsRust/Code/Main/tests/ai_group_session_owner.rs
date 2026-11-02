@@ -1313,6 +1313,77 @@ fn guard_keeps_parent_after_real_aggressor_hit() {
         peer.host_object(actor).unwrap().clearable_last_attacker(),
         None
     );
+    // OXOB v23 ends with the sorted set of owners whose attacker was cleared.
+    // Corrupting that owner must reject the load before it changes the peer.
+    let mut cleared: Vec<u32> = snapshot
+        .objects
+        .keys()
+        .filter_map(|id| {
+            let object = world.host_object(*id).unwrap();
+            (object.last_damage_source.is_some() && object.clearable_last_attacker().is_none())
+                .then_some(id.0)
+        })
+        .collect();
+    cleared.sort_unstable();
+    let encoded = bincode_legacy::serialize(&cleared).unwrap();
+    assert!(cleared.contains(&actor.0));
+    let mut invalid = generals_main::save_load::SnapshotBuilder::new()
+        .create_world_snapshot(&world)
+        .unwrap();
+    let marker = invalid
+        .lifecycle_tail
+        .windows(4)
+        .rposition(|tag| tag == b"OXOB")
+        .unwrap();
+    let length = u32::from_le_bytes(
+        invalid.lifecycle_tail[marker + 8..marker + 12]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    let end = marker + 12 + length;
+    assert_eq!(&invalid.lifecycle_tail[end - encoded.len()..end], &encoded);
+    let pos = cleared.iter().position(|id| *id == actor.0).unwrap();
+    cleared[pos] = 0;
+    let malformed = bincode_legacy::serialize(&cleared).unwrap();
+    invalid.lifecycle_tail[end - malformed.len()..end].copy_from_slice(&malformed);
+    let before_frame = peer.get_current_frame();
+    assert!(
+        generals_main::save_load::SnapshotBuilder::new()
+            .restore_from_snapshot(&invalid, &mut peer)
+            .is_err()
+    );
+    assert_eq!(peer.get_current_frame(), before_frame);
+    assert_eq!(
+        peer.host_object(actor).unwrap().last_damage_source,
+        Some(attacker)
+    );
+    assert_eq!(
+        peer.host_object(actor).unwrap().clearable_last_attacker(),
+        None
+    );
+
+    // Remove only the new trailing set to obtain the preceding v22 payload.
+    let mut v22 = generals_main::save_load::SnapshotBuilder::new()
+        .create_world_snapshot(&world)
+        .unwrap();
+    v22.lifecycle_tail.drain(end - encoded.len()..end);
+    v22.lifecycle_tail[marker + 4..marker + 8].copy_from_slice(&22u32.to_le_bytes());
+    v22.lifecycle_tail[marker + 8..marker + 12]
+        .copy_from_slice(&((length - encoded.len()) as u32).to_le_bytes());
+    generals_main::save_load::SnapshotBuilder::new()
+        .restore_from_snapshot(&v22, &mut peer)
+        .unwrap();
+    assert_eq!(
+        peer.host_object(actor).unwrap().last_damage_source,
+        Some(attacker)
+    );
+    assert_eq!(
+        peer.host_object(actor).unwrap().clearable_last_attacker(),
+        Some(attacker)
+    );
+    generals_main::save_load::SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut peer)
+        .unwrap();
     let next_frame = timestamp.wrapping_add(3);
     peer.host_object_mut(actor).unwrap().take_damage_from(
         1.0,
@@ -1331,6 +1402,142 @@ fn guard_keeps_parent_after_real_aggressor_hit() {
     assert_eq!(
         world.host_object(actor).unwrap().last_damage_source,
         Some(attacker)
+    );
+}
+
+#[test]
+fn retaliation_keeps_new_attacker_pending_while_chasing() {
+    use generals_main::save_load::SnapshotBuilder;
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut world, victim, actor, _) = world_with_options(&map, true, true, false);
+    let player = world.get_player_mut(1).unwrap();
+    player.is_human = true;
+    player.alliance_team = 1;
+    player.logical_retaliation_mode_enabled = true;
+    let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
+    enemy.alliance_team = 2;
+    world.add_player(enemy);
+    let original = world
+        .create_object_for_player("GroupUnit", 2, Vec3::new(45.0, 0.0, 40.0))
+        .unwrap();
+    let new_attacker = world
+        .create_object_for_player("GroupUnit", 2, Vec3::new(50.0, 0.0, 40.0))
+        .unwrap();
+    assert!(world.try_friends_retaliate(victim, original) > 0);
+    world.set_current_frame(10);
+    world.host_object_mut(actor).unwrap().take_damage_from(
+        1.0,
+        Some(new_attacker),
+        10,
+        &mut generals_main::game_logic::HostHealthEvents::default(),
+    );
+    assert_eq!(
+        world.host_object(actor).unwrap().clearable_last_attacker(),
+        Some(new_attacker)
+    );
+    world.tick_guard_retaliate_states().unwrap();
+    assert_eq!(
+        world.host_object(actor).unwrap().guard_retaliate_victim(),
+        Some(original)
+    );
+    assert_eq!(
+        world.host_object(actor).unwrap().clearable_last_attacker(),
+        Some(new_attacker)
+    );
+    let builder = SnapshotBuilder::new();
+    let mut snapshot = builder.create_world_snapshot(&world).unwrap();
+    let (mut peer, _, peer_actor, _) = world_with_options(&map, true, true, false);
+    assert_eq!(actor, peer_actor);
+    let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
+    enemy.alliance_team = 2;
+    peer.add_player(enemy);
+    builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
+    peer.tick_guard_retaliate_states().unwrap();
+    assert_eq!(
+        peer.host_object(actor).unwrap().guard_retaliate_victim(),
+        Some(original)
+    );
+    assert_eq!(
+        peer.host_object(actor).unwrap().clearable_last_attacker(),
+        Some(new_attacker)
+    );
+    // Original Inner and Outer attack children likewise do not run the
+    // Return/Idle attacker condition. Restore each into the same peer.
+    for phase in ["Inner", "Outer"] {
+        let module = snapshot
+            .objects
+            .get_mut(&actor)
+            .unwrap()
+            .modules
+            .get_mut("ReceivingBaseAI")
+            .unwrap();
+        let mut value = serde_json::to_value(&*module).unwrap();
+        value["BaseAi"]["continuation"]["guard"]["chase_phase"] = phase.into();
+        value["BaseAi"]["continuation"]["guard"]["chase_give_up_frame"] = serde_json::Value::Null;
+        *module = serde_json::from_value(value).unwrap();
+        builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
+        peer.tick_guard_retaliate_states().unwrap();
+        assert_eq!(
+            peer.host_object(actor).unwrap().guard_retaliate_victim(),
+            Some(original)
+        );
+        assert_eq!(
+            peer.host_object(actor).unwrap().clearable_last_attacker(),
+            Some(new_attacker)
+        );
+    }
+    // Once the machine is back at Return/Idle, the original transition
+    // consumes the pending attacker while retaining the Body damage record.
+    let module = snapshot
+        .objects
+        .get_mut(&actor)
+        .unwrap()
+        .modules
+        .get_mut("ReceivingBaseAI")
+        .unwrap();
+    let mut value = serde_json::to_value(&*module).unwrap();
+    value["BaseAi"]["continuation"]["guard"]["chase_phase"] = "None".into();
+    value["BaseAi"]["continuation"]["guard"]["chase_give_up_frame"] = serde_json::Value::Null;
+    *module = serde_json::from_value(value).unwrap();
+    builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
+    peer.tick_guard_retaliate_states().unwrap();
+    assert_eq!(
+        peer.host_object(actor).unwrap().guard_retaliate_victim(),
+        Some(new_attacker)
+    );
+    assert_eq!(
+        peer.host_object(actor).unwrap().clearable_last_attacker(),
+        None
+    );
+    assert_eq!(
+        peer.host_object(actor).unwrap().last_damage_source,
+        Some(new_attacker)
+    );
+    // C++ healing replaces LastDamageInfo and clears m_lastDamageCleared.
+    peer.host_object_mut(actor).unwrap().take_damage_from_typed(
+        1.0,
+        Some(original),
+        generals_main::game_logic::combat::DamageType::Healing,
+        13,
+        &mut generals_main::game_logic::HostHealthEvents::default(),
+    );
+    assert_eq!(
+        peer.host_object(actor).unwrap().last_damage_source,
+        Some(original)
+    );
+    assert_eq!(
+        peer.host_object(actor).unwrap().clearable_last_attacker(),
+        Some(original)
+    );
+
+    assert_eq!(
+        world.host_object(actor).unwrap().guard_retaliate_victim(),
+        Some(original)
+    );
+    assert_eq!(
+        world.host_object(actor).unwrap().clearable_last_attacker(),
+        Some(new_attacker)
     );
 }
 
