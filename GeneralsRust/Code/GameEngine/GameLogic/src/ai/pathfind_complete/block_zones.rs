@@ -317,9 +317,8 @@ impl ZoneManager {
         self.zones_dirty = true;
     }
 
-    /// C++ `PathfindZoneManager::setAllPassable` residual — clear dirty gate.
+    /// C++ `PathfindZoneManager::setAllPassable` changes only block flags.
     pub(crate) fn set_all_passable(&mut self) {
-        self.zones_dirty = false;
         for col in &mut self.zone_blocks {
             for b in col.iter_mut() {
                 b.marked_passable = true;
@@ -329,7 +328,6 @@ impl ZoneManager {
 
     /// C++ `PathfindZoneManager::clearPassableFlags` residual.
     pub(crate) fn clear_passable_flags(&mut self) {
-        self.zones_dirty = true;
         for col in &mut self.zone_blocks {
             for b in col.iter_mut() {
                 b.marked_passable = false;
