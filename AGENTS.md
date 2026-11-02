@@ -10,6 +10,11 @@ logic is explicitly deferred until all non-network systems are ported and verifi
 - Prefer idiomatic Rust where it does not change observable behavior.
 - Use WGPU, Tokio, and glam for rendering, async, and math where helpful, but keep gameplay logic identical.
 
+## Sealed Modules
+Finished modules are listed in `GeneralsRust/sealed_modules.toml`. Do not edit a
+sealed path except through an explicit `Unseal: <path> — <reason>` commit line.
+Seal checklist and gates live in `GeneralsRust/AGENTS.md`.
+
 ## Directory Mapping (CPP -> Rust)
 - `GeneralsMD/Code/GameEngine/Source/...` -> `GeneralsRust/Code/GameEngine/<crate>/src/...`
 - `GeneralsMD/Code/GameEngine/Include/...` -> `GeneralsRust/Code/GameEngine/<crate>/src/...`

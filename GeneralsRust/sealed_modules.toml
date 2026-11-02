@@ -1,0 +1,11 @@
+# Sealed modules — finished ports. Agents must not edit these paths except via
+# an explicit `Unseal: <path> — <reason>` line in the commit message (see AGENTS.md).
+#
+# path: relative to GeneralsRust/
+# cpp:  C++ counterpart relative to the repo root
+# note: one-line status
+
+# [[module]]
+# path = "Code/Libraries/Source/WWVegas/Example"
+# cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/Example"
+# note = "Example sealed module."
