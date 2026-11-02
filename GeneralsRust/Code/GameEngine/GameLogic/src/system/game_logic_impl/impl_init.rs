@@ -1,13 +1,17 @@
-use std::sync::atomic::{AtomicI32, Ordering};
-
-pub static RANK_LEVEL_LIMIT_ATOMIC: AtomicI32 = AtomicI32::new(1000);
+use std::sync::atomic::Ordering;
 
 pub fn rank_level_limit_now() -> i32 {
-    RANK_LEVEL_LIMIT_ATOMIC.load(Ordering::Relaxed)
+    crate::system::engine_stores::active_services()
+        .session_flags()
+        .rank_level_limit
+        .load(Ordering::Relaxed)
 }
 
 pub fn publish_rank_level_limit(level: i32) {
-    RANK_LEVEL_LIMIT_ATOMIC.store(level, Ordering::Relaxed);
+    crate::system::engine_stores::active_services()
+        .session_flags()
+        .rank_level_limit
+        .store(level, Ordering::Relaxed);
 }
 
 /// Publish only for the process singleton. `try_lock` success is a stack copy
