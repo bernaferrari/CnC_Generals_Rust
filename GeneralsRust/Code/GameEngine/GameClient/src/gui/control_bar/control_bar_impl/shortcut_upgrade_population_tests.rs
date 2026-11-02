@@ -78,9 +78,9 @@ fn actual_shortcut_population_observes_each_receiving_upgrade_operation() {
                 bar.leftover_shortcut_parent_name(0),
             ] {
                 owner.with_manager(|manager| {
-                    let window = manager.create_window(None, 0, 0, 32, 32).unwrap();
+                    let window = manager.test_create_window(None, 0, 0, 32, 32).unwrap();
                     window.borrow_mut().set_name(&name);
-                    window.borrow_mut().hide(true).unwrap();
+                    window.borrow_mut().hide_without_manager_side_effects(true).unwrap();
                 });
             }
             bar

@@ -365,7 +365,7 @@ mod receiving_window_id_tests {
         assert_eq!(b1.borrow().get_id(), 1);
         let a2 = a.test_create_window(None, 0, 0, 10, 10).unwrap();
         assert_eq!(a2.borrow().get_id(), 2);
-        b.reset();
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| b.reset(effects));
         let a3 = a.test_create_window(None, 0, 0, 10, 10).unwrap();
         let b2 = b.test_create_window(None, 0, 0, 10, 10).unwrap();
         assert_eq!(a3.borrow().get_id(), 3);

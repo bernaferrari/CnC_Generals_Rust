@@ -86,7 +86,7 @@ fn set_window_enabled(window: &Option<Rc<RefCell<GameWindow>>>, enabled: bool) {
 
 fn set_window_hidden(window: &Option<Rc<RefCell<GameWindow>>>, hidden: bool) {
     if let Some(window) = window {
-        let _ = window.borrow_mut().hide(hidden);
+        let _ = window.borrow_mut().hide_without_manager_side_effects(hidden);
     }
 }
 
@@ -1181,7 +1181,7 @@ pub fn rc_game_details_menu_system(
                 (|manager: &mut crate::gui::window_manager::WindowManager| {
                     manager.set_lone_window(Some(&first), effects)
                 })(receiving_manager);
-                let _ = first.borrow_mut().hide(false);
+                let _ = first.borrow_mut().hide_without_manager_side_effects(false);
                 let _ = first.borrow_mut().bring_to_front();
             }
 

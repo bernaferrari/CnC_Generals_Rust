@@ -130,7 +130,7 @@ fn actual_native_prefix_uses_supplied_facts_despite_foreign_core_observation() {
                 frozen: false,
                 visual_speed: 2.,
             }
-        })
+        }, 0)
         .unwrap();
     assert!(!first.frozen);
     assert_eq!(observed, 1);
@@ -140,7 +140,7 @@ fn actual_native_prefix_uses_supplied_facts_despite_foreign_core_observation() {
                 frozen: true,
                 visual_speed: 0.5,
             }
-        })
+        }, 0)
         .unwrap();
     assert!(peer.frozen);
     let repeated = a
@@ -149,7 +149,7 @@ fn actual_native_prefix_uses_supplied_facts_despite_foreign_core_observation() {
                 frozen: false,
                 visual_speed: 2.,
             }
-        })
+        }, 0)
         .unwrap();
     assert!(repeated.frozen);
     a.set_frame(122);
@@ -159,7 +159,7 @@ fn actual_native_prefix_uses_supplied_facts_despite_foreign_core_observation() {
                 frozen: false,
                 visual_speed: 2.,
             }
-        })
+        }, 0)
         .unwrap();
     assert!(!next.frozen);
     assert_eq!(b.last_visual_time_frame, 121);
@@ -208,7 +208,7 @@ fn actual_prefix_delivers_receiving_scaled_delta_repeat_zero_and_peer_reset_isol
                     frozen: false,
                     visual_speed: speed,
                 }
-            })
+            }, 0)
             .unwrap();
     }
     assert_eq!(deltas(&a, aid), [0.04_f32 * 2.5]);
@@ -219,7 +219,7 @@ fn actual_prefix_delivers_receiving_scaled_delta_repeat_zero_and_peer_reset_isol
                 frozen: false,
                 visual_speed: 2.5,
             }
-        })
+        }, 0)
         .unwrap();
     assert_eq!(deltas(&a, aid), [0.04_f32 * 2.5, 0.]);
     // Dropping/reconstructing a peer cannot reset the receiving frame marker.
@@ -233,7 +233,7 @@ fn actual_prefix_delivers_receiving_scaled_delta_repeat_zero_and_peer_reset_isol
                 frozen: false,
                 visual_speed: 2.5,
             }
-        })
+        }, 0)
         .unwrap();
     assert_eq!(deltas(&a, aid), [0.04_f32 * 2.5, 0., 0.04_f32 * 2.5]);
     assert_eq!(peer.last_visual_time_frame, u32::MAX);
@@ -321,7 +321,7 @@ fn native_shell_never_advances_foreign_core_impulse_but_standalone_effects_do() 
                     frozen: false,
                     visual_speed: 1.,
                 }
-            })
+            }, 0)
             .unwrap();
         assert!(!prepared.frozen);
         assert_eq!(
@@ -381,7 +381,7 @@ fn native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows() 
                     frozen: false,
                     visual_speed: 1.,
                 }
-            })
+            }, 0)
             .unwrap();
         assert_eq!(
             position(),
@@ -445,6 +445,7 @@ fn fallible_native_observation_rejects_at_late_boundary_without_consuming_visual
                 "missing receiving debug owner".into(),
             ))
         },
+        0,
     );
     assert!(
         matches!(result, Err(GameClientError::InvalidOperation(ref reason)) if reason == "missing receiving debug owner")
@@ -458,7 +459,7 @@ fn fallible_native_observation_rejects_at_late_boundary_without_consuming_visual
                 frozen: false,
                 visual_speed: 1.,
             })
-        })
+        }, 0)
         .unwrap();
     assert!(!step.frozen);
     let step = peer
@@ -467,7 +468,7 @@ fn fallible_native_observation_rejects_at_late_boundary_without_consuming_visual
                 frozen: true,
                 visual_speed: 1.,
             })
-        })
+        }, 0)
         .unwrap();
     assert!(step.frozen);
 }
@@ -509,7 +510,7 @@ fn native_presentation_prefix_does_not_reactivate_hidden_shell_or_replace_match(
                     frozen: false,
                     visual_speed: 1.,
                 }
-            })
+            }, 0)
             .unwrap();
         drop(prepared);
         let stream = THE_MESSAGE_STREAM.read().unwrap();
@@ -525,7 +526,7 @@ fn native_presentation_prefix_does_not_reactivate_hidden_shell_or_replace_match(
         assert_eq!(global.read().pending_file, "receiving-match.map");
     }
     // Explicit Menu admission remains available; do not suppress valid Shell starts.
-    a.ensure_shell_visible().unwrap();
+    a.ensure_shell_visible(None).unwrap();
     let stream = THE_MESSAGE_STREAM.read().unwrap();
     assert_eq!(
         stream

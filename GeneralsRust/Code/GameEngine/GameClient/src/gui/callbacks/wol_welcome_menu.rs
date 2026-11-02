@@ -459,7 +459,7 @@ pub(crate) fn populate_player_info_windows(
         let id = name_to_id(&progress_name);
         if let Some(window) = owner.with_manager(|manager| manager.get_window_by_id(id)) {
             if current_rank as usize >= rank_values.ranks.len().saturating_sub(1) {
-                let _ = window.borrow_mut().hide(true);
+                let _ = window.borrow_mut().hide_without_manager_side_effects(true);
             } else if let Some(progress) = window.borrow_mut().progress_bar_mut() {
                 let next_rank = rank_values.ranks[current_rank as usize + 1];
                 let current_val = rank_values.ranks[current_rank as usize];
@@ -545,9 +545,9 @@ pub(crate) fn populate_player_info_windows(
         owner.with_manager(|manager| manager.get_window_by_id(name_to_id(&in_progress_name)))
     {
         if have_stats {
-            let _ = window.borrow_mut().hide(true);
+            let _ = window.borrow_mut().hide_without_manager_side_effects(true);
         } else {
-            let _ = window.borrow_mut().hide(false);
+            let _ = window.borrow_mut().hide_without_manager_side_effects(false);
             let _ = window
                 .borrow_mut()
                 .set_text(&GameText::fetch("GUI:FetchingPlayerInfo"));

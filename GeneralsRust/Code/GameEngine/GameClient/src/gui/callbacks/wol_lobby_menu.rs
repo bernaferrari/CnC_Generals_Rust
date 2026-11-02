@@ -253,15 +253,15 @@ fn show_sort_icons(state: &WolLobbyState) {
     {
         match state.sort_type {
             GameSortType::AlphaAscending => {
-                let _ = window.borrow_mut().hide(false);
+                let _ = window.borrow_mut().hide_without_manager_side_effects(false);
                 let _ = window.borrow_mut().enable(true);
             }
             GameSortType::AlphaDescending => {
-                let _ = window.borrow_mut().hide(false);
+                let _ = window.borrow_mut().hide_without_manager_side_effects(false);
                 let _ = window.borrow_mut().enable(false);
             }
             _ => {
-                let _ = window.borrow_mut().hide(true);
+                let _ = window.borrow_mut().hide_without_manager_side_effects(true);
             }
         }
     }
@@ -270,15 +270,15 @@ fn show_sort_icons(state: &WolLobbyState) {
     {
         match state.sort_type {
             GameSortType::PingAscending => {
-                let _ = window.borrow_mut().hide(false);
+                let _ = window.borrow_mut().hide_without_manager_side_effects(false);
                 let _ = window.borrow_mut().enable(true);
             }
             GameSortType::PingDescending => {
-                let _ = window.borrow_mut().hide(false);
+                let _ = window.borrow_mut().hide_without_manager_side_effects(false);
                 let _ = window.borrow_mut().enable(false);
             }
             _ => {
-                let _ = window.borrow_mut().hide(true);
+                let _ = window.borrow_mut().hide_without_manager_side_effects(true);
             }
         }
     }
@@ -1053,7 +1053,7 @@ pub fn wol_lobby_menu_init(
     if let Some(gadget_parent) =
         owner.with_manager(|manager| manager.get_window_by_id(gadget_parent_id))
     {
-        let _ = gadget_parent.borrow_mut().hide(true);
+        let _ = gadget_parent.borrow_mut().hide_without_manager_side_effects(true);
     }
 
     set_dont_show_main_menu(effects, true);
@@ -2058,7 +2058,7 @@ pub fn wol_lobby_menu_system(
                 if let Some((layout, _)) = layout {
                     layout.borrow().run_init(None);
                     if let Some(rc_menu) = layout.borrow().get_first_window() {
-                        rc_menu.borrow_mut().hide(false);
+                        rc_menu.borrow_mut().hide_without_manager_side_effects(false);
                         rc_menu.borrow_mut().bring_to_front();
                         let (win_w, win_h) = rc_menu.borrow().get_size();
                         let (screen_w, screen_h) =
@@ -2154,7 +2154,7 @@ pub fn wol_lobby_menu_system(
                 if let Some((layout, _)) = layout {
                     layout.borrow().run_init(None);
                     if let Some(rc_menu) = layout.borrow().get_first_window() {
-                        rc_menu.borrow_mut().hide(false);
+                        rc_menu.borrow_mut().hide_without_manager_side_effects(false);
                         rc_menu.borrow_mut().bring_to_front();
                         let (win_w, win_h) = rc_menu.borrow().get_size();
                         let (screen_w, screen_h) =

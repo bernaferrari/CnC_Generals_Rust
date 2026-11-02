@@ -118,43 +118,43 @@ mod tests {
 
     #[test]
     fn status_system_handles_create_and_ignores_unknown_when_dispatched() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
         assert_eq!(
-            wol_status_menu_system(&window, WindowMessage::Create, 0, 0),
+            wol_status_menu_system(&mut window, WindowMessage::Create, 0, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            wol_status_menu_system(&window, WindowMessage::User(1), 0, 0),
+            wol_status_menu_system(&mut window, WindowMessage::User(1), 0, 0),
             WindowMsgHandled::Ignored
         );
         assert_eq!(
-            wol_status_menu_system(&window, WindowMessage::GadgetEditDone, 0, 0),
+            wol_status_menu_system(&mut window, WindowMessage::GadgetEditDone, 0, 0),
             WindowMsgHandled::Handled
         );
     }
 
     #[test]
     fn status_input_ignores_non_escape_when_char_is_other_key() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
         assert_eq!(
-            wol_status_menu_input(&window, WindowMessage::Char, 0x41, KEY_STATE_UP),
+            wol_status_menu_input(&mut window, WindowMessage::Char, 0x41, KEY_STATE_UP),
             WindowMsgHandled::Ignored
         );
         assert_eq!(
-            wol_status_menu_input(&window, WindowMessage::LeftDown, KEY_ESC, KEY_STATE_UP),
+            wol_status_menu_input(&mut window, WindowMessage::LeftDown, KEY_ESC, KEY_STATE_UP),
             WindowMsgHandled::Ignored
         );
     }
 
     #[test]
     fn status_input_esc_does_not_panic_when_parent_missing() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
         assert_eq!(
-            wol_status_menu_input(&window, WindowMessage::Char, KEY_ESC, 0),
+            wol_status_menu_input(&mut window, WindowMessage::Char, KEY_ESC, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            wol_status_menu_input(&window, WindowMessage::Char, KEY_ESC, KEY_STATE_UP),
+            wol_status_menu_input(&mut window, WindowMessage::Char, KEY_ESC, KEY_STATE_UP),
             WindowMsgHandled::Handled
         );
     }

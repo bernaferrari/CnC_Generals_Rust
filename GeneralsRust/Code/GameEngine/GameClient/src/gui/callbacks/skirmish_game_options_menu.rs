@@ -2342,24 +2342,24 @@ mod tests {
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            skirmish_game_options_menu_input(
+            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| skirmish_game_options_menu_input(
                 &window,
                 WindowMessage::Char,
                 KEY_ESC as WindowMsgData,
                 0,
-            ),
+            effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            skirmish_game_options_menu_input(
+            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| skirmish_game_options_menu_input(
                 &window,
                 WindowMessage::Char,
                 b'A' as WindowMsgData,
                 0,
-            ),
+            effects)),
             WindowMsgHandled::Ignored
         );
     }
@@ -2378,12 +2378,12 @@ mod tests {
             set_skirmish_menu_selected_map(map_path.to_string_lossy().as_ref());
             owner.with_manager(|manager| {
                 let start = manager
-                    .create_window(None, 20, 20, 80, 30)
+                    .test_create_window(None, 20, 20, 80, 30)
                     .expect("ButtonStart");
                 start
                     .borrow_mut()
                     .set_name("SkirmishGameOptionsMenu.wnd:ButtonStart");
-                let _ = start.borrow_mut().hide(false);
+                let _ = start.borrow_mut().hide_without_manager_side_effects(false);
             });
             let mut emitted = Vec::new();
             let mut effects = WindowEventEffects {
@@ -2421,9 +2421,9 @@ mod tests {
                     .iter()
                     .any(|message| message.get_type() == &GameMessageType::NewGame)
             );
-            assert!(!crate::gui::dispatch_os_click_named_window(
+            assert!(!crate::gui::crate::gui::game_window::WindowEventEffects::with_standalone(|effects| dispatch_os_click_named_window(
                 "SkirmishGameOptionsMenu.wnd:ButtonStartMissing"
-            ));
+            , effects)));
         }
     }
 }

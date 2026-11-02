@@ -868,6 +868,7 @@ pub fn drive_os_wnd_credits_roll_finished_like_cpp(
 #[cfg(test)]
 mod os_wnd_tests {
     use super::*;
+use crate::gui::game_window::WindowEventEffects;
     
     #[test]
     fn os_wnd_credits_roll_prepare_hits_parent_then_latches_lines() {
@@ -884,12 +885,12 @@ mod os_wnd_tests {
         // drive_os_wnd_* still needs a receiving owner/effects path — keep owner alive
         let _owner = owner;
         assert!(
-            drive_os_wnd_credits_roll_prepare_like_cpp(),
+            WindowEventEffects::with_standalone(|effects| drive_os_wnd_credits_roll_prepare_like_cpp(effects)),
             "OS WND click on ParentCreditsWindow must prepare short credits roll"
         );
         assert!(residual_credits_line_count() >= 3);
         assert!(!residual_credits_is_finished());
-        assert!(drive_os_wnd_credits_roll_update_like_cpp());
+        assert!(WindowEventEffects::with_standalone(|effects| drive_os_wnd_credits_roll_update_like_cpp(effects)));
         assert_eq!(
             residual_credits_last_action(),
             ResidualCreditsAction::Update

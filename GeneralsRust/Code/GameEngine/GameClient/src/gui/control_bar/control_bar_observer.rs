@@ -804,7 +804,7 @@ mod native_observer_label_tests {
             "ControlBar.wnd:OCLTimerWindow",
         ];
         for name in names {
-            let window = manager.create_window(None, 0, 0, 1, 1).unwrap();
+            let window = manager.test_create_window(None, 0, 0, 1, 1).unwrap();
             window.borrow_mut().set_name(name);
             let _ = window.borrow_mut().hide(false, &mut manager);
         }

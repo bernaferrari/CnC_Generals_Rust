@@ -2729,7 +2729,7 @@ mod tests {
             lower_right: ICoord2D::new(3, 4),
         });
         ui.command_log.push_back(CommandLogEntry::Stop);
-        ui.push_hud_message("hello".to_string());
+        ui.push_hud_message("hello".to_string(), 0);
 
         ui.military_subtitles
             .push_back(("SCRIPT:Caption".to_string(), 2000));
@@ -2810,15 +2810,15 @@ mod tests {
     fn in_game_ui_radius_cursor_type_state_transitions() {
         let mut ui = InGameUISubsystem::default();
 
-        ui.set_radius_cursor_active(Some("   ".to_string()));
+        ui.set_radius_cursor_active_state(Some("   ".to_string()));
         assert!(!ui.radius_cursor_active);
         assert_eq!(ui.radius_cursor_type, "");
 
-        ui.set_radius_cursor_active(Some("NONE".to_string()));
+        ui.set_radius_cursor_active_state(Some("NONE".to_string()));
         assert!(!ui.radius_cursor_active);
         assert_eq!(ui.radius_cursor_type, "NONE");
 
-        ui.set_radius_cursor_active(Some("GUARD_AREA".to_string()));
+        ui.set_radius_cursor_active_state(Some("GUARD_AREA".to_string()));
         assert!(ui.radius_cursor_active);
         assert_eq!(ui.radius_cursor_type, "GUARD_AREA");
 
@@ -2863,8 +2863,8 @@ mod tests {
         // C++ addMessageText (InGameUI.cpp:2090-2103) + update fade (1632-1657).
         let mut ui = InGameUISubsystem::default();
         let frame = TheGameLogic::get_frame();
-        ui.push_hud_message("first".to_string());
-        ui.push_hud_message("second".to_string());
+        ui.push_hud_message("first".to_string(), 0);
+        ui.push_hud_message("second".to_string(), 0);
 
         let msgs: Vec<_> = ui.hud_messages().iter().cloned().collect();
         assert_eq!(msgs.len(), 2);
@@ -2888,9 +2888,9 @@ mod tests {
         let mut client = crate::core::game_client::GameClient::new().expect("receiving client");
         let owner = client.window_manager_owner();
         owner.with_manager(|manager| {
-            manager.reset();
+            manager.test_reset();
             let window = manager
-                .create_window(None, 0, 0, 80, 24)
+                .test_create_window(None, 0, 0, 80, 24)
                 .expect("ButtonSinglePlayer");
             window
                 .borrow_mut()

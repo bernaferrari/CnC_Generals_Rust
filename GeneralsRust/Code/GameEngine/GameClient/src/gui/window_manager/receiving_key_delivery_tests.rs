@@ -9,10 +9,10 @@ fn receiving_key_sender_finishes_before_next_ancestor_and_peer_keeps_same_ids() 
     ) {
         let mut manager = WindowManager::new();
         let parent = manager
-            .create_window_with_id(None, 0, 0, 100, 100, 101)
+            .test_create_window_with_id(None, 0, 0, 100, 100, 101)
             .unwrap();
         let child = manager
-            .create_window_with_id(Some(&parent), 0, 0, 40, 40, 102)
+            .test_create_window_with_id(Some(&parent), 0, 0, 40, 40, 102)
             .unwrap();
         for window in [&parent, &child] {
             window

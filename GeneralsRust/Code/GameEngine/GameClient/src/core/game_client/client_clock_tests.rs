@@ -19,9 +19,9 @@ fn actual_presentation_shell_preserves_the_admitted_client_frame() {
     client.window_manager_owner().shell_handle().init().unwrap();
     client.initialized = true;
     client.set_frame(37);
-    client.update_presentation_shell(0.0).unwrap();
+    client.update_presentation_shell(0.0, 0, 0).unwrap();
     assert_eq!(client.get_frame(), 37);
-    client.update_presentation_shell(0.0).unwrap();
+    client.update_presentation_shell(0.0, 0, 0).unwrap();
     assert_eq!(
         client.get_frame(),
         37,
@@ -31,11 +31,11 @@ fn actual_presentation_shell_preserves_the_admitted_client_frame() {
     peer.window_manager_owner().shell_handle().init().unwrap();
     peer.initialized = true;
     peer.set_frame(900);
-    peer.update_presentation_shell(0.0).unwrap();
+    peer.update_presentation_shell(0.0, 0, 0).unwrap();
     assert_eq!(peer.get_frame(), 900);
     assert_eq!(client.get_frame(), 37);
     client.set_frame(38);
-    client.update_presentation_shell(0.0).unwrap();
+    client.update_presentation_shell(0.0, 0, 0).unwrap();
     assert_eq!(client.get_frame(), 38);
     let mut saved = Vec::new();
     client
@@ -54,7 +54,7 @@ fn actual_presentation_shell_preserves_the_admitted_client_frame() {
         ))
         .unwrap();
     assert_eq!(restored.get_frame(), 38);
-    restored.update_presentation_shell(0.0).unwrap();
+    restored.update_presentation_shell(0.0, 0, 0).unwrap();
     assert_eq!(
         restored.get_frame(),
         38,
@@ -66,7 +66,7 @@ fn actual_presentation_shell_preserves_the_admitted_client_frame() {
     no_companion.set_frame(902);
     no_companion.restore_from_xfer_bytes(&[]).unwrap();
     assert_eq!(no_companion.get_frame(), 902);
-    no_companion.update_presentation_shell(0.0).unwrap();
+    no_companion.update_presentation_shell(0.0, 0, 0).unwrap();
     assert_eq!(
         no_companion.get_frame(),
         902,

@@ -2,10 +2,9 @@ use super::super::*;
 use super::*;
 use gamelogic::upgrade::UpgradeTemplate;
 
+use crate::gui::game_window::WindowEventEffects;
 #[test]
-fn receiving_upgrade_tooltip_uses_own_purchased_conflicting_and_cost_observations(
-    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-) {
+fn receiving_upgrade_tooltip_uses_own_purchased_conflicting_and_cost_observations() {
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "receiving_upgrade_tooltip_uses_own_purchased_conflicting_and_cost_observations",
@@ -14,13 +13,13 @@ fn receiving_upgrade_tooltip_uses_own_purchased_conflicting_and_cost_observation
     }
     let mut manager = WindowManager::new();
     let parent = manager
-        .create_window(None, 0, 0, 500, 150, effects)
+        .test_create_window(None, 0, 0, 500, 150)
         .unwrap();
     parent
         .borrow_mut()
         .set_id(NameKeyGenerator::name_to_key("ReceivingUpgradeTooltip:Parent") as i32);
     let description = manager
-        .create_window(Some(&parent), 0, 0, 480, 120, effects)
+        .test_create_window(Some(&parent), 0, 0, 480, 120)
         .unwrap();
     description
         .borrow_mut()
@@ -28,7 +27,7 @@ fn receiving_upgrade_tooltip_uses_own_purchased_conflicting_and_cost_observation
             "ControlBarPopupDescription.wnd:StaticTextDescription",
         ) as i32);
     let cost = manager
-        .create_window(Some(&parent), 0, 0, 80, 20, effects)
+        .test_create_window(Some(&parent), 0, 0, 80, 20)
         .unwrap();
     cost.borrow_mut().set_id(NameKeyGenerator::name_to_key(
         "ControlBarPopupDescription.wnd:StaticTextCost",
@@ -77,14 +76,14 @@ fn receiving_upgrade_tooltip_uses_own_purchased_conflicting_and_cost_observation
         };
         let source = UpgradeTooltipSource::Receiving(&observe);
         let (command, status) = resolve_command_button_from_source(&window, source).unwrap();
-        populate_layout_for_command(
+        WindowEventEffects::with_standalone(|effects| populate_layout_for_command(
             &layout,
             &command,
             status,
             &mut TooltipState::default(),
             &mut manager,
             source,
-        );
+        effects));
         assert_eq!(description.borrow().get_text(), GameText::fetch(expected));
         if expected == "ReceivingBase" {
             assert_eq!(
@@ -113,14 +112,14 @@ fn receiving_upgrade_tooltip_uses_own_purchased_conflicting_and_cost_observation
     };
     let source = UpgradeTooltipSource::Receiving(&missing_upgrade);
     let (command, status) = resolve_command_button_from_source(&window, source).unwrap();
-    populate_layout_for_command(
+    WindowEventEffects::with_standalone(|effects| populate_layout_for_command(
         &layout,
         &command,
         status,
         &mut TooltipState::default(),
         &mut manager,
         source,
-    );
+    effects));
     assert_eq!(
         description.borrow().get_text(),
         GameText::fetch("ReceivingBase")

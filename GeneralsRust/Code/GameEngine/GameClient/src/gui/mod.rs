@@ -34,7 +34,7 @@
 //! let mut window_manager = WindowManager::new();
 //!
 //! // Create a window
-//! let window = window_manager.create_window(None, 100, 100, 200, 150);
+//! let window = window_manager.test_create_window(None, 100, 100, 200, 150);
 //! window.set_text("Hello World");
 //! window.set_status(WindowStatus::ENABLED | WindowStatus::VISIBLE);
 //!
@@ -352,7 +352,7 @@ mod tests {
     #[test]
     fn test_window_creation() {
         let mut window_manager = WindowManager::new();
-        let window = window_manager.create_window(None, 0, 0, 100, 100);
+        let window = window_manager.test_create_window(None, 0, 0, 100, 100);
         assert!(window.is_ok());
 
         let window = window.unwrap();
@@ -364,9 +364,9 @@ mod tests {
     fn test_window_hierarchy() {
         let mut window_manager = WindowManager::new();
 
-        let parent = window_manager.create_window(None, 0, 0, 200, 200).unwrap();
+        let parent = window_manager.test_create_window(None, 0, 0, 200, 200).unwrap();
         let child = window_manager
-            .create_window(Some(&parent), 10, 10, 50, 50)
+            .test_create_window(Some(&parent), 10, 10, 50, 50)
             .unwrap();
 
         assert!(parent.borrow().is_child(&*child.borrow()));
@@ -377,12 +377,12 @@ mod tests {
     #[test]
     fn test_window_status() {
         let mut window_manager = WindowManager::new();
-        let window = window_manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let window = window_manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 
         window.borrow_mut().set_status(WindowStatus::ENABLED);
         assert!(window.borrow().get_status().contains(WindowStatus::ENABLED));
 
-        window.borrow_mut().hide(true).unwrap();
+        window.borrow_mut().hide_without_manager_side_effects(true).unwrap();
         assert!(window.borrow().is_hidden());
     }
 }

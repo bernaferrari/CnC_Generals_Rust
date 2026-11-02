@@ -300,7 +300,7 @@ fn public_split_shell_defers_draw_and_rejects_changed_client_frame() {
         client_frame: 37,
     };
     let prepared = client
-        .begin_presentation_shell_with_material_frames(0., frames, &[])
+        .begin_presentation_shell_with_material_frames(0., frames, &[], 0)
         .unwrap();
     assert!(prepared.display_requested());
     assert_eq!(
@@ -326,7 +326,7 @@ fn public_split_shell_defers_draw_and_rejects_changed_client_frame() {
     );
     assert_eq!(client.get_frame(), 37);
     let prepared = client
-        .begin_presentation_shell_with_material_frames(0., frames, &[])
+        .begin_presentation_shell_with_material_frames(0., frames, &[], 0)
         .unwrap();
     client.set_frame(38);
     assert!(
@@ -364,7 +364,7 @@ fn split_shell_rejects_equal_frame_peer_reset_and_superseded_operation() {
         update_particles: false,
     };
     let foreign = client
-        .begin_presentation_shell_with_material_frames(0., frames, &[])
+        .begin_presentation_shell_with_material_frames(0., frames, &[], 0)
         .unwrap();
     assert!(
         peer.finish_presentation_shell_with_native_views(foreign, &[], &[], phase)
@@ -372,10 +372,10 @@ fn split_shell_rejects_equal_frame_peer_reset_and_superseded_operation() {
         "equal frame is not receiving Client identity"
     );
     let stale = client
-        .begin_presentation_shell_with_material_frames(0., frames, &[])
+        .begin_presentation_shell_with_material_frames(0., frames, &[], 0)
         .unwrap();
     let current = client
-        .begin_presentation_shell_with_material_frames(0., frames, &[])
+        .begin_presentation_shell_with_material_frames(0., frames, &[], 0)
         .unwrap();
     assert!(
         client
@@ -386,7 +386,7 @@ fn split_shell_rejects_equal_frame_peer_reset_and_superseded_operation() {
         .finish_presentation_shell_with_native_views(current, &[], &[], phase)
         .unwrap();
     let before_reset = client
-        .begin_presentation_shell_with_material_frames(0., frames, &[])
+        .begin_presentation_shell_with_material_frames(0., frames, &[], 0)
         .unwrap();
     client.invalidate_presentation_drawable_world();
     assert!(
@@ -396,7 +396,7 @@ fn split_shell_rejects_equal_frame_peer_reset_and_superseded_operation() {
         "reset invalidates even an equal-frame continuation"
     );
     let fresh = client
-        .begin_presentation_shell_with_material_frames(0., frames, &[])
+        .begin_presentation_shell_with_material_frames(0., frames, &[], 0)
         .unwrap();
     client
         .finish_presentation_shell_with_native_views(fresh, &[], &[], phase)

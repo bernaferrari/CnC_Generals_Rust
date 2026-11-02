@@ -55,9 +55,9 @@ mod tests {
 
     #[test]
     fn motd_create_caches_close_button_key() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
         assert_eq!(
-            motd_system(&window, WindowMessage::Create, 0, 0),
+            motd_system(&mut window, WindowMessage::Create, 0, 0),
             WindowMsgHandled::Handled
         );
 
@@ -72,7 +72,7 @@ mod tests {
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was owner.with_scope
             let live_window =
-                owner.with_manager(|manager| manager.create_window(None, 0, 0, 100, 100).unwrap());
+                owner.with_manager(|manager| manager.test_create_window(None, 0, 0, 100, 100).unwrap());
 
             let mut window = GameWindow::new();
             window.set_id(live_window.borrow().get_id());
@@ -108,9 +108,9 @@ mod tests {
 
     #[test]
     fn motd_ignores_unknown_messages() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
         assert_eq!(
-            motd_system(&window, WindowMessage::None, 0, 0),
+            motd_system(&mut window, WindowMessage::None, 0, 0),
             WindowMsgHandled::Ignored
         );
     }

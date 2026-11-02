@@ -440,22 +440,22 @@ mod tests {
 
     #[test]
     fn download_menu_system_consumes_lifecycle_messages_like_cpp() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            download_menu_system(&window, WindowMessage::Create, 0, 0),
+            WindowEventEffects::with_standalone(|effects| download_menu_system(&mut window, WindowMessage::Create, 0, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            download_menu_system(&window, WindowMessage::Destroy, 0, 0),
+            WindowEventEffects::with_standalone(|effects| download_menu_system(&mut window, WindowMessage::Destroy, 0, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            download_menu_system(&window, WindowMessage::InputFocus, 1, 0),
+            WindowEventEffects::with_standalone(|effects| download_menu_system(&mut window, WindowMessage::InputFocus, 1, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            download_menu_system(&window, WindowMessage::MousePos, 0, 0),
+            WindowEventEffects::with_standalone(|effects| download_menu_system(&mut window, WindowMessage::MousePos, 0, 0, effects)),
             WindowMsgHandled::Ignored
         );
     }

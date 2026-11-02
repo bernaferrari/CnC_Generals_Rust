@@ -738,6 +738,7 @@ mod host_bridge_execution_tests {
                 &context,
                 &mut Vec::new(),
                 &mut transport_ui,
+                crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             )
             .expect("host bridge request");
 
@@ -807,6 +808,7 @@ mod host_bridge_execution_tests {
                 &context,
                 &mut Vec::new(),
                 &mut transport_ui,
+                crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             )
             .expect("host bridge request from parsed command button");
 
@@ -854,6 +856,7 @@ mod host_bridge_execution_tests {
                 &context,
                 &mut Vec::new(),
                 &mut transport_ui,
+                crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             )
             .expect("host bridge request from parsed retail switch button");
 

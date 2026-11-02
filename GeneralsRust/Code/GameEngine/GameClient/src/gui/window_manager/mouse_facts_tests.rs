@@ -35,7 +35,7 @@ fn deliver(
         12,
         23,
         facts,
-        |msg, x, y, data| manager.process_mouse_event(msg, x, y, data),
+        |msg, x, y, data| manager.test_process_mouse_event(msg, x, y, data),
         || false,
     )
 }
@@ -175,9 +175,9 @@ fn hover_callbacks_keep_cpp_packed_screen_coordinates_and_order() {
                 WindowMsgHandled::Handled
             });
     }
-    manager.process_mouse_event(WindowMessage::MousePos, 10, 20, packed(10, 20));
-    manager.process_mouse_event(WindowMessage::MousePos, 210, 30, packed(210, 30));
-    manager.process_mouse_event(WindowMessage::MousePos, -4, 12, packed(-4, 12));
+    manager.test_process_mouse_event(WindowMessage::MousePos, 10, 20, packed(10, 20));
+    manager.test_process_mouse_event(WindowMessage::MousePos, 210, 30, packed(210, 30));
+    manager.test_process_mouse_event(WindowMessage::MousePos, -4, 12, packed(-4, 12));
     assert_eq!(
         seen.borrow().as_slice(),
         &[

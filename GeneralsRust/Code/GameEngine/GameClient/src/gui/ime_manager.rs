@@ -653,9 +653,9 @@ mod os_wnd_tests {
         y: i32,
     ) {
         client.window_manager_owner().with_manager(|manager| {
-            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+            let button = manager.test_create_window(None, x, y, 80, 24).expect(name);
             button.borrow_mut().set_name(name);
-            let _ = button.borrow_mut().hide(false);
+            let _ = button.borrow_mut().hide_without_manager_side_effects(false);
         });
     }
     #[test]

@@ -221,7 +221,7 @@ pub fn open_overlay(overlay: GameSpyOverlayType) {
         let state_slot = overlay_state();
         let mut state = state_slot.borrow_mut();
         if let Some(layout) = state.overlays.get(&overlay).cloned() {
-            layout.borrow_mut().hide(false);
+            layout.borrow_mut().hide_without_manager_side_effects(false);
             Some(layout)
         } else {
             let script = overlay_script(overlay);
@@ -233,7 +233,7 @@ pub fn open_overlay(overlay: GameSpyOverlayType) {
             });
             if let Some(layout) = layout.clone() {
                 layout.borrow().run_init(None);
-                layout.borrow_mut().hide(false);
+                layout.borrow_mut().hide_without_manager_side_effects(false);
                 state.overlays.insert(overlay, layout.clone());
             }
             layout

@@ -826,7 +826,7 @@ mod os_wnd_tests {
                     .create_window(None, x, y, 80, 24, effects)
                     .expect(name);
                 button.borrow_mut().set_name(name);
-                let _ = button.borrow_mut().hide(false);
+                let _ = button.borrow_mut().hide_without_manager_side_effects(false);
             })
         });
     }

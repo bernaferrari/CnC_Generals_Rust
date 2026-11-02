@@ -164,7 +164,7 @@ mod tests {
     fn test_apply_toggle_lower_details_is_live_callable() {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         // Without GlobalData the live helper fail-closes; with it, it toggles.
-        let _ = apply_toggle_lower_details();
+        let _ = with_receiving_ui(|ui| apply_toggle_lower_details(ui));
     }
 
     #[test]

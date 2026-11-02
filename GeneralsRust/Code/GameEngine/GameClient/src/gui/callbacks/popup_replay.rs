@@ -450,6 +450,7 @@ pub fn popup_replay_system(
 #[cfg(test)]
 mod tests {
     use super::*;
+use crate::gui::game_window::WindowEventEffects;
     use crate::gui::WindowWidget;
     use crate::gui::gadgets::{ListBox, TextEntry};
     use std::cell::RefCell;
@@ -457,28 +458,28 @@ mod tests {
 
     #[test]
     fn popup_replay_esc_char_is_consumed_before_key_up_like_cpp() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            popup_replay_input(&window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0),
+            WindowEventEffects::with_standalone(|effects| popup_replay_input(&mut window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            popup_replay_input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
+            WindowEventEffects::with_standalone(|effects| popup_replay_input(&mut window, WindowMessage::Char, b'A' as WindowMsgData, 0, effects)),
             WindowMsgHandled::Ignored
         );
     }
 
     #[test]
     fn popup_replay_system_consumes_lifecycle_messages_like_cpp() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            popup_replay_system(&window, WindowMessage::Create, 0, 0),
+            popup_replay_system(&mut window, WindowMessage::Create, 0, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            popup_replay_system(&window, WindowMessage::Destroy, 0, 0),
+            popup_replay_system(&mut window, WindowMessage::Destroy, 0, 0),
             WindowMsgHandled::Handled
         );
     }
@@ -536,7 +537,7 @@ mod tests {
             state.text_entry_window = Some(text_entry_window.clone());
         }
 
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
         assert_eq!(
             popup_replay_system(
                 &window,
@@ -595,7 +596,7 @@ mod tests {
             state.text_entry_window = Some(text_entry_window.clone());
         }
 
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
         assert_eq!(
             popup_replay_system(
                 &window,

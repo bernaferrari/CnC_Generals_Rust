@@ -176,7 +176,7 @@ fn set_window_enabled(window: &Option<Rc<RefCell<GameWindow>>>, enabled: bool) {
 
 fn set_window_hidden(window: &Option<Rc<RefCell<GameWindow>>>, hidden: bool) {
     if let Some(window) = window.as_ref() {
-        let _ = window.borrow_mut().hide(hidden);
+        let _ = window.borrow_mut().hide_without_manager_side_effects(hidden);
     }
 }
 
@@ -195,7 +195,7 @@ fn hide_info_gadgets(state: &WolQuickMatchState, hide: bool) {
     let parent_stats_id = name_to_id("WOLQuickMatchMenu.wnd:ParentStats");
     if let Some(parent) = state.parent.as_ref() {
         if let Some(win) = parent.borrow().find_child_by_id(parent_stats_id) {
-            let _ = win.borrow_mut().hide(hide);
+            let _ = win.borrow_mut().hide_without_manager_side_effects(hide);
         }
     }
 }
@@ -204,7 +204,7 @@ fn hide_options_gadgets(state: &WolQuickMatchState, hide: bool) {
     let parent_options_id = name_to_id("WOLQuickMatchMenu.wnd:ParentOptions");
     if let Some(parent) = state.parent.as_ref() {
         if let Some(win) = parent.borrow().find_child_by_id(parent_options_id) {
-            let _ = win.borrow_mut().hide(hide);
+            let _ = win.borrow_mut().hide_without_manager_side_effects(hide);
         }
     }
 

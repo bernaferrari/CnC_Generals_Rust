@@ -402,7 +402,7 @@ fn text_entry_text(window: &Option<Rc<RefCell<GameWindow>>>) -> String {
 
 fn show_tos(state: &mut WolLoginState) {
     if let Some(parent_tos) = state.parent_tos.as_ref() {
-        let _ = parent_tos.borrow_mut().hide(false);
+        let _ = parent_tos.borrow_mut().hide_without_manager_side_effects(false);
     }
     state.use_web_browser_for_tos = true;
     let opened = if let Some(listbox) = state.listbox_tos.as_ref() {
@@ -607,7 +607,7 @@ pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
             })
             .unwrap_or(0);
         if len < 2 {
-            let _ = parent.borrow_mut().hide(true);
+            let _ = parent.borrow_mut().hide_without_manager_side_effects(true);
         }
     }
 
@@ -1138,7 +1138,7 @@ pub fn wol_login_menu_system(
             if control_id == state.button_tos_ok_id {
                 enable_login_controls(&state, true);
                 if let Some(parent_tos) = state.parent_tos.as_ref() {
-                    let _ = parent_tos.borrow_mut().hide(true);
+                    let _ = parent_tos.borrow_mut().hide_without_manager_side_effects(true);
                 }
                 let mut option_pref = OptionPreferences::new();
                 option_pref.set_yes("SawTOS");
@@ -1163,28 +1163,28 @@ mod tests {
 
     #[test]
     fn login_system_handles_edit_done_like_cpp_gem_edit_done() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
         assert_eq!(
-            wol_login_menu_system(&window, WindowMessage::GadgetEditDone, 0, 0),
+            wol_login_menu_system(&mut window, WindowMessage::GadgetEditDone, 0, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            wol_login_menu_system(&window, WindowMessage::User(1), 0, 0),
+            wol_login_menu_system(&mut window, WindowMessage::User(1), 0, 0),
             WindowMsgHandled::Ignored
         );
     }
 
     #[test]
     fn login_input_esc_key_down_is_handled_when_not_pushed() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
         wol_login_state().borrow_mut().button_pushed = false;
         assert_eq!(
-            wol_login_menu_input(&window, WindowMessage::Char, 0x1B, 0),
+            wol_login_menu_input(&mut window, WindowMessage::Char, 0x1B, 0),
             WindowMsgHandled::Handled
         );
         wol_login_state().borrow_mut().button_pushed = true;
         assert_eq!(
-            wol_login_menu_input(&window, WindowMessage::Char, 0x1B, 0x0001),
+            wol_login_menu_input(&mut window, WindowMessage::Char, 0x1B, 0x0001),
             WindowMsgHandled::Ignored
         );
         wol_login_state().borrow_mut().button_pushed = false;

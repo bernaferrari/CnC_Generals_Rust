@@ -531,17 +531,18 @@ pub fn replay_menu_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            replay_menu_input(&window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0),
+            WindowEventEffects::with_standalone(|effects| replay_menu_input(&mut window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            replay_menu_input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
+            WindowEventEffects::with_standalone(|effects| replay_menu_input(&mut window, WindowMessage::Char, b'A' as WindowMsgData, 0, effects)),
             WindowMsgHandled::Ignored
         );
     }
@@ -596,12 +597,12 @@ mod tests {
         let mut window = GameWindow::new();
         window.set_user_data(replay_menu_state());
         assert_eq!(
-            replay_menu_system(
+            WindowEventEffects::with_standalone(|effects| replay_menu_system(
                 &window,
                 WindowMessage::User(GLM_DOUBLE_CLICKED),
                 listbox_id as WindowMsgData,
                 (-1isize) as WindowMsgData,
-            ),
+            effects)),
             WindowMsgHandled::Handled
         );
     }
@@ -860,20 +861,21 @@ pub fn drive_os_wnd_replay_menu_copy_like_cpp(
 mod os_wnd_tests {
     use super::*;
 
-    fn install_named_button(name: &str, x: i32, y: i32) {
+    fn install_named_button(owner: &crate::gui::window_manager::WindowManagerOwner, name: &str, x: i32, y: i32) {
         owner.with_manager(|manager| {
-            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+            let button = manager.test_create_window(None, x, y, 80, 24).expect(name);
             button.borrow_mut().set_name(name);
-            let _ = button.borrow_mut().hide(false);
+            let _ = button.borrow_mut().hide_without_manager_side_effects(false);
         });
     }
 
     #[test]
     fn os_wnd_replay_menu_prepare_load_hits_list_and_load() {
-        install_named_button("ReplayMenu.wnd:ListboxReplayFiles", 10, 10);
-        install_named_button("ReplayMenu.wnd:ButtonLoadReplay", 10, 40);
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        install_named_button(&owner, "ReplayMenu.wnd:ListboxReplayFiles", 10, 10);
+        install_named_button(&owner, "ReplayMenu.wnd:ButtonLoadReplay", 10, 40);
         assert!(
-            drive_os_wnd_replay_menu_prepare_load_like_cpp(0),
+            WindowEventEffects::with_standalone(|effects| drive_os_wnd_replay_menu_prepare_load_like_cpp(0, effects)),
             "OS WND clicks on list + Load must latch Load residual"
         );
         assert_eq!(residual_replay_menu_selected_slot(), Some(0));
@@ -881,13 +883,14 @@ mod os_wnd_tests {
             residual_replay_menu_last_action(),
             ResidualReplayMenuAction::Load
         );
-        assert!(!drive_os_wnd_replay_menu_prepare_load_like_cpp(-1));
+        assert!(!WindowEventEffects::with_standalone(|effects| drive_os_wnd_replay_menu_prepare_load_like_cpp(-1, effects)));
     }
 
     #[test]
     fn os_wnd_replay_menu_back_hits_button_back() {
-        install_named_button("ReplayMenu.wnd:ButtonBack", 10, 70);
-        assert!(drive_os_wnd_replay_menu_back_like_cpp());
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        install_named_button(&owner, "ReplayMenu.wnd:ButtonBack", 10, 70);
+        assert!(WindowEventEffects::with_standalone(|effects| drive_os_wnd_replay_menu_back_like_cpp(effects)));
         assert_eq!(
             residual_replay_menu_last_action(),
             ResidualReplayMenuAction::Back

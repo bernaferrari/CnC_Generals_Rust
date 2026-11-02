@@ -688,7 +688,7 @@ mod tests {
         with_test_effects(|effects| {
             {
                 clear_host_popup_save_load_bridge(effects);
-                effects.with_manager(|manager, _effects| manager.reset());
+                effects.with_manager(|manager, _effects| manager.test_reset());
                 // QuitMenu opens this popup while a game is running.  The retail
                 // in-game path presents LoadConfirm; the shell path instead loads
                 // directly, so model the former here.
@@ -726,7 +726,7 @@ mod tests {
                 );
 
                 clear_host_popup_save_load_bridge(effects);
-                effects.with_manager(|manager, _effects| manager.reset());
+                effects.with_manager(|manager, _effects| manager.test_reset());
                 effects
                     .shell_handle()
                     .set_shell_active(previous_shell_active);
@@ -739,7 +739,7 @@ mod tests {
         with_test_effects(|effects| {
             {
                 clear_host_popup_save_load_bridge(effects);
-                effects.with_manager(|manager, _effects| manager.reset());
+                effects.with_manager(|manager, _effects| manager.test_reset());
                 let previous_shell_active = effects.shell_handle().is_shell_active();
                 effects.shell_handle().set_shell_active(false);
                 // The empty published inventory is intentional: it proves the real
@@ -784,7 +784,7 @@ mod tests {
                 );
 
                 clear_host_popup_save_load_bridge(effects);
-                effects.with_manager(|manager, _effects| manager.reset());
+                effects.with_manager(|manager, _effects| manager.test_reset());
                 effects
                     .shell_handle()
                     .set_shell_active(previous_shell_active);

@@ -35,7 +35,7 @@ fn wnd() -> (
     let parent_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ControlBarParent") as i32;
     let button_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonLarge") as i32;
     let parent = manager
-        .create_window_with_id(None, 0, 100, 200, 100, parent_id)
+        .test_create_window_with_id(None, 0, 100, 200, 100, parent_id)
         .unwrap();
     manager.bind_window_callbacks(
         &mut parent.borrow_mut(),
@@ -45,7 +45,7 @@ fn wnd() -> (
         },
     );
     let button = manager
-        .create_window_with_id(Some(&parent), 10, 10, 40, 20, button_id)
+        .test_create_window_with_id(Some(&parent), 10, 10, 40, 20, button_id)
         .unwrap();
     button
         .borrow_mut()
@@ -277,7 +277,7 @@ fn wnd_large_button_captures_authored_marker_with_borrowed_offset_parent() {
     parent.borrow_mut().set_position(23, 117).unwrap();
     let marker_id = NameKeyGenerator::name_to_key("ControlBar.wnd:BackgroundMarker") as i32;
     let marker = manager
-        .create_window_with_id(Some(&parent), 6, 144, 4, 4, marker_id)
+        .test_create_window_with_id(Some(&parent), 6, 144, 4, 4, marker_id)
         .unwrap();
     assert_eq!(marker.borrow().get_screen_position(), (29, 261));
     let mut bar = ControlBar::new();
@@ -322,13 +322,13 @@ fn wnd_restoring_default_applies_receiving_context_visibility_before_parent_borr
         let full_name = format!("ControlBar.wnd:{name}");
         let id = NameKeyGenerator::name_to_key(&full_name) as i32;
         let actual = manager
-            .create_window_with_id(Some(&parent), 0, 0, 1, 1, id)
+            .test_create_window_with_id(Some(&parent), 0, 0, 1, 1, id)
             .unwrap();
         actual.borrow_mut().set_name(&full_name);
-        actual.borrow_mut().hide(initially_hidden).unwrap();
-        let foreign = peer.create_window_with_id(None, 0, 0, 1, 1, id).unwrap();
+        actual.borrow_mut().hide_without_manager_side_effects(initially_hidden).unwrap();
+        let foreign = peer.test_create_window_with_id(None, 0, 0, 1, 1, id).unwrap();
         foreign.borrow_mut().set_name(&full_name);
-        foreign.borrow_mut().hide(initially_hidden).unwrap();
+        foreign.borrow_mut().hide_without_manager_side_effects(initially_hidden).unwrap();
         windows.push((actual, foreign, initially_hidden, final_hidden));
     }
     let mut bar = ControlBar::new();
@@ -393,7 +393,7 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
     other.admit_observer_button_owned(Some(7), &peer);
     let mut manager = WindowManager::new();
     let parent = manager
-        .create_window_with_id(None, 0, 0, 200, 100, 42)
+        .test_create_window_with_id(None, 0, 0, 200, 100, 42)
         .unwrap();
     manager.bind_window_callbacks(
         &mut parent.borrow_mut(),
@@ -404,7 +404,7 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
     );
     let id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonPlayer0") as i32;
     let button = manager
-        .create_window_with_id(Some(&parent), 0, 0, 40, 20, id)
+        .test_create_window_with_id(Some(&parent), 0, 0, 40, 20, id)
         .unwrap();
     // A stale/foreign userdata identity must not override authored slot0.
     button.borrow_mut().set_user_data(13_i32);
@@ -474,7 +474,7 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
     );
     let cancel_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonCancel") as i32;
     let cancel = manager
-        .create_window_with_id(Some(&parent), 0, 0, 40, 20, cancel_id)
+        .test_create_window_with_id(Some(&parent), 0, 0, 40, 20, cancel_id)
         .unwrap();
     cancel
         .borrow_mut()

@@ -18,7 +18,7 @@ mod tests {
         box_sel.start_at(Vec2::new(10.0, 10.0));
         assert!(box_sel.active);
 
-        box_sel.update(Vec2::new(100.0, 100.0));
+        with_receiving_ui(|ui| box_sel.update(Vec2::new(100.0, 100.0), ui));
         assert!(box_sel.is_significant());
 
         let rect = box_sel.get_rect();
@@ -113,12 +113,12 @@ mod tests {
     fn test_resource_display() {
         let mut display = ResourceDisplay::new(Vec2::ZERO);
 
-        display.update(10000, 100, 50);
+        with_receiving_ui(|ui| display.update(10000, 100, 50, ui));
         assert_eq!(display.credits, 10000);
         assert!(!display.is_power_deficit());
         assert!((display.get_power_percentage() - 0.5).abs() < 0.01);
 
-        display.update(5000, 100, 150);
+        with_receiving_ui(|ui| display.update(5000, 100, 150, ui));
         assert!(display.is_power_deficit());
     }
 

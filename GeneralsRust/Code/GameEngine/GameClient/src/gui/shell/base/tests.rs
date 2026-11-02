@@ -518,7 +518,7 @@ End
         assert!(!manager.is_finished());
 
         // Animation should not be finished immediately
-        manager.update();
+        manager.test_update();
         // Note: In a real test, we'd need to wait for the duration to pass
     }
 
@@ -529,7 +529,7 @@ End
 
         let right_window = Rc::new(RefCell::new(GameWindow::new()));
         right_window.borrow_mut().set_position(25, 40).unwrap();
-        right_window.borrow_mut().set_size(120, 80).unwrap();
+        right_window.borrow_mut().test_set_size(120, 80).unwrap();
         manager.register_window(
             right_window.clone(),
             AnimationType::SlideRight,
@@ -541,7 +541,7 @@ End
 
         let top_window = Rc::new(RefCell::new(GameWindow::new()));
         top_window.borrow_mut().set_position(25, 40).unwrap();
-        top_window.borrow_mut().set_size(120, 80).unwrap();
+        top_window.borrow_mut().test_set_size(120, 80).unwrap();
         manager.register_window(top_window.clone(), AnimationType::SlideTop, false, 100, 0);
         assert_eq!(top_window.borrow().get_position(), (25, -760));
     }
@@ -599,7 +599,7 @@ End
             let mut shell = Shell::new();
             let window = Rc::new(RefCell::new(GameWindow::new()));
             window.borrow_mut().set_position(25, 40).unwrap();
-            window.borrow_mut().set_size(120, 80).unwrap();
+            window.borrow_mut().test_set_size(120, 80).unwrap();
 
             shell.register_with_animate_manager(window.clone(), AnimationType::SlideRight, true, 0);
 
@@ -709,7 +709,7 @@ End
             let layout = shell.get_options_layout(true);
             assert!(layout.is_some());
 
-            shell.destroy_options_layout();
+            WindowEventEffects::with_standalone(|effects| shell.destroy_options_layout(effects));
             let layout = shell.get_options_layout(false);
             assert!(layout.is_none());
         }
@@ -752,14 +752,14 @@ End
             shell.init().unwrap();
 
             // Test hide/show functionality
-            WindowEventEffects::with_standalone(|effects| shell.test_hide(true, effects));
-            WindowEventEffects::with_standalone(|effects| shell.test_hide(false, effects));
+            shell.test_hide(true);
+            shell.test_hide(false);
 
             // Test shell map functionality
-            shell.show_shell_map(true);
+            WindowEventEffects::with_standalone(|effects| shell.show_shell_map(true, effects));
             assert!(shell.shell_map_on);
 
-            shell.show_shell_map(false);
+            WindowEventEffects::with_standalone(|effects| shell.show_shell_map(false, effects));
             assert!(!shell.shell_map_on);
         }
     }
@@ -783,8 +783,8 @@ End
 
             let mut shell = Shell::new();
             shell.init().unwrap();
-            shell.show_shell_map(true);
-            shell.show_shell(false).unwrap();
+            WindowEventEffects::with_standalone(|effects| shell.show_shell_map(true, effects));
+            WindowEventEffects::with_standalone(|effects| shell.show_shell(false, effects)).unwrap();
             assert_eq!(shell.get_screen_count(), 0);
         }
     }
@@ -796,7 +796,7 @@ End
             let mut shell = Shell::new();
             shell.init().unwrap();
 
-            shell.show_main_menu_after_shell_game_start().unwrap();
+            WindowEventEffects::with_standalone(|effects| shell.show_main_menu_after_shell_game_start(effects)).unwrap();
 
             assert_eq!(shell.get_screen_count(), 1);
             assert_eq!(
@@ -819,7 +819,7 @@ End
                 events.clone(),
             )));
 
-            shell.show_main_menu_after_shell_game_start().unwrap();
+            WindowEventEffects::with_standalone(|effects| shell.show_main_menu_after_shell_game_start(effects)).unwrap();
 
             assert_eq!(shell.get_screen_count(), 1);
             assert_eq!(
@@ -855,7 +855,7 @@ End
                 events.clone(),
             )));
 
-            shell.show_shell_map(false);
+            WindowEventEffects::with_standalone(|effects| shell.show_shell_map(false, effects));
 
             let event_log = events.borrow();
             let image_index = event_log
@@ -942,7 +942,7 @@ End
             let mut shell = Shell::new();
             shell.clear_background = true;
 
-            shell.shutdown_complete(None, false).unwrap();
+            WindowEventEffects::with_standalone(|effects| shell.shutdown_complete(None, false, effects)).unwrap();
 
             assert!(shell.clear_background);
         }
@@ -1065,7 +1065,7 @@ End
                 .screen_stack
                 .push(Box::new(TestLayout::new("top.wnd", false, events.clone())));
 
-            shell.pop_immediate().unwrap();
+            WindowEventEffects::with_standalone(|effects| shell.pop_immediate(effects)).unwrap();
 
             let event_log = events.borrow();
             let shutdown_index = event_log

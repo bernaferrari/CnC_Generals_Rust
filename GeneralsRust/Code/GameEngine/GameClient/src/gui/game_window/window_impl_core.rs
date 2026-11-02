@@ -2094,23 +2094,23 @@ mod send_input_gate_tests {
             });
         }
 
-        window.hide(true).unwrap();
+        window.hide_without_manager_side_effects(true).unwrap();
         window.enable(false).unwrap();
         let _ = window.set_status(WindowStatus::NO_INPUT);
         assert_eq!(
-            window.send_input_message(WindowMessage::LeftDown, 0, 0),
+            window.test_send_input_message(WindowMessage::LeftDown, 0, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(*seen.borrow(), 1);
 
         window.set_status_exact(WindowStatus::DESTROYED);
         assert_eq!(
-            window.send_input_message(WindowMessage::LeftDown, 0, 0),
+            window.test_send_input_message(WindowMessage::LeftDown, 0, 0),
             WindowMsgHandled::Ignored
         );
         assert_eq!(*seen.borrow(), 1);
         assert_eq!(
-            window.send_input_message(WindowMessage::Destroy, 0, 0),
+            window.test_send_input_message(WindowMessage::Destroy, 0, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(*seen.borrow(), 2);
@@ -2134,14 +2134,14 @@ mod mutable_callback_borrow_tests {
                 WindowMsgHandled::Handled
             });
             assert_eq!(
-                window.send_system_message(WindowMessage::Destroy, 0, 0),
+                window.test_send_system_message(WindowMessage::Destroy, 0, 0),
                 WindowMsgHandled::Handled
             );
             window.get_user_data_mut::<Vec<u32>>().unwrap().push(3);
             WindowMsgHandled::Handled
         });
         assert_eq!(
-            window.send_system_message(WindowMessage::Create, 0, 0),
+            window.test_send_system_message(WindowMessage::Create, 0, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(window.get_user_data::<Vec<u32>>().unwrap(), &[1, 2, 3]);

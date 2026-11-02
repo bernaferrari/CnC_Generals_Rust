@@ -780,10 +780,10 @@ mod tests {
         }
 
         client
-            .ensure_shell_visible()
+            .ensure_shell_visible(None)
             .expect("first shell activation should succeed");
         client
-            .ensure_shell_visible()
+            .ensure_shell_visible(None)
             .expect("second shell activation should succeed");
 
         let stream = THE_MESSAGE_STREAM.read().unwrap_or_else(|e| e.into_inner());
@@ -809,9 +809,9 @@ mod tests {
             // Snow — never TheWindowManager. Menu→Menu after GAME_SHELL apply
             // must keep ButtonSinglePlayer (hq-3vo4).
             crate::gui::window_manager::owner.with_manager(|manager| {
-                manager.reset();
+                manager.test_reset();
                 let window = manager
-                    .create_window(None, 0, 0, 80, 24)
+                    .test_create_window(None, 0, 0, 80, 24)
                     .expect("ButtonSinglePlayer");
                 window
                     .borrow_mut()
@@ -1651,11 +1651,11 @@ mod tests {
 
         if let Some(ui) = &client.subsystem_manager.in_game_ui {
             if let Ok(mut ui) = ui.lock() {
-                ui.push_hud_message("Hold the ridge".to_string());
+                ui.push_hud_message("Hold the ridge".to_string(), 0);
             }
         }
         client.apply_presentation_cinematic_text(Some("Hold the ridge"), Some(2500), Some("Arial"));
-        client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(2500));
+        client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(2500), 0);
         client.apply_presentation_floating_texts(&[(
             "+$100".to_string(),
             [10.0, 0.0, 20.0],
@@ -1689,7 +1689,7 @@ mod tests {
         drawable.overlay_data.ammo_total = 5;
         client.register_drawable(Box::new(drawable)).unwrap();
 
-        let counts = client.draw_live_ingame_hud();
+        let counts = client.draw_live_ingame_hud(0);
         assert_eq!(counts.messages, 1, "HUD message feed must be drawn");
         assert_eq!(
             counts.military_subtitles, 1,
@@ -1716,9 +1716,9 @@ mod tests {
         let mut client = GameClient::new().unwrap();
         client.subsystem_manager.in_game_ui =
             Some(Arc::new(Mutex::new(InGameUISubsystem::default())));
-        client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(2500));
-        client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(2000));
-        client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(5000));
+        client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(2500), 0);
+        client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(2000), 0);
+        client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(5000), 0);
         let ui = client.subsystem_manager.in_game_ui.as_ref().unwrap();
         let ui = ui.lock().expect("in-game UI lock");
         let subs = ui.military_subtitles();
@@ -1742,7 +1742,7 @@ mod tests {
             false,
         )]);
         crate::gui::ingame_ui::add_named_timer("MissionTimer", "Evacuate", true);
-        let counts = client.draw_live_ingame_hud();
+        let counts = client.draw_live_ingame_hud(0);
         assert_eq!(
             counts.superweapon_timers, 1,
             "named timers must not replace the superweapon countdown strip"

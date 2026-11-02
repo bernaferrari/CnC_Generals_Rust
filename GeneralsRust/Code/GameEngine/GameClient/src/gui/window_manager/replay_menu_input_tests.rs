@@ -41,17 +41,17 @@ fn confirmation(
     let mut manager = WindowManager::new();
     let key = NameKeyGenerator::name_to_key;
     let parent = manager
-        .create_window_with_id(None, 0, 0, 200, 100, key("MessageBox.wnd:") as i32)
+        .test_create_window_with_id(None, 0, 0, 200, 100, key("MessageBox.wnd:") as i32)
         .unwrap();
     let menu = Rc::new(RefCell::new(GameWindow::new()));
-    let _ = menu.borrow_mut().hide(false);
-    let playback = ReplayPlayback::captured(filename.into(), Some(Rc::downgrade(&menu)));
+    let _ = menu.borrow_mut().hide_without_manager_side_effects(false);
+    let playback = ReplayPlayback::captured(filename.into(), Some(Rc::downgrade(&menu)), crate::gui::window_manager::WindowManagerOwner::new().downgrade());
     parent
         .borrow_mut()
         .set_user_data(WindowMessageBoxData::default().with_owned_replay(playback));
     let id = key("MessageBox.wnd:ButtonOk") as i32;
     let button = manager
-        .create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
+        .test_create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
         .unwrap();
     button
         .borrow_mut()
@@ -75,7 +75,7 @@ fn select(
     let (x, y) = button.borrow().get_screen_position();
     let (x, y) = (x + 5, y + 5);
     let data = (((y as u32) << 16) | ((x as u32) & 0xffff)) as WindowMsgData;
-    let mut operation = ReplayMenuOperation::new(allow_restart);
+    let mut operation = ReplayMenuOperation::new(allow_restart, crate::gui::window_manager::WindowManagerOwner::new().downgrade());
     let mut bar = ControlBar::new();
     let mut view = View;
     let mut context = ControlBarInputContext {
@@ -145,14 +145,14 @@ fn wnd_restart_confirmation_delivers_receiving_restart_once() {
     let mut manager = WindowManager::new();
     let key = NameKeyGenerator::name_to_key;
     let parent = manager
-        .create_window_with_id(None, 0, 0, 200, 100, key("MessageBox.wnd:") as i32)
+        .test_create_window_with_id(None, 0, 0, 200, 100, key("MessageBox.wnd:") as i32)
         .unwrap();
     parent
         .borrow_mut()
         .set_user_data(WindowMessageBoxData::default().with_owned_restart());
     let id = key("MessageBox.wnd:ButtonYes") as i32;
     let button = manager
-        .create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
+        .test_create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
         .unwrap();
     button
         .borrow_mut()
@@ -184,7 +184,7 @@ fn wnd_quit_restart_only_opens_confirmation_before_host_changes() {
     let mut manager = WindowManager::new();
     let key = NameKeyGenerator::name_to_key;
     let parent = manager
-        .create_window_with_id(None, 0, 0, 200, 100, key("QuitMenu.wnd:") as i32)
+        .test_create_window_with_id(None, 0, 0, 200, 100, key("QuitMenu.wnd:") as i32)
         .unwrap();
     manager.bind_window_callbacks(
         &mut parent.borrow_mut(),
@@ -195,7 +195,7 @@ fn wnd_quit_restart_only_opens_confirmation_before_host_changes() {
     );
     let id = key("QuitMenu.wnd:ButtonRestart") as i32;
     let button = manager
-        .create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
+        .test_create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
         .unwrap();
     button
         .borrow_mut()
@@ -232,7 +232,7 @@ fn wnd_load_without_selection_preserves_visible_receiving_menu() {
     });
     let key = NameKeyGenerator::name_to_key;
     let parent = manager
-        .create_window_with_id(
+        .test_create_window_with_id(
             None,
             0,
             0,
@@ -250,7 +250,7 @@ fn wnd_load_without_selection_preserves_visible_receiving_menu() {
     );
     let id = key("ReplayMenu.wnd:ButtonLoadReplay") as i32;
     let button = manager
-        .create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
+        .test_create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
         .unwrap();
     button
         .borrow_mut()

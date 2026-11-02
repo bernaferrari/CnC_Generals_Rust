@@ -32,7 +32,7 @@ fn with_effects<R>(f: impl FnOnce(&mut WindowManager, &mut WindowEventEffects<'_
 }
 
 fn with_managed_effects<R>(f: impl FnOnce(&mut WindowEventEffects<'_>) -> R) -> R {
-    WindowEventEffects::with_standalone(f)
+    crate::gui::game_window::WindowEventEffects::with_standalone(f)
 }
 
 #[test]
@@ -1304,7 +1304,7 @@ fn activate_window_brings_to_top_and_unhides_like_cpp() {
     let mut manager = WindowManager::new();
     let first = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let second = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
-    first.borrow_mut().hide(true).unwrap();
+    first.borrow_mut().hide_without_manager_side_effects(true).unwrap();
 
     manager.activate_window(&first).unwrap();
 
@@ -1999,7 +1999,7 @@ fn test_layout_hide_toggles_all_layout_windows_like_cpp() {
 
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager.test_create_window(Some(&parent), 5, 5, 20, 20).unwrap();
-    child.borrow_mut().hide(true).unwrap();
+    child.borrow_mut().hide_without_manager_side_effects(true).unwrap();
 
     {
         let mut layout_mut = layout.borrow_mut();

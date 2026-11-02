@@ -67,7 +67,7 @@ pub fn custom_match_hide_host_popup(
     let state_slot = popup_host_state();
     let mut state = state_slot.borrow_mut();
     if let Some(parent) = state.parent.as_ref() {
-        let _ = parent.borrow_mut().hide(hide);
+        let _ = parent.borrow_mut().hide_without_manager_side_effects(hide);
         return;
     }
     if state.parent_id == 0 {
@@ -77,7 +77,7 @@ pub fn custom_match_hide_host_popup(
         manager.get_window_by_id(state.parent_id)
     })(receiving_manager);
     if let Some(parent) = state.parent.as_ref() {
-        let _ = parent.borrow_mut().hide(hide);
+        let _ = parent.borrow_mut().hide_without_manager_side_effects(hide);
     }
 }
 

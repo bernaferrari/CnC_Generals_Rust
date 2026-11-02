@@ -1822,7 +1822,7 @@ mod tests {
 
         // Move mouse beyond drag tolerance
         let drag_pos = ICoord2D { x: 120, y: 120 };
-        translator.handle_mouse_position(drag_pos);
+        with_receiving_ui(|ui| translator.handle_mouse_position(drag_pos, ui));
 
         assert!(translator.drag_selecting); // Now dragging
         }
@@ -1833,7 +1833,7 @@ mod tests {
         let mut translator = SelectionTranslator::new();
 
         let messages =
-            translator.handle_left_button_up(ICoord2D { x: 12, y: 34 }, KeyModifiers::empty());
+            with_receiving_ui(|ui| translator.handle_left_button_up(ICoord2D { x: 12, y: 34 }, KeyModifiers::empty(), ui));
 
         assert_eq!(messages.len(), 1);
         match &messages[0] {
@@ -1866,7 +1866,7 @@ mod tests {
             translator.current_selection.insert(777);
 
             let messages =
-                translator.handle_left_button_up(ICoord2D { x: 16, y: 24 }, KeyModifiers::empty());
+                with_receiving_ui(|ui| translator.handle_left_button_up(ICoord2D { x: 16, y: 24 }, KeyModifiers::empty(), ui));
 
             assert!(messages.is_empty());
             assert_eq!(translator.current_selection.len(), 1);
@@ -1922,7 +1922,7 @@ mod tests {
         translator.current_selection.insert(102);
 
         // Create control group 1
-        translator.handle_create_control_group(1);
+        with_receiving_ui(|ui| translator.handle_create_control_group(1, ui));
 
         assert_eq!(translator.control_groups[1].len(), 3);
 
@@ -1931,7 +1931,7 @@ mod tests {
         assert_eq!(translator.current_selection.len(), 0);
 
         // Select control group 1
-        translator.handle_select_control_group(1);
+        with_receiving_ui(|ui| translator.handle_select_control_group(1, ui));
 
         assert_eq!(translator.current_selection.len(), 3);
         assert_eq!(translator.last_group_sel_group, 1);
@@ -1943,11 +1943,11 @@ mod tests {
         let mut translator = SelectionTranslator::new();
         translator.current_selection.insert(1);
         translator.current_selection.insert(2);
-        translator.handle_create_control_group(0);
+        with_receiving_ui(|ui| translator.handle_create_control_group(0, ui));
         translator.current_selection.clear();
         translator.current_selection.insert(2);
         translator.current_selection.insert(3);
-        translator.handle_create_control_group(1);
+        with_receiving_ui(|ui| translator.handle_create_control_group(1, ui));
         assert_eq!(translator.control_groups[0], vec![1]);
         let mut group1 = translator.control_groups[1].clone();
         group1.sort_unstable();
@@ -1964,7 +1964,7 @@ mod tests {
             translator.control_groups[1] = vec![10, 11];
             translator.current_selection.insert(99);
 
-            let first = translator.handle_add_control_group(1);
+            let first = with_receiving_ui(|ui| translator.handle_add_control_group(1, ui));
             assert_eq!(translator.current_selection.len(), 3);
             assert_eq!(
                 first,
@@ -1974,7 +1974,7 @@ mod tests {
                 ]
             );
 
-            let second = translator.handle_add_control_group(1);
+            let second = with_receiving_ui(|ui| translator.handle_add_control_group(1, ui));
             assert!(second.is_empty());
             assert_eq!(translator.current_selection.len(), 3);
             ui.set_max_select_count(-1);
@@ -1991,7 +1991,7 @@ mod tests {
 
             let mut translator = SelectionTranslator::new();
             translator.control_groups[1] = (1..=45).collect();
-            let messages = translator.handle_select_control_group(1);
+            let messages = with_receiving_ui(|ui| translator.handle_select_control_group(1, ui));
 
             assert_eq!(translator.current_selection.len(), 45);
             assert!(!translator.displayed_max_warning);
@@ -2014,7 +2014,7 @@ mod tests {
 
             let mut translator = SelectionTranslator::new();
             translator.control_groups[1] = (1..=45).collect();
-            let messages = translator.handle_select_control_group(1);
+            let messages = with_receiving_ui(|ui| translator.handle_select_control_group(1, ui));
 
             assert_eq!(translator.current_selection.len(), 40);
             assert!(translator.displayed_max_warning);
@@ -2164,7 +2164,7 @@ mod tests {
 
             translator.handle_right_button_down(ICoord2D { x: 50, y: 60 }, 0, Coord3D::default());
             let messages =
-                translator.handle_right_button_up(ICoord2D { x: 50, y: 60 }, 0, Coord3D::default());
+                with_receiving_ui(|ui| translator.handle_right_button_up(ICoord2D { x: 50, y: 60 }, 0, Coord3D::default(), ui));
 
             assert!(messages.is_empty());
             assert_eq!(translator.current_selection.len(), 1);
@@ -2297,7 +2297,7 @@ mod tests {
             "catalog writer and has_kindof reader must share KINDOF_ALWAYS_SELECTABLE"
         );
         assert!(
-            drawable.can_select(false, &mut |_, _| false),
+            with_receiving_ui(|ui| drawable.can_select(false, &mut |_, _| false, ui)),
             "dead + AlwaysSelectable must pass can_select (SelectionXlat.cpp:113-117)"
         );
 
@@ -2307,7 +2307,7 @@ mod tests {
             ..drawable
         };
         assert!(
-            !force_only.can_select(false, &mut |_, _| false),
+            !with_receiving_ui(|ui| force_only.can_select(false, &mut |_, _| false, ui)),
             "ForceAttackable without Selectable is not selectable (SelectionXlat.cpp:119-127)"
         );
         }

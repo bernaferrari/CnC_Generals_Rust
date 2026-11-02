@@ -331,7 +331,7 @@ fn test_window_properties() {
     window.enable(true).unwrap();
     assert!(window.is_enabled());
 
-    window.hide(true).unwrap();
+    window.hide_without_manager_side_effects(true).unwrap();
     assert!(window.is_hidden());
 }
 
@@ -694,7 +694,7 @@ fn combo_box_item_data_round_trips_pointer_sized_values_like_cpp() {
         effects,
         WindowMsgPayload::Text("Alpha".to_string()),
         |effects, token| {
-            combo.send_system_message(
+            combo.test_send_system_message(
                 WindowMessage::User(GCM_ADD_ENTRY),
                 token,
                 0xFF11_2233,
@@ -742,7 +742,7 @@ fn combo_box_selection_hides_list_updates_edit_and_notifies_owner_like_cpp() {
         effects,
         WindowMsgPayload::Text("Alpha".to_string()),
         |effects, token| {
-            combo.send_system_message(
+            combo.test_send_system_message(
                 WindowMessage::User(GCM_ADD_ENTRY),
                 token,
                 0xFF11_2233,
@@ -754,7 +754,7 @@ fn combo_box_selection_hides_list_updates_edit_and_notifies_owner_like_cpp() {
         effects,
         WindowMsgPayload::Text("Bravo".to_string()),
         |effects, token| {
-            combo.send_system_message(
+            combo.test_send_system_message(
                 WindowMessage::User(GCM_ADD_ENTRY),
                 token,
                 0xFF44_5566,
@@ -814,7 +814,7 @@ fn combo_box_edit_update_clears_selection_hides_list_and_notifies_owner_like_cpp
         effects,
         WindowMsgPayload::Text("Alpha".to_string()),
         |effects, token| {
-            combo.send_system_message(
+            combo.test_send_system_message(
                 WindowMessage::User(GCM_ADD_ENTRY),
                 token,
                 0xFF11_2233,
@@ -867,11 +867,11 @@ fn win_is_hidden_checks_only_own_status_like_cpp() {
     child.borrow_mut().set_parent(Some(&parent));
     parent.borrow_mut().add_child(child.clone());
 
-    parent.borrow_mut().hide(true).unwrap();
+    parent.borrow_mut().hide_without_manager_side_effects(true).unwrap();
     assert!(parent.borrow().is_hidden());
     assert!(!child.borrow().is_hidden());
 
-    parent.borrow_mut().hide(false).unwrap();
+    parent.borrow_mut().hide_without_manager_side_effects(false).unwrap();
     assert!(!parent.borrow().is_hidden());
     assert!(!child.borrow().is_hidden());
 }
@@ -1047,11 +1047,9 @@ fn progress_bar_system_message_matches_cpp_range_rules() {
     assert_eq!(window.get_user_data::<i32>(), Some(&37));
 
     assert_eq!(
-        window.send_system_message(
-            WindowMessage::User(GPM_SET_PROGRESS),
+        window.test_send_system_message(WindowMessage::User(GPM_SET_PROGRESS),
             (-1i32) as WindowMsgData,
-            0,
-        ),
+            0),
         WindowMsgHandled::Handled
     );
     assert_eq!(window.progress_bar_mut().unwrap().percentage(), 37.0);
@@ -1816,11 +1814,9 @@ fn listbox_selection_system_message_notifies_owner_like_cpp() {
     );
 
     assert_eq!(
-        window.send_system_message(
-            WindowMessage::User(GLM_SET_SELECTION),
+        window.test_send_system_message(WindowMessage::User(GLM_SET_SELECTION),
             (-1i32) as WindowMsgData,
-            1,
-        ),
+            1),
         WindowMsgHandled::Handled
     );
     assert!(window.list_box_mut().unwrap().selected_indices().is_empty());
@@ -2279,11 +2275,9 @@ fn listbox_toggle_multi_selection_system_message_matches_cpp() {
     );
 
     assert_eq!(
-        multi_window.send_system_message(
-            WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION),
+        multi_window.test_send_system_message(WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION),
             (-1i32) as WindowMsgData,
-            0,
-        ),
+            0),
         WindowMsgHandled::Handled
     );
     assert!(
@@ -2443,7 +2437,7 @@ fn listbox_selection_system_messages_match_cpp_out_pointer_shape() {
             effects,
             WindowMsgPayload::IntList(vec![0, 2]),
             |effects, token| {
-                window.send_system_message(
+                window.test_send_system_message(
                     WindowMessage::User(GLM_SET_SELECTION),
                     token,
                     2,
@@ -2568,7 +2562,7 @@ fn point_in_any_child_matches_hidden_and_disabled_cpp_rules() {
     let found = GameWindow::point_in_any_child(&parent, 15, 15, true, false);
     assert!(Rc::ptr_eq(&found, &child));
 
-    child.borrow_mut().hide(true).unwrap();
+    child.borrow_mut().hide_without_manager_side_effects(true).unwrap();
     let found = GameWindow::point_in_any_child(&parent, 15, 15, true, false);
     assert!(Rc::ptr_eq(&found, &parent));
 

@@ -178,7 +178,7 @@ fn receiving_native_draw_admits_authored_emitter_before_next_client_bone_update(
             .set_position(Vector3::new(10., 20., 30.));
         client.set_frame(37);
         client
-            .update_presentation_shell(0.)
+            .update_presentation_shell(0., 0, 0)
             .map_err(|e| e.to_string())?;
         let birth = {
             let manager = get_particle_system_manager_mut().map_err(|e| e.to_string())?;

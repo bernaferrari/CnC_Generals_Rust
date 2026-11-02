@@ -970,7 +970,7 @@ fn test_pending_command_click_falls_back_to_invalid_gui_hint_when_unresolved() {
 
     let mut translator = CommandTranslator::new();
     let result =
-        translator.resolve_pending_command_click(0, Some(0), None, &Coord3D::new(0.0, 0.0, 0.0));
+        with_receiving_ui(|ui| translator.resolve_pending_command_click(0, Some(0), None, &Coord3D::new(0.0, 0.0, 0.0), ui));
 
     assert_eq!(result, vec![GameMessageType::InvalidGUICommandHint]);
 
@@ -995,7 +995,7 @@ fn test_pending_set_rally_point_fans_out_to_all_selected_sources() {
     let position = Coord3D::new(11.0, 22.0, 0.0);
 
     let messages =
-        pending_command_messages_for_position(&pending, position.clone(), &selection, None);
+        with_receiving_ui(|ui| pending_command_messages_for_position(&pending, position.clone(), &selection, None, ui));
     assert_eq!(
         messages,
         vec![
@@ -1211,12 +1211,12 @@ fn test_double_click_guard_command_gated_by_mouse_mode() {
         height: 0,
     };
 
-    let right = translator.try_double_click_guard_command(&region, true);
+    let right = with_receiving_ui(|ui| translator.try_double_click_guard_command(&region, true, ui));
     assert!(matches!(
         right,
         Some(GameMessageType::DoGuardPosition(_, 0))
     ));
-    let left = translator.try_double_click_guard_command(&region, false);
+    let left = with_receiving_ui(|ui| translator.try_double_click_guard_command(&region, false, ui));
     assert!(left.is_none());
 
     if let Some(data) = get_global_data() {

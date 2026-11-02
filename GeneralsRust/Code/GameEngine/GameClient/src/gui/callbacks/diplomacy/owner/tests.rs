@@ -15,10 +15,10 @@ fn same_ids_retire_only_the_receiving_layout_and_keep_briefing() {
     b.menus = Some(peer.receiving_menus(ClientInputAuthority::NativeHosted));
     let id = NameKeyGenerator::name_to_key("Diplomacy.wnd:Root") as i32;
     let first_window = first_manager
-        .create_window_with_id(None, 0, 0, 100, 100, id, &mut a)
+        .test_create_window_with_id(None, 0, 0, 100, 100, id, &mut a)
         .unwrap();
     let peer_window = peer_manager
-        .create_window_with_id(None, 0, 0, 100, 100, id, &mut b)
+        .test_create_window_with_id(None, 0, 0, 100, 100, id, &mut b)
         .unwrap();
     for (effects, window, label) in [
         (&mut a, &first_window, "SCRIPT:First"),

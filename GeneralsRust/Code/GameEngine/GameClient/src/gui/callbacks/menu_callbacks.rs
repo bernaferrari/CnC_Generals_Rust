@@ -3617,14 +3617,14 @@ mod options_os_wnd_tests {
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         install_named_button(&owner, "OptionsMenu.wnd:ButtonAccept", 10, 10);
         assert!(
-            drive_os_wnd_options_menu_accept_like_cpp(),
+            WindowEventEffects::with_standalone(|effects| drive_os_wnd_options_menu_accept_like_cpp(effects)),
             "OS WND click on ButtonAccept must latch Accept residual"
         );
         assert_eq!(
-            residual_options_menu_last_action(),
+            WindowEventEffects::with_standalone(|effects| residual_options_menu_last_action(effects)),
             ResidualOptionsMenuAction::Accept
         );
-        assert!(!drive_os_wnd_options_menu_back_like_cpp());
+        assert!(!WindowEventEffects::with_standalone(|effects| drive_os_wnd_options_menu_back_like_cpp(effects)));
     }
 
     #[test]
@@ -3774,16 +3774,17 @@ mod options_os_wnd_tests {
             crate::test_process::TestProcess::ParentVerified => return,
             crate::test_process::TestProcess::Child => {}
         }
-        install_named_button("OptionsMenu.wnd:ButtonKeyboardOptions", 10, 40);
-        install_named_button("OptionsMenu.wnd:ButtonDefaults", 10, 70);
-        assert!(drive_os_wnd_options_menu_keyboard_like_cpp());
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        install_named_button(&owner, "OptionsMenu.wnd:ButtonKeyboardOptions", 10, 40);
+        install_named_button(&owner, "OptionsMenu.wnd:ButtonDefaults", 10, 70);
+        assert!(WindowEventEffects::with_standalone(|effects| drive_os_wnd_options_menu_keyboard_like_cpp(effects)));
         assert_eq!(
-            residual_options_menu_last_action(),
+            WindowEventEffects::with_standalone(|effects| residual_options_menu_last_action(effects)),
             ResidualOptionsMenuAction::Keyboard
         );
-        assert!(drive_os_wnd_options_menu_defaults_like_cpp());
+        assert!(WindowEventEffects::with_standalone(|effects| drive_os_wnd_options_menu_defaults_like_cpp(effects)));
         assert_eq!(
-            residual_options_menu_last_action(),
+            WindowEventEffects::with_standalone(|effects| residual_options_menu_last_action(effects)),
             ResidualOptionsMenuAction::Defaults
         );
     }
@@ -3915,22 +3916,22 @@ mod credits_os_wnd_tests {
         { // was owner.with_scope
             owner.with_manager(|manager| {
                 let parent = manager
-                    .create_window(None, 10, 10, 200, 120)
+                    .test_create_window(None, 10, 10, 200, 120)
                     .expect("ParentCreditsWindow");
                 parent
                     .borrow_mut()
                     .set_name("CreditsMenu.wnd:ParentCreditsWindow");
-                let _ = parent.borrow_mut().hide(false);
+                let _ = parent.borrow_mut().hide_without_manager_side_effects(false);
             });
             assert!(
-                drive_os_wnd_credits_menu_skip_like_cpp(),
+                WindowEventEffects::with_standalone(|effects| drive_os_wnd_credits_menu_skip_like_cpp(effects)),
                 "OS WND click on ParentCreditsWindow must latch skip residual"
             );
             assert_eq!(
-                residual_credits_menu_last_action(),
+                WindowEventEffects::with_standalone(|effects| residual_credits_menu_last_action(effects)),
                 ResidualCreditsMenuAction::Skip
             );
-            assert!(!residual_credits_menu_is_active());
+            assert!(!WindowEventEffects::with_standalone(|effects| residual_credits_menu_is_active(effects)));
         }
     }
 
@@ -3940,16 +3941,16 @@ mod credits_os_wnd_tests {
         { // was owner.with_scope
             owner.with_manager(|manager| {
                 let parent = manager
-                    .create_window(None, 10, 140, 200, 120)
+                    .test_create_window(None, 10, 140, 200, 120)
                     .expect("ParentCreditsWindow finished");
                 parent
                     .borrow_mut()
                     .set_name("CreditsMenu.wnd:ParentCreditsWindow");
-                let _ = parent.borrow_mut().hide(false);
+                let _ = parent.borrow_mut().hide_without_manager_side_effects(false);
             });
-            assert!(drive_os_wnd_credits_menu_finished_like_cpp());
+            assert!(WindowEventEffects::with_standalone(|effects| drive_os_wnd_credits_menu_finished_like_cpp(effects)));
             assert_eq!(
-                residual_credits_menu_last_action(),
+                WindowEventEffects::with_standalone(|effects| residual_credits_menu_last_action(effects)),
                 ResidualCreditsMenuAction::Finished
             );
         }
@@ -4352,14 +4353,14 @@ mod tests {
         let layout = WindowLayout::new("TestLayout".to_string());
 
         // Test initialization
-        assert!(main_menu.init(&layout, None).is_ok());
+        assert!(WindowEventEffects::with_standalone(|effects| main_menu.init(&layout, None, effects)).is_ok());
         assert!(main_menu.initialized);
 
         // Test update
-        assert!(main_menu.update(&layout, None).is_ok());
+        assert!(WindowEventEffects::with_standalone(|effects| main_menu.update(&layout, None, effects)).is_ok());
 
         // Test shutdown
-        assert!(main_menu.shutdown(&layout, None).is_ok());
+        assert!(WindowEventEffects::with_standalone(|effects| main_menu.shutdown(&layout, None, effects)).is_ok());
         assert!(!main_menu.initialized);
     }
 
@@ -4398,18 +4399,18 @@ mod tests {
     #[test]
     fn options_menu_esc_char_is_consumed_before_key_up_like_cpp() {
         let mut menu = OptionsMenu::new();
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            menu.input(&window, WindowMessage::Char, 0x1B, 0),
+            WindowEventEffects::with_standalone(|effects| menu.input(&window, WindowMessage::Char, 0x1B, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            menu.input(&window, WindowMessage::Char, 0x1B, 0x0001),
+            WindowEventEffects::with_standalone(|effects| menu.input(&window, WindowMessage::Char, 0x1B, 0x0001, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            menu.input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
+            WindowEventEffects::with_standalone(|effects| menu.input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0, effects)),
             WindowMsgHandled::Ignored
         );
     }
@@ -4679,10 +4680,10 @@ mod tests {
             .set_widget(WindowWidget::ListBox(listbox));
         menu.listbox_map = Some(listbox_window.clone());
 
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            menu.system(&window, WindowMessage::User(GLM_DOUBLE_CLICKED), 42, 0),
+            WindowEventEffects::with_standalone(|effects| menu.system(&window, WindowMessage::User(GLM_DOUBLE_CLICKED), 42, 0, effects)),
             WindowMsgHandled::Handled
         );
 
@@ -4707,7 +4708,7 @@ mod tests {
 
             let mut menu = MapSelectMenu::new();
             menu.selected_map = Some(selected_map.clone());
-            menu.start_game();
+            WindowEventEffects::with_standalone(|effects| menu.start_game(effects));
 
             assert!(menu.start_game);
             assert_eq!(ini_global.read().pending_file, selected_map);
@@ -4723,7 +4724,7 @@ mod tests {
             runtime_global_data::write().pending_file = "Maps\\Legacy\\Runtime.map".to_string();
 
             let mut menu = MapSelectMenu::new();
-            menu.start_game();
+            WindowEventEffects::with_standalone(|effects| menu.start_game(effects));
 
             assert!(!menu.start_game);
             assert_eq!(ini_global.read().pending_file, "Maps\\Legacy\\Ini.map");

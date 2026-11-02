@@ -1302,34 +1302,35 @@ pub fn lan_game_options_menu_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
         set_lan_button_pushed(false);
 
         assert_eq!(
-            lan_game_options_menu_input(&window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0),
+            WindowEventEffects::with_standalone(|effects| lan_game_options_menu_input(&mut window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            lan_game_options_menu_input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
+            WindowEventEffects::with_standalone(|effects| lan_game_options_menu_input(&mut window, WindowMessage::Char, b'A' as WindowMsgData, 0, effects)),
             WindowMsgHandled::Ignored
         );
     }
 
     #[test]
     fn esc_char_is_ignored_after_button_pushed_like_cpp() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
         set_lan_button_pushed(true);
 
         assert_eq!(
-            lan_game_options_menu_input(
+            WindowEventEffects::with_standalone(|effects| lan_game_options_menu_input(
                 &window,
                 WindowMessage::Char,
                 KEY_ESC as WindowMsgData,
                 KEY_STATE_UP,
-            ),
+            effects)),
             WindowMsgHandled::Ignored
         );
 
@@ -1338,14 +1339,14 @@ mod tests {
 
     #[test]
     fn glm_right_clicked_routes_start_position_like_cpp() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
         with_state(|state| {
             *state = LanGameOptionsState::default();
             state.start_position_ids[0] = 77;
         });
 
         assert_eq!(
-            lan_game_options_menu_system(&window, WindowMessage::User(GLM_RIGHT_CLICKED), 77, 0),
+            WindowEventEffects::with_standalone(|effects| lan_game_options_menu_system(&mut window, WindowMessage::User(GLM_RIGHT_CLICKED), 77, 0, effects)),
             WindowMsgHandled::Handled
         );
 

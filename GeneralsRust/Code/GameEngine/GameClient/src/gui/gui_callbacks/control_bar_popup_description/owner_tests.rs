@@ -36,8 +36,8 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
         });
     let layout = Rc::new(RefCell::new(WindowLayout::new("ReceivingTooltip".into())));
     let peer_layout = Rc::new(RefCell::new(WindowLayout::new("PeerTooltip".into())));
-    layout.borrow_mut().hide(true);
-    peer_layout.borrow_mut().hide(false);
+    layout.borrow_mut().hide_without_manager_side_effects(true);
+    peer_layout.borrow_mut().hide_without_manager_side_effects(false);
     let mut bar = ControlBar::new();
     let mut peer_bar = ControlBar::new();
     bar.tooltip.layout = Some(Rc::clone(&layout));
@@ -199,7 +199,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
         "leaving command window ends only owner tooltip"
     );
     assert!(!peer_layout.borrow().is_hidden());
-    layout.borrow_mut().hide(false);
+    layout.borrow_mut().hide_without_manager_side_effects(false);
     bar.tooltip.show_layout = true;
     bar.tooltip.prev_window_id = Some(42);
     let mut tooltip_animator = AnimateWindowManager::new();

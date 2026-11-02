@@ -279,7 +279,7 @@ fn receiving_drawable_phase_rejects_foreign_client_frame_before_mutation() {
         client.update_drawables_local(0., foreign),
         client.update_for_rendering(&timing, foreign),
         client.update_drawables(0., foreign),
-        client.update_presentation_shell_with_particle_frames(0., foreign),
+        client.update_presentation_shell_with_particle_frames(0., foreign, 0),
     ] {
         let error = result.expect_err("foreign Client frame must be rejected");
         assert!(

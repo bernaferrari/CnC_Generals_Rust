@@ -2564,7 +2564,7 @@ pub fn wol_game_setup_menu_system(
                 });
                 if let Some((layout, _)) = layout {
                     layout.borrow().run_init(None);
-                    layout.borrow_mut().hide(false);
+                    layout.borrow_mut().hide_without_manager_side_effects(false);
                     layout.borrow_mut().bring_forward();
                     state.wol_map_select_layout = Some(layout);
                 }

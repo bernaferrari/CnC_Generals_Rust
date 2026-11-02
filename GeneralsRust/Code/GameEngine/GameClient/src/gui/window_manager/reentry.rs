@@ -759,14 +759,14 @@ mod owner_tests {
         let first = WindowManagerOwner::new();
         let second = WindowManagerOwner::new();
         let first_window =
-            first.with_manager(|manager| manager.create_window(None, 0, 0, 20, 20).unwrap());
+            first.with_manager(|manager| manager.test_create_window(None, 0, 0, 20, 20).unwrap());
         let second_window =
             second.with_manager(|manager| manager.test_create_window(None, 0, 0, 20, 20).unwrap());
         assert_eq!(first_window.borrow().id, second_window.borrow().id);
         assert!(!Rc::ptr_eq(&first_window, &second_window));
         first.with_manager(|manager| {
             manager.destroy_window(first_window.clone()).unwrap();
-            manager.flush_destroy_queue();
+            manager.test_flush_destroy_queue();
             assert!(manager.get_window_by_id(first_window.borrow().id).is_none());
         });
         second.with_manager_ref(|manager| {

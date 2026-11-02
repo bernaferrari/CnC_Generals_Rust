@@ -2772,21 +2772,21 @@ mod tests {
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            score_screen_input(&window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0),
+            WindowEventEffects::with_standalone(|effects| score_screen_input(&mut window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            score_screen_input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
+            WindowEventEffects::with_standalone(|effects| score_screen_input(&mut window, WindowMessage::Char, b'A' as WindowMsgData, 0, effects)),
             WindowMsgHandled::Ignored
         );
     }
 
     #[test]
     fn score_screen_system_consumes_destroy_like_cpp() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
 
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
@@ -2816,7 +2816,7 @@ mod tests {
             pending_main_menu_actions: Vec::new(),
         };
         assert_eq!(
-            score_screen_system(&window, WindowMessage::Destroy, 0, 0, &mut effects),
+            score_screen_system(&mut window, WindowMessage::Destroy, 0, 0, &mut effects),
             WindowMsgHandled::Handled
         );
     }
@@ -3240,52 +3240,55 @@ pub fn drive_os_wnd_score_screen_emote_like_cpp(
 mod os_wnd_tests {
     use super::*;
 
-    fn install_named_button(name: &str, x: i32, y: i32) {
+    fn install_named_button(owner: &crate::gui::window_manager::WindowManagerOwner, name: &str, x: i32, y: i32) {
         owner.with_manager(|manager| {
-            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+            let button = manager.test_create_window(None, x, y, 80, 24).expect(name);
             button.borrow_mut().set_name(name);
-            let _ = button.borrow_mut().hide(false);
+            let _ = button.borrow_mut().hide_without_manager_side_effects(false);
         });
     }
 
     #[test]
     fn os_wnd_score_screen_continue_hits_button_then_latches_continue() {
-        install_named_button("ScoreScreen.wnd:ButtonContinue", 10, 10);
-        let _ = simulate_score_screen_set_finish_campaign(false);
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        install_named_button(&owner, "ScoreScreen.wnd:ButtonContinue", 10, 10);
+        let _ = WindowEventEffects::with_standalone(|effects| simulate_score_screen_set_finish_campaign(false, effects));
         assert!(
-            drive_os_wnd_score_screen_continue_like_cpp(),
+            WindowEventEffects::with_standalone(|effects| drive_os_wnd_score_screen_continue_like_cpp(effects)),
             "OS WND click on ButtonContinue must latch continue residual"
         );
         assert_eq!(
-            residual_score_screen_last_action(),
+            WindowEventEffects::with_standalone(|effects| residual_score_screen_last_action(effects)),
             ResidualScoreScreenAction::Continue
         );
-        assert!(!drive_os_wnd_score_screen_ok_like_cpp());
+        assert!(!WindowEventEffects::with_standalone(|effects| drive_os_wnd_score_screen_ok_like_cpp(effects)));
     }
 
     #[test]
     fn os_wnd_score_screen_ok_hits_button_then_latches_ok() {
-        install_named_button("ScoreScreen.wnd:ButtonOk", 10, 40);
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        install_named_button(&owner, "ScoreScreen.wnd:ButtonOk", 10, 40);
         assert!(
-            drive_os_wnd_score_screen_ok_like_cpp(),
+            WindowEventEffects::with_standalone(|effects| drive_os_wnd_score_screen_ok_like_cpp(effects)),
             "OS WND click on ButtonOk must latch ok residual"
         );
         assert_eq!(
-            residual_score_screen_last_action(),
+            WindowEventEffects::with_standalone(|effects| residual_score_screen_last_action(effects)),
             ResidualScoreScreenAction::Ok
         );
     }
 
     #[test]
     fn os_wnd_score_screen_continue_starts_next_usa_mission_like_cpp() {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut campaign_manager = CampaignManager::new();
         campaign_manager.init();
         campaign_manager.set_campaign("USA");
         // Victory → next mission is already current when ScoreScreen Continue fires.
         let _ = campaign_manager.goto_next_mission();
         let current_map = campaign_manager.get_current_map().unwrap_or_default();
-        install_named_button("ScoreScreen.wnd:ButtonContinue", 10, 70);
-        let _ = simulate_score_screen_set_finish_campaign(false);
+        install_named_button(&owner, "ScoreScreen.wnd:ButtonContinue", 10, 70);
+        let _ = WindowEventEffects::with_standalone(|effects| simulate_score_screen_set_finish_campaign(false, effects));
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
             cursor_mouse: None,
@@ -3315,7 +3318,7 @@ mod os_wnd_tests {
         };
         assert!(drive_os_wnd_score_screen_continue_like_cpp(&mut effects));
         assert_eq!(
-            residual_score_screen_last_action(),
+            WindowEventEffects::with_standalone(|effects| residual_score_screen_last_action(effects)),
             ResidualScoreScreenAction::Continue
         );
         if current_map.is_empty() {

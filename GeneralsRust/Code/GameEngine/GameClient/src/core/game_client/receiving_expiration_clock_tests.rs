@@ -143,7 +143,7 @@ fn run_public_expiration(
         for &frames in offers {
             receiving.set_frame(frames.client_frame);
             receiving
-                .update_presentation_shell_with_particle_frames(0., frames)
+                .update_presentation_shell_with_particle_frames(0., frames, 0)
                 .map_err(|error| error.to_string())?;
             stages.push(observe(&mut receiving, id));
         }

@@ -21,6 +21,10 @@ mod tests {
     ) -> R {
         client.with_window_event_effects(
             Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts {
+                chat: None,
+                game_mode: 0,
+                client_frame: 0,
+                logic_frame: 0,
                 script_engine_available: false,
                 in_game: false,
                 in_shell_game: false,
@@ -35,6 +39,10 @@ mod tests {
     ) -> R {
         client.with_window_event_effects(
             Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts {
+                chat: None,
+                game_mode: 0,
+                client_frame: 0,
+                logic_frame: 0,
                 script_engine_available: false,
                 in_game: true,
                 in_shell_game: true,
@@ -558,7 +566,7 @@ mod tests {
     fn test_reveal_hidden_main_menu_sets_cpp_startup_state() {
         let mut state = MainMenuState::default();
         with_test_shell_menu_effects(|effects| {
-            MainMenu::reveal_hidden_main_menu(&mut state, effects);
+            MainMenu::reveal_hidden_main_menu(&mut state, effects, None);
         });
 
         assert_eq!(state.initial_gadget_delay, 1);
@@ -731,7 +739,7 @@ mod tests {
         let mut skirmish_state = MainMenuState::default();
         skirmish_state.window_ids = ids.clone();
         with_test_shell_menu_effects(|effects| {
-            MainMenu::handle_button_selected(&mut skirmish_state, ids.skirmish_id, effects)
+            MainMenu::handle_button_selected(&mut skirmish_state, ids.skirmish_id, effects, None)
         })
         .unwrap();
         let skirmish_hooks = skirmish_state
@@ -747,7 +755,7 @@ mod tests {
         let mut network_state = MainMenuState::default();
         network_state.window_ids = ids.clone();
         with_test_shell_menu_effects(|effects| {
-            MainMenu::handle_button_selected(&mut network_state, ids.network_id, effects)
+            MainMenu::handle_button_selected(&mut network_state, ids.network_id, effects, None)
         })
         .unwrap();
         let network_hooks = network_state
@@ -764,7 +772,7 @@ mod tests {
         options_state.window_ids = ids;
         let options_id = options_state.window_ids.options_id;
         with_test_shell_menu_effects(|effects| {
-            MainMenu::handle_button_selected(&mut options_state, options_id, effects)
+            MainMenu::handle_button_selected(&mut options_state, options_id, effects, None)
         })
         .unwrap();
         let options_hooks = options_state
@@ -786,7 +794,7 @@ mod tests {
         state.window_ids = ids.clone();
 
         with_test_shell_menu_effects(|effects| {
-            MainMenu::handle_button_selected(&mut state, ids.exit_id, effects)
+            MainMenu::handle_button_selected(&mut state, ids.exit_id, effects, None)
         })
         .unwrap();
 
@@ -827,7 +835,7 @@ mod tests {
         state.drop_down = DropdownType::Difficulty;
 
         with_test_menu_effects(|effects| {
-            MainMenu::handle_button_selected(&mut state, ids.button_credits_id, effects)
+            MainMenu::handle_button_selected(&mut state, ids.button_credits_id, effects, None)
         })
         .unwrap();
 
@@ -855,7 +863,7 @@ mod tests {
             state.drop_down = DropdownType::Difficulty;
 
             with_test_menu_effects(|effects| {
-                MainMenu::handle_button_selected(&mut state, control_id, effects)
+                MainMenu::handle_button_selected(&mut state, control_id, effects, None)
             })
             .unwrap();
 
@@ -1733,7 +1741,7 @@ mod tests {
             let (menu, mut state) = ready_menu_for_gbm();
             let multi_id = state.window_ids.button_multi_player_id;
             with_shell_menu_effects(client, |effects| {
-                MainMenu::handle_button_selected(&mut state, multi_id, effects)
+                MainMenu::handle_button_selected(&mut state, multi_id, effects, None)
             })
             .expect("ButtonMultiplayer");
             assert_eq!(state.drop_down, DropdownType::Multiplayer);
@@ -1751,7 +1759,7 @@ mod tests {
             state.button_pushed = false;
             let load_id = state.window_ids.button_load_replay_id;
             with_shell_menu_effects(client, |effects| {
-                MainMenu::handle_button_selected(&mut state, load_id, effects)
+                MainMenu::handle_button_selected(&mut state, load_id, effects, None)
             })
             .expect("ButtonLoadReplay");
             assert_eq!(state.drop_down, DropdownType::LoadReplay);
@@ -1769,7 +1777,7 @@ mod tests {
             state.button_pushed = false;
             let back_id = state.window_ids.button_multi_back_id;
             with_shell_menu_effects(client, |effects| {
-                MainMenu::handle_button_selected(&mut state, back_id, effects)
+                MainMenu::handle_button_selected(&mut state, back_id, effects, None)
             })
             .expect("ButtonMultiBack");
             assert_eq!(state.drop_down, DropdownType::Main);
@@ -1783,7 +1791,7 @@ mod tests {
             state.pending_actions.clear();
             let options_id = state.window_ids.options_id;
             with_shell_menu_effects(client, |effects| {
-                MainMenu::handle_button_selected(&mut state, options_id, effects)
+                MainMenu::handle_button_selected(&mut state, options_id, effects, None)
             })
             .expect("ButtonOptions");
             assert!(
@@ -1800,7 +1808,7 @@ mod tests {
             state.pending_actions.clear();
             let skirmish_id = state.window_ids.skirmish_id;
             with_shell_menu_effects(client, |effects| {
-                MainMenu::handle_button_selected(&mut state, skirmish_id, effects)
+                MainMenu::handle_button_selected(&mut state, skirmish_id, effects, None)
             })
             .expect("ButtonSkirmish");
             assert!(
@@ -1876,7 +1884,7 @@ mod tests {
             client.window_manager_owner().with_manager(|manager| {
                 // Longest window: ButtonSingleBack BUTTONFLASH frameDelay 10 + 15.
                 for _ in 0..64 {
-                    manager.update();
+                    manager.test_update();
                     if manager.transitions_finished() {
                         break;
                     }

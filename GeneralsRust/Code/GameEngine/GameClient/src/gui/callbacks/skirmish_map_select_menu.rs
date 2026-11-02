@@ -914,6 +914,7 @@ pub fn drive_os_wnd_skirmish_map_select_like_cpp(
 #[cfg(test)]
 mod tests {
     use super::*;
+use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn preview_image_name_falls_back_to_unknown_map() {
@@ -938,19 +939,19 @@ mod tests {
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            skirmish_map_select_menu_input(
+            WindowEventEffects::with_standalone(|effects| skirmish_map_select_menu_input(
                 &window,
                 WindowMessage::Char,
                 KEY_ESC as WindowMsgData,
                 0,
-            ),
+            effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            skirmish_map_select_menu_input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
+            WindowEventEffects::with_standalone(|effects| skirmish_map_select_menu_input(&mut window, WindowMessage::Char, b'A' as WindowMsgData, 0, effects)),
             WindowMsgHandled::Ignored
         );
     }
@@ -961,21 +962,21 @@ mod tests {
         { // was owner.with_scope
             owner.with_manager(|manager| {
                 let select = manager
-                    .create_window(None, 10, 10, 80, 24)
+                    .test_create_window(None, 10, 10, 80, 24)
                     .expect("ButtonSelectMap");
                 select
                     .borrow_mut()
                     .set_name("SkirmishGameOptionsMenu.wnd:ButtonSelectMap");
-                let _ = select.borrow_mut().hide(false);
+                let _ = select.borrow_mut().hide_without_manager_side_effects(false);
                 let ok = manager
-                    .create_window(None, 10, 40, 80, 24)
+                    .test_create_window(None, 10, 40, 80, 24)
                     .expect("ButtonOK");
                 ok.borrow_mut()
                     .set_name("SkirmishMapSelectMenu.wnd:ButtonOK");
-                let _ = ok.borrow_mut().hide(false);
+                let _ = ok.borrow_mut().hide_without_manager_side_effects(false);
             });
             assert!(
-                drive_os_wnd_skirmish_map_select_like_cpp("maps\\alpine_war.map"),
+                WindowEventEffects::with_standalone(|effects| drive_os_wnd_skirmish_map_select_like_cpp("maps\\alpine_war.map", effects)),
                 "OS WND clicks must commit map into skirmish setup"
             );
             let committed = get_skirmish_setup()
@@ -984,20 +985,20 @@ mod tests {
                 .get_map()
                 .to_string();
             assert_eq!(committed, "maps\\alpine_war.map");
-            assert!(!drive_os_wnd_skirmish_map_select_like_cpp(""));
+            assert!(!WindowEventEffects::with_standalone(|effects| drive_os_wnd_skirmish_map_select_like_cpp("", effects)));
         }
     }
 
     #[test]
     fn skirmish_map_select_system_consumes_lifecycle_messages_like_cpp() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            skirmish_map_select_menu_system(&window, WindowMessage::Create, 0, 0),
+            skirmish_map_select_menu_system(&mut window, WindowMessage::Create, 0, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            skirmish_map_select_menu_system(&window, WindowMessage::Destroy, 0, 0),
+            skirmish_map_select_menu_system(&mut window, WindowMessage::Destroy, 0, 0),
             WindowMsgHandled::Handled
         );
     }
@@ -1039,7 +1040,7 @@ mod tests {
         let listbox_id = 101;
         install_map_listbox_for_test(listbox_id, Some(1));
 
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
         assert_eq!(
             skirmish_map_select_menu_system(
                 &window,
@@ -1063,7 +1064,7 @@ mod tests {
         let listbox_id = 101;
         install_map_listbox_for_test(listbox_id, None);
 
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
         assert_eq!(
             skirmish_map_select_menu_system(
                 &window,

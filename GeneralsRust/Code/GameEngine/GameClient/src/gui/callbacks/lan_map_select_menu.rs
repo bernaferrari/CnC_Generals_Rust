@@ -433,31 +433,32 @@ pub fn lan_map_select_menu_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            lan_map_select_menu_input(&window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0),
+            WindowEventEffects::with_standalone(|effects| lan_map_select_menu_input(&mut window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            lan_map_select_menu_input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
+            WindowEventEffects::with_standalone(|effects| lan_map_select_menu_input(&mut window, WindowMessage::Char, b'A' as WindowMsgData, 0, effects)),
             WindowMsgHandled::Ignored
         );
     }
 
     #[test]
     fn lan_map_select_system_consumes_lifecycle_messages_like_cpp() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            lan_map_select_menu_system(&window, WindowMessage::Create, 0, 0),
+            lan_map_select_menu_system(&mut window, WindowMessage::Create, 0, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            lan_map_select_menu_system(&window, WindowMessage::Destroy, 0, 0),
+            lan_map_select_menu_system(&mut window, WindowMessage::Destroy, 0, 0),
             WindowMsgHandled::Handled
         );
     }

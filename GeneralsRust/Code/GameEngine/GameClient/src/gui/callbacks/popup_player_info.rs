@@ -145,7 +145,7 @@ pub fn popup_player_info_init(
         let _ = button.borrow_mut().hide(!is_local);
     }
     if let Some(button) = state.button_delete_account.as_ref() {
-        let _ = button.borrow_mut().hide(true);
+        let _ = button.borrow_mut().hide_without_manager_side_effects(true);
     }
     if let Some(check) = state.checkbox_asian.as_ref() {
         let _ = check.borrow_mut().hide(!is_local);

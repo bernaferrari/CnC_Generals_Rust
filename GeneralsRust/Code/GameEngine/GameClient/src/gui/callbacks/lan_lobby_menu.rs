@@ -368,7 +368,7 @@ pub fn lan_lobby_init(
     if let Some(gadget) = effects.with_manager(|manager, effects| {
         manager.get_window_by_id(name_to_id("LanLobbyMenu.wnd:GadgetParent"))
     }) {
-        let _ = gadget.borrow_mut().hide(true);
+        let _ = gadget.borrow_mut().hide_without_manager_side_effects(true);
     }
 }
 

@@ -610,7 +610,7 @@ fn show_notification_box(nick: AsciiString, message: &str) {
     let Some(layout) = layout else {
         return;
     };
-    layout.borrow_mut().hide(false);
+    layout.borrow_mut().hide_without_manager_side_effects(false);
 
     if state.button_notification_id == 0 {
         state.button_notification_id =
@@ -711,10 +711,10 @@ pub fn wol_buddy_overlay_init(layout: &WindowLayout, _user_data: Option<&dyn std
     }
 
     if let Some(parent) = state.parent_buddies.as_ref() {
-        let _ = parent.borrow_mut().hide(false);
+        let _ = parent.borrow_mut().hide_without_manager_side_effects(false);
     }
     if let Some(parent) = state.parent_ignore.as_ref() {
-        let _ = parent.borrow_mut().hide(true);
+        let _ = parent.borrow_mut().hide_without_manager_side_effects(true);
     }
 
     populate_old_buddy_messages();
@@ -971,7 +971,7 @@ pub fn wol_buddy_overlay_system(
                 layout.borrow().run_init(None);
                 let rc_menu = layout.borrow().get_first_window();
                 if let Some(rc_menu) = rc_menu {
-                    rc_menu.borrow_mut().hide(false);
+                    rc_menu.borrow_mut().hide_without_manager_side_effects(false);
                     rc_menu.borrow_mut().bring_to_front();
                     let (win_w, win_h) = rc_menu.borrow().get_size();
                     let (screen_w, screen_h) = owner.with_manager(|manager| manager.screen_size());
@@ -1024,17 +1024,17 @@ pub fn wol_buddy_overlay_system(
                 close_overlay(GameSpyOverlayType::Buddy);
             } else if control_id == radio_buddies_id {
                 if let Some(parent) = parent_buddies.as_ref() {
-                    let _ = parent.borrow_mut().hide(false);
+                    let _ = parent.borrow_mut().hide_without_manager_side_effects(false);
                 }
                 if let Some(parent) = parent_ignore.as_ref() {
-                    let _ = parent.borrow_mut().hide(true);
+                    let _ = parent.borrow_mut().hide_without_manager_side_effects(true);
                 }
             } else if control_id == radio_ignore_id {
                 if let Some(parent) = parent_buddies.as_ref() {
-                    let _ = parent.borrow_mut().hide(true);
+                    let _ = parent.borrow_mut().hide_without_manager_side_effects(true);
                 }
                 if let Some(parent) = parent_ignore.as_ref() {
-                    let _ = parent.borrow_mut().hide(false);
+                    let _ = parent.borrow_mut().hide_without_manager_side_effects(false);
                 }
                 refresh_ignore_list();
             }
@@ -1340,7 +1340,7 @@ fn buddy_control_system(
                 layout.borrow().run_init(None);
                 let rc_menu = layout.borrow().get_first_window();
                 if let Some(rc_menu) = rc_menu {
-                    rc_menu.borrow_mut().hide(false);
+                    rc_menu.borrow_mut().hide_without_manager_side_effects(false);
                     rc_menu.borrow_mut().bring_to_front();
                     let (win_w, win_h) = rc_menu.borrow().get_size();
                     let (screen_w, screen_h) = owner.with_manager(|manager| manager.screen_size());

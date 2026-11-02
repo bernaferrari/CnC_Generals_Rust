@@ -8,7 +8,7 @@ fn admit_controls(
 ) -> ChatWindows {
     let mut create = |name: &str| {
         manager
-            .create_window_with_id(
+            .test_create_window_with_id(
                 None,
                 0,
                 0,

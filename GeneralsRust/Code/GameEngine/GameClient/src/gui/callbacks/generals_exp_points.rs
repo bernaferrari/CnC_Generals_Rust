@@ -146,6 +146,7 @@ mod tests {
     use crate::test_support::with_receiving_ui;
 
     use super::*;
+use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn mouse_entering_keeps_legacy_placement_cancel_when_bridge_is_disabled() {
@@ -158,9 +159,9 @@ mod tests {
             Some("TestStructure")
         );
 
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
         assert_eq!(
-            generals_exp_points_input(&window, WindowMessage::MouseEntering, 0, 0),
+            WindowEventEffects::with_standalone(|effects| generals_exp_points_input(&mut window, WindowMessage::MouseEntering, 0, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert!(
@@ -180,9 +181,9 @@ mod tests {
         let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
         transport_ui.admit_native_control_bar_transport();
 
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
         assert_eq!(
-            generals_exp_points_input(&window, WindowMessage::MouseEntering, 0, 0),
+            WindowEventEffects::with_standalone(|effects| generals_exp_points_input(&mut window, WindowMessage::MouseEntering, 0, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert!(matches!(

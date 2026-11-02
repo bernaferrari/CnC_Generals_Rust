@@ -3513,7 +3513,7 @@ mod tests {
 
         let mut manager = super::super::window_manager::WindowManager::new();
         let info = manager
-            .create_windows_from_script(path.to_str().unwrap())
+            .test_create_windows_from_script(path.to_str().unwrap())
             .unwrap();
         let window = info.windows[0].borrow();
         let data = window.instance_data();
@@ -3564,7 +3564,7 @@ mod tests {
 
         let mut manager = super::super::window_manager::WindowManager::new();
         let info = manager
-            .create_windows_from_script(path.to_str().unwrap())
+            .test_create_windows_from_script(path.to_str().unwrap())
             .unwrap();
         let window = info.windows[0].borrow();
         let data = window.instance_data();

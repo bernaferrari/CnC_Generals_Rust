@@ -614,7 +614,7 @@ fn multiplayer_start_position_buttons_match_map_waypoints_and_apparent_slots() {
         wm.find_window_by_name("MultiplayerLoadScreen.wnd:WinMapPreview")
             .expect("preview")
             .borrow_mut()
-            .set_size(100, 100)
+            .test_set_size(100, 100)
             .expect("preview size");
         create_multiplayer_start_position_windows(
             &mut wm,
@@ -723,7 +723,7 @@ fn multiplayer_map_preview_keeps_start_positions_when_preview_image_missing_like
         wm.find_window_by_name("MultiplayerLoadScreen.wnd:WinMapPreview")
             .expect("preview")
             .borrow_mut()
-            .set_size(100, 100)
+            .test_set_size(100, 100)
             .expect("preview size");
         create_multiplayer_start_position_windows(
             &mut wm,

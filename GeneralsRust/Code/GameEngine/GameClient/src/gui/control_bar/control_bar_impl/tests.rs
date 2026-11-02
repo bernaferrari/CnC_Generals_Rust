@@ -358,7 +358,7 @@ mod tests {
         let mut window = GameWindow::new();
         window.set_name("ControlBar.wnd:BackgroundMarker");
         let _ = window.set_position(0, 460);
-        let _ = window.set_size(800, 140);
+        let _ = window.test_set_size(800, 140);
         crate::gui::w3d_gadget_draw::w3d_command_bar_background_draw(
             &window,
             window.instance_data(),
@@ -583,7 +583,7 @@ mod tests {
                 let _ = owner.with_manager(|manager| {
                     let win = manager.test_create_window(None, 0, 0, 10, 10).expect("window");
                     win.borrow_mut().set_name(name);
-                    let _ = win.borrow_mut().hide(hidden);
+                    let _ = win.borrow_mut().hide_without_manager_side_effects(hidden);
                 });
             }
             let read_hidden = |name: &str| {

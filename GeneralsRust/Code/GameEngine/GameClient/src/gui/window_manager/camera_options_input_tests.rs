@@ -16,7 +16,7 @@ fn options_wnd() -> (
     let mut manager = WindowManager::new();
     let key = |name: &str| NameKeyGenerator::name_to_key(name) as i32;
     let parent = manager
-        .create_window_with_id(
+        .test_create_window_with_id(
             None,
             0,
             0,
@@ -44,7 +44,7 @@ fn options_wnd() -> (
     let mut button = |name: &str, x| {
         let id = key(name);
         let window = manager
-            .create_window_with_id(Some(&parent), x, 10, 50, 24, id)
+            .test_create_window_with_id(Some(&parent), x, 10, 50, 24, id)
             .unwrap();
         window
             .borrow_mut()
@@ -66,7 +66,7 @@ fn options_wnd() -> (
     let back = button("OptionsMenu.wnd:ButtonBack", 150);
     let id = key("OptionsMenu.wnd:SliderScrollSpeed");
     let slider = manager
-        .create_window_with_id(Some(&parent), 10, 100, 200, 20, id)
+        .test_create_window_with_id(Some(&parent), 10, 100, 200, 20, id)
         .unwrap();
     slider
         .borrow_mut()
@@ -258,7 +258,7 @@ fn actual_quit_and_no_save_options_buttons_select_borrowed_camera_admission() {
         let mut manager = WindowManager::new();
         let key = |name: &str| NameKeyGenerator::name_to_key(name) as i32;
         let parent = manager
-            .create_window_with_id(None, 0, 0, 500, 300, key(&format!("{prefix}:Parent")))
+            .test_create_window_with_id(None, 0, 0, 500, 300, key(&format!("{prefix}:Parent")))
             .unwrap();
         manager.bind_window_callbacks(
             &mut parent.borrow_mut(),
@@ -269,7 +269,7 @@ fn actual_quit_and_no_save_options_buttons_select_borrowed_camera_admission() {
         );
         let id = key(&format!("{prefix}:ButtonOptions"));
         let button = manager
-            .create_window_with_id(Some(&parent), 0, 0, 50, 24, id)
+            .test_create_window_with_id(Some(&parent), 0, 0, 50, 24, id)
             .unwrap();
         button
             .borrow_mut()
@@ -284,9 +284,8 @@ fn actual_quit_and_no_save_options_buttons_select_borrowed_camera_admission() {
             },
         );
         button.borrow_mut().set_cursor_position(5, 5).unwrap();
-        let (_, down) = button
-            .borrow_mut()
-            .send_input_with_control_bar_notification(
+        let (_, down) = crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            button.borrow_mut().send_input_with_control_bar_notification(
                 WindowMessage::LeftDown,
                 0,
                 0,
@@ -294,11 +293,12 @@ fn actual_quit_and_no_save_options_buttons_select_borrowed_camera_admission() {
                 false,
                 false,
                 None,
-            );
+                effects,
+            )
+        });
         assert!(down.is_none());
-        let (_, up) = button
-            .borrow_mut()
-            .send_input_with_control_bar_notification(
+        let (_, up) = crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            button.borrow_mut().send_input_with_control_bar_notification(
                 WindowMessage::LeftUp,
                 0,
                 0,
@@ -306,7 +306,9 @@ fn actual_quit_and_no_save_options_buttons_select_borrowed_camera_admission() {
                 false,
                 false,
                 None,
-            );
+                effects,
+            )
+        });
         let up = up.expect("actual push button must produce the selected pause Options action");
         assert!(matches!(up.action, SelectedOwnerAction::ShowQuitOptions));
         assert_eq!(up.control_id, id as WindowMsgData);
@@ -365,7 +367,7 @@ fn receiving_replay_checkbox_actual_wnd_commits_only_own_store_before_accept() {
     let parent = accept.borrow().get_parent().unwrap();
     let id = NameKeyGenerator::name_to_key("OptionsMenu.wnd:CheckBoxUseCamera") as i32;
     let checkbox = manager
-        .create_window_with_id(Some(&parent), 10, 180, 30, 30, id)
+        .test_create_window_with_id(Some(&parent), 10, 180, 30, 30, id)
         .unwrap();
     checkbox
         .borrow_mut()

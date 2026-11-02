@@ -97,10 +97,10 @@ fn presentation_input_owner_availability_tick_refreshes_bound_tooltip_without_re
                 .new_command_button(command.command_name.clone())
                 .object = command.object.clone();
             let window = owner.with_manager(|wm| {
-                wm.destroy_all_windows();
-                let win = wm.create_window(None, 0, 0, 10, 10).unwrap();
+                crate::gui::game_window::WindowEventEffects::with_standalone(|effects| wm.destroy_all_windows(effects));
+                let win = wm.test_create_window(None, 0, 0, 10, 10).unwrap();
                 win.borrow_mut().set_name("ControlBar.wnd:ButtonCommand01");
-                win.borrow_mut().hide(false).unwrap();
+                win.borrow_mut().hide_without_manager_side_effects(false).unwrap();
                 win
             });
             let mut bar = ControlBar::new();

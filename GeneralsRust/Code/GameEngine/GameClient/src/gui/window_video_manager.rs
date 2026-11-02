@@ -643,7 +643,7 @@ mod tests {
         let window = make_window();
         window
             .borrow_mut()
-            .hide(true)
+            .hide_without_manager_side_effects(true)
             .expect("window hidden flag should be set");
 
         let mut manager = WindowVideoManager::new();

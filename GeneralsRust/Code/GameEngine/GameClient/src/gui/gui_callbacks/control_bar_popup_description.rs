@@ -994,6 +994,7 @@ pub fn update_build_tooltip_layout(
 #[cfg(test)]
 mod presentation_can_make_popup_tests {
     use super::*;
+use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn host_popup_shows_bound_denials_without_legacy_player() {
@@ -1033,12 +1034,12 @@ mod presentation_can_make_popup_tests {
                 );
                 let mut owned_windows = None;
                 owner.with_manager(|wm| {
-                    wm.destroy_all_windows();
-                    let parent = wm.create_window(None, 0, 0, 500, 150).unwrap();
+                    WindowEventEffects::with_standalone(|effects| wm.destroy_all_windows(effects));
+                    let parent = wm.test_create_window(None, 0, 0, 500, 150).unwrap();
                     parent.borrow_mut().set_id(NameKeyGenerator::name_to_key(
                         "ControlBarPopupDescription.wnd:Parent",
                     ) as i32);
-                    let description = wm.create_window(Some(&parent), 0, 0, 480, 120).unwrap();
+                    let description = wm.test_create_window(Some(&parent), 0, 0, 480, 120).unwrap();
                     description
                         .borrow_mut()
                         .set_id(NameKeyGenerator::name_to_key(
@@ -1091,14 +1092,14 @@ mod presentation_can_make_popup_tests {
                     });
                     let (command, frozen_status) = resolve_command_button(&command_window).unwrap();
                     owner.with_manager(|manager| {
-                        populate_layout_for_command(
+                        WindowEventEffects::with_standalone(|effects| populate_layout_for_command(
                             &layout,
                             &command,
                             frozen_status,
                             &mut TooltipState::default(),
                             manager,
                             UpgradeTooltipSource::Standalone,
-                        )
+                        effects))
                     });
                     let text = description.borrow().get_text().to_owned();
                     if let Some(key) = key {

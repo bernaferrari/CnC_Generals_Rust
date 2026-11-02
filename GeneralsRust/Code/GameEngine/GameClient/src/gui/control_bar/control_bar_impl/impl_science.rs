@@ -2823,32 +2823,42 @@ mod science_vec_gate_tests {
     fn show_purchase_science_unhides_gen_exp_parent_and_sets_fade() {
         // C++ ControlBar.cpp:2918-2933 showPurchaseScience — winHide(FALSE)
         // on GeneralsExpPoints.wnd:GenExpParent + setGroup("GenExpFade").
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut bar = ControlBar::new();
-        bar.show_purchase_science();
-        assert!(
-            leftover_find_window(GEN_EXP_PARENT).is_some(),
-            "showPurchaseScience must bind GeneralsExpPoints.wnd:GenExpParent"
-        );
-        assert!(
-            !leftover_window_is_hidden(GEN_EXP_PARENT),
-            "showPurchaseScience must winHide(FALSE) GenExpParent"
-        );
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            owner.with_manager(|receiving_manager| {
+                bar.show_purchase_science(receiving_manager, effects);
+                assert!(
+                    leftover_find_window(GEN_EXP_PARENT, receiving_manager).is_some(),
+                    "showPurchaseScience must bind GeneralsExpPoints.wnd:GenExpParent"
+                );
+                assert!(
+                    !leftover_window_is_hidden(GEN_EXP_PARENT, receiving_manager),
+                    "showPurchaseScience must winHide(FALSE) GenExpParent"
+                );
+            });
+        });
         assert!(bar.science_state.is_visible);
         assert_eq!(bar.last_science_transition_group.take(), Some("GenExpFade"));
 
-        bar.hide_purchase_science();
-        assert!(
-            leftover_window_is_hidden(GEN_EXP_PARENT),
-            "hidePurchaseScience must winHide(TRUE) GenExpParent"
-        );
+        owner.with_manager(|receiving_manager| {
+            bar.hide_purchase_science(receiving_manager);
+            assert!(
+                leftover_window_is_hidden(GEN_EXP_PARENT, receiving_manager),
+                "hidePurchaseScience must winHide(TRUE) GenExpParent"
+            );
+        });
         assert!(!bar.science_state.is_visible);
     }
 
     #[test]
     fn progress_bar_experience_uses_live_host_skill() {
         // C++ ControlBar::updateContextPurchaseScience from live local skill.
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut bar = ControlBar::new();
-        bar.sync_rank_progress_from_presentation(50, 1150, 2, 3);
+        owner.with_manager(|receiving_manager| {
+            bar.sync_rank_progress_from_presentation(50, 1150, 2, 3, receiving_manager);
+        });
         assert_eq!(bar.science_state.live_rank_progress_percent, Some(50));
         assert!((bar.science_state.experience_progress - 0.5).abs() < 0.001);
         assert_eq!(bar.science_state.available_points, 3);
@@ -2860,11 +2870,16 @@ mod science_vec_gate_tests {
     fn generals_button_and_alt_g_toggle_purchase_science_window() {
         // C++ ControlBarCallback.cpp:396-399 ButtonGeneral → togglePurchaseScience.
         // Host Alt+G routes through TheControlBar::toggle_purchase_science.
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut bar = ControlBar::new();
-        bar.on_generals_button();
-        assert!(!leftover_window_is_hidden(GEN_EXP_PARENT));
-        bar.on_generals_button();
-        assert!(leftover_window_is_hidden(GEN_EXP_PARENT));
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            owner.with_manager(|receiving_manager| {
+                bar.on_generals_button(receiving_manager, effects);
+                assert!(!leftover_window_is_hidden(GEN_EXP_PARENT, receiving_manager));
+                bar.on_generals_button(receiving_manager, effects);
+                assert!(leftover_window_is_hidden(GEN_EXP_PARENT, receiving_manager));
+            });
+        });
     }
 
     #[test]

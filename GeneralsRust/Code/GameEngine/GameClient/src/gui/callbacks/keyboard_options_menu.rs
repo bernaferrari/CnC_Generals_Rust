@@ -1,5 +1,6 @@
 //! KeyboardOptionsMenu.cpp callback port.
 
+use crate::gui::game_window::WindowEventEffects;
 use crate::game_text::GameText;
 use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::gadgets::KeyModifiers;
@@ -524,28 +525,28 @@ mod tests {
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            keyboard_options_menu_input(&window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0),
+            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| keyboard_options_menu_input(&mut window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            keyboard_options_menu_input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
+            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| keyboard_options_menu_input(&mut window, WindowMessage::Char, b'A' as WindowMsgData, 0, effects)),
             WindowMsgHandled::Ignored
         );
     }
 
     #[test]
     fn keyboard_options_system_consumes_lifecycle_messages_like_cpp() {
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            keyboard_options_menu_system(&window, WindowMessage::Create, 0, 0),
+            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| keyboard_options_menu_system(&mut window, WindowMessage::Create, 0, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            keyboard_options_menu_system(&window, WindowMessage::Destroy, 0, 0),
+            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| keyboard_options_menu_system(&mut window, WindowMessage::Destroy, 0, 0, effects)),
             WindowMsgHandled::Handled
         );
     }
@@ -899,21 +900,22 @@ pub fn drive_os_wnd_keyboard_options_prepare_assign_like_cpp(
 mod os_wnd_tests {
     use super::*;
 
-    fn install_named_button(name: &str, x: i32, y: i32) {
+    fn install_named_button(owner: &crate::gui::window_manager::WindowManagerOwner, name: &str, x: i32, y: i32) {
         owner.with_manager(|manager| {
-            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+            let button = manager.test_create_window(None, x, y, 80, 24).expect(name);
             button.borrow_mut().set_name(name);
-            let _ = button.borrow_mut().hide(false);
+            let _ = button.borrow_mut().hide_without_manager_side_effects(false);
         });
     }
 
     #[test]
     fn os_wnd_keyboard_options_assign_hits_combo_list_and_assign() {
-        install_named_button("KeyboardOptionsMenu.wnd:ComboBoxCategoryList", 10, 10);
-        install_named_button("KeyboardOptionsMenu.wnd:ListBoxCommandList", 10, 40);
-        install_named_button("KeyboardOptionsMenu.wnd:ButtonAssign", 10, 70);
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        install_named_button(&owner, "KeyboardOptionsMenu.wnd:ComboBoxCategoryList", 10, 10);
+        install_named_button(&owner, "KeyboardOptionsMenu.wnd:ListBoxCommandList", 10, 40);
+        install_named_button(&owner, "KeyboardOptionsMenu.wnd:ButtonAssign", 10, 70);
         assert!(
-            drive_os_wnd_keyboard_options_prepare_assign_like_cpp(1, 2),
+            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| drive_os_wnd_keyboard_options_prepare_assign_like_cpp(1, 2, effects)),
             "OS WND clicks must latch category+command+Assign"
         );
         assert_eq!(residual_keyboard_options_category_index(), 1);
@@ -922,13 +924,14 @@ mod os_wnd_tests {
             residual_keyboard_options_last_action(),
             ResidualKeyboardOptionsAction::Assign
         );
-        assert!(!drive_os_wnd_keyboard_options_back_like_cpp());
+        assert!(!crate::gui::game_window::WindowEventEffects::with_standalone(|effects| drive_os_wnd_keyboard_options_back_like_cpp(effects)));
     }
 
     #[test]
     fn os_wnd_keyboard_options_reset_hits_button_reset_all() {
-        install_named_button("KeyboardOptionsMenu.wnd:ButtonResetAll", 10, 100);
-        assert!(drive_os_wnd_keyboard_options_reset_like_cpp());
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        install_named_button(&owner, "KeyboardOptionsMenu.wnd:ButtonResetAll", 10, 100);
+        assert!(crate::gui::game_window::WindowEventEffects::with_standalone(|effects| drive_os_wnd_keyboard_options_reset_like_cpp(effects)));
         assert_eq!(
             residual_keyboard_options_last_action(),
             ResidualKeyboardOptionsAction::ResetAll

@@ -175,9 +175,9 @@ fn actual_native_material_shell_obeys_repeat_and_freeze_admission() {
             logic_frame: 1,
             client_frame: 30,
         };
-        receiver.update_presentation_shell_with_material_frames(0., frames, &[fact])?;
+        receiver.update_presentation_shell_with_material_frames(0., frames, &[fact], 0)?;
         observations.push(opacity(&receiver));
-        receiver.update_presentation_shell_with_material_frames(0., frames, &[fact])?;
+        receiver.update_presentation_shell_with_material_frames(0., frames, &[fact], 0)?;
         observations.push(opacity(&receiver));
         receiver.set_frame(31);
         assert!(!receiver.admit_native_draw_frame(true));

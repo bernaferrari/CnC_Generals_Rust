@@ -527,7 +527,7 @@ mod asset_root_tests {
             );
             let mut manager = WindowManager::new();
             let actual = manager
-                .create_windows_from_script(&format!("Menus/{NAME}"))
+                .test_create_windows_from_script(&format!("Menus/{NAME}"))
                 .unwrap();
             assert_eq!(actual.windows.len(), 1);
             return;

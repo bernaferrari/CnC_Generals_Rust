@@ -473,25 +473,25 @@ impl WindowManager {
         width: i32,
         height: i32,
     ) -> WindowResult<Rc<RefCell<GameWindow>>> {
-        WindowEventEffects::with_standalone(|effects| {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
             self.create_window(parent, x, y, width, height, effects)
         })
     }
 
     pub fn test_destroy_all_windows(&mut self) {
-        WindowEventEffects::with_standalone(|effects| {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
             self.destroy_all_windows(effects);
         });
     }
 
     pub fn test_update(&mut self) {
-        WindowEventEffects::with_standalone(|effects| {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
             self.update(effects);
         });
     }
 
     pub fn test_reset(&mut self) {
-        WindowEventEffects::with_standalone(|effects| {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
             self.reset(effects);
         });
     }
@@ -500,7 +500,7 @@ impl WindowManager {
         &mut self,
         window: Option<&Rc<RefCell<GameWindow>>>,
     ) -> WindowResult<()> {
-        WindowEventEffects::with_standalone(|effects| self.set_focus(window, effects))
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| self.set_focus(window, effects))
     }
 
 
@@ -513,7 +513,7 @@ impl WindowManager {
         layout_def: &crate::gui::window_script::WindowLayoutDefinition,
         info: &mut WindowLayoutInfo,
     ) -> WindowResult<Rc<RefCell<GameWindow>>> {
-        WindowEventEffects::with_standalone(|effects| {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
             self.create_window_from_definition(
                 window_def, parent, layout, layout_def, info, effects,
             )
@@ -525,9 +525,31 @@ impl WindowManager {
         slider: &Rc<RefCell<GameWindow>>,
         layout: &crate::gui::window_script::WindowLayoutDefinition,
     ) -> WindowResult<()> {
-        WindowEventEffects::with_standalone(|effects| {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
             self.create_slider_thumb_child(slider, layout, effects)
         })
+    }
+
+
+    pub fn test_flush_destroy_queue(&mut self) {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.flush_destroy_queue(effects);
+        });
+    }
+
+    pub fn test_create_windows_from_script(
+        &mut self,
+        filename: &str,
+    ) -> WindowResult<WindowLayoutInfo> {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.create_windows_from_script(filename, effects)
+        })
+    }
+
+    pub fn test_destroy_script_message_window(&mut self) {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.destroy_script_message_window(effects);
+        });
     }
 
     pub fn test_process_key_event(
@@ -535,7 +557,7 @@ impl WindowManager {
         key: u8,
         state: u8,
     ) -> WindowInputReturnCode {
-        WindowEventEffects::with_standalone(|effects| self.process_key_event(key, state, effects))
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| self.process_key_event(key, state, effects))
     }
 
     pub fn test_process_mouse_event_with_delta(
@@ -546,7 +568,7 @@ impl WindowManager {
         data: WindowMsgData,
         mouse_delta: Option<(i32, i32)>,
     ) -> WindowInputReturnCode {
-        WindowEventEffects::with_standalone(|effects| {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
             self.process_mouse_event_with_delta(msg, x, y, data, mouse_delta, effects)
         })
     }
@@ -555,13 +577,13 @@ impl WindowManager {
         &mut self,
         window: Option<&Rc<RefCell<GameWindow>>>,
     ) {
-        WindowEventEffects::with_standalone(|effects| {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
             self.set_lone_window(window, effects);
         });
     }
 
     pub fn test_navigate_tab(&mut self, direction: TabDirection) {
-        WindowEventEffects::with_standalone(|effects| {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
             self.navigate_tab(direction, effects);
         });
     }
@@ -575,7 +597,7 @@ impl WindowManager {
         height: i32,
         window_id: WindowId,
     ) -> WindowResult<Rc<RefCell<GameWindow>>> {
-        WindowEventEffects::with_standalone(|effects| {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
             self.create_window_with_id(parent, x, y, width, height, window_id, effects)
         })
     }
@@ -587,7 +609,7 @@ impl WindowManager {
         y: i32,
         data: WindowMsgData,
     ) -> WindowInputReturnCode {
-        WindowEventEffects::with_standalone(|effects| {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
             self.process_mouse_event(msg, x, y, data, effects)
         })
     }
