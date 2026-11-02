@@ -24,6 +24,8 @@ pub struct WorldServices {
     terrain: Arc<RwLock<crate::terrain::TerrainLogic>>,
     /// Pending radar updates for this world (C++ logic→client fan-out).
     radar_updates: Mutex<VecDeque<RadarUpdate>>,
+    /// Host-script request drains for this world (formerly process TLS).
+    host_script_requests: crate::scripting::executor::HostScriptRequestQueues,
 }
 impl WorldServices {
     fn engine_defaults() -> Self {
@@ -32,6 +34,7 @@ impl WorldServices {
             client_visuals: ClientVisualState::default(),
             terrain: Arc::clone(&crate::terrain::THE_TERRAIN_LOGIC),
             radar_updates: Mutex::new(VecDeque::new()),
+            host_script_requests: crate::scripting::executor::HostScriptRequestQueues::default(),
         }
     }
     /// Snapshot engine content; fresh mutable per-world services. Inert.
@@ -43,6 +46,7 @@ impl WorldServices {
             client_visuals: ClientVisualState::default(),
             terrain: Arc::new(RwLock::new(crate::terrain::TerrainLogic::new())),
             radar_updates: Mutex::new(VecDeque::new()),
+            host_script_requests: crate::scripting::executor::HostScriptRequestQueues::default(),
         }
     }
     pub fn terrain(&self) -> &Arc<RwLock<crate::terrain::TerrainLogic>> {
@@ -56,6 +60,9 @@ impl WorldServices {
     }
     pub(crate) fn radar_updates(&self) -> &Mutex<VecDeque<RadarUpdate>> {
         &self.radar_updates
+    }
+    pub(crate) fn host_script_requests(&self) -> &crate::scripting::executor::HostScriptRequestQueues {
+        &self.host_script_requests
     }
 }
 /// Standalone Core runtime; AI is mandatory, never optional or deferred.
