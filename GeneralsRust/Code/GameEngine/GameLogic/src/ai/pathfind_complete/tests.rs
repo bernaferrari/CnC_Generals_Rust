@@ -3771,3 +3771,115 @@ fn closest_path_resolves_parked_aircraft_airfield_in_its_factory() {
         goal
     );
 }
+
+#[test]
+fn closest_dozer_crosses_only_obstacles_allowed_by_its_factory() {
+    use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
+    use std::sync::{Arc, RwLock};
+    fn fixture(
+        relation: Relationship,
+        is_dozer: bool,
+        missing: bool,
+    ) -> (ObjectFactory, ObjectID, PathfindingSystem) {
+        let mut factory = ObjectFactory::new();
+        let mut logic = crate::system::game_logic::GameLogic::new();
+        let source_team = Arc::new(RwLock::new(crate::team::Team::new("Source".into(), 801)));
+        let obstacle_team = Arc::new(RwLock::new(crate::team::Team::new("Obstacle".into(), 802)));
+        source_team
+            .write()
+            .unwrap()
+            .set_override_team_relationship(802, relation);
+        let mut source_template = crate::common::types::DefaultThingTemplate::new("Mover".into());
+        if is_dozer {
+            source_template.add_kind_of(KindOf::Dozer);
+        }
+        let source = factory
+            .prepare_object(
+                &mut logic,
+                Arc::new(source_template),
+                Coord3D::ZERO,
+                Some(source_team),
+                ObjectCreationFlags::NO_AI,
+            )
+            .unwrap();
+        let obstacle = factory
+            .prepare_object(
+                &mut logic,
+                Arc::new(crate::common::types::DefaultThingTemplate::new(
+                    "Structure".into(),
+                )),
+                Coord3D::ZERO,
+                Some(obstacle_team),
+                ObjectCreationFlags::NO_AI,
+            )
+            .unwrap();
+        let mut pathfinder = PathfindingSystem::new(9, 5);
+        pathfinder.new_map();
+        for y in 0..5 {
+            pathfinder.pathfinder.set_cell_obstacle_id(
+                GridCoord::new(4, y),
+                if missing { 999_999 } else { obstacle },
+                false,
+                false,
+            );
+        }
+        (factory, source, pathfinder)
+    }
+    let (ally_factory, source, mut ally) = fixture(Relationship::Allies, true, false);
+    let (enemy_factory, peer_source, mut enemy) = fixture(Relationship::Enemies, true, false);
+    let (normal_factory, normal_source, mut normal) = fixture(Relationship::Allies, false, false);
+    let (missing_factory, missing_source, mut missing) = fixture(Relationship::Allies, true, true);
+    assert_eq!(
+        (source, source, source),
+        (peer_source, normal_source, missing_source)
+    );
+    let players = crate::player::PlayerList::new();
+    let terrain = crate::terrain::TerrainLogic::new();
+    let goal = GridCoord::new(7, 2);
+    let request = PathRequest {
+        object_id: source,
+        from: GridCoord::new(1, 2).to_world(0.0),
+        to: goal.to_world(0.0),
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        unit_radius: 0.0,
+        allow_partial: true,
+        move_allies: false,
+        ignore_obstacle_id: None,
+        is_human: false,
+    };
+    let search = |world: &mut PathfindingSystem, factory: &ObjectFactory| {
+        let observations = PathfindObservations {
+            factory,
+            players: &players,
+            terrain: &terrain,
+        };
+        world
+            .find_closest_path_with_observations(
+                request.clone(),
+                Some(false),
+                Some(false),
+                Some(&observations),
+            )
+            .unwrap()
+    };
+    let allowed = search(&mut ally, &ally_factory);
+    let hostile = search(&mut enemy, &enemy_factory);
+    let ordinary = search(&mut normal, &normal_factory);
+    let absent = search(&mut missing, &missing_factory);
+    let allowed_again = search(&mut ally, &ally_factory);
+    for result in [&allowed, &hostile, &ordinary, &absent, &allowed_again] {
+        assert!(result.success);
+    }
+    assert_eq!(
+        GridCoord::from_world(allowed.waypoints.last().unwrap()),
+        goal
+    );
+    for result in [&hostile, &ordinary, &absent] {
+        assert_ne!(
+            GridCoord::from_world(result.waypoints.last().unwrap()),
+            goal
+        );
+    }
+    assert_eq!(allowed.waypoints, allowed_again.waypoints);
+}

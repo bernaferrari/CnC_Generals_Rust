@@ -635,6 +635,16 @@ impl PathfindingSystem {
         let surfaces = request.surfaces;
         let is_crusher = request.is_crusher;
         let is_human = request.is_human;
+        let is_dozer = match observations {
+            Some(world) => match world.object(request.object_id) {
+                Some(source) => source
+                    .read()
+                    .map_err(|_| "path owner poisoned")?
+                    .is_kind_of(KindOf::Dozer),
+                None => false,
+            },
+            None => Self::object_is_dozer(request.object_id),
+        };
         let can_path_through_units = request.move_allies; // C++ canPathThroughUnits loosely
         let path_cost_multiplier = 1.0f32;
         let ground_height = |cell: GridCoord| {
@@ -816,18 +826,47 @@ impl PathfindingSystem {
                 if downhill_only && ground_height(cell) < ground_height(nc) {
                     continue;
                 }
-                let movement_valid = self.valid_movement_cell_on_layer(
+                let mut movement_valid = self.valid_movement_cell_on_layer(
                     surfaces,
                     is_crusher,
                     nc,
                     layer,
                     terrain_ignore,
                 );
+                let mut dozer_crossing = false;
+                if !movement_valid && is_dozer {
+                    if let Some((PathfindCellType::Obstacle, Some(owner), _)) =
+                        self.pathfinder.obstacle_observation_at(nc, layer)
+                    {
+                        if owner != INVALID_ID {
+                            dozer_crossing = if owner == request.object_id {
+                                true
+                            } else {
+                                super::check_movement::observe_movement_pair(
+                                    request.object_id,
+                                    owner,
+                                    observations,
+                                    |source, obstacle| {
+                                        super::check_movement::movement_relationship(
+                                            source,
+                                            obstacle,
+                                            observations,
+                                        ) != Relationship::Enemies
+                                    },
+                                )?
+                                .unwrap_or(false)
+                            };
+                            movement_valid = dozer_crossing;
+                        }
+                    }
+                }
                 if !movement_valid && !tunneling {
                     continue;
                 }
-                // The original records the terrain opening before occupancy.
-                neighbor_flags[i] = true;
+                // Dozer-only crossings do not open a side for diagonal steps.
+                if !dozer_crossing {
+                    neighbor_flags[i] = true;
+                }
                 let mut info = CheckMovementInfo {
                     cell: nc,
                     layer,
