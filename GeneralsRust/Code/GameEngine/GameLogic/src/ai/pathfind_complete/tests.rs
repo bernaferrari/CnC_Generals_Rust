@@ -3928,6 +3928,68 @@ fn closest_path_equal_cost_frontier_keeps_cpp_insertion_order() {
     }
     let start = GridCoord::new(2, 0);
     let goal = GridCoord::new(2, 2);
+    let result = world.find_closest_path_with_movement_policy(
+        PathRequest {
+            object_id: INVALID_ID,
+            from: start.to_world(0.0),
+            to: goal.to_world(0.0),
+            surfaces: SURFACE_GROUND,
+            is_crusher: false,
+            unit_radius: 0.0,
+            allow_partial: true,
+            move_allies: false,
+            ignore_obstacle_id: None,
+            is_human: false,
+        },
+        Some(true),
+        Some(false),
+    );
+    assert!(result.success);
+    assert_eq!(
+        GridCoord::from_world(result.waypoints.last().unwrap()),
+        goal
+    );
+    assert!(
+        result
+            .waypoints
+            .iter()
+            .any(|point| GridCoord::from_world(point).x > start.x),
+        "C++ enqueues the right corridor before its equal-cost mirror"
+    );
+    assert!(
+        !result
+            .waypoints
+            .iter()
+            .any(|point| GridCoord::from_world(point).x < start.x)
+    );
+}
+
+#[test]
+fn closest_path_line_seed_changes_the_selected_corridor() {
+    let mut world = PathfindingSystem::new(7, 7);
+    world.new_map();
+    for (x, y) in [
+        (0, 0),
+        (0, 3),
+        (1, 1),
+        (1, 6),
+        (2, 3),
+        (2, 6),
+        (4, 4),
+        (4, 5),
+        (5, 0),
+        (5, 4),
+        (5, 6),
+        (6, 4),
+        (6, 5),
+        (6, 6),
+    ] {
+        world
+            .pathfinder
+            .set_cell_type(GridCoord::new(x, y), PathfindCellType::Impassable);
+    }
+    let start = GridCoord::new(1, 3);
+    let goal = GridCoord::new(5, 3);
     let result = world.find_closest_path(PathRequest {
         object_id: INVALID_ID,
         from: start.to_world(0.0),
@@ -3949,13 +4011,13 @@ fn closest_path_equal_cost_frontier_keeps_cpp_insertion_order() {
         result
             .waypoints
             .iter()
-            .any(|point| GridCoord::from_world(point).x > start.x),
-        "C++ enqueues the right corridor before its equal-cost mirror"
+            .any(|point| GridCoord::from_world(point).y > start.y),
+        "half-cost line seeding selects the lower corridor"
     );
     assert!(
         !result
             .waypoints
             .iter()
-            .any(|point| GridCoord::from_world(point).x < start.x)
+            .any(|point| GridCoord::from_world(point).y < start.y)
     );
 }

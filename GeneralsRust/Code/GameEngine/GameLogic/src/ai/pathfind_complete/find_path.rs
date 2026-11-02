@@ -1,6 +1,24 @@
 use super::*;
 
 impl PathfindingSystem {
+    fn hierarchical_bridge_endpoints(&self) -> Vec<(GridCoord, GridCoord)> {
+        self.bridges
+            .iter()
+            .filter(|bridge| !bridge.destroyed)
+            .flat_map(|bridge| {
+                let mut pairs = vec![(bridge.start_cell, bridge.end_cell)];
+                if let (Some(&first), Some(&last)) = (
+                    bridge.ground_connect_cells.first(),
+                    bridge.ground_connect_cells.last(),
+                ) {
+                    if first != last {
+                        pairs.push((first, last));
+                    }
+                }
+                pairs
+            })
+            .collect()
+    }
     /// C++ `Pathfinder::findPath` (AIPathfind.cpp:6364-6433).
     ///
     /// 1) clientSafeQuickDoesPathExist zone gate  
@@ -62,23 +80,7 @@ impl PathfindingSystem {
                     request.is_crusher,
                 )
         };
-        let jumps: Vec<(GridCoord, GridCoord)> = self
-            .bridges
-            .iter()
-            .filter(|b| !b.destroyed)
-            .flat_map(|b| {
-                let mut pairs = vec![(b.start_cell, b.end_cell)];
-                if let (Some(&a), Some(&z)) = (
-                    b.ground_connect_cells.first(),
-                    b.ground_connect_cells.last(),
-                ) {
-                    if a != z {
-                        pairs.push((a, z));
-                    }
-                }
-                pairs
-            })
-            .collect();
+        let jumps = self.hierarchical_bridge_endpoints();
         let hier_ok = self.pathfinder.apply_hierarchical_zone_prune(
             start,
             goal,
@@ -614,21 +616,27 @@ impl PathfindingSystem {
 
         // C++ hierarchical passable flags (unless tunneling).
         if tunneling {
-            self.zones.set_all_passable();
+            self.set_all_zone_passable();
         } else {
-            self.zones.clear_passable_flags();
-            let start_c = GridCoord::from_world(&request.from);
-            let hier_ok =
-                self.zones
-                    .are_connected(start_c, goal_grid, request.surfaces, request.is_crusher)
-                    || self.hierarchical_zones_join_via_bridge(
-                        start_c,
-                        goal_grid,
-                        request.surfaces,
-                        request.is_crusher,
-                    );
-            if !hier_ok {
-                self.zones.set_all_passable();
+            self.clear_zone_passable_flags();
+            let jumps = self.hierarchical_bridge_endpoints();
+            if self.pathfinder.apply_hierarchical_zone_prune(
+                start,
+                goal_grid,
+                request.surfaces,
+                request.is_crusher,
+                &jumps,
+            ) {
+                for (x, column) in self.zones.zone_blocks.iter_mut().enumerate() {
+                    for (y, block) in column.iter_mut().enumerate() {
+                        block.marked_passable = self.pathfinder.is_zone_passable(GridCoord::new(
+                            x as i32 * ZONE_BLOCK_SIZE,
+                            y as i32 * ZONE_BLOCK_SIZE,
+                        ));
+                    }
+                }
+            } else {
+                self.set_all_zone_passable();
             }
         }
 
@@ -732,7 +740,7 @@ impl PathfindingSystem {
 
         while let Some(std::cmp::Reverse((f, _, g, cx, cy, layer_id))) = open.pop() {
             let key = (cx, cy, layer_id);
-            if closed.contains(&key) {
+            if closed.contains(&key) || g_score.get(&key) != Some(&g) {
                 continue;
             }
             closed.insert(key);
@@ -812,6 +820,98 @@ impl PathfindingSystem {
                             )));
                         }
                     }
+                }
+            }
+
+            // examineCellsCallback may reopen an open or closed cell when the
+            // line walk finds a cheaper parent. Ordinary neighbors cannot.
+            if !tunneling && !downhill_only {
+                let mut seed_error = None;
+                game_pathfinding::visit_cell_line(
+                    (cx, cy),
+                    (goal_grid.x, goal_grid.y),
+                    |from, to| {
+                        let from = GridCoord::new(from.0, from.1);
+                        let to = GridCoord::new(to.0, to.1);
+                        let Some(from_layer) = self.pathfinder.resolved_layer_at(from, layer)
+                        else {
+                            return false;
+                        };
+                        let Some(to_layer) = self.pathfinder.resolved_layer_at(to, layer) else {
+                            return false;
+                        };
+                        if !self.valid_movement_cell_on_layer(
+                            surfaces,
+                            is_crusher,
+                            to,
+                            layer,
+                            terrain_ignore,
+                        ) || (to_layer == PathfindLayerEnum::Ground
+                            && !self.pathfinder.is_zone_passable(to))
+                            || self
+                                .pathfinder
+                                .is_pinched_on_layer(to, to_layer)
+                                .unwrap_or(false)
+                            || (is_human && !self.in_logical_extent(to))
+                        {
+                            return false;
+                        }
+                        let mut info = CheckMovementInfo {
+                            cell: to,
+                            layer: from_layer,
+                            radius,
+                            center_in_cell,
+                            acceptable_surfaces: surfaces,
+                            ..Default::default()
+                        };
+                        let clear = match self.check_for_movement_with_observations(
+                            request.object_id,
+                            &mut info,
+                            request.ignore_obstacle_id.unwrap_or(INVALID_ID),
+                            observations,
+                        ) {
+                            Ok(clear) => clear,
+                            Err(error) => {
+                                seed_error = Some(error);
+                                return false;
+                            }
+                        };
+                        if !clear
+                            || info.enemy_fixed
+                            || info.ally_fixed_count > 0
+                            || matches!(
+                                self.pathfinder.obstacle_observation_at(to, layer),
+                                Some((PathfindCellType::Cliff, _, _))
+                            )
+                        {
+                            return false;
+                        }
+                        let from_key = (from.x, from.y, from_layer as u8);
+                        let to_key = (to.x, to.y, to_layer as u8);
+                        let Some(&from_cost) = g_score.get(&from_key) else {
+                            return false;
+                        };
+                        let new_cost = from_cost + COST_ORTHO / 2;
+                        if g_score.get(&to_key).is_some_and(|&old| old <= new_cost) {
+                            return true;
+                        }
+                        closed.remove(&to_key);
+                        g_score.insert(to_key, new_cost);
+                        parents.insert(to_key, from_key);
+                        enqueue_order += 1;
+                        open.push(std::cmp::Reverse((
+                            new_cost + heuristic(to),
+                            enqueue_order,
+                            new_cost,
+                            to.x,
+                            to.y,
+                            to_layer as u8,
+                        )));
+                        true
+                    },
+                );
+                if let Some(error) = seed_error {
+                    return Err(error);
                 }
             }
             let mut neighbor_flags = [false; 8];
@@ -949,6 +1049,11 @@ impl PathfindingSystem {
                     if cell_type == PathfindCellType::Obstacle {
                         step += 100 * COST_ORTHO;
                     }
+                }
+                if neighbor_layer == PathfindLayerEnum::Ground
+                    && !self.pathfinder.is_zone_passable(nc)
+                {
+                    step += 100 * COST_ORTHO;
                 }
                 if tunneling && !terrain_valid {
                     step += 10 * COST_ORTHO;
