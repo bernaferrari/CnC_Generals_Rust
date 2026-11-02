@@ -24,3 +24,9 @@ note = "Cubic BezierSegment + BezFwdIterator; 0 process globals; parity tests un
 path = "Code/GameEngine/Common/src/bezier"
 cpp = "GeneralsMD/Code/GameEngine/Source/Common/Bezier"
 note = "Thin re-export shim of common::bezier."
+
+[[module]]
+path = "Code/GameEngine/GameLogic/src/system/radar_notifier.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Radar.cpp"
+note = "World-owned radar update fan-out queue; under-attack path still on TheRadar."
+
