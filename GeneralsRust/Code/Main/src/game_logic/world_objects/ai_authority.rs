@@ -1036,7 +1036,29 @@ impl GameLogic {
                 object_id,
                 target_id,
             } => {
-                let _ = self.apply_engagement_decision_aware(object_id, target_id);
+                let hunt_entry = self.objects.get(&object_id).is_some_and(|unit| {
+                    unit.retained_ai_root_state() == AIState::Hunting
+                        && unit.unit_ai_runtime.current_leaf_state() != AIState::Attacking
+                });
+                if hunt_entry {
+                    // AIHuntState selects AI_ATTACK_OBJECT on its child machine;
+                    // entering that state also initializes its attack machine.
+                    if matches!(
+                        self.get_able_to_attack_specific_object(
+                            object_id,
+                            target_id,
+                            AbleToAttackType::NewTarget,
+                            false,
+                        ),
+                        CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                    ) && !self.computer_refuses_non_hunt_airborne_chase(object_id, target_id)
+                    {
+                        let _ =
+                            self.attack_state_enter_with_effects(object_id, target_id, effects)?;
+                    }
+                } else {
+                    let _ = self.apply_engagement_decision_aware(object_id, target_id);
+                }
             }
             AICommand::StopAttack { object_id } => {
                 // stop_attack_decision_aware clears host + logs.

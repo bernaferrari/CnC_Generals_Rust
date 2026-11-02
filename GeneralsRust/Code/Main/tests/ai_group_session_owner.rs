@@ -1108,11 +1108,16 @@ fn locked_hunt_parent_allows_child_attack_to_finish() {
     hunt(&mut source);
     for _ in 0..240 {
         let unit = source.host_object(actor).unwrap();
-        if unit.target == Some(victim) {
+        if unit.target == Some(victim)
+            && (unit.status.is_aiming_weapon || unit.status.is_firing_weapon)
+        {
             break;
         }
         source.update_with_dt(1.0 / 30.0);
     }
+    let unit = source.host_object(actor).unwrap();
+    assert_eq!(unit.target, Some(victim));
+    assert!(unit.status.is_aiming_weapon || unit.status.is_firing_weapon);
     let builder = SnapshotBuilder::new();
     let mut saved = builder.create_world_snapshot(&source).unwrap();
     let before = machine(&saved, actor);
@@ -1144,13 +1149,6 @@ fn locked_hunt_parent_allows_child_attack_to_finish() {
         .unwrap();
     builder.restore_from_snapshot(&saved, &mut peer).unwrap();
     receiver.destroy_object(victim).unwrap();
-    // Hunt currently records its attack child without entering the aiming
-    // body (hq-vc6c0j). Mark this child active to isolate its return path.
-    receiver
-        .host_object_mut(actor)
-        .unwrap()
-        .status
-        .is_aiming_weapon = true;
     receiver.update_with_dt(1.0 / 30.0);
     let after = builder.create_world_snapshot(&receiver).unwrap();
     let body = machine(&after, actor);
