@@ -1207,6 +1207,28 @@ impl PathfindingGrid {
     }
 
     /// C++ `getCell(layer, x, y)` occupancy. Missing layer cells fall back to ground.
+    /// Whether the resolved C++ PathfindCell already owns an info record.
+    /// Occupancy, aircraft goals and obstacle cells retain their info between
+    /// searches; a free cell receives the next query's coordinates instead.
+    pub(super) fn has_retained_cell_info(&self, pos: GridPos, layer: PathfindLayerEnum) -> bool {
+        let resolved_layer = if (layer as u8) > PathfindLayerEnum::Ground as u8
+            && self.layer_cell_type(layer as u8, pos).is_some()
+        {
+            layer
+        } else {
+            PathfindLayerEnum::Ground
+        };
+        let occupied = self.raw_occupancy_bits(pos, resolved_layer);
+        if occupied.pos_unit != 0 || occupied.goal_unit != 0 || occupied.goal != 0 {
+            return true;
+        }
+        if resolved_layer == PathfindLayerEnum::Ground {
+            self.goal_aircraft(pos) != 0 || self.cell_type(pos) == PathfindCellType::Obstacle
+        } else {
+            self.layer_cell_type(resolved_layer as u8, pos) == Some(PathfindCellType::Obstacle)
+        }
+    }
+
     pub(super) fn occupancy_bits(&self, pos: GridPos, layer: PathfindLayerEnum) -> OccBits {
         self.raw_occupancy_bits(pos, layer)
             .ignoring_unit(self.query_ignore_unit_id)

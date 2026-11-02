@@ -1422,6 +1422,96 @@ impl PathfindingGrid {
         }
     }
 
+    /// C++ checkDestination for the receiving move-away search. Unlike
+    /// adjustDestination, this examines the requested footprint once and does
+    /// not apply surface, logical-extent or path-diameter checks to each cell.
+    /// Team relationships still use the session's player masks pending hq-6xymwm.
+    pub(super) fn check_move_away_destination(
+        &self,
+        cell: GridPos,
+        layer: PathfindLayerEnum,
+        radius: i32,
+        center_in_cell: bool,
+        mover: &Object,
+        objects: HostObjectRead<'_>,
+    ) -> bool {
+        let above = radius + i32::from(center_in_cell);
+        let ignored = mover.ignored_obstacle_id.map_or(0, |id| id.0);
+        let checks_aircraft = Self::is_aircraft_that_adjusts_destination(mover);
+        for x in cell.x - radius..cell.x + above {
+            for y in cell.y - radius..cell.y + above {
+                let pos = GridPos::new(x, y);
+                if !self.is_valid_pos(pos) {
+                    return false;
+                }
+                // getCell falls back to ground only if there is no cell on
+                // the requested layer; an impassable layer cell is still real.
+                let layer_cell = if (layer as u8) > PathfindLayerEnum::Ground as u8 {
+                    self.layer_cell_type(layer as u8, pos)
+                } else {
+                    None
+                };
+                let actual_layer = if layer_cell.is_some() {
+                    layer
+                } else {
+                    PathfindLayerEnum::Ground
+                };
+                if checks_aircraft {
+                    let aircraft_goal = if actual_layer == PathfindLayerEnum::Ground {
+                        self.goal_aircraft(pos)
+                    } else {
+                        0
+                    };
+                    if aircraft_goal != 0 && aircraft_goal != mover.id.0 {
+                        return false;
+                    }
+                    continue;
+                }
+                let cell_type = layer_cell.unwrap_or_else(|| self.cell_type(pos));
+                if cell_type == PathfindCellType::Obstacle {
+                    let ignored_obstacle = actual_layer == PathfindLayerEnum::Ground
+                        && ignored != 0
+                        && self
+                            .obstacle_owner(pos)
+                            .is_some_and(|(id, _, _)| id == ignored);
+                    if ignored_obstacle {
+                        continue;
+                    }
+                    return false;
+                }
+                if matches!(
+                    cell_type,
+                    PathfindCellType::Impassable | PathfindCellType::BridgeImpassable
+                ) {
+                    return false;
+                }
+                let bits = self.raw_occupancy_bits(pos, actual_layer);
+                let goal_id = bits.goal_unit;
+                if goal_id == 0 || goal_id == mover.id.0 || goal_id == ignored {
+                    continue;
+                }
+                let Some(goal) = objects.lookup(&ObjectId(goal_id)) else {
+                    continue;
+                };
+                let allied = if mover.is_undetected_defector() {
+                    false
+                } else if goal.is_undetected_defector() {
+                    true
+                } else if let (Some(source), Some(target)) =
+                    (mover.owner_player_id, goal.owner_player_id)
+                {
+                    source == target || (self.ally_mask_for(source) & (1u16 << target.min(15))) != 0
+                } else {
+                    mover.team == goal.team
+                };
+                if allied || (bits.pos_unit == goal_id && !mover.can_crush_or_squish(goal, false)) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
     pub(super) fn check_destination_for(
         &self,
         cell: GridPos,

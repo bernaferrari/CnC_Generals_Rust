@@ -368,3 +368,280 @@ fn occupied_start_automatically_enables_escape_tunneling() {
         "an enemy occupying the start permits the original escape search"
     );
 }
+
+#[test]
+fn even_footprint_uses_shifted_index_when_start_cell_has_no_info() {
+    let (world, large, small) = make_world();
+    let ground = PathfindingGround::Flat(0.0);
+    let mut finder = PathfindingSystem::new(400.0, 400.0);
+    let avoided = [Vec3::new(20.0, 0.0, 300.0), Vec3::new(180.0, 0.0, 300.0)];
+    let path = finder
+        .get_move_away_from_path(&avoided, None, &ground, world.host_objects(), large, small)
+        .unwrap();
+    assert_eq!(
+        path,
+        vec![Vec3::new(100.0, 0.0, 100.0), Vec3::new(120.5, 0.0, 100.5)]
+    );
+}
+
+#[test]
+fn even_footprint_keeps_existing_start_cell_info_coordinates() {
+    use generals_main::game_logic::pathfinding::PathPositionFootprint;
+    let (world, large, small) = make_world();
+    let ground = PathfindingGround::Flat(0.0);
+    let mut finder = PathfindingSystem::new(400.0, 400.0);
+    finder.grid.update_path_position_cell(
+        &PathPositionFootprint {
+            unit_id: large.0,
+            player: 0,
+            radius: 10.0,
+            layer: 0,
+            on_ground: true,
+            infantry: false,
+            crushable_level: 0,
+        },
+        (-1, -1),
+        Vec3::new(100.0, 0.0, 100.0),
+    );
+    let avoided = [Vec3::new(20.0, 0.0, 300.0), Vec3::new(180.0, 0.0, 300.0)];
+    let path = finder
+        .get_move_away_from_path(&avoided, None, &ground, world.host_objects(), large, small)
+        .unwrap();
+    assert_eq!(
+        path,
+        vec![Vec3::new(100.0, 0.0, 100.0), Vec3::new(100.5, 0.0, 100.5)]
+    );
+}
+
+#[test]
+fn odd_footprint_still_forces_movement_from_start_cell() {
+    let (world, large, small) = make_world();
+    let ground = PathfindingGround::Flat(0.0);
+    let mut finder = PathfindingSystem::new(400.0, 400.0);
+    let avoided = [Vec3::new(20.0, 0.0, 300.0), Vec3::new(180.0, 0.0, 300.0)];
+    let path = finder
+        .get_move_away_from_path(&avoided, None, &ground, world.host_objects(), small, large)
+        .unwrap();
+    assert_eq!(
+        path,
+        vec![Vec3::new(100.0, 0.0, 100.0), Vec3::new(115.0, 0.0, 105.0)]
+    );
+}
+
+#[test]
+fn even_footprint_respects_existing_goal_and_aircraft_cell_info() {
+    let (mut world, large, small) = make_world();
+    world.add_player(Player::new(1, Team::GLA, "Enemy", false));
+    let enemy = world
+        .create_object_for_player("Small", 1, Vec3::new(150.0, 0.0, 150.0))
+        .unwrap();
+    let ground = PathfindingGround::Flat(0.0);
+    let avoided = [Vec3::new(20.0, 0.0, 300.0), Vec3::new(180.0, 0.0, 300.0)];
+    for aircraft in [false, true] {
+        let mut finder = PathfindingSystem::new(400.0, 400.0);
+        if aircraft {
+            finder.grid.update_aircraft_goal_cell(
+                enemy.0,
+                2.0,
+                (-1, -1),
+                0,
+                Vec3::new(100.0, 0.0, 100.0),
+                true,
+            );
+        } else {
+            finder.grid.update_ground_goal_cell(
+                enemy.0,
+                1,
+                2.0,
+                false,
+                (-1, -1),
+                Vec3::new(100.0, 0.0, 100.0),
+            );
+        }
+        let path = finder
+            .get_move_away_from_path(&avoided, None, &ground, world.host_objects(), large, small)
+            .unwrap();
+        assert_eq!(
+            path,
+            vec![Vec3::new(100.0, 0.0, 100.0), Vec3::new(100.5, 0.0, 100.5)],
+            "aircraft={aircraft}"
+        );
+    }
+}
+
+#[test]
+fn even_footprint_start_info_is_owned_by_each_session() {
+    use generals_main::game_logic::pathfinding::PathPositionFootprint;
+    let (world, large, small) = make_world();
+    let (peer, peer_large, peer_small) = make_world();
+    assert_eq!((large, small), (peer_large, peer_small));
+    let ground = PathfindingGround::Flat(0.0);
+    let avoided = [Vec3::new(20.0, 0.0, 300.0), Vec3::new(180.0, 0.0, 300.0)];
+    let mut finder = PathfindingSystem::new(400.0, 400.0);
+    let mut peer_finder = PathfindingSystem::new(400.0, 400.0);
+    finder.grid.update_path_position_cell(
+        &PathPositionFootprint {
+            unit_id: large.0,
+            player: 0,
+            radius: 10.0,
+            layer: 0,
+            on_ground: true,
+            infantry: false,
+            crushable_level: 0,
+        },
+        (-1, -1),
+        Vec3::new(100.0, 0.0, 100.0),
+    );
+    let query = |sys: &mut PathfindingSystem, world: &GameLogic, mover, other| {
+        sys.get_move_away_from_path(&avoided, None, &ground, world.host_objects(), mover, other)
+            .unwrap()
+    };
+    let expected = query(&mut finder, &world, large, small);
+    let peer_path = query(&mut peer_finder, &peer, peer_large, peer_small);
+    assert_ne!(
+        expected, peer_path,
+        "only the first session has retained start info"
+    );
+    assert_eq!(query(&mut finder, &world, large, small), expected);
+}
+
+#[test]
+fn move_away_clips_a_start_outside_the_pathfinder_extent() {
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
+    for (name, radius) in [("Wide", 10.0), ("Narrow", 2.0)] {
+        let mut template = ThingTemplate::new(name);
+        template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        template.geometry_info.geom_type = HostGeometryType::Sphere;
+        template.geometry_info.major_radius = radius;
+        template.geometry_info.authored = true;
+        world.templates.insert(name.into(), template);
+    }
+    let mover = world
+        .create_object_for_player("Wide", 0, Vec3::new(-25.0, 0.0, 100.0))
+        .unwrap();
+    let other = world
+        .create_object_for_player("Narrow", 0, Vec3::new(150.0, 0.0, 150.0))
+        .unwrap();
+    let ground = PathfindingGround::Flat(0.0);
+    let mut finder = PathfindingSystem::new(400.0, 400.0);
+    let avoided = [Vec3::new(20.0, 0.0, 300.0), Vec3::new(180.0, 0.0, 300.0)];
+    let path = finder
+        .get_move_away_from_path(&avoided, None, &ground, world.host_objects(), mover, other)
+        .unwrap();
+    assert_eq!(
+        path,
+        vec![Vec3::new(-25.0, 0.0, 100.0), Vec3::new(10.5, 0.0, 100.5)]
+    );
+}
+
+#[test]
+fn even_footprint_can_accept_its_own_fixed_destination_cell() {
+    use generals_main::game_logic::pathfinding::PathPositionFootprint;
+    let (world, large, small) = make_world();
+    let ground = PathfindingGround::Flat(0.0);
+    let mut finder = PathfindingSystem::new(400.0, 400.0);
+    let position = Vec3::new(100.0, 0.0, 100.0);
+    finder
+        .grid
+        .update_ground_goal_cell(large.0, 0, 10.0, false, (-1, -1), position);
+    finder.grid.update_path_position_cell(
+        &PathPositionFootprint {
+            unit_id: large.0,
+            player: 0,
+            radius: 10.0,
+            layer: 0,
+            on_ground: true,
+            infantry: false,
+            crushable_level: 0,
+        },
+        (-1, -1),
+        position,
+    );
+    let avoided = [Vec3::new(20.0, 0.0, 300.0), Vec3::new(180.0, 0.0, 300.0)];
+    let path = finder
+        .get_move_away_from_path(&avoided, None, &ground, world.host_objects(), large, small)
+        .unwrap();
+    assert_eq!(path, vec![position, Vec3::new(100.5, 0.0, 100.5)]);
+}
+
+#[test]
+fn even_footprint_rejects_allied_goals_and_uncrushable_enemy_occupants() {
+    use generals_main::game_logic::pathfinding::PathPositionFootprint;
+    let (mut world, large, small) = make_world();
+    world.add_player(Player::new(1, Team::GLA, "Enemy", false));
+    let enemy = world
+        .create_object_for_player("Small", 1, Vec3::new(95.0, 0.0, 95.0))
+        .unwrap();
+    let ground = PathfindingGround::Flat(0.0);
+    let avoided = [Vec3::new(20.0, 0.0, 300.0), Vec3::new(180.0, 0.0, 300.0)];
+    for enemy_fixed in [false, true] {
+        let mut finder = PathfindingSystem::new(400.0, 400.0);
+        finder.grid.update_path_position_cell(
+            &PathPositionFootprint {
+                unit_id: large.0,
+                player: 0,
+                radius: 10.0,
+                layer: 0,
+                on_ground: true,
+                infantry: false,
+                crushable_level: 0,
+            },
+            (-1, -1),
+            Vec3::new(100.0, 0.0, 100.0),
+        );
+        let (goal, player) = if enemy_fixed { (enemy, 1) } else { (small, 0) };
+        let position = Vec3::new(95.0, 0.0, 95.0);
+        finder
+            .grid
+            .update_ground_goal_cell(goal.0, player, 2.0, false, (-1, -1), position);
+        if enemy_fixed {
+            finder.grid.update_path_position_cell(
+                &PathPositionFootprint {
+                    unit_id: goal.0,
+                    player,
+                    radius: 2.0,
+                    layer: 0,
+                    on_ground: true,
+                    infantry: false,
+                    crushable_level: 255,
+                },
+                (-1, -1),
+                position,
+            );
+        }
+        let path = finder
+            .get_move_away_from_path(&avoided, None, &ground, world.host_objects(), large, small)
+            .unwrap();
+        assert_ne!(
+            *path.last().unwrap(),
+            Vec3::new(100.5, 0.0, 100.5),
+            "enemy_fixed={enemy_fixed}: {path:?}"
+        );
+    }
+}
+
+#[test]
+fn move_away_destination_accepts_the_movers_ignored_obstacle() {
+    use generals_main::game_logic::pathfinding::GridPos;
+    let (mut world, large, small) = make_world();
+    world.host_object_mut(large).unwrap().ignored_obstacle_id = Some(small);
+    let ground = PathfindingGround::Flat(0.0);
+    let mut finder = PathfindingSystem::new(400.0, 400.0);
+    finder.grid.set_cell_obstacle_owned(
+        GridPos::new(10, 10),
+        false,
+        false,
+        small.0,
+        Some(0),
+        Some(Team::USA),
+    );
+    let avoided = [Vec3::new(20.0, 0.0, 300.0), Vec3::new(180.0, 0.0, 300.0)];
+    let path = finder
+        .get_move_away_from_path(&avoided, None, &ground, world.host_objects(), large, small)
+        .unwrap();
+    assert_eq!(
+        path,
+        vec![Vec3::new(100.0, 0.0, 100.0), Vec3::new(100.5, 0.0, 100.5)]
+    );
+}

@@ -577,11 +577,20 @@ impl PathfindingSystem {
         self.grid.query_seeker_id = mover.0;
         self.grid
             .set_query_footprint(self.seeker_path_diameter, is_crusher);
-        let start = self.grid.cell_for_unit_position(from, center_in_cell);
-        if !self.grid.is_valid_pos(start) {
+        let cell = self.grid.grid_size();
+        // C++ uses an unshifted clipped cell pointer, but allocates its search
+        // info with an index whose X coordinate is shifted by a whole cell for
+        // even footprints (AIPathfind.cpp:10199-10231).
+        let physical_start = self.grid.clamp_pos(self.grid.world_to_grid(from));
+        if !self.grid.is_valid_pos(physical_start) {
             return None;
         }
-        let cell = self.grid.grid_size();
+        let mut shifted_from = from;
+        if !center_in_cell {
+            shifted_from.x += cell * 0.5;
+            shifted_from.x += cell * 0.5;
+        }
+        let start_index = self.grid.clamp_pos(self.grid.world_to_grid(shifted_from));
         let mut box_half = radius as f32 * cell - cell / 4.0;
         if center_in_cell {
             box_half += cell / 2.0;
@@ -591,6 +600,14 @@ impl PathfindingSystem {
             box_half += cell / 2.0;
         }
         let start_layer = self.grid.layer_for_destination(from, ground_source);
+        let root_index = if self
+            .grid
+            .has_retained_cell_info(physical_start, start_layer)
+        {
+            physical_start
+        } else {
+            start_index
+        };
         let is_human = self.grid.query_is_human;
         let ally_mask = seeker_player
             .map(|p| self.grid.ally_mask_for(p))
@@ -616,7 +633,7 @@ impl PathfindingSystem {
                         self.seeker_is_infantry,
                         crusher_level,
                         ally_mask,
-                        Some(start),
+                        Some(start_index),
                         layer,
                     )?;
                     cost = cost.max(cell_cost);
@@ -625,14 +642,14 @@ impl PathfindingSystem {
             Some(cost)
         };
         let mut tunneling = !self.grid.valid_movement_position(
-            start,
+            physical_start,
             start_layer,
             surfaces,
             is_crusher,
             self.ignore_obstacle_id.map_or(0, |id| id.0),
-        ) || footprint_cost(start, start_layer).is_none();
+        ) || footprint_cost(start_index, start_layer).is_none();
         type SearchCell = (i32, i32, u8);
-        let start_key = (start.x, start.y, start_layer as u8);
+        let start_key = (physical_start.x, physical_start.y, start_layer as u8);
         let mut open: BinaryHeap<std::cmp::Reverse<(i32, u64, i32, i32, u8)>> = BinaryHeap::new();
         let mut next_order = 0u64;
         let mut costs: HashMap<SearchCell, i32> = HashMap::new();
@@ -641,8 +658,8 @@ impl PathfindingSystem {
         open.push(std::cmp::Reverse((
             0,
             next_order,
-            start.x,
-            start.y,
+            physical_start.x,
+            physical_start.y,
             start_layer as u8,
         )));
         next_order += 1;
@@ -679,31 +696,34 @@ impl PathfindingSystem {
             };
             check(path_to_avoid) || path_to_avoid2.is_some_and(check)
         };
-        while let Some(std::cmp::Reverse((g, _, cx, cy, lid))) = open.pop() {
-            let key = (cx, cy, lid);
+        while let Some(std::cmp::Reverse((g, _, physical_x, physical_y, lid))) = open.pop() {
+            let key = (physical_x, physical_y, lid);
             if !closed.insert(key) {
                 continue;
             }
-            let cell_pos = GridPos::new(cx, cy);
+            let physical_pos = GridPos::new(physical_x, physical_y);
+            let cell_pos = if key == start_key {
+                root_index
+            } else {
+                physical_pos
+            };
+            let (cx, cy) = (cell_pos.x, cell_pos.y);
             let layer = PathfindLayerEnum::from_u32(lid as u32);
-            if cell_pos != start
+            if cell_pos != start_index
                 && !overlaps(cell_pos)
-                && self.grid.check_destination_for(
+                && self.grid.check_move_away_destination(
                     cell_pos,
                     layer,
                     radius,
                     center_in_cell,
-                    surfaces,
-                    is_crusher,
-                    seeker_player,
-                    crusher_level,
-                    ground_source,
+                    unit,
+                    objects,
                 )
             {
                 found = Some(key);
                 break;
             }
-            if let Some(connected_layer) = self.grid.connect_layer_of(cell_pos, layer) {
+            if let Some(connected_layer) = self.grid.connect_layer_of(physical_pos, layer) {
                 let connected = (cx, cy, connected_layer as u8);
                 if !costs.contains_key(&connected) {
                     costs.insert(connected, g);
@@ -772,8 +792,13 @@ impl PathfindingSystem {
                 if self.grid.is_pinched(n) {
                     step += 24;
                 }
-                if let Some(&(px, py, _)) = parents.get(&key) {
-                    let previous = (px - cx, py - cy);
+                if let Some(&parent) = parents.get(&key) {
+                    let previous_pos = if parent == start_key {
+                        root_index
+                    } else {
+                        GridPos::new(parent.0, parent.1)
+                    };
+                    let previous = (previous_pos.x - cx, previous_pos.y - cy);
                     let direction = (-dx, -dy);
                     if previous != direction {
                         let dot = previous.0 * direction.0 + previous.1 * direction.1;
@@ -818,7 +843,11 @@ impl PathfindingSystem {
         }
         let mut path = vec![from];
         for (x, y, lid) in cells {
-            let pos = GridPos::new(x, y);
+            let pos = if (x, y, lid) == start_key {
+                root_index
+            } else {
+                GridPos::new(x, y)
+            };
             let layer = PathfindLayerEnum::from_u32(lid as u32);
             let mut world = self.grid.grid_to_world_on_layer(pos, layer, ground_source);
             let offset = if center_in_cell { 0.5 } else { 0.05 } * cell;
