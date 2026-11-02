@@ -977,19 +977,12 @@ fn cached_native_enter_queued_path_routes_around_actual_wall_through_gap() {
     )
     .unwrap();
     let grid = game.pathfinder.pathfinding_system_mut();
-    let valid = grid.valid_movement_position_with_observations(
-        surfaces,
-        false,
-        &target_pos,
-        Some(2),
-        Some(&observations),
-    );
-    let quick = grid.client_safe_quick_does_path_exist_ignoring_with_observations(
+    let valid = grid.valid_movement_position(surfaces, false, &target_pos, Some(2));
+    let quick = grid.client_safe_quick_does_path_exist_ignoring(
         surfaces,
         &source_pos,
         &target_pos,
         Some(2),
-        Some(&observations),
     );
     let mut request =
         crate::ai::pathfind_complete::PathRequest::new(source_pos, target_pos, surfaces);

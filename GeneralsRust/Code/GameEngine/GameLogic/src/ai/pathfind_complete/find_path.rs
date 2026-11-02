@@ -55,12 +55,11 @@ impl PathfindingSystem {
         }
 
         // C++ findPath: clientSafeQuickDoesPathExist first.
-        if !self.client_safe_quick_does_path_exist_ignoring_with_observations(
+        if !self.client_safe_quick_does_path_exist_ignoring(
             request.surfaces,
             &request.from,
             &request.to,
             request.ignore_obstacle_id,
-            observations,
         ) {
             return Ok(PathResult::none());
         }
@@ -642,12 +641,11 @@ impl PathfindingSystem {
             {
                 // C++: if (!startedStuck || validMovementPosition(...))
                 let movement_ok = !started_stuck
-                    || self.valid_movement_cell_with_observations(
+                    || self.valid_movement_cell(
                         surfaces,
                         is_crusher,
                         cell,
                         request.ignore_obstacle_id,
-                        observations,
                     );
                 if movement_ok {
                     let dx = (goal_grid.x - cx).abs() as f32;

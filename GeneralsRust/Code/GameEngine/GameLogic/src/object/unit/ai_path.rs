@@ -794,12 +794,11 @@ impl UnitAIUpdate {
     ) -> Result<bool, String> {
         let now = frame.unwrap_or_else(TheGameLogic::get_frame);
         let request = self.build_classic_path_request(*destination, false)?;
-        if pathfinder.valid_movement_position_with_observations(
+        if pathfinder.valid_movement_position(
             request.surfaces,
             request.is_crusher,
             destination,
             request.ignore_obstacle_id,
-            observations,
         ) {
             return Ok(false);
         }

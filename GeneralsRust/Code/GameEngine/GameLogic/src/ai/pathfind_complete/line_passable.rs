@@ -906,42 +906,20 @@ impl PathfindingSystem {
         from: &Coord3D,
         to: &Coord3D,
     ) -> bool {
-        self.client_safe_quick_does_path_exist_with_observations(surfaces, from, to, None)
-    }
-    pub(crate) fn client_safe_quick_does_path_exist_with_observations(
-        &self,
-        surfaces: LocomotorSurfaceTypeMask,
-        from: &Coord3D,
-        to: &Coord3D,
-        observations: Option<&PathfindObservations>,
-    ) -> bool {
-        self.client_safe_quick_does_path_exist_ignoring_with_observations(
-            surfaces,
-            from,
-            to,
-            None,
-            observations,
-        )
+        self.client_safe_quick_does_path_exist_ignoring(surfaces, from, to, None)
     }
 
     /// CPP findPath's quick gate observes the same ignored receiver as A*.
     /// The ordinary query wrapper retains no ignored-object policy.
-    pub(crate) fn client_safe_quick_does_path_exist_ignoring_with_observations(
+    pub(crate) fn client_safe_quick_does_path_exist_ignoring(
         &self,
         surfaces: LocomotorSurfaceTypeMask,
         from: &Coord3D,
         to: &Coord3D,
         ignore_obstacle_id: Option<ObjectID>,
-        observations: Option<&PathfindObservations>,
     ) -> bool {
         // C++ validMovementPosition(false, destLayer, locoSet, to)
-        if !self.valid_movement_position_with_observations(
-            surfaces,
-            false,
-            to,
-            ignore_obstacle_id,
-            observations,
-        ) {
+        if !self.valid_movement_position(surfaces, false, to, ignore_obstacle_id) {
             return false;
         }
         // C++: no goals on cliffs

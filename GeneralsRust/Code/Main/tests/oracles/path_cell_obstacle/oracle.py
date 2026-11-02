@@ -7,6 +7,9 @@ import tempfile
 
 root = Path(__file__).resolve().parents[6]
 source_file = root / "GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AIPathfind.cpp"
+id_header = root / "GeneralsMD/Code/GameEngine/Include/Common/GameType.h"
+if hashlib.sha256(id_header.read_bytes()).hexdigest() != "3679c35576f92874ef4a06b598128c6fc031ec65214eb4685bbfccbf56ccc3de":
+    raise SystemExit("C++ object ID header pin mismatch")
 source = source_file.read_bytes()
 if hashlib.sha256(source).hexdigest() != "0e25cf977f60f59c856969adfff1ac551d543501a35acc6a4e3094210ba9485b":
     raise SystemExit("C++ source pin mismatch")
@@ -27,7 +30,7 @@ def extract(signature):
 program = r'''
 #include <iostream>
 using Bool = bool;
-constexpr int INVALID_ID = -1, BODY_RUBBLE = 1, KINDOF_CAN_SEE_THROUGH_STRUCTURE = 1;
+constexpr int INVALID_ID = 0, BODY_RUBBLE = 3, KINDOF_CAN_SEE_THROUGH_STRUCTURE = 1;
 #define DEBUG_CRASH(x) ((void)0)
 struct ICoord2D { int x = 0, y = 0; };
 struct Body { int state = 0; int getDamageState() const { return state; } };

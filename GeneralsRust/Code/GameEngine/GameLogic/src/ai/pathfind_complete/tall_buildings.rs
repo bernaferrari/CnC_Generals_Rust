@@ -478,30 +478,8 @@ impl PathfindingSystem {
         pos: &Coord3D,
         ignore_obstacle_id: Option<ObjectID>,
     ) -> bool {
-        self.valid_movement_position_with_observations(
-            surfaces,
-            is_crusher,
-            pos,
-            ignore_obstacle_id,
-            None,
-        )
-    }
-    pub(crate) fn valid_movement_position_with_observations(
-        &self,
-        surfaces: LocomotorSurfaceTypeMask,
-        is_crusher: bool,
-        pos: &Coord3D,
-        ignore_obstacle_id: Option<ObjectID>,
-        observations: Option<&PathfindObservations>,
-    ) -> bool {
         let coord = GridCoord::from_world(pos);
-        self.valid_movement_cell_with_observations(
-            surfaces,
-            is_crusher,
-            coord,
-            ignore_obstacle_id,
-            observations,
-        )
+        self.valid_movement_cell(surfaces, is_crusher, coord, ignore_obstacle_id)
     }
 
     /// Quick validity check for a locomotor grid cell.
@@ -512,30 +490,18 @@ impl PathfindingSystem {
         coord: GridCoord,
         ignore_obstacle_id: Option<ObjectID>,
     ) -> bool {
-        self.valid_movement_cell_with_observations(
-            surfaces,
-            is_crusher,
-            coord,
-            ignore_obstacle_id,
-            None,
-        )
-    }
-    pub(crate) fn valid_movement_cell_with_observations(
-        &self,
-        surfaces: LocomotorSurfaceTypeMask,
-        is_crusher: bool,
-        coord: GridCoord,
-        ignore_obstacle_id: Option<ObjectID>,
-        observations: Option<&PathfindObservations>,
-    ) -> bool {
         if !self.is_valid_coord(coord) {
             return false;
         }
-        let ignore_cells = observations.map_or_else(
-            || ignored_obstacle_cells(ignore_obstacle_id),
-            |world| world.ignored_cells(ignore_obstacle_id),
-        );
         let pathfinder = &self.pathfinder;
-        pathfinder.is_passable_with_ignore(coord, surfaces, is_crusher, ignore_cells.as_ref())
+        if let Some(ignored) = ignore_obstacle_id.filter(|id| *id != INVALID_ID) {
+            if matches!(
+                pathfinder.obstacle_observation_at(coord, PathfindLayerEnum::Ground),
+                Some((PathfindCellType::Obstacle, Some(owner), _)) if owner == ignored
+            ) {
+                return true;
+            }
+        }
+        pathfinder.is_passable(coord, surfaces, is_crusher)
     }
 }

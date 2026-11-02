@@ -313,27 +313,13 @@ impl PathfindingSystem {
 
         // C++ checkForAdjust path gate via clientSafeQuickDoesPathExist.
         if let Some(from_pos) = from {
-            let path_exists = self.client_safe_quick_does_path_exist_with_observations(
-                surfaces,
-                from_pos,
-                dest,
-                observations,
-            );
-            let adjusted_path_exists = self.client_safe_quick_does_path_exist_with_observations(
-                surfaces,
-                from_pos,
-                &adjust_dest,
-                observations,
-            );
+            let path_exists = self.client_safe_quick_does_path_exist(surfaces, from_pos, dest);
+            let adjusted_path_exists =
+                self.client_safe_quick_does_path_exist(surfaces, from_pos, &adjust_dest);
             let mut ok = adjusted_path_exists;
             if !path_exists {
                 // C++: if (!pathExists) { if (clientSafeQuick(dest, adjustDest)) ok }
-                if self.client_safe_quick_does_path_exist_with_observations(
-                    surfaces,
-                    dest,
-                    &adjust_dest,
-                    observations,
-                ) {
+                if self.client_safe_quick_does_path_exist(surfaces, dest, &adjust_dest) {
                     ok = true;
                 }
             }
