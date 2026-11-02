@@ -548,6 +548,20 @@ impl PathfindingSystem {
         let is_human = request.is_human;
         let can_path_through_units = request.move_allies; // C++ canPathThroughUnits loosely
         let path_cost_multiplier = 1.0f32;
+        let ground_height = |cell: GridCoord| {
+            let x = cell.x as f32 * PATHFIND_CELL_SIZE_F;
+            let y = cell.y as f32 * PATHFIND_CELL_SIZE_F;
+            observations.map_or_else(
+                || {
+                    TheTerrainLogic::get()
+                        .map(|terrain| {
+                            terrain.get_layer_height(x, y, CommonPathfindLayerEnum::Ground)
+                        })
+                        .unwrap_or(0.0)
+                },
+                |world| world.terrain.get_ground_height(x, y, None),
+            )
+        };
 
         let deltas: [(i32, i32); 8] = [
             (1, 0),
@@ -570,6 +584,7 @@ impl PathfindingSystem {
         let mut open: std::collections::BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32)>> =
             std::collections::BinaryHeap::new();
         let mut g_score: HashMap<(i32, i32), i32> = HashMap::new();
+        let mut parents: HashMap<(i32, i32), (i32, i32)> = HashMap::new();
         let mut closed: HashSet<(i32, i32)> = HashSet::new();
         let h0 = heuristic(start);
         open.push(std::cmp::Reverse((h0, 0, start.x, start.y)));
@@ -668,6 +683,7 @@ impl PathfindingSystem {
                     let key = (link.x, link.y);
                     if !g_score.get(&key).is_some_and(|&og| g >= og) {
                         g_score.insert(key, g);
+                        parents.insert(key, (cx, cy));
                         let f = g + heuristic(link);
                         open.push(std::cmp::Reverse((f, g, link.x, link.y)));
                     }
@@ -686,6 +702,9 @@ impl PathfindingSystem {
                 }
                 // C++ 6181-6185: skip diagonal only if BOTH adjacent flags false.
                 if Self::skip_diagonal_if_squeezed(i, &neighbor_flags) {
+                    continue;
+                }
+                if downhill_only && ground_height(cell) < ground_height(nc) {
                     continue;
                 }
                 let movement_valid = self.valid_movement_cell_on_layer(
@@ -737,6 +756,7 @@ impl PathfindingSystem {
                     continue;
                 }
                 g_score.insert(key, ng);
+                parents.insert(key, (cx, cy));
                 let f = ng + if tunneling { 0 } else { heuristic(nc) };
                 open.push(std::cmp::Reverse((f, ng, nx, ny)));
             }
@@ -763,17 +783,52 @@ impl PathfindingSystem {
             );
             p
         };
-        let from = request.from;
+        // buildActualPath follows the parent chain from this search; a second
+        // search can reject or choose a different route out of a stuck start.
+        let mut cursor = (best_cell.x, best_cell.y);
+        let start_key = (start.x, start.y);
+        let mut grid_path = vec![best_cell];
+        while cursor != start_key {
+            let Some(&parent) = parents.get(&cursor) else {
+                return Err("closest path parent missing".into());
+            };
+            cursor = parent;
+            grid_path.push(GridCoord::new(cursor.0, cursor.1));
+            if grid_path.len() > parents.len() + 1 {
+                return Err("closest path parent cycle".into());
+            }
+        }
+        grid_path.reverse();
+        let layered: Vec<_> = grid_path
+            .iter()
+            .map(|&cell| (cell, self.get_layer_for_coord(cell)))
+            .collect();
+        let mut result = self.build_actual_path_from_layered_path_with_observations(
+            &layered,
+            &request.from,
+            &to_pos,
+            surfaces,
+            is_crusher,
+            false,
+            center_in_cell,
+            request.object_id,
+            observations,
+        );
+        if !result.success {
+            return Ok(result);
+        }
+        result.total_cost = self.calculate_path_cost(&grid_path);
         request.to = to_pos;
-        // Use internal path to avoid hierarchical precheck doubling work.
-        let result =
-            self.find_path_internal_with_observations(request, Some(downhill_only), observations)?;
-        Ok(if result.success {
-            result
-        } else if aircraft_goal_only {
-            Self::destination_only_result(from, to_pos, self.get_layer_for_coord(best_cell))
-        } else {
-            PathResult::none()
-        })
+        let (waypoints, layers) = self.optimize_path_blocked_with_observations(
+            &result.waypoints,
+            &result.layers,
+            &request,
+            result.blocked_by_ally,
+            observations,
+        )?;
+        result.can_optimize = vec![true; waypoints.len()];
+        result.waypoints = waypoints;
+        result.layers = layers;
+        Ok(result)
     }
 }

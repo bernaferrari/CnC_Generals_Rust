@@ -3260,3 +3260,39 @@ fn closest_search_can_leave_a_blocked_start() {
     );
     assert!(!world.is_tunneling());
 }
+
+#[test]
+fn closest_path_keeps_its_escape_route_from_water() {
+    let mut world = PathfindingSystem::new(8, 8);
+    world.new_map();
+    let start = GridCoord::new(2, 4);
+    let goal = GridCoord::new(5, 4);
+    world
+        .pathfinder
+        .set_cell_type(start, PathfindCellType::Water);
+    world.recalculate_zones_from_cells();
+    let result = world.find_closest_path(PathRequest {
+        object_id: INVALID_ID,
+        from: start.to_world(0.0),
+        to: goal.to_world(0.0),
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        unit_radius: 0.0,
+        allow_partial: true,
+        move_allies: false,
+        ignore_obstacle_id: None,
+        is_human: false,
+    });
+    assert!(
+        result.success,
+        "the closest search can escape an invalid starting cell"
+    );
+    assert_eq!(
+        GridCoord::from_world(result.waypoints.first().unwrap()),
+        start
+    );
+    assert_eq!(
+        GridCoord::from_world(result.waypoints.last().unwrap()),
+        goal
+    );
+}
