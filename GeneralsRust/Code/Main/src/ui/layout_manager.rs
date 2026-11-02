@@ -938,47 +938,7 @@ impl UILayoutManager {
     }
 }
 
-/// Residual: last MainMenu layout action requested by residual peels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum ResidualMainMenuLayoutAction {
-    None = 0,
-    Create = 1,
-    Clear = 2,
-    HitTest = 3,
-}
-
-static RESIDUAL_MML_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_MML_ELEMENT_COUNT: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-static RESIDUAL_MML_BUTTON_COUNT: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-
-fn residual_mml_action_store(action: ResidualMainMenuLayoutAction) {
-    RESIDUAL_MML_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
-}
-
-/// Residual: last MainMenu layout residual action.
-pub fn residual_main_menu_layout_last_action() -> ResidualMainMenuLayoutAction {
-    match RESIDUAL_MML_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => ResidualMainMenuLayoutAction::Create,
-        2 => ResidualMainMenuLayoutAction::Clear,
-        3 => ResidualMainMenuLayoutAction::HitTest,
-        _ => ResidualMainMenuLayoutAction::None,
-    }
-}
-
-/// Residual: element count latch from last create.
-pub fn residual_main_menu_layout_element_count() -> usize {
-    RESIDUAL_MML_ELEMENT_COUNT.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-/// Residual: named button count latch from last create.
-pub fn residual_main_menu_layout_button_count() -> usize {
-    RESIDUAL_MML_BUTTON_COUNT.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-/// Retail MainMenu.wnd primary button names residual (create_main_menu_layout).
+/// Retail MainMenu.wnd primary button names.
 pub const MAIN_MENU_LAYOUT_BUTTON_NAMES: &[&str] = &[
     "ButtonSinglePlayer",
     "ButtonMultiplayer",
@@ -1004,7 +964,7 @@ pub const MAIN_MENU_LAYOUT_BUTTON_NAMES: &[&str] = &[
     "ButtonDiffBack",
 ];
 
-/// Residual shell chrome element names residual.
+/// Retail MainMenu shell chrome element names.
 pub const MAIN_MENU_LAYOUT_CHROME_NAMES: &[&str] = &[
     "MainMenuBackground",
     "MainMenuRuler",
@@ -1017,33 +977,26 @@ pub const MAIN_MENU_LAYOUT_CHROME_NAMES: &[&str] = &[
     "StaticTextSelectDifficulty",
 ];
 
-/// Residual: create MainMenu layout at 800x600 residual (no WGPU).
+/// Create MainMenu layout at 800x600 and verify retail button/chrome names (no WGPU).
 pub fn simulate_main_menu_layout_create() -> bool {
     let mut layout = UILayoutManager::new(800.0, 600.0);
     let buttons = layout.create_main_menu_layout();
-    let n = buttons.len();
     let button_n = MAIN_MENU_LAYOUT_BUTTON_NAMES
         .iter()
         .filter(|name| buttons.contains_key(**name))
         .count();
-    RESIDUAL_MML_ELEMENT_COUNT.store(n, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_MML_BUTTON_COUNT.store(button_n, std::sync::atomic::Ordering::Relaxed);
-    residual_mml_action_store(ResidualMainMenuLayoutAction::Create);
     button_n == MAIN_MENU_LAYOUT_BUTTON_NAMES.len()
         && MAIN_MENU_LAYOUT_CHROME_NAMES
             .iter()
             .all(|name| buttons.contains_key(*name) || layout.get_element_by_name(name).is_some())
 }
 
-/// Residual: clear residual counters.
+/// No process-wide layout latch remains; kept for overlay command compatibility.
 pub fn simulate_main_menu_layout_clear() -> bool {
-    RESIDUAL_MML_ELEMENT_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_MML_BUTTON_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
-    residual_mml_action_store(ResidualMainMenuLayoutAction::Clear);
-    residual_main_menu_layout_element_count() == 0
+    true
 }
 
-/// Residual: hit-test Single Player button residual at default 800x600 layout.
+/// Hit-test Single Player button at default 800x600 layout.
 pub fn simulate_main_menu_layout_hit_test_single_player() -> bool {
     let mut layout = UILayoutManager::new(800.0, 600.0);
     let buttons = layout.create_main_menu_layout();
@@ -1055,11 +1008,10 @@ pub fn simulate_main_menu_layout_hit_test_single_player() -> bool {
     };
     let c = elem.rect.center();
     let hit = layout.find_element_at_position(c.x, c.y);
-    residual_mml_action_store(ResidualMainMenuLayoutAction::HitTest);
     hit == Some(id)
 }
 
-/// Residual: create + hit-test composite.
+/// Create + hit-test composite.
 pub fn simulate_main_menu_layout_prepare_default() -> bool {
     if !simulate_main_menu_layout_create() {
         return false;
