@@ -615,7 +615,8 @@ impl GameLogic {
                     if original.is_empty() {
                         let is_human = obj
                             .owner_player_id
-                            .map(|pid| self.is_local_player(pid))
+                            .and_then(|pid| self.get_player(pid))
+                            .map(|player| player.is_human)
                             .unwrap_or(true);
                         if let Some(path) = ({
                             let ground_owner = self.world_services.terrain();
@@ -678,7 +679,8 @@ impl GameLogic {
                         None if original.is_empty() => {
                             let is_human = obj
                                 .owner_player_id
-                                .map(|pid| self.is_local_player(pid))
+                                .and_then(|pid| self.get_player(pid))
+                                .map(|player| player.is_human)
                                 .unwrap_or(true);
                             if let Some(path) = ({
                                 let ground_owner = self.world_services.terrain();
@@ -779,7 +781,8 @@ impl GameLogic {
                         None => {
                             let is_human = obj
                                 .owner_player_id
-                                .map(|pid| self.is_local_player(pid))
+                                .and_then(|pid| self.get_player(pid))
+                                .map(|player| player.is_human)
                                 .unwrap_or(true);
                             if let Some(path) = ({
                                 let ground_owner = self.world_services.terrain();

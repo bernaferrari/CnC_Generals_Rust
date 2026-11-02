@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute the original safe-path controller selection, not the full search."""
+"""Execute the original safe and closest controller selection, not full searches."""
 import hashlib
 from pathlib import Path
 import subprocess
@@ -9,9 +9,6 @@ cpp = Path(__file__).resolve().parents[6] / 'GeneralsMD/Code/GameEngine/Source/G
 if hashlib.sha256(cpp.read_bytes()).hexdigest() != '0e25cf977f60f59c856969adfff1ac551d543501a35acc6a4e3094210ba9485b':
     raise SystemExit('C++ source pin mismatch')
 source = cpp.read_text()
-start = source.index('Bool isHuman = true;', source.index('Path *Pathfinder::findSafePath('))
-end = source.index('\n\n', start)
-block = source[start:end]
 program = r'''
 #include <cassert>
 #include <iostream>
@@ -29,14 +26,17 @@ int main() {
     assert(decide(&h)); assert(!decide(&c)); assert(decide(&none)); assert(decide(nullptr));
     std::cout << "human human\ncomputer computer\nmissing-controller human\nmissing-object human\n";
 }
-'''.replace('__BLOCK__', block)
+'''
 with tempfile.TemporaryDirectory(prefix='safe-controller-') as directory:
     src = Path(directory) / 'oracle.cpp'
     binary = Path(directory) / 'oracle'
-    src.write_text(program)
-    subprocess.run(['c++', '-std=c++17', str(src), '-o', str(binary)], check=True)
-    actual = subprocess.check_output([str(binary)], text=True)
-expected = 'human human\ncomputer computer\nmissing-controller human\nmissing-object human\n'
-if actual != expected:
-    raise SystemExit(f'unexpected result: {actual!r}')
-print(actual, end='')
+    expected = 'human human\ncomputer computer\nmissing-controller human\nmissing-object human\n'
+    for method in ('findSafePath', 'findClosestPath'):
+        start = source.index('Bool isHuman = true;', source.index(f'Path *Pathfinder::{method}('))
+        end = source.index('\n\n', start)
+        src.write_text(program.replace('__BLOCK__', source[start:end]))
+        subprocess.run(['c++', '-std=c++17', str(src), '-o', str(binary)], check=True)
+        actual = subprocess.check_output([str(binary)], text=True)
+        if actual != expected:
+            raise SystemExit(f'{method}: unexpected result: {actual!r}')
+        print(f'{method}: {actual.replace(chr(10), ", ").rstrip(", ")}')

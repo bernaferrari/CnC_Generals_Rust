@@ -132,7 +132,8 @@ impl GameLogic {
                 .objects
                 .get(&req.unit_id)
                 .and_then(|unit| unit.owner_player_id)
-                .map(|pid| self.is_local_player(pid))
+                .and_then(|pid| self.get_player(pid))
+                .map(|player| player.is_human)
                 .unwrap_or(true);
             if let Some(path) = ({
                 let ground_owner = self.world_services.terrain();
