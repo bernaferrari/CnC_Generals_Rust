@@ -107,7 +107,7 @@ impl GameLogic {
                     is_crusher,
                     is_human,
                     &ground_source,
-                    self.objects.read(),
+                    self.objects.read().with_players(&self.players),
                     req.unit_id,
                 )
             }) {
@@ -155,7 +155,7 @@ impl GameLogic {
                     is_human,
                     0.2,
                     &ground_source,
-                    self.objects.read(),
+                    self.objects.read().with_players(&self.players),
                     req.unit_id,
                 )
             }) {

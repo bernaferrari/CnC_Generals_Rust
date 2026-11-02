@@ -1260,7 +1260,6 @@ fn human_units_stay_in_logical_extent() {
     let mut sys = PathfindingSystem::new(200.0, 200.0);
     sys.grid
         .set_logical_extent(GridPos::new(0, 0), GridPos::new(10, 10));
-    sys.set_computer_players([1]);
     sys.grid.set_query_is_human(true);
 
     assert!(sys.grid.in_logical_extent(GridPos::new(5, 5)));

@@ -3132,7 +3132,7 @@ impl GameLogic {
                 self.pathfinding_system.find_path_ex_surfaces(
                     start,
                     dest,
-                    self.objects.read(),
+                    self.objects.read().with_players(&self.players),
                     is_aircraft,
                     loco,
                     is_crusher,
@@ -3191,7 +3191,7 @@ impl GameLogic {
                         self.pathfinding_system.find_path_ex_surfaces(
                             start,
                             dest,
-                            self.objects.read(),
+                            self.objects.read().with_players(&self.players),
                             is_aircraft,
                             loco,
                             is_crusher,

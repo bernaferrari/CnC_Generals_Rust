@@ -589,7 +589,7 @@ impl GameLogic {
                 self.pathfinding_system.find_path_ex_surfaces(
                     start,
                     destination,
-                    self.objects.read(),
+                    self.objects.read().with_players(&self.players),
                     true,
                     surfaces,
                     crusher,
@@ -840,7 +840,7 @@ impl GameLogic {
                         &original,
                         loco,
                         is_crusher,
-                        self.objects.read(),
+                        self.objects.read().with_players(&self.players),
                         Some(unit_id),
                         &ground_source,
                     )
@@ -862,7 +862,7 @@ impl GameLogic {
                     self.pathfinding_system.find_path_ex_surfaces(
                         segment_start,
                         goal,
-                        self.objects.read(),
+                        self.objects.read().with_players(&self.players),
                         flying,
                         loco,
                         is_crusher,
@@ -1159,7 +1159,7 @@ impl GameLogic {
             self.pathfinding_system.find_group_ground_path(
                 start,
                 destination,
-                self.objects.read(),
+                self.objects.read().with_players(&self.players),
                 &ground_source,
             )
         }) else {
@@ -1763,7 +1763,7 @@ impl GameLogic {
                 is_human,
                 0.0,
                 &ground_source,
-                self.objects.read(),
+                self.objects.read().with_players(&self.players),
                 unit_id,
             )
         });
@@ -2110,7 +2110,7 @@ impl GameLogic {
                     is_human,
                     0.2,
                     &ground_source,
-                    self.objects.read(),
+                    self.objects.read().with_players(&self.players),
                     unit_id,
                 )
             })
@@ -2131,7 +2131,7 @@ impl GameLogic {
                     from,
                     target_pos,
                     path_range,
-                    self.objects.read(),
+                    self.objects.read().with_players(&self.players),
                     is_crusher,
                     Some(unit_id),
                     &ground_source,
@@ -2601,7 +2601,7 @@ impl GameLogic {
             self.pathfinding_system.find_path(
                 last_goal,
                 waypoint,
-                self.objects.read(),
+                self.objects.read().with_players(&self.players),
                 &ground_source,
             )
         });

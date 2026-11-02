@@ -27,7 +27,6 @@ impl PathfindingSystem {
             seeker_center_in_cell: true,
             ignore_obstacle_id: None,
             adjust_goal: true,
-            computer_players: HashSet::new(),
             seeker_is_human: false,
             seeker_is_dozer: false,
             seeker_downhill_only: false,
@@ -37,17 +36,11 @@ impl PathfindingSystem {
         }
     }
 
-    /// Session controllers that have C++ player type `PLAYER_COMPUTER`.
-    /// Missing players retain the original human default.
-    pub fn set_computer_players(&mut self, players: impl IntoIterator<Item = u32>) {
-        self.computer_players.clear();
-        self.computer_players.extend(players);
-    }
-
-    pub(super) fn apply_seeker_human_flag(&mut self) {
-        self.seeker_is_human = !self
+    pub(super) fn apply_seeker_human_flag(&mut self, objects: HostObjectRead<'_>) {
+        self.seeker_is_human = self
             .seeker_player
-            .is_some_and(|player| self.computer_players.contains(&player));
+            .and_then(|player| objects.controller_is_human(player))
+            .unwrap_or(true);
         self.grid.set_query_is_human(self.seeker_is_human);
     }
 
@@ -512,7 +505,7 @@ impl PathfindingSystem {
             self.seeker_is_human = is_human;
             self.grid.set_query_is_human(is_human);
         } else {
-            self.apply_seeker_human_flag();
+            self.apply_seeker_human_flag(objects);
         }
         self.grid.query_seeker_id = self.seeker_id.map(|id| id.0).unwrap_or(0);
         self.grid

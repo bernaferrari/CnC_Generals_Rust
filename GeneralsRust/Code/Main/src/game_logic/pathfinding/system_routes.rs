@@ -105,7 +105,7 @@ impl PathfindingSystem {
     ) -> Option<Vec<Vec3>> {
         self.ensure_dynamic_obstacles(objects, ground_source);
         self.bind_seeker_from_mover(objects, mover);
-        self.apply_seeker_human_flag();
+        self.apply_seeker_human_flag(objects);
         // Live seeker CrusherLevel wins so find_path / find_path_ex still crush.
         let is_crusher = is_crusher || self.seeker_crusher_level > 0;
         if is_crusher && self.seeker_crusher_level == 0 {
@@ -619,7 +619,7 @@ impl PathfindingSystem {
             .unwrap_or((0, true));
         self.ensure_dynamic_obstacles(objects, ground_source);
         self.bind_seeker_from_mover(objects, Some(mover));
-        self.apply_seeker_human_flag();
+        self.apply_seeker_human_flag(objects);
         self.grid.query_seeker_id = mover.0;
         self.grid
             .set_query_footprint(self.seeker_path_diameter, is_crusher);
@@ -939,7 +939,7 @@ impl PathfindingSystem {
     ) -> Option<Vec<Vec3>> {
         objects.lookup(&mover)?;
         self.bind_seeker_from_mover(objects, Some(mover));
-        self.apply_seeker_human_flag();
+        self.apply_seeker_human_flag(objects);
         let is_human = self.seeker_is_human;
         self.find_safe_path_from(
             from,
@@ -1988,7 +1988,7 @@ mod closest_path_ignored_footprint_tests {
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         );
         system.bind_seeker_from_mover(objects.read(), Some(ObjectId(1)));
-        system.apply_seeker_human_flag();
+        system.apply_seeker_human_flag(objects.read());
 
         let goal_cell = system.grid.world_to_grid(goal);
         assert_eq!(

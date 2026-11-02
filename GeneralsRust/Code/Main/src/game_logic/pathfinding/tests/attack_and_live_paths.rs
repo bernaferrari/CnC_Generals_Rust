@@ -450,7 +450,7 @@ fn find_closest_path_accepts_occupied_goal_when_can_path_through_units() {
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     sys.bind_seeker_from_mover(objects.read(), Some(ObjectId(1)));
-    sys.apply_seeker_human_flag();
+    sys.apply_seeker_human_flag(objects.read());
 
     let without = sys
         .find_closest_path(
@@ -1261,8 +1261,17 @@ fn patch_path_skips_occupied_ally_waypoints() {
 fn find_attack_path_binds_leftover_seeker() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut sys = PathfindingSystem::new(200.0, 200.0);
-    sys.set_computer_players([2]);
 
+    let players = HashMap::from([
+        (
+            0,
+            crate::game_logic::Player::new(0, Team::USA, "Human", true),
+        ),
+        (
+            2,
+            crate::game_logic::Player::new(2, Team::GLA, "Computer", false),
+        ),
+    ]);
     let mut objects = HostObjectStore::new();
     let mut inf_t = ThingTemplate::new("Ranger");
     inf_t.add_kind_of(KindOf::Infantry);
@@ -1274,8 +1283,8 @@ fn find_attack_path_binds_leftover_seeker() {
     objects.admit(inf.id, inf);
 
     // Stale infantry seeker from a prior pathfind.
-    sys.bind_seeker_from_mover(objects.read(), Some(ObjectId(1)));
-    sys.apply_seeker_human_flag();
+    sys.bind_seeker_from_mover(objects.read().with_players(&players), Some(ObjectId(1)));
+    sys.apply_seeker_human_flag(objects.read().with_players(&players));
     assert!(sys.seeker_is_infantry);
     assert!(sys.seeker_is_human);
     assert!(sys.seeker_center_in_cell);
@@ -1293,7 +1302,7 @@ fn find_attack_path_binds_leftover_seeker() {
         Vec3::new(20.0, 0.0, 50.0),
         Vec3::new(150.0, 0.0, 50.0),
         80.0,
-        objects.read(),
+        objects.read().with_players(&players),
         false,
         Some(ObjectId(2)),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),

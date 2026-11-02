@@ -910,7 +910,6 @@ pub struct PathfindingSystem {
     /// C++ `setAdjustsDestination`. False on a non-final hop.
     adjust_goal: bool,
     /// C++ `getPlayerType() == PLAYER_HUMAN` bits (bit i = player i).
-    computer_players: HashSet<u32>,
     /// Seeker is a human player (m_logicalExtent clamp).
     seeker_is_human: bool,
     /// C++ `KINDOF_DOZER` for dozerHack.

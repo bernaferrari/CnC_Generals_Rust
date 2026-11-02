@@ -49,7 +49,7 @@ impl PathfindingSystem {
         self.ensure_dynamic_obstacles(objects, ground_source);
         // Leftover find_attack_path(obj_id, surfaces, is_human): bind seeker from the attacker.
         self.bind_seeker_from_mover(objects, mover);
-        self.apply_seeker_human_flag();
+        self.apply_seeker_human_flag(objects);
         let is_crusher = is_crusher || self.seeker_crusher_level > 0;
         if is_crusher && self.seeker_crusher_level == 0 {
             self.seeker_crusher_level = 1;

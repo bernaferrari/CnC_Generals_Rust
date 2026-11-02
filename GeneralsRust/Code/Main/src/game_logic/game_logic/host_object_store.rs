@@ -349,6 +349,7 @@ pub(in crate::game_logic) struct ConstructorLookupReceipt {
 #[derive(Clone, Copy)]
 pub struct HostObjectRead<'a> {
     store: &'a HostObjectStore,
+    players: Option<&'a HashMap<u32, Player>>,
 }
 
 impl std::ops::Index<&ObjectId> for HostObjectRead<'_> {
@@ -360,6 +361,16 @@ impl std::ops::Index<&ObjectId> for HostObjectRead<'_> {
 }
 
 impl<'a> HostObjectRead<'a> {
+    /// Borrow the controller table belonging to the same session as this store.
+    pub(crate) fn with_players(mut self, players: &'a HashMap<u32, Player>) -> Self {
+        self.players = Some(players);
+        self
+    }
+
+    pub(crate) fn controller_is_human(self, id: u32) -> Option<bool> {
+        self.players?.get(&id).map(|player| player.is_human)
+    }
+
     pub fn lookup(self, id: &ObjectId) -> Option<&'a Object> {
         self.store.lookup(id)
     }
@@ -396,7 +407,10 @@ impl<'a> HostObjectRead<'a> {
 
 impl HostObjectStore {
     pub fn read(&self) -> HostObjectRead<'_> {
-        HostObjectRead { store: self }
+        HostObjectRead {
+            store: self,
+            players: None,
+        }
     }
 
     /// Storage prerequisite only. Production constructor ordering is unchanged

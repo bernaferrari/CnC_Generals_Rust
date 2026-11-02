@@ -132,7 +132,7 @@ fn safe_query_uses_its_own_human_extent_policy() {
     world.get_player_mut(0).unwrap().is_human = false;
     let ground = PathfindingGround::Flat(0.0);
     let mut finder = PathfindingSystem::new(400.0, 400.0);
-    finder.set_computer_players([0]);
+
     finder
         .grid
         .set_logical_extent(GridPos::new(0, 0), GridPos::new(5, 5));
@@ -230,7 +230,7 @@ fn single_repulsor_wrapper_uses_the_receiving_computers_extent_policy() {
     let (mut world, _, mover) = make_world();
     world.get_player_mut(0).unwrap().is_human = false;
     let mut finder = PathfindingSystem::new(400.0, 400.0);
-    finder.set_computer_players([0]);
+
     finder
         .grid
         .set_logical_extent(GridPos::new(0, 0), GridPos::new(5, 5));
@@ -302,7 +302,7 @@ fn missing_controller_uses_human_extent_in_safe_wrapper() {
     let (mut world, _, mover) = make_world();
     world.clear_all_players();
     let mut finder = PathfindingSystem::new(400.0, 400.0);
-    finder.set_computer_players([]);
+
     finder
         .grid
         .set_logical_extent(GridPos::new(0, 0), GridPos::new(5, 5));
@@ -326,7 +326,6 @@ fn missing_controller_uses_human_extent_in_safe_wrapper() {
     assert_eq!(mover, peer_mover);
     peer.get_player_mut(0).unwrap().is_human = false;
     let mut peer_finder = PathfindingSystem::new(400.0, 400.0);
-    peer_finder.set_computer_players([0]);
     peer_finder
         .grid
         .set_logical_extent(GridPos::new(0, 0), GridPos::new(5, 5));
@@ -358,5 +357,78 @@ fn missing_controller_uses_human_extent_in_safe_wrapper() {
             )
             .is_none(),
         "another session's computer must not change the missing-controller policy"
+    );
+}
+
+#[test]
+fn safe_wrapper_observes_controller_changes_between_same_frame_queries() {
+    use generals_main::game_logic::pathfinding::GridPos;
+    let (mut world, _, mover) = make_world();
+    world.get_player_mut(0).unwrap().is_human = false;
+    let mut finder = PathfindingSystem::new(400.0, 400.0);
+
+    finder
+        .grid
+        .set_logical_extent(GridPos::new(0, 0), GridPos::new(5, 5));
+    let from = Vec3::new(100.0, 0.0, 100.0);
+    let ground = PathfindingGround::Flat(0.0);
+    let query = |f: &mut PathfindingSystem, w: &GameLogic| {
+        f.find_safe_path(
+            from,
+            from,
+            40.0,
+            SURFACE_GROUND,
+            false,
+            &ground,
+            w.host_objects(),
+            mover,
+        )
+    };
+    assert!(
+        query(&mut finder, &world).is_some(),
+        "computer can leave human extent"
+    );
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&world).unwrap();
+    let (mut peer, _, peer_mover) = make_world();
+    assert_eq!(mover, peer_mover);
+    peer.get_player_mut(0).unwrap().is_human = false;
+    let mut peer_finder = PathfindingSystem::new(400.0, 400.0);
+    peer_finder
+        .grid
+        .set_logical_extent(GridPos::new(0, 0), GridPos::new(5, 5));
+    world.get_player_mut(0).unwrap().is_human = true;
+    assert!(
+        query(&mut finder, &world).is_none(),
+        "next query must see the current human controller"
+    );
+    assert!(
+        query(&mut peer_finder, &peer).is_some(),
+        "same-ID peer keeps its own computer controller"
+    );
+    builder
+        .restore_from_snapshot(&snapshot, &mut world)
+        .unwrap();
+    assert!(
+        query(&mut finder, &world).is_some(),
+        "restoration is visible without another frame"
+    );
+    world.clear_all_players();
+    assert!(
+        query(&mut finder, &world).is_none(),
+        "removing the controller restores the human default"
+    );
+    assert!(
+        query(&mut peer_finder, &peer).is_some(),
+        "removal does not affect the peer session"
+    );
+    world.reset();
+    assert!(
+        world.host_object(mover).is_none(),
+        "reset removes the original mover"
+    );
+    assert!(
+        query(&mut peer_finder, &peer).is_some(),
+        "reset does not affect the peer session"
     );
 }

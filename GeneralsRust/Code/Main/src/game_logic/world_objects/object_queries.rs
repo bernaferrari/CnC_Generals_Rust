@@ -787,11 +787,6 @@ impl GameLogic {
             }
         }
         self.pathfinding_system.set_player_ally_masks(masks);
-        self.pathfinding_system.set_computer_players(
-            self.players
-                .iter()
-                .filter_map(|(&id, player)| (!player.is_human).then_some(id)),
-        );
     }
 
     /// C++ `ActionManager::canGetRepairedAt` / `canGetHealedAt` service
