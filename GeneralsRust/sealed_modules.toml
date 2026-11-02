@@ -34,3 +34,18 @@ note = "World-owned radar update fan-out queue; under-attack path still on TheRa
 path = "Code/Libraries/Source/WWVegas/Wwutil"
 cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/Wwutil"
 note = "cMathUtil/cMiscUtil port; PDF RNG injected (no process rand); fs-backed file helpers; 0 process globals."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WWLib/src/trim.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWLib/trim.cpp"
+note = "strtrim/wcstrim in-place whitespace trim; trailing-loop bugfix vs C++; 0 globals."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WWLib/src/realcrc.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWLib/realcrc.cpp"
+note = "CRC32 Memory/String/Stringi; immutable table; chaining tests; 0 globals."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WWLib/src/nstrdup.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWLib/nstrdup.cpp"
+note = "Safe nstrdup/nstrdup_bytes; Option mirrors C++ null; 0 globals."
