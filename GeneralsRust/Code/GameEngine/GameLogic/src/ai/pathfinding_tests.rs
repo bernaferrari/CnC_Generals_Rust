@@ -610,45 +610,6 @@ mod tests {
     }
 
     // ========================================================================
-    // WAYPOINT NETWORK TESTS
-    // ========================================================================
-
-    #[test]
-    fn test_waypoint_network_add() {
-        let mut network = WaypointNetwork::default();
-        network.add_waypoint(1, Coord3D::new(0.0, 0.0, 0.0));
-        network.add_waypoint(2, Coord3D::new(10.0, 0.0, 0.0));
-
-        assert_eq!(network.waypoints.len(), 2);
-    }
-
-    #[test]
-    fn test_waypoint_network_connect() {
-        let mut network = WaypointNetwork::default();
-        network.add_waypoint(1, Coord3D::new(0.0, 0.0, 0.0));
-        network.add_waypoint(2, Coord3D::new(10.0, 0.0, 0.0));
-        network.connect_waypoints(1, 2, 10.0);
-
-        let connections = network.connections.get(&1).unwrap();
-        assert_eq!(connections.len(), 1);
-        assert_eq!(connections[0].0, 2);
-        assert_eq!(connections[0].1, 10.0);
-    }
-
-    #[test]
-    fn test_waypoint_network_find_nearest() {
-        let mut network = WaypointNetwork::default();
-        network.add_waypoint(1, Coord3D::new(0.0, 0.0, 0.0));
-        network.add_waypoint(2, Coord3D::new(10.0, 0.0, 0.0));
-        network.add_waypoint(3, Coord3D::new(20.0, 0.0, 0.0));
-
-        let test_pos = Coord3D::new(11.0, 0.0, 0.0);
-        let (nearest_id, dist) = network.find_nearest(&test_pos).unwrap();
-        assert_eq!(nearest_id, 2);
-        assert!((dist - 1.0).abs() < 0.01);
-    }
-
-    // ========================================================================
     // PATHFINDING ALGORITHM TESTS
     // ========================================================================
 
@@ -853,35 +814,6 @@ mod tests {
     }
 
     // ========================================================================
-    // FLOW FIELD TESTS
-    // ========================================================================
-
-    #[test]
-    fn test_flow_field_generation() {
-        let mut system = PathfindingSystem::new(50, 50);
-        system.initialize();
-
-        let goal = Coord3D::new(100.0, 100.0, 0.0);
-        let bounds = (Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(200.0, 200.0, 0.0));
-        let caps = MovementCapabilities::ground();
-
-        system.generate_flow_field(1, &goal, bounds, PathfindLayerEnum::Ground, &caps);
-
-        let flow_field = system.get_flow_field(1).unwrap();
-        assert!(!flow_field.directions.is_empty());
-
-        // Get flow direction at start position
-        let test_pos = Coord3D::new(50.0, 50.0, 0.0);
-        let dir = flow_field.get_direction(&test_pos, PathfindLayerEnum::Ground);
-        assert!(dir.is_some());
-
-        // Direction should point generally toward goal
-        let dir = dir.unwrap();
-        assert!(dir.x > 0.0); // Moving right toward goal
-        assert!(dir.y > 0.0); // Moving up toward goal
-    }
-
-    // ========================================================================
     // PERFORMANCE AND EDGE CASE TESTS
     // ========================================================================
 
@@ -1000,25 +932,5 @@ mod tests {
         };
 
         let _ = system.find_path_immediate(&request2);
-    }
-
-    #[test]
-    fn test_system_update_cleans_expired_data() {
-        let mut system = PathfindingSystem::new(100, 100);
-        system.initialize();
-
-        // Generate flow field
-        let goal = Coord3D::new(100.0, 100.0, 0.0);
-        let bounds = (Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(200.0, 200.0, 0.0));
-        let caps = MovementCapabilities::ground();
-        system.generate_flow_field(1, &goal, bounds, PathfindLayerEnum::Ground, &caps);
-
-        // Update system many frames forward
-        for frame in 0..700 {
-            system.update(frame);
-        }
-
-        // Flow field should be cleaned up after expiration
-        assert!(system.get_flow_field(1).is_none() || system.current_frame < 600);
     }
 }

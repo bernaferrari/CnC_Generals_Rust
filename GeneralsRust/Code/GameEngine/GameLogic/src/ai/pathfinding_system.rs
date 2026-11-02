@@ -1,19 +1,10 @@
-//! Production-Ready Pathfinding System
+//! Core path request facade.
 //!
-//! This module provides a complete, optimized pathfinding implementation featuring:
-//! - A* algorithm with priority queue and multiple heuristics
-//! - Hierarchical pathfinding for long-distance paths
-//! - Multi-layer movement (ground, air, water, tunnel)
-//! - Dynamic obstacle avoidance with real-time replanning
-//! - Path caching and optimization
-//! - Throttled computation over multiple frames
-//! - Formation pathfinding support
-//! - Terrain cost tables for different surface types
-//! - Flow fields for group movement
-//! - Waypoint network support
+//! Production AI delegates to its world's classic pathfinder. A standalone
+//! fallback remains for older fixtures and is being retired.
 
 use super::pathfind_complete::PathRequest as ClassicPathRequest;
-use crate::common::{Coord2D, Coord3D, ICoord2D, INVALID_ID, ObjectID, Real};
+use crate::common::{Coord3D, ICoord2D, INVALID_ID, ObjectID, Real};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::f32::INFINITY;
@@ -718,10 +709,6 @@ pub struct PathfindingSystem {
     path_cache: HashMap<(GridCoord, GridCoord, PathfindLayerEnum, ObjectID), CachedPath>,
     /// Current frame
     pub(crate) current_frame: u32,
-    /// Waypoint network
-    waypoint_network: WaypointNetwork,
-    /// Flow fields for group movement
-    flow_fields: HashMap<ObjectID, FlowField>,
 }
 
 /// Cached path entry
@@ -743,70 +730,6 @@ struct OngoingPathfind {
     iterations: usize,
     best_partial: GridCoord,
     best_distance: f32,
-}
-
-/// Waypoint network for navigation
-#[derive(Debug, Default)]
-pub struct WaypointNetwork {
-    pub(crate) waypoints: HashMap<u32, Coord3D>,
-    pub(crate) connections: HashMap<u32, Vec<(u32, f32)>>, // waypoint_id -> [(connected_id, cost)]
-}
-
-impl WaypointNetwork {
-    /// Add waypoint to network
-    pub fn add_waypoint(&mut self, id: u32, position: Coord3D) {
-        self.waypoints.insert(id, position);
-        self.connections.entry(id).or_insert_with(Vec::new);
-    }
-
-    /// Connect two waypoints
-    pub fn connect_waypoints(&mut self, from_id: u32, to_id: u32, cost: f32) {
-        self.connections
-            .entry(from_id)
-            .or_insert_with(Vec::new)
-            .push((to_id, cost));
-        self.connections
-            .entry(to_id)
-            .or_insert_with(Vec::new)
-            .push((from_id, cost));
-    }
-
-    /// Find nearest waypoint to position
-    pub fn find_nearest(&self, pos: &Coord3D) -> Option<(u32, f32)> {
-        let mut nearest = None;
-        let mut nearest_dist = INFINITY;
-
-        for (&id, waypoint_pos) in &self.waypoints {
-            let dist = (*pos - *waypoint_pos).length();
-            if dist < nearest_dist {
-                nearest_dist = dist;
-                nearest = Some((id, dist));
-            }
-        }
-
-        nearest
-    }
-}
-
-/// Flow field for group movement
-#[derive(Debug)]
-pub struct FlowField {
-    /// Flow vectors per cell
-    pub(crate) directions: HashMap<GridCoord, Coord2D>,
-    /// Goal position
-    goal: GridCoord,
-    /// Bounds
-    bounds: (GridCoord, GridCoord),
-    /// Creation frame
-    created_frame: u32,
-}
-
-impl FlowField {
-    /// Get flow direction at position
-    pub fn get_direction(&self, pos: &Coord3D, layer: PathfindLayerEnum) -> Option<Coord2D> {
-        let coord = GridCoord::from_world(pos, layer);
-        self.directions.get(&coord).copied()
-    }
 }
 
 impl PathfindingSystem {
@@ -834,8 +757,6 @@ impl PathfindingSystem {
             completed: HashMap::new(),
             path_cache: HashMap::new(),
             current_frame: 0,
-            waypoint_network: WaypointNetwork::default(),
-            flow_fields: HashMap::new(),
         }
     }
 
@@ -873,9 +794,6 @@ impl PathfindingSystem {
 
         // Clean expired cache entries
         self.clean_cache();
-
-        // Clean expired flow fields
-        self.clean_flow_fields();
     }
 
     /// Clear facade-local requests and cached results when the owning AI resets its map.
@@ -885,7 +803,6 @@ impl PathfindingSystem {
         self.ongoing.clear();
         self.completed.clear();
         self.path_cache.clear();
-        self.flow_fields.clear();
         self.current_frame = 0;
         self.bounds = (
             GridCoord::new(0, 0, PathfindLayerEnum::Ground),
@@ -1091,102 +1008,6 @@ impl PathfindingSystem {
             }
             None => PathResult::Failed("No path found".to_string()),
         }
-    }
-
-    /// Generate flow field for group movement
-    pub fn generate_flow_field(
-        &mut self,
-        group_id: ObjectID,
-        goal: &Coord3D,
-        bounds: (Coord3D, Coord3D),
-        layer: PathfindLayerEnum,
-        caps: &MovementCapabilities,
-    ) {
-        let goal_coord = GridCoord::from_world(goal, layer);
-        let min_coord = GridCoord::from_world(&bounds.0, layer);
-        let max_coord = GridCoord::from_world(&bounds.1, layer);
-
-        // Use Dijkstra to compute distance field
-        let mut distances: HashMap<GridCoord, f32> = HashMap::new();
-        let mut queue = VecDeque::new();
-
-        distances.insert(goal_coord, 0.0);
-        queue.push_back(goal_coord);
-
-        while let Some(current) = queue.pop_front() {
-            let current_dist = *distances.get(&current).unwrap();
-
-            for (neighbor, move_cost) in current.get_neighbors() {
-                if neighbor.x < min_coord.x
-                    || neighbor.x > max_coord.x
-                    || neighbor.y < min_coord.y
-                    || neighbor.y > max_coord.y
-                {
-                    continue;
-                }
-
-                if let Some(cell) = self.grid.get(&neighbor) {
-                    if !cell.is_passable(caps, &self.terrain_costs, None) {
-                        continue;
-                    }
-
-                    let cost = cell.get_movement_cost(caps, &self.terrain_costs);
-                    let new_dist = current_dist + move_cost * cost;
-
-                    if !distances.contains_key(&neighbor)
-                        || new_dist < *distances.get(&neighbor).unwrap()
-                    {
-                        distances.insert(neighbor, new_dist);
-                        queue.push_back(neighbor);
-                    }
-                }
-            }
-        }
-
-        // Compute flow directions
-        let mut directions = HashMap::new();
-        for (coord, _) in &distances {
-            if *coord == goal_coord {
-                continue;
-            }
-
-            let mut best_neighbor = *coord;
-            let mut best_dist = INFINITY;
-
-            for (neighbor, _) in coord.get_neighbors() {
-                if let Some(&neighbor_dist) = distances.get(&neighbor) {
-                    if neighbor_dist < best_dist {
-                        best_dist = neighbor_dist;
-                        best_neighbor = neighbor;
-                    }
-                }
-            }
-
-            if best_neighbor != *coord {
-                let dir = Coord2D::new(
-                    (best_neighbor.x - coord.x) as f32,
-                    (best_neighbor.y - coord.y) as f32,
-                );
-                let len = (dir.x * dir.x + dir.y * dir.y).sqrt();
-                if len > 0.0 {
-                    directions.insert(*coord, Coord2D::new(dir.x / len, dir.y / len));
-                }
-            }
-        }
-
-        let flow_field = FlowField {
-            directions,
-            goal: goal_coord,
-            bounds: (min_coord, max_coord),
-            created_frame: self.current_frame,
-        };
-
-        self.flow_fields.insert(group_id, flow_field);
-    }
-
-    /// Get flow field for group
-    pub fn get_flow_field(&self, group_id: ObjectID) -> Option<&FlowField> {
-        self.flow_fields.get(&group_id)
     }
 
     /// Set cell terrain type
@@ -1872,12 +1693,6 @@ impl PathfindingSystem {
     fn clean_cache(&mut self) {
         self.path_cache
             .retain(|_, cached| cached.expiration_frame > self.current_frame);
-    }
-
-    fn clean_flow_fields(&mut self) {
-        let expiration_time = 600; // 20 seconds at 30fps
-        self.flow_fields
-            .retain(|_, field| self.current_frame - field.created_frame < expiration_time);
     }
 }
 
