@@ -621,6 +621,115 @@ fn possible_destination_uses_the_receivers_aircraft_goal_rules() {
 }
 
 #[test]
+fn possible_candidate_maps_structure_separated_terrain_zones() {
+    use gamelogic::ai::pathfind_astar::{PathfindCellType, PathfindLayerEnum};
+    use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+    let ground = PathfindingGround::Flat(0.0);
+    let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+    for y in 0..20 {
+        grid.set_cell_type(GridPos::new(4, y), PathfindCellType::Obstacle);
+    }
+    grid.rebuild_path_zones();
+    let source_zone = grid.path_zone(GridPos::new(2, 2));
+    let candidate = GridPos::new(6, 2);
+    assert_ne!(source_zone, grid.path_zone(candidate));
+    let mut dest = Vec3::ZERO;
+    assert!(!grid.check_for_possible(
+        false,
+        source_zone,
+        true,
+        SURFACE_GROUND,
+        candidate,
+        PathfindLayerEnum::Ground,
+        &mut dest,
+        false,
+        &ground
+    ));
+    assert_eq!(dest, Vec3::ZERO);
+    assert!(grid.check_for_possible(
+        false,
+        source_zone,
+        true,
+        SURFACE_GROUND,
+        candidate,
+        PathfindLayerEnum::Ground,
+        &mut dest,
+        true,
+        &ground
+    ));
+    assert_eq!(grid.world_to_grid(dest), candidate);
+}
+
+#[test]
+fn possible_destination_uses_terrain_zone_when_starting_inside_a_structure() {
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+
+    let ground = PathfindingGround::Flat(0.0);
+    let mut owner = PathfindingGrid::new(200.0, 200.0, 10.0);
+    let mut peer = PathfindingGrid::new(200.0, 200.0, 10.0);
+    owner.set_cell_type(GridPos::new(3, 3), PathfindCellType::Obstacle);
+    for y in 0..20 {
+        peer.set_cell_type(GridPos::new(4, y), PathfindCellType::Impassable);
+    }
+    owner.rebuild_path_zones();
+    peer.rebuild_path_zones();
+    let start = Vec3::new(35.0, 0.0, 35.0);
+    let goal = Vec3::new(65.0, 0.0, 65.0);
+    let mut dest = goal;
+    assert!(owner.adjust_to_possible_destination(
+        start,
+        &mut dest,
+        SURFACE_GROUND,
+        false,
+        2.0,
+        &ground
+    ));
+    assert_eq!(
+        dest, goal,
+        "the original permits reaching clear terrain from a structure"
+    );
+    let mut peer_dest = goal;
+    assert!(peer.adjust_to_possible_destination(
+        start,
+        &mut peer_dest,
+        SURFACE_GROUND,
+        false,
+        2.0,
+        &ground
+    ));
+    assert_ne!(
+        peer_dest, goal,
+        "a terrain wall still separates the peer's zones"
+    );
+    let mut repeated = goal;
+    assert!(owner.adjust_to_possible_destination(
+        start,
+        &mut repeated,
+        SURFACE_GROUND,
+        false,
+        2.0,
+        &ground
+    ));
+    assert_eq!(
+        repeated, goal,
+        "peer pathfinding must not change the first grid"
+    );
+    owner.set_cell_type(GridPos::new(6, 6), PathfindCellType::Obstacle);
+    owner.rebuild_path_zones();
+    let mut blocked_goal = goal;
+    assert!(owner.adjust_to_possible_destination(
+        start,
+        &mut blocked_goal,
+        SURFACE_GROUND,
+        false,
+        2.0,
+        &ground
+    ));
+    assert_eq!(owner.world_to_grid(blocked_goal), GridPos::new(7, 6));
+}
+
+#[test]
 fn possible_destination_checks_the_whole_footprint_on_every_candidate() {
     use gamelogic::ai::pathfind_astar::PathfindCellType;
     use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
@@ -689,6 +798,67 @@ fn rejected_possible_destinations_leave_the_last_zone_candidate() {
     assert_ne!(
         dest, original,
         "C++ checkForPossible writes before checking the footprint"
+    );
+}
+
+#[test]
+fn possible_destination_uses_bridge_zone_instead_of_ground_beneath_it() {
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_main::game_logic::HostGeometryType;
+    let ground = PathfindingGround::Flat(0.0);
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "Owner", false));
+    let mut template = ThingTemplate::new("BridgeMover");
+    template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+    template.geometry_info.geom_type = HostGeometryType::Sphere;
+    template.geometry_info.major_radius = 2.0;
+    template.geometry_info.authored = true;
+    world.templates.insert("BridgeMover".into(), template);
+    let mover = world
+        .create_object_for_player("BridgeMover", 0, Vec3::new(15.0, 0.0, 55.0))
+        .unwrap();
+    let bridge_mover = world
+        .create_object_for_player("BridgeMover", 0, Vec3::new(85.0, 20.0, 55.0))
+        .unwrap();
+    world.host_object_mut(bridge_mover).unwrap().pathfind_layer = 2;
+    let mut finder = PathfindingSystem::new(200.0, 120.0);
+    for x in 4..13 {
+        for y in 0..12 {
+            finder
+                .grid
+                .set_cell_type(GridPos::new(x, y), PathfindCellType::Impassable);
+        }
+    }
+    finder.grid.stamp_bridge_deck(
+        Vec3::new(30.0, 20.0, 40.0),
+        Vec3::new(30.0, 20.0, 60.0),
+        Vec3::new(130.0, 20.0, 40.0),
+        Vec3::new(130.0, 20.0, 60.0),
+        false,
+        &ground,
+    );
+    finder.grid.rebuild_path_zones();
+    let goal = Vec3::new(85.0, 20.0, 55.0);
+    let mut actual = goal;
+    assert!(finder.adjust_to_possible_destination_for(
+        world.host_object(mover).unwrap(),
+        &mut actual,
+        &ground
+    ));
+    assert_eq!(
+        actual, goal,
+        "the deck is connected even when the ground below is impassable"
+    );
+    let ground_goal = Vec3::new(15.0, 0.0, 55.0);
+    let mut actual_ground = ground_goal;
+    assert!(finder.adjust_to_possible_destination_for(
+        world.host_object(bridge_mover).unwrap(),
+        &mut actual_ground,
+        &ground
+    ));
+    assert_eq!(
+        actual_ground, ground_goal,
+        "the source zone belongs to the bridge, not the terrain underneath"
     );
 }
 

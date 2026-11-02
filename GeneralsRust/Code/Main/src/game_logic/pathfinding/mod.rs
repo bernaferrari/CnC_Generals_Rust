@@ -321,6 +321,7 @@ struct PossibleDestinationReceiver {
     aircraft: bool,
     player: Option<u32>,
     crusher_level: u8,
+    source_layer: PathfindLayerEnum,
 }
 
 /// C++ `LAYER_WALL = LAYER_LAST = 15` (GameType.h:167).

@@ -493,6 +493,50 @@ impl PathfindingGrid {
             .unwrap_or(0)
     }
 
+    /// C++ assigns one zone to each layer, then joins it to connected ground
+    /// zones. The ground cell below a deck is a separate pathfinding cell.
+    pub(super) fn path_zone_on_layer(&self, pos: GridPos, layer: PathfindLayerEnum) -> u16 {
+        let (actual, _) = self.path_cell_on_layer(pos, layer);
+        if actual == PathfindLayerEnum::Ground {
+            return self.path_zone(pos);
+        }
+        if let Some(bridge) = self
+            .bridge_layers
+            .iter()
+            .find(|bridge| bridge.id == actual as u8)
+        {
+            for &(x, y) in &bridge.ground_connect_cells {
+                let ground = GridPos::new(x, y);
+                if self.ground_connect_layer(ground) == bridge.id
+                    && self.cell_type(ground) == PathfindCellType::Clear
+                {
+                    let zone = self.path_zone(ground);
+                    if zone != 0 {
+                        return zone;
+                    }
+                }
+            }
+        }
+        // An unconnected layer has its own zone, disjoint from ground zones.
+        // Zero retains the existing meaning of zones not having been built.
+        let max_zone = self.path_zones.iter().copied().max().unwrap_or(0);
+        if max_zone == 0 {
+            0
+        } else {
+            max_zone.checked_add(actual as u16).unwrap_or_else(|| {
+                // Near the u16 limit, use a free ground-zone ID below the
+                // maximum rather than collapsing distinct layers together.
+                let used: std::collections::HashSet<u16> =
+                    self.path_zones.iter().copied().collect();
+                (1..=max_zone)
+                    .rev()
+                    .filter(|zone| !used.contains(zone))
+                    .nth(actual as usize)
+                    .unwrap_or(0)
+            })
+        }
+    }
+
     /// Leftover `ZoneManager::are_connected` — effective-zone compare.
     pub(super) fn zones_connected(
         &self,

@@ -1751,7 +1751,7 @@ impl PathfindingGrid {
         ) {
             return false;
         }
-        let z = self.path_zone(cell);
+        let z = self.path_zone_on_layer(cell, layer);
         let mut z2 = self.get_effective_zone(surfaces, is_crusher, z);
         // Leftover `get_effective_terrain_zone` when starting in an obstacle.
         if starting_in_obstacle {
@@ -1766,10 +1766,10 @@ impl PathfindingGrid {
 
     /// C++ `PathfindZoneManager::getEffectiveTerrainZone` residual.
     pub(super) fn terrain_zone_equiv(&self, zone: u16) -> u16 {
-        if zone == 0 {
-            return 0;
-        }
-        zone
+        self.terrain_path_zone_equivalences()
+            .get(zone as usize)
+            .copied()
+            .unwrap_or(zone)
     }
 
     /// C++ `Pathfinder::adjustToPossibleDestination` (AIPathfind.cpp:5510-5617).
@@ -1812,6 +1812,7 @@ impl PathfindingGrid {
             aircraft: self.query_check_for_aircraft,
             player: seeker_player,
             crusher_level,
+            source_layer: self.query_layer_enum(),
         };
         self.adjust_to_possible_destination_with_receiver(
             start,
@@ -1839,6 +1840,7 @@ impl PathfindingGrid {
             aircraft: Self::is_aircraft_that_adjusts_destination(obj),
             player: obj.owner_player_id.or(Some(obj.team as u32)),
             crusher_level: obj.crusher_level,
+            source_layer: PathfindLayerEnum::from_u32(obj.pathfind_layer as u32),
         };
         self.adjust_to_possible_destination_with_receiver(
             start,
@@ -1874,8 +1876,31 @@ impl PathfindingGrid {
             return false;
         }
         let destination_layer = self.layer_for_destination(*dest, ground_source);
-        let start_cell = self.world_to_grid(start);
-        let same_zone = self.zones_connected(start_cell, goal_cell, surfaces, is_crusher);
+        // getClippedCell resolves the object's own layer and clips its position.
+        let start_cell = self.clamp_pos(self.world_to_grid(start));
+        let start_zone = self.path_zone_on_layer(start_cell, receiver.source_layer);
+        let starting_in_obstacle = self.resolved_cell_type(receiver.source_layer, start_cell)
+            == PathfindCellType::Obstacle;
+        let terrain_zones = starting_in_obstacle.then(|| self.terrain_path_zone_equivalences());
+        let terrain_zone = |zone: u16| {
+            terrain_zones
+                .as_ref()
+                .and_then(|zones| zones.get(zone as usize))
+                .copied()
+                .unwrap_or(zone)
+        };
+        let mut source_zone = self.get_effective_zone(surfaces, is_crusher, start_zone);
+        if starting_in_obstacle {
+            source_zone = self.get_effective_zone(surfaces, is_crusher, terrain_zone(source_zone));
+        }
+        let goal_zone = self.get_effective_zone(
+            surfaces,
+            is_crusher,
+            self.path_zone_on_layer(goal_cell, destination_layer),
+        );
+        // Retain the existing uninitialized-zone fallback until zone construction
+        // has run; initialized cells follow the original effective-zone equality.
+        let same_zone = source_zone == 0 || goal_zone == 0 || source_zone == goal_zone;
         if same_zone
             && self.possible_destination_footprint_ok(
                 goal_cell,
@@ -1900,7 +1925,8 @@ impl PathfindingGrid {
                 limit -= 1;
                 if self.try_zone_adjust(
                     GridPos::new(i, j),
-                    start_cell,
+                    source_zone,
+                    terrain_zones.as_deref(),
                     surfaces,
                     is_crusher,
                     receiver,
@@ -1918,7 +1944,8 @@ impl PathfindingGrid {
                 limit -= 1;
                 if self.try_zone_adjust(
                     GridPos::new(i, j),
-                    start_cell,
+                    source_zone,
+                    terrain_zones.as_deref(),
                     surfaces,
                     is_crusher,
                     receiver,
@@ -1937,7 +1964,8 @@ impl PathfindingGrid {
                 limit -= 1;
                 if self.try_zone_adjust(
                     GridPos::new(i, j),
-                    start_cell,
+                    source_zone,
+                    terrain_zones.as_deref(),
                     surfaces,
                     is_crusher,
                     receiver,
@@ -1955,7 +1983,8 @@ impl PathfindingGrid {
                 limit -= 1;
                 if self.try_zone_adjust(
                     GridPos::new(i, j),
-                    start_cell,
+                    source_zone,
+                    terrain_zones.as_deref(),
                     surfaces,
                     is_crusher,
                     receiver,
@@ -2053,7 +2082,8 @@ impl PathfindingGrid {
     pub(super) fn try_zone_adjust(
         &self,
         cell: GridPos,
-        start_cell: GridPos,
+        source_zone: u16,
+        terrain_zones: Option<&[u16]>,
         surfaces: u32,
         is_crusher: bool,
         receiver: PossibleDestinationReceiver,
@@ -2066,7 +2096,15 @@ impl PathfindingGrid {
         if !self.is_valid_pos(cell) {
             return false;
         }
-        if !self.zones_connected(start_cell, cell, surfaces, is_crusher) {
+        let mut candidate_zone =
+            self.get_effective_zone(surfaces, is_crusher, self.path_zone_on_layer(cell, layer));
+        if let Some(zones) = terrain_zones {
+            candidate_zone = zones
+                .get(candidate_zone as usize)
+                .copied()
+                .unwrap_or(candidate_zone);
+        }
+        if source_zone != 0 && candidate_zone != 0 && source_zone != candidate_zone {
             return false;
         }
         // C++ checkForPossible rejects an impassable candidate center before
