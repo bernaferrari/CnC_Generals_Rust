@@ -74,3 +74,9 @@ note = "Startup once-log is OnceLock set-once (not mutable process state); 0 cou
 path = "Code/Main/src/graphics/render_pipeline/pipeline_prewarm.rs"
 cpp = "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient"
 note = "Terrain chunk once-logs are OnceLock; 0 counted globals."
+
+[[module]]
+path = "Code/GameEngine/GameLogic/src/system/world_logic_managers.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameLogic"
+note = "Per-world Arc bundle for stealth/detection/beacon/cave/command managers; no process OnceLocks."
+
