@@ -26,6 +26,17 @@ fn render(
     images: &mut ImageCollection,
     batch: bool,
 ) -> Vec<u8> {
+    render_with_facts(device, queue, renderer, images, batch, Default::default())
+}
+
+fn render_with_facts(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    renderer: &mut UIRenderer,
+    images: &mut ImageCollection,
+    batch: bool,
+    facts: game_client_rust::display::display_fx::DisplayDrawFacts,
+) -> Vec<u8> {
     let extent = wgpu::Extent3d {
         width: 64,
         height: 64,
@@ -64,12 +75,14 @@ fn render(
             if batch {
                 manager.win_draw_image_batch(&image, &[(0, 0, 32, 64), (32, 0, 64, 64)], context);
             } else {
-                manager.win_draw_image(&image, 0, 0, 64, 64, WIN_COLOR_UNDEFINED, context);
+                for (x1, y1, x2, y2) in [(0, 0, 32, 64), (32, 0, 64, 64)] {
+                    manager.win_draw_image(&image, x1, y1, x2, y2, WIN_COLOR_UNDEFINED, context);
+                }
             }
         }
     });
     {
-        let mut context = WindowDrawContext::new(Some(renderer), Default::default());
+        let mut context = WindowDrawContext::new(Some(renderer), facts);
         context.set_receiving_images(images);
         manager.draw_all(&mut context);
     }
@@ -146,6 +159,81 @@ fn receiving_window_images_use_their_own_gpu_textures() {
     )
     .unwrap();
     renderer.set_screen_size(64, 64);
+    let mut patterned = ImageCollection::new();
+    patterned.add_image(
+        MappedImage::from_rgba_data(
+            &[
+                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+            ],
+            2,
+            2,
+            "SharedWindowArt",
+        )
+        .unwrap(),
+    );
+    let mut facts = game_client_rust::display::display_fx::DisplayDrawFacts::default();
+    facts.clip_region = Some([8.0, 8.0, 48.0, 56.0]);
+    let normal = render_with_facts(
+        &device,
+        &queue,
+        &mut renderer,
+        &mut patterned,
+        true,
+        facts.clone(),
+    );
+    facts.gamma.bright = -0.2;
+    let dimmed = render_with_facts(
+        &device,
+        &queue,
+        &mut renderer,
+        &mut patterned,
+        true,
+        facts.clone(),
+    );
+    let offset = (16 * 64 + 12) * 4;
+    assert!(
+        normal[offset] > dimmed[offset],
+        "brightness must affect the actual rendered image"
+    );
+    for rotated in [false, true] {
+        if rotated {
+            patterned
+                .find_image_by_name_mut("SharedWindowArt")
+                .unwrap()
+                .set_status(game_client_rust::display::image::ImageStatus::ROTATED_90_CLOCKWISE);
+        }
+        for clip in [
+            Some([8.0, 8.0, 48.0, 56.0]),
+            Some([40.0, 8.0, 56.0, 56.0]),
+            Some([70.0, 70.0, 80.0, 80.0]),
+        ] {
+            facts.clip_region = clip;
+            let individual = render_with_facts(
+                &device,
+                &queue,
+                &mut renderer,
+                &mut patterned,
+                false,
+                facts.clone(),
+            );
+            let batched = render_with_facts(
+                &device,
+                &queue,
+                &mut renderer,
+                &mut patterned,
+                true,
+                facts.clone(),
+            );
+            for (x, y) in [(4, 32), (12, 16), (24, 48), (44, 16), (52, 48), (60, 32)] {
+                let offset = (y * 64 + x) * 4;
+                assert_eq!(
+                    &batched[offset..offset + 4],
+                    &individual[offset..offset + 4],
+                    "rotated={rotated} clip={clip:?} at ({x},{y})"
+                );
+            }
+        }
+    }
     game_client_rust::display::image::get_mapped_image_collection()
         .write()
         .add_image(image("SharedWindowArt", [255, 0, 0, 255]));

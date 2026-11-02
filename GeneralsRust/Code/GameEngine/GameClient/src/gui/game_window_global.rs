@@ -365,26 +365,37 @@ impl WindowManager {
             let mut positions = Vec::with_capacity(rects.len() * 4);
             let mut uvs = Vec::with_capacity(rects.len() * 4);
             let mut indices = Vec::with_capacity(rects.len() * 6);
-            for (index, &(x1, y1, x2, y2)) in rects.iter().enumerate() {
-                let base = (index * 4) as u32;
-                positions.extend_from_slice(&[
-                    [x1 as f32, y1 as f32],
-                    [x2 as f32, y1 as f32],
-                    [x2 as f32, y2 as f32],
-                    [x1 as f32, y2 as f32],
-                ]);
+            for &(x1, y1, x2, y2) in rects {
+                let Some((x1, y1, x2, y2, u0, v0, u1, v1)) =
+                    crate::display::display_fx::clip_image_quad(
+                        display_facts.clip_region,
+                        x1 as f32,
+                        y1 as f32,
+                        x2 as f32,
+                        y2 as f32,
+                        u0,
+                        v0,
+                        u1,
+                        v1,
+                        false,
+                    )
+                else {
+                    continue;
+                };
+                let base = positions.len() as u32;
+                positions.extend_from_slice(&[[x1, y1], [x2, y1], [x2, y2], [x1, y2]]);
                 uvs.extend_from_slice(&[[u0, v0], [u1, v0], [u1, v1], [u0, v1]]);
                 indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
             }
-            renderer.draw_textured_mesh(
-                &positions,
-                &uvs,
-                &indices,
-                texture,
-                [1.0, 1.0, 1.0, 1.0],
-                crate::gui::ui_renderer::UIBlendMode::Alpha,
-                0.0,
+            if indices.is_empty() {
+                return;
+            }
+            let (color, blend) = crate::display::display_fx::apply_draw_image_color(
+                display_facts,
+                [1.0; 4],
+                crate::display::DrawImageMode::Alpha,
             );
+            renderer.draw_textured_mesh(&positions, &uvs, &indices, texture, color, blend, 0.0);
         }
         note_win_draw_image_command();
     }
