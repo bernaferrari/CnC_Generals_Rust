@@ -426,64 +426,13 @@ impl GameLogic {
                         })
                     });
                 if a_path.len() >= 2 {
-                    if let Some(other) = self.objects.get(&other_id) {
-                        let can_tunnel = other.can_path_through_units;
-                        let mut yield_path = ({
-                            let ground_owner = self.world_services.terrain();
-                            let ground_loan = ground_owner
-                                .read()
-                                .unwrap_or_else(|error| error.into_inner());
-                            let ground_source =
-                                crate::game_logic::pathfinding::PathfindingGround::for_terrain(
-                                    &ground_loan,
-                                    self.map_loaded,
-                                    self.terrain.as_ref(),
-                                    self.pathfinding_height_samples.as_ref(),
-                                    &self.pathfinding_system.grid,
-                                );
-                            self.pathfinding_system.get_move_away_from_path(
-                                &a_path,
-                                prev_path.as_deref(),
-                                false,
-                                &ground_source,
-                                self.objects.read(),
-                                other_id,
-                                a_id,
-                            )
-                        });
-                        if yield_path.is_none() && !can_tunnel {
-                            yield_path = ({
-                                let ground_owner = self.world_services.terrain();
-                                let ground_loan = ground_owner
-                                    .read()
-                                    .unwrap_or_else(|error| error.into_inner());
-                                let ground_source = if self.map_loaded
-                                    || ground_loan.has_height_map()
-                                {
-                                    crate::game_logic::pathfinding::PathfindingGround::receiving(
-                                        &ground_loan,
-                                    )
-                                } else {
-                                    crate::game_logic::pathfinding::PathfindingGround::mapless(
-                                        self.terrain.as_ref(),
-                                        self.pathfinding_height_samples.as_ref(),
-                                        &self.pathfinding_system.grid,
-                                    )
-                                };
-                                self.pathfinding_system.get_move_away_from_path(
-                                    &a_path,
-                                    prev_path.as_deref(),
-                                    true,
-                                    &ground_source,
-                                    self.objects.read(),
-                                    other_id,
-                                    a_id,
-                                )
-                            });
-                            if let Some(other) = self.objects.get_mut(&other_id) {
-                                other.can_path_through_units = true;
-                            }
-                        }
+                    if self.objects.get(&other_id).is_some() {
+                        let yield_path = self.find_move_away_path_with_retry(
+                            other_id,
+                            a_id,
+                            &a_path,
+                            prev_path.as_deref(),
+                        );
                         if let Some(path) = yield_path {
                             let mut installed = false;
                             if let Some(other) = self.objects.get_mut(&other_id) {
@@ -538,64 +487,13 @@ impl GameLogic {
                         })
                     });
                 if other_path.len() >= 2 {
-                    if let Some(me) = self.objects.get(&a_id) {
-                        let can_tunnel = me.can_path_through_units;
-                        let mut yield_path = ({
-                            let ground_owner = self.world_services.terrain();
-                            let ground_loan = ground_owner
-                                .read()
-                                .unwrap_or_else(|error| error.into_inner());
-                            let ground_source =
-                                crate::game_logic::pathfinding::PathfindingGround::for_terrain(
-                                    &ground_loan,
-                                    self.map_loaded,
-                                    self.terrain.as_ref(),
-                                    self.pathfinding_height_samples.as_ref(),
-                                    &self.pathfinding_system.grid,
-                                );
-                            self.pathfinding_system.get_move_away_from_path(
-                                &other_path,
-                                prev_path.as_deref(),
-                                false,
-                                &ground_source,
-                                self.objects.read(),
-                                a_id,
-                                other_id,
-                            )
-                        });
-                        if yield_path.is_none() && !can_tunnel {
-                            yield_path = ({
-                                let ground_owner = self.world_services.terrain();
-                                let ground_loan = ground_owner
-                                    .read()
-                                    .unwrap_or_else(|error| error.into_inner());
-                                let ground_source = if self.map_loaded
-                                    || ground_loan.has_height_map()
-                                {
-                                    crate::game_logic::pathfinding::PathfindingGround::receiving(
-                                        &ground_loan,
-                                    )
-                                } else {
-                                    crate::game_logic::pathfinding::PathfindingGround::mapless(
-                                        self.terrain.as_ref(),
-                                        self.pathfinding_height_samples.as_ref(),
-                                        &self.pathfinding_system.grid,
-                                    )
-                                };
-                                self.pathfinding_system.get_move_away_from_path(
-                                    &other_path,
-                                    prev_path.as_deref(),
-                                    true,
-                                    &ground_source,
-                                    self.objects.read(),
-                                    a_id,
-                                    other_id,
-                                )
-                            });
-                            if let Some(me) = self.objects.get_mut(&a_id) {
-                                me.can_path_through_units = true;
-                            }
-                        }
+                    if self.objects.get(&a_id).is_some() {
+                        let yield_path = self.find_move_away_path_with_retry(
+                            a_id,
+                            other_id,
+                            &other_path,
+                            prev_path.as_deref(),
+                        );
                         if let Some(path) = yield_path {
                             let mut installed = false;
                             if let Some(me) = self.objects.get_mut(&a_id) {

@@ -52,15 +52,7 @@ fn move_away(
 ) -> Vec<Vec3> {
     let avoided = [Vec3::new(20.0, 0.0, 100.0), Vec3::new(180.0, 0.0, 100.0)];
     finder
-        .get_move_away_from_path(
-            &avoided,
-            None,
-            false,
-            ground,
-            world.host_objects(),
-            mover,
-            other,
-        )
+        .get_move_away_from_path(&avoided, None, ground, world.host_objects(), mover, other)
         .expect("move-away route")
 }
 
@@ -110,7 +102,6 @@ fn move_away_uses_receiving_world_after_peer_restore() {
             .get_move_away_from_path(
                 &avoided,
                 None,
-                false,
                 &ground,
                 peer.host_objects(),
                 ObjectId(999),
@@ -150,15 +141,8 @@ fn move_away_does_not_cut_a_closed_corner() {
         finder.grid.set_cell_type(pos, PathfindCellType::Impassable);
     }
     let avoided = [Vec3::new(20.0, 0.0, 100.0), Vec3::new(180.0, 0.0, 100.0)];
-    let path = finder.get_move_away_from_path(
-        &avoided,
-        None,
-        false,
-        &ground,
-        world.host_objects(),
-        small,
-        large,
-    );
+    let path =
+        finder.get_move_away_from_path(&avoided, None, &ground, world.host_objects(), small, large);
     assert!(
         path.is_none(),
         "a diagonal cannot escape between two closed sides: {path:?}"
@@ -242,7 +226,6 @@ fn move_away_queries_keep_same_id_worlds_separate() {
             .get_move_away_from_path(
                 &avoided,
                 None,
-                false,
                 &ground,
                 peer.host_objects(),
                 peer_small,
@@ -253,5 +236,135 @@ fn move_away_queries_keep_same_id_worlds_separate() {
     assert_eq!(
         move_away(&world, small, large, &mut finder, &ground),
         expected
+    );
+}
+
+#[test]
+fn path_through_units_does_not_enable_tunneling_through_walls() {
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_main::game_logic::pathfinding::GridPos;
+    let (mut world, large, small) = make_world();
+    world.host_object_mut(small).unwrap().can_path_through_units = true;
+    let ground = PathfindingGround::Flat(0.0);
+    let mut finder = PathfindingSystem::new(400.0, 400.0);
+    for pos in [
+        GridPos::new(9, 10),
+        GridPos::new(11, 10),
+        GridPos::new(10, 9),
+        GridPos::new(10, 11),
+    ] {
+        finder.grid.set_cell_type(pos, PathfindCellType::Impassable);
+    }
+    let avoided = [Vec3::new(20.0, 0.0, 100.0), Vec3::new(180.0, 0.0, 100.0)];
+    let path =
+        finder.get_move_away_from_path(&avoided, None, &ground, world.host_objects(), small, large);
+    assert!(
+        path.is_none(),
+        "path-through-units cannot tunnel through terrain: {path:?}"
+    );
+}
+
+fn tiny_collision_world() -> (GameLogic, ObjectId, ObjectId) {
+    let mut world = GameLogic::new();
+    world.override_world_size(20.0, 20.0);
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
+    let mut template = ThingTemplate::new("Unit");
+    template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+    template.geometry_info.geom_type = HostGeometryType::Sphere;
+    template.geometry_info.major_radius = 2.0;
+    template.geometry_info.authored = true;
+    world.templates.insert("Unit".into(), template);
+    let mover = world
+        .create_object_for_player("Unit", 0, Vec3::ZERO)
+        .unwrap();
+    let yielding = world
+        .create_object_for_player("Unit", 0, Vec3::ZERO)
+        .unwrap();
+    world
+        .host_object_mut(yielding)
+        .unwrap()
+        .is_blocked_and_stuck = true;
+    (world, mover, yielding)
+}
+
+#[test]
+fn collision_retry_sets_unit_flag_even_when_no_route_exists() {
+    let (mut world, mover, yielding) = tiny_collision_world();
+    let (mut peer, peer_mover, peer_yielding) = tiny_collision_world();
+    assert_eq!((mover, yielding), (peer_mover, peer_yielding));
+    world
+        .host_object_mut(yielding)
+        .unwrap()
+        .is_blocked_and_stuck = true;
+    peer.host_object_mut(peer_yielding)
+        .unwrap()
+        .is_blocked_and_stuck = true;
+    let actor = world.host_object_mut(mover).unwrap();
+    actor.allow_collide_force = false;
+    actor.movement.path = vec![Vec3::new(-100.0, 0.0, 0.0), Vec3::new(100.0, 0.0, 0.0)];
+    actor.request_other_move_away = Some(yielding);
+    world.try_physics_collide(mover, yielding, 1.0).unwrap();
+    let actor = world.host_object(yielding).unwrap();
+    assert!(
+        actor.can_path_through_units,
+        "the retry flag persists even if no route is found"
+    );
+    assert!(
+        !actor.is_blocked_and_stuck,
+        "the C++ setter clears stuck state"
+    );
+    assert!(
+        actor.movement.path.is_empty(),
+        "no clear destination exists in the tiny world"
+    );
+    let peer_unit = peer.host_object(peer_yielding).unwrap();
+    assert!(
+        !peer_unit.can_path_through_units,
+        "the peer's unit did not receive the retry"
+    );
+    assert!(
+        peer_unit.is_blocked_and_stuck,
+        "the peer's stuck state is independent"
+    );
+}
+
+#[test]
+fn occupied_start_automatically_enables_escape_tunneling() {
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_main::game_logic::pathfinding::{GridPos, PathPositionFootprint};
+    let (mut world, large, small) = make_world();
+    world.add_player(Player::new(1, Team::GLA, "Enemy", false));
+    let enemy = world
+        .create_object_for_player("Small", 1, Vec3::new(100.0, 0.0, 100.0))
+        .unwrap();
+    let ground = PathfindingGround::Flat(0.0);
+    let mut finder = PathfindingSystem::new(400.0, 400.0);
+    finder.grid.update_path_position_cell(
+        &PathPositionFootprint {
+            unit_id: enemy.0,
+            player: 1,
+            radius: 2.0,
+            layer: 0,
+            on_ground: true,
+            infantry: false,
+            crushable_level: 0,
+        },
+        (-1, -1),
+        Vec3::new(100.0, 0.0, 100.0),
+    );
+    for pos in [
+        GridPos::new(9, 10),
+        GridPos::new(11, 10),
+        GridPos::new(10, 9),
+        GridPos::new(10, 11),
+    ] {
+        finder.grid.set_cell_type(pos, PathfindCellType::Impassable);
+    }
+    let avoided = [Vec3::new(20.0, 0.0, 100.0), Vec3::new(180.0, 0.0, 100.0)];
+    let path =
+        finder.get_move_away_from_path(&avoided, None, &ground, world.host_objects(), small, large);
+    assert!(
+        path.is_some(),
+        "an enemy occupying the start permits the original escape search"
     );
 }

@@ -1215,7 +1215,7 @@ impl GameLogic {
         // move, so the first exit search does not spiral.
         if let Some(unit) = self.objects.get_mut(&unit_id) {
             unit.set_adjust_destinations(false);
-            unit.can_path_through_units = true;
+            unit.set_can_path_through_units(true);
         }
         self.path_approach_with_state_ignoring(unit_id, path[0], AIState::Moving, ignore_producer);
         for &wp in path.iter().skip(1) {
@@ -1274,7 +1274,7 @@ impl GameLogic {
                 unit.movement.target_position = Some(node);
                 {}
             }
-            unit.can_path_through_units = true;
+            unit.set_can_path_through_units(true);
             unit.ignored_obstacle_id = ignore_producer;
             unit.is_attack_path = false;
             unit.last_command_source =

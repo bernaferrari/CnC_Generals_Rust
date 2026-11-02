@@ -418,7 +418,7 @@ impl GameLogic {
                     unit.movement.current_path_index = 0;
                     unit.movement.target_position = Some(door_end);
                     // AI_FOLLOW_EXITPRODUCTION_PATH (AIStates.cpp:3250-3273).
-                    unit.can_path_through_units = true;
+                    unit.set_can_path_through_units(true);
                     unit.is_attack_path = false;
                     unit.set_adjust_destinations(false);
                     unit.refresh_follow_path_extra_distance();

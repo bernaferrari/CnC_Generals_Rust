@@ -968,7 +968,6 @@ fn get_move_away_from_path_leaves_avoided_route() {
         .get_move_away_from_path(
             &avoided,
             None,
-            false,
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
             fixture.read(),
             ObjectId(1),

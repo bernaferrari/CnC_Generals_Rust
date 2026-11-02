@@ -405,6 +405,14 @@ impl Object {
         self.locomotor_goal_type != super::LocoGoalType::None || self.status.moving
     }
 
+    /// C++ AIUpdateInterface::setCanPathThroughUnits.
+    pub(crate) fn set_can_path_through_units(&mut self, enabled: bool) {
+        self.can_path_through_units = enabled;
+        if enabled {
+            self.is_blocked_and_stuck = false;
+        }
+    }
+
     /// C++ AIUpdateInterface::processCollision residual (force-apply gate + blocked).
     ///
     /// Returns true if physics should apply bounce force. Sets is_blocked /
@@ -2308,11 +2316,7 @@ impl Object {
         let vz = v.z * dir.y;
         let dot = vx + vz;
         let speed = (vx * vx + vz * vz).sqrt();
-        if dot >= 0.0 {
-            speed
-        } else {
-            -speed
-        }
+        if dot >= 0.0 { speed } else { -speed }
     }
 
     /// C++ getAerodynamicFriction residual (clamped).

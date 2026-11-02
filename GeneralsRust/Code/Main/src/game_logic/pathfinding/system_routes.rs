@@ -540,7 +540,6 @@ impl PathfindingSystem {
         &mut self,
         path_to_avoid: &[Vec3],
         path_to_avoid2: Option<&[Vec3]>,
-        tunnel: bool,
         ground_source: &PathfindingGround<'_>,
         objects: HostObjectRead<'_>,
         mover: ObjectId,
@@ -592,18 +591,46 @@ impl PathfindingSystem {
             box_half += cell / 2.0;
         }
         let start_layer = self.grid.layer_for_destination(from, ground_source);
-        let mut tunneling = tunnel
-            || !self.grid.valid_movement_position(
-                start,
-                start_layer,
-                surfaces,
-                is_crusher,
-                self.ignore_obstacle_id.map_or(0, |id| id.0),
-            );
         let is_human = self.grid.query_is_human;
         let ally_mask = seeker_player
             .map(|p| self.grid.ally_mask_for(p))
             .unwrap_or(0);
+        // C++ checkForMovement inspects the full footprint before setting
+        // m_isTunneling; path-through-units is a separate AI property.
+        let footprint_cost = |position: GridPos, layer: PathfindLayerEnum| -> Option<f32> {
+            let above = radius + i32::from(center_in_cell);
+            let mut cost = 0.0f32;
+            for x in position.x - radius..position.x + above {
+                for y in position.y - radius..position.y + above {
+                    let footprint_cell = GridPos::new(x, y);
+                    if !self.grid.is_valid_pos(footprint_cell) {
+                        return None;
+                    }
+                    let bits = self.grid.occupancy_bits(footprint_cell, layer);
+                    if bits.pos_unit == mover.0 {
+                        continue;
+                    }
+                    let cell_cost = self.grid.occupancy_cost_on_layer(
+                        footprint_cell,
+                        seeker_player,
+                        self.seeker_is_infantry,
+                        crusher_level,
+                        ally_mask,
+                        Some(start),
+                        layer,
+                    )?;
+                    cost = cost.max(cell_cost);
+                }
+            }
+            Some(cost)
+        };
+        let mut tunneling = !self.grid.valid_movement_position(
+            start,
+            start_layer,
+            surfaces,
+            is_crusher,
+            self.ignore_obstacle_id.map_or(0, |id| id.0),
+        ) || footprint_cost(start, start_layer).is_none();
         type SearchCell = (i32, i32, u8);
         let start_key = (start.x, start.y, start_layer as u8);
         let mut open: BinaryHeap<std::cmp::Reverse<(i32, u64, i32, i32, u8)>> = BinaryHeap::new();
@@ -732,34 +759,9 @@ impl PathfindingSystem {
                 if !dozer_hack {
                     neighbor_flags[i] = true;
                 }
-                let above = radius + i32::from(center_in_cell);
-                let mut occupied_cost = 0.0f32;
-                let mut occupied_blocked = false;
-                for x in n.x - radius..n.x + above {
-                    for y in n.y - radius..n.y + above {
-                        let footprint_cell = GridPos::new(x, y);
-                        if !self.grid.is_valid_pos(footprint_cell) {
-                            occupied_blocked = true;
-                            continue;
-                        }
-                        let bits = self.grid.occupancy_bits(footprint_cell, layer);
-                        if bits.pos_unit == mover.0 {
-                            continue;
-                        }
-                        match self.grid.occupancy_cost_on_layer(
-                            footprint_cell,
-                            seeker_player,
-                            self.seeker_is_infantry,
-                            crusher_level,
-                            ally_mask,
-                            Some(start),
-                            layer,
-                        ) {
-                            Some(cost) => occupied_cost = occupied_cost.max(cost),
-                            None => occupied_blocked = true,
-                        }
-                    }
-                }
+                let occupancy = footprint_cost(n, layer);
+                let occupied_blocked = occupancy.is_none();
+                let occupied_cost = occupancy.unwrap_or(0.0);
                 if occupied_blocked && !tunneling {
                     continue;
                 }

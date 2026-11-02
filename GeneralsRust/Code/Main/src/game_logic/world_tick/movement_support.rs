@@ -198,6 +198,51 @@ impl GameLogic {
         installed
     }
 
+    /// C++ AIUpdateInterface::privateMoveAwayFromUnit retries with the
+    /// receiving unit's path-through-units flag set before the second search.
+    pub(in super::super) fn find_move_away_path_with_retry(
+        &mut self,
+        mover: ObjectId,
+        other: ObjectId,
+        path: &[Vec3],
+        previous_path: Option<&[Vec3]>,
+    ) -> Option<Vec<Vec3>> {
+        let already_allowed = self.objects.get(&mover)?.can_path_through_units;
+        let ground_owner = self.world_services.terrain();
+        let ground_loan = ground_owner
+            .read()
+            .unwrap_or_else(|error| error.into_inner());
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+            &ground_loan,
+            self.map_loaded,
+            self.terrain.as_ref(),
+            self.pathfinding_height_samples.as_ref(),
+            &self.pathfinding_system.grid,
+        );
+        let first = self.pathfinding_system.get_move_away_from_path(
+            path,
+            previous_path,
+            &ground_source,
+            self.objects.read(),
+            mover,
+            other,
+        );
+        if first.is_some() || already_allowed {
+            return first;
+        }
+        self.objects
+            .get_mut(&mover)?
+            .set_can_path_through_units(true);
+        self.pathfinding_system.get_move_away_from_path(
+            path,
+            previous_path,
+            &ground_source,
+            self.objects.read(),
+            mover,
+            other,
+        )
+    }
+
     /// C++ `Pathfinder::moveAllies` after `computePath` installs a route.
     pub(in super::super) fn scoot_allies_off_mover_path(&mut self, object_id: ObjectId) {
         let Some(path) = self.objects.get(&object_id).and_then(|obj| {
@@ -223,60 +268,12 @@ impl GameLogic {
                         (prev.movement.path.len() >= 2).then(|| prev.movement.path.clone())
                     })
                 });
-            let Some(obj) = self.objects.get(&ally) else {
-                continue;
-            };
-            let can_tunnel = obj.can_path_through_units;
-            let mut yield_path = ({
-                let ground_owner = self.world_services.terrain();
-                let ground_loan = ground_owner
-                    .read()
-                    .unwrap_or_else(|error| error.into_inner());
-                let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
-                    &ground_loan,
-                    self.map_loaded,
-                    self.terrain.as_ref(),
-                    self.pathfinding_height_samples.as_ref(),
-                    &self.pathfinding_system.grid,
-                );
-                self.pathfinding_system.get_move_away_from_path(
-                    &mover_path,
-                    prev_path.as_deref(),
-                    false,
-                    &ground_source,
-                    self.objects.read(),
-                    ally,
-                    object_id,
-                )
-            });
-            if yield_path.is_none() && !can_tunnel {
-                yield_path = ({
-                    let ground_owner = self.world_services.terrain();
-                    let ground_loan = ground_owner
-                        .read()
-                        .unwrap_or_else(|error| error.into_inner());
-                    let ground_source =
-                        crate::game_logic::pathfinding::PathfindingGround::for_terrain(
-                            &ground_loan,
-                            self.map_loaded,
-                            self.terrain.as_ref(),
-                            self.pathfinding_height_samples.as_ref(),
-                            &self.pathfinding_system.grid,
-                        );
-                    self.pathfinding_system.get_move_away_from_path(
-                        &mover_path,
-                        prev_path.as_deref(),
-                        true,
-                        &ground_source,
-                        self.objects.read(),
-                        ally,
-                        object_id,
-                    )
-                });
-                if let Some(obj) = self.objects.get_mut(&ally) {
-                    obj.can_path_through_units = true;
-                }
-            }
+            let yield_path = self.find_move_away_path_with_retry(
+                ally,
+                object_id,
+                &mover_path,
+                prev_path.as_deref(),
+            );
             if let Some(path) = yield_path {
                 if let Some(obj) = self.objects.get_mut(&ally) {
                     let _installed = obj.apply_move_away_path(object_id, &path, self.frame);
@@ -826,7 +823,7 @@ impl GameLogic {
         }
         for id in yield_stuck {
             if let Some(obj) = self.objects.get_mut(&id) {
-                obj.can_path_through_units = true;
+                obj.set_can_path_through_units(true);
             }
         }
         for id in quick_miss {
