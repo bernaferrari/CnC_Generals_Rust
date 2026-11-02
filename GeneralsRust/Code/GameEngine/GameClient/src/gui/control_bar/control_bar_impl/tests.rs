@@ -217,7 +217,7 @@ mod tests {
     }
 
     #[test]
-    fn upgrade_cameo_uses_command_button_image_not_upgrade_name() {
+    fn upgrade_cameo_does_not_use_command_button_image() {
         const UPGRADE: &str = "Upgrade_TestCameoImageLookup";
         const IMAGE: &str = "SNTestCameoArt";
         const BUTTON: &str = "Command_TestCameoImageLookup";
@@ -252,8 +252,7 @@ mod tests {
         let cameos = &control_bar.get_portrait_state().upgrade_cameos;
         assert_eq!(cameos.len(), 1);
         assert_eq!(cameos[0].upgrade_name, UPGRADE);
-        assert_eq!(cameos[0].button_image, IMAGE);
-        assert_ne!(cameos[0].button_image, UPGRADE);
+        assert!(cameos[0].button_image.is_empty());
     }
 
     #[test]

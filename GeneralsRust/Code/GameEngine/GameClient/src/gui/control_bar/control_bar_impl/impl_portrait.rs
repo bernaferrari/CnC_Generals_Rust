@@ -19,17 +19,30 @@ impl ControlBar {
             let Some(cameo) = cameo.filter(|cameo| cameo.is_visible) else {
                 continue;
             };
+            let image = self.receiving_cameo_images.as_ref().and_then(|images| {
+                images.find(&cameo.button_image).map(|source| {
+                    let size = source.get_image_size();
+                    crate::gui::game_window::Image {
+                        name: source.get_name().to_owned(),
+                        width: size.x,
+                        height: size.y,
+                    }
+                })
+            });
             let current_image = window
                 .borrow()
                 .get_enabled_draw_data(0)
-                .and_then(|data| data.image)
-                .map(|image| image.name);
-            if current_image.as_deref() != Some(cameo.button_image.as_str()) {
-                let image = if cameo.button_image.is_empty() {
-                    None
-                } else {
-                    manager.win_find_image(&cameo.button_image)
-                };
+                .and_then(|data| data.image);
+            let image_changed = match (&current_image, &image) {
+                (Some(current), Some(next)) => {
+                    current.name != next.name
+                        || current.width != next.width
+                        || current.height != next.height
+                }
+                (None, None) => false,
+                _ => true,
+            };
+            if image_changed {
                 let mut window = window.borrow_mut();
                 if let Some(image) = image {
                     let _ = window.set_enabled_image(0, image);
@@ -352,7 +365,6 @@ impl ControlBar {
 
         // Live-registry portrait path: health stays 0 here; presentation overlay
         // (`sync_selection_display_from_presentation`) supplies snapshot HP.
-        let context_commands = self.context.available_commands.clone();
         let upgrade_cameos = leftover_authored_upgrade_cameo_names(&template_name)
             .into_iter()
             .map(|name| {
@@ -370,16 +382,10 @@ impl ControlBar {
                         })
                 });
                 UpgradeCameoState {
-                    button_image: if upgrade.is_some() {
-                        resolve_upgrade_cameo_button_image(
-                            &name,
-                            Some(context_commands.as_slice()),
-                            self.receiving_upgrade_catalog.as_ref(),
-                            self.receiving_upgrade_actions.as_deref(),
-                        )
-                    } else {
-                        String::new()
-                    },
+                    button_image: upgrade
+                        .as_deref()
+                        .map(upgrade_cameo_image_name)
+                        .unwrap_or_default(),
                     upgrade_name: name,
                     is_completed,
                     is_visible: upgrade.is_some(),
@@ -610,32 +616,25 @@ impl ControlBar {
         special_power_cooldown_remaining: f32,
         special_power_cooldown_total: f32,
     ) {
-        let context_commands = self.context.available_commands.clone();
         let cameos: Vec<UpgradeCameoState> = authored_cameos
             .iter()
             .take(MAX_RIGHT_HUD_UPGRADE_CAMEOS)
             .map(|name| {
                 let name = name.trim().to_owned();
-                let is_visible = !name.is_empty()
-                    && self
-                        .receiving_upgrade_catalog
-                        .as_ref()
-                        .is_some_and(|catalog| catalog.find_upgrade(&name).is_some());
+                let upgrade = self
+                    .receiving_upgrade_catalog
+                    .as_ref()
+                    .and_then(|catalog| catalog.find_upgrade(&name));
+                let is_visible = !name.is_empty() && upgrade.is_some();
                 let is_completed = is_visible
                     && completed_upgrades
                         .iter()
                         .any(|owned| owned.eq_ignore_ascii_case(&name));
                 UpgradeCameoState {
-                    button_image: if is_visible {
-                        resolve_upgrade_cameo_button_image(
-                            &name,
-                            Some(context_commands.as_slice()),
-                            self.receiving_upgrade_catalog.as_ref(),
-                            self.receiving_upgrade_actions.as_deref(),
-                        )
-                    } else {
-                        String::new()
-                    },
+                    button_image: upgrade
+                        .as_deref()
+                        .map(upgrade_cameo_image_name)
+                        .unwrap_or_default(),
                     upgrade_name: name,
                     is_completed,
                     is_visible,
@@ -1086,6 +1085,16 @@ mod native_observer_roster_portrait_tests {
             vec![("ReceivingSession".to_owned(), 123, 4, 2, 7, 3,)]
         );
     }
+}
+
+/// C++ `UpgradeTemplate::getButtonImage` resolves the template's own art.
+fn upgrade_cameo_image_name(upgrade: &gamelogic::upgrade::UpgradeTemplate) -> String {
+    upgrade
+        .get_button_image()
+        .map(|image| image.get_name())
+        .unwrap_or_else(|| upgrade.get_button_image_name().as_str())
+        .trim()
+        .to_owned()
 }
 
 /// C++ `ThingTemplate::getUpgradeCameoName(0..4)` via leftover ThingFactory.

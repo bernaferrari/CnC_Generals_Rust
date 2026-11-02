@@ -1315,6 +1315,10 @@ impl CnCGameEngine {
         .await
         .map_err(anyhow::Error::msg)?;
         #[cfg(feature = "game_client")]
+        engine
+            .control_bar
+            .set_receiving_cameo_images(&promotion_images);
+        #[cfg(feature = "game_client")]
         engine.game_client.admit_owned_world_animations(
             promotion_definitions.animation_templates(),
             &promotion_images,

@@ -274,6 +274,7 @@ pub fn clear_host_production_pause_requests(ui: &mut crate::core::subsystems::In
 pub struct ControlBar {
     /// Immutable presentation content from this receiving engine, never purchase state.
     receiving_upgrade_catalog: Option<gamelogic::upgrade::center::UpgradeCenter>,
+    receiving_cameo_images: Option<game_engine::common::ini::ini_mapped_image::OwnedMappedImages>,
     receiving_upgrade_actions: Option<
         Arc<game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions>,
     >,

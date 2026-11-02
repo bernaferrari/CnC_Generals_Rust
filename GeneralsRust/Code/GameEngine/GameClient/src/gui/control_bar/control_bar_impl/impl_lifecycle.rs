@@ -1,6 +1,14 @@
 // Split from `gui/control_bar/control_bar.rs` dump. Included by `control_bar_impl/mod.rs`.
 
 impl ControlBar {
+    /// Admit the immutable mapped-image definitions for this receiving UI.
+    pub fn set_receiving_cameo_images(
+        &mut self,
+        images: &game_engine::common::ini::ini_mapped_image::OwnedMappedImages,
+    ) {
+        self.receiving_cameo_images = Some(images.clone());
+    }
+
     /// Admit immutable UI definitions from the driving match before its input/
     /// frame operation. Cloned templates retain identity; no live game state
     /// is mirrored or discovered through a singleton.
@@ -18,6 +26,7 @@ impl ControlBar {
     pub fn new() -> Self {
         Self {
             receiving_upgrade_catalog: None,
+            receiving_cameo_images: None,
             receiving_upgrade_actions: None,
             tooltip: Default::default(),
             context: ControlBarContext::default(),

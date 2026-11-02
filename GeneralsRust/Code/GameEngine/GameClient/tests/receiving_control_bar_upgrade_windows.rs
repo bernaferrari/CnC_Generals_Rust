@@ -1,28 +1,33 @@
-use std::sync::Arc;
-
 use game_client_rust::gui::control_bar::ControlBar;
-use game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions;
+use game_engine::common::ini::{
+    INI,
+    ini_mapped_image::{ICoord2D, Image, ImageCollection, OwnedMappedImages},
+};
 use gamelogic::upgrade::center::UpgradeCenter;
 
 #[test]
 fn each_bar_applies_sparse_upgrade_cameos_to_its_own_windows() {
     let mut catalog = UpgradeCenter::new();
     catalog.new_upgrade("Upgrade_WindowSecond".into());
-    catalog.new_upgrade("Upgrade_WindowFifth".into());
-    let mut actions = ReceivingActionDefinitions::default();
-    let def = actions
-        .buttons
-        .new_command_button("Command_WindowFifth".into());
-    def.upgrade = "Upgrade_WindowFifth".into();
-    def.button_image = "CameoWindowTestImage".into();
-    let mut image = game_client_rust::display::image::Image::with_name("CameoWindowTestImage");
-    image.set_image_size(game_client_rust::display::image::ICoord2D::new(32, 24));
-    game_client_rust::display::image::get_mapped_image_collection()
-        .write()
-        .add_image(image);
+    let mut ini = INI::new();
+    ini.with_inline_source(
+        "Upgrade Upgrade_WindowFifth\n ButtonImage = CameoWindowTestImage\nEnd\n",
+        |ini| {
+            ini.read_line()?;
+            catalog.parse_upgrade_definition(ini)
+        },
+    )
+    .unwrap();
+    let mut image = Image::new();
+    image.set_name("CameoWindowTestImage".into());
+    image.set_image_size(ICoord2D::new(32, 24));
+    let mut collection = ImageCollection::new();
+    collection.add_image(image);
+    let images = OwnedMappedImages::from_collection(&collection);
     let mut owner = ControlBar::new();
     let mut peer = ControlBar::new();
-    owner.set_receiving_upgrade_definitions(&catalog, Some(Arc::new(actions)));
+    owner.set_receiving_upgrade_definitions(&catalog, None);
+    owner.set_receiving_cameo_images(&images);
     peer.set_receiving_upgrade_definitions(&catalog, None);
     let slots = [
         "",
@@ -120,7 +125,7 @@ fn each_bar_applies_sparse_upgrade_cameos_to_its_own_windows() {
                 .unwrap();
             assert!(first_window.borrow().is_hidden());
             assert!(!fifth.borrow().is_hidden() && fifth.borrow().is_enabled());
-            owner.set_receiving_upgrade_definitions(&catalog, None);
+            owner.set_receiving_cameo_images(&OwnedMappedImages::default());
             owner.sync_upgrade_cameos_from_presentation(
                 &slots,
                 &["Upgrade_WindowFifth".into()],
