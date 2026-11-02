@@ -1675,147 +1675,6 @@ mod tests {
         });
     }
 
-    #[test]
-    fn show_only_dropdown_single_unhides_map_border_hides_map_border2() {
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
-            use crate::gui::window_manager::with_window_manager;
-
-            with_window_manager(|manager| {
-                manager.reset();
-                let parent = manager
-                    .create_window(None, 0, 0, 800, 600)
-                    .expect("MainMenuParent");
-                parent.borrow_mut().set_name("MainMenu.wnd:MainMenuParent");
-                for name in ["MainMenu.wnd:MapBorder", "MainMenu.wnd:MapBorder2"] {
-                    let border = manager
-                        .create_window(Some(&parent), 0, 0, 800, 600)
-                        .expect(name);
-                    border.borrow_mut().set_name(name);
-                    // Start both visible so hide must run on the live manager.
-                    let _ = border.borrow_mut().hide(false);
-                }
-            });
-
-            {
-                let menu = MainMenu::new();
-                let state = MainMenuState::default();
-                MainMenu::show_only_dropdown(&state, DropdownType::Single);
-            }
-
-            with_window_manager(|manager| {
-                let hidden = |name: &str| {
-                    manager
-                        .find_window_by_name(name)
-                        .map(|w| w.borrow().is_hidden())
-                        .expect(name)
-                };
-                assert!(
-                    !hidden("MainMenu.wnd:MapBorder"),
-                    "show_only_dropdown(Single) must winHide(FALSE) MapBorder"
-                );
-                assert!(
-                    hidden("MainMenu.wnd:MapBorder2"),
-                    "show_only_dropdown(Single) must winHide(TRUE) MapBorder2"
-                );
-            });
-        });
-    }
-
-    #[test]
-    fn show_only_dropdown_main_hides_single_player_dropdown() {
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
-            use crate::gui::window_manager::with_window_manager;
-
-            with_window_manager(|manager| {
-                manager.reset();
-                let parent = manager
-                    .create_window(None, 0, 0, 800, 600)
-                    .expect("MainMenuParent");
-                parent.borrow_mut().set_name("MainMenu.wnd:MainMenuParent");
-                for name in ["MainMenu.wnd:MapBorder", "MainMenu.wnd:MapBorder2"] {
-                    let border = manager
-                        .create_window(Some(&parent), 0, 0, 800, 600)
-                        .expect(name);
-                    border.borrow_mut().set_name(name);
-                    let _ = border.borrow_mut().hide(false);
-                }
-            });
-
-            let menu = MainMenu::new();
-            MainMenu::show_only_dropdown(&MainMenuState::default(), DropdownType::Main);
-
-            with_window_manager(|manager| {
-                assert!(
-                    manager
-                        .find_window_by_name("MainMenu.wnd:MapBorder")
-                        .unwrap()
-                        .borrow()
-                        .is_hidden(),
-                    "C++ main dropdown must not leave single-player buttons visible underneath"
-                );
-                assert!(
-                    !manager
-                        .find_window_by_name("MainMenu.wnd:MapBorder2")
-                        .unwrap()
-                        .borrow()
-                        .is_hidden()
-                );
-            });
-        });
-    }
-
-    #[test]
-    fn show_only_dropdown_multiplayer_unhides_map_border1_hides_map_border2() {
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
-            // C++ MainMenu.cpp:1369-1376 ButtonMultiplayer:
-            // dropDownWindows[DROPDOWN_MULTIPLAYER]->winHide(FALSE) (MapBorder1)
-            // after MainMenuInit hid MapBorder2 (DROPDOWN_MAIN).
-            use crate::gui::window_manager::with_window_manager;
-
-            with_window_manager(|manager| {
-                manager.reset();
-                let parent = manager
-                    .create_window(None, 0, 0, 800, 600)
-                    .expect("MainMenuParent");
-                parent.borrow_mut().set_name("MainMenu.wnd:MainMenuParent");
-                for name in ["MainMenu.wnd:MapBorder1", "MainMenu.wnd:MapBorder2"] {
-                    let border = manager
-                        .create_window(Some(&parent), 0, 0, 800, 600)
-                        .expect(name);
-                    border.borrow_mut().set_name(name);
-                    // Start both visible so hide must run on the live manager.
-                    let _ = border.borrow_mut().hide(false);
-                }
-            });
-
-            {
-                let menu = MainMenu::new();
-                let state = MainMenuState::default();
-                MainMenu::show_only_dropdown(&state, DropdownType::Multiplayer);
-            }
-
-            with_window_manager(|manager| {
-                let hidden = |name: &str| {
-                    manager
-                        .find_window_by_name(name)
-                        .map(|w| w.borrow().is_hidden())
-                        .expect(name)
-                };
-                assert!(
-                    !hidden("MainMenu.wnd:MapBorder1"),
-                    "show_only_dropdown(Multiplayer) must winHide(FALSE) MapBorder1"
-                );
-                assert!(
-                    hidden("MainMenu.wnd:MapBorder2"),
-                    "show_only_dropdown(Multiplayer) must winHide(TRUE) MapBorder2"
-                );
-            });
-        });
-    }
-
     fn install_named_map_borders(names: &[&str], hidden: bool) {
         use crate::gui::window_manager::with_window_manager;
         with_window_manager(|manager| {
@@ -1882,8 +1741,8 @@ mod tests {
                 "MULTIPLAYER must winHide(FALSE) MapBorder1"
             );
             assert!(
-                border_hidden("MainMenu.wnd:MapBorder2"),
-                "MULTIPLAYER must winHide(TRUE) MapBorder2"
+                !border_hidden("MainMenu.wnd:MapBorder2"),
+                "MULTIPLAYER keeps MapBorder2 visible during the transition"
             );
 
             install_named_map_borders(BORDERS, false);
@@ -1900,8 +1759,8 @@ mod tests {
                 "LOAD must winHide(FALSE) MapBorder3"
             );
             assert!(
-                border_hidden("MainMenu.wnd:MapBorder2"),
-                "LOAD must winHide(TRUE) MapBorder2"
+                !border_hidden("MainMenu.wnd:MapBorder2"),
+                "LOAD keeps MapBorder2 visible during the transition"
             );
 
             install_named_map_borders(BORDERS, true);

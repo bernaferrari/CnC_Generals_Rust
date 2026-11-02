@@ -469,7 +469,12 @@ impl MainMenu {
         let selected_read = selected.as_deref();
         let scoped = parent_id
             .and_then(|parent| {
-                manager.win_get_window_from_id_with_lent(None, parent as i32, selected_read, &lent_read)
+                manager.win_get_window_from_id_with_lent(
+                    None,
+                    parent as i32,
+                    selected_read,
+                    &lent_read,
+                )
             })
             .and_then(|parent| {
                 id.and_then(|id| {
@@ -484,7 +489,12 @@ impl MainMenu {
         let window = scoped
             .or_else(|| {
                 id.and_then(|id| {
-                    manager.win_get_window_from_id_with_lent(None, id as i32, selected_read, &lent_read)
+                    manager.win_get_window_from_id_with_lent(
+                        None,
+                        id as i32,
+                        selected_read,
+                        &lent_read,
+                    )
                 })
             })
             .or_else(|| {
@@ -591,7 +601,13 @@ impl MainMenu {
         effects.with_manager(|manager, effects| {
             for name in names {
                 Self::hide_receiving_window_with_lent(
-                    manager, None, None, Some(name), true, None, &mut effects.lent_windows,
+                    manager,
+                    None,
+                    None,
+                    Some(name),
+                    true,
+                    None,
+                    &mut effects.lent_windows,
                 );
             }
         });
@@ -636,37 +652,14 @@ impl MainMenu {
         };
         effects.with_manager(|manager, effects| {
             Self::hide_receiving_window_with_lent(
-                manager, None, None, Some(name), hide, selected, &mut effects.lent_windows,
+                manager,
+                None,
+                None,
+                Some(name),
+                hide,
+                selected,
+                &mut effects.lent_windows,
             );
-        });
-    }
-
-    fn show_only_dropdown(
-        _state: &MainMenuState,
-        dropdown: DropdownType,
-        effects: &mut WindowEventEffects<'_>,
-        mut selected: Option<&mut crate::gui::game_window::GameWindow>,
-    ) {
-        effects.with_manager(|manager, effects| {
-            for candidate in [
-                DropdownType::Single,
-                DropdownType::Multiplayer,
-                DropdownType::Main,
-                DropdownType::LoadReplay,
-                DropdownType::Difficulty,
-            ] {
-                if let Some(name) = Self::dropdown_wnd_name(candidate) {
-                    Self::hide_receiving_window_with_lent(
-                        manager,
-                        None,
-                        None,
-                        Some(name),
-                        candidate != dropdown,
-                        selected.as_deref_mut(),
-                        &mut effects.lent_windows,
-                    );
-                }
-            }
         });
     }
 
@@ -1874,7 +1867,13 @@ impl MainMenu {
             }
             state.button_pushed = false;
             state.drop_down = DropdownType::Main;
-            Self::show_only_dropdown(state, DropdownType::Main, effects, selected.as_deref_mut());
+            Self::set_dropdown_hidden(
+                state,
+                DropdownType::Main,
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
             Self::transition_remove(
                 "MainMenuSinglePlayerMenu",
                 false,
@@ -1902,7 +1901,13 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = false;
             state.drop_down = DropdownType::Main;
-            Self::show_only_dropdown(state, DropdownType::Main, effects, selected.as_deref_mut());
+            Self::set_dropdown_hidden(
+                state,
+                DropdownType::Main,
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
             Self::transition_remove(
                 "MainMenuMultiPlayerMenu",
                 false,
@@ -1929,7 +1934,13 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = false;
             state.drop_down = DropdownType::Main;
-            Self::show_only_dropdown(state, DropdownType::Main, effects, selected.as_deref_mut());
+            Self::set_dropdown_hidden(
+                state,
+                DropdownType::Main,
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
             Self::transition_remove(
                 "MainMenuLoadReplayMenu",
                 false,
@@ -1960,7 +1971,13 @@ impl MainMenu {
                 PendingMainMenuAction::PushShellScreen("Menus/CreditsMenu.wnd"),
             );
             state.drop_down = DropdownType::Main;
-            Self::show_only_dropdown(state, DropdownType::Main, effects, selected.as_deref_mut());
+            Self::set_dropdown_hidden(
+                state,
+                DropdownType::Main,
+                false,
+                effects,
+                selected.as_deref_mut(),
+            );
             Self::transition_reverse("MainMenuDefaultMenu", effects, selected.as_deref_mut());
             log::info!("Credits button selected");
         } else if control_id == state.window_ids.button_multi_player_id {
@@ -1971,9 +1988,10 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = false;
             state.drop_down = DropdownType::Multiplayer;
-            Self::show_only_dropdown(
+            Self::set_dropdown_hidden(
                 state,
                 DropdownType::Multiplayer,
+                false,
                 effects,
                 selected.as_deref_mut(),
             );
@@ -1999,9 +2017,10 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = false;
             state.drop_down = DropdownType::LoadReplay;
-            Self::show_only_dropdown(
+            Self::set_dropdown_hidden(
                 state,
                 DropdownType::LoadReplay,
+                false,
                 effects,
                 selected.as_deref_mut(),
             );
@@ -2027,9 +2046,10 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = true;
             state.drop_down = DropdownType::LoadReplay;
-            Self::show_only_dropdown(
+            Self::set_dropdown_hidden(
                 state,
                 DropdownType::LoadReplay,
+                false,
                 effects,
                 selected.as_deref_mut(),
             );
@@ -2051,9 +2071,10 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = true;
             state.drop_down = DropdownType::LoadReplay;
-            Self::show_only_dropdown(
+            Self::set_dropdown_hidden(
                 state,
                 DropdownType::LoadReplay,
+                false,
                 effects,
                 selected.as_deref_mut(),
             );
@@ -2076,9 +2097,10 @@ impl MainMenu {
             state.button_pushed = true;
             state.campaign_selected = true;
             state.drop_down = DropdownType::Single;
-            Self::show_only_dropdown(
+            Self::set_dropdown_hidden(
                 state,
                 DropdownType::Single,
+                false,
                 effects,
                 selected.as_deref_mut(),
             );
@@ -2112,9 +2134,10 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = true;
             state.drop_down = DropdownType::Multiplayer;
-            Self::show_only_dropdown(
+            Self::set_dropdown_hidden(
                 state,
                 DropdownType::Multiplayer,
+                false,
                 effects,
                 selected.as_deref_mut(),
             );
@@ -2134,9 +2157,10 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = true;
             state.drop_down = DropdownType::Multiplayer;
-            Self::show_only_dropdown(
+            Self::set_dropdown_hidden(
                 state,
                 DropdownType::Multiplayer,
+                false,
                 effects,
                 selected.as_deref_mut(),
             );
