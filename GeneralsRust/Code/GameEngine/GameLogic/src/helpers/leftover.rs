@@ -710,19 +710,16 @@ impl TheTerrainVisual {
 
     pub fn add_water_velocity(&self, _x: Real, _y: Real, _velocity: Real, _preferred_height: Real) {
         let frame = TheGameLogic::get_frame();
-        let mut impulses = WATER_VELOCITY_IMPULSES
+        let services = terrain_visuals();
+        let mut impulses = services
+            .client_visuals()
+            .water_velocity_impulses
             .lock()
-            .expect("Water impulse lock poisoned");
+            .unwrap_or_else(|p| p.into_inner());
         if impulses.len() >= MAX_WATER_VELOCITY_IMPULSES {
             impulses.remove(0);
         }
-        impulses.push(WaterVelocityImpulse {
-            x: _x,
-            y: _y,
-            velocity: _velocity,
-            preferred_height: _preferred_height,
-            frame,
-        });
+        impulses.push((_x, _y, _velocity, _preferred_height, frame));
 
         log::debug!(
             "Water velocity impulse at ({:.1}, {:.1}) v={:.2} h={:.2} frame={}",
@@ -736,22 +733,19 @@ impl TheTerrainVisual {
 
     /// Drain leftover `addWaterVelocity` impulses into live `TerrainVisualImpl`.
     pub fn take_water_velocity_impulses(&self) -> Vec<(Real, Real, Real, Real)> {
-        WATER_VELOCITY_IMPULSES
+        terrain_visuals()
+            .client_visuals()
+            .water_velocity_impulses
             .lock()
             .map(|mut impulses| {
                 impulses
                     .drain(..)
-                    .map(|impulse| {
-                        (
-                            impulse.x,
-                            impulse.y,
-                            impulse.velocity,
-                            impulse.preferred_height,
-                        )
+                    .map(|(x, y, velocity, preferred_height, _frame)| {
+                        (x, y, velocity, preferred_height)
                     })
                     .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_else(|_| Vec::new())
     }
 
     /// C++ `TheTerrainVisual->enableWaterGrid`.
@@ -840,21 +834,39 @@ mod terrain_visual_ownership_tests {
         assert_eq!(got[1].1[0].0, 22);
         assert_eq!(got[1].1[0].4, "beta");
     }
-}
 
-#[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
-struct WaterVelocityImpulse {
-    x: Real,
-    y: Real,
-    velocity: Real,
-    preferred_height: Real,
-    frame: UnsignedInt,
+    #[test]
+    fn parallel_worlds_keep_independent_water_impulses() {
+        let barrier = Arc::new(Barrier::new(2));
+        let results = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = Vec::new();
+        for seed in [3.0_f32, 9.0_f32] {
+            let barrier = Arc::clone(&barrier);
+            let results = Arc::clone(&results);
+            handles.push(thread::spawn(move || {
+                let services = new_world_services();
+                with_world_services(&services, || {
+                    barrier.wait();
+                    TheTerrainVisual.add_water_velocity(seed, 0.0, 1.0, 2.0);
+                    barrier.wait();
+                    let drained = TheTerrainVisual.take_water_velocity_impulses();
+                    results.lock().unwrap().push((seed, drained));
+                });
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let mut got = results.lock().unwrap();
+        got.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        assert_eq!(got[0].1.len(), 1);
+        assert_eq!(got[0].1[0].0, 3.0);
+        assert_eq!(got[1].1.len(), 1);
+        assert_eq!(got[1].1[0].0, 9.0);
+    }
 }
 
 const MAX_WATER_VELOCITY_IMPULSES: usize = 128;
-static WATER_VELOCITY_IMPULSES: Lazy<Mutex<Vec<WaterVelocityImpulse>>> =
-    Lazy::new(|| Mutex::new(Vec::new()));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvaEvent {
