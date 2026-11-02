@@ -50,6 +50,8 @@ struct WindowManagerOwnerState {
     deferred_shell_pushes: RefCell<Vec<String>>,
     last_widget_tree_click_used: Cell<bool>,
     widget_tree_navigation_observed: Cell<bool>,
+    /// LAN / Skirmish shell transition flags (C++ file-statics on those menus).
+    menu_shell_flags: super::menu_shell_flags::MenuShellFlags,
 }
 
 /// Persistent owner for one native client's WND tree and its re-entry queues.
@@ -112,6 +114,7 @@ impl WindowManagerOwner {
                 deferred_shell_pushes: RefCell::new(Vec::new()),
                 last_widget_tree_click_used: Cell::new(false),
                 widget_tree_navigation_observed: Cell::new(false),
+                menu_shell_flags: super::menu_shell_flags::MenuShellFlags::new(),
             }),
         }
     }
@@ -121,6 +124,11 @@ impl WindowManagerOwner {
     }
     pub fn widget_tree_navigation_observed(&self) -> bool {
         self.state.widget_tree_navigation_observed.get()
+    }
+
+    /// LAN/Skirmish shell transition flags for this client.
+    pub fn menu_shell_flags(&self) -> &super::menu_shell_flags::MenuShellFlags {
+        &self.state.menu_shell_flags
     }
     pub(crate) fn record_widget_tree_click_used(&self, used: bool) {
         self.state.last_widget_tree_click_used.set(used);

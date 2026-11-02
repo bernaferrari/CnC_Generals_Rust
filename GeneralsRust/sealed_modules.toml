@@ -155,3 +155,14 @@ path = "Code/Libraries/Source/WWVegas/WWLib/src/misc.rs"
 cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWLib/misc.h"
 note = "MiscVideoState owns palette/windowed/surfaces/audio-focus; process Mutex/atomics removed; 4->0 globals."
 
+
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/mod.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks"
+note = "LAN/Skirmish MenuShellFlags owned on WindowManagerOwner; removed 16 TLS Cells; dead main-menu/popup TLS dropped (owned on MainMenu)."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/window_manager/menu_shell_flags.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks"
+note = "MenuShellFlags type for per-client LAN/Skirmish shell transition flags; 0 process globals."

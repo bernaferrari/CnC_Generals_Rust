@@ -346,6 +346,7 @@ pub(crate) fn destroy_lan_map_select_overlay(
 
 pub(crate) fn refresh_lan_game_options_from_setup(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    owner: &crate::gui::window_manager::WindowManagerOwner,
 ) {
     with_state(|state| {
         let selected_map = {
@@ -358,7 +359,7 @@ pub(crate) fn refresh_lan_game_options_from_setup(
         }
         update_map_preview(state, receiving_manager);
         sync_map_to_game_info(state);
-        lan_update_slot_list(state, receiving_manager);
+        lan_update_slot_list(state, receiving_manager, owner);
     });
 }
 
@@ -665,9 +666,10 @@ fn populate_global_controls(
 fn lan_update_slot_list(
     state: &mut LanGameOptionsState,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    owner: &crate::gui::window_manager::WindowManagerOwner,
 ) {
     // Guard checks matching C++: if(!AreSlotListUpdatesEnabled() || s_isIniting) return;
-    if !lan_slot_updates_enabled() || lan_is_initing() {
+    if !lan_slot_updates_enabled(owner) || lan_is_initing(owner) {
         return;
     }
 
@@ -1017,9 +1019,9 @@ pub fn lan_game_options_menu_init(
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     // Set initing flag - matches C++ s_isIniting = TRUE
-    set_lan_is_initing(true);
-    set_lan_button_pushed(false);
-    set_lan_is_shutting_down(false);
+    set_lan_is_initing(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
+    set_lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
+    set_lan_is_shutting_down(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
 
     with_state(|state| {
         state.parent_id = name_to_id("LanGameOptionsMenu.wnd:LanGameOptionsMenuParent");
@@ -1070,7 +1072,7 @@ pub fn lan_game_options_menu_init(
         }
 
         // Disable slot list updates during init - matches C++ EnableSlotListUpdates(FALSE)
-        set_lan_slot_updates_enabled(false);
+        set_lan_slot_updates_enabled(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
         ensure_default_slots();
         effects.with_manager(|receiving_manager, effects| {
             populate_slot_controls(state, receiving_manager)
@@ -1078,7 +1080,7 @@ pub fn lan_game_options_menu_init(
         effects.with_manager(|receiving_manager, effects| {
             populate_global_controls(receiving_manager, effects)
         });
-        set_lan_slot_updates_enabled(true);
+        set_lan_slot_updates_enabled(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
 
         choose_default_map(state);
         sync_map_to_game_info(state);
@@ -1086,14 +1088,14 @@ pub fn lan_game_options_menu_init(
             update_map_preview(state, receiving_manager)
         });
         effects.with_manager(|receiving_manager, effects| {
-            lan_update_slot_list(state, receiving_manager)
+            lan_update_slot_list(state, receiving_manager, effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"))
         });
     });
 
     effects.with_manager(|manager, _effects| layout.hide(manager, false));
 
     // Clear initing flag - matches C++ s_isIniting = FALSE
-    set_lan_is_initing(false);
+    set_lan_is_initing(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
 }
 
 pub fn lan_game_options_menu_update(
@@ -1102,7 +1104,7 @@ pub fn lan_game_options_menu_update(
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     // Check shutdown - matches C++ pattern
-    if lan_is_shutting_down()
+    if lan_is_shutting_down(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"))
         && crate::gui::shell::base::shell_anim_finished_for_layout(effects)
         && effects.with_manager(|manager, effects| manager.transitions_finished())
     {
@@ -1113,7 +1115,7 @@ pub fn lan_game_options_menu_update(
             state.text_entry_map_display = None;
             state.listbox_chat = None;
         });
-        set_lan_is_shutting_down(false);
+        set_lan_is_shutting_down(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
         effects.with_manager(|manager, _effects| layout.hide(manager, true));
         crate::gui::shell::base::queue_shell_operation_with_effects(effects, |shell, effects| {
             let _ = shell.shutdown_complete(None, false, effects);
@@ -1135,7 +1137,7 @@ pub fn lan_game_options_menu_update(
             });
             sync_map_to_game_info(state);
             effects.with_manager(|receiving_manager, effects| {
-                lan_update_slot_list(state, receiving_manager)
+                lan_update_slot_list(state, receiving_manager, effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"))
             });
         }
     });
@@ -1166,7 +1168,7 @@ pub fn lan_game_options_menu_shutdown(
         return;
     }
 
-    set_lan_is_shutting_down(true);
+    set_lan_is_shutting_down(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
     let _ = crate::gui::shell::base::queue_shell_reverse_animate_window(effects);
     effects.with_manager(|manager, effects| manager.transition_reverse("LanGameOptionsFade", None));
 }
@@ -1217,7 +1219,7 @@ pub fn lan_game_options_menu_system(
             }
             if handle_accept_click(state, control_id) {
                 effects.with_manager(|receiving_manager, effects| {
-                    lan_update_slot_list(state, receiving_manager)
+                    lan_update_slot_list(state, receiving_manager, effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"))
                 });
                 handled = true;
                 return;
@@ -1226,14 +1228,14 @@ pub fn lan_game_options_menu_system(
                 handle_combo_selection(state, control_id, receiving_manager)
             }) {
                 effects.with_manager(|receiving_manager, effects| {
-                    lan_update_slot_list(state, receiving_manager)
+                    lan_update_slot_list(state, receiving_manager, effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"))
                 });
                 handled = true;
                 return;
             }
             if handle_start_position_click(state, control_id) {
                 effects.with_manager(|receiving_manager, effects| {
-                    lan_update_slot_list(state, receiving_manager)
+                    lan_update_slot_list(state, receiving_manager, effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"))
                 });
                 handled = true;
             }
@@ -1244,7 +1246,7 @@ pub fn lan_game_options_menu_system(
                 handle_combo_selection(state, control_id, receiving_manager)
             }) {
                 effects.with_manager(|receiving_manager, effects| {
-                    lan_update_slot_list(state, receiving_manager)
+                    lan_update_slot_list(state, receiving_manager, effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"))
                 });
                 handled = true;
             }
@@ -1253,7 +1255,7 @@ pub fn lan_game_options_menu_system(
             let control_id = data1 as i32;
             if handle_start_position_right_click(state, control_id) {
                 effects.with_manager(|receiving_manager, effects| {
-                    lan_update_slot_list(state, receiving_manager)
+                    lan_update_slot_list(state, receiving_manager, effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"))
                 });
                 handled = true;
             }
@@ -1279,7 +1281,7 @@ pub fn lan_game_options_menu_input(
         return WindowMsgHandled::Ignored;
     }
 
-    if lan_button_pushed() {
+    if lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner")) {
         return WindowMsgHandled::Ignored;
     }
 
@@ -1307,7 +1309,7 @@ use crate::gui::game_window::WindowEventEffects;
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
         let mut window = GameWindow::new();
-        set_lan_button_pushed(false);
+        set_lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
 
         assert_eq!(
             WindowEventEffects::with_standalone(|effects| lan_game_options_menu_input(&mut window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0, effects)),
@@ -1322,7 +1324,7 @@ use crate::gui::game_window::WindowEventEffects;
     #[test]
     fn esc_char_is_ignored_after_button_pushed_like_cpp() {
         let mut window = GameWindow::new();
-        set_lan_button_pushed(true);
+        set_lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
 
         assert_eq!(
             WindowEventEffects::with_standalone(|effects| lan_game_options_menu_input(
@@ -1334,7 +1336,7 @@ use crate::gui::game_window::WindowEventEffects;
             WindowMsgHandled::Ignored
         );
 
-        set_lan_button_pushed(false);
+        set_lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
     }
 
     #[test]

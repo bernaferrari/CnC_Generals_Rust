@@ -125,6 +125,7 @@ mod layout_load;
 mod messages;
 mod modal;
 mod reentry;
+mod menu_shell_flags;
 mod script_callbacks;
 mod script_message_window;
 mod transition_access;
@@ -134,6 +135,7 @@ mod wnd_parse;
 
 pub use control_bar_dispatch::{CameraOptionsInputContext, ControlBarInputContext};
 pub use layout::{WindowLayout, WindowLayoutInfo};
+pub use menu_shell_flags::MenuShellFlags;
 pub use reentry::{
     WindowManagerOwner, WindowManagerReceipt, WindowMouseFacts,
     dispatch_os_key_to_window_manager_for_owner,

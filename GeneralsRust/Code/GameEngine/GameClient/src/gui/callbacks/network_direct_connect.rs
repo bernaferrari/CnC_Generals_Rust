@@ -320,7 +320,7 @@ fn handle_back(
     save_player_name(&name);
     trim_player_name(&mut name);
     request_set_name(name);
-    set_lan_button_pushed(true);
+    set_lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
     state.button_pushed = true;
     let _ = crate::gui::shell::base::queue_shell_pop(effects);
 }
@@ -336,8 +336,8 @@ pub fn network_direct_connect_init(
     state.button_pushed = false;
     state.is_shutting_down = false;
 
-    set_lan_button_pushed(false);
-    set_lan_is_shutting_down(false);
+    set_lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
+    set_lan_is_shutting_down(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
 
     state.parent_id = name_to_id("NetworkDirectConnect.wnd:NetworkDirectConnectParent");
     state.button_back_id = name_to_id("NetworkDirectConnect.wnd:ButtonBack");

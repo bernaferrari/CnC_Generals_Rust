@@ -342,13 +342,13 @@ pub fn lan_map_select_menu_system(
                     setup.game_info_mut().reset_start_spots();
                 }
                 show_lan_game_options_underlying_gui_elements(true, receiving_manager);
-                refresh_lan_game_options_from_setup(receiving_manager);
+                refresh_lan_game_options_from_setup(receiving_manager, effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"));
                 destroy_lan_map_select_overlay(receiving_manager, effects);
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.button_back_id {
                 show_lan_game_options_underlying_gui_elements(true, receiving_manager);
-                refresh_lan_game_options_from_setup(receiving_manager);
+                refresh_lan_game_options_from_setup(receiving_manager, effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"));
                 destroy_lan_map_select_overlay(receiving_manager, effects);
                 return WindowMsgHandled::Handled;
             }

@@ -862,7 +862,7 @@ fn skirmish_update_slot_list(
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     // Guard checks matching C++: if(!AreSlotListUpdatesEnabled() || s_isIniting) return;
-    if !skirmish_slot_updates_enabled() || skirmish_is_initing() {
+    if !skirmish_slot_updates_enabled(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner")) || skirmish_is_initing(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner")) {
         return;
     }
 
@@ -1417,7 +1417,7 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState, effects: &mut Windo
     if map_name.is_empty() {
         log::warn!("Skirmish Start aborted: no map");
         state.button_pushed = false;
-        set_skirmish_button_pushed(false);
+        set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
         return;
     }
     log::info!("Skirmish Start map={map_name}");
@@ -1439,7 +1439,7 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState, effects: &mut Windo
         log::warn!("Skirmish Start cache miss map={map_name}");
         drop(cache_guard);
         state.button_pushed = false;
-        set_skirmish_button_pushed(false);
+        set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
         let _ = effects.with_manager(|receiving_manager, effects| {
             message_box_ok(
                 &GameText::fetch("GUI:ErrorStartingGame"),
@@ -1458,7 +1458,7 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState, effects: &mut Windo
     };
     if player_count > meta.num_players.max(0) as usize {
         state.button_pushed = false;
-        set_skirmish_button_pushed(false);
+        set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
         let body = format!(
             "{} {}",
             GameText::fetch("GUI:TooManyPlayers"),
@@ -1564,7 +1564,7 @@ fn check_for_cd_at_game_start(
         return true;
     }
     state.button_pushed = false;
-    set_skirmish_button_pushed(false);
+    set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
     crate::cd_check::check_for_cd_at_game_start(
         Box::new(|effects| {
             with_state(|state| start_skirmish_game(state, effects));
@@ -1579,10 +1579,10 @@ pub fn skirmish_game_options_menu_init(
     _user_data: Option<&mut dyn std::any::Any>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    set_skirmish_button_pushed(false);
-    set_skirmish_is_shutting_down(false);
-    set_skirmish_is_initing(true);
-    set_skirmish_slot_updates_enabled(false);
+    set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
+    set_skirmish_is_shutting_down(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
+    set_skirmish_is_initing(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
+    set_skirmish_slot_updates_enabled(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
     signal_ui_interaction(SHELL_SCRIPT_HOOK_SKIRMISH_OPENED);
 
     with_state(|state| {
@@ -1753,8 +1753,8 @@ pub fn skirmish_game_options_menu_init(
         state.still_needs_to_set_options = false;
         state.button_pushed = false;
     });
-    set_skirmish_slot_updates_enabled(true);
-    set_skirmish_is_initing(false);
+    set_skirmish_slot_updates_enabled(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
+    set_skirmish_is_initing(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
 
     show_shell_map_if_available(true, effects);
     layout.hide_receiving(false, effects);
@@ -1814,7 +1814,7 @@ pub fn skirmish_game_options_menu_update(
             && effects.with_manager(|manager, effects| manager.transitions_finished())
         {
             state.is_shutting_down = false;
-            set_skirmish_is_shutting_down(false);
+            set_skirmish_is_shutting_down(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
             layout.hide_receiving(true, effects);
             queue_shell_shutdown_complete(effects, false);
         }
@@ -1838,7 +1838,7 @@ pub fn skirmish_game_options_menu_shutdown(
             destroy_skirmish_map_select_overlay(receiving_manager, effects)
         });
         layout.hide_receiving(true, effects);
-        set_skirmish_is_shutting_down(false);
+        set_skirmish_is_shutting_down(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
         queue_shell_shutdown_complete(effects, false);
         return;
     }
@@ -1849,7 +1849,7 @@ pub fn skirmish_game_options_menu_shutdown(
     });
 
     with_state(|state| state.is_shutting_down = true);
-    set_skirmish_is_shutting_down(true);
+    set_skirmish_is_shutting_down(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
 }
 
 /// Residual: fire retail `ButtonStart` via `GadgetSelected` (C++ GBM_SELECTED path).
@@ -1871,7 +1871,7 @@ pub fn simulate_skirmish_start_button_gadget_selected(
     effects: &mut WindowEventEffects<'_>,
 ) -> bool {
     ensure_default_slots();
-    set_skirmish_button_pushed(false);
+    set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
     let mut button_id = name_to_id("SkirmishGameOptionsMenu.wnd:ButtonStart");
     // NameKey table may not be warmed before first layout resolve — keep a stable
     // non-zero residual id so GadgetSelected can still reach the menu system.
@@ -1923,24 +1923,24 @@ pub fn simulate_skirmish_start_button_gadget_selected(
                 effects,
             )
         };
-        if matches!(handled, WindowMsgHandled::Handled) || skirmish_button_pushed() {
+        if matches!(handled, WindowMsgHandled::Handled) || skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner")) {
             return true;
         }
     }
     // Wave 835/837: no live window (layout not pushed) — run ButtonStart residual
     // through start_skirmish_game so NewGame posts when map/slots are latched.
     // Return true only when button stays pushed (start_skirmish_game clears it on fail).
-    set_skirmish_button_pushed(false);
+    set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
     with_state(|state| {
-        if state.button_pushed || skirmish_button_pushed() {
+        if state.button_pushed || skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner")) {
             return;
         }
         state.button_pushed = true;
-        set_skirmish_button_pushed(true);
+        set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
         start_skirmish_game(state, effects);
     });
     // start_skirmish_game clears button_pushed on map-missing / too-many-players fail.
-    skirmish_button_pushed()
+    skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"))
 }
 
 /// Human click-through: OS LeftDown/Up on retail `ButtonStart`
@@ -1954,7 +1954,7 @@ pub fn drive_os_wnd_skirmish_start_like_cpp(effects: &mut WindowEventEffects<'_>
         effects
             .window_manager_owner
             .expect("skirmish click requires receiving owner"),
-    ) && skirmish_button_pushed()
+    ) && skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"))
     {
         return true;
     }
@@ -2160,20 +2160,20 @@ pub fn skirmish_game_options_menu_system(
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             // C++ parity: if(buttonPushed) break; guards ALL button handling
-            if state.button_pushed || skirmish_button_pushed() {
+            if state.button_pushed || skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner")) {
                 handled = true;
                 return;
             }
             if control_id == state.button_start_id {
                 state.button_pushed = true;
-                set_skirmish_button_pushed(true);
+                set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
                 start_skirmish_game(state, effects);
                 handled = true;
                 return;
             }
             if control_id == state.button_back_id {
                 state.button_pushed = true;
-                set_skirmish_button_pushed(true);
+                set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
                 effects.with_manager(|receiving_manager, effects| {
                     write_skirmish_preferences(state, receiving_manager)
                 });

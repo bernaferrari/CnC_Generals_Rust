@@ -206,7 +206,7 @@ fn handle_lan_event(
             add_chat_line(state, &line);
         }
         LanEvent::GameJoin(LanResult::Ok, _) => {
-            set_lan_button_pushed(true);
+            set_lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
             state.next_screen = Some("Menus/LanGameOptionsMenu.wnd".to_string());
             let _ = crate::gui::shell::base::queue_shell_pop(effects);
         }
@@ -214,7 +214,7 @@ fn handle_lan_event(
             add_chat_line(state, &GameText::fetch("LAN:JoinFailed"));
         }
         LanEvent::GameCreate(LanResult::Ok) => {
-            set_lan_button_pushed(true);
+            set_lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
             spawn_lan(async move {
                 let mut guard = the_lan().lock().await;
                 if let Some(api) = guard.as_mut() {
@@ -247,7 +247,7 @@ fn handle_lan_event(
             );
         }
         LanEvent::GameStart => {
-            set_lan_button_pushed(true);
+            set_lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
         }
         LanEvent::NetworkError(err) => {
             warn!("LAN socket error: {err}");
@@ -285,8 +285,8 @@ pub fn lan_lobby_init(
     layout: &WindowLayout,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    set_lan_button_pushed(false);
-    set_lan_is_shutting_down(false);
+    set_lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
+    set_lan_is_shutting_down(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
     if let Ok(mut q) = events().lock() {
         q.clear();
     }
@@ -393,7 +393,7 @@ pub fn lan_lobby_shutdown(
         }
     });
 
-    set_lan_is_shutting_down(true);
+    set_lan_is_shutting_down(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
     if immediate {
         layout.hide(true);
         let _ = crate::gui::shell::base::queue_shell_shutdown_complete(effects, false);
@@ -421,7 +421,7 @@ pub fn lan_lobby_update(
         }
     }
 
-    if lan_is_shutting_down()
+    if lan_is_shutting_down(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"))
         && crate::gui::shell::base::shell_anim_finished_for_layout(effects)
         && effects.with_manager(|manager, effects| manager.transitions_finished())
     {
@@ -431,11 +431,11 @@ pub fn lan_lobby_update(
         if let Some(screen) = next {
             let _ = crate::gui::shell::base::queue_shell_push(effects, &screen, false);
         }
-        set_lan_is_shutting_down(false);
+        set_lan_is_shutting_down(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
         return;
     }
 
-    if !lan_button_pushed() {
+    if !lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner")) {
         pump_lan_events();
         let drained: Vec<LanEvent> = events()
             .lock()
@@ -476,7 +476,7 @@ pub fn lan_lobby_input(
     if msg != WindowMessage::Char || data1 != KEY_ESC {
         return WindowMsgHandled::Ignored;
     }
-    if lan_button_pushed() || (data2 & KEY_STATE_UP) == 0 {
+    if lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner")) || (data2 & KEY_STATE_UP) == 0 {
         return WindowMsgHandled::Handled;
     }
     let slot = state();
@@ -509,7 +509,7 @@ pub fn lan_lobby_system(
         }
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::User(code) if code == GLM_DOUBLE_CLICKED => {
-            if lan_button_pushed() {
+            if lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner")) {
                 return WindowMsgHandled::Handled;
             }
             let slot = state();
@@ -520,14 +520,14 @@ pub fn lan_lobby_system(
             WindowMsgHandled::Handled
         }
         WindowMessage::GadgetSelected => {
-            if lan_button_pushed() {
+            if lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner")) {
                 return WindowMsgHandled::Handled;
             }
             let slot = state();
             let st = slot.borrow();
             let id = data1 as i32;
             if id == st.button_back_id {
-                set_lan_button_pushed(true);
+                set_lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
                 drop(st);
                 spawn_lan(async move {
                     reset_the_lan().await;
@@ -572,7 +572,7 @@ pub fn lan_lobby_system(
             WindowMsgHandled::Handled
         }
         WindowMessage::GadgetEditDone | WindowMessage::GadgetValueChanged => {
-            if lan_button_pushed() {
+            if lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner")) {
                 return WindowMsgHandled::Handled;
             }
             let slot = state();
