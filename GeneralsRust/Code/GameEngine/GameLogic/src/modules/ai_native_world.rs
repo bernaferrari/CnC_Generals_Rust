@@ -556,16 +556,36 @@ impl AiWorld for BorrowedAiWorld<'_> {
         object: &Object,
         locomotors: &crate::locomotor::LocomotorSet,
         goal: &mut Coord3D,
+        ignore_obstacle_id: ObjectID,
+        aircraft_goal_only: bool,
     ) -> Result<bool, String> {
         let observations = crate::ai::pathfind_complete::PathfindObservations {
             factory: self.factory,
             players: self.players,
             terrain: self.services.terrain,
         };
+        let is_human = self
+            .controller(object)
+            .map(|player| {
+                player
+                    .read()
+                    .expect("admitted controller poisoned")
+                    .get_player_type()
+                    != PlayerType::Computer
+            })
+            .unwrap_or(true);
         Ok(self
             .services
             .pathfinder
-            .adjust_destination_with_observations(object, locomotors, goal, Some(&observations)))
+            .adjust_destination_with_observations(
+                object,
+                locomotors,
+                goal,
+                ignore_obstacle_id,
+                aircraft_goal_only,
+                is_human,
+                Some(&observations),
+            ))
     }
     fn snap_closest_goal_position(
         &self,

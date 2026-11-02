@@ -39,6 +39,13 @@ pub(super) fn movement_relationship(
     }
 }
 
+/// The simulation object and AI policy driving one destination adjustment.
+pub(crate) struct AdjustmentOwner<'a> {
+    pub source: &'a crate::object::Object,
+    pub request: PathRequest,
+    pub aircraft_goal_only: bool,
+}
+
 impl PathfindingSystem {
     // ========================================================================
     // GROUP B – Destination adjustment
@@ -86,6 +93,7 @@ impl PathfindingSystem {
             unit_radius,
             ignore_obstacle_id,
             None,
+            None,
         )
     }
 
@@ -98,6 +106,7 @@ impl PathfindingSystem {
         unit_radius: f32,
         ignore_obstacle_id: Option<ObjectID>,
         observations: Option<&PathfindObservations<'_>>,
+        owner: Option<&AdjustmentOwner<'_>>,
     ) -> bool {
         let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
         // C++: if (!center) adjustDest += PATHFIND_CELL_SIZE_F/2 before worldToCell.
@@ -108,7 +117,12 @@ impl PathfindingSystem {
         }
         let cell = GridCoord::from_world(&adjust_dest);
         // C++: layer = TheTerrainLogic->getLayerForDestination(dest)
-        let layer = self.get_layer_for_coord(cell);
+        let layer = observations.map_or_else(
+            || self.get_layer_for_coord(cell),
+            |world| {
+                PathfindLayerEnum::from_u32(world.terrain.get_layer_for_destination(dest) as u32)
+            },
+        );
 
         // Exact cell first (C++ checkForAdjust on seed cell).
         if self.try_adjust_cell_with_observations(
@@ -123,6 +137,7 @@ impl PathfindingSystem {
             from,
             dest,
             observations,
+            owner,
         ) {
             return true;
         }
@@ -151,6 +166,7 @@ impl PathfindingSystem {
                     from,
                     dest,
                     observations,
+                    owner,
                 ) {
                     return true;
                 }
@@ -171,6 +187,7 @@ impl PathfindingSystem {
                     from,
                     dest,
                     observations,
+                    owner,
                 ) {
                     return true;
                 }
@@ -192,6 +209,7 @@ impl PathfindingSystem {
                     from,
                     dest,
                     observations,
+                    owner,
                 ) {
                     return true;
                 }
@@ -212,6 +230,7 @@ impl PathfindingSystem {
                     from,
                     dest,
                     observations,
+                    owner,
                 ) {
                     return true;
                 }
@@ -248,6 +267,7 @@ impl PathfindingSystem {
             from,
             dest,
             None,
+            None,
         )
     }
 
@@ -264,28 +284,35 @@ impl PathfindingSystem {
         from: Option<&Coord3D>,
         dest: &mut Coord3D,
         observations: Option<&PathfindObservations<'_>>,
+        owner: Option<&AdjustmentOwner<'_>>,
     ) -> bool {
         let coord = GridCoord::new(cx, cy);
         if !self.is_valid_coord(coord) {
             return false;
         }
-        // C++: no final destinations on cliffs.
-        let world = match observations {
-            Some(observations) => Self::cell_center_with_height(coord, layer, |x, y, layer| {
-                observations.terrain.get_layer_height(
-                    x,
-                    y,
-                    crate::path::PathfindLayerEnum::from_u32(layer as u32),
-                    None,
-                    false,
-                )
-            }),
-            None => self.world_pos_for_coord(coord, layer),
+        let Some((cell_type, _, _)) = self.pathfinder.obstacle_observation_at(coord, layer) else {
+            return false;
         };
-        if self.get_cell_type(&world) == Some(PathfindCellType::Cliff) {
+        if cell_type == PathfindCellType::Cliff {
             return false;
         }
-        if !self.is_destination_valid_with_observations(
+        if let Some(owner) = owner {
+            if owner.request.is_human && !self.in_logical_extent(coord) {
+                return false;
+            }
+            if !self.check_destination_with_source(
+                &owner.request,
+                coord,
+                layer,
+                radius,
+                center_in_cell,
+                Some(owner.aircraft_goal_only),
+                observations,
+                Some(owner.source),
+            ) {
+                return false;
+            }
+        } else if !self.is_destination_valid_with_observations(
             coord,
             layer,
             surfaces,
@@ -297,29 +324,46 @@ impl PathfindingSystem {
         ) {
             return false;
         }
-        let mut adjust_dest = world;
-        if let Some(observations) = observations {
-            adjust_dest.z = observations.terrain.get_layer_height(
-                world.x,
-                world.y,
-                crate::path::PathfindLayerEnum::Ground,
-                None,
-                false,
-            );
-        } else if let Some(terrain) = TheTerrainLogic::get() {
-            adjust_dest.z =
-                terrain.get_layer_height(world.x, world.y, CommonPathfindLayerEnum::Ground);
-        }
+        let Some(cell_layer) = self.pathfinder.resolved_layer_at(coord, layer) else {
+            return false;
+        };
+        let mut adjust_dest = *dest;
+        self.adjust_coord_to_cell_with_observations(
+            cx,
+            cy,
+            center_in_cell,
+            &mut adjust_dest,
+            cell_layer,
+            observations,
+        );
 
-        // C++ checkForAdjust path gate via clientSafeQuickDoesPathExist.
-        if let Some(from_pos) = from {
-            let path_exists = self.client_safe_quick_does_path_exist(surfaces, from_pos, dest);
-            let adjusted_path_exists =
-                self.client_safe_quick_does_path_exist(surfaces, from_pos, &adjust_dest);
+        // The quick path query uses the pathfinder's own temporary ignore ID;
+        // checkDestination uses the driving AI's separate ignored obstacle.
+        let quick_ignore = Some(self.ignore_obstacle_id).filter(|id| *id != INVALID_ID);
+        if let Some(from_pos) =
+            from.filter(|_| !owner.is_some_and(|owner| owner.source.is_kind_of(KindOf::Aircraft)))
+        {
+            let path_exists = self.client_safe_quick_does_path_exist_ignoring(
+                surfaces,
+                from_pos,
+                dest,
+                quick_ignore,
+            );
+            let adjusted_path_exists = self.client_safe_quick_does_path_exist_ignoring(
+                surfaces,
+                from_pos,
+                &adjust_dest,
+                quick_ignore,
+            );
             let mut ok = adjusted_path_exists;
             if !path_exists {
                 // C++: if (!pathExists) { if (clientSafeQuick(dest, adjustDest)) ok }
-                if self.client_safe_quick_does_path_exist(surfaces, dest, &adjust_dest) {
+                if self.client_safe_quick_does_path_exist_ignoring(
+                    surfaces,
+                    dest,
+                    &adjust_dest,
+                    quick_ignore,
+                ) {
                     ok = true;
                 }
             }

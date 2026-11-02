@@ -15,6 +15,7 @@ pub use super::pathfind_astar::{
     AStarPathfinder, COST_DIAGONAL, COST_ORTHOGONAL, GridCoord, PATHFIND_CELL_SIZE,
     PATHFIND_CELL_SIZE_F, PathfindCellType, PathfindLayerEnum,
 };
+pub(crate) use check_movement::AdjustmentOwner;
 
 pub(crate) use crate::common::KindOf;
 pub(crate) use crate::common::xfer::{Xfer, XferExt};

@@ -1499,3 +1499,92 @@ fn native_snap_uses_own_world_without_reborrowing_source() {
     });
     assert_eq!(GridCoord::from_world(&goal), cell);
 }
+
+#[test]
+fn native_adjust_destination_respects_owned_goal_reservations() {
+    use crate::ai::pathfind_astar::{GridCoord, PathfindLayerEnum};
+    let mut ally = NativeMatch::new(155.0);
+    let mut enemy = NativeMatch::with_target_owner(155.0, container_template(), true);
+    let cell = GridCoord::new(4, 4);
+    let ally_target = ally.target.read().unwrap().get_id();
+    let enemy_target = enemy.target.read().unwrap().get_id();
+    assert_eq!(ally_target, enemy_target);
+    assert_eq!(
+        ally.source.read().unwrap().get_id(),
+        enemy.source.read().unwrap().get_id()
+    );
+    ally.pathfinder
+        .update_goal_cells(cell, ally_target, PathfindLayerEnum::Ground, 0, true, false);
+    enemy.pathfinder.update_goal_cells(
+        cell,
+        enemy_target,
+        PathfindLayerEnum::Ground,
+        0,
+        true,
+        false,
+    );
+    let adjust = |game: &mut NativeMatch| {
+        let source = Arc::clone(&game.source);
+        let owner = source.write().unwrap();
+        let mut goal = Coord3D::new(45.0, 45.0, 0.0);
+        let locomotors =
+            crate::locomotor::LocomotorSet::from_surfaces(crate::locomotor::SURFACE_GROUND);
+        game.operate(10, |world| {
+            assert!(
+                world
+                    .adjust_destination(
+                        &owner,
+                        &locomotors,
+                        &mut goal,
+                        crate::common::INVALID_ID,
+                        false
+                    )
+                    .unwrap()
+            )
+        });
+        GridCoord::from_world(&goal)
+    };
+    assert_eq!(
+        adjust(&mut ally),
+        GridCoord::new(5, 4),
+        "C++ searches right first when an ally owns the goal"
+    );
+    assert_eq!(
+        adjust(&mut enemy),
+        cell,
+        "a nonfixed enemy goal does not block adjustment"
+    );
+    ally.pathfinder
+        .pathfinding_system_mut()
+        .pathfinder
+        .set_cell_obstacle_id(cell, 777, false, false);
+    let source = Arc::clone(&ally.source);
+    let owner = source.write().unwrap();
+    let mut goal = Coord3D::new(45.0, 45.0, 0.0);
+    let locomotors =
+        crate::locomotor::LocomotorSet::from_surfaces(crate::locomotor::SURFACE_GROUND);
+    ally.operate(11, |world| {
+        assert!(
+            world
+                .adjust_destination(&owner, &locomotors, &mut goal, 777, false)
+                .unwrap()
+        );
+    });
+    assert_ne!(
+        GridCoord::from_world(&goal),
+        cell,
+        "the AI ignore does not change the pathfinder's quick-path ignore"
+    );
+    ally.pathfinder
+        .pathfinding_system_mut()
+        .set_ignore_obstacle_id(777);
+    goal = Coord3D::new(45.0, 45.0, 0.0);
+    ally.operate(12, |world| {
+        assert!(
+            world
+                .adjust_destination(&owner, &locomotors, &mut goal, 777, false)
+                .unwrap()
+        );
+    });
+    assert_eq!(GridCoord::from_world(&goal), cell);
+}

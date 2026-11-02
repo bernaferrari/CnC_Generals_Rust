@@ -2894,3 +2894,89 @@ fn destination_goal_occupancy_follows_resolved_bridge_cell() {
         "an impassable bridge cell falls back to occupied ground"
     );
 }
+
+#[test]
+fn owned_adjust_candidate_applies_human_logical_extent() {
+    let factory = crate::object::object_factory::ObjectFactory::new();
+    let players = crate::player::PlayerList::new();
+    let terrain = crate::terrain::TerrainLogic::new();
+    let observations = PathfindObservations {
+        factory: &factory,
+        players: &players,
+        terrain: &terrain,
+    };
+    let object = crate::object::Object::new_test(100, 100.0);
+    let mut world = PathfindingSystem::new(8, 8);
+    world.new_map();
+    world.set_logical_extent(ICoord2D::new(1, 1), ICoord2D::new(2, 2));
+    let cell = GridCoord::new(4, 4);
+    let pos = cell.to_world(0.0);
+    let request = PathRequest {
+        object_id: 100,
+        from: pos,
+        to: pos,
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        unit_radius: 0.0,
+        allow_partial: false,
+        move_allies: false,
+        ignore_obstacle_id: None,
+        is_human: true,
+    };
+    let owner = AdjustmentOwner {
+        source: &object,
+        request,
+        aircraft_goal_only: false,
+    };
+    let mut goal = pos;
+    assert!(!world.try_adjust_cell_with_observations(
+        cell.x,
+        cell.y,
+        PathfindLayerEnum::Ground,
+        SURFACE_GROUND,
+        false,
+        0,
+        true,
+        None,
+        None,
+        &mut goal,
+        Some(&observations),
+        Some(&owner)
+    ));
+    let computer = AdjustmentOwner {
+        request: PathRequest {
+            is_human: false,
+            ..owner.request.clone()
+        },
+        ..owner
+    };
+    assert!(world.try_adjust_cell_with_observations(
+        cell.x,
+        cell.y,
+        PathfindLayerEnum::Ground,
+        SURFACE_GROUND,
+        false,
+        0,
+        true,
+        None,
+        None,
+        &mut goal,
+        Some(&observations),
+        Some(&computer)
+    ));
+    assert!(world.try_adjust_cell_with_observations(
+        cell.x,
+        cell.y,
+        PathfindLayerEnum::Ground,
+        SURFACE_GROUND,
+        false,
+        1,
+        false,
+        None,
+        None,
+        &mut goal,
+        Some(&observations),
+        Some(&computer)
+    ));
+    assert_eq!((goal.x, goal.y), (40.5, 40.5));
+}

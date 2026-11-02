@@ -1341,7 +1341,20 @@ impl UnitAiRuntime {
             return false;
         };
         let mut candidate = *goal;
-        if !pathfinder.adjust_destination(&owner, &self.data.locomotor_set, &mut candidate) {
+        let is_human = owner
+            .with_controlling_player(|player| {
+                player.get_player_type() != crate::player::PlayerType::Computer
+            })
+            .unwrap_or(true);
+        if !pathfinder.adjust_destination_with_observations(
+            &owner,
+            &self.data.locomotor_set,
+            &mut candidate,
+            self.data.get_ignored_obstacle_id(),
+            self.data.is_aircraft_that_adjusts_destination(),
+            is_human,
+            None,
+        ) {
             return false;
         }
         *goal = candidate;
@@ -2676,7 +2689,13 @@ impl AiStateRuntime for UnitAiStateRuntime<'_, '_> {
         let owner = self.runtime.native_owner().expect("admitted goal owner");
         let owner = owner.read().expect("admitted goal owner poisoned");
         world
-            .adjust_destination(&owner, &self.runtime.data.locomotor_set, _goal)
+            .adjust_destination(
+                &owner,
+                &self.runtime.data.locomotor_set,
+                _goal,
+                self.runtime.data.get_ignored_obstacle_id(),
+                self.runtime.data.is_aircraft_that_adjusts_destination(),
+            )
             .expect("admitted destination observations")
     }
     fn snap_closest_goal_position(

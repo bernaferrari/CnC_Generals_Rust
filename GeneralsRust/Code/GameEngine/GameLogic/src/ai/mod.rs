@@ -2113,24 +2113,17 @@ impl Pathfinder {
             .find_safe_path(request, repulsor_pos1, repulsor_pos2, repulsor_radius)
     }
 
-    /// C++ `Pathfinder::adjustDestination` — spiral snap with path-existence gate.
-    pub fn adjust_destination(
-        &self,
-        obj: &Object,
-        locomotor_set: &crate::locomotor::LocomotorSet,
-        dest: &mut Coord3D,
-    ) -> bool {
-        self.adjust_destination_with_observations(obj, locomotor_set, dest, None)
-    }
-
+    /// C++ `Pathfinder::adjustDestination` with the driving AI's policy.
     pub(crate) fn adjust_destination_with_observations(
         &self,
         obj: &Object,
         locomotor_set: &crate::locomotor::LocomotorSet,
         dest: &mut Coord3D,
+        ignore_obstacle_id: ObjectID,
+        aircraft_goal_only: bool,
+        is_human: bool,
         observations: Option<&pathfind_complete::PathfindObservations<'_>>,
     ) -> bool {
-        // C++ projectiles skip adjust.
         if obj.is_kind_of(KindOf::Projectile) {
             return true;
         }
@@ -2141,14 +2134,32 @@ impl Pathfinder {
             .get_bounding_circle_radius()
             .max(0.0);
         let from = *obj.get_position();
+        let ignored = Some(ignore_obstacle_id).filter(|id| *id != INVALID_ID);
+        let owner = pathfind_complete::AdjustmentOwner {
+            source: obj,
+            request: pathfind_complete::PathRequest {
+                object_id: obj.get_id(),
+                from,
+                to: *dest,
+                surfaces,
+                is_crusher,
+                unit_radius,
+                allow_partial: false,
+                move_allies: false,
+                ignore_obstacle_id: ignored,
+                is_human,
+            },
+            aircraft_goal_only,
+        };
         self.inner.adjust_destination_from_with_observations(
             Some(&from),
             surfaces,
             is_crusher,
             dest,
             unit_radius,
-            None,
+            ignored,
             observations,
+            Some(&owner),
         )
     }
 

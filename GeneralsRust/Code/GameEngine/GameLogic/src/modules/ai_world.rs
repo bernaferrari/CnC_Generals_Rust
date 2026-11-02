@@ -129,6 +129,8 @@ pub trait AiWorld {
         object: &Object,
         locomotors: &crate::locomotor::LocomotorSet,
         goal: &mut Coord3D,
+        ignore_obstacle_id: ObjectID,
+        aircraft_goal_only: bool,
     ) -> Result<bool, String>;
     fn snap_closest_goal_position(
         &self,
