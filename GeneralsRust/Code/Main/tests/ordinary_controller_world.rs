@@ -72,10 +72,8 @@ End
     (world, mover)
 }
 
-#[test]
-fn queued_ordinary_path_uses_controller_type_and_survives_save_load() {
-    let root = tempfile::tempdir().unwrap();
-    let map = root.path().join("OrdinaryController.map");
+fn write_map(root: &std::path::Path) -> std::path::PathBuf {
+    let map = root.join("OrdinaryController.map");
     let mut data = DataChunkOutput::new();
     data.open_data_chunk("HeightMapData", 4);
     // The physical map is larger than the human-controlled area.
@@ -89,6 +87,13 @@ fn queued_ordinary_path_uses_controller_type_and_survives_save_load() {
     data.open_data_chunk("ObjectsList", 3);
     data.close_data_chunk();
     std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+    map
+}
+
+#[test]
+fn queued_ordinary_path_uses_controller_type_and_survives_save_load() {
+    let root = tempfile::tempdir().unwrap();
+    let map = write_map(root.path());
     let (mut computer, computer_id) = world(&map, false);
     let (mut human, human_id) = world(&map, true);
     let (mut no_controller, no_controller_id) = world(&map, false);
@@ -156,4 +161,34 @@ fn queued_ordinary_path_uses_controller_type_and_survives_save_load() {
     );
     assert!(!restored_unit.waiting_for_path);
     assert!(restored.snapshot_pending_host_paths().is_empty());
+}
+
+#[test]
+fn appended_waypoint_search_uses_the_movers_controller() {
+    let root = tempfile::tempdir().unwrap();
+    let map = write_map(root.path());
+    let (mut computer, computer_id) = world(&map, false);
+    let (mut human, human_id) = world(&map, true);
+    assert_eq!(computer_id, human_id);
+    let first = Vec3::new(65.0, 0.0, 55.0);
+    let next = Vec3::new(145.0, 0.0, 55.0);
+    for (w, id) in [(&mut computer, computer_id), (&mut human, human_id)] {
+        w.host_object_mut(id).unwrap().requested_destination = Some(first);
+        w.update_with_dt(1.0 / 30.0);
+        assert_eq!(
+            w.host_object(id).unwrap().movement.path.last().copied(),
+            Some(first)
+        );
+        assert!(w.append_unit_waypoint(id, next));
+    }
+    let c = &computer.host_object(computer_id).unwrap().movement.path;
+    let h = &human.host_object(human_id).unwrap().movement.path;
+    // This checks the remaining eager search bridge. C++ stores future goals
+    // instead; the bridge and this assertion must go when that migration lands.
+    assert_eq!(c.last().copied(), Some(next));
+    assert_eq!(h.last().copied(), Some(next));
+    assert_ne!(
+        c, h,
+        "the existing bridge must not discard the mover's controller"
+    );
 }

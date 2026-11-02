@@ -2598,10 +2598,12 @@ impl GameLogic {
                 self.pathfinding_height_samples.as_ref(),
                 &self.pathfinding_system.grid,
             );
-            self.pathfinding_system.find_path(
+            self.pathfinding_system.find_path_ex(
                 last_goal,
                 waypoint,
                 self.objects.read().with_players(&self.players),
+                false,
+                Some(unit_id),
                 &ground_source,
             )
         });
