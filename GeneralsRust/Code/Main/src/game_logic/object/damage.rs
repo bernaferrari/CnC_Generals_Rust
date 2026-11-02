@@ -510,6 +510,7 @@ impl Object {
                 self.last_healing_timestamp = Some(frame);
                 self.last_damage_timestamp = Some(frame);
                 self.last_damage_source = source;
+                self.last_damage_cleared = false;
                 self.last_damage_info_type = Some(crate::game_logic::combat::DamageType::Healing);
                 if self.health.current != before_hp {
                     health_events.record_applied_heal(self.id, self.health.current);
@@ -1398,6 +1399,7 @@ impl Object {
         if !same_or_next || (incoming.exists && (!previous.exists || incoming.preferred)) {
             self.last_damage_info_type = Some(damage_type);
             self.last_damage_source = source;
+            self.last_damage_cleared = false;
             self.last_damage_timestamp = Some(frame);
         }
     }

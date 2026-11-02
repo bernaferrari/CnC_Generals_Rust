@@ -592,7 +592,7 @@ impl GameLogic {
         let last = self
             .objects
             .get_mut(&object_id)
-            .and_then(|o| o.last_damage_source.take());
+            .and_then(|o| o.consume_clearable_last_attacker());
         let Some(aid) = last else {
             return Ok(false);
         };

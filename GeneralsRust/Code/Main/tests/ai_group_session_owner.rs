@@ -1268,6 +1268,11 @@ fn guard_keeps_parent_after_real_aggressor_hit() {
         "guard did not react to its attacker"
     );
     assert_eq!(unit.target, Some(attacker));
+    assert_eq!(
+        unit.last_damage_source,
+        Some(attacker),
+        "consuming the Guard trigger must retain ActiveBody last DamageInfo"
+    );
     let snapshot = generals_main::save_load::SnapshotBuilder::new()
         .create_world_snapshot(&world)
         .unwrap();
@@ -1277,6 +1282,56 @@ fn guard_keeps_parent_after_real_aggressor_hit() {
         serde_json::to_value(generals_main::game_logic::AIState::GuardingArea).unwrap()
     );
     assert!(!value["BaseAi"]["continuation"]["attack_original_victim_pos"].is_null());
+    assert_eq!(
+        world.host_object(actor).unwrap().clearable_last_attacker(),
+        None
+    );
+    let (mut peer, peer_actor, _, _) = world_with_options(&map, true, true, false);
+    assert_eq!(peer_actor, actor);
+    let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
+    enemy.alliance_team = 2;
+    peer.add_player(enemy);
+    generals_main::save_load::SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut peer)
+        .unwrap();
+    let restored = peer.host_object(actor).unwrap();
+    assert_eq!(restored.last_damage_source, Some(attacker));
+    assert_eq!(restored.clearable_last_attacker(), None);
+    let timestamp = restored.last_damage_timestamp.unwrap();
+    // C++ retains a known attacker when a source-less hit arrives next frame.
+    peer.host_object_mut(actor).unwrap().take_damage_from(
+        1.0,
+        None,
+        timestamp.wrapping_add(1),
+        &mut generals_main::game_logic::HostHealthEvents::default(),
+    );
+    assert_eq!(
+        peer.host_object(actor).unwrap().last_damage_source,
+        Some(attacker)
+    );
+    assert_eq!(
+        peer.host_object(actor).unwrap().clearable_last_attacker(),
+        None
+    );
+    let next_frame = timestamp.wrapping_add(3);
+    peer.host_object_mut(actor).unwrap().take_damage_from(
+        1.0,
+        Some(attacker),
+        next_frame,
+        &mut generals_main::game_logic::HostHealthEvents::default(),
+    );
+    assert_eq!(
+        peer.host_object(actor).unwrap().clearable_last_attacker(),
+        Some(attacker)
+    );
+    assert_eq!(
+        world.host_object(actor).unwrap().clearable_last_attacker(),
+        None
+    );
+    assert_eq!(
+        world.host_object(actor).unwrap().last_damage_source,
+        Some(attacker)
+    );
 }
 
 #[test]

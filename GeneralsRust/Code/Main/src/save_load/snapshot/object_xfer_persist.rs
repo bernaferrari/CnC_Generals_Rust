@@ -36,7 +36,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const OXOB_MAGIC: &[u8; 4] = b"OXOB";
-const OXOB_VERSION: u32 = 22;
+const OXOB_VERSION: u32 = 23;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectXferPersistPayload {
@@ -51,6 +51,42 @@ struct ObjectXferPersistPayload {
     weapon_activity: Vec<(u32, bool, bool)>,
     target_positions: Vec<(u32, bool, [f32; 3])>,
     body_fx_throttles: Vec<(u32, u32, Option<crate::game_logic::combat::DamageType>)>,
+    /// Owners whose ActiveBody last-damage record has been cleared for retaliation.
+    cleared_last_attackers: Vec<u32>,
+}
+
+/// Version 22 predates the independently cleared ActiveBody attacker flag.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectXferPersistPayloadV22 {
+    objects: Vec<ObjectXferPersist>,
+    script_status: Vec<ObjectScriptStatusPersist>,
+    structures: Vec<StructureTopplePersist>,
+    damage_info: Vec<ObjectDamageInfoPersist>,
+    transport: Vec<TransportMovementPersist>,
+    body_history: Vec<body_damage_history_persist::BodyDamageHistoryPersist>,
+    open_contain_rallies: Vec<OpenContainRallyPersist>,
+    passenger_fire_permissions: Vec<(u32, bool)>,
+    weapon_activity: Vec<(u32, bool, bool)>,
+    target_positions: Vec<(u32, bool, [f32; 3])>,
+    body_fx_throttles: Vec<(u32, u32, Option<crate::game_logic::combat::DamageType>)>,
+}
+impl From<ObjectXferPersistPayloadV22> for ObjectXferPersistPayload {
+    fn from(old: ObjectXferPersistPayloadV22) -> Self {
+        Self {
+            objects: old.objects,
+            script_status: old.script_status,
+            structures: old.structures,
+            damage_info: old.damage_info,
+            transport: old.transport,
+            body_history: old.body_history,
+            open_contain_rallies: old.open_contain_rallies,
+            passenger_fire_permissions: old.passenger_fire_permissions,
+            weapon_activity: old.weapon_activity,
+            target_positions: old.target_positions,
+            body_fx_throttles: old.body_fx_throttles,
+            cleared_last_attackers: Vec::new(),
+        }
+    }
 }
 
 /// Version 21 predates ActiveBody's damage FX throttle continuation.
@@ -81,6 +117,7 @@ impl From<ObjectXferPersistPayloadV21> for ObjectXferPersistPayload {
             weapon_activity: old.weapon_activity,
             target_positions: old.target_positions,
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     }
 }
@@ -113,6 +150,7 @@ impl From<ObjectXferPersistPayloadV20> for ObjectXferPersistPayload {
             weapon_activity: old.weapon_activity,
             target_positions: Vec::new(),
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     }
 }
@@ -144,6 +182,7 @@ impl From<ObjectXferPersistPayloadV19> for ObjectXferPersistPayload {
             weapon_activity: Vec::new(),
             target_positions: Vec::new(),
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     }
 }
@@ -174,6 +213,7 @@ impl From<ObjectXferPersistPayloadV18> for ObjectXferPersistPayload {
             weapon_activity: Vec::new(),
             target_positions: Vec::new(),
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     }
 }
@@ -1778,6 +1818,10 @@ fn decode_current_payload(version: u32, bytes: &[u8]) -> SaveLoadResult<ObjectXf
         bincode_legacy::deserialize::<ObjectXferPersistPayloadV21>(bytes)
             .map(Into::into)
             .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))
+    } else if version == 22 {
+        bincode_legacy::deserialize::<ObjectXferPersistPayloadV22>(bytes)
+            .map(Into::into)
+            .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))
     } else if version == OXOB_VERSION {
         bincode_legacy::deserialize(bytes)
             .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))
@@ -1809,7 +1853,7 @@ pub(super) fn validate_owned_object_continuations_before_restore(
     if version < 19 && snapshot.version < 39 {
         return Ok(());
     }
-    if version != 19 && version != 20 && version != 21 && version != OXOB_VERSION {
+    if version != 19 && version != 20 && version != 21 && version != 22 && version != OXOB_VERSION {
         return Err(SaveLoadError::Corrupted(
             "missing current passenger-fire continuation".into(),
         ));
@@ -1880,6 +1924,14 @@ pub(super) fn validate_owned_object_continuations_before_restore(
             ));
         }
     }
+    let mut cleared = std::collections::HashSet::new();
+    for id in &payload.cleared_last_attackers {
+        if !cleared.insert(*id) || !snapshot.objects.contains_key(&ObjectId(*id)) {
+            return Err(SaveLoadError::Corrupted(
+                "invalid cleared last-attacker owner".into(),
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -1945,6 +1997,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
         && version != 19
         && version != 20
         && version != 21
+        && version != 22
         && version != OXOB_VERSION
     {
         return Err(SaveLoadError::Corrupted(format!(
@@ -1977,6 +2030,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             weapon_activity: Vec::new(),
             target_positions: Vec::new(),
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     } else if version == 2 {
         let old: ObjectXferPersistPayloadV2 = bincode_legacy::deserialize(encoded)
@@ -1997,6 +2051,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             weapon_activity: Vec::new(),
             target_positions: Vec::new(),
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     } else if version == 3 {
         let old: ObjectXferPersistPayloadV3 = bincode_legacy::deserialize(encoded)
@@ -2017,6 +2072,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             weapon_activity: Vec::new(),
             target_positions: Vec::new(),
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     } else if version == 4 {
         let old: ObjectXferPersistPayloadV4 = bincode_legacy::deserialize(encoded)
@@ -2037,6 +2093,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             weapon_activity: Vec::new(),
             target_positions: Vec::new(),
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     } else if version == 5 {
         let old: ObjectXferPersistPayloadV5 = bincode_legacy::deserialize(encoded)
@@ -2057,6 +2114,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             weapon_activity: Vec::new(),
             target_positions: Vec::new(),
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     } else if version == 6 {
         let old: ObjectXferPersistPayloadV6 = bincode_legacy::deserialize(encoded)
@@ -2077,6 +2135,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             weapon_activity: Vec::new(),
             target_positions: Vec::new(),
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     } else if version == 7 {
         let old: ObjectXferPersistPayloadV7 = bincode_legacy::deserialize(encoded)
@@ -2097,6 +2156,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             weapon_activity: Vec::new(),
             target_positions: Vec::new(),
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     } else if version == 8 {
         let old: ObjectXferPersistPayloadV8 = bincode_legacy::deserialize(encoded)
@@ -2117,6 +2177,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             weapon_activity: Vec::new(),
             target_positions: Vec::new(),
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     } else if version == 9 {
         let old: ObjectXferPersistPayloadV9 = bincode_legacy::deserialize(encoded)
@@ -2137,6 +2198,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             weapon_activity: Vec::new(),
             target_positions: Vec::new(),
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     } else if version == 10 {
         let old: ObjectXferPersistPayloadV10 = bincode_legacy::deserialize(encoded)
@@ -2157,6 +2219,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             weapon_activity: Vec::new(),
             target_positions: Vec::new(),
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     } else if version == 11 {
         let old: ObjectXferPersistPayloadV11 = bincode_legacy::deserialize(encoded)
@@ -2173,6 +2236,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             weapon_activity: Vec::new(),
             target_positions: Vec::new(),
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     } else if version == 12 {
         let old: ObjectXferPersistPayloadV12 = bincode_legacy::deserialize(encoded)
@@ -2189,6 +2253,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             weapon_activity: Vec::new(),
             target_positions: Vec::new(),
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     } else if version == 13 {
         let old: ObjectXferPersistPayloadV13 = bincode_legacy::deserialize(encoded)
@@ -2205,6 +2270,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             weapon_activity: Vec::new(),
             target_positions: Vec::new(),
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     } else if version == 14 {
         let old: ObjectXferPersistPayloadV14 = bincode_legacy::deserialize(encoded)
@@ -2221,6 +2287,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             weapon_activity: Vec::new(),
             target_positions: Vec::new(),
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     } else if version == 15 {
         let old: ObjectXferPersistPayloadV15 = bincode_legacy::deserialize(encoded)
@@ -2237,6 +2304,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             weapon_activity: Vec::new(),
             target_positions: Vec::new(),
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     } else if version == 16 {
         let old: ObjectXferPersistPayloadV16 = bincode_legacy::deserialize(encoded)
@@ -2253,6 +2321,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             weapon_activity: Vec::new(),
             target_positions: Vec::new(),
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     } else if version == 17 {
         let old: ObjectXferPersistPayloadV17 = bincode_legacy::deserialize(encoded)
@@ -2269,11 +2338,20 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             weapon_activity: Vec::new(),
             target_positions: Vec::new(),
             body_fx_throttles: Vec::new(),
+            cleared_last_attackers: Vec::new(),
         }
     } else {
         decode_current_payload(version, encoded)?
     };
     body_damage_history_persist::validate(game_logic, &payload.body_history)?;
+    let mut cleared = std::collections::HashSet::new();
+    for id in &payload.cleared_last_attackers {
+        if !cleared.insert(*id) || game_logic.host_object(ObjectId(*id)).is_none() {
+            return Err(SaveLoadError::Corrupted(
+                "invalid saved cleared last-attacker owner".into(),
+            ));
+        }
+    }
     validate_open_contain_rallies(game_logic, &payload.open_contain_rallies)?;
     if version >= 19 {
         let mut ids = std::collections::HashSet::new();
@@ -2550,6 +2628,12 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
         .map(|(id, object)| (id.0, object.next_damage_fx_time, object.last_damage_fx_done))
         .collect();
     body_fx_throttles.sort_by_key(|entry| entry.0);
+    let mut cleared_last_attackers: Vec<_> = game_logic
+        .host_objects()
+        .registered()
+        .filter_map(|(id, object)| object.last_damage_cleared.then_some(id.0))
+        .collect();
+    cleared_last_attackers.sort_unstable();
     ObjectXferPersistPayload {
         objects,
         script_status,
@@ -2562,6 +2646,7 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
         weapon_activity,
         target_positions,
         body_fx_throttles,
+        cleared_last_attackers,
     }
 }
 
@@ -2739,6 +2824,12 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
     }
     transport_movement_persist::apply(game_logic, payload.transport);
     body_damage_history_persist::apply(game_logic, payload.body_history);
+    for id in payload.cleared_last_attackers {
+        game_logic
+            .host_object_mut(ObjectId(id))
+            .expect("validated cleared last-attacker owner")
+            .last_damage_cleared = true;
+    }
     let object_ids: Vec<ObjectId> = game_logic
         .host_objects()
         .registered_keys()
@@ -4086,7 +4177,13 @@ pub(super) fn validate_base_ai_projection_after_restore(
         return Ok(());
     };
     let version = take_u32(&mut rest)?;
-    if version != 18 && version != 19 && version != 20 && version != 21 && version != OXOB_VERSION {
+    if version != 18
+        && version != 19
+        && version != 20
+        && version != 21
+        && version != 22
+        && version != OXOB_VERSION
+    {
         return Err(SaveLoadError::Corrupted(
             "native14 requires current OO projection layout".into(),
         ));
@@ -4123,7 +4220,13 @@ pub(super) fn validate_base_ai_projection_before_restore(
         return Ok(());
     };
     let version = take_u32(&mut rest)?;
-    if version != 18 && version != 19 && version != 20 && version != 21 && version != OXOB_VERSION {
+    if version != 18
+        && version != 19
+        && version != 20
+        && version != 21
+        && version != 22
+        && version != OXOB_VERSION
+    {
         return Err(SaveLoadError::Corrupted(
             "native14 requires current OO projection layout".into(),
         ));

@@ -99,6 +99,7 @@ pub(super) fn apply(world: &mut GameLogic, records: Vec<BodyDamageHistoryPersist
     // happened to be in a reused receiving Object before that older load.
     for object in world.host_objects_mut().registered_values_mut() {
         object.last_damage_source = None;
+        object.last_damage_cleared = false;
         object.last_damage_timestamp = None;
         object.previous_health = object.health.current;
         object.kill_experience_awarded = false;

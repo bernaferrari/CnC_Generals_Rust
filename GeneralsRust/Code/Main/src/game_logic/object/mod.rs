@@ -2838,6 +2838,9 @@ pub struct Object {
     /// Set when damage is applied with a known attacker id.
     #[serde(default)]
     pub last_damage_source: Option<ObjectId>,
+    /// C++ ActiveBody::m_lastDamageCleared; does not erase last DamageInfo.
+    #[serde(default)]
+    pub(crate) last_damage_cleared: bool,
     /// C++ BodyModule `getLastDamageTimestamp` residual (TunnelContain nemesis window).
     #[serde(default)]
     pub last_damage_timestamp: Option<u32>,
@@ -3531,6 +3534,21 @@ impl Object {
 }
 
 impl Object {
+    /// ActiveBody's clearable attacker is separate from its retained damage source.
+    pub fn clearable_last_attacker(&self) -> Option<ObjectId> {
+        if self.last_damage_cleared {
+            None
+        } else {
+            self.last_damage_source
+        }
+    }
+
+    pub(crate) fn consume_clearable_last_attacker(&mut self) -> Option<ObjectId> {
+        let attacker = self.clearable_last_attacker()?;
+        self.last_damage_cleared = true;
+        Some(attacker)
+    }
+
     pub fn guard_retaliate_victim(&self) -> Option<ObjectId> {
         self.unit_ai_runtime.guard_retaliate_victim()
     }
