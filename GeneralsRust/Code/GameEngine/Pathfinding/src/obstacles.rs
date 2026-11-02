@@ -91,13 +91,26 @@ impl AStarPathfinder {
 
     /// Clear obstacle if it matches obj_id (C++ removeObstacle).
     pub fn clear_cell_obstacle_id(&mut self, coord: GridCoord, obj_id: u32) -> bool {
-        let key = Self::obstacle_key(coord, PathfindLayerEnum::Ground);
+        self.clear_cell_obstacle_id_on_layer(coord, PathfindLayerEnum::Ground, obj_id)
+    }
+
+    /// Clear the resolved cell only when it belongs to this object.
+    pub fn clear_cell_obstacle_id_on_layer(
+        &mut self,
+        coord: GridCoord,
+        layer: PathfindLayerEnum,
+        obj_id: u32,
+    ) -> bool {
+        let Some(layer) = self.resolved_layer_at(coord, layer) else {
+            return false;
+        };
+        let key = Self::obstacle_key(coord, layer);
         match self.obstacle_owners.get(&key).copied() {
             Some(owner) if owner == obj_id => {
                 self.obstacle_owners.remove(&key);
                 self.obstacle_fence.remove(&key);
                 self.obstacle_transparent.remove(&key);
-                if let Some(cell) = self.get_cell_mut(coord) {
+                if let Some(cell) = self.get_cell_mut_on_layer(coord, layer) {
                     cell.set_type(PathfindCellType::Clear);
                 }
                 true

@@ -1,5 +1,23 @@
 use super::*;
-use super::*;
+
+#[test]
+fn obstacle_removal_uses_the_resolved_layer_and_owner() {
+    let mut finder = AStarPathfinder::new(8, 8);
+    let coord = GridCoord::new(2, 2);
+    finder.set_cell_obstacle_id(coord, 11, false, false);
+    finder.set_cell_type_on_layer(coord, PathfindLayerEnum::Top, PathfindCellType::Clear);
+    finder.set_cell_obstacle_id_on_layer(coord, PathfindLayerEnum::Top, 22, false, false);
+
+    assert!(!finder.clear_cell_obstacle_id_on_layer(coord, PathfindLayerEnum::Top, 11));
+    assert!(finder.clear_cell_obstacle_id_on_layer(coord, PathfindLayerEnum::Top, 22));
+    assert_eq!(finder.get_cell_obstacle_id(coord), Some(11));
+    assert!(finder.clear_cell_obstacle_id(coord, 11));
+
+    let fallback = GridCoord::new(3, 3);
+    finder.set_cell_obstacle_id(fallback, 33, false, false);
+    assert!(finder.clear_cell_obstacle_id_on_layer(fallback, PathfindLayerEnum::Top, 33));
+    assert_eq!(finder.get_cell_obstacle_id(fallback), None);
+}
 
 #[test]
 fn ordinary_search_does_not_detour_around_water_for_an_invented_cost() {

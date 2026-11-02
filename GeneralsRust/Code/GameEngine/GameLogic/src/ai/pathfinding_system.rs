@@ -1111,13 +1111,12 @@ impl PathfindingSystem {
     ) {
         if let Some(pathfinder) = &self.classic_pathfinder {
             if let Ok(mut pf) = pathfinder.write() {
-                for pos in positions {
-                    pf.set_cell_type_at_layer(
-                        pos,
-                        crate::path::PathfindLayerEnum::from_u32(layer as u32),
-                        crate::ai::pathfind_astar::PathfindCellType::Obstacle,
-                    );
-                }
+                pf.inner.update_facade_obstacles(
+                    obstacle_id,
+                    positions,
+                    classic_layer_from_facade(layer),
+                    true,
+                );
             }
             return;
         }
@@ -1140,17 +1139,12 @@ impl PathfindingSystem {
     ) {
         if let Some(pathfinder) = &self.classic_pathfinder {
             if let Ok(mut pf) = pathfinder.write() {
-                for pos in positions {
-                    if pf.get_cell_type_at_layer(pos, classic_layer_from_facade(layer))
-                        == Some(crate::ai::pathfind_astar::PathfindCellType::Obstacle)
-                    {
-                        pf.set_cell_type_at_layer(
-                            pos,
-                            crate::path::PathfindLayerEnum::from_u32(layer as u32),
-                            crate::ai::pathfind_astar::PathfindCellType::Clear,
-                        );
-                    }
-                }
+                pf.inner.update_facade_obstacles(
+                    obstacle_id,
+                    positions,
+                    classic_layer_from_facade(layer),
+                    false,
+                );
             }
             return;
         }
