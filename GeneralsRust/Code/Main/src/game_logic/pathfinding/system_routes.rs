@@ -1193,7 +1193,12 @@ impl PathfindingSystem {
         objects: HostObjectRead<'_>,
         mover: ObjectId,
     ) -> Option<Vec<Vec3>> {
-        if self.grid.width <= 0 || self.grid.height <= 0 || !from.is_finite() || !goal.is_finite() {
+        if surfaces == 0
+            || self.grid.width <= 0
+            || self.grid.height <= 0
+            || !from.is_finite()
+            || !goal.is_finite()
+        {
             return None;
         }
         let unit = objects.lookup(&mover)?;
@@ -1280,15 +1285,13 @@ impl PathfindingSystem {
         let mut found_goal_cell = false;
         let mut expanded = 0i32;
         const COST_ORTHO: i32 = 10;
-        const COST_DIAG: i32 = 14;
-        const COST_TO_DISTANCE_FACTOR_SQR: f32 = 0.01;
+        const COST_TO_DISTANCE_FACTOR: f32 = 1.0 / 10.0;
+        const COST_TO_DISTANCE_FACTOR_SQR: f32 = COST_TO_DISTANCE_FACTOR * COST_TO_DISTANCE_FACTOR;
         const MAX_EXPAND: i32 = 4000;
         let heuristic = |c: GridPos| -> i32 {
             let dx = (goal_grid.x - c.x).abs();
             let dy = (goal_grid.y - c.y).abs();
-            let dmin = dx.min(dy);
-            let dmax = dx.max(dy);
-            COST_DIAG * dmin + COST_ORTHO * (dmax - dmin)
+            closest_cost::heuristic(dx, dy)
         };
         let deltas: [(i32, i32); 8] = [
             (1, 0),
@@ -1371,7 +1374,7 @@ impl PathfindingSystem {
                 }
                 // pathCostMultiplier: 0.2 approach, 0.0 null-findPath fallback.
                 let cost_term =
-                    (g as f32) * (g as f32) * COST_TO_DISTANCE_FACTOR_SQR * path_cost_multiplier;
+                    (g as f32) * ((g as f32) * COST_TO_DISTANCE_FACTOR_SQR) * path_cost_multiplier;
                 let dist_sqr = dist_screen + cost_term;
                 let better = match closest_cell {
                     None => true,
@@ -1436,7 +1439,12 @@ impl PathfindingSystem {
                 if movement_valid && occupancy.is_some() && !pinched {
                     tunnel = false;
                 }
-                let mut step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
+                let previous = parents.get(&key).map(|&(x, y, _)| (x, y));
+                let mut step = closest_cost::step(previous, (cx, cy), (nx, ny), pinched);
+                if pinched {
+                    // Additional pinch cost in examineNeighboringCells.
+                    step += COST_ORTHO;
+                }
                 step += (occupancy.unwrap_or(0.0) * 10.0).round() as i32;
                 if tunnel && !movement_valid {
                     step += 10 * COST_ORTHO;

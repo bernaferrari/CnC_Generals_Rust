@@ -758,3 +758,26 @@ fn closest_path_distinguishes_ground_and_bridge_cells_at_the_same_coordinates() 
         );
     }
 }
+
+#[test]
+fn closest_search_rejects_a_locomotor_without_valid_surfaces() {
+    let (world, mut finder, mover, _) = make_world();
+    let from = Vec3::new(25.0, 0.0, 25.0);
+    let goal = Vec3::new(75.0, 0.0, 25.0);
+    assert!(
+        finder
+            .find_closest_path(
+                from,
+                goal,
+                0,
+                false,
+                true,
+                0.0,
+                &PathfindingGround::Flat(0.0),
+                world.host_objects(),
+                mover,
+            )
+            .is_none(),
+        "an immobile locomotor must not tunnel to the goal"
+    );
+}
