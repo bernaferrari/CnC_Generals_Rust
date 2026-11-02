@@ -443,7 +443,10 @@ impl DefaultCommandHandler {
         let new_id = if is_formation {
             FormationID::NONE
         } else {
-            FormationID::new(NEXT_FORMATION_ID.fetch_add(1, Ordering::Relaxed))
+            FormationID::new(crate::system::engine_stores::active_services()
+                .session_flags()
+                .next_formation_id
+                .fetch_add(1, Ordering::Relaxed))
         };
 
         for object_id in selected {

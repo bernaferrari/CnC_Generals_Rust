@@ -1,36 +1,44 @@
 // C++ UpdateModule.h: UPDATE_SLEEP_FOREVER = 0x3fffffff (clamped so offsets cannot overflow).
 const UPDATE_SLEEP_FOREVER_FRAMES: UnsignedInt = 0x3fff_ffff;
 
-thread_local! {
-    static CUR_UPDATE_MODULE: std::cell::RefCell<Option<UpdateModulePtr>> =
-        const { std::cell::RefCell::new(None) };
-}
-
 // Temporary legacy publication must restore an outer synchronous update.
 // New scheduling callbacks use their explicit context instead of this slot.
+// Slot lives on the bound WorldServices instance (was process TLS).
 struct CurUpdateModuleGuard {
+    services: Arc<crate::system::engine_stores::WorldServices>,
     previous: Option<UpdateModulePtr>,
 }
 
 impl Drop for CurUpdateModuleGuard {
     fn drop(&mut self) {
-        CUR_UPDATE_MODULE.with(|slot| {
-            *slot.borrow_mut() = self.previous.take();
-        });
+        let mut slot = self
+            .services
+            .cur_update_module()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *slot = self.previous.take();
     }
 }
 
 fn enter_cur_update_module(module: &UpdateModulePtr) -> CurUpdateModuleGuard {
-    let previous = CUR_UPDATE_MODULE.with(|slot| slot.borrow_mut().replace(Arc::clone(module)));
-    CurUpdateModuleGuard { previous }
+    let services = crate::system::engine_stores::active_services();
+    let previous = {
+        let mut slot = services
+            .cur_update_module()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        slot.replace(Arc::clone(module))
+    };
+    CurUpdateModuleGuard { services, previous }
 }
 
 pub(crate) fn is_cur_update_module(module: &UpdateModulePtr) -> bool {
-    CUR_UPDATE_MODULE.with(|slot| {
-        slot.borrow()
-            .as_ref()
-            .is_some_and(|cur| Arc::ptr_eq(cur, module))
-    })
+    let services = crate::system::engine_stores::active_services();
+    let slot = services
+        .cur_update_module()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    slot.as_ref().is_some_and(|cur| Arc::ptr_eq(cur, module))
 }
 
 /// C++ GameLogic.cpp:3678 / 3718 — `!dis.any() || dis.anyIntersectionWith(...)`.

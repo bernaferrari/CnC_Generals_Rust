@@ -3010,8 +3010,6 @@ impl Drop for ActiveScriptListsRestore<'_> {
     }
 }
 
-static NEXT_SCRIPT_ENGINE_INSTANCE_ID: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(1);
 
 /// Hard cap on nested CALL_SUBROUTINE depth (C++ is stack-bound; we fail closed).
 const MAX_SUBROUTINE_CALL_DEPTH: u32 = 32;

@@ -523,4 +523,3 @@ pub struct DefaultCommandHandler {
     build_plan_subjects: Vec<ObjectID>,
 }
 
-static NEXT_FORMATION_ID: AtomicU32 = AtomicU32::new(1);

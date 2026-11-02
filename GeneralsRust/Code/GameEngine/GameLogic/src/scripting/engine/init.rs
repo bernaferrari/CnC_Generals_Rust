@@ -49,7 +49,9 @@ impl ScriptEngine {
 
     pub fn new() -> GameLogicResult<Self> {
         let mut engine = Self {
-            instance_id: NEXT_SCRIPT_ENGINE_INSTANCE_ID
+            instance_id: crate::system::engine_stores::active_services()
+            .session_flags()
+            .next_script_engine_instance_id
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             subroutine_call_depth: Cell::new(0),
             inner: std::cell::RefCell::new(ScriptEngineInner {

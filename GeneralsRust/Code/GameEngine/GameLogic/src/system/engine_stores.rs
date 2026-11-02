@@ -17,7 +17,7 @@ use game_engine::common::ini::ini_ai_data::{self, AIDataStore};
 use game_engine::common::system::upgrade as common_upgrade;
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize};
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
 
 /// Per-world session flags formerly process atomics on `TheGameLogic` bridge.
@@ -45,6 +45,13 @@ pub struct SessionLogicFlags {
     pub pending_rank_limit: AtomicI32,
     /// Published rank level cap (was process RANK_LEVEL_LIMIT_ATOMIC).
     pub rank_level_limit: AtomicI32,
+    pub rogue_eva_disable_warned: AtomicBool,
+    pub world_epoch: AtomicU32,
+    pub next_formation_id: AtomicU32,
+    pub next_command_id: AtomicU32,
+    pub next_script_engine_instance_id: AtomicU64,
+    pub object_manager_reset_count: AtomicUsize,
+    pub next_drawable_id: AtomicU32,
 }
 
 impl Default for SessionLogicFlags {
@@ -69,6 +76,13 @@ impl Default for SessionLogicFlags {
             in_update_frame_plus_one: AtomicU32::new(0),
             pending_rank_limit: AtomicI32::new(i32::MIN),
             rank_level_limit: AtomicI32::new(1000),
+            rogue_eva_disable_warned: AtomicBool::new(false),
+            world_epoch: AtomicU32::new(0),
+            next_formation_id: AtomicU32::new(1),
+            next_command_id: AtomicU32::new(1),
+            next_script_engine_instance_id: AtomicU64::new(1),
+            object_manager_reset_count: AtomicUsize::new(0),
+            next_drawable_id: AtomicU32::new(1),
         }
     }
 }
@@ -90,6 +104,8 @@ pub struct WorldServices {
     control_bar_bridge: RwLock<Option<std::sync::Arc<crate::control_bar::ControlBarBridge>>>,
     damage_over_time_fields: Mutex<Vec<DamageOverTimeField>>,
     damage_over_time_next_id: AtomicU32,
+    host_script_query: Mutex<crate::scripting::conditions::HostScriptQuerySnapshot>,
+    cur_update_module: Mutex<Option<crate::modules::UpdateModulePtr>>,
     /// Nested world-stage depth for the published services (was process TLS).
     staging_depth: AtomicU32,
     staging_deferred_team_effects:
@@ -111,6 +127,8 @@ impl WorldServices {
             control_bar_bridge: RwLock::new(None),
             damage_over_time_fields: Mutex::new(Vec::new()),
             damage_over_time_next_id: AtomicU32::new(50000),
+            host_script_query: Mutex::new(Default::default()),
+            cur_update_module: Mutex::new(None),
             staging_depth: AtomicU32::new(0),
             staging_deferred_team_effects: Mutex::new(Vec::new()),
         }
@@ -133,6 +151,8 @@ impl WorldServices {
             control_bar_bridge: RwLock::new(None),
             damage_over_time_fields: Mutex::new(Vec::new()),
             damage_over_time_next_id: AtomicU32::new(50000),
+            host_script_query: Mutex::new(Default::default()),
+            cur_update_module: Mutex::new(None),
             staging_depth: AtomicU32::new(0),
             staging_deferred_team_effects: Mutex::new(Vec::new()),
         }
@@ -179,6 +199,16 @@ impl WorldServices {
     }
     pub(crate) fn damage_over_time_next_id(&self) -> &AtomicU32 {
         &self.damage_over_time_next_id
+    }
+    pub(crate) fn host_script_query(
+        &self,
+    ) -> &Mutex<crate::scripting::conditions::HostScriptQuerySnapshot> {
+        &self.host_script_query
+    }
+    pub(crate) fn cur_update_module(
+        &self,
+    ) -> &Mutex<Option<crate::modules::UpdateModulePtr>> {
+        &self.cur_update_module
     }
     pub(crate) fn staging_depth(&self) -> &AtomicU32 {
         &self.staging_depth

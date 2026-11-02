@@ -1041,9 +1041,11 @@ impl ScriptActionDispatcher<'_> {
             Self::eva_action_params_summary(action)
         );
         if !enabled {
-            static ROGUE_DISABLE_WARNED: std::sync::atomic::AtomicBool =
-                std::sync::atomic::AtomicBool::new(false);
-            if !ROGUE_DISABLE_WARNED.swap(true, Ordering::Relaxed) {
+            let warned = crate::system::engine_stores::active_services()
+                .session_flags()
+                .rogue_eva_disable_warned
+                .swap(true, Ordering::Relaxed);
+            if !warned {
                 log::warn!("[EV] script EVA_SET_ENABLED_DISABLED resolved enabled=false");
             }
         }

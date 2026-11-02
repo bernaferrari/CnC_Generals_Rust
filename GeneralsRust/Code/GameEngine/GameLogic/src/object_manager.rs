@@ -1584,25 +1584,30 @@ impl Default for ObjectManager {
 pub static THE_OBJECT_MANAGER: Lazy<Arc<RwLock<ObjectManager>>> =
     Lazy::new(|| Arc::new(RwLock::new(ObjectManager::new())));
 
-static OBJECT_MANAGER_RESET_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 struct ObjectManagerResetGuard;
 
 impl ObjectManagerResetGuard {
     fn acquire() -> Self {
-        OBJECT_MANAGER_RESET_COUNT.fetch_add(1, Ordering::SeqCst);
+        crate::system::engine_stores::active_services()
+        .session_flags()
+        .object_manager_reset_count.fetch_add(1, Ordering::SeqCst);
         Self
     }
 }
 
 impl Drop for ObjectManagerResetGuard {
     fn drop(&mut self) {
-        OBJECT_MANAGER_RESET_COUNT.fetch_sub(1, Ordering::SeqCst);
+        crate::system::engine_stores::active_services()
+        .session_flags()
+        .object_manager_reset_count.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
 pub(crate) fn is_resetting() -> bool {
-    OBJECT_MANAGER_RESET_COUNT.load(Ordering::Acquire) > 0
+    crate::system::engine_stores::active_services()
+        .session_flags()
+        .object_manager_reset_count.load(Ordering::Acquire) > 0
 }
 
 /// Get reference to global object manager

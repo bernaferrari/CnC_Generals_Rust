@@ -14,15 +14,18 @@
 
 use super::entities::{Entity, EntityId, EntityStore, TemplateRef, Transform};
 use super::{PlayerId, WorldMutation};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::Ordering;
 
 /// Monotonic counter backing `next_world_epoch`.
-static WORLD_EPOCH_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// Fresh epoch for a newly constructed `EntityStore`. First call returns 1;
 /// 0 stays reserved as "legacy/unassigned" for `EntityHandle::new`.
 pub(in crate::world) fn next_world_epoch() -> u32 {
-    WORLD_EPOCH_COUNTER.fetch_add(1, Ordering::Relaxed) + 1
+    crate::system::engine_stores::active_services()
+        .session_flags()
+        .world_epoch
+        .fetch_add(1, Ordering::Relaxed)
+        + 1
 }
 
 /// Resolution handle. Not the wire type — `EntityId` stays the saved id.
@@ -615,5 +618,44 @@ mod tests {
         });
         assert_eq!(world.apply_pending_mutations(), 1);
         assert_eq!(world.entity(id).expect("live").health, 42.0);
+    }
+}
+
+#[cfg(test)]
+mod ownership_tests {
+    use super::next_world_epoch;
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+    use std::sync::{Arc, Barrier, Mutex};
+    use std::thread;
+
+    #[test]
+    fn parallel_worlds_keep_independent_world_epochs() {
+        let barrier = Arc::new(Barrier::new(2));
+        let results = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = Vec::new();
+        for seed in [0u32, 1u32] {
+            let barrier = Arc::clone(&barrier);
+            let results = Arc::clone(&results);
+            handles.push(thread::spawn(move || {
+                let services = new_world_services();
+                with_world_services(&services, || {
+                    barrier.wait();
+                    let a = next_world_epoch();
+                    let b = next_world_epoch();
+                    barrier.wait();
+                    results.lock().unwrap().push((seed, a, b));
+                });
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let mut got = results.lock().unwrap();
+        got.sort_by_key(|(s, _, _)| *s);
+        // Each world starts at epoch 1 independently.
+        assert_eq!(got[0].1, 1);
+        assert_eq!(got[0].2, 2);
+        assert_eq!(got[1].1, 1);
+        assert_eq!(got[1].2, 2);
     }
 }

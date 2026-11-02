@@ -507,8 +507,10 @@ impl Command {
     /// Generate unique command ID
     fn generate_id() -> UnsignedInt {
         use std::sync::atomic::{AtomicU32, Ordering};
-        static NEXT_ID: AtomicU32 = AtomicU32::new(1);
-        NEXT_ID.fetch_add(1, Ordering::Relaxed)
+        crate::system::engine_stores::active_services()
+            .session_flags()
+            .next_command_id
+            .fetch_add(1, Ordering::Relaxed)
     }
 
     /// Get command type
