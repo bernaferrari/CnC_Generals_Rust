@@ -3916,3 +3916,46 @@ fn closest_path_avoids_expensive_pinched_cell_when_detour_is_cheaper() {
         "the shorter geometric route pays both C++ pinched-cell costs"
     );
 }
+
+#[test]
+fn closest_path_equal_cost_frontier_keeps_cpp_insertion_order() {
+    let mut world = PathfindingSystem::new(5, 3);
+    world.new_map();
+    for x in 1..=3 {
+        world
+            .pathfinder
+            .set_cell_type(GridCoord::new(x, 1), PathfindCellType::Impassable);
+    }
+    let start = GridCoord::new(2, 0);
+    let goal = GridCoord::new(2, 2);
+    let result = world.find_closest_path(PathRequest {
+        object_id: INVALID_ID,
+        from: start.to_world(0.0),
+        to: goal.to_world(0.0),
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        unit_radius: 0.0,
+        allow_partial: true,
+        move_allies: false,
+        ignore_obstacle_id: None,
+        is_human: false,
+    });
+    assert!(result.success);
+    assert_eq!(
+        GridCoord::from_world(result.waypoints.last().unwrap()),
+        goal
+    );
+    assert!(
+        result
+            .waypoints
+            .iter()
+            .any(|point| GridCoord::from_world(point).x > start.x),
+        "C++ enqueues the right corridor before its equal-cost mirror"
+    );
+    assert!(
+        !result
+            .waypoints
+            .iter()
+            .any(|point| GridCoord::from_world(point).x < start.x)
+    );
+}

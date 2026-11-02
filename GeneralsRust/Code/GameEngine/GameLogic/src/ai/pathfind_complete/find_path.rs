@@ -681,8 +681,12 @@ impl PathfindingSystem {
         };
 
         type CellKey = (i32, i32, u8);
-        let mut open: std::collections::BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32, u8)>> =
-            std::collections::BinaryHeap::new();
+        // C++ inserts after existing entries with equal total cost. The
+        // monotonic sequence is bounded by MAX_EXPAND and neighbor count.
+        let mut open: std::collections::BinaryHeap<
+            std::cmp::Reverse<(i32, u64, i32, i32, i32, u8)>,
+        > = std::collections::BinaryHeap::new();
+        let mut enqueue_order = 0u64;
         let mut g_score: HashMap<CellKey, i32> = HashMap::new();
         let mut parents: HashMap<CellKey, CellKey> = HashMap::new();
         let mut closed: HashSet<CellKey> = HashSet::new();
@@ -690,6 +694,7 @@ impl PathfindingSystem {
         let start_key = (start.x, start.y, start_layer as u8);
         open.push(std::cmp::Reverse((
             h0,
+            enqueue_order,
             0,
             start.x,
             start.y,
@@ -725,7 +730,7 @@ impl PathfindingSystem {
             }
         };
 
-        while let Some(std::cmp::Reverse((f, g, cx, cy, layer_id))) = open.pop() {
+        while let Some(std::cmp::Reverse((f, _, g, cx, cy, layer_id))) = open.pop() {
             let key = (cx, cy, layer_id);
             if closed.contains(&key) {
                 continue;
@@ -796,7 +801,15 @@ impl PathfindingSystem {
                         if !closed.contains(&target) && !g_score.contains_key(&target) {
                             g_score.insert(target, g);
                             parents.insert(target, key);
-                            open.push(std::cmp::Reverse((f, g, cx, cy, target_layer as u8)));
+                            enqueue_order += 1;
+                            open.push(std::cmp::Reverse((
+                                f,
+                                enqueue_order,
+                                g,
+                                cx,
+                                cy,
+                                target_layer as u8,
+                            )));
                         }
                     }
                 }
@@ -813,7 +826,9 @@ impl PathfindingSystem {
                     continue;
                 };
                 let neighbor_key = (nx, ny, neighbor_layer as u8);
-                if closed.contains(&neighbor_key) {
+                // Ordinary neighbor expansion skips cells already open or
+                // closed; only C++'s separate line-seed path may recost them.
+                if g_score.contains_key(&neighbor_key) {
                     continue;
                 }
                 if is_human && !self.in_logical_extent(nc) {
@@ -939,13 +954,18 @@ impl PathfindingSystem {
                     step += 10 * COST_ORTHO;
                 }
                 let ng = g + step;
-                if g_score.get(&neighbor_key).is_some_and(|&og| ng >= og) {
-                    continue;
-                }
                 g_score.insert(neighbor_key, ng);
                 parents.insert(neighbor_key, key);
                 let f = ng + if tunneling { 0 } else { heuristic(nc) };
-                open.push(std::cmp::Reverse((f, ng, nx, ny, neighbor_layer as u8)));
+                enqueue_order += 1;
+                open.push(std::cmp::Reverse((
+                    f,
+                    enqueue_order,
+                    ng,
+                    nx,
+                    ny,
+                    neighbor_layer as u8,
+                )));
             }
         }
 
