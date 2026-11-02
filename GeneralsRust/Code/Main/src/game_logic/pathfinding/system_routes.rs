@@ -191,6 +191,7 @@ impl PathfindingSystem {
                     start_layer,
                     dest_layer,
                     ground_source,
+                    Some(objects),
                 ) {
                     Some(p) => p,
                     None => {
@@ -232,6 +233,7 @@ impl PathfindingSystem {
                             start_layer,
                             retry_layer,
                             ground_source,
+                            Some(objects),
                         )?
                     }
                 }
@@ -479,6 +481,7 @@ impl PathfindingSystem {
                 start_layer,
                 dest_layer,
                 ground_source,
+                Some(objects),
             )
         };
         let mut prefix = try_goal(goal_pos);
@@ -667,6 +670,7 @@ impl PathfindingSystem {
             layer,
             layer,
             ground_source,
+            None,
         ) {
             if path.len() >= 2 {
                 return Some(path);
@@ -893,6 +897,7 @@ impl PathfindingSystem {
             start_layer,
             dest_layer,
             ground_source,
+            None,
         )?;
         if path.len() < 2 {
             return None;
@@ -1143,6 +1148,7 @@ impl PathfindingSystem {
             start_layer,
             best_layer,
             ground_source,
+            None,
         ) {
             let mut world = path;
             if let Some(first) = world.first_mut() {
