@@ -714,7 +714,8 @@ impl StealthUpdateController {
             self.disguise_transition_frames = self.data.disguise_transition_frames;
             self.disguise_halfpoint_reached = false;
 
-            if let Ok(mut disguise_manager) = get_disguise_manager().lock() {
+            let __arc_disguise = get_disguise_manager();
+            if let Ok(mut disguise_manager) = __arc_disguise.lock() {
                 let _ = disguise_manager.register_object(self.object_id);
                 let _ = disguise_manager.set_disguise(self.object_id, template, disguise_player);
                 let _ = disguise_manager
@@ -734,7 +735,8 @@ impl StealthUpdateController {
             self.transitioning_to_disguise = false;
             self.disguise_halfpoint_reached = false;
 
-            if let Ok(mut disguise_manager) = get_disguise_manager().lock() {
+            let __arc_disguise = get_disguise_manager();
+            if let Ok(mut disguise_manager) = __arc_disguise.lock() {
                 let _ = disguise_manager.unregister_object(self.object_id);
             }
 

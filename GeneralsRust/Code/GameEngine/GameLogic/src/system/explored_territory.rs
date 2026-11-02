@@ -135,14 +135,16 @@ impl Default for ExploredTerritoryManager {
 }
 
 /// Global singleton accessor for ExploredTerritoryManager
-static EXPLORED_TERRITORY_MANAGER: OnceLock<Mutex<ExploredTerritoryManager>> = OnceLock::new();
-
 /// Get the global ExploredTerritoryManager singleton
 ///
 /// Returns a static reference to the mutex-protected manager.
 /// Thread-safe: Multiple threads can call this and lock the manager safely.
-pub fn get_explored_territory_manager() -> &'static Mutex<ExploredTerritoryManager> {
-    EXPLORED_TERRITORY_MANAGER.get_or_init(|| Mutex::new(ExploredTerritoryManager::new()))
+pub fn get_explored_territory_manager() -> std::sync::Arc<std::sync::Mutex<ExploredTerritoryManager>> {
+    std::sync::Arc::clone(
+        &crate::system::engine_stores::active_services()
+            .logic_managers()
+            .explored_territory,
+    )
 }
 
 #[cfg(test)]

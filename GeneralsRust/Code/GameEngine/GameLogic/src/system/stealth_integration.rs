@@ -26,8 +26,7 @@ use crate::system::stealth_manager::{
 };
 use log::{debug, info, trace};
 use std::collections::HashMap;
-use std::sync::Mutex;
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex};
 
 /// Wave 450: host-only path has no dual-world factory objects.
 #[inline]
@@ -107,21 +106,34 @@ pub struct DisguiseAppearance {
 /// Provides a single point of entry for initializing and updating all stealth subsystems.
 /// Thread-safe access through Arc<Mutex<T>> pattern.
 pub struct StealthSystemManager {
-    stealth_mgr: &'static Mutex<StealthManager>,
-    detection_mgr: &'static Mutex<DetectionManager>,
-    disguise_mgr: &'static Mutex<DisguiseManager>,
+    stealth_mgr: Arc<Mutex<StealthManager>>,
+    detection_mgr: Arc<Mutex<DetectionManager>>,
+    disguise_mgr: Arc<Mutex<DisguiseManager>>,
     is_initialized: bool,
 }
 
 impl StealthSystemManager {
-    /// Create new StealthSystemManager
-    pub fn new() -> Self {
+    /// Create a facade over the given per-world manager Arcs.
+    pub fn from_managers(
+        stealth_mgr: Arc<Mutex<StealthManager>>,
+        detection_mgr: Arc<Mutex<DetectionManager>>,
+        disguise_mgr: Arc<Mutex<DisguiseManager>>,
+    ) -> Self {
         Self {
-            stealth_mgr: get_stealth_manager(),
-            detection_mgr: get_detection_manager(),
-            disguise_mgr: get_disguise_manager(),
+            stealth_mgr,
+            detection_mgr,
+            disguise_mgr,
             is_initialized: false,
         }
+    }
+
+    /// Create new StealthSystemManager bound to the active world's managers.
+    pub fn new() -> Self {
+        Self::from_managers(
+            get_stealth_manager(),
+            get_detection_manager(),
+            get_disguise_manager(),
+        )
     }
 
     /// Initialize all stealth systems
@@ -180,8 +192,8 @@ impl StealthGameLogicHooks {
     ///
     /// Initializes stealth tracking for the object in the stealth manager.
     pub fn on_object_created(object_id: ObjectID) -> StealthResult<()> {
-        let mut mgr = get_stealth_manager()
-            .lock()
+        let __arc_get_stealth_manager = get_stealth_manager();
+        let mut mgr = __arc_get_stealth_manager.lock()
             .map_err(|e| StealthError::operation_failed(format!("stealth_mgr lock: {}", e)))?;
 
         mgr.register_object(object_id)
@@ -192,23 +204,23 @@ impl StealthGameLogicHooks {
     ///
     /// Removes stealth tracking and cleans up associated state.
     pub fn on_object_deleted(object_id: ObjectID) -> StealthResult<()> {
-        let mut mgr = get_stealth_manager()
-            .lock()
+        let __arc_get_stealth_manager = get_stealth_manager();
+        let mut mgr = __arc_get_stealth_manager.lock()
             .map_err(|e| StealthError::operation_failed(format!("stealth_mgr lock: {}", e)))?;
 
         mgr.unregister_object(object_id)
             .map_err(|_e| StealthError::object_not_registered(object_id))?;
 
         // Also clean up from detection manager
-        let mut det_mgr = get_detection_manager()
-            .lock()
+        let __arc_get_detection_manager = get_detection_manager();
+        let mut det_mgr = __arc_get_detection_manager.lock()
             .map_err(|e| StealthError::operation_failed(format!("detection_mgr lock: {}", e)))?;
 
         let _ = det_mgr.unregister_object(object_id);
 
         // Also clean up from disguise manager
-        let mut dis_mgr = get_disguise_manager()
-            .lock()
+        let __arc_get_disguise_manager = get_disguise_manager();
+        let mut dis_mgr = __arc_get_disguise_manager.lock()
             .map_err(|e| StealthError::operation_failed(format!("disguise_mgr lock: {}", e)))?;
 
         let _ = dis_mgr.unregister_object(object_id);
@@ -220,8 +232,8 @@ impl StealthGameLogicHooks {
     ///
     /// Breaks stealth for the attacker.
     pub fn on_object_attacked(attacker_id: ObjectID, _target_id: ObjectID) -> StealthResult<()> {
-        let mut mgr = get_stealth_manager()
-            .lock()
+        let __arc_get_stealth_manager = get_stealth_manager();
+        let mut mgr = __arc_get_stealth_manager.lock()
             .map_err(|e| StealthError::operation_failed(format!("stealth_mgr lock: {}", e)))?;
 
         // Break stealth for all players
@@ -237,8 +249,8 @@ impl StealthGameLogicHooks {
         // Movement speed threshold is typically 5.0 units per frame
         // Objects moving faster than this may break stealth
         if speed > 5.0 {
-            let mut mgr = get_stealth_manager()
-                .lock()
+            let __arc_get_stealth_manager = get_stealth_manager();
+        let mut mgr = __arc_get_stealth_manager.lock()
                 .map_err(|e| StealthError::operation_failed(format!("stealth_mgr lock: {}", e)))?;
 
             mgr.break_stealth_all(object_id, 0).map_err(|_| {
@@ -253,8 +265,8 @@ impl StealthGameLogicHooks {
     ///
     /// Breaks stealth from damage event.
     pub fn on_object_damaged(object_id: ObjectID) -> StealthResult<()> {
-        let mut mgr = get_stealth_manager()
-            .lock()
+        let __arc_get_stealth_manager = get_stealth_manager();
+        let mut mgr = __arc_get_stealth_manager.lock()
             .map_err(|e| StealthError::operation_failed(format!("stealth_mgr lock: {}", e)))?;
 
         // Break stealth for all players
@@ -267,8 +279,8 @@ impl StealthGameLogicHooks {
     ///
     /// Breaks stealth from weapon discharge.
     pub fn on_weapon_fired(unit_id: ObjectID, _weapon_type: &str) -> StealthResult<()> {
-        let mut mgr = get_stealth_manager()
-            .lock()
+        let __arc_get_stealth_manager = get_stealth_manager();
+        let mut mgr = __arc_get_stealth_manager.lock()
             .map_err(|e| StealthError::operation_failed(format!("stealth_mgr lock: {}", e)))?;
 
         // Break stealth for all players
@@ -281,8 +293,8 @@ impl StealthGameLogicHooks {
     ///
     /// Breaks stealth from ability activation.
     pub fn on_ability_used(unit_id: ObjectID, _ability: &str) -> StealthResult<()> {
-        let mut mgr = get_stealth_manager()
-            .lock()
+        let __arc_get_stealth_manager = get_stealth_manager();
+        let mut mgr = __arc_get_stealth_manager.lock()
             .map_err(|e| StealthError::operation_failed(format!("stealth_mgr lock: {}", e)))?;
 
         // Break stealth for all players
@@ -316,8 +328,8 @@ impl StealthRenderingHooks {
             )));
         }
 
-        let mgr = get_stealth_manager()
-            .lock()
+        let __arc_get_stealth_manager = get_stealth_manager();
+        let mgr = __arc_get_stealth_manager.lock()
             .map_err(|e| StealthError::operation_failed(format!("stealth_mgr lock: {}", e)))?;
         let mut visible = Vec::new();
 
@@ -354,8 +366,8 @@ impl StealthRenderingHooks {
         object_id: ObjectID,
         _player_id: usize,
     ) -> StealthResult<DisguiseAppearance> {
-        let dis_mgr = get_disguise_manager()
-            .lock()
+        let __arc_get_disguise_manager = get_disguise_manager();
+        let dis_mgr = __arc_get_disguise_manager.lock()
             .map_err(|e| StealthError::operation_failed(format!("disguise_mgr lock: {}", e)))?;
 
         // Get disguise template if applied
@@ -389,8 +401,8 @@ impl StealthRenderingHooks {
     /// Returns alpha value (0.0-1.0) for rendering the object to the player.
     /// Invisible objects have alpha near 0.0, fully visible objects have alpha 1.0.
     pub fn get_opacity_for_player(object_id: ObjectID, player_id: usize) -> StealthResult<f32> {
-        let mgr = get_stealth_manager()
-            .lock()
+        let __arc_get_stealth_manager = get_stealth_manager();
+        let mgr = __arc_get_stealth_manager.lock()
             .map_err(|e| StealthError::operation_failed(format!("stealth_mgr lock: {}", e)))?;
 
         let status = mgr.get_stealth_status(object_id, player_id)?;
@@ -425,12 +437,12 @@ impl StealthAIHooks {
     /// Determines if target is visible to unit considering stealth and detection.
     /// Takes into account unit's player allegiance.
     pub fn can_ai_see_target(unit_id: ObjectID, target_id: ObjectID) -> StealthResult<bool> {
-        let stealth_mgr = get_stealth_manager()
-            .lock()
+        let __arc_get_stealth_manager = get_stealth_manager();
+        let stealth_mgr = __arc_get_stealth_manager.lock()
             .map_err(|e| StealthError::operation_failed(format!("stealth_mgr lock: {}", e)))?;
 
-        let detection_mgr = get_detection_manager()
-            .lock()
+        let __arc_get_detection_manager = get_detection_manager();
+        let detection_mgr = __arc_get_detection_manager.lock()
             .map_err(|e| StealthError::operation_failed(format!("detection_mgr lock: {}", e)))?;
 
         // Get target's stealth status (assume unit_id owner is viewer)
@@ -462,8 +474,8 @@ impl StealthAIHooks {
     pub fn get_stealth_difficulty_for_target(
         target_id: ObjectID,
     ) -> StealthResult<StealthDifficulty> {
-        let mgr = get_stealth_manager()
-            .lock()
+        let __arc_get_stealth_manager = get_stealth_manager();
+        let mgr = __arc_get_stealth_manager.lock()
             .map_err(|e| StealthError::operation_failed(format!("stealth_mgr lock: {}", e)))?;
 
         let strength = mgr
@@ -477,8 +489,8 @@ impl StealthAIHooks {
     ///
     /// Returns detection capability of the unit for stealth detection.
     pub fn get_detection_awareness(unit_id: ObjectID) -> StealthResult<f32> {
-        let mgr = get_detection_manager()
-            .lock()
+        let __arc_get_detection_manager = get_detection_manager();
+        let mgr = __arc_get_detection_manager.lock()
             .map_err(|e| StealthError::operation_failed(format!("detection_mgr lock: {}", e)))?;
 
         let strength = mgr
@@ -489,12 +501,13 @@ impl StealthAIHooks {
     }
 }
 
-/// Global integration manager singleton
-static INTEGRATION_MANAGER: OnceLock<Mutex<StealthSystemManager>> = OnceLock::new();
-
-/// Get the global integration manager
-pub fn get_stealth_integration_manager() -> &'static Mutex<StealthSystemManager> {
-    INTEGRATION_MANAGER.get_or_init(|| Mutex::new(StealthSystemManager::new()))
+/// Active-world stealth integration facade.
+pub fn get_stealth_integration_manager() -> Arc<Mutex<StealthSystemManager>> {
+    Arc::clone(
+        &crate::system::engine_stores::active_services()
+            .logic_managers()
+            .stealth_integration,
+    )
 }
 
 #[cfg(test)]
@@ -656,7 +669,7 @@ mod tests {
         let mgr2 = get_stealth_integration_manager();
 
         // Should return same reference
-        assert!(std::ptr::eq(mgr1, mgr2));
+        assert!(std::sync::Arc::ptr_eq(&mgr1, &mgr2));
     }
 
     #[test]

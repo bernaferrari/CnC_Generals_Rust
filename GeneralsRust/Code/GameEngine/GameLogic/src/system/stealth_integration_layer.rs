@@ -423,18 +423,13 @@ impl StealthIntegrationLayer {
     }
 }
 
-/// Global stealth integration layer instance
-static STEALTH_INTEGRATION: OnceLock<Arc<Mutex<StealthIntegrationLayer>>> = OnceLock::new();
-
-/// Get the global stealth integration layer
+/// Active-world stealth integration layer.
 pub fn get_stealth_integration_layer() -> Arc<Mutex<StealthIntegrationLayer>> {
-    STEALTH_INTEGRATION
-        .get_or_init(|| {
-            Arc::new(Mutex::new(StealthIntegrationLayer::new(
-                StealthSystemConfig::default(),
-            )))
-        })
-        .clone()
+    Arc::clone(
+        &crate::system::engine_stores::active_services()
+            .logic_managers()
+            .stealth_integration_layer,
+    )
 }
 
 // Quick trait to support clone for testing

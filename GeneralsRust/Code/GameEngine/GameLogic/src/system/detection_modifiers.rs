@@ -364,12 +364,13 @@ impl Default for DetectionModifierCalculator {
 }
 
 /// Global singleton accessor for DetectionModifierCalculator
-static DETECTION_MODIFIER_CALCULATOR: OnceLock<Mutex<DetectionModifierCalculator>> =
-    OnceLock::new();
-
 /// Get the global DetectionModifierCalculator singleton
-pub fn get_detection_modifier_calculator() -> &'static Mutex<DetectionModifierCalculator> {
-    DETECTION_MODIFIER_CALCULATOR.get_or_init(|| Mutex::new(DetectionModifierCalculator::new()))
+pub fn get_detection_modifier_calculator() -> std::sync::Arc<std::sync::Mutex<DetectionModifierCalculator>> {
+    std::sync::Arc::clone(
+        &crate::system::engine_stores::active_services()
+            .logic_managers()
+            .detection_modifiers,
+    )
 }
 
 #[cfg(test)]

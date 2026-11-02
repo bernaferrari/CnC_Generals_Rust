@@ -626,11 +626,13 @@ impl Default for DetectionEventManager {
 }
 
 /// Global singleton accessor for DetectionEventManager
-static DETECTION_EVENTS_MANAGER: OnceLock<Mutex<DetectionEventManager>> = OnceLock::new();
-
 /// Get the global DetectionEventManager singleton
-pub fn get_detection_events_manager() -> &'static Mutex<DetectionEventManager> {
-    DETECTION_EVENTS_MANAGER.get_or_init(|| Mutex::new(DetectionEventManager::new()))
+pub fn get_detection_events_manager() -> std::sync::Arc<std::sync::Mutex<DetectionEventManager>> {
+    std::sync::Arc::clone(
+        &crate::system::engine_stores::active_services()
+            .logic_managers()
+            .detection_events,
+    )
 }
 
 #[cfg(test)]
@@ -987,7 +989,7 @@ mod detection_event_tests {
 
         // Should be the same singleton
         assert!(
-            std::ptr::eq(manager1, manager2),
+            std::sync::Arc::ptr_eq(&manager1, &manager2),
             "Should return the same singleton instance"
         );
     }

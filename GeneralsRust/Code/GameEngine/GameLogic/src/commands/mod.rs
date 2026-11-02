@@ -193,7 +193,8 @@ pub fn shutdown_command_system(
     processor: &mut CommandProcessor,
 ) {
     // Clear all command queues
-    if let Ok(_queue_manager) = get_command_queue_manager().lock() {
+    let __arc_get_command_queue_manager = get_command_queue_manager();
+        if let Ok(_queue_manager) = __arc_get_command_queue_manager.lock() {
         // Queue manager will clean up automatically when dropped
     }
 
@@ -214,7 +215,8 @@ pub fn get_command_system_stats(
     let mut stats = CommandSystemStats::default();
 
     // Get queue statistics
-    if let Ok(queue_manager) = get_command_queue_manager().lock() {
+    let __arc_get_command_queue_manager = get_command_queue_manager();
+        if let Ok(queue_manager) = __arc_get_command_queue_manager.lock() {
         stats.queue_stats = queue_manager.get_all_stats();
     }
 

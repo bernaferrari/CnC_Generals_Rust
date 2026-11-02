@@ -172,17 +172,20 @@ impl BeaconManager {
     }
 }
 
-static BEACON_MANAGER: OnceLock<Mutex<BeaconManager>> = OnceLock::new();
-
 /// Access the global BeaconManager. The UI layer consumes entries from this
 /// registry to display and synchronize strategic markers.
-pub fn get_beacon_manager() -> &'static Mutex<BeaconManager> {
-    BEACON_MANAGER.get_or_init(|| Mutex::new(BeaconManager::new()))
+pub fn get_beacon_manager() -> std::sync::Arc<std::sync::Mutex<BeaconManager>> {
+    std::sync::Arc::clone(
+        &crate::system::engine_stores::active_services()
+            .logic_managers()
+            .beacon,
+    )
 }
 
 /// Convenience helper that drains all beacon updates since the previous call.
 pub fn drain_beacon_updates() -> Vec<BeaconUpdate> {
-    match get_beacon_manager().lock() {
+    let manager_arc = get_beacon_manager();
+    match manager_arc.lock() {
         Ok(mut manager) => manager.drain_updates(),
         Err(_) => Vec::new(),
     }
@@ -190,7 +193,8 @@ pub fn drain_beacon_updates() -> Vec<BeaconUpdate> {
 
 /// Snapshot all active beacons for UI layers that want immediate state.
 pub fn snapshot_beacons() -> Vec<BeaconEntry> {
-    match get_beacon_manager().lock() {
+    let manager_arc = get_beacon_manager();
+    match manager_arc.lock() {
         Ok(manager) => manager.snapshot(),
         Err(_) => Vec::new(),
     }

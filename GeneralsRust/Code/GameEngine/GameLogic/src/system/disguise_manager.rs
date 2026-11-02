@@ -430,11 +430,13 @@ impl Default for DisguiseManager {
 }
 
 /// Global singleton accessor for DisguiseManager
-static DISGUISE_MANAGER: OnceLock<Mutex<DisguiseManager>> = OnceLock::new();
-
 /// Get the global DisguiseManager singleton
-pub fn get_disguise_manager() -> &'static Mutex<DisguiseManager> {
-    DISGUISE_MANAGER.get_or_init(|| Mutex::new(DisguiseManager::new()))
+pub fn get_disguise_manager() -> std::sync::Arc<std::sync::Mutex<DisguiseManager>> {
+    std::sync::Arc::clone(
+        &crate::system::engine_stores::active_services()
+            .logic_managers()
+            .disguise,
+    )
 }
 
 #[cfg(test)]

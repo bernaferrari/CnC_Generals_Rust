@@ -364,11 +364,13 @@ impl Default for StealthUpgradeManager {
 }
 
 /// Global singleton accessor for StealthUpgradeManager
-static STEALTH_UPGRADE_MANAGER: OnceLock<Mutex<StealthUpgradeManager>> = OnceLock::new();
-
 /// Get the global StealthUpgradeManager singleton
-pub fn get_stealth_upgrade_manager() -> &'static Mutex<StealthUpgradeManager> {
-    STEALTH_UPGRADE_MANAGER.get_or_init(|| Mutex::new(StealthUpgradeManager::new()))
+pub fn get_stealth_upgrade_manager() -> std::sync::Arc<std::sync::Mutex<StealthUpgradeManager>> {
+    std::sync::Arc::clone(
+        &crate::system::engine_stores::active_services()
+            .logic_managers()
+            .stealth_upgrade,
+    )
 }
 
 #[cfg(test)]

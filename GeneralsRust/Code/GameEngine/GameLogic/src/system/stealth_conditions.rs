@@ -595,11 +595,13 @@ impl Default for StealthConditionsManager {
 }
 
 /// Global singleton accessor for StealthConditionsManager
-static STEALTH_CONDITIONS_MANAGER: OnceLock<Mutex<StealthConditionsManager>> = OnceLock::new();
-
 /// Get the global StealthConditionsManager singleton
-pub fn get_stealth_conditions_manager() -> &'static Mutex<StealthConditionsManager> {
-    STEALTH_CONDITIONS_MANAGER.get_or_init(|| Mutex::new(StealthConditionsManager::new()))
+pub fn get_stealth_conditions_manager() -> std::sync::Arc<std::sync::Mutex<StealthConditionsManager>> {
+    std::sync::Arc::clone(
+        &crate::system::engine_stores::active_services()
+            .logic_managers()
+            .stealth_conditions,
+    )
 }
 
 #[cfg(test)]

@@ -332,12 +332,12 @@ impl Default for StealthManager {
     }
 }
 
-/// Global singleton accessor for StealthManager
-static STEALTH_MANAGER: OnceLock<Mutex<StealthManager>> = OnceLock::new();
-
-/// Get the global StealthManager singleton
-pub fn get_stealth_manager() -> &'static Mutex<StealthManager> {
-    STEALTH_MANAGER.get_or_init(|| Mutex::new(StealthManager::new()))
+pub fn get_stealth_manager() -> std::sync::Arc<std::sync::Mutex<StealthManager>> {
+    std::sync::Arc::clone(
+        &crate::system::engine_stores::active_services()
+            .logic_managers()
+            .stealth,
+    )
 }
 
 #[cfg(test)]

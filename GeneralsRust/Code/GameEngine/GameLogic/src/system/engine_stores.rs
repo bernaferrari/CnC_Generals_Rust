@@ -10,6 +10,7 @@ use crate::ai::AI;
 use crate::helpers::ClientVisualState;
 use crate::system::game_logic::RadarUpdate;
 use crate::system::shroud_manager::ShroudManager;
+use crate::system::world_logic_managers::WorldLogicManagers;
 use crate::upgrade::center::UpgradeCenter;
 use game_engine::common::ini::ini_ai_data::{self, AIDataStore};
 use game_engine::common::system::upgrade as common_upgrade;
@@ -67,6 +68,7 @@ pub struct WorldServices {
     /// Host-script request drains for this world (formerly process TLS).
     host_script_requests: crate::scripting::executor::HostScriptRequestQueues,
     session_flags: SessionLogicFlags,
+    logic_managers: WorldLogicManagers,
 }
 impl WorldServices {
     fn engine_defaults() -> Self {
@@ -77,6 +79,7 @@ impl WorldServices {
             radar_updates: Mutex::new(VecDeque::new()),
             host_script_requests: crate::scripting::executor::HostScriptRequestQueues::default(),
             session_flags: SessionLogicFlags::default(),
+            logic_managers: WorldLogicManagers::default(),
         }
     }
     /// Snapshot engine content; fresh mutable per-world services. Inert.
@@ -90,6 +93,7 @@ impl WorldServices {
             radar_updates: Mutex::new(VecDeque::new()),
             host_script_requests: crate::scripting::executor::HostScriptRequestQueues::default(),
             session_flags: SessionLogicFlags::default(),
+            logic_managers: WorldLogicManagers::default(),
         }
     }
     pub fn terrain(&self) -> &Arc<RwLock<crate::terrain::TerrainLogic>> {
@@ -109,6 +113,9 @@ impl WorldServices {
     }
     pub(crate) fn session_flags(&self) -> &SessionLogicFlags {
         &self.session_flags
+    }
+    pub(crate) fn logic_managers(&self) -> &WorldLogicManagers {
+        &self.logic_managers
     }
 }
 /// Standalone Core runtime; AI is mandatory, never optional or deferred.
