@@ -54,3 +54,43 @@ fn ignored_obstacle_is_resolved_from_the_receiving_grid() {
     assert!(peer.valid_movement_position(SURFACE_GROUND, false, &peer_cell, Some(41)));
     assert!(!peer.valid_movement_position(SURFACE_GROUND, false, &peer_cell, Some(42)));
 }
+
+#[test]
+fn path_search_ignores_only_the_receiving_grids_obstacle_owner() {
+    use gamelogic::ai::pathfind_complete::PathRequest;
+    use gamelogic::common::INVALID_ID;
+    let first = structure(41, 55.0);
+    let second = structure(42, 55.0);
+    let mut world = PathfindingSystem::new(12, 10);
+    let mut peer = PathfindingSystem::new(12, 10);
+    world.new_map();
+    peer.new_map();
+    world.classify_object_footprint(&first).unwrap();
+    peer.classify_object_footprint(&second).unwrap();
+    world.new_map_from_classified_cells();
+    peer.new_map_from_classified_cells();
+    let request = PathRequest {
+        object_id: INVALID_ID,
+        from: GridCoord::new(1, 5).to_world(0.0),
+        to: GridCoord::new(5, 5).to_world(0.0),
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        unit_radius: 0.0,
+        allow_partial: false,
+        move_allies: false,
+        ignore_obstacle_id: Some(41),
+        is_human: false,
+    };
+    assert!(
+        world.find_path(request.clone()).success,
+        "the world must use its own stored obstacle identity"
+    );
+    assert!(
+        !peer.find_path(request.clone()).success,
+        "a different obstacle owner cannot be ignored"
+    );
+    assert!(
+        world.find_path(request).success,
+        "the peer query must not affect the first world"
+    );
+}

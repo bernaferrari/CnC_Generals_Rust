@@ -1664,3 +1664,52 @@ fn line_seed_passes_the_resolved_previous_layer_to_occupancy() {
     );
     assert!(costs.contains_key(&(GridCoord::new(3, 1), PathfindLayerEnum::Ground)));
 }
+
+#[test]
+fn obstacle_owner_policy_reads_each_resolved_cell_and_layer() {
+    use crate::passability::ObstacleIgnore;
+    let cell = GridCoord::new(2, 1);
+    let mut world = AStarPathfinder::new(5, 3);
+    let mut peer = AStarPathfinder::new(5, 3);
+    world.set_cell_obstacle_id(cell, 41, false, false);
+    world.set_cell_obstacle_id_on_layer(cell, PathfindLayerEnum::Top, 42, false, false);
+    peer.set_cell_obstacle_id(cell, 42, false, false);
+    let pass = |finder: &AStarPathfinder, layer, owner| {
+        finder.is_passable_on_layer_with_policy(
+            cell,
+            layer,
+            SURFACE_GROUND,
+            false,
+            ObstacleIgnore::Owner(owner),
+        )
+    };
+    assert!(pass(&world, PathfindLayerEnum::Ground, Some(41)));
+    assert!(!pass(&world, PathfindLayerEnum::Top, Some(41)));
+    assert!(pass(&world, PathfindLayerEnum::Top, Some(42)));
+    assert!(!pass(&world, PathfindLayerEnum::Ground, Some(0)));
+    assert!(!pass(&peer, PathfindLayerEnum::Ground, Some(41)));
+    let search = |finder: &AStarPathfinder, owner| {
+        finder.find_path_ex6_with_obstacle_owner(
+            GridCoord::new(1, 1),
+            cell,
+            SURFACE_GROUND,
+            false,
+            100,
+            false,
+            owner,
+            None,
+            false,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            None,
+        )
+    };
+    assert!(search(&world, Some(41)).is_some());
+    assert!(search(&world, Some(42)).is_none());
+    assert!(search(&peer, Some(41)).is_none());
+    assert!(search(&world, Some(41)).is_some());
+}

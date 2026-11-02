@@ -13,6 +13,7 @@ use crate::cell::{
     PathfindCellType, PathfindLayerEnum, SURFACE_AIR, ZONE_IMPASSABLE_COST,
 };
 use crate::open_set::{AStarNode, OpenSet, SearchKey};
+use crate::passability::ObstacleIgnore;
 
 /// A* pathfinding algorithm implementation
 /// Matches C++ Pathfinder::internalFindPath() at AIPathfind.cpp:6438-6694
@@ -522,6 +523,49 @@ impl AStarPathfinder {
         )
     }
 
+    /// Search using the obstacle ID stored in each selected world cell.
+    #[allow(clippy::too_many_arguments)]
+    pub fn find_path_ex6_with_obstacle_owner(
+        &self,
+        start: GridCoord,
+        goal: GridCoord,
+        surfaces: u32,
+        is_crusher: bool,
+        max_iterations: usize,
+        allow_partial: bool,
+        ignored_owner: Option<u32>,
+        extra_cost: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> u32>,
+        downhill_only: bool,
+        ground_height: Option<&dyn Fn(GridCoord) -> f32>,
+        force_passable: Option<&dyn Fn(GridCoord) -> bool>,
+        line_cell_ok: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> bool>,
+        seed_line_to_goal: bool,
+        starts_tunneling: bool,
+        cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
+        dozer_obstacle_ok: Option<&dyn Fn(GridCoord) -> bool>,
+    ) -> Option<(Vec<(GridCoord, PathfindLayerEnum)>, usize)> {
+        self.find_path_with_start_layer_and_layers_policy(
+            start,
+            goal,
+            PathfindLayerEnum::Ground,
+            PathfindLayerEnum::Ground,
+            surfaces,
+            is_crusher,
+            max_iterations,
+            allow_partial,
+            ObstacleIgnore::Owner(ignored_owner),
+            extra_cost,
+            downhill_only,
+            ground_height,
+            force_passable,
+            line_cell_ok,
+            seed_line_to_goal,
+            starts_tunneling,
+            cell_allowed,
+            dozer_obstacle_ok,
+        )
+    }
+
     /// A* starting on `start_layer` (C++ `obj->getLayer()` / `getClippedCell(layer, from)`).
     pub fn find_path_on_layer(
         &self,
@@ -622,6 +666,49 @@ impl AStarPathfinder {
         cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
         dozer_obstacle_ok: Option<&dyn Fn(GridCoord) -> bool>,
     ) -> Option<(Vec<(GridCoord, PathfindLayerEnum)>, usize)> {
+        self.find_path_with_start_layer_and_layers_policy(
+            start,
+            goal,
+            start_layer,
+            dest_layer,
+            surfaces,
+            is_crusher,
+            max_iterations,
+            allow_partial,
+            ObstacleIgnore::Cells(ignore_cells),
+            extra_cost,
+            downhill_only,
+            ground_height,
+            force_passable,
+            line_cell_ok,
+            seed_line_to_goal,
+            starts_tunneling,
+            cell_allowed,
+            dozer_obstacle_ok,
+        )
+    }
+
+    fn find_path_with_start_layer_and_layers_policy(
+        &self,
+        start: GridCoord,
+        goal: GridCoord,
+        start_layer: PathfindLayerEnum,
+        dest_layer: PathfindLayerEnum,
+        surfaces: u32,
+        is_crusher: bool,
+        max_iterations: usize,
+        allow_partial: bool,
+        ignore: ObstacleIgnore<'_>,
+        extra_cost: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> u32>,
+        downhill_only: bool,
+        ground_height: Option<&dyn Fn(GridCoord) -> f32>,
+        force_passable: Option<&dyn Fn(GridCoord) -> bool>,
+        line_cell_ok: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> bool>,
+        seed_line_to_goal: bool,
+        starts_tunneling: bool,
+        cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
+        dozer_obstacle_ok: Option<&dyn Fn(GridCoord) -> bool>,
+    ) -> Option<(Vec<(GridCoord, PathfindLayerEnum)>, usize)> {
         // Initialize open and closed sets
         // Matches C++ at AIPathfind.cpp:6575-6581
         let mut open_set = OpenSet::new();
@@ -644,7 +731,7 @@ impl AStarPathfinder {
 
         // C++ getClippedCell(obj->getLayer(), from) / getCell(destinationLayer, to).
         let pass_on = |c: GridCoord, layer: PathfindLayerEnum| -> bool {
-            if self.is_passable_on_layer_with_ignore(c, layer, surfaces, is_crusher, ignore_cells) {
+            if self.is_passable_on_layer_with_policy(c, layer, surfaces, is_crusher, ignore) {
                 return true;
             }
             force_passable.map(|f| f(c)).unwrap_or(false)
@@ -747,14 +834,14 @@ impl AStarPathfinder {
             // when NO_ATTACK && !tunneling && !downhillOnly && goalCell.
             // Prefer explicit seed flag; skip when downhill-only / tunneling (C++ guard).
             if seed_line_to_goal && !downhill_only && !is_tunneling {
-                self.examine_cells_toward_goal(
+                self.examine_cells_toward_goal_with_policy(
                     current.coord,
                     current.layer,
                     current.g_score,
                     goal,
                     surfaces,
                     is_crusher,
-                    ignore_cells,
+                    ignore,
                     force_passable,
                     line_cell_ok,
                     cell_allowed,
@@ -799,12 +886,12 @@ impl AStarPathfinder {
                     continue;
                 }
 
-                let naturally_passable = self.is_passable_on_layer_with_ignore(
+                let naturally_passable = self.is_passable_on_layer_with_policy(
                     neighbor_coord,
                     current.layer,
                     surfaces,
                     is_crusher,
-                    ignore_cells,
+                    ignore,
                 );
                 let force_ok = force_passable.map(|f| f(neighbor_coord)).unwrap_or(false);
                 // C++ dozerHack: KINDOF_DOZER + CELL_OBSTACLE + non-enemy obstacle.
@@ -842,13 +929,13 @@ impl AStarPathfinder {
 
                 // Calculate tentative g_score
                 // Matches C++ at AIPathfind.cpp:6259 + 6277-6333
-                let mut movement_cost = self.movement_cost_with_ignore(
+                let mut movement_cost = self.movement_cost_with_policy(
                     current.coord,
                     neighbor_coord,
                     current.layer,
                     surfaces,
                     is_crusher,
-                    ignore_cells,
+                    ignore,
                     &came_from,
                 );
                 if movement_cost == u32::MAX {
@@ -877,7 +964,7 @@ impl AStarPathfinder {
                 // Crusher fences and AIR already paid 100*ORTHO in movement_cost_with_ignore.
                 if let Some(cell) = neighbor_cell {
                     if cell.get_type() == PathfindCellType::Obstacle
-                        && !self.is_ignored_obstacle(neighbor_coord, current.layer, ignore_cells)
+                        && !self.is_ignored_obstacle(neighbor_coord, current.layer, ignore)
                     {
                         let paid_in_cost = (naturally_passable && is_crusher)
                             || (naturally_passable && (surfaces & SURFACE_AIR) != 0);
@@ -974,6 +1061,7 @@ impl AStarPathfinder {
     /// C++ Pathfinder::examineCellsCallback line seed (AIPathfind.cpp:5996-6093).
     /// Walks Bresenham from parent toward goal; inserts clear cells at half ortho cost.
     /// Unlike examineNeighboringCells, this CAN reopen if the new g is better (C++ 6063-6088).
+    #[cfg(test)]
     pub(crate) fn examine_cells_toward_goal(
         &self,
         parent: GridCoord,
@@ -983,6 +1071,43 @@ impl AStarPathfinder {
         surfaces: u32,
         is_crusher: bool,
         ignore_cells: Option<&HashSet<GridCoord>>,
+        force_passable: Option<&dyn Fn(GridCoord) -> bool>,
+        line_cell_ok: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> bool>,
+        cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
+        open_set: &mut OpenSet,
+        open_members: &mut HashSet<SearchKey>,
+        closed_set: &mut HashSet<SearchKey>,
+        came_from: &mut HashMap<SearchKey, SearchKey>,
+        g_scores: &mut HashMap<SearchKey, u32>,
+    ) {
+        self.examine_cells_toward_goal_with_policy(
+            parent,
+            layer,
+            parent_g,
+            goal,
+            surfaces,
+            is_crusher,
+            ObstacleIgnore::Cells(ignore_cells),
+            force_passable,
+            line_cell_ok,
+            cell_allowed,
+            open_set,
+            open_members,
+            closed_set,
+            came_from,
+            g_scores,
+        );
+    }
+
+    fn examine_cells_toward_goal_with_policy(
+        &self,
+        parent: GridCoord,
+        layer: PathfindLayerEnum,
+        parent_g: u32,
+        goal: GridCoord,
+        surfaces: u32,
+        is_crusher: bool,
+        ignore: ObstacleIgnore<'_>,
         force_passable: Option<&dyn Fn(GridCoord) -> bool>,
         line_cell_ok: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> bool>,
         cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
@@ -1005,13 +1130,8 @@ impl AStarPathfinder {
             let from_layer = from_cell.get_layer();
             let to_layer = to_cell.get_layer();
             if cell_allowed.is_some_and(|ok| !ok(to))
-                || (!self.is_passable_on_layer_with_ignore(
-                    to,
-                    layer,
-                    surfaces,
-                    is_crusher,
-                    ignore_cells,
-                ) && !force_passable.is_some_and(|ok| ok(to)))
+                || (!self.is_passable_on_layer_with_policy(to, layer, surfaces, is_crusher, ignore)
+                    && !force_passable.is_some_and(|ok| ok(to)))
                 || (to_layer == PathfindLayerEnum::Ground && !self.is_zone_passable(to))
                 || to_cell.is_pinched()
                 || to_cell.get_type() == PathfindCellType::Cliff

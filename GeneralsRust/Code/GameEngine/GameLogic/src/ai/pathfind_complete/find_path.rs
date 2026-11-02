@@ -127,11 +127,6 @@ impl PathfindingSystem {
         let observation_error = std::cell::RefCell::new(None);
         let start = GridCoord::from_world(&request.from);
         let goal = GridCoord::from_world(&request.to);
-        let ignore_cells = observations.map_or_else(
-            || ignored_obstacle_cells(request.ignore_obstacle_id),
-            |world| world.ignored_cells(request.ignore_obstacle_id),
-        );
-
         // Validate coordinates
         if !self.is_valid_coord(start) || !self.is_valid_coord(goal) {
             return Ok(PathResult::none());
@@ -142,10 +137,11 @@ impl PathfindingSystem {
         // C++ internalFindPath determines tunneling before the zone test.
         let start_is_obstacle =
             self.pathfinder.get_cell_type(start) == Some(PathfindCellType::Obstacle);
-        let ignored_goal = ignore_cells
-            .as_ref()
-            .is_some_and(|cells| cells.contains(&goal))
-            && self.pathfinder.get_cell_type(goal) == Some(PathfindCellType::Obstacle);
+        let ignored_goal = matches!(
+            self.pathfinder.obstacle_observation_at(goal, PathfindLayerEnum::Ground),
+            Some((PathfindCellType::Obstacle, Some(owner), _))
+                if owner != INVALID_ID && request.ignore_obstacle_id == Some(owner)
+        );
         let zones = &self.zones;
         let mut start_zone =
             zones.get_effective_zone(request.surfaces, request.is_crusher, zones.zone_at(start));
@@ -348,14 +344,14 @@ impl PathfindingSystem {
         } else {
             None
         };
-        let grid_path = pathfinder.find_path_ex6_with_layers(
+        let grid_path = pathfinder.find_path_ex6_with_obstacle_owner(
             start,
             goal,
             request.surfaces,
             request.is_crusher,
             MAX_PATH_ITERATIONS,
             request.allow_partial,
-            ignore_cells.as_ref(),
+            request.ignore_obstacle_id,
             Some(&ally_extra as &dyn Fn(GridCoord, PathfindLayerEnum) -> u32),
             downhill_only,
             Some(&ground_h as &dyn Fn(GridCoord) -> f32),

@@ -14,24 +14,34 @@ use crate::cell::{
 };
 use crate::open_set::SearchKey;
 
+// Common/GameType.h: INVALID_ID is zero.
+const INVALID_OBSTACLE_ID: u32 = 0;
+
+/// Distinguish explicit coordinate exclusions from C++ obstacle identity.
+#[derive(Clone, Copy)]
+pub(crate) enum ObstacleIgnore<'a> {
+    Cells(Option<&'a HashSet<GridCoord>>),
+    Owner(Option<u32>),
+}
+
 impl AStarPathfinder {
     pub(crate) fn is_ignored_obstacle(
         &self,
         coord: GridCoord,
         layer: PathfindLayerEnum,
-        ignore_cells: Option<&HashSet<GridCoord>>,
+        ignore: ObstacleIgnore<'_>,
     ) -> bool {
-        let Some(ignore_cells) = ignore_cells else {
+        let Some((PathfindCellType::Obstacle, owner, _)) =
+            self.obstacle_observation_at(coord, layer)
+        else {
             return false;
         };
-        if !ignore_cells.contains(&coord) {
-            return false;
+        match ignore {
+            ObstacleIgnore::Cells(cells) => cells.is_some_and(|cells| cells.contains(&coord)),
+            ObstacleIgnore::Owner(id) => {
+                id.is_some_and(|id| id != INVALID_OBSTACLE_ID && owner == Some(id))
+            }
         }
-        matches!(
-            self.get_cell_on_layer(coord, layer)
-                .map(|cell| cell.get_type()),
-            Some(PathfindCellType::Obstacle)
-        )
     }
 
     /// C++ `Pathfinder::validLocomotorSurfacesForCellType` (AIPathfind.cpp:4734-4758).
@@ -91,11 +101,28 @@ impl AStarPathfinder {
         is_crusher: bool,
         ignore_cells: Option<&HashSet<GridCoord>>,
     ) -> bool {
+        self.is_passable_on_layer_with_policy(
+            coord,
+            layer,
+            surfaces,
+            is_crusher,
+            ObstacleIgnore::Cells(ignore_cells),
+        )
+    }
+
+    pub(crate) fn is_passable_on_layer_with_policy(
+        &self,
+        coord: GridCoord,
+        layer: PathfindLayerEnum,
+        surfaces: u32,
+        is_crusher: bool,
+        ignore: ObstacleIgnore<'_>,
+    ) -> bool {
         let Some(cell) = self.get_cell_on_layer(coord, layer) else {
             return false;
         };
 
-        if self.is_ignored_obstacle(coord, layer, ignore_cells) {
+        if self.is_ignored_obstacle(coord, layer, ignore) {
             return true;
         }
 
@@ -125,6 +152,7 @@ impl AStarPathfinder {
 
     /// Calculate movement cost between adjacent cells
     /// Matches C++ PathfindCell::costSoFar() at AIPathfind.cpp:1691-1711
+    #[cfg(test)]
     pub(crate) fn movement_cost_with_ignore(
         &self,
         from: GridCoord,
@@ -133,6 +161,27 @@ impl AStarPathfinder {
         surfaces: u32,
         is_crusher: bool,
         ignore_cells: Option<&HashSet<GridCoord>>,
+        came_from: &HashMap<SearchKey, SearchKey>,
+    ) -> u32 {
+        self.movement_cost_with_policy(
+            from,
+            to,
+            from_layer,
+            surfaces,
+            is_crusher,
+            ObstacleIgnore::Cells(ignore_cells),
+            came_from,
+        )
+    }
+
+    pub(crate) fn movement_cost_with_policy(
+        &self,
+        from: GridCoord,
+        to: GridCoord,
+        from_layer: PathfindLayerEnum,
+        surfaces: u32,
+        is_crusher: bool,
+        ignore: ObstacleIgnore<'_>,
         came_from: &HashMap<SearchKey, SearchKey>,
     ) -> u32 {
         let Some(to_cell) = self.get_cell_on_layer(to, from_layer) else {
@@ -156,7 +205,7 @@ impl AStarPathfinder {
                 cost += 7 * COST_DIAGONAL;
             }
             PathfindCellType::Obstacle => {
-                if self.is_ignored_obstacle(to, from_layer, ignore_cells) {
+                if self.is_ignored_obstacle(to, from_layer, ignore) {
                     // Treat ignored obstacles as clear.
                 } else if self.crusher_may_cross_obstacle(to, to_cell.get_layer(), is_crusher)
                     || (surfaces & SURFACE_AIR) != 0
