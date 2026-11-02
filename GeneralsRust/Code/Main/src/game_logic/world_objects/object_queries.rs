@@ -787,13 +787,11 @@ impl GameLogic {
             }
         }
         self.pathfinding_system.set_player_ally_masks(masks);
-        let mut human = 0u16;
-        for (id, player) in &self.players {
-            if player.is_human && *id < 16 {
-                human |= 1u16 << *id;
-            }
-        }
-        self.pathfinding_system.set_human_player_mask(human);
+        self.pathfinding_system.set_computer_players(
+            self.players
+                .iter()
+                .filter_map(|(&id, player)| (!player.is_human).then_some(id)),
+        );
     }
 
     /// C++ `ActionManager::canGetRepairedAt` / `canGetHealedAt` service

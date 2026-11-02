@@ -27,7 +27,7 @@ impl PathfindingSystem {
             seeker_center_in_cell: true,
             ignore_obstacle_id: None,
             adjust_goal: true,
-            human_player_mask: None,
+            computer_players: HashSet::new(),
             seeker_is_human: false,
             seeker_is_dozer: false,
             seeker_downhill_only: false,
@@ -37,19 +37,17 @@ impl PathfindingSystem {
         }
     }
 
-    /// C++ `Player::getPlayerType() == PLAYER_HUMAN` bits for logical-extent clamp.
-    pub fn set_human_player_mask(&mut self, mask: u16) {
-        self.human_player_mask = Some(mask);
+    /// Session controllers that have C++ player type `PLAYER_COMPUTER`.
+    /// Missing players retain the original human default.
+    pub fn set_computer_players(&mut self, players: impl IntoIterator<Item = u32>) {
+        self.computer_players.clear();
+        self.computer_players.extend(players);
     }
 
     pub(super) fn apply_seeker_human_flag(&mut self) {
-        self.seeker_is_human = match (self.seeker_player, self.human_player_mask) {
-            (Some(p), Some(mask)) => (mask & (1u16 << p.min(15))) != 0,
-            // An unadmitted standalone finder or a query with no controlling
-            // object retains CPP's human default. An admitted zero mask means
-            // there are no human controllers, not that admission is missing.
-            _ => true,
-        };
+        self.seeker_is_human = !self
+            .seeker_player
+            .is_some_and(|player| self.computer_players.contains(&player));
         self.grid.set_query_is_human(self.seeker_is_human);
     }
 

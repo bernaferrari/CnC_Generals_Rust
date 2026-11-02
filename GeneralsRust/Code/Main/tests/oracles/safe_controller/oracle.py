@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute the original safe and closest controller selection, not full searches."""
+"""Execute the original safe, closest and ordinary controller selection, not full searches."""
 import hashlib
 from pathlib import Path
 import subprocess
@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory(prefix='safe-controller-') as directory:
     src = Path(directory) / 'oracle.cpp'
     binary = Path(directory) / 'oracle'
     expected = 'human human\ncomputer computer\nmissing-controller human\nmissing-object human\n'
-    for method in ('findSafePath', 'findClosestPath'):
+    for method in ('findSafePath', 'findClosestPath', 'findPath'):
         start = source.index('Bool isHuman = true;', source.index(f'Path *Pathfinder::{method}('))
         end = source.index('\n\n', start)
         src.write_text(program.replace('__BLOCK__', source[start:end]))

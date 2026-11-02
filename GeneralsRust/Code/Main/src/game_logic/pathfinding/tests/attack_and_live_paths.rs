@@ -1261,7 +1261,7 @@ fn patch_path_skips_occupied_ally_waypoints() {
 fn find_attack_path_binds_leftover_seeker() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut sys = PathfindingSystem::new(200.0, 200.0);
-    sys.set_human_player_mask(1u16 << 0);
+    sys.set_computer_players([2]);
 
     let mut objects = HostObjectStore::new();
     let mut inf_t = ThingTemplate::new("Ranger");

@@ -132,7 +132,7 @@ fn safe_query_uses_its_own_human_extent_policy() {
     world.get_player_mut(0).unwrap().is_human = false;
     let ground = PathfindingGround::Flat(0.0);
     let mut finder = PathfindingSystem::new(400.0, 400.0);
-    finder.set_human_player_mask(0);
+    finder.set_computer_players([0]);
     finder
         .grid
         .set_logical_extent(GridPos::new(0, 0), GridPos::new(5, 5));
@@ -230,7 +230,7 @@ fn single_repulsor_wrapper_uses_the_receiving_computers_extent_policy() {
     let (mut world, _, mover) = make_world();
     world.get_player_mut(0).unwrap().is_human = false;
     let mut finder = PathfindingSystem::new(400.0, 400.0);
-    finder.set_human_player_mask(0);
+    finder.set_computer_players([0]);
     finder
         .grid
         .set_logical_extent(GridPos::new(0, 0), GridPos::new(5, 5));
@@ -293,5 +293,70 @@ fn safe_search_does_not_walk_through_an_uncrushable_enemy() {
     assert!(
         route.is_none(),
         "the only neighbor is occupied by an uncrushable enemy: {route:?}"
+    );
+}
+
+#[test]
+fn missing_controller_uses_human_extent_in_safe_wrapper() {
+    use generals_main::game_logic::pathfinding::GridPos;
+    let (mut world, _, mover) = make_world();
+    world.clear_all_players();
+    let mut finder = PathfindingSystem::new(400.0, 400.0);
+    finder.set_computer_players([]);
+    finder
+        .grid
+        .set_logical_extent(GridPos::new(0, 0), GridPos::new(5, 5));
+    let from = Vec3::new(100.0, 0.0, 100.0);
+    let route = finder.find_safe_path(
+        from,
+        from,
+        40.0,
+        SURFACE_GROUND,
+        false,
+        &PathfindingGround::Flat(0.0),
+        world.host_objects(),
+        mover,
+    );
+    assert!(
+        route.is_none(),
+        "a missing controller must use the human extent"
+    );
+
+    let (mut peer, _, peer_mover) = make_world();
+    assert_eq!(mover, peer_mover);
+    peer.get_player_mut(0).unwrap().is_human = false;
+    let mut peer_finder = PathfindingSystem::new(400.0, 400.0);
+    peer_finder.set_computer_players([0]);
+    peer_finder
+        .grid
+        .set_logical_extent(GridPos::new(0, 0), GridPos::new(5, 5));
+    assert!(
+        peer_finder
+            .find_safe_path(
+                from,
+                from,
+                40.0,
+                SURFACE_GROUND,
+                false,
+                &PathfindingGround::Flat(0.0),
+                peer.host_objects(),
+                peer_mover
+            )
+            .is_some()
+    );
+    assert!(
+        finder
+            .find_safe_path(
+                from,
+                from,
+                40.0,
+                SURFACE_GROUND,
+                false,
+                &PathfindingGround::Flat(0.0),
+                world.host_objects(),
+                mover
+            )
+            .is_none(),
+        "another session's computer must not change the missing-controller policy"
     );
 }

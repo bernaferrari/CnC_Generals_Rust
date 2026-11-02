@@ -163,7 +163,7 @@ fn closest_search_uses_current_controller_extent_after_another_query() {
         w.host_object_mut(id).unwrap().owner_player_id = Some(1);
     }
     for f in [&mut finder, &mut peer_finder] {
-        f.set_human_player_mask(1);
+        f.set_computer_players([1]);
         f.grid
             .set_logical_extent(GridPos::new(0, 0), GridPos::new(9, 19));
     }
@@ -296,7 +296,7 @@ fn human_closest_path_reenters_from_an_adjacent_outside_cell() {
     for f in [&mut finder, &mut peer_finder] {
         f.grid
             .set_logical_extent(GridPos::new(0, 0), GridPos::new(9, 19));
-        f.set_human_player_mask(1);
+        f.set_computer_players([1]);
     }
     let ground = PathfindingGround::Flat(0.0);
     let from = Vec3::new(105.0, 0.0, 55.0);
