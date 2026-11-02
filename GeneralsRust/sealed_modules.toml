@@ -54,3 +54,23 @@ note = "Safe nstrdup/nstrdup_bytes; Option mirrors C++ null; 0 globals."
 path = "Code/Libraries/Source/WWVegas/WWMath/src/lookup_table.rs"
 cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/lookuptable.cpp"
 note = "Owned LookupTableManager; removed process GLOBAL_MANAGER; immutable curves; 0 globals."
+
+[[module]]
+path = "Code/GameEngine/Common/src/common/game_lod.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/GameLOD.cpp"
+note = "Probe/test overrides owned on GameLODManager; dead SlowDeath TLS cache removed; 8->0 process globals."
+
+[[module]]
+path = "Code/GameEngine/Common/src/common/game_lod"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/GameLOD.cpp"
+note = "Unit/isolation tests for static/dynamic LOD authority."
+
+[[module]]
+path = "Code/Main/src/graphics/render_pipeline/pipeline_execute.rs"
+cpp = "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient" 
+note = "Startup once-log is OnceLock set-once (not mutable process state); 0 counted globals."
+
+[[module]]
+path = "Code/Main/src/graphics/render_pipeline/pipeline_prewarm.rs"
+cpp = "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient"
+note = "Terrain chunk once-logs are OnceLock; 0 counted globals."

@@ -14,6 +14,7 @@ fn static_lod_parser_tracks_current_and_ideal_low_detail() {
         "static_lod_parser_tracks_current_and_ideal_low_detail",
         || {
             reset_static_lod_state_for_tests();
+            crate::common::ini::ini_game_data::init_global_data();
             set_static_lod_from_string("Medium");
             set_ideal_static_lod_from_string("Medium");
             assert!(!prefers_low_res_movies());

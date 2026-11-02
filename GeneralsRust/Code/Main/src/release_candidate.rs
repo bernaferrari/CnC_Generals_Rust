@@ -21,76 +21,100 @@ use crate::ui::main_menu::MainMenuState;
 use glam::Vec3;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
-static MISSING_TEXTURE_NOTES: AtomicUsize = AtomicUsize::new(0);
-static MISSING_W3D_NOTES: AtomicUsize = AtomicUsize::new(0);
-static MISSING_TEXTURE_WARNED_KEYS: LazyLock<Mutex<HashSet<String>>> =
-    LazyLock::new(|| Mutex::new(HashSet::new()));
-static MISSING_W3D_WARNED_KEYS: LazyLock<Mutex<HashSet<String>>> =
-    LazyLock::new(|| Mutex::new(HashSet::new()));
-/// Per-key count of MISSING_ASSET warnings actually emitted (warn-once observable).
-static MISSING_W3D_WARN_COUNTS: LazyLock<Mutex<HashMap<String, usize>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-/// Emit `MISSING_ASSET:<name>` once per session key; repeats demote to debug.
-///
-/// The per-frame render/resolve paths call these notes for every unresolvable
-/// asset on every attempt; without the once-set a single missing mesh floods
-/// stderr with thousands of identical warnings. The note counters still count
-/// every occurrence.
-fn warn_missing_asset_once(warned: &LazyLock<Mutex<HashSet<String>>>, name: &str) -> bool {
-    let dedup_key = name.to_ascii_lowercase();
-    let first_occurrence = match warned.lock() {
-        Ok(mut keys) => keys.insert(dedup_key),
-        // Poisoned lock: keep the warn rather than silently dropping it.
-        Err(_) => true,
-    };
-    if first_occurrence {
-        log::warn!("{}", diagnose_missing_asset(name));
-    } else {
-        log::debug!("(repeat) {}", diagnose_missing_asset(name));
-    }
-    first_occurrence
+/// Session-owned missing-asset diagnostics (C++ logged without a named singleton).
+#[derive(Debug, Default)]
+pub struct MissingAssetDiagnostics {
+    texture_notes: usize,
+    w3d_notes: usize,
+    texture_warned: HashSet<String>,
+    w3d_warned: HashSet<String>,
+    w3d_warn_counts: HashMap<String, usize>,
 }
+
+impl MissingAssetDiagnostics {
+    fn warn_missing_once(warned: &mut HashSet<String>, name: &str) -> bool {
+        let dedup_key = name.to_ascii_lowercase();
+        let first = warned.insert(dedup_key);
+        if first {
+            log::warn!("{}", diagnose_missing_asset(name));
+        } else {
+            log::debug!("(repeat) {}", diagnose_missing_asset(name));
+        }
+        first
+    }
+
+    pub fn note_missing_texture(&mut self, texture_name: &str) {
+        self.texture_notes += 1;
+        Self::warn_missing_once(&mut self.texture_warned, texture_name);
+    }
+
+    pub fn note_missing_w3d(&mut self, model_name: &str) {
+        self.w3d_notes += 1;
+        if Self::warn_missing_once(&mut self.w3d_warned, model_name) {
+            *self
+                .w3d_warn_counts
+                .entry(model_name.to_ascii_lowercase())
+                .or_insert(0) += 1;
+        }
+    }
+
+    pub fn missing_w3d_warn_count(&self, model_name: &str) -> usize {
+        self.w3d_warn_counts
+            .get(&model_name.to_ascii_lowercase())
+            .copied()
+            .unwrap_or(0)
+    }
+
+    pub fn missing_texture_note_count(&self) -> usize {
+        self.texture_notes
+    }
+
+    pub fn missing_w3d_note_count(&self) -> usize {
+        self.w3d_notes
+    }
+}
+
+/// Process slot until AssetManager owns this per instance (still one Mutex, not five).
+static MISSING_ASSET_DIAGNOSTICS: LazyLock<Mutex<MissingAssetDiagnostics>> =
+    LazyLock::new(|| Mutex::new(MissingAssetDiagnostics::default()));
 
 /// Called from TextureManager when a missing-texture fallback is recorded.
 pub fn note_missing_texture_fallback(texture_name: &str) {
-    MISSING_TEXTURE_NOTES.fetch_add(1, Ordering::Relaxed);
-    warn_missing_asset_once(&MISSING_TEXTURE_WARNED_KEYS, texture_name);
+    if let Ok(mut diag) = MISSING_ASSET_DIAGNOSTICS.lock() {
+        diag.note_missing_texture(texture_name);
+    }
 }
 
 /// Called from AssetManager when a W3D model load fails on the production path.
 pub fn note_missing_w3d_model(model_name: &str) {
-    MISSING_W3D_NOTES.fetch_add(1, Ordering::Relaxed);
-    if warn_missing_asset_once(&MISSING_W3D_WARNED_KEYS, model_name) {
-        if let Ok(mut counts) = MISSING_W3D_WARN_COUNTS.lock() {
-            *counts.entry(model_name.to_ascii_lowercase()).or_insert(0) += 1;
-        }
+    if let Ok(mut diag) = MISSING_ASSET_DIAGNOSTICS.lock() {
+        diag.note_missing_w3d(model_name);
     }
 }
 
 /// Number of MISSING_ASSET warnings emitted for this model key this session.
 pub fn missing_w3d_warn_count(model_name: &str) -> usize {
-    MISSING_W3D_WARN_COUNTS
+    MISSING_ASSET_DIAGNOSTICS
         .lock()
-        .map(|counts| {
-            counts
-                .get(&model_name.to_ascii_lowercase())
-                .copied()
-                .unwrap_or(0)
-        })
+        .map(|diag| diag.missing_w3d_warn_count(model_name))
         .unwrap_or(0)
 }
 
 pub fn missing_texture_note_count() -> usize {
-    MISSING_TEXTURE_NOTES.load(Ordering::Relaxed)
+    MISSING_ASSET_DIAGNOSTICS
+        .lock()
+        .map(|d| d.missing_texture_note_count())
+        .unwrap_or(0)
 }
 
 pub fn missing_w3d_note_count() -> usize {
-    MISSING_W3D_NOTES.load(Ordering::Relaxed)
+    MISSING_ASSET_DIAGNOSTICS
+        .lock()
+        .map(|d| d.missing_w3d_note_count())
+        .unwrap_or(0)
 }
 
 /// Result of attempting to open a gameplay asset through the production file path.

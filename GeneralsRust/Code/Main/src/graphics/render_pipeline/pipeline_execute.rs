@@ -402,9 +402,9 @@ impl RenderPipeline {
             sort_elapsed = sort_started.elapsed();
             // Removed excessive logging
 
-            static LOGGED_STARTUP_RENDER_ITEM_SUMMARY: AtomicBool = AtomicBool::new(false);
+            static LOGGED_STARTUP_RENDER_ITEM_SUMMARY: std::sync::OnceLock<()> = std::sync::OnceLock::new();
             if !self.render_items.is_empty()
-                && !LOGGED_STARTUP_RENDER_ITEM_SUMMARY.swap(true, Ordering::Relaxed)
+                && LOGGED_STARTUP_RENDER_ITEM_SUMMARY.set(()).is_ok()
             {
                 let sample_items: Vec<String> = self
                     .render_items

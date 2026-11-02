@@ -914,8 +914,8 @@ impl ForwardPass {
             }
         }
 
-        static LOGGED_FALLBACK_LIGHTING: AtomicBool = AtomicBool::new(false);
-        if !have_metadata && !LOGGED_FALLBACK_LIGHTING.swap(true, Ordering::Relaxed) {
+        static LOGGED_FALLBACK_LIGHTING: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        if !have_metadata && LOGGED_FALLBACK_LIGHTING.set(()).is_ok() {
             warn!(
                 "ForwardPass lighting metadata unavailable/incomplete; using fallback ambient+sun lighting"
             );
@@ -1174,8 +1174,8 @@ impl ForwardPass {
         };
         mesh.set_uv_offset_override(uv_override);
         if std::env::var_os("GENERALS_FORCE_TWO_SIDED").is_some() {
-            static LOGGED_FORCE_TWO_SIDED: AtomicBool = AtomicBool::new(false);
-            if !LOGGED_FORCE_TWO_SIDED.swap(true, Ordering::Relaxed) {
+            static LOGGED_FORCE_TWO_SIDED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+            if LOGGED_FORCE_TWO_SIDED.set(()).is_ok() {
                 warn!(
                     "GENERALS_FORCE_TWO_SIDED enabled: forcing two-sided pipelines for mesh diagnostics"
                 );

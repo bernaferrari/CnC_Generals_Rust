@@ -990,10 +990,10 @@ fn force_retail_game_data_probe_for_tests(state: u8) {
 
 /// Log the active ShowObjectHealth value once at InGame entry (first
 /// health-bar pack of the session).
-static SHOW_OBJECT_HEALTH_GATE_LOGGED: AtomicBool = AtomicBool::new(false);
+static SHOW_OBJECT_HEALTH_GATE_LOGGED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
 
 fn log_show_object_health_gate_once(open: bool) {
-    if !SHOW_OBJECT_HEALTH_GATE_LOGGED.swap(true, Ordering::Relaxed) {
+    if SHOW_OBJECT_HEALTH_GATE_LOGGED.set(()).is_ok() {
         if open {
             log::info!("ShowObjectHealth gate open at InGame entry: health bars visible");
         } else {

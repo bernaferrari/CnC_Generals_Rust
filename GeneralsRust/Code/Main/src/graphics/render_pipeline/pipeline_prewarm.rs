@@ -436,8 +436,8 @@ impl RenderPipeline {
         tree_cpu_completed: bool,
         tree_receipt: Option<&game_client::terrain::TreeCpuDrawReceipt>,
     ) -> Result<()> {
-        static LOGGED_ZERO_TERRAIN_CHUNKS: AtomicBool = AtomicBool::new(false);
-        static LOGGED_NONZERO_TERRAIN_CHUNKS: AtomicBool = AtomicBool::new(false);
+        static LOGGED_ZERO_TERRAIN_CHUNKS: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        static LOGGED_NONZERO_TERRAIN_CHUNKS: std::sync::OnceLock<()> = std::sync::OnceLock::new();
 
         let snow_min_height = self
             .presentation_frame
@@ -505,10 +505,10 @@ impl RenderPipeline {
                 );
             }
             if chunk_count == 0 {
-                if !LOGGED_ZERO_TERRAIN_CHUNKS.swap(true, Ordering::Relaxed) {
+                if LOGGED_ZERO_TERRAIN_CHUNKS.set(()).is_ok() {
                     warn!("Terrain visual updated but no visible chunks were selected for drawing");
                 }
-            } else if !LOGGED_NONZERO_TERRAIN_CHUNKS.swap(true, Ordering::Relaxed) {
+            } else if LOGGED_NONZERO_TERRAIN_CHUNKS.set(()).is_ok() {
                 info!(
                     "Terrain visual selected {} visible chunks for drawing",
                     chunk_count

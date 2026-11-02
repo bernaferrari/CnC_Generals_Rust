@@ -107,6 +107,15 @@ pub struct GameLODManager {
     min_dynamic_particle_priority: ParticlePriorityType,
     /// Priorities at/above this never skip. C++ `m_minDynamicParticleSkipPriority`.
     min_dynamic_particle_skip_priority: ParticlePriorityType,
+
+    /// Test/probe overrides (owned on the manager; not process TLS).
+    pub(crate) mem_passed_override: Option<bool>,
+    pub(crate) cpu_freq_mhz_override: Option<i32>,
+    pub(crate) cpu_type_override: Option<CpuType>,
+    pub(crate) video_chip_override: Option<ChipsetType>,
+    pub(crate) ram_mb_override: Option<i32>,
+    /// When true, recommended LOD is not written to Options.ini (tests).
+    pub(crate) skip_options_persist: bool,
 }
 
 impl Default for GameLODManager {
@@ -145,6 +154,12 @@ impl GameLODManager {
             slow_death_scale: 1.0,
             min_dynamic_particle_priority: ParticlePriorityType::WeaponExplosion,
             min_dynamic_particle_skip_priority: ParticlePriorityType::WeaponExplosion,
+            mem_passed_override: None,
+            cpu_freq_mhz_override: None,
+            cpu_type_override: None,
+            video_chip_override: None,
+            ram_mb_override: None,
+            skip_options_persist: false,
         }
     }
 
@@ -175,6 +190,12 @@ impl GameLODManager {
         self.slow_death_scale = 1.0;
         self.min_dynamic_particle_priority = ParticlePriorityType::WeaponExplosion;
         self.min_dynamic_particle_skip_priority = ParticlePriorityType::WeaponExplosion;
+        self.mem_passed_override = None;
+        self.cpu_freq_mhz_override = None;
+        self.cpu_type_override = None;
+        self.video_chip_override = None;
+        self.ram_mb_override = None;
+        self.skip_options_persist = false;
     }
 
     pub(crate) fn get_static_lod_level(&self) -> StaticGameLODLevel {
