@@ -462,6 +462,18 @@ impl PathfindingSystem {
         self.is_tunneling = false;
 
         let goal_grid = GridCoord::from_world(&request.to);
+        let goal_layer = observations.map_or_else(
+            || self.get_layer_for_coord(goal_grid),
+            |world| {
+                PathfindLayerEnum::from_u32(
+                    world.terrain.get_layer_for_destination(&request.to) as u32
+                )
+            },
+        );
+        let goal_layer = self
+            .pathfinder
+            .resolved_layer_at(goal_grid, goal_layer)
+            .unwrap_or(goal_layer);
         let (radius, center_in_cell) = Self::compute_radius_and_center(request.unit_radius);
         let aircraft_goal_only = aircraft_goal_only
             .unwrap_or_else(|| Self::object_uses_aircraft_goal_reservations(request.object_id));
@@ -469,7 +481,6 @@ impl PathfindingSystem {
             downhill_only.unwrap_or_else(|| Self::object_is_downhill_only(request.object_id));
 
         if aircraft_goal_only {
-            let goal_layer = self.get_layer_for_coord(goal_grid);
             if self.check_destination_with_observations(
                 &request,
                 goal_grid,
@@ -498,7 +509,22 @@ impl PathfindingSystem {
             return Ok(PathResult::none());
         }
 
-        let start_layer = self.get_layer_for_coord(start);
+        let requested_start_layer = if let Some(world) = observations {
+            let source = world
+                .object(request.object_id)
+                .ok_or("path owner missing")?;
+            let layer = source
+                .read()
+                .map_err(|_| "path owner poisoned")?
+                .get_layer();
+            PathfindLayerEnum::from_u32(layer as u32)
+        } else {
+            self.get_layer_for_coord(start)
+        };
+        let start_layer = self
+            .pathfinder
+            .resolved_layer_at(start, requested_start_layer)
+            .unwrap_or(requested_start_layer);
         let mut start_info = CheckMovementInfo {
             cell: start,
             layer: start_layer,
@@ -581,16 +607,24 @@ impl PathfindingSystem {
             COST_DIAG * dmin + COST_ORTHO * (dmax - dmin)
         };
 
-        let mut open: std::collections::BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32)>> =
+        type CellKey = (i32, i32, u8);
+        let mut open: std::collections::BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32, u8)>> =
             std::collections::BinaryHeap::new();
-        let mut g_score: HashMap<(i32, i32), i32> = HashMap::new();
-        let mut parents: HashMap<(i32, i32), (i32, i32)> = HashMap::new();
-        let mut closed: HashSet<(i32, i32)> = HashSet::new();
+        let mut g_score: HashMap<CellKey, i32> = HashMap::new();
+        let mut parents: HashMap<CellKey, CellKey> = HashMap::new();
+        let mut closed: HashSet<CellKey> = HashSet::new();
         let h0 = heuristic(start);
-        open.push(std::cmp::Reverse((h0, 0, start.x, start.y)));
-        g_score.insert((start.x, start.y), 0);
+        let start_key = (start.x, start.y, start_layer as u8);
+        open.push(std::cmp::Reverse((
+            h0,
+            0,
+            start.x,
+            start.y,
+            start_layer as u8,
+        )));
+        g_score.insert(start_key, 0);
 
-        let mut closest_cell: Option<(GridCoord, f32)> = None;
+        let mut closest_cell: Option<(GridCoord, PathfindLayerEnum, f32)> = None;
         let mut closest_screen_sqr = f32::MAX;
         let mut found_goal_cell = false;
         let mut expanded = 0i32;
@@ -618,24 +652,25 @@ impl PathfindingSystem {
             }
         };
 
-        while let Some(std::cmp::Reverse((_f, g, cx, cy))) = open.pop() {
-            if closed.contains(&(cx, cy)) {
+        while let Some(std::cmp::Reverse((f, g, cx, cy, layer_id))) = open.pop() {
+            let key = (cx, cy, layer_id);
+            if closed.contains(&key) {
                 continue;
             }
-            closed.insert((cx, cy));
+            closed.insert(key);
             expanded += 1;
             if expanded > MAX_EXPAND {
                 break;
             }
             let cell = GridCoord::new(cx, cy);
-            let layer = self.get_layer_for_coord(cell);
+            let layer = PathfindLayerEnum::from_u32(layer_id as u32);
 
-            if cx == goal_grid.x && cy == goal_grid.y {
+            if cx == goal_grid.x && cy == goal_grid.y && layer == goal_layer {
                 // C++: if goal invalid destination and we have closer, keep scanning.
                 let goal_ok = can_path_through_units || destination_valid(self, cell, layer);
                 if goal_ok || closest_cell.is_none() {
                     found_goal_cell = true;
-                    closest_cell = Some((cell, 0.0));
+                    closest_cell = Some((cell, layer, 0.0));
                     break;
                 } else {
                     found_goal_cell = true;
@@ -645,10 +680,11 @@ impl PathfindingSystem {
             } else if !tunneling && destination_valid(self, cell, layer) {
                 // C++: if (!startedStuck || validMovementPosition(...))
                 let movement_ok = !started_stuck
-                    || self.valid_movement_cell(
+                    || self.valid_movement_cell_on_layer(
                         surfaces,
                         is_crusher,
                         cell,
+                        layer,
                         request.ignore_obstacle_id,
                     );
                 if movement_ok {
@@ -665,10 +701,10 @@ impl PathfindingSystem {
                     let dist_sqr = dist_screen + cost_term;
                     let better = match closest_cell {
                         None => true,
-                        Some((_, best)) => dist_sqr < best,
+                        Some((_, _, best)) => dist_sqr < best,
                     };
                     if better {
-                        closest_cell = Some((cell, dist_sqr));
+                        closest_cell = Some((cell, layer, dist_sqr));
                     }
                 }
             }
@@ -678,14 +714,15 @@ impl PathfindingSystem {
             }
 
             // C++ checkChangeLayers: enqueue connect-layer same-xy at parent cost.
-            if let Some(link) = self.check_change_layers(cell) {
-                if !closed.contains(&(link.x, link.y)) {
-                    let key = (link.x, link.y);
-                    if !g_score.get(&key).is_some_and(|&og| g >= og) {
-                        g_score.insert(key, g);
-                        parents.insert(key, (cx, cy));
-                        let f = g + heuristic(link);
-                        open.push(std::cmp::Reverse((f, g, link.x, link.y)));
+            if let Some(connect) = self.pathfinder.get_cell_connect_layer_on_layer(cell, layer) {
+                if connect != PathfindLayerEnum::Invalid {
+                    if let Some(target_layer) = self.pathfinder.resolved_layer_at(cell, connect) {
+                        let target = (cx, cy, target_layer as u8);
+                        if !closed.contains(&target) && !g_score.contains_key(&target) {
+                            g_score.insert(target, g);
+                            parents.insert(target, key);
+                            open.push(std::cmp::Reverse((f, g, cx, cy, target_layer as u8)));
+                        }
                     }
                 }
             }
@@ -694,7 +731,14 @@ impl PathfindingSystem {
                 let nx = cx + dx;
                 let ny = cy + dy;
                 let nc = GridCoord::new(nx, ny);
-                if !self.is_valid_coord(nc) || closed.contains(&(nx, ny)) {
+                if !self.is_valid_coord(nc) {
+                    continue;
+                }
+                let Some(neighbor_layer) = self.pathfinder.resolved_layer_at(nc, layer) else {
+                    continue;
+                };
+                let neighbor_key = (nx, ny, neighbor_layer as u8);
+                if closed.contains(&neighbor_key) {
                     continue;
                 }
                 if is_human && !self.in_logical_extent(nc) {
@@ -751,58 +795,53 @@ impl PathfindingSystem {
                 }
                 let step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
                 let ng = g + step;
-                let key = (nx, ny);
-                if g_score.get(&key).is_some_and(|&og| ng >= og) {
+                if g_score.get(&neighbor_key).is_some_and(|&og| ng >= og) {
                     continue;
                 }
-                g_score.insert(key, ng);
-                parents.insert(key, (cx, cy));
+                g_score.insert(neighbor_key, ng);
+                parents.insert(neighbor_key, key);
                 let f = ng + if tunneling { 0 } else { heuristic(nc) };
-                open.push(std::cmp::Reverse((f, ng, nx, ny)));
+                open.push(std::cmp::Reverse((f, ng, nx, ny, neighbor_layer as u8)));
             }
         }
 
-        let Some((best_cell, _)) = closest_cell else {
+        let Some((best_cell, best_layer, _)) = closest_cell else {
             return Ok(PathResult::none());
         };
 
         // Path to exact goal or closest valid cell.
-        let to_pos = if found_goal_cell && best_cell.x == goal_grid.x && best_cell.y == goal_grid.y
-        {
+        let to_pos = if found_goal_cell && best_cell == goal_grid && best_layer == goal_layer {
             request.to
         } else {
-            let layer = self.get_layer_for_coord(best_cell);
             let mut p = Coord3D::new(0.0, 0.0, 0.0);
             self.adjust_coord_to_cell_with_observations(
                 best_cell.x,
                 best_cell.y,
                 center_in_cell,
                 &mut p,
-                layer,
+                best_layer,
                 observations,
             );
             p
         };
         // buildActualPath follows the parent chain from this search; a second
         // search can reject or choose a different route out of a stuck start.
-        let mut cursor = (best_cell.x, best_cell.y);
-        let start_key = (start.x, start.y);
-        let mut grid_path = vec![best_cell];
+        let mut cursor = (best_cell.x, best_cell.y, best_layer as u8);
+        let mut layered = vec![(best_cell, best_layer)];
         while cursor != start_key {
             let Some(&parent) = parents.get(&cursor) else {
                 return Err("closest path parent missing".into());
             };
             cursor = parent;
-            grid_path.push(GridCoord::new(cursor.0, cursor.1));
-            if grid_path.len() > parents.len() + 1 {
+            layered.push((
+                GridCoord::new(cursor.0, cursor.1),
+                PathfindLayerEnum::from_u32(cursor.2 as u32),
+            ));
+            if layered.len() > parents.len() + 1 {
                 return Err("closest path parent cycle".into());
             }
         }
-        grid_path.reverse();
-        let layered: Vec<_> = grid_path
-            .iter()
-            .map(|&cell| (cell, self.get_layer_for_coord(cell)))
-            .collect();
+        layered.reverse();
         let mut result = self.build_actual_path_from_layered_path_with_observations(
             &layered,
             &request.from,
@@ -817,7 +856,8 @@ impl PathfindingSystem {
         if !result.success {
             return Ok(result);
         }
-        result.total_cost = self.calculate_path_cost(&grid_path);
+        result.total_cost =
+            self.calculate_path_cost(&layered.iter().map(|&(cell, _)| cell).collect::<Vec<_>>());
         request.to = to_pos;
         let (waypoints, layers) = self.optimize_path_blocked_with_observations(
             &result.waypoints,
