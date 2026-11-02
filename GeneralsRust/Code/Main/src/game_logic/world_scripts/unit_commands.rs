@@ -1199,6 +1199,7 @@ impl GameLogic {
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
+                unit.unit_ai_runtime.set_attack_move_goal(destination);
             } else if path_ok && unit.ai_state() != AIState::Moving {
                 unit.ignored_obstacle_id = None;
                 unit.is_attack_path = false;
@@ -1263,6 +1264,9 @@ impl GameLogic {
                     AIState::AttackMoving,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
+            }
+            if let Some(goal) = unit.requested_destination {
+                unit.unit_ai_runtime.set_attack_move_goal(goal);
             }
             drop(unit);
             if self.objects.get(&id).is_some_and(|unit| {

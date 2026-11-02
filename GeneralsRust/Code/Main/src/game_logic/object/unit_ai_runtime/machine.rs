@@ -290,6 +290,28 @@ impl UnitAiRuntime {
             self.machine.goals.position = pos;
         }
     }
+    /// The outer AttackMove goal remains distinct from a child attack's path request.
+    pub(crate) fn set_attack_move_goal(&mut self, pos: Vec3) {
+        if self.machine.locked {
+            return;
+        }
+        if let Some(parent) = self.machine.parent.as_mut() {
+            if parent.state == AIState::AttackMoving {
+                parent.goals.position = pos;
+            }
+        } else if self.machine.ai_state == AIState::AttackMoving {
+            self.machine.goals.position = pos;
+        }
+    }
+    pub(crate) fn attack_move_goal(&self) -> Option<Vec3> {
+        match self.machine.parent.as_ref() {
+            Some(parent) if parent.state == AIState::AttackMoving => Some(parent.goals.position),
+            None if self.machine.ai_state == AIState::AttackMoving => {
+                Some(self.machine.goals.position)
+            }
+            _ => None,
+        }
+    }
     pub(crate) fn set_attack_original_victim_pos(&mut self, pos: Vec3) {
         self.machine.attack_original_victim_pos = Some(pos);
     }

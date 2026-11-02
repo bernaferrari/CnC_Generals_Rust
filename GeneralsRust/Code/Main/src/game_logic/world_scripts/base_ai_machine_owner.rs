@@ -3,6 +3,13 @@ use super::*;
 use crate::game_logic::{AIState, GameLogic, ObjectId};
 use gamelogic::{GameLogicError, GameLogicResult};
 use glam::Vec3;
+
+#[derive(PartialEq, Eq)]
+enum ChildIdleOrigin {
+    External,
+    StateResult,
+}
+
 impl GameLogic {
     pub(crate) fn clear_base_ai_machine_owned(
         &mut self,
@@ -311,10 +318,16 @@ impl GameLogic {
     /// parent goals. C++ child `setState(AI_IDLE)` is synchronous and does not
     /// clear or re-enter the containing machine.
     pub(crate) fn enter_ai_idle_child_owned(&mut self, id: ObjectId) -> bool {
+        self.enter_ai_idle_child_with_origin(id, ChildIdleOrigin::External)
+    }
+
+    fn enter_ai_idle_child_with_origin(&mut self, id: ObjectId, origin: ChildIdleOrigin) -> bool {
         let Some(unit) = self.objects.get(&id) else {
             return false;
         };
-        if unit.unit_ai_runtime.machine_locked() || unit.unit_ai_runtime.parent_state().is_none() {
+        if (origin == ChildIdleOrigin::External && unit.unit_ai_runtime.machine_locked())
+            || unit.unit_ai_runtime.parent_state().is_none()
+        {
             return false;
         }
         let birth = std::sync::Arc::clone(&unit.visual_draw_identity_token);
@@ -375,7 +388,7 @@ impl GameLogic {
             return Ok(false);
         }
         let birth = std::sync::Arc::clone(&unit.visual_draw_identity_token);
-        let move_goal = unit.requested_destination;
+        let move_goal = unit.unit_ai_runtime.attack_move_goal();
         let target = unit.target;
         self.attack_state_exit(id);
         if let Some(target) = target {
@@ -402,7 +415,7 @@ impl GameLogic {
         unit.movement.velocity = Vec3::ZERO;
         unit.set_status_moving(false);
         unit.set_locomotor_goal_none();
-        if !self.enter_ai_idle_child_owned(id) {
+        if !self.enter_ai_idle_child_with_origin(id, ChildIdleOrigin::StateResult) {
             return Err(gamelogic::GameLogicError::Configuration(
                 "AttackMove child could not re-enter Idle".into(),
             ));

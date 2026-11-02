@@ -1207,6 +1207,11 @@ impl Object {
         } else {
             self.unit_ai_runtime.enter_root(state);
         }
+        if !nested && state == AIState::AttackMoving {
+            if let Some(goal) = self.requested_destination {
+                self.unit_ai_runtime.set_attack_move_goal(goal);
+            }
+        }
         if leaving_panic_state {
             self.panic_runtime = None;
             self.is_panicking = false;

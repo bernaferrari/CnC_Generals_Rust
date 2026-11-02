@@ -1141,6 +1141,7 @@ impl GameLogic {
                     AIState::AttackMoving,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
+                jet.unit_ai_runtime.set_attack_move_goal(position);
             }
             HostFlightDeckCommand::Idle => {
                 jet.set_destination_with_operation(
