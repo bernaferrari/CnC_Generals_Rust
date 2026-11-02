@@ -94,6 +94,19 @@ pub fn run_boot_to_shell_menu(timeout: Duration) -> ExecutableSmokeResult {
     )
 }
 
+/// Boot to shell, start a skirmish, and stop once a retail (non-shell) map is InGame.
+///
+/// P0 hq-x1j4u.9.2 gate. Skips the gameplay command chain so debug builds are not
+/// held in the post-load update hot path longer than needed for the latch.
+pub fn run_load_retail_skirmish_map(timeout: Duration) -> ExecutableSmokeResult {
+    run_executable_smoke_with_launch_and_driver(
+        timeout,
+        true, // NewGame / skirmish menu drain path
+        ExecutableSmokeLaunch::HeadlessHost,
+        SmokeDriver::MapLoadOnly,
+    )
+}
+
 pub fn run_executable_smoke_windowed(
     timeout: Duration,
     use_new_game_path: bool,

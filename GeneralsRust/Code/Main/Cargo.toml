@@ -422,6 +422,10 @@ path = "src/bin/executable_smoke_gate.rs"
 name = "boot_shell_menu_gate"
 path = "src/bin/boot_shell_menu_gate.rs"
 
+[[bin]]
+name = "retail_skirmish_map_gate"
+path = "src/bin/retail_skirmish_map_gate.rs"
+
 [[example]]
 name = "telemetry_bridge"
 path = "examples/telemetry_bridge.rs"

@@ -178,4 +178,7 @@ enum SmokeDriver {
     /// Stop once the live shell reaches MainMenu.wnd, then exit cleanly.
     /// Used by the P0 boot-to-shell-menu gate (hq-x1j4u.9.1).
     MenuOnly,
+    /// Menu → skirmish start → first InGame with a non-shell retail map, then exit.
+    /// Used by the P0 load-retail-map gate (hq-x1j4u.9.2).
+    MapLoadOnly,
 }

@@ -149,6 +149,8 @@ struct SmokeRunState {
     load_retry_started: Option<Instant>,
     /// When true, phase 0 exits after live MainMenu.wnd (MenuOnly driver).
     boot_shell_menu_goal: bool,
+    /// When true, exit as soon as InGame + non-shell retail map (MapLoadOnly).
+    map_load_goal: bool,
     phase: u8, // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     last_snap: StatusSnap,
     last_ingame_frame: Option<u32>,
@@ -190,6 +192,7 @@ fn run_executable_smoke_once(
     let started = Instant::now();
     let mut st = SmokeRunState {
         boot_shell_menu_goal: matches!(driver, SmokeDriver::MenuOnly),
+        map_load_goal: matches!(driver, SmokeDriver::MapLoadOnly),
         ..Default::default()
     };
 
@@ -348,6 +351,18 @@ fn smoke_wall_budget_exceeded(
                 "boot_shell_menu wall timeout after success; frames={} shell={}",
                 result.frames_observed, st.shell_wnd_detail
             );
+        } else if st.map_load_goal
+            && result.reached_ingame
+            && st.saw_shell_wnd_ok
+            && !ExecutableSmokeResult::map_is_shell_for_claim(&result.map_seen)
+        {
+            result.shell_wnd_ok = true;
+            result.executable_host_ok = true;
+            result.status = "success_forced_exit".into();
+            result.detail = format!(
+                "retail_skirmish_map wall timeout after success; map={} frames={}",
+                result.map_seen, result.frames_observed
+            );
         } else {
             result.shell_wnd_ok = st.saw_shell_wnd_ok;
             result.executable_host_ok =
@@ -417,6 +432,20 @@ fn smoke_child_exited_early(
                 status.code(),
                 result.frames_observed,
                 st.shell_wnd_detail
+            );
+        } else if st.map_load_goal
+            && result.reached_ingame
+            && result.shell_wnd_ok
+            && !ExecutableSmokeResult::map_is_shell_for_claim(&result.map_seen)
+            && status.success()
+        {
+            result.executable_host_ok = true;
+            result.status = "success".into();
+            result.detail = format!(
+                "retail_skirmish_map ok; map={} exit={:?} frames={}",
+                result.map_seen,
+                status.code(),
+                result.frames_observed
             );
         } else if matches!(st.last_snap.state.as_str(), "LaunchFailed" | "")
             && !result.reached_menu
@@ -952,7 +981,14 @@ fn smoke_phase_skirmish_start_wait(
         }
     }
     if result.reached_ingame {
-        st.phase = 2;
+        if st.map_load_goal {
+            result.detail.push_str(" retail_map_ingame;");
+            let _ = write_control(&control_path, &["exit"]);
+            st.commanded_at = Some(Instant::now());
+            st.phase = 3;
+        } else {
+            st.phase = 2;
+        }
     } else if st.commanded_at
         .map(|t| t.elapsed() > Duration::from_secs(45))
         .unwrap_or(false)
@@ -1074,6 +1110,22 @@ fn smoke_phase_wait_clean_exit(
             result.detail = format!(
                 "boot_shell_menu forced exit; shell_wnd={} frames={}",
                 result.shell_wnd_ok, result.frames_observed
+            );
+            return true;
+        } else if st.map_load_goal
+            && result.reached_ingame
+            && !ExecutableSmokeResult::map_is_shell_for_claim(&result.map_seen)
+        {
+            result.shell_wnd_ok = st.saw_shell_wnd_ok || result.shell_wnd_ok;
+            result.executable_host_ok = result.shell_wnd_ok;
+            result.status = if result.executable_host_ok {
+                "success_forced_exit".into()
+            } else {
+                "exit_hang".into()
+            };
+            result.detail = format!(
+                "retail_skirmish_map forced exit; map={} shell_wnd={} frames={}",
+                result.map_seen, result.shell_wnd_ok, result.frames_observed
             );
             return true;
         } else {
