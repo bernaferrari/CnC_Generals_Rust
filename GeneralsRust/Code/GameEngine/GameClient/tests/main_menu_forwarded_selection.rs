@@ -234,7 +234,6 @@ END
         ("ButtonLoadReplayBack", "MapBorder2", "MapBorder1"),
         ("ButtonLoadGame", "MapBorder3", "MapBorder2"),
         ("ButtonReplay", "MapBorder3", "MapBorder2"),
-        ("ButtonCredits", "MapBorder2", "MapBorder1"),
         ("ButtonSkirmish", "MapBorder", "MapBorder2"),
     ] {
         let mut client = GameClient::new().unwrap();

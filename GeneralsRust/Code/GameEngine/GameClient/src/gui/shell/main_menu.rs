@@ -220,6 +220,7 @@ pub enum MessageBoxReturnType {
 #[derive(Debug)]
 pub(crate) enum PendingMainMenuAction {
     PushShellScreen(&'static str),
+    PushCreditsThenRevealMain,
     ReverseTransitionGroup(&'static str),
     ShowOptionsLayout,
     SignalUiInteract(&'static str),
@@ -1397,6 +1398,19 @@ impl MainMenu {
                         let _ = shell.push(screen, false, effects);
                     });
             }
+            PendingMainMenuAction::PushCreditsThenRevealMain => {
+                effects
+                    .window_manager_owner
+                    .expect("menu requires receiving window owner")
+                    .queue_shell_operation_with_effects(|shell, effects| {
+                        // Shell::push can run the current layout's shutdown
+                        // callback. Complete that call before changing the
+                        // main dropdown and its transition, as in C++.
+                        let _ = shell.push("Menus/CreditsMenu.wnd", false, effects);
+                        Self::win_hide_dropdown_main_false(effects, None);
+                        Self::transition_reverse("MainMenuDefaultMenu", effects, None);
+                    });
+            }
             PendingMainMenuAction::ReverseTransitionGroup(group) => {
                 Self::transition_reverse(group, effects, selected.as_deref_mut())
             }
@@ -1966,19 +1980,8 @@ impl MainMenu {
             }
             state.dont_allow_transitions = true;
             state.button_pushed = true;
-            Self::queue_action(
-                state,
-                PendingMainMenuAction::PushShellScreen("Menus/CreditsMenu.wnd"),
-            );
             state.drop_down = DropdownType::Main;
-            Self::set_dropdown_hidden(
-                state,
-                DropdownType::Main,
-                false,
-                effects,
-                selected.as_deref_mut(),
-            );
-            Self::transition_reverse("MainMenuDefaultMenu", effects, selected.as_deref_mut());
+            Self::queue_action(state, PendingMainMenuAction::PushCreditsThenRevealMain);
             log::info!("Credits button selected");
         } else if control_id == state.window_ids.button_multi_player_id {
             // Multiplayer button - C++ lines 1369-1380
