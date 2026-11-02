@@ -398,6 +398,7 @@ fn draw_radar_in_hud_with_context(
                         manager: Some(manager),
                         ime: receiving_ime,
                         receiving_power,
+                        receiving_images: None,
                     };
                     for reticle in hero_reticles {
                         manager.win_draw_image(

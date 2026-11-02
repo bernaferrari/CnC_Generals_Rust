@@ -11,6 +11,8 @@ pub struct WindowDrawContext<'a> {
     pub display: DisplayDrawFacts,
     pub ime: Option<&'a crate::gui::ime_manager::ImeManager>,
     pub manager: Option<&'a WindowManager>,
+    /// Mutable texture cache owned by the receiving client for this draw.
+    pub receiving_images: Option<&'a mut crate::display::image::ImageCollection>,
     /// Explicit owner-derived Energy facts for a hosted PowerWindow draw.
     /// The outer `Some` marks this callback as receiving-context work; an
     /// inner `None` means that owner has no selected/local player. Standalone
@@ -31,9 +33,13 @@ impl<'a> WindowDrawContext<'a> {
             renderer,
             display,
             manager: None,
+            receiving_images: None,
             ime: None,
             receiving_power: None,
         }
+    }
+    pub fn set_receiving_images(&mut self, images: &'a mut crate::display::image::ImageCollection) {
+        self.receiving_images = Some(images);
     }
     pub fn with_renderer<R>(
         &mut self,

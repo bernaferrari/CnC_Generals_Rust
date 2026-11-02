@@ -69,6 +69,7 @@ pub struct GameClient {
     session_lighting: game_engine::common::ini::ini_game_data::LightingContentRules,
     command_hints: crate::gui::command_hints::CommandHintState,
     owned_world_animations: OwnedWorldAnimations,
+    receiving_ui_images: Option<crate::display::image::ImageCollection>,
     /// DrawIconUI admitted from the driving Main session before native draw.
     receiving_draw_icon_ui: bool,
     snow: crate::snow::SnowManager,

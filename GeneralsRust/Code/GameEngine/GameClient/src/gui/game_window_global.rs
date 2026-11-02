@@ -126,6 +126,58 @@ impl WindowManager {
         } else {
             [1.0, 1.0, 1.0, 1.0]
         };
+        // A definition admitted by the receiving client owns its mutable GPU
+        // cache. A failed local load must not select a peer's same-named art.
+        if let Some(mapped) = draw_context
+            .receiving_images
+            .as_deref_mut()
+            .and_then(|images| images.find_image_by_name_mut(&image.name))
+        {
+            let mut submitted = false;
+            if let Some(renderer) = draw_context.renderer.as_deref_mut() {
+                if mapped.get_gpu_texture().is_none() {
+                    let _ = mapped.create_gpu_texture(renderer.device(), renderer.queue());
+                }
+                if let Some(gpu) = mapped.get_gpu_texture() {
+                    let uv = mapped.get_uv();
+                    let rotated = mapped
+                        .get_status()
+                        .contains(crate::display::image::ImageStatus::ROTATED_90_CLOCKWISE);
+                    crate::display::display_fx::queue_draw_image_mesh_on(
+                        renderer,
+                        &draw_context.display,
+                        std::sync::Arc::new(gpu.view().clone()),
+                        start_x as f32,
+                        start_y as f32,
+                        end_x as f32,
+                        end_y as f32,
+                        uv.min.x,
+                        uv.min.y,
+                        uv.max.x,
+                        uv.max.y,
+                        color_rgba,
+                        mode,
+                        rotated,
+                    );
+                    note_win_draw_image_command();
+                    submitted = true;
+                } else if missing_policy == MissingImagePolicy::Placeholder {
+                    let rect = UIRect::new(
+                        start_x as f32,
+                        start_y as f32,
+                        (end_x - start_x) as f32,
+                        (end_y - start_y) as f32,
+                    );
+                    renderer.draw_rect(rect, color_to_rgba(0xFF3D4F63), 0.0);
+                    note_win_draw_image_command();
+                    submitted = true;
+                }
+            }
+            if !submitted && missing_policy == MissingImagePolicy::Placeholder {
+                note_win_draw_image_command();
+            }
+            return;
+        }
         let submitted = draw_context.with_renderer(|renderer, display_facts| {
             let mut found_mapped = false;
             let texture = {

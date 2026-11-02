@@ -20,7 +20,6 @@ struct OwnedWorldAnimations {
 }
 impl OwnedWorldAnimations {
     fn admit(templates: &OwnedAnim2DTemplates, images: &OwnedMappedImages) -> Self {
-        use crate::display::image::{ICoord2D, Image, ImageStatus, Region2D};
         let definitions = templates
             .iter()
             .map(|(name, template)| {
@@ -36,24 +35,7 @@ impl OwnedWorldAnimations {
                 )
             })
             .collect();
-        let mut owned_images = crate::display::image::ImageCollection::new();
-        for source in images.iter() {
-            let mut image = Image::new();
-            image.set_name(source.get_name());
-            image.set_filename(source.get_filename());
-            image.set_texture_width(source.get_texture_size().x);
-            image.set_texture_height(source.get_texture_size().y);
-            let uv = source.get_uv();
-            image.set_uv(Region2D::from_coords(uv.left, uv.top, uv.right, uv.bottom));
-            image.set_image_size(ICoord2D::new(
-                source.get_image_size().x,
-                source.get_image_size().y,
-            ));
-            if source.status.is_rotated_90_clockwise() {
-                image.set_status(ImageStatus::ROTATED_90_CLOCKWISE);
-            }
-            owned_images.add_image(image);
-        }
+        let owned_images = crate::display::image::ImageCollection::from_owned_mapped_images(images);
         Self {
             definitions,
             images: owned_images,

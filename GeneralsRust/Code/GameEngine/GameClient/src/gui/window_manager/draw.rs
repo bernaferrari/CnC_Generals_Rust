@@ -77,6 +77,7 @@ impl WindowManager {
             renderer: draw_context.renderer.as_deref_mut(),
             display: draw_context.display.clone(),
             manager: Some(self),
+            receiving_images: draw_context.receiving_images.as_deref_mut(),
             ime: draw_context.ime,
             shell_scheme: draw_context.shell_scheme,
             receiving_power: draw_context.receiving_power,

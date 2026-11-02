@@ -99,6 +99,7 @@ impl GameClient {
             session_lighting: Default::default(),
             command_hints: Default::default(),
             owned_world_animations: OwnedWorldAnimations::default(),
+            receiving_ui_images: None,
             receiving_draw_icon_ui: true,
             snow: crate::snow::SnowManager::new(),
             snow_definition: crate::snow::WeatherSetting::default(),
@@ -1909,6 +1910,9 @@ mod load_screen_latch_owner_tests {
 
 impl GameClient {
     pub fn set_ui_renderer(&mut self, renderer: crate::gui::UIRenderer) {
+        if let Some(images) = &mut self.receiving_ui_images {
+            images.clear_gpu_textures();
+        }
         self.ui_renderer = Some(renderer);
     }
     pub fn ui_renderer(&self) -> Option<&crate::gui::UIRenderer> {

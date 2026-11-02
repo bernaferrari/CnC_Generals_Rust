@@ -591,6 +591,15 @@ impl drawable_world::DrawableState {
 }
 
 impl GameClient {
+    /// Admit UI image definitions without sharing mutable GPU caches with peers.
+    pub fn admit_receiving_ui_images(
+        &mut self,
+        images: &game_engine::common::ini::ini_mapped_image::OwnedMappedImages,
+    ) {
+        self.receiving_ui_images =
+            Some(crate::display::image::ImageCollection::from_owned_mapped_images(images));
+    }
+
     fn native_render_receiver(&mut self) -> NativeRenderReceiver<'_, '_> {
         NativeRenderReceiver::new(
             &mut self.drawables.state,
@@ -726,6 +735,7 @@ impl GameClient {
             facts,
         );
         context.ime = Some(&self.ime);
+        context.receiving_images = self.receiving_ui_images.as_mut();
         context.receiving_power = Some(power);
         self.window_manager_owner
             .with_manager(|manager| manager.draw_all(&mut context));
@@ -741,6 +751,7 @@ impl GameClient {
             facts,
         );
         context.ime = Some(&self.ime);
+        context.receiving_images = self.receiving_ui_images.as_mut();
         context.receiving_power = Some(power);
         self.window_manager_owner
             .with_manager(|manager| manager.draw_all_with_radar(radar, &mut context));
