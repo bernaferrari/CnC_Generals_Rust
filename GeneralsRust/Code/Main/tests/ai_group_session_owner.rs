@@ -1073,6 +1073,67 @@ fn locked_attack_move_parent_allows_child_attack_to_finish() {
 }
 
 #[test]
+fn guard_aggressor_attack_keeps_the_receiving_guard_parent() {
+    use generals_main::game_logic::AIState;
+    use generals_main::save_load::SnapshotBuilder;
+
+    fn admit_players(world: &mut GameLogic) {
+        let player = world.get_player_mut(1).unwrap();
+        player.is_human = false;
+        player.alliance_team = 1;
+        world.add_ai_opponent(1, Team::USA, generals_main::ai::AIDifficulty::Hard);
+        let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
+        enemy.alliance_team = 2;
+        world.add_player(enemy);
+    }
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut owner, actor, _, _) = world_with_options(&map, true, true, false);
+    let (mut peer, peer_actor, _, _) = world_with_options(&map, true, true, false);
+    assert_eq!(actor, peer_actor);
+    for world in [&mut owner, &mut peer] {
+        admit_players(world);
+        guard_position(world, "HuntTeam", "OwnedWaypoint");
+    }
+    let victim = owner
+        .create_object_for_player("GroupUnit", 2, Vec3::new(45.0, 0.0, 40.0))
+        .unwrap();
+    owner.host_object_mut(victim).unwrap().health.current = 10_000.0;
+    owner.host_object_mut(actor).unwrap().last_damage_source = Some(victim);
+    for _ in 0..60 {
+        owner.update_with_dt(1.0 / 30.0);
+        if owner.host_object(actor).unwrap().target == Some(victim) {
+            break;
+        }
+    }
+    assert_eq!(owner.host_object(actor).unwrap().target, Some(victim));
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&owner).unwrap();
+    let value = serde_json::to_value(&snapshot.objects[&actor].modules["ReceivingBaseAI"]).unwrap();
+    let machine = &value["BaseAi"]["continuation"];
+    assert_eq!(
+        machine["ai_state"],
+        serde_json::to_value(AIState::Attacking).unwrap()
+    );
+    assert_eq!(
+        machine["parent"]["state"],
+        serde_json::to_value(AIState::GuardingArea).unwrap()
+    );
+    assert_eq!(
+        peer.host_object(actor).unwrap().ai_state(),
+        AIState::GuardingArea
+    );
+    builder
+        .restore_from_snapshot(&snapshot, &mut owner)
+        .unwrap();
+    let restored = builder.create_world_snapshot(&owner).unwrap();
+    assert_eq!(
+        serde_json::to_value(&restored.objects[&actor].modules["ReceivingBaseAI"]).unwrap(),
+        value
+    );
+}
+
+#[test]
 fn hunt_scan_refreshes_goal_without_replacing_a_running_child() {
     use generals_main::game_logic::AIState;
     use generals_main::save_load::SnapshotBuilder;

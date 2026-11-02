@@ -32,7 +32,7 @@ impl GameLogic {
             {
                 continue;
             }
-            let finished = self.finish_quick_exit_if_due(object_id, guard_target);
+            let finished = self.finish_quick_exit_if_due(object_id, guard_target, effects);
             self.update_host_guard_base_state_with_effects(object_id, effects);
             if finished {
                 // AIUpdate::update consumes movementComplete after the whole
@@ -103,7 +103,7 @@ impl GameLogic {
         );
         // AIGuardMachine exit conditions observe retaliation independently
         // of the nested Idle scan sleep.
-        if can_attack && self.try_guard_last_attacker(object_id, team) {
+        if can_attack && self.try_guard_last_attacker(object_id, team, effects) {
             return;
         }
         let scan_due = self.guard_acquire_scan_due(object_id, returning);
@@ -165,7 +165,7 @@ impl GameLogic {
                     .unwrap_or(false);
                 if scan_due && can_attack {
                     if let Some(team_id) = self.host_team_common_target(object_id) {
-                        if self.engage_guard_target(object_id, team_id, false) {
+                        if self.engage_guard_target(object_id, team_id, false, effects) {
                             return;
                         }
                     }
@@ -189,7 +189,7 @@ impl GameLogic {
                             ) {
                                 return;
                             }
-                        } else if self.engage_guard_target(object_id, enemy_id, false) {
+                        } else if self.engage_guard_target(object_id, enemy_id, false, effects) {
                             return;
                         }
                     }
@@ -262,7 +262,7 @@ impl GameLogic {
                     .unwrap_or(false);
                 if scan_due && can_attack {
                     if let Some(team_id) = self.host_team_common_target(object_id) {
-                        if self.engage_guard_target(object_id, team_id, false) {
+                        if self.engage_guard_target(object_id, team_id, false, effects) {
                             return;
                         }
                     }
@@ -307,7 +307,7 @@ impl GameLogic {
                             }
                         };
                         if let Some(enemy_id) = tunnel_nemesis {
-                            if self.engage_guard_target(object_id, enemy_id, false) {
+                            if self.engage_guard_target(object_id, enemy_id, false, effects) {
                                 return;
                             }
                         }
@@ -320,7 +320,7 @@ impl GameLogic {
                             false,
                             None,
                         ) {
-                            if self.engage_guard_target(object_id, enemy_id, false) {
+                            if self.engage_guard_target(object_id, enemy_id, false, effects) {
                                 return;
                             }
                         }

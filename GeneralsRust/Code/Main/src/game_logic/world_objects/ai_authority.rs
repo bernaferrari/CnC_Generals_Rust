@@ -913,6 +913,16 @@ impl GameLogic {
         if self.computer_refuses_non_hunt_airborne_chase(unit_id, target_id) {
             return false;
         }
+        self.admit_ai_engagement_with_effects(unit_id, target_id, &mut Default::default())
+    }
+
+    /// Admit an already-validated target into the receiving actor's machine.
+    pub(in super::super) fn admit_ai_engagement_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        target_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         // Host engagement is same-frame so residual auto-fire / continue-after-kill
         // can shoot without waiting for shadow writeback.
         let Some(goal_position) = self
@@ -934,8 +944,7 @@ impl GameLogic {
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 self.frame,
-                &mut crate::game_logic::ScriptPresentationEffects::default()
-                    .reborrow_for_object(&mut self.partition_manager),
+                &mut effects.reborrow_for_object(&mut self.partition_manager),
             );
             let parent = u.retained_ai_root_state();
             if u.unit_ai_runtime.can_enter_child() {

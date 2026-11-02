@@ -305,13 +305,23 @@ impl GameLogic {
         object_id: ObjectId,
         target_id: ObjectId,
         aggressor: bool,
+        effects: &mut ScriptPresentationEffects<'_>,
     ) -> bool {
         if aggressor {
             self.begin_guard_chase(object_id, GUARD_CHASE_PHASE_AGGRESSOR);
         } else {
             self.begin_guard_chase_acquired(object_id, target_id);
         }
-        let ok = self.engage_target_decision_aware(object_id, target_id);
+        let eligible = matches!(
+            self.get_able_to_attack_specific_object(
+                object_id,
+                target_id,
+                AbleToAttackType::NewTarget,
+                false,
+            ),
+            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+        );
+        let ok = eligible && self.admit_ai_engagement_with_effects(object_id, target_id, effects);
         if !ok {
             if let Some(o) = self.objects.get_mut(&object_id) {
                 o.clear_guard_chase();
@@ -510,7 +520,12 @@ impl GameLogic {
     }
 
     /// C++ hasAttackedMeAndICanReturnFire — consume last attacker and engage.
-    pub(super) fn try_guard_last_attacker(&mut self, object_id: ObjectId, team: Team) -> bool {
+    pub(super) fn try_guard_last_attacker(
+        &mut self,
+        object_id: ObjectId,
+        team: Team,
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) -> bool {
         let last = self
             .objects
             .get_mut(&object_id)
@@ -538,7 +553,7 @@ impl GameLogic {
         ) {
             return false;
         }
-        self.engage_guard_target(object_id, aid, true)
+        self.engage_guard_target(object_id, aid, true, effects)
     }
 
     /// C++ Idle/Return `m_nextEnemyScanTime`. First visit matches onEnter
