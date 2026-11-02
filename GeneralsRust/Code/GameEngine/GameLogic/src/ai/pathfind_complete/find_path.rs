@@ -458,6 +458,8 @@ impl PathfindingSystem {
         if !self.is_map_ready {
             return Ok(PathResult::none());
         }
+        // C++ findClosestPath resets this per operation, including early returns.
+        self.is_tunneling = false;
 
         let goal_grid = GridCoord::from_world(&request.to);
         let (radius, center_in_cell) = Self::compute_radius_and_center(request.unit_radius);
@@ -488,9 +490,41 @@ impl PathfindingSystem {
             // Aircraft without exact goal: fall through to closest-cell A*.
         }
 
+        let start = Self::cell_for_unit_position(&request.from, center_in_cell);
+        if !self.is_valid_coord(start) || !self.is_valid_coord(goal_grid) {
+            return Ok(PathResult::none());
+        }
+        if request.is_human && !self.in_logical_extent(start) {
+            return Ok(PathResult::none());
+        }
+
+        let start_layer = self.get_layer_for_coord(start);
+        let mut start_info = CheckMovementInfo {
+            cell: start,
+            layer: start_layer,
+            radius,
+            center_in_cell,
+            acceptable_surfaces: request.surfaces,
+            ..Default::default()
+        };
+        let start_clear = self.check_for_movement_with_observations(
+            request.object_id,
+            &mut start_info,
+            request.ignore_obstacle_id.unwrap_or(INVALID_ID),
+            observations,
+        )?;
+        let started_stuck = !self.valid_movement_cell_on_layer(
+            request.surfaces,
+            request.is_crusher,
+            start,
+            start_layer,
+            request.ignore_obstacle_id,
+        ) || !start_clear
+            || start_info.enemy_fixed;
+        let mut tunneling = started_stuck;
+
         // C++ hierarchical passable flags (unless tunneling).
-        let started_stuck = self.is_tunneling;
-        if self.is_tunneling {
+        if tunneling {
             self.zones.set_all_passable();
         } else {
             self.zones.clear_passable_flags();
@@ -506,19 +540,6 @@ impl PathfindingSystem {
                     );
             if !hier_ok {
                 self.zones.set_all_passable();
-            }
-        }
-
-        let start = Self::cell_for_unit_position(&request.from, center_in_cell);
-        if !self.is_valid_coord(start) || !self.is_valid_coord(goal_grid) {
-            return Ok(PathResult::none());
-        }
-        if request.is_human
-            && (!self.in_logical_extent(start) || !self.in_logical_extent(goal_grid))
-        {
-            // Computer can leave logical map; humans cannot start outside.
-            if request.is_human && !self.in_logical_extent(start) {
-                return Ok(PathResult::none());
             }
         }
 
@@ -603,9 +624,10 @@ impl PathfindingSystem {
                     break;
                 } else {
                     found_goal_cell = true;
-                    // continue scanning for closer valid cell
+                    // C++ keeps scanning the existing frontier, without expanding it.
+                    continue;
                 }
-            } else if !self.is_tunneling && destination_valid(self, cell, layer) {
+            } else if !tunneling && destination_valid(self, cell, layer) {
                 // C++: if (!startedStuck || validMovementPosition(...))
                 let movement_ok = !started_stuck
                     || self.valid_movement_cell(
@@ -636,6 +658,10 @@ impl PathfindingSystem {
                 }
             }
 
+            if found_goal_cell {
+                continue;
+            }
+
             // C++ checkChangeLayers: enqueue connect-layer same-xy at parent cost.
             if let Some(link) = self.check_change_layers(cell) {
                 if !closed.contains(&(link.x, link.y)) {
@@ -662,13 +688,48 @@ impl PathfindingSystem {
                 if Self::skip_diagonal_if_squeezed(i, &neighbor_flags) {
                     continue;
                 }
-                {
-                    let pf = &self.pathfinder;
-                    if !self.is_tunneling && !pf.is_passable(nc, surfaces, is_crusher) {
-                        continue;
-                    }
+                let movement_valid = self.valid_movement_cell_on_layer(
+                    surfaces,
+                    is_crusher,
+                    nc,
+                    layer,
+                    request.ignore_obstacle_id,
+                );
+                if !movement_valid && !tunneling {
+                    continue;
                 }
+                // The original records the terrain opening before occupancy.
                 neighbor_flags[i] = true;
+                let mut info = CheckMovementInfo {
+                    cell: nc,
+                    layer,
+                    radius,
+                    center_in_cell,
+                    acceptable_surfaces: surfaces,
+                    ..Default::default()
+                };
+                let occupancy_clear = self.check_for_movement_with_observations(
+                    request.object_id,
+                    &mut info,
+                    request.ignore_obstacle_id.unwrap_or(INVALID_ID),
+                    observations,
+                )? && !info.enemy_fixed;
+                if !occupancy_clear && !tunneling {
+                    continue;
+                }
+                let resolved_layer = self
+                    .pathfinder
+                    .resolved_layer_at(nc, layer)
+                    .unwrap_or(layer);
+                if movement_valid
+                    && occupancy_clear
+                    && !self
+                        .pathfinder
+                        .is_pinched_on_layer(nc, resolved_layer)
+                        .unwrap_or(false)
+                {
+                    tunneling = false;
+                }
                 let step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
                 let ng = g + step;
                 let key = (nx, ny);
@@ -676,7 +737,7 @@ impl PathfindingSystem {
                     continue;
                 }
                 g_score.insert(key, ng);
-                let f = ng + heuristic(nc);
+                let f = ng + if tunneling { 0 } else { heuristic(nc) };
                 open.push(std::cmp::Reverse((f, ng, nx, ny)));
             }
         }

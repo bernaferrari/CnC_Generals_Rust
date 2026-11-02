@@ -3187,3 +3187,76 @@ fn closest_path_respects_goal_occupancy_in_its_factory() {
     );
     assert_eq!(allied.waypoints, allied_again.waypoints);
 }
+
+#[test]
+fn closest_search_does_not_inherit_previous_tunneling_state() {
+    fn grid() -> PathfindingSystem {
+        let mut world = PathfindingSystem::new(8, 8);
+        world.new_map();
+        for y in 0..8 {
+            world
+                .pathfinder
+                .set_cell_type(GridCoord::new(3, y), PathfindCellType::Impassable);
+        }
+        world
+    }
+    let mut baseline = grid();
+    let mut previously_tunneling = grid();
+    previously_tunneling.set_is_tunneling(true);
+    let request = PathRequest {
+        object_id: INVALID_ID,
+        from: GridCoord::new(1, 4).to_world(0.0),
+        to: GridCoord::new(5, 4).to_world(0.0),
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        unit_radius: 0.0,
+        allow_partial: true,
+        move_allies: false,
+        ignore_obstacle_id: None,
+        is_human: false,
+    };
+    let expected = baseline.find_closest_path(request.clone());
+    let actual = previously_tunneling.find_closest_path(request);
+    assert!(
+        expected.success,
+        "an accessible closest cell exists before the wall"
+    );
+    assert!(
+        actual.success,
+        "the prior search's tunneling state must not hide it"
+    );
+    assert_eq!(expected.waypoints, actual.waypoints);
+    assert!(!previously_tunneling.is_tunneling());
+}
+
+#[test]
+fn closest_search_can_leave_a_blocked_start() {
+    let mut world = PathfindingSystem::new(8, 8);
+    world.new_map();
+    let start = GridCoord::new(2, 4);
+    let goal = GridCoord::new(5, 4);
+    world
+        .pathfinder
+        .set_cell_type(start, PathfindCellType::Impassable);
+    let result = world.find_closest_path(PathRequest {
+        object_id: INVALID_ID,
+        from: start.to_world(0.0),
+        to: goal.to_world(0.0),
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        unit_radius: 0.0,
+        allow_partial: true,
+        move_allies: false,
+        ignore_obstacle_id: None,
+        is_human: false,
+    });
+    assert!(
+        result.success,
+        "the unit can tunnel out of its blocked start"
+    );
+    assert_eq!(
+        GridCoord::from_world(result.waypoints.last().unwrap()),
+        goal
+    );
+    assert!(!world.is_tunneling());
+}
