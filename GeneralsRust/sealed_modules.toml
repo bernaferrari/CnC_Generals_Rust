@@ -110,8 +110,6 @@ path = "Code/Main/src/release_candidate.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/Common"
 note = "MissingAssetDiagnostics owned by AssetManager/TextureManager/MeshResolveState; process Mutex removed; 1->0 globals."
 
-
-
 [[module]]
 path = "Code/GameEngine/GameClient/src/gui/control_bar/control_bar_multi_select.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBarMultiSelect.cpp"
@@ -131,3 +129,19 @@ note = "Under-construction percent/cancel latch owned per client; 4 process atom
 path = "Code/GameEngine/GameClient/src/gui/control_bar/control_bar_ocl_timer.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBarOCLTimer.cpp"
 note = "OCL timer residual latch owned per client; 3 process atomics removed; peels take &mut OclTimerLatch."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WWLib/src/random.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWLib/random.cpp"
+note = "Owned Random4Class helpers; removed TLS GLOBAL_RNG and SHARED Mutex RNG; 3->0 globals."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/rendering_2d.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/render2d.cpp"
+note = "Render2DClass::with_id; removed TLS RENDERER_2D and ID counter; free APIs take &mut; 3->0 globals."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/light_system.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/light.cpp"
+note = "LightEnvironment-owned light ids; removed TLS LIGHT_ENVIRONMENT and ID counter; push/pop take &mut env; 3->0 globals."
+

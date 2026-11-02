@@ -362,17 +362,14 @@ pub struct Render2DClass {
     pub renderer_id: u32,
 }
 
-static RENDERER_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
-
-fn next_renderer_id() -> u32 {
-    RENDERER_ID_COUNTER.fetch_add(1, Ordering::Relaxed) + 1
-}
-
 impl Render2DClass {
     /// Create new 2D renderer
     pub fn new() -> Self {
-        let renderer_id = next_renderer_id();
+        Self::with_id(1)
+    }
 
+    /// Construct with an explicit renderer identity (no process counter).
+    pub fn with_id(renderer_id: u32) -> Self {
         Self {
             state: Render2DState::new(),
             vertices: Vec::new(),
@@ -756,53 +753,44 @@ impl Render2DClass {
     }
 }
 
-thread_local! {
-    /// C++ kept the 2D renderer singleton as a plain static on the game thread.
-    static RENDERER_2D: RefCell<Option<Render2DClass>> = const { RefCell::new(None) };
+/// Owned 2D renderer helpers. Prefer a [`Render2DClass`] on the owning UI/render path
+/// (process TLS singleton removed for multi-instance ownership).
+
+pub fn with_renderer_2d<R>(
+    renderer: &mut Render2DClass,
+    f: impl FnOnce(&mut Render2DClass) -> R,
+) -> R {
+    f(renderer)
 }
 
-/// Run `f` with mutable access to the global 2D renderer, if initialized.
-pub fn with_renderer_2d<R>(f: impl FnOnce(&mut Render2DClass) -> R) -> Option<R> {
-    RENDERER_2D.with_borrow_mut(|renderer| {
-        let renderer = renderer.as_mut()?;
-        Some(f(renderer))
-    })
+pub fn begin_2d_frame(renderer: &mut Render2DClass) {
+    renderer.begin_frame();
 }
 
-/// Initialize global 2D renderer
-pub fn init_renderer_2d(device: &wgpu::Device) -> Result<()> {
-    let mut renderer = Render2DClass::new();
-    renderer.initialize(device)?;
-
-    RENDERER_2D.with_borrow_mut(|slot| *slot = Some(renderer));
-    Ok(())
+pub fn end_2d_frame(
+    renderer: &mut Render2DClass,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+) -> Result<()> {
+    renderer.end_frame(device, queue)
 }
 
-/// Shutdown global 2D renderer
-pub fn shutdown_renderer_2d() {
-    RENDERER_2D.with_borrow_mut(|slot| *slot = None);
+pub fn render_2d_bitmap(renderer: &mut Render2DClass, bitmap: &Bitmap2D, dest_rect: Rect2D) {
+    renderer.render_bitmap(bitmap, dest_rect);
 }
 
-/// Quick 2D rendering functions
-pub fn begin_2d_frame() {
-    let _ = with_renderer_2d(|renderer| renderer.begin_frame());
+pub fn render_2d_text(renderer: &mut Render2DClass, text: &Text2D) {
+    renderer.render_text(text);
 }
 
-pub fn end_2d_frame(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
-    with_renderer_2d(|renderer| renderer.end_frame(device, queue))
-        .unwrap_or(Ok(()))
-}
-
-pub fn render_2d_bitmap(bitmap: &Bitmap2D, dest_rect: Rect2D) {
-    let _ = with_renderer_2d(|renderer| renderer.render_bitmap(bitmap, dest_rect));
-}
-
-pub fn render_2d_text(text: &Text2D) {
-    let _ = with_renderer_2d(|renderer| renderer.render_text(text));
-}
-
-pub fn render_2d_line(start: Vec2, end: Vec2, color: Vec4, thickness: f32) {
-    let _ = with_renderer_2d(|renderer| renderer.add_line(start, end, color, thickness));
+pub fn render_2d_line(
+    renderer: &mut Render2DClass,
+    start: Vec2,
+    end: Vec2,
+    color: Vec4,
+    thickness: f32,
+) {
+    renderer.add_line(start, end, color, thickness);
 }
 
 #[cfg(test)]

@@ -33,21 +33,6 @@
 //! but should not be shared without proper synchronization. For concurrent access,
 //! wrap generators in `Arc<Mutex<T>>` or use thread-local instances.
 
-use std::cell::RefCell;
-use std::sync::{Arc, Mutex, OnceLock};
-
-thread_local! {
-    /// Thread-local global random number generator using Random4Class (Mersenne Twister)
-    static GLOBAL_RNG: RefCell<Random4Class> = RefCell::new(Random4Class::new(4357));
-}
-
-/// Global thread-safe random number generator
-static SHARED_RNG: OnceLock<Arc<Mutex<Random4Class>>> = OnceLock::new();
-
-fn get_shared_rng() -> &'static Arc<Mutex<Random4Class>> {
-    SHARED_RNG.get_or_init(|| Arc::new(Mutex::new(Random4Class::new(4357))))
-}
-
 /// Trait for random number generators that provide basic functionality
 pub trait RandomGenerator {
     /// Generate the next random number
@@ -460,60 +445,31 @@ pub fn pick_random_number<T: RandomGenerator>(
     }
 }
 
-/// Global random number functions using thread-local storage
+/// Owned helpers that used to wrap process TLS / Mutex RNG singletons.
+/// Prefer constructing a [`Random4Class`] on the owning system.
 pub mod global {
     use super::*;
 
-    /// Seed the thread-local global random number generator
-    pub fn seed_random(seed: u32) {
-        GLOBAL_RNG.with(|rng| {
-            *rng.borrow_mut() = Random4Class::new(seed);
-        });
-    }
-
-    /// Get the next random number from the thread-local global generator
-    pub fn random() -> i32 {
-        GLOBAL_RNG.with(|rng| rng.borrow_mut().next())
-    }
-
-    /// Get a random number within a range from the thread-local global generator
-    pub fn random_range(min_val: i32, max_val: i32) -> i32 {
-        GLOBAL_RNG.with(|rng| rng.borrow_mut().next_range(min_val, max_val))
-    }
-
-    /// Get a random float from the thread-local global generator
-    pub fn random_float() -> f32 {
-        GLOBAL_RNG.with(|rng| rng.borrow_mut().next_float())
-    }
-}
-
-/// Thread-safe global random number functions
-pub mod shared {
-    use super::*;
-
-    /// Seed the shared global random number generator
-    pub fn seed_random(seed: u32) {
-        let mut rng = get_shared_rng().lock().unwrap();
+    pub fn seed_random(rng: &mut Random4Class, seed: u32) {
         *rng = Random4Class::new(seed);
     }
 
-    /// Get the next random number from the shared global generator
-    pub fn random() -> i32 {
-        let mut rng = get_shared_rng().lock().unwrap();
+    pub fn random(rng: &mut Random4Class) -> i32 {
         rng.next()
     }
 
-    /// Get a random number within a range from the shared global generator
-    pub fn random_range(min_val: i32, max_val: i32) -> i32 {
-        let mut rng = get_shared_rng().lock().unwrap();
+    pub fn random_range(rng: &mut Random4Class, min_val: i32, max_val: i32) -> i32 {
         rng.next_range(min_val, max_val)
     }
 
-    /// Get a random float from the shared global generator
-    pub fn random_float() -> f32 {
-        let mut rng = get_shared_rng().lock().unwrap();
+    pub fn random_float(rng: &mut Random4Class) -> f32 {
         rng.next_float()
     }
+}
+
+/// Alias of [`global`] — shared process Mutex path removed; callers pass an owned RNG.
+pub mod shared {
+    pub use super::global::*;
 }
 
 #[cfg(test)]
@@ -600,31 +556,33 @@ mod tests {
 
     #[test]
     fn test_global_functions() {
-        global::seed_random(77777);
+        let mut rng = Random4Class::new(0);
+        global::seed_random(&mut rng, 77777);
 
-        let val1 = global::random();
-        let val2 = global::random();
+        let val1 = global::random(&mut rng);
+        let val2 = global::random(&mut rng);
         assert_ne!(val1, val2); // Should be different
 
-        let range_val = global::random_range(1, 100);
+        let range_val = global::random_range(&mut rng, 1, 100);
         assert!(range_val >= 1 && range_val <= 100);
 
-        let float_val = global::random_float();
+        let float_val = global::random_float(&mut rng);
         assert!(float_val >= 0.0 && float_val < 1.0);
     }
 
     #[test]
     fn test_shared_functions() {
-        shared::seed_random(88888);
+        let mut rng = Random4Class::new(0);
+        shared::seed_random(&mut rng, 88888);
 
-        let val1 = shared::random();
-        let val2 = shared::random();
+        let val1 = shared::random(&mut rng);
+        let val2 = shared::random(&mut rng);
         assert_ne!(val1, val2); // Should be different
 
-        let range_val = shared::random_range(1, 100);
+        let range_val = shared::random_range(&mut rng, 1, 100);
         assert!(range_val >= 1 && range_val <= 100);
 
-        let float_val = shared::random_float();
+        let float_val = shared::random_float(&mut rng);
         assert!(float_val >= 0.0 && float_val < 1.0);
     }
 
@@ -664,10 +622,11 @@ mod tests {
         let handles: Vec<_> = (0..10)
             .map(|i| {
                 thread::spawn(move || {
-                    global::seed_random(i * 1000);
+                    let mut rng = Random4Class::new(0);
+                    global::seed_random(&mut rng, i * 1000);
                     let mut values = Vec::new();
                     for _ in 0..100 {
-                        values.push(global::random());
+                        values.push(global::random(&mut rng));
                     }
                     values
                 })

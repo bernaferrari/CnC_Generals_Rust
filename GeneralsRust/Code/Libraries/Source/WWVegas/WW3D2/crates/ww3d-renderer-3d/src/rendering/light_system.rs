@@ -12,16 +12,9 @@ use crate::render_object_system::RenderObjClass;
 use crate::scene_system::scene::SceneClass;
 use glam::{Mat4, Vec3, Vec4};
 use std::io::Write;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::cell::RefCell;
 use std::sync::Arc;
 use ww3d_collision::bounding_volumes::{aabox::AABoxClass, sphere::SphereClass};
-
-static LIGHT_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
-
-fn next_light_id() -> u32 {
-    LIGHT_ID_COUNTER.fetch_add(1, Ordering::Relaxed) + 1
-}
 
 const DEFAULT_LIGHT_COLOR: Vec4 = Vec4::new(1.0, 1.0, 1.0, 1.0);
 const DEFAULT_FAR_ATTENUATION_START: f32 = 50.0;
@@ -181,7 +174,11 @@ pub struct LightClass {
 impl LightClass {
     /// Create a light with the same defaults as C++ LightClass::LightClass.
     pub fn new(light_type: LightType) -> Self {
-        let light_id = next_light_id();
+        Self::with_id(light_type, 1)
+    }
+
+    /// Construct with an explicit light identity (no process counter).
+    pub fn with_id(light_type: LightType, light_id: u32) -> Self {
         let position = Vec3::ZERO;
 
         Self {
@@ -254,10 +251,10 @@ impl LightClass {
 
     /// Clone light
     pub fn clone(&self) -> Self {
-        self.copy_with_light_id(next_light_id())
+        self.copy_with_light_id(self.light_id)
     }
 
-    fn copy_with_light_id(&self, light_id: u32) -> Self {
+    pub fn copy_with_light_id(&self, light_id: u32) -> Self {
         Self {
             base: self.base.clone(),
             light_type: self.light_type,
@@ -458,20 +455,15 @@ impl LightClass {
     }
 
     /// Push light to vertex processor
-    pub fn vertex_processor_push(&self) -> Result<()> {
-        with_light_environment(|env| {
-            env.remove_light(self.light_id);
-            env.add_light(Arc::new(self.copy_with_light_id(self.light_id)))
-        })
-        .ok_or_else(|| Error::NotInitialized("Light environment not initialized".to_string()))?
+    pub fn vertex_processor_push(&self, env: &mut LightEnvironmentClass) -> Result<()> {
+        env.remove_light(self.light_id);
+        env.add_light(Arc::new(self.copy_with_light_id(self.light_id)))
     }
 
     /// Pop light from vertex processor
-    pub fn vertex_processor_pop(&self) -> Result<()> {
-        with_light_environment(|env| {
-            env.remove_light(self.light_id);
-        })
-        .ok_or_else(|| Error::NotInitialized("Light environment not initialized".to_string()))
+    pub fn vertex_processor_pop(&self, env: &mut LightEnvironmentClass) -> Result<()> {
+        env.remove_light(self.light_id);
+        Ok(())
     }
 
     /// Notify when light is added to scene
@@ -827,6 +819,8 @@ pub struct LightEnvironmentClass {
     pub max_lights: usize,
     /// Whether environment is enabled
     pub enabled: bool,
+    /// Next light id allocated by this environment instance.
+    next_light_id: u32,
 }
 
 impl LightEnvironmentClass {
@@ -837,7 +831,19 @@ impl LightEnvironmentClass {
             lights: Vec::new(),
             max_lights: 8, // Common limit for shader-based lighting
             enabled: true,
+            next_light_id: 2,
         }
+    }
+
+    pub fn alloc_light_id(&mut self) -> u32 {
+        let id = self.next_light_id;
+        self.next_light_id = self.next_light_id.wrapping_add(1).max(1);
+        id
+    }
+
+    /// Clone a light with a fresh id owned by this environment.
+    pub fn clone_light(&mut self, light: &LightClass) -> LightClass {
+        light.copy_with_light_id(self.alloc_light_id())
     }
 
     /// Add light to environment
@@ -935,31 +941,16 @@ impl Default for LightEnvironmentClass {
     }
 }
 
-thread_local! {
-    /// C++ kept the shared light environment as a plain static on the game thread.
-    static LIGHT_ENVIRONMENT: RefCell<Option<LightEnvironmentClass>> = const { RefCell::new(None) };
+/// Owned light helpers. Prefer a [`LightEnvironmentClass`] on the owning scene/renderer
+/// (process TLS singleton removed for multi-instance ownership).
+
+pub fn with_light_environment<R>(
+    environment: &mut LightEnvironmentClass,
+    f: impl FnOnce(&mut LightEnvironmentClass) -> R,
+) -> R {
+    f(environment)
 }
 
-/// Run `f` with mutable access to the shared light environment, if initialized.
-pub fn with_light_environment<R>(f: impl FnOnce(&mut LightEnvironmentClass) -> R) -> Option<R> {
-    LIGHT_ENVIRONMENT.with_borrow_mut(|environment| {
-        let environment = environment.as_mut()?;
-        Some(f(environment))
-    })
-}
-
-/// Initialize light system
-pub fn init_light_system() -> Result<()> {
-    LIGHT_ENVIRONMENT.with_borrow_mut(|slot| *slot = Some(LightEnvironmentClass::default()));
-    Ok(())
-}
-
-/// Shutdown light system
-pub fn shutdown_light_system() {
-    LIGHT_ENVIRONMENT.with_borrow_mut(|slot| *slot = None);
-}
-
-/// Quick light creation functions
 pub fn create_directional_light(direction: Vec3, color: Vec4) -> LightClass {
     LightClass::new_directional(direction, color)
 }
@@ -979,20 +970,20 @@ pub fn create_spot_light(
     LightClass::new_spot(position, direction, color, range, inner_angle, outer_angle)
 }
 
-/// Quick light environment functions
-pub fn add_light_to_environment(light: LightClass) -> Result<()> {
-    with_light_environment(|env| env.add_light(Arc::new(light)))
-        .ok_or_else(|| Error::NotInitialized("Light environment not initialized".to_string()))?
+pub fn add_light_to_environment(
+    environment: &mut LightEnvironmentClass,
+    light: LightClass,
+) -> Result<()> {
+    environment.add_light(Arc::new(light))
 }
 
-pub fn get_light_contribution(point: Vec3, normal: Vec3, view_dir: Vec3) -> LightContribution {
-    with_light_environment(|env| env.get_contribution(point, normal, view_dir)).unwrap_or(
-        LightContribution {
-            ambient: Vec4::new(0.2, 0.2, 0.2, 1.0),
-            diffuse: Vec4::ZERO,
-            specular: Vec4::ZERO,
-        },
-    )
+pub fn get_light_contribution(
+    environment: &LightEnvironmentClass,
+    point: Vec3,
+    normal: Vec3,
+    view_dir: Vec3,
+) -> LightContribution {
+    environment.get_contribution(point, normal, view_dir)
 }
 
 #[cfg(test)]
@@ -1173,30 +1164,20 @@ mod tests {
 
     #[test]
     fn test_light_push_pop_updates_environment() {
-        init_light_system().unwrap();
+        let mut env = LightEnvironmentClass::default();
         let light = LightClass::new_point(Vec3::new(1.0, 2.0, 3.0), Vec4::ONE, 100.0);
         let light_id = light.light_id;
 
-        light.vertex_processor_push().unwrap();
-        with_light_environment(|env| {
-            assert_eq!(env.get_light_count(), 1);
-            assert_eq!(env.get_light(0).unwrap().light_id, light_id);
-        })
-        .unwrap();
+        light.vertex_processor_push(&mut env).unwrap();
+        assert_eq!(env.get_light_count(), 1);
+        assert_eq!(env.get_light(0).unwrap().light_id, light_id);
 
-        light.vertex_processor_push().unwrap();
-        with_light_environment(|env| {
-            assert_eq!(env.get_light_count(), 1);
-            assert_eq!(env.get_light(0).unwrap().light_id, light_id);
-        })
-        .unwrap();
+        light.vertex_processor_push(&mut env).unwrap();
+        assert_eq!(env.get_light_count(), 1);
+        assert_eq!(env.get_light(0).unwrap().light_id, light_id);
 
-        light.vertex_processor_pop().unwrap();
-        with_light_environment(|env| {
-            assert_eq!(env.get_light_count(), 0);
-        })
-        .unwrap();
-        shutdown_light_system();
+        light.vertex_processor_pop(&mut env).unwrap();
+        assert_eq!(env.get_light_count(), 0);
     }
 
     #[test]
@@ -1252,8 +1233,9 @@ mod tests {
 
     #[test]
     fn test_light_clone() {
+        let mut env = LightEnvironmentClass::default();
         let original = LightClass::new_point(Vec3::ONE, Vec4::new(1.0, 0.0, 0.0, 1.0), 50.0);
-        let cloned = original.clone();
+        let cloned = env.clone_light(&original);
 
         assert_eq!(original.light_type, cloned.light_type);
         assert_eq!(original.position, cloned.position);
