@@ -110,3 +110,24 @@ path = "Code/Main/src/release_candidate.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/Common"
 note = "MissingAssetDiagnostics owned by AssetManager/TextureManager/MeshResolveState; process Mutex removed; 1->0 globals."
 
+
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/control_bar/control_bar_multi_select.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBarMultiSelect.cpp"
+note = "Multi-select intersection latch owned per client; 6 process atomics removed; peels take &mut MultiSelectLatch."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/control_bar/control_bar_resizer.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBarResizer.cpp"
+note = "Resizer owned on ControlBarResizerLatch (was TLS+atomics); peels take &mut ControlBarResizerLatch."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/control_bar/control_bar_under_construction.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBarUnderConstruction.cpp"
+note = "Under-construction percent/cancel latch owned per client; 4 process atomics removed; peels take &mut UnderConstructionLatch."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/control_bar/control_bar_ocl_timer.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBarOCLTimer.cpp"
+note = "OCL timer residual latch owned per client; 3 process atomics removed; peels take &mut OclTimerLatch."

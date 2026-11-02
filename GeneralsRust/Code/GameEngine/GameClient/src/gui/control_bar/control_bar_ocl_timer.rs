@@ -239,9 +239,10 @@ pub fn apply_ocl_timer_windows(
 }
 
 /// Residual: last OCL timer action requested by residual peels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
 pub enum ResidualOclTimerAction {
+    #[default]
     None = 0,
     Format = 1,
     FramesToDisplay = 2,
@@ -249,80 +250,80 @@ pub enum ResidualOclTimerAction {
     Prepare = 4,
 }
 
-static RESIDUAL_OCL_TIMER_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_OCL_TIMER_SECONDS: std::sync::atomic::AtomicU32 =
-    std::sync::atomic::AtomicU32::new(0);
-static RESIDUAL_OCL_TIMER_PROGRESS_MILLI: std::sync::atomic::AtomicU32 =
-    std::sync::atomic::AtomicU32::new(0);
-
-fn residual_ocl_timer_action_store(action: ResidualOclTimerAction) {
-    RESIDUAL_OCL_TIMER_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+/// Per-ControlBar OCL timer presentation latch (was process atomics).
+///
+/// C++ OCL timer display state lives on the control bar selection path; Rust
+/// owns residual peels per client so multiple instances never share atomics.
+#[derive(Debug, Clone, Default)]
+pub struct OclTimerLatch {
+    pub last_action: ResidualOclTimerAction,
+    pub seconds: u32,
+    pub progress_milli: u32,
 }
 
 /// Residual: last OCL timer residual action.
-pub fn residual_ocl_timer_last_action() -> ResidualOclTimerAction {
-    match RESIDUAL_OCL_TIMER_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => ResidualOclTimerAction::Format,
-        2 => ResidualOclTimerAction::FramesToDisplay,
-        3 => ResidualOclTimerAction::ShouldUpdate,
-        4 => ResidualOclTimerAction::Prepare,
-        _ => ResidualOclTimerAction::None,
-    }
+pub fn residual_ocl_timer_last_action(latch: &OclTimerLatch) -> ResidualOclTimerAction {
+    latch.last_action
 }
 
 /// Residual: last displayed seconds latch.
-pub fn residual_ocl_timer_seconds() -> u32 {
-    RESIDUAL_OCL_TIMER_SECONDS.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_ocl_timer_seconds(latch: &OclTimerLatch) -> u32 {
+    latch.seconds
 }
 
 /// Residual: last progress percent * 1000 latch.
-pub fn residual_ocl_timer_progress_milli() -> u32 {
-    RESIDUAL_OCL_TIMER_PROGRESS_MILLI.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_ocl_timer_progress_milli(latch: &OclTimerLatch) -> u32 {
+    latch.progress_milli
 }
 
 /// Residual: format OCL timer display without control-bar context.
-pub fn simulate_ocl_timer_format(total_seconds: u32, percent: f32) -> (String, f32) {
+pub fn simulate_ocl_timer_format(
+    latch: &mut OclTimerLatch,
+    total_seconds: u32,
+    percent: f32,
+) -> (String, f32) {
     let (text, progress) = format_ocl_timer_display(total_seconds, percent);
-    RESIDUAL_OCL_TIMER_SECONDS.store(total_seconds, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_OCL_TIMER_PROGRESS_MILLI.store(
-        (progress * 10.0) as u32,
-        std::sync::atomic::Ordering::Relaxed,
-    );
-    residual_ocl_timer_action_store(ResidualOclTimerAction::Format);
+    latch.seconds = total_seconds;
+    latch.progress_milli = (progress * 10.0) as u32;
+    latch.last_action = ResidualOclTimerAction::Format;
     (text, progress)
 }
 
 /// Residual: convert frames to display seconds/percent without selection.
 pub fn simulate_ocl_timer_frames_to_display(
+    latch: &mut OclTimerLatch,
     remaining_frames: u32,
     total_frames: u32,
 ) -> (u32, f32) {
     let (seconds, percent) = ocl_frames_to_display(remaining_frames, total_frames);
-    RESIDUAL_OCL_TIMER_SECONDS.store(seconds, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_OCL_TIMER_PROGRESS_MILLI.store(
-        (percent * 1000.0) as u32,
-        std::sync::atomic::Ordering::Relaxed,
-    );
-    residual_ocl_timer_action_store(ResidualOclTimerAction::FramesToDisplay);
+    latch.seconds = seconds;
+    latch.progress_milli = (percent * 1000.0) as u32;
+    latch.last_action = ResidualOclTimerAction::FramesToDisplay;
     (seconds, percent)
 }
 
 /// Residual: should-update check residual.
-pub fn simulate_ocl_timer_should_update(displayed_seconds: u32, current_seconds: u32) -> bool {
+pub fn simulate_ocl_timer_should_update(
+    latch: &mut OclTimerLatch,
+    displayed_seconds: u32,
+    current_seconds: u32,
+) -> bool {
     let state = OCLTimerDisplayState { displayed_seconds };
     let should = should_update_timer_text(&state, current_seconds);
-    residual_ocl_timer_action_store(ResidualOclTimerAction::ShouldUpdate);
+    latch.last_action = ResidualOclTimerAction::ShouldUpdate;
     should
 }
 
 /// Residual: frames -> format composite (common control-bar path).
 pub fn simulate_ocl_timer_prepare_display(
+    latch: &mut OclTimerLatch,
     remaining_frames: u32,
     total_frames: u32,
 ) -> Option<(String, f32, u32)> {
-    let (seconds, percent) = simulate_ocl_timer_frames_to_display(remaining_frames, total_frames);
-    let (text, progress) = simulate_ocl_timer_format(seconds, percent);
-    residual_ocl_timer_action_store(ResidualOclTimerAction::Prepare);
+    let (seconds, percent) =
+        simulate_ocl_timer_frames_to_display(latch, remaining_frames, total_frames);
+    let (text, progress) = simulate_ocl_timer_format(latch, seconds, percent);
+    latch.last_action = ResidualOclTimerAction::Prepare;
     Some((text, progress, seconds))
 }
 

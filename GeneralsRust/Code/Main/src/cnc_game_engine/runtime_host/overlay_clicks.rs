@@ -343,20 +343,21 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             use game_client::gui::control_bar::{
-                simulate_ocl_timer_format, simulate_ocl_timer_frames_to_display,
+                OclTimerLatch, simulate_ocl_timer_format, simulate_ocl_timer_frames_to_display,
                 simulate_ocl_timer_prepare_display, simulate_ocl_timer_should_update,
             };
+            let mut latch = OclTimerLatch::default();
             wnd_ok = match action.as_str() {
                 "format" => {
-                    let _ = simulate_ocl_timer_format(remaining, 0.5);
+                    let _ = simulate_ocl_timer_format(&mut latch, remaining, 0.5);
                     true
                 }
                 "frames" => {
-                    let _ = simulate_ocl_timer_frames_to_display(remaining, total);
+                    let _ = simulate_ocl_timer_frames_to_display(&mut latch, remaining, total);
                     true
                 }
-                "should_update" => simulate_ocl_timer_should_update(0, remaining),
-                _ => simulate_ocl_timer_prepare_display(remaining, total).is_some(),
+                "should_update" => simulate_ocl_timer_should_update(&mut latch, 0, remaining),
+                _ => simulate_ocl_timer_prepare_display(&mut latch, remaining, total).is_some(),
             };
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -390,21 +391,22 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             use game_client::gui::control_bar::{
-                simulate_control_bar_resizer_add_window, simulate_control_bar_resizer_clear,
-                simulate_control_bar_resizer_get_optimal_size,
+                ControlBarResizerLatch, simulate_control_bar_resizer_add_window,
+                simulate_control_bar_resizer_clear, simulate_control_bar_resizer_get_optimal_size,
                 simulate_control_bar_resizer_prepare_default, simulate_control_bar_resizer_resize,
                 simulate_control_bar_resizer_set_base_resolution,
             };
+            let mut latch = ControlBarResizerLatch::default();
             wnd_ok = match action.as_str() {
-                "add" => simulate_control_bar_resizer_add_window(&name),
-                "clear" => simulate_control_bar_resizer_clear(),
-                "base" => simulate_control_bar_resizer_set_base_resolution(width, height),
-                "resize" => simulate_control_bar_resizer_resize(width, height),
+                "add" => simulate_control_bar_resizer_add_window(&mut latch, &name),
+                "clear" => simulate_control_bar_resizer_clear(&mut latch),
+                "base" => simulate_control_bar_resizer_set_base_resolution(&mut latch, width, height),
+                "resize" => simulate_control_bar_resizer_resize(&mut latch, width, height),
                 "optimal" => {
-                    let _ = simulate_control_bar_resizer_get_optimal_size();
+                    let _ = simulate_control_bar_resizer_get_optimal_size(&mut latch);
                     true
                 }
-                _ => simulate_control_bar_resizer_prepare_default(),
+                _ => simulate_control_bar_resizer_prepare_default(&mut latch),
             };
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -438,23 +440,24 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             use game_client::gui::control_bar::{
-                simulate_under_construction_cancel_command_name,
+                UnderConstructionLatch, simulate_under_construction_cancel_command_name,
                 simulate_under_construction_complete, simulate_under_construction_populate,
                 simulate_under_construction_prepare_cycle,
                 simulate_under_construction_update_percent,
             };
+            let mut latch = UnderConstructionLatch::default();
             wnd_ok = match action.as_str() {
-                "populate" => simulate_under_construction_populate(&name, percent),
+                "populate" => simulate_under_construction_populate(&mut latch, &name, percent),
                 "update" => {
-                    let _ = simulate_under_construction_update_percent(percent);
+                    let _ = simulate_under_construction_update_percent(&mut latch, percent);
                     true
                 }
-                "complete" => simulate_under_construction_complete(),
+                "complete" => simulate_under_construction_complete(&mut latch),
                 "cancel" => {
-                    simulate_under_construction_cancel_command_name()
+                    simulate_under_construction_cancel_command_name(&mut latch)
                         == "Command_CancelConstruction"
                 }
-                _ => simulate_under_construction_prepare_cycle(&name, percent, next),
+                _ => simulate_under_construction_prepare_cycle(&mut latch, &name, percent, next),
             };
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -484,24 +487,29 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             use game_client::gui::control_bar::{
-                simulate_structure_inventory_clear,
+                StructureInventoryLatch, simulate_structure_inventory_clear,
                 simulate_structure_inventory_evacuate_command_name,
                 simulate_structure_inventory_exit_command_name,
                 simulate_structure_inventory_populate,
                 simulate_structure_inventory_prepare_occupied,
                 simulate_structure_inventory_stop_command_name,
             };
+            let mut latch = StructureInventoryLatch::default();
             wnd_ok = match action.as_str() {
-                "populate" => simulate_structure_inventory_populate(max_g, count),
-                "clear" => simulate_structure_inventory_clear(),
+                "populate" => simulate_structure_inventory_populate(&mut latch, max_g, count),
+                "clear" => simulate_structure_inventory_clear(&mut latch),
                 "exit" => {
-                    simulate_structure_inventory_exit_command_name() == "Command_StructureExit"
+                    simulate_structure_inventory_exit_command_name(&mut latch)
+                        == "Command_StructureExit"
                 }
                 "evacuate" => {
-                    simulate_structure_inventory_evacuate_command_name() == "Command_Evacuate"
+                    simulate_structure_inventory_evacuate_command_name(&mut latch)
+                        == "Command_Evacuate"
                 }
-                "stop" => simulate_structure_inventory_stop_command_name() == "Command_Stop",
-                _ => simulate_structure_inventory_prepare_occupied(max_g, count),
+                "stop" => {
+                    simulate_structure_inventory_stop_command_name(&mut latch) == "Command_Stop"
+                }
+                _ => simulate_structure_inventory_prepare_occupied(&mut latch, max_g, count),
             };
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -520,13 +528,14 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             use game_client::gui::control_bar::{
-                simulate_multi_select_clear, simulate_multi_select_prepare_divergent,
-                simulate_multi_select_prepare_same_commands,
+                MultiSelectLatch, simulate_multi_select_clear,
+                simulate_multi_select_prepare_divergent, simulate_multi_select_prepare_same_commands,
             };
+            let mut latch = MultiSelectLatch::default();
             wnd_ok = match action.as_str() {
-                "clear" => simulate_multi_select_clear(),
-                "divergent" => simulate_multi_select_prepare_divergent(),
-                _ => simulate_multi_select_prepare_same_commands(),
+                "clear" => simulate_multi_select_clear(&mut latch),
+                "divergent" => simulate_multi_select_prepare_divergent(&mut latch),
+                _ => simulate_multi_select_prepare_same_commands(&mut latch),
             };
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {

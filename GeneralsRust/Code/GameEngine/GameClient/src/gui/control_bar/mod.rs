@@ -33,7 +33,7 @@ pub mod control_bar_command_processing;
 pub mod control_bar_multi_select;
 mod host_command_bridge;
 pub use control_bar_multi_select::{
-    MULTI_SELECT_MAX_COMMANDS_PER_SET, MULTI_SELECT_OK_FOR_MULTI_SELECT_BIT,
+    MULTI_SELECT_MAX_COMMANDS_PER_SET, MULTI_SELECT_OK_FOR_MULTI_SELECT_BIT, MultiSelectLatch,
     ResidualMultiSelectAction, ResidualMultiSelectUnit, residual_multi_select_actionable_count,
     residual_multi_select_attack_move_kept, residual_multi_select_common_command_count,
     residual_multi_select_last_action, residual_multi_select_portrait_agrees,
@@ -44,10 +44,11 @@ pub use control_bar_multi_select::{
 pub mod control_bar_observer;
 pub mod control_bar_ocl_timer;
 pub use control_bar_ocl_timer::{
-    OCLTimerDisplayState, ResidualOclTimerAction, format_ocl_timer_display, ocl_frames_to_display,
-    residual_ocl_timer_last_action, residual_ocl_timer_progress_milli, residual_ocl_timer_seconds,
-    should_update_timer_text, simulate_ocl_timer_format, simulate_ocl_timer_frames_to_display,
-    simulate_ocl_timer_prepare_display, simulate_ocl_timer_should_update,
+    OCLTimerDisplayState, OclTimerLatch, ResidualOclTimerAction, format_ocl_timer_display,
+    ocl_frames_to_display, residual_ocl_timer_last_action, residual_ocl_timer_progress_milli,
+    residual_ocl_timer_seconds, should_update_timer_text, simulate_ocl_timer_format,
+    simulate_ocl_timer_frames_to_display, simulate_ocl_timer_prepare_display,
+    simulate_ocl_timer_should_update,
 };
 pub mod control_bar_print_positions;
 pub use control_bar_print_positions::{
@@ -61,7 +62,7 @@ pub use control_bar_print_positions::{
 };
 pub mod control_bar_resizer;
 pub use control_bar_resizer::{
-    IniControlBarResizer, ResidualControlBarResizerAction, ResizerWindow,
+    ControlBarResizerLatch, IniControlBarResizer, ResidualControlBarResizerAction, ResizerWindow,
     residual_control_bar_resizer_base_resolution, residual_control_bar_resizer_last_action,
     residual_control_bar_resizer_window_count, simulate_control_bar_resizer_add_window,
     simulate_control_bar_resizer_clear, simulate_control_bar_resizer_get_optimal_size,
@@ -85,11 +86,12 @@ pub use control_bar_structure_inventory::{
 pub mod control_bar_under_construction;
 pub use control_bar_under_construction::{
     ResidualUnderConstructionAction, UNDER_CONSTRUCTION_CANCEL_COMMAND_NAME,
-    format_under_construction_percent_text, residual_under_construction_cancel_visible,
-    residual_under_construction_is_completed, residual_under_construction_last_action,
-    residual_under_construction_percent, simulate_under_construction_cancel_command_name,
-    simulate_under_construction_complete, simulate_under_construction_populate,
-    simulate_under_construction_prepare_cycle, simulate_under_construction_update_percent,
+    UnderConstructionLatch, format_under_construction_percent_text,
+    residual_under_construction_cancel_visible, residual_under_construction_is_completed,
+    residual_under_construction_last_action, residual_under_construction_percent,
+    simulate_under_construction_cancel_command_name, simulate_under_construction_complete,
+    simulate_under_construction_populate, simulate_under_construction_prepare_cycle,
+    simulate_under_construction_update_percent,
 };
 pub mod multi_select;
 pub mod observer;
