@@ -551,14 +551,19 @@ impl PathfindingSystem {
                 if !self.is_valid_coord(coord) {
                     return Ok(false); // off the map
                 }
+                // C++ getCell can fall back from a missing or impassable
+                // elevated slot to the ground cell at this coordinate.
+                let Some(cell_layer) = self.pathfinder.resolved_layer_at(coord, info.layer) else {
+                    return Ok(false);
+                };
                 let Some(row) = goals.get(coord.x as usize) else {
                     continue;
                 };
                 let Some(gc) = row.get(coord.y as usize) else {
                     continue;
                 };
-                let goal_u = gc.get_goal_unit(info.layer);
-                let pos_u = gc.get_pos_unit(info.layer);
+                let goal_u = gc.get_goal_unit(cell_layer);
+                let pos_u = gc.get_pos_unit(cell_layer);
                 let flags = Self::cell_occupancy_flags(goal_u, pos_u);
 
                 // C++: UNIT_GOAL | UNIT_GOAL_OTHER_MOVING → allyGoal.

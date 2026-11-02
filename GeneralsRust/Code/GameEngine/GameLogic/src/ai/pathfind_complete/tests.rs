@@ -3350,3 +3350,140 @@ fn closest_path_crosses_bridge_without_conflating_ground_cells() {
         "the path must cross the elevated cells"
     );
 }
+
+#[test]
+fn movement_occupancy_uses_resolved_layer_and_receiving_factory() {
+    use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
+    use std::sync::{Arc, RwLock};
+    fn factory(relation: Relationship) -> (ObjectFactory, ObjectID, ObjectID) {
+        let mut factory = ObjectFactory::new();
+        let mut logic = crate::system::game_logic::GameLogic::new();
+        let source_team = Arc::new(RwLock::new(crate::team::Team::new("Source".into(), 801)));
+        let target_team = Arc::new(RwLock::new(crate::team::Team::new("Target".into(), 802)));
+        source_team
+            .write()
+            .unwrap()
+            .set_override_team_relationship(802, relation);
+        let mut create = |name: &str, team| {
+            factory
+                .prepare_object(
+                    &mut logic,
+                    Arc::new(crate::common::types::DefaultThingTemplate::new(name.into())),
+                    Coord3D::ZERO,
+                    Some(team),
+                    ObjectCreationFlags::NO_AI,
+                )
+                .unwrap()
+        };
+        let source = create("Source", source_team);
+        let target = create("Target", target_team);
+        (factory, source, target)
+    }
+    let (ally_factory, source, target) = factory(Relationship::Allies);
+    let (enemy_factory, peer_source, peer_target) = factory(Relationship::Enemies);
+    assert_eq!((source, target), (peer_source, peer_target));
+    let players = crate::player::PlayerList::new();
+    let terrain = crate::terrain::TerrainLogic::new();
+    let ally = PathfindObservations {
+        factory: &ally_factory,
+        players: &players,
+        terrain: &terrain,
+    };
+    let enemy = PathfindObservations {
+        factory: &enemy_factory,
+        players: &players,
+        terrain: &terrain,
+    };
+    let cell = GridCoord::new(3, 3);
+    let center = ICoord2D::new(cell.x, cell.y);
+    let mut world = PathfindingSystem::new(8, 8);
+    world.new_map();
+    world.set_goal_cells(
+        target,
+        center,
+        0,
+        true,
+        PathfindLayerEnum::Ground,
+        true,
+        false,
+    );
+    world.set_pos_cells(
+        target,
+        center,
+        0,
+        true,
+        PathfindLayerEnum::Ground,
+        true,
+        false,
+    );
+    let check = |world: &PathfindingSystem, observations: &PathfindObservations, layer| {
+        let mut info = CheckMovementInfo {
+            cell,
+            layer,
+            ..Default::default()
+        };
+        let pass = world
+            .check_for_movement_with_observations(source, &mut info, INVALID_ID, Some(observations))
+            .unwrap();
+        (pass, info.enemy_fixed)
+    };
+    assert_eq!(
+        check(&world, &ally, PathfindLayerEnum::Top),
+        (false, false),
+        "missing bridge cell resolves to the allied ground occupant"
+    );
+    assert_eq!(
+        check(&world, &enemy, PathfindLayerEnum::Top),
+        (true, true),
+        "same ID resolves through the receiving factory"
+    );
+    world
+        .pathfinder
+        .set_cell_type_on_layer(cell, PathfindLayerEnum::Top, PathfindCellType::Clear);
+    assert_eq!(
+        check(&world, &ally, PathfindLayerEnum::Top),
+        (true, false),
+        "a real empty bridge cell is independent"
+    );
+    world.set_goal_cells(target, center, 0, true, PathfindLayerEnum::Top, false, true);
+    world.set_pos_cells(target, center, 0, true, PathfindLayerEnum::Top, false, true);
+    assert_eq!(check(&world, &ally, PathfindLayerEnum::Top), (false, false));
+    assert_eq!(check(&world, &enemy, PathfindLayerEnum::Top), (true, true));
+    world.pathfinder.set_cell_type_on_layer(
+        cell,
+        PathfindLayerEnum::Top,
+        PathfindCellType::Impassable,
+    );
+    assert_eq!(
+        check(&world, &ally, PathfindLayerEnum::Top),
+        (false, false),
+        "an impassable bridge slot resolves to ground"
+    );
+    let mut peer = PathfindingSystem::new(8, 8);
+    peer.new_map();
+    assert_eq!(check(&peer, &ally, PathfindLayerEnum::Top), (true, false));
+    assert_eq!(check(&world, &ally, PathfindLayerEnum::Top), (false, false));
+    world.clear_pos_cells(
+        target,
+        center,
+        0,
+        true,
+        PathfindLayerEnum::Ground,
+        true,
+        false,
+    );
+    let mut goal_only = CheckMovementInfo {
+        cell,
+        layer: PathfindLayerEnum::Top,
+        ..Default::default()
+    };
+    assert!(
+        world
+            .check_for_movement_with_observations(source, &mut goal_only, INVALID_ID, Some(&ally))
+            .unwrap()
+    );
+    assert!(
+        goal_only.ally_goal,
+        "ground-only goal remains visible through fallback"
+    );
+}
