@@ -3487,3 +3487,141 @@ fn movement_occupancy_uses_resolved_layer_and_receiving_factory() {
         "ground-only goal remains visible through fallback"
     );
 }
+
+#[test]
+fn closest_path_respects_occupied_ground_at_bridge_fallback() {
+    use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
+    use std::sync::{Arc, RwLock};
+    fn fixture() -> (ObjectFactory, ObjectID, ObjectID, PathfindingSystem) {
+        let mut factory = ObjectFactory::new();
+        let mut logic = crate::system::game_logic::GameLogic::new();
+        let team = Arc::new(RwLock::new(crate::team::Team::new("Team".into(), 801)));
+        team.write()
+            .unwrap()
+            .set_override_team_relationship(801, Relationship::Allies);
+        let mut create = |name: &str| {
+            factory
+                .prepare_object(
+                    &mut logic,
+                    Arc::new(crate::common::types::DefaultThingTemplate::new(name.into())),
+                    Coord3D::ZERO,
+                    Some(team.clone()),
+                    ObjectCreationFlags::NO_AI,
+                )
+                .unwrap()
+        };
+        let source = create("Source");
+        let blocker = create("Blocker");
+        {
+            let object = factory
+                .get_object(source)
+                .unwrap()
+                .get_base_object()
+                .unwrap();
+            let mut object = object.write().unwrap();
+            object.set_layer(crate::common::PathfindLayerEnum::Top);
+            object
+                .set_position(&GridCoord::new(1, 2).to_world(0.0))
+                .unwrap();
+            assert_eq!(object.get_layer(), crate::common::PathfindLayerEnum::Top);
+        }
+        let mut pathfinder = PathfindingSystem::new(9, 5);
+        pathfinder.new_map();
+        for x in 0..9 {
+            for y in [0, 1, 3, 4] {
+                pathfinder
+                    .pathfinder
+                    .set_cell_type(GridCoord::new(x, y), PathfindCellType::Impassable);
+            }
+        }
+        for x in 1..=3 {
+            pathfinder.pathfinder.set_cell_type_on_layer(
+                GridCoord::new(x, 2),
+                PathfindLayerEnum::Top,
+                PathfindCellType::Clear,
+            );
+        }
+        pathfinder.recalculate_zones_from_cells();
+        (factory, source, blocker, pathfinder)
+    }
+    let (factory_a, source, blocker, mut blocked) = fixture();
+    let (factory_b, peer_source, peer_blocker, mut clear) = fixture();
+    assert_eq!((source, blocker), (peer_source, peer_blocker));
+    let center = ICoord2D::new(4, 2);
+    blocked.set_goal_cells(
+        blocker,
+        center,
+        0,
+        true,
+        PathfindLayerEnum::Ground,
+        true,
+        false,
+    );
+    blocked.set_pos_cells(
+        blocker,
+        center,
+        0,
+        true,
+        PathfindLayerEnum::Ground,
+        true,
+        false,
+    );
+    let players = crate::player::PlayerList::new();
+    let terrain = crate::terrain::TerrainLogic::new();
+    let obs_a = PathfindObservations {
+        factory: &factory_a,
+        players: &players,
+        terrain: &terrain,
+    };
+    let obs_b = PathfindObservations {
+        factory: &factory_b,
+        players: &players,
+        terrain: &terrain,
+    };
+    let start = GridCoord::new(1, 2);
+    let goal = GridCoord::new(7, 2);
+    let request = PathRequest {
+        object_id: source,
+        from: start.to_world(0.0),
+        to: goal.to_world(0.0),
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        unit_radius: 0.0,
+        allow_partial: true,
+        move_allies: false,
+        ignore_obstacle_id: None,
+        is_human: false,
+    };
+    let first = blocked
+        .find_closest_path_with_observations(
+            request.clone(),
+            Some(false),
+            Some(false),
+            Some(&obs_a),
+        )
+        .unwrap();
+    let second = clear
+        .find_closest_path_with_observations(
+            request.clone(),
+            Some(false),
+            Some(false),
+            Some(&obs_b),
+        )
+        .unwrap();
+    let first_again = blocked
+        .find_closest_path_with_observations(request, Some(false), Some(false), Some(&obs_a))
+        .unwrap();
+    assert!(first.success && second.success && first_again.success);
+    assert!(first.layers.contains(&PathfindLayerEnum::Top));
+    assert!(second.layers.contains(&PathfindLayerEnum::Top));
+    assert_ne!(
+        GridCoord::from_world(first.waypoints.last().unwrap()),
+        goal,
+        "a non-AI allied occupant blocks the fallback cell"
+    );
+    assert_eq!(
+        GridCoord::from_world(second.waypoints.last().unwrap()),
+        goal
+    );
+    assert_eq!(first.waypoints, first_again.waypoints);
+}
