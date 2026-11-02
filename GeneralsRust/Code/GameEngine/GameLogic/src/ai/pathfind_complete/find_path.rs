@@ -514,18 +514,33 @@ impl PathfindingSystem {
         const COST_TO_DISTANCE_FACTOR_SQR: f32 = 0.01;
         const MAX_EXPAND: i32 = 4000;
 
-        if !self.is_map_ready {
+        if !self.is_map_ready || self.width == 0 || self.height == 0 {
             return Ok(PathResult::none());
         }
         // C++ findClosestPath resets this per operation, including early returns.
         self.is_tunneling = false;
 
-        let goal_grid = GridCoord::from_world(&request.to);
+        let (radius, center_in_cell) = Self::compute_radius_and_center(request.unit_radius);
+        let mut clip_from = request.from;
+        let mut adjusted_to = request.to;
+        if !center_in_cell {
+            adjusted_to.x += PATHFIND_CELL_SIZE_F * 0.5;
+            adjusted_to.y += PATHFIND_CELL_SIZE_F * 0.5;
+        }
+        self.clip(&mut clip_from, &mut adjusted_to);
+        // C++ worldToCell clamps even if clip found no intersection.
+        let max_x = self.width as i32 - 1;
+        let max_y = self.height as i32 - 1;
+        let clamped_cell = |position: &Coord3D| {
+            let cell = GridCoord::from_world(position);
+            GridCoord::new(cell.x.clamp(0, max_x), cell.y.clamp(0, max_y))
+        };
+        let goal_grid = clamped_cell(&adjusted_to);
         let goal_layer = observations.map_or_else(
             || self.get_layer_for_coord(goal_grid),
             |world| {
                 PathfindLayerEnum::from_u32(
-                    world.terrain.get_layer_for_destination(&request.to) as u32
+                    world.terrain.get_layer_for_destination(&adjusted_to) as u32
                 )
             },
         );
@@ -533,7 +548,6 @@ impl PathfindingSystem {
             .pathfinder
             .resolved_layer_at(goal_grid, goal_layer)
             .unwrap_or(goal_layer);
-        let (radius, center_in_cell) = Self::compute_radius_and_center(request.unit_radius);
         let aircraft_goal_only = aircraft_goal_only
             .unwrap_or_else(|| Self::object_uses_aircraft_goal_reservations(request.object_id));
         let downhill_only =
@@ -560,13 +574,8 @@ impl PathfindingSystem {
             // Aircraft without exact goal: fall through to closest-cell A*.
         }
 
-        let start = Self::cell_for_unit_position(&request.from, center_in_cell);
-        if !self.is_valid_coord(start) || !self.is_valid_coord(goal_grid) {
-            return Ok(PathResult::none());
-        }
-        if request.is_human && !self.in_logical_extent(start) {
-            return Ok(PathResult::none());
-        }
+        let start = clamped_cell(&clip_from);
+        let start_cell = clamped_cell(&request.from);
         let (goal_on_obstacle, terrain_ignore) = self.closest_obstacle_policy(
             request.ignore_obstacle_id,
             goal_grid,
@@ -591,8 +600,8 @@ impl PathfindingSystem {
             .resolved_layer_at(start, requested_start_layer)
             .unwrap_or(requested_start_layer);
         let mut start_info = CheckMovementInfo {
-            cell: start,
-            layer: start_layer,
+            cell: start_cell,
+            layer: requested_start_layer,
             radius,
             center_in_cell,
             acceptable_surfaces: request.surfaces,
@@ -1032,7 +1041,10 @@ impl PathfindingSystem {
                         };
                     }
                 }
-                if info.ally_moving && (nx - start.x).abs() < 10 && (ny - start.y).abs() < 10 {
+                if info.ally_moving
+                    && (nx - start_cell.x).abs() < 10
+                    && (ny - start_cell.y).abs() < 10
+                {
                     step += 3 * COST_DIAG;
                 }
                 if info.ally_fixed_count > 0 {
@@ -1080,7 +1092,7 @@ impl PathfindingSystem {
 
         // Path to exact goal or closest valid cell.
         let to_pos = if found_goal_cell && best_cell == goal_grid && best_layer == goal_layer {
-            request.to
+            adjusted_to
         } else {
             let mut p = Coord3D::new(0.0, 0.0, 0.0);
             self.adjust_coord_to_cell_with_observations(

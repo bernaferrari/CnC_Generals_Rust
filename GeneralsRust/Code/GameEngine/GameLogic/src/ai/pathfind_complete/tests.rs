@@ -4021,3 +4021,75 @@ fn closest_path_line_seed_changes_the_selected_corridor() {
             .any(|point| GridCoord::from_world(point).y < start.y)
     );
 }
+
+#[test]
+fn closest_path_clips_crossing_and_exterior_segments_like_cpp() {
+    let mut world = PathfindingSystem::new(20, 20);
+    world.new_map();
+    let search = |world: &mut PathfindingSystem, from, to, unit_radius| {
+        world.find_closest_path_with_movement_policy(
+            PathRequest {
+                object_id: INVALID_ID,
+                from,
+                to,
+                surfaces: SURFACE_GROUND,
+                is_crusher: false,
+                unit_radius,
+                allow_partial: true,
+                move_allies: false,
+                ignore_obstacle_id: None,
+                is_human: false,
+            },
+            Some(true),
+            Some(false),
+        )
+    };
+    let goal_right = search(
+        &mut world,
+        Coord3D::new(25.0, 55.0, 0.0),
+        Coord3D::new(250.0, 55.0, 0.0),
+        0.0,
+    );
+    assert!(goal_right.success);
+    assert_eq!(
+        GridCoord::from_world(goal_right.waypoints.last().unwrap()),
+        GridCoord::new(19, 5)
+    );
+    let start_left = search(
+        &mut world,
+        Coord3D::new(-25.0, 55.0, 0.0),
+        Coord3D::new(75.0, 55.0, 0.0),
+        0.0,
+    );
+    assert!(start_left.success);
+    assert_eq!(
+        *start_left.waypoints.first().unwrap(),
+        Coord3D::new(-25.0, 55.0, 0.0)
+    );
+    assert_eq!(
+        GridCoord::from_world(start_left.waypoints.last().unwrap()),
+        GridCoord::new(7, 5)
+    );
+    let exterior = search(
+        &mut world,
+        Coord3D::new(-50.0, 55.0, 0.0),
+        Coord3D::new(-20.0, 75.0, 0.0),
+        0.0,
+    );
+    assert!(exterior.success);
+    assert_eq!(
+        GridCoord::from_world(exterior.waypoints.last().unwrap()),
+        GridCoord::new(0, 7)
+    );
+    let even = search(
+        &mut world,
+        Coord3D::new(25.0, 55.0, 0.0),
+        Coord3D::new(250.0, 55.0, 0.0),
+        10.0,
+    );
+    assert!(even.success);
+    assert_eq!(
+        GridCoord::from_world(even.waypoints.last().unwrap()),
+        GridCoord::new(19, 6)
+    );
+}
