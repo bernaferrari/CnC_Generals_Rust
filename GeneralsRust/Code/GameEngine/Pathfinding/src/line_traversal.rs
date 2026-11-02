@@ -3,7 +3,7 @@
 //! A diagonal step visits the intermediate orthogonal cell as well. The
 //! callback decides when a blocked cell or the map boundary ends the walk.
 
-pub(super) fn visit(
+pub fn visit_cell_line(
     start: (i32, i32),
     end: (i32, i32),
     mut callback: impl FnMut((i32, i32), (i32, i32)) -> bool,

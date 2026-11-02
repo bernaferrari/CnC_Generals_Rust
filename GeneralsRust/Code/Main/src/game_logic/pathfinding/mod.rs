@@ -445,7 +445,6 @@ pub struct PathfindingGrid {
 mod ground;
 pub use ground::PathfindingGround;
 mod closest_cost;
-mod closest_line;
 mod grid_bridge_owner;
 mod grid_core;
 mod grid_flight;
@@ -455,6 +454,7 @@ mod group_ground;
 mod group_ground_owner;
 #[cfg(test)]
 mod group_ground_tests;
+mod movement_footprint;
 mod pathfinder_clip;
 #[cfg(test)]
 mod searched_layer_tests;

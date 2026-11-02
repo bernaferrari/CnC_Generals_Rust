@@ -265,7 +265,7 @@ impl AStarPathfinder {
         let occupancy = |cell: GridCoord| -> u32 {
             extra_cost.map(|f| f(cell)).unwrap_or(0) + self.cell_occupancy_cost(cell)
         };
-        let line_ok = |cell: GridCoord| -> bool {
+        let line_ok = |cell: GridCoord, _layer: PathfindLayerEnum| -> bool {
             extra_cost.map(|f| f(cell) < u32::MAX / 8).unwrap_or(true)
         };
         self.find_path_ex6(
@@ -280,7 +280,7 @@ impl AStarPathfinder {
             false,
             ground_height,
             None,
-            Some(&line_ok as &dyn Fn(GridCoord) -> bool),
+            Some(&line_ok as &dyn Fn(GridCoord, PathfindLayerEnum) -> bool),
             !start_is_obstacle,
             start_is_obstacle,
             None,
@@ -354,7 +354,7 @@ impl AStarPathfinder {
     /// When `seed_line_to_goal` and not downhill-only / not tunneling, each expanded
     /// parent walks Bresenham cells toward the goal and inserts clear cells at
     /// `costSoFar + 0.5*COST_ORTHOGONAL` (AIPathfind.cpp:5996-6093, 6120).
-    /// `line_cell_ok(cell)` returns false to abort the line (enemyFixed/allyFixed/etc).
+    /// `line_cell_ok(cell, from_layer)` returns false to abort the line (enemyFixed/allyFixed/etc).
     pub fn find_path_ex4(
         &self,
         start: GridCoord,
@@ -368,7 +368,7 @@ impl AStarPathfinder {
         downhill_only: bool,
         ground_height: Option<&dyn Fn(GridCoord) -> f32>,
         force_passable: Option<&dyn Fn(GridCoord) -> bool>,
-        line_cell_ok: Option<&dyn Fn(GridCoord) -> bool>,
+        line_cell_ok: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> bool>,
         seed_line_to_goal: bool,
     ) -> Option<(Vec<GridCoord>, usize)> {
         self.find_path_ex5(
@@ -404,7 +404,7 @@ impl AStarPathfinder {
         downhill_only: bool,
         ground_height: Option<&dyn Fn(GridCoord) -> f32>,
         force_passable: Option<&dyn Fn(GridCoord) -> bool>,
-        line_cell_ok: Option<&dyn Fn(GridCoord) -> bool>,
+        line_cell_ok: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> bool>,
         seed_line_to_goal: bool,
         starts_tunneling: bool,
         cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
@@ -447,7 +447,7 @@ impl AStarPathfinder {
         downhill_only: bool,
         ground_height: Option<&dyn Fn(GridCoord) -> f32>,
         force_passable: Option<&dyn Fn(GridCoord) -> bool>,
-        line_cell_ok: Option<&dyn Fn(GridCoord) -> bool>,
+        line_cell_ok: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> bool>,
         seed_line_to_goal: bool,
         starts_tunneling: bool,
         cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
@@ -492,7 +492,7 @@ impl AStarPathfinder {
         downhill_only: bool,
         ground_height: Option<&dyn Fn(GridCoord) -> f32>,
         force_passable: Option<&dyn Fn(GridCoord) -> bool>,
-        line_cell_ok: Option<&dyn Fn(GridCoord) -> bool>,
+        line_cell_ok: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> bool>,
         seed_line_to_goal: bool,
         starts_tunneling: bool,
         cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
@@ -569,7 +569,7 @@ impl AStarPathfinder {
         downhill_only: bool,
         ground_height: Option<&dyn Fn(GridCoord) -> f32>,
         force_passable: Option<&dyn Fn(GridCoord) -> bool>,
-        line_cell_ok: Option<&dyn Fn(GridCoord) -> bool>,
+        line_cell_ok: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> bool>,
         seed_line_to_goal: bool,
         starts_tunneling: bool,
         cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
@@ -614,7 +614,7 @@ impl AStarPathfinder {
         downhill_only: bool,
         ground_height: Option<&dyn Fn(GridCoord) -> f32>,
         force_passable: Option<&dyn Fn(GridCoord) -> bool>,
-        line_cell_ok: Option<&dyn Fn(GridCoord) -> bool>,
+        line_cell_ok: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> bool>,
         seed_line_to_goal: bool,
         starts_tunneling: bool,
         cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
@@ -982,7 +982,7 @@ impl AStarPathfinder {
         is_crusher: bool,
         ignore_cells: Option<&HashSet<GridCoord>>,
         force_passable: Option<&dyn Fn(GridCoord) -> bool>,
-        line_cell_ok: Option<&dyn Fn(GridCoord) -> bool>,
+        line_cell_ok: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> bool>,
         cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
         open_set: &mut OpenSet,
         open_members: &mut HashSet<SearchKey>,
@@ -990,127 +990,59 @@ impl AStarPathfinder {
         came_from: &mut HashMap<SearchKey, SearchKey>,
         g_scores: &mut HashMap<SearchKey, u32>,
     ) {
-        if parent == goal {
-            return;
-        }
-        // Bresenham cell walk parent → goal (same topology as iterateCellsAlongLine).
-        let delta_x = (goal.x - parent.x).abs();
-        let delta_y = (goal.y - parent.y).abs();
-        let mut x = parent.x;
-        let mut y = parent.y;
-        let (mut xinc1, mut xinc2) = if goal.x >= parent.x {
-            (1i32, 1i32)
-        } else {
-            (-1, -1)
-        };
-        let (mut yinc1, mut yinc2) = if goal.y >= parent.y {
-            (1i32, 1i32)
-        } else {
-            (-1, -1)
-        };
-        let (den, mut num, numadd, numpixels);
-        if delta_x >= delta_y {
-            xinc1 = 0;
-            yinc2 = 0;
-            den = delta_x;
-            num = delta_x / 2;
-            numadd = delta_y;
-            numpixels = delta_x;
-        } else {
-            xinc2 = 0;
-            yinc1 = 0;
-            den = delta_y;
-            num = delta_y / 2;
-            numadd = delta_x;
-            numpixels = delta_y;
-        }
-
-        let mut from = parent;
         let mut from_g = parent_g;
-        // Skip the parent cell itself; process subsequent cells on the line.
-        for _ in 0..=numpixels {
-            num += numadd;
-            if num >= den {
-                num -= den;
-                x += xinc1;
-                y += yinc1;
-            }
-            x += xinc2;
-            y += yinc2;
-            let to = GridCoord::new(x, y);
-            if to == parent {
-                continue;
-            }
-            let Some(to_cell) = self.get_cell_on_layer(to, layer) else {
-                break;
+        crate::visit_cell_line((parent.x, parent.y), (goal.x, goal.y), |from, to| {
+            let from = GridCoord::new(from.0, from.1);
+            let to = GridCoord::new(to.0, to.1);
+            let Some(from_cell) = self.get_cell_on_layer(from, layer) else {
+                return false;
             };
-            let to_resolved_layer = to_cell.get_layer();
-            let to_pinched = to_cell.is_pinched();
-            let to_type = to_cell.get_type();
-            if let Some(ok) = cell_allowed {
-                if !ok(to) {
-                    break;
-                }
-            }
-
-            // Abort line (return 1) conditions from examineCellsCallback.
-            if !self.is_passable_on_layer_with_ignore(to, layer, surfaces, is_crusher, ignore_cells)
-                && !force_passable.map(|f| f(to)).unwrap_or(false)
+            let Some(to_cell) = self.get_cell_on_layer(to, layer) else {
+                return false;
+            };
+            let from_layer = from_cell.get_layer();
+            let to_layer = to_cell.get_layer();
+            if cell_allowed.is_some_and(|ok| !ok(to))
+                || (!self.is_passable_on_layer_with_ignore(
+                    to,
+                    layer,
+                    surfaces,
+                    is_crusher,
+                    ignore_cells,
+                ) && !force_passable.is_some_and(|ok| ok(to)))
+                || (to_layer == PathfindLayerEnum::Ground && !self.is_zone_passable(to))
+                || to_cell.is_pinched()
+                || to_cell.get_type() == PathfindCellType::Cliff
+                || line_cell_ok.is_some_and(|ok| !ok(to, from_layer))
             {
-                break;
-            }
-            // C++: only ground cells consult the zone manager (AIPathfind.cpp:6005).
-            if to_resolved_layer == PathfindLayerEnum::Ground && !self.is_zone_passable(to) {
-                break;
-            }
-            if to_pinched {
-                break;
-            }
-            if to_type == PathfindCellType::Cliff {
-                break;
-            }
-            if let Some(ok) = line_cell_ok {
-                if !ok(to) {
-                    break;
-                }
+                return false;
             }
 
-            // newCostSoFar = from->getCostSoFar() + 0.5f*COST_ORTHOGONAL
+            // The original callback may improve an open or closed cell.
             let new_g = from_g.saturating_add(COST_ORTHOGONAL / 2);
-            let to_key: SearchKey = (to, layer);
-            if let Some(&existing_g) = g_scores.get(&to_key) {
-                if existing_g <= new_g {
-                    // Keep going along the line without updating.
-                    from = to;
-                    from_g = existing_g;
-                    if to == goal {
-                        break;
-                    }
-                    continue;
-                }
+            let to_key: SearchKey = (to, to_layer);
+            if (open_members.contains(&to_key) || closed_set.contains(&to_key))
+                && g_scores.get(&to_key).is_some_and(|&old| old <= new_g)
+            {
+                from_g = g_scores[&to_key];
+                return true;
             }
-
-            // Better path — reopen if closed (C++ 6063-6088).
             closed_set.remove(&to_key);
             open_members.insert(to_key);
-            came_from.insert(to_key, (from, layer));
+            came_from.insert(to_key, (from, from_layer));
             g_scores.insert(to_key, new_g);
             let h_score = to.diagonal_distance(&goal);
             open_set.push(AStarNode {
                 coord: to,
-                layer,
+                layer: to_layer,
                 g_score: new_g,
                 f_score: new_g.saturating_add(h_score),
-                parent: Some((from, layer)),
+                parent: Some((from, from_layer)),
                 enqueue_order: 0,
             });
-
-            from = to;
             from_g = new_g;
-            if to == goal {
-                break;
-            }
-        }
+            true
+        });
     }
 
     /// Reconstruct path from came_from map

@@ -1,3 +1,4 @@
+use super::movement_footprint::MovementFootprint;
 use super::*;
 
 impl PathfindingSystem {
@@ -708,32 +709,17 @@ impl PathfindingSystem {
         }
 
         let (exact_path, examined) = {
-            let width = self.grid.width;
-            let occ_goal = self.grid.occ_goal_mask.clone();
-            let occ_goal_unit = self.grid.occ_goal_unit.clone();
-            let occ_pos_unit = self.grid.occ_pos_unit.clone();
-            let occ_pos_player = self.grid.occ_pos_player.clone();
-            let occ_pos_flags = self.grid.occ_pos_flags.clone();
-            let occ_pos_crush = self.grid.occ_pos_crushable.clone();
-            let layer_occ = self.grid.layer_occ.clone();
+            let grid = &self.grid;
+            let width = grid.width;
+            let occ_goal = &self.grid.occ_goal_mask;
+            let occ_goal_unit = &self.grid.occ_goal_unit;
+            let occ_pos_unit = &self.grid.occ_pos_unit;
+            let occ_pos_player = &self.grid.occ_pos_player;
+            let occ_pos_flags = &self.grid.occ_pos_flags;
+            let occ_pos_crush = &self.grid.occ_pos_crushable;
+            let layer_occ = &self.grid.layer_occ;
             let start_layer_id = start_layer as u8;
             let dest_layer_id = dest_layer as u8;
-            let layer_cells = |id: u8| -> HashSet<(i32, i32)> {
-                if id <= PathfindLayerEnum::Ground as u8 {
-                    return HashSet::new();
-                }
-                if id == LAYER_WALL_ID {
-                    return self.grid.wall_cells.keys().copied().collect();
-                }
-                self.grid
-                    .bridge_layers
-                    .iter()
-                    .find(|layer| layer.id == id)
-                    .map(|layer| layer.cells.keys().copied().collect())
-                    .unwrap_or_default()
-            };
-            let start_layer_cells = layer_cells(start_layer_id);
-            let dest_layer_cells = layer_cells(dest_layer_id);
             let seeker = self.seeker_player;
             let seeker_inf = self.seeker_is_infantry;
             let ignored_unit = self.grid.query_ignore_unit_id;
@@ -745,11 +731,15 @@ impl PathfindingSystem {
                 }
                 let key = (c.x, c.y);
                 let layer_id = if start_layer_id > PathfindLayerEnum::Ground as u8
-                    && start_layer_cells.contains(&key)
+                    && grid
+                        .layer_cell_type(start_layer_id, GridPos::new(c.x, c.y))
+                        .is_some()
                 {
                     Some(start_layer_id)
                 } else if dest_layer_id > PathfindLayerEnum::Ground as u8
-                    && dest_layer_cells.contains(&key)
+                    && grid
+                        .layer_cell_type(dest_layer_id, GridPos::new(c.x, c.y))
+                        .is_some()
                 {
                     Some(dest_layer_id)
                 } else {
@@ -794,20 +784,18 @@ impl PathfindingSystem {
                 let OccBits {
                     fixed,
                     moving,
-                    goal: goal_m,
                     infantry,
                     crushable: crush,
                     pos_unit: pos_u,
                     pos_player: pos_p,
                     pos_moving,
-                    pos_crushable: pos_cr,
                     ..
                 } = bits.ignoring_unit(ignored_unit);
                 // C++ INFANTRY_MOVES_THROUGH_INFANTRY: stream even when a goal is set.
                 if seeker_inf && infantry != 0 && (fixed | moving) == infantry {
                     return 0;
                 }
-                if fixed == 0 && moving == 0 && goal_m == 0 {
+                if fixed == 0 && moving == 0 {
                     return 0;
                 }
                 let Some(player) = seeker else {
@@ -827,12 +815,26 @@ impl PathfindingSystem {
                 // (AIPathfind.cpp:5020-5066): ally fixed → allyFixed cost, enemy
                 // uncrushable → impassable. Bitset view only when no identity.
                 if pos_u != 0 {
-                    if (pos_p & friend) == 0 {
-                        let crushable = crusher_level > 0 && crusher_level > pos_cr;
-                        if !crushable {
-                            return u32::MAX / 8;
+                    if Some(ObjectId(pos_u)) == seeker_id {
+                        return 0;
+                    }
+                    if pos_moving {
+                        if pos_p & friend != 0
+                            && (c.x - start.x).abs() < 10
+                            && (c.y - start.y).abs() < 10
+                        {
+                            extra += 3 * COST_DIAGONAL;
                         }
-                    } else if !pos_moving && (fixed & friend) != 0 {
+                    } else if (pos_p & friend) == 0 {
+                        if let Some((mover, other)) = seeker_id
+                            .and_then(|id| objects.lookup(&id))
+                            .zip(objects.lookup(&ObjectId(pos_u)))
+                        {
+                            if !mover.can_crush_or_squish(other, false) {
+                                return u32::MAX / 8;
+                            }
+                        }
+                    } else if (fixed & friend) != 0 {
                         extra += 3 * COST_DIAGONAL;
                     }
                 } else {
@@ -849,23 +851,32 @@ impl PathfindingSystem {
                 extra
             };
             let extra_ref = &extra;
-            let line_ok = |c: GridCoord| {
-                if extra_ref(c) >= u32::MAX / 8 {
-                    return false;
-                }
-                // C++ examineCellsCallback: abort on allyFixed / any enemyFixed
-                // (crushable included). extra() only MAX/8s uncrushable enemies.
-                let ally = self
-                    .seeker_player
-                    .map(|p| self.grid.ally_mask_for(p))
-                    .unwrap_or(0);
-                self.grid.seed_line_occupancy_ok(
-                    GridPos::new(c.x, c.y),
-                    self.seeker_player,
-                    ally,
-                    self.seeker_is_infantry,
-                    start_layer,
-                )
+            let line_footprint = seeker_id.and_then(|id| {
+                let mover = objects.lookup(&id)?;
+                let (radius, center_in_cell) = PathfindingGrid::radius_and_center(
+                    mover.geometry_info().bounding_circle_radius(),
+                    self.grid.grid_size(),
+                );
+                Some(MovementFootprint {
+                    mover: id,
+                    start,
+                    radius,
+                    center_in_cell,
+                    seeker_player: seeker,
+                    is_infantry: seeker_inf,
+                    crusher_level,
+                    ally_mask,
+                })
+            });
+            let line_ok = |c: GridCoord, from_layer: PathfindLayerEnum| {
+                line_footprint.as_ref().is_none_or(|footprint| {
+                    footprint.line_seed_clear(
+                        &self.grid,
+                        GridPos::new(c.x, c.y),
+                        from_layer,
+                        objects,
+                    )
+                })
             };
             let ground_h = |c: GridCoord| {
                 let w = self
@@ -894,7 +905,7 @@ impl PathfindingSystem {
                     downhill_only,
                     Some(&ground_h as &dyn Fn(GridCoord) -> f32),
                     None,
-                    Some(&line_ok as &dyn Fn(GridCoord) -> bool),
+                    Some(&line_ok as &dyn Fn(GridCoord, PathfindLayerEnum) -> bool),
                     seed_line,
                     start_is_obstacle,
                     Some(&cell_allowed as &dyn Fn(GridCoord) -> bool),

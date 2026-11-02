@@ -1,5 +1,4 @@
-#[path = "../src/game_logic/pathfinding/closest_line.rs"]
-mod closest_line;
+use gamelogic::ai::pathfind_astar::visit_cell_line;
 
 #[test]
 fn line_visits_original_intermediate_and_final_cells() {
@@ -64,14 +63,14 @@ fn line_visits_original_intermediate_and_final_cells() {
     ];
     for &(start, end, expected) in cases {
         let mut visits = Vec::new();
-        closest_line::visit(start, end, |from, to| {
+        visit_cell_line(start, end, |from, to| {
             visits.push((from, to));
             true
         });
         assert_eq!(visits, expected, "{start:?} to {end:?}");
     }
     let mut stopped = Vec::new();
-    closest_line::visit((2, 2), (6, 4), |from, to| {
+    visit_cell_line((2, 2), (6, 4), |from, to| {
         stopped.push((from, to));
         stopped.len() < 2
     });

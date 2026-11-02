@@ -333,13 +333,13 @@ impl PathfindingSystem {
             }
         };
         // C++ examineCellsCallback: abort line on enemyFixed / allyFixedCount.
-        let line_ok = |cell: GridCoord| -> bool {
+        let line_ok = |cell: GridCoord, from_layer: PathfindLayerEnum| -> bool {
             if obj_id == INVALID_ID {
                 return true;
             }
             let mut info = CheckMovementInfo {
                 cell,
-                layer: PathfindLayerEnum::Ground,
+                layer: from_layer,
                 center_in_cell,
                 radius,
                 consider_transient: false,
@@ -362,36 +362,6 @@ impl PathfindingSystem {
             }
             if info.enemy_fixed || info.ally_fixed_count > 0 {
                 return false;
-            }
-            // Seed line never walks occupying enemies, crushable included.
-            // check_for_movement only sets enemy_fixed when !can_crush.
-            let pos_u = self.pos_unit_at(cell, PathfindLayerEnum::Ground);
-            if pos_u != INVALID_ID && pos_u != obj_id {
-                let is_enemy = if let Some(world) = observations {
-                    let source = world.object(obj_id);
-                    let target = world.object(pos_u);
-                    match (source, target) {
-                        (Some(source), Some(target)) => {
-                            world.relationship(
-                                &source.read().expect("admitted source poisoned"),
-                                &target.read().expect("admitted target poisoned"),
-                            ) != Relationship::Allies
-                        }
-                        _ => false,
-                    }
-                } else {
-                    OBJECT_REGISTRY
-                        .with_object(obj_id, |g| {
-                            OBJECT_REGISTRY.with_object(pos_u, |u| {
-                                g.relationship_to(&u) != crate::common::Relationship::Allies
-                            })
-                        })
-                        .flatten()
-                        .unwrap_or(false)
-                };
-                if is_enemy {
-                    return false;
-                }
             }
             true
         };
@@ -422,7 +392,7 @@ impl PathfindingSystem {
             downhill_only,
             Some(&ground_h as &dyn Fn(GridCoord) -> f32),
             Some(&force_pass as &dyn Fn(GridCoord) -> bool),
-            Some(&line_ok as &dyn Fn(GridCoord) -> bool),
+            Some(&line_ok as &dyn Fn(GridCoord, PathfindLayerEnum) -> bool),
             seed_line,
             tunneling,
             Some(&cell_allowed as &dyn Fn(GridCoord) -> bool),

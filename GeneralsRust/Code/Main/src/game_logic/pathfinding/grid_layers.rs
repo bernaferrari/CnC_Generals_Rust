@@ -1360,45 +1360,6 @@ impl PathfindingGrid {
         Some(extra)
     }
 
-    /// C++ `examineCellsCallback` seed abort (AIPathfind.cpp:6034-6052).
-    /// Allied-fixed or any enemy-fixed (crushable included) refuses the seed line.
-    pub(super) fn seed_line_occupancy_ok(
-        &self,
-        pos: GridPos,
-        seeker_player: Option<u32>,
-        ally_mask: u16,
-        seeker_is_infantry: bool,
-        layer: PathfindLayerEnum,
-    ) -> bool {
-        let bits = self.occupancy_bits(pos, layer);
-        if seeker_is_infantry && bits.infantry != 0 && (bits.fixed | bits.moving) == bits.infantry {
-            return true;
-        }
-        let Some(player) = seeker_player else {
-            return bits.fixed == 0 && bits.pos_unit == 0;
-        };
-        let bit = 1u16 << player.min(15);
-        let friend = bit | ally_mask;
-        // Single-occupant verdict first (C++ m_posUnitID), then the residual
-        // bitset view for cells whose identity was never stamped.
-        if bits.pos_unit != 0 {
-            if (bits.pos_player & friend) == 0 {
-                return false;
-            }
-            if !bits.pos_moving {
-                return false;
-            }
-            return true;
-        }
-        if (bits.fixed & friend) != 0 {
-            return false;
-        }
-        if (bits.fixed & !friend) != 0 {
-            return false;
-        }
-        true
-    }
-
     /// C++ `checkForMovement` occupancy used by `patchPath` (AIPathfind.cpp:10419-10442).
     pub(super) fn patch_cell_occupied(
         &self,

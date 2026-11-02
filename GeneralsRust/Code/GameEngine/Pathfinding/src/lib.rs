@@ -33,6 +33,7 @@ mod astar;
 mod cell;
 mod grid_edit;
 mod hierarchical;
+mod line_traversal;
 mod obstacles;
 mod open_set;
 mod passability;
@@ -40,10 +41,10 @@ mod zones;
 
 pub use astar::AStarPathfinder;
 pub use cell::{
-    CellFlags, GridCoord, PathfindCell, PathfindCellType, PathfindLayerEnum, COST_DIAGONAL,
-    COST_ORTHOGONAL, MAX_FRAMES_AHEAD, PATHFIND_CELL_SIZE, PATHFIND_CELL_SIZE_F,
-    ZONE_IMPASSABLE_COST,
+    COST_DIAGONAL, COST_ORTHOGONAL, CellFlags, GridCoord, MAX_FRAMES_AHEAD, PATHFIND_CELL_SIZE,
+    PATHFIND_CELL_SIZE_F, PathfindCell, PathfindCellType, PathfindLayerEnum, ZONE_IMPASSABLE_COST,
 };
+pub use line_traversal::visit_cell_line;
 
 /// Crate-internal names reached by sibling modules and by `src/tests.rs`
 /// through `use super::*;` (the comparator fixtures construct `AStarNode` /
@@ -51,9 +52,9 @@ pub use cell::{
 #[cfg(test)]
 pub(crate) use cell::{SURFACE_AIR, SURFACE_CLIFF, SURFACE_GROUND};
 #[cfg(test)]
-pub(crate) use open_set::{AStarNode, OpenSet};
-#[cfg(test)]
 use glam::Vec3 as Coord3D;
+#[cfg(test)]
+pub(crate) use open_set::{AStarNode, OpenSet};
 #[cfg(test)]
 use std::collections::{HashMap, HashSet};
 

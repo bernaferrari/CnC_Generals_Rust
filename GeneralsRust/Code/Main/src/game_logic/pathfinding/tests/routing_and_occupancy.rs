@@ -1649,56 +1649,68 @@ fn find_attack_path_goes_around_partial_wall() {
     }
 }
 
-/// hq-4wg8j: seed line aborts on allied-fixed and crushable enemies.
+/// Original checkForMovement rejects a fixed ally, but allows a crushable
+/// fixed enemy when the receiving mover can crush it.
 #[test]
-fn seed_line_aborts_allied_fixed_and_crushable_enemies() {
+fn seed_line_checks_fixed_occupants_against_the_receiving_mover() {
+    use crate::game_logic::pathfinding::movement_footprint::MovementFootprint;
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut g = open_grid(24, 24);
     let mut masks = [0u16; 16];
-    masks[0] = 1u16 << 0 | 1u16 << 1;
-    masks[1] = 1u16 << 0 | 1u16 << 1;
+    masks[0] = (1 << 0) | (1 << 1);
     g.set_player_ally_masks(masks);
-
     let mut objects = HostObjectStore::new();
-    let mut ally_t = ThingTemplate::new("AllyTank");
-    ally_t.add_kind_of(KindOf::Vehicle);
-    let mut ally = Object::new(ally_t, ObjectId(2), Team::China);
-    ally.set_position(g.grid_to_world(
+    let mut mover_template = ThingTemplate::new("Mover");
+    mover_template.add_kind_of(KindOf::Vehicle);
+    let mut mover = Object::new(mover_template, ObjectId(1), Team::USA);
+    mover.owner_player_id = Some(0);
+    mover.crusher_level = 2;
+    objects.admit(mover.id, mover);
+    for (id, player, team, cell) in [
+        (2, 1, Team::China, GridPos::new(8, 8)),
+        (3, 2, Team::GLA, GridPos::new(10, 8)),
+    ] {
+        let mut template = ThingTemplate::new("Occupant");
+        template.add_kind_of(KindOf::Vehicle);
+        let mut occupant = Object::new(template, ObjectId(id), team);
+        let position = g.grid_to_world(cell, &PathfindingGround::Flat(0.0));
+        occupant.set_position(position);
+        occupant.owner_player_id = Some(player);
+        occupant.crushable_level = 1;
+        objects.admit(occupant.id, occupant);
+        let footprint = g.path_position_footprint(objects.lookup(&ObjectId(id)).unwrap());
+        g.update_path_position_cell(&footprint, (-1, -1), position);
+        g.update_ground_goal_cell(id, player, 2.0, false, (-1, -1), position);
+    }
+    g.update_dynamic_obstacles(objects.read(), &PathfindingGround::Flat(0.0));
+    let footprint = MovementFootprint {
+        mover: ObjectId(1),
+        start: GridPos::new(4, 4),
+        radius: 0,
+        center_in_cell: true,
+        seeker_player: Some(0),
+        is_infantry: false,
+        crusher_level: 2,
+        ally_mask: masks[0],
+    };
+    assert!(!footprint.line_seed_clear(
+        &g,
         GridPos::new(8, 8),
-        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        PathfindLayerEnum::Ground,
+        objects.read()
     ));
-    ally.owner_player_id = Some(1);
-    ally.crushable_level = 1;
-    objects.admit(ally.id, ally);
-
-    let mut car_t = ThingTemplate::new("CivilianCar");
-    car_t.add_kind_of(KindOf::Vehicle);
-    let mut car = Object::new(car_t, ObjectId(3), Team::GLA);
-    car.set_position(g.grid_to_world(
+    assert!(footprint.line_seed_clear(
+        &g,
         GridPos::new(10, 8),
-        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        PathfindLayerEnum::Ground,
+        objects.read()
     ));
-    car.owner_player_id = Some(2);
-    car.crushable_level = 1;
-    objects.admit(car.id, car);
-
-    g.update_dynamic_obstacles(
-        objects.read(),
-        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
-    );
-    let layer = PathfindLayerEnum::Ground;
-    assert!(
-        !g.seed_line_occupancy_ok(GridPos::new(8, 8), Some(0), masks[0], false, layer),
-        "allied-fixed must abort the seed line"
-    );
-    assert!(
-        !g.seed_line_occupancy_ok(GridPos::new(10, 8), Some(0), masks[0], false, layer),
-        "crushable enemy-fixed must abort the seed line"
-    );
-    assert!(
-        g.seed_line_occupancy_ok(GridPos::new(4, 4), Some(0), masks[0], false, layer),
-        "empty cell must seed"
-    );
+    assert!(footprint.line_seed_clear(
+        &g,
+        GridPos::new(4, 4),
+        PathfindLayerEnum::Ground,
+        objects.read()
+    ));
 }
 
 #[test]

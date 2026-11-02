@@ -293,18 +293,19 @@ fn diagonal_squeeze_both_orthogonals_blocked_no_path() {
 }
 
 #[test]
-fn line_seed_can_cross_blocked_diagonal_orthogonals() {
-    // C++ examineCellsCallback directly seeds clear Bresenham cells and does
-    // not consult neighborFlags, so find_path may take this direct route.
+fn line_seed_stops_at_blocked_diagonal_intermediate_cell() {
+    // Original iterateCellsAlongLine visits (0,1) before (1,1); the seed
+    // callback aborts on that impassable intermediate cell.
     let mut pf = AStarPathfinder::new(2, 2);
     pf.set_cell_type(GridCoord::new(1, 0), PathfindCellType::Impassable);
     pf.set_cell_type(GridCoord::new(0, 1), PathfindCellType::Impassable);
     let start = GridCoord::new(0, 0);
     let goal = GridCoord::new(1, 1);
-    let (path, _) = pf
-        .find_path(start, goal, SURFACE_GROUND, false, 200, false, None)
-        .expect("C++ line seeding may directly seed the clear goal cell");
-    assert_eq!(path, vec![start, goal]);
+    assert!(
+        pf.find_path(start, goal, SURFACE_GROUND, false, 200, false, None)
+            .is_none(),
+        "line seed and ordinary neighbors must not cross the blocked corner"
+    );
 }
 
 #[test]
@@ -699,7 +700,7 @@ fn cpp_open_list_cheaper_line_seed_reinserts_after_peer_and_skips_stale_entry() 
         enqueue_order: 0,
     });
 
-    let only_target_on_line = |cell| cell != goal;
+    let only_target_on_line = |cell, _layer| cell != goal;
     pathfinder.examine_cells_toward_goal(
         parent,
         PathfindLayerEnum::Ground,
@@ -1408,7 +1409,7 @@ fn cpp_cheaper_rediscovery_reinserts_after_older_peer_and_before_later_peer() {
     });
 
     // Line walk stops before the goal so it only re-costs the target.
-    let stop_before_goal = |cell: GridCoord| cell != goal;
+    let stop_before_goal = |cell: GridCoord, _layer: PathfindLayerEnum| cell != goal;
     pf.examine_cells_toward_goal(
         parent,
         layer,
@@ -1478,4 +1479,54 @@ fn cpp_cheaper_rediscovery_reinserts_after_older_peer_and_before_later_peer() {
         "reinsertion must lose FIFO seniority (after older peer, before later peer), \
          and the stale generation must not double-expand"
     );
+}
+
+#[test]
+fn line_seed_passes_the_resolved_previous_layer_to_occupancy() {
+    let mut pf = AStarPathfinder::new(6, 3);
+    let parent = GridCoord::new(1, 1);
+    let goal = GridCoord::new(4, 1);
+    for x in [1, 2] {
+        pf.set_cell_type_on_layer(
+            GridCoord::new(x, 1),
+            PathfindLayerEnum::Top,
+            PathfindCellType::Clear,
+        );
+    }
+    let seen = std::cell::RefCell::new(Vec::new());
+    let observe = |cell: GridCoord, from_layer: PathfindLayerEnum| {
+        seen.borrow_mut().push((cell, from_layer));
+        true
+    };
+    let mut open = OpenSet::new();
+    let mut open_members = HashSet::new();
+    let mut closed = HashSet::new();
+    let mut parents = HashMap::new();
+    let mut costs = HashMap::new();
+    pf.examine_cells_toward_goal(
+        parent,
+        PathfindLayerEnum::Top,
+        0,
+        goal,
+        SURFACE_GROUND,
+        false,
+        None,
+        None,
+        Some(&observe),
+        None,
+        &mut open,
+        &mut open_members,
+        &mut closed,
+        &mut parents,
+        &mut costs,
+    );
+    assert_eq!(
+        *seen.borrow(),
+        vec![
+            (GridCoord::new(2, 1), PathfindLayerEnum::Top),
+            (GridCoord::new(3, 1), PathfindLayerEnum::Top),
+            (GridCoord::new(4, 1), PathfindLayerEnum::Ground),
+        ]
+    );
+    assert!(costs.contains_key(&(GridCoord::new(3, 1), PathfindLayerEnum::Ground)));
 }
