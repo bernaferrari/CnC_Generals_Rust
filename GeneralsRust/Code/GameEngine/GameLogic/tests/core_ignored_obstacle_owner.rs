@@ -94,3 +94,26 @@ fn path_search_ignores_only_the_receiving_grids_obstacle_owner() {
         "the peer query must not affect the first world"
     );
 }
+
+#[test]
+fn line_passability_uses_each_worlds_stored_obstacle_owner() {
+    let first = structure(41, 55.0);
+    let second = structure(42, 55.0);
+    let mut world = PathfindingSystem::new(12, 10);
+    let mut peer = PathfindingSystem::new(12, 10);
+    world.new_map();
+    peer.new_map();
+    world.classify_object_footprint(&first).unwrap();
+    peer.classify_object_footprint(&second).unwrap();
+    let from = GridCoord::new(1, 5).to_world(0.0);
+    let to = GridCoord::new(9, 5).to_world(0.0);
+    assert!(
+        world.is_line_passable_ex(&from, &to, SURFACE_GROUND, false, Some(41), true),
+        "the matching obstacle belongs to this grid"
+    );
+    assert!(
+        !peer.is_line_passable_ex(&from, &to, SURFACE_GROUND, false, Some(41), true),
+        "the other grid's different obstacle remains blocked"
+    );
+    assert!(world.is_line_passable_ex(&from, &to, SURFACE_GROUND, false, Some(41), true));
+}

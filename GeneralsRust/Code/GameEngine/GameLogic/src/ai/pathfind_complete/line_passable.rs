@@ -1,5 +1,12 @@
 use super::*;
 
+/// Explicit coordinate exclusions and C++ obstacle IDs have different owners.
+#[derive(Clone, Copy)]
+pub(super) enum LineObstacleIgnore<'a> {
+    Cells(Option<&'a HashSet<GridCoord>>),
+    Owner(Option<ObjectID>),
+}
+
 impl PathfindingSystem {
     /// Optimize path using line-of-sight checks
     pub(crate) fn optimize_path(
@@ -30,10 +37,6 @@ impl PathfindingSystem {
         blocked: bool,
         observations: Option<&PathfindObservations>,
     ) -> Result<(Vec<Coord3D>, Vec<PathfindLayerEnum>), String> {
-        let ignore_cells = observations.map_or_else(
-            || ignored_obstacle_cells(request.ignore_obstacle_id),
-            |world| world.ignored_cells(request.ignore_obstacle_id),
-        );
         let obj_id = request.object_id;
 
         // Line passability checker — C++ isLinePassable(..., blocked, false).
@@ -45,7 +48,7 @@ impl PathfindingSystem {
                 request.surfaces,
                 request.is_crusher,
                 layer,
-                ignore_cells.as_ref(),
+                LineObstacleIgnore::Owner(request.ignore_obstacle_id),
                 false,   // allow_pinched
                 blocked, // consider_transient / blocked ally handling
                 0,
@@ -113,15 +116,19 @@ impl PathfindingSystem {
         layer: PathfindLayerEnum,
         ignore_obstacle_id: Option<ObjectID>,
     ) -> bool {
-        let ignore_cells = ignored_obstacle_cells(ignore_obstacle_id);
-        self.is_line_passable(
+        self.is_line_passable_for_object_with_ignore_id(
+            INVALID_ID,
             from,
             to,
             surfaces,
             false,
             layer,
-            ignore_cells.as_ref(),
+            LineObstacleIgnore::Owner(ignore_obstacle_id),
             false,
+            false,
+            0,
+            true,
+            None,
         )
     }
 
@@ -138,53 +145,23 @@ impl PathfindingSystem {
         ignore_cells: Option<&HashSet<GridCoord>>,
         allow_pinched: bool,
     ) -> bool {
-        self.is_line_passable_for_object_inner(
+        self.is_line_passable_for_object_with_ignore_id(
             INVALID_ID,
             from,
             to,
             surfaces,
             is_crusher,
             layer,
-            ignore_cells,
+            LineObstacleIgnore::Cells(ignore_cells),
             allow_pinched,
             false,
             0,
             true,
-        )
-    }
-
-    /// C++ `isLinePassable` / `linePassableCallback` with optional object occupancy.
-    pub(crate) fn is_line_passable_for_object_inner(
-        &self,
-        obj_id: ObjectID,
-        from: &Coord3D,
-        to: &Coord3D,
-        surfaces: LocomotorSurfaceTypeMask,
-        is_crusher: bool,
-        layer: PathfindLayerEnum,
-        ignore_cells: Option<&HashSet<GridCoord>>,
-        allow_pinched: bool,
-        consider_transient: bool,
-        footprint_radius: i32,
-        center_in_cell: bool,
-    ) -> bool {
-        self.is_line_passable_for_object_with_ignore_id(
-            obj_id,
-            from,
-            to,
-            surfaces,
-            is_crusher,
-            layer,
-            ignore_cells,
-            allow_pinched,
-            consider_transient,
-            footprint_radius,
-            center_in_cell,
             None,
         )
     }
 
-    fn is_line_passable_for_object_with_ignore_id(
+    pub(super) fn is_line_passable_for_object_with_ignore_id(
         &self,
         obj_id: ObjectID,
         from: &Coord3D,
@@ -192,7 +169,7 @@ impl PathfindingSystem {
         surfaces: LocomotorSurfaceTypeMask,
         is_crusher: bool,
         layer: PathfindLayerEnum,
-        ignore_cells: Option<&HashSet<GridCoord>>,
+        obstacle_ignore: LineObstacleIgnore<'_>,
         allow_pinched: bool,
         consider_transient: bool,
         footprint_radius: i32,
@@ -206,7 +183,7 @@ impl PathfindingSystem {
             surfaces,
             is_crusher,
             layer,
-            ignore_cells,
+            obstacle_ignore,
             allow_pinched,
             consider_transient,
             footprint_radius,
@@ -216,7 +193,7 @@ impl PathfindingSystem {
         )
         .expect("compatibility movement observations are infallible")
     }
-    pub(crate) fn is_line_passable_with_observations(
+    pub(super) fn is_line_passable_with_observations(
         &self,
         obj_id: ObjectID,
         from: &Coord3D,
@@ -224,7 +201,7 @@ impl PathfindingSystem {
         surfaces: LocomotorSurfaceTypeMask,
         is_crusher: bool,
         layer: PathfindLayerEnum,
-        ignore_cells: Option<&HashSet<GridCoord>>,
+        obstacle_ignore: LineObstacleIgnore<'_>,
         allow_pinched: bool,
         consider_transient: bool,
         footprint_radius: i32,
@@ -296,17 +273,25 @@ impl PathfindingSystem {
                     return 0;
                 }
 
-                if self.pathfinder.is_passable_on_layer_with_ignore(
-                    coord,
-                    resolved_layer,
-                    surfaces,
-                    is_crusher,
-                    ignore_cells,
-                ) {
-                    0
-                } else {
-                    1
-                }
+                let passable = match obstacle_ignore {
+                    LineObstacleIgnore::Cells(cells) => {
+                        self.pathfinder.is_passable_on_layer_with_ignore(
+                            coord,
+                            resolved_layer,
+                            surfaces,
+                            is_crusher,
+                            cells,
+                        )
+                    }
+                    LineObstacleIgnore::Owner(id) => self.valid_movement_cell_on_layer(
+                        surfaces,
+                        is_crusher,
+                        coord,
+                        resolved_layer,
+                        id,
+                    ),
+                };
+                if passable { 0 } else { 1 }
             });
         match observation_error {
             Some(error) => Err(error),

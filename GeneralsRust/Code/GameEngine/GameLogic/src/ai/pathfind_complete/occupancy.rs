@@ -1,3 +1,4 @@
+use super::line_passable::LineObstacleIgnore;
 use super::*;
 
 impl PathfindingSystem {
@@ -314,19 +315,22 @@ impl PathfindingSystem {
         ignore: Option<ObjectID>,
         observations: Option<&PathfindObservations>,
     ) -> bool {
-        let cells = observations.map_or_else(
-            || ignored_obstacle_cells(ignore),
-            |world| world.ignored_cells(ignore),
-        );
-        self.is_line_passable(
+        self.is_line_passable_with_observations(
+            INVALID_ID,
             from,
             to,
             surfaces,
             false,
             PathfindLayerEnum::Ground,
-            cells.as_ref(),
+            LineObstacleIgnore::Owner(ignore),
             false,
+            false,
+            0,
+            true,
+            None,
+            observations,
         )
+        .expect("line observations must remain valid")
     }
     pub(crate) fn is_line_passable_on_layer_with_cells(
         &self,
@@ -349,15 +353,19 @@ impl PathfindingSystem {
         ignore_obstacle_id: Option<ObjectID>,
         allow_pinched: bool,
     ) -> bool {
-        let ignore_cells = ignored_obstacle_cells(ignore_obstacle_id);
-        self.is_line_passable(
+        self.is_line_passable_for_object_with_ignore_id(
+            INVALID_ID,
             from,
             to,
             surfaces,
             is_crusher,
             PathfindLayerEnum::Ground,
-            ignore_cells.as_ref(),
+            LineObstacleIgnore::Owner(ignore_obstacle_id),
             allow_pinched,
+            false,
+            0,
+            true,
+            None,
         )
     }
 
@@ -374,20 +382,21 @@ impl PathfindingSystem {
         blocked: bool,
         unit_radius: f32,
     ) -> bool {
-        let ignore_cells = ignored_obstacle_cells(ignore_obstacle_id);
         let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
-        self.is_line_passable_for_object_inner(
+        self.is_line_passable_for_object_with_ignore_id(
             obj_id,
             from,
             to,
             surfaces,
             is_crusher,
             PathfindLayerEnum::Ground,
-            ignore_cells.as_ref(),
+            LineObstacleIgnore::Owner(ignore_obstacle_id),
             allow_pinched,
             blocked,
             radius,
             center_in_cell,
+            // Movement occupancy reads the object's AI ignore independently.
+            None,
         )
     }
 

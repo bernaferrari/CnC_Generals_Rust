@@ -2991,3 +2991,39 @@ fn quick_path_truncates_destination_and_clips_zone_cell() {
     let clearly_outside = Coord3D::new(-11.0, 5.0, 0.0);
     assert!(!world.client_safe_quick_does_path_exist(SURFACE_GROUND, &from, &clearly_outside));
 }
+
+#[test]
+fn line_obstacle_owner_is_resolved_per_layer() {
+    let mut world = PathfindingSystem::new(8, 6);
+    let cell = GridCoord::new(3, 2);
+    for x in 0..8 {
+        world.pathfinder.set_cell_type_on_layer(
+            GridCoord::new(x, 2),
+            PathfindLayerEnum::Top,
+            PathfindCellType::Clear,
+        );
+    }
+    world
+        .pathfinder
+        .set_cell_obstacle_id(cell, 41, false, false);
+    world
+        .pathfinder
+        .set_cell_obstacle_id_on_layer(cell, PathfindLayerEnum::Top, 42, false, false);
+    let from = GridCoord::new(1, 2).to_world(0.0);
+    let to = GridCoord::new(6, 2).to_world(0.0);
+    let line = |layer, owner| {
+        world.is_line_passable_for_surfaces_on_layer(&from, &to, SURFACE_GROUND, layer, owner)
+    };
+    assert!(line(PathfindLayerEnum::Ground, Some(41)));
+    assert!(!line(PathfindLayerEnum::Top, Some(41)));
+    assert!(line(PathfindLayerEnum::Top, Some(42)));
+    assert!(!line(PathfindLayerEnum::Ground, Some(INVALID_ID)));
+    let explicit_cells = HashSet::from([cell]);
+    assert!(world.is_line_passable_on_layer_with_cells(
+        &from,
+        &to,
+        SURFACE_GROUND,
+        PathfindLayerEnum::Ground,
+        Some(&explicit_cells)
+    ));
+}
