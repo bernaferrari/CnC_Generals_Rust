@@ -2,7 +2,8 @@
 //!
 //! Provides Linux-specific device operations and system integration.
 
-use super::{MemoryUsage, PlatformError, Result, ThreadPriority};
+use super::{PlatformError, Result};
+use super::device_interface::{MemoryUsage, ThreadPriority};
 
 /// Linux-specific device implementation  
 pub struct LinuxDevice {
@@ -31,7 +32,7 @@ impl LinuxDevice {
         };
 
         // Use libc to set process priority
-        SAFETY: setpriority(PRIO_PROCESS, 0, nice) targets the calling process only;
+        // SAFETY: setpriority(PRIO_PROCESS, 0, nice) targets the calling process only;
         // SAFETY: by-value scalar arguments, no pointer dereference.
         unsafe {
             // SAFETY: setpriority(PRIO_PROCESS, 0, nice) targets the calling process only;

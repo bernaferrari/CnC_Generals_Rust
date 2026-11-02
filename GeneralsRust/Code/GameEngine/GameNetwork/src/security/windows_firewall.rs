@@ -4,7 +4,7 @@
 //! Windows-specific support via COM interfaces.
 
 use crate::error::NetworkResult;
-use tracing::debug;
+use tracing::{debug, info, warn};
 
 /// Cross-platform firewall integration trait.
 pub trait FirewallIntegration {
