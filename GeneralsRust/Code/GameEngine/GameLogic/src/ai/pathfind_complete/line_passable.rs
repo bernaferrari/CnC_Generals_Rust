@@ -456,10 +456,6 @@ impl PathfindingSystem {
             return false;
         }
 
-        let ignore_cells = observations.map_or_else(
-            || ignored_obstacle_cells(request.ignore_obstacle_id),
-            |world| world.ignored_cells(request.ignore_obstacle_id),
-        );
         let pathfinder = &self.pathfinder;
         let center_cell = ICoord2D::new(cell.x, cell.y);
         let check_for_aircraft = aircraft_goal_only
@@ -475,6 +471,13 @@ impl PathfindingSystem {
                 return;
             }
 
+            let Some((cell_type, obstacle_owner, _)) =
+                pathfinder.obstacle_observation_at(coord, layer)
+            else {
+                ok = false;
+                return;
+            };
+
             if check_for_aircraft {
                 let goal_aircraft = self.get_goal_aircraft(coord);
                 if goal_aircraft == INVALID_ID || goal_aircraft == request.object_id {
@@ -484,14 +487,21 @@ impl PathfindingSystem {
                 return;
             }
 
-            if !pathfinder.is_passable_with_ignore(
-                coord,
-                request.surfaces,
-                request.is_crusher,
-                ignore_cells.as_ref(),
-            ) {
-                ok = false;
-                return;
+            match cell_type {
+                PathfindCellType::Obstacle => {
+                    if obstacle_owner.is_some_and(|id| {
+                        id != INVALID_ID && request.ignore_obstacle_id == Some(id)
+                    }) {
+                        return;
+                    }
+                    ok = false;
+                    return;
+                }
+                PathfindCellType::Impassable | PathfindCellType::BridgeImpassable => {
+                    ok = false;
+                    return;
+                }
+                _ => {}
             }
 
             let goal_unit = self.get_goal_unit(coord, layer);

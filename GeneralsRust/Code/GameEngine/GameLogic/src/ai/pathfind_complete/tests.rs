@@ -2448,3 +2448,76 @@ fn cell_center_height_samples_the_requested_bridge_slot() {
         );
     }
 }
+
+#[test]
+fn cpp_destination_uses_cell_identity_not_surface_or_registry() {
+    let factory = crate::object::object_factory::ObjectFactory::new();
+    let players = crate::player::PlayerList::new();
+    let terrain = crate::terrain::TerrainLogic::new();
+    let observations = PathfindObservations {
+        factory: &factory,
+        players: &players,
+        terrain: &terrain,
+    };
+    let mut first = PathfindingSystem::new(8, 8);
+    let mut second = PathfindingSystem::new(8, 8);
+    first.new_map();
+    second.new_map();
+    let cell = GridCoord::new(4, 4);
+    let position = cell.to_world(0.0);
+    let request = PathRequest {
+        object_id: 100,
+        from: position,
+        to: position,
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        unit_radius: 0.0,
+        allow_partial: false,
+        move_allies: false,
+        ignore_obstacle_id: Some(41),
+        is_human: false,
+    };
+    first.set_cell_type(&position, PathfindCellType::Water);
+    assert!(
+        first.check_destination_with_observations(
+            &request,
+            cell,
+            PathfindLayerEnum::Ground,
+            0,
+            true,
+            Some(false),
+            Some(&observations)
+        ),
+        "C++ checkDestination assumes locomotor validation and accepts water"
+    );
+    first
+        .pathfinder
+        .set_cell_obstacle_id(cell, 41, false, false);
+    second
+        .pathfinder
+        .set_cell_obstacle_id(cell, 42, false, false);
+    assert!(
+        first.check_destination_with_observations(
+            &request,
+            cell,
+            PathfindLayerEnum::Ground,
+            0,
+            true,
+            Some(false),
+            Some(&observations)
+        ),
+        "the receiving grid owns the ignored obstacle"
+    );
+    assert!(
+        !second.check_destination_with_observations(
+            &request,
+            cell,
+            PathfindLayerEnum::Ground,
+            0,
+            true,
+            Some(false),
+            Some(&observations)
+        ),
+        "a different obstacle remains blocked"
+    );
+}
