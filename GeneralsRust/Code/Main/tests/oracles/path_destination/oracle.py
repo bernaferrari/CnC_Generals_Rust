@@ -32,17 +32,17 @@ struct CellInfo { ObjectID m_obstacleID; };
 struct PathfindCell {
     enum CellType { CELL_CLEAR, CELL_WATER, CELL_OBSTACLE, CELL_IMPASSABLE, CELL_BRIDGE_IMPASSABLE };
     enum { NO_UNITS = 0, UNIT_PRESENT_FIXED = 3 };
-    CellType type; CellInfo *m_info; ObjectID goal = INVALID_ID; bool aircraft = false;
+    CellType type; CellInfo *m_info; ObjectID goal = INVALID_ID; bool aircraft = false; Int flags = NO_UNITS;
     CellType getType() const { return type; }
     Bool isObstaclePresent(ObjectID) const;
     Bool isAircraftGoal() const { return aircraft; }
     ObjectID getGoalAircraft() const { return goal; }
-    Int getFlags() const { return NO_UNITS; }
+    Int getFlags() const { return flags; }
     ObjectID getGoalUnit() const { return goal; }
 };
 struct AI { ObjectID ignored; bool aircraft = false; ObjectID getIgnoredObstacleID() const { return ignored; } Bool isAircraftThatAdjustsDestination() const { return aircraft; } };
-struct Object { AI ai; ObjectID id; const AI* getAIUpdateInterface() const { return &ai; } const AI* getAI() const { return &ai; } ObjectID getID() const { return id; } Int getRelationship(Object*) const { return 0; } Bool canCrushOrSquish(Object*, Int) const { return false; } };
-struct Logic { Object* findObjectByID(ObjectID) const { return nullptr; } } logic; Logic *TheGameLogic = &logic;
+struct Object { AI ai; ObjectID id; const AI* getAIUpdateInterface() const { return &ai; } const AI* getAI() const { return &ai; } ObjectID getID() const { return id; } Int relation = 0; bool crush = false; Int getRelationship(Object*) const { return relation; } Bool canCrushOrSquish(Object*, Int) const { return crush; } };
+struct Logic { Object* target = nullptr; Object* findObjectByID(ObjectID) const { return target; } } logic; Logic *TheGameLogic = &logic;
 struct Pathfinder { PathfindCell *cell; PathfindCell* getCell(PathfindLayerEnum, Int, Int) { return cell; } Bool checkDestination(const Object*, Int, Int, PathfindLayerEnum, Int, Bool); };
 __CELL__
 __IMPASSABLE__
@@ -56,6 +56,11 @@ int main() {
     finder.cell = &ground; std::cout << finder.checkDestination(&unit, 0, 0, 1, 0, true) << ' ';
     finder.cell = &bridge; std::cout << finder.checkDestination(&unit, 0, 0, 2, 0, true) << ' ';
     finder.cell = &ground; std::cout << finder.checkDestination(&unit, 0, 0, 2, 0, true) << ' ';
+    unit.ai.aircraft = false; Object target{{0}, 101}; logic.target = &target; PathfindCell occupied{PathfindCell::CELL_CLEAR, nullptr, 101, false, PathfindCell::UNIT_PRESENT_FIXED}; finder.cell = &occupied;
+    unit.relation = ALLIES; std::cout << finder.checkDestination(&unit, 0, 0, 1, 0, true) << ' ';
+    unit.relation = 0; std::cout << finder.checkDestination(&unit, 0, 0, 1, 0, true) << ' ';
+    unit.crush = true; std::cout << finder.checkDestination(&unit, 0, 0, 1, 0, true) << ' ';
+    unit.crush = false; occupied.flags = 1; std::cout << finder.checkDestination(&unit, 0, 0, 1, 0, true) << ' ';
     std::cout << '\n';
 }
 '''
@@ -67,6 +72,6 @@ with tempfile.TemporaryDirectory(prefix='path-destination-') as directory:
     source.write_text(program)
     subprocess.run(['c++', '-std=c++17', str(source), '-o', str(binary)], check=True)
     actual = subprocess.check_output([str(binary)], text=True)
-    if actual != '1 1 0 0 0 1 0 \n':
+    if actual != '1 1 0 0 0 1 0 0 0 1 1 \n':
         raise SystemExit(f'unexpected C++ result: {actual!r}')
     print(actual, end='')

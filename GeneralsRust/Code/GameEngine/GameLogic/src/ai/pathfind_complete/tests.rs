@@ -2574,3 +2574,204 @@ fn aircraft_destination_respects_resolved_cell_layer() {
     );
     assert!(!accepts(&world, PathfindLayerEnum::Ground));
 }
+
+#[test]
+fn destination_respects_allied_and_fixed_enemy_goal_units() {
+    const SOURCE: ObjectID = 710101;
+    const ALLY: ObjectID = 710102;
+    const ENEMY: ObjectID = 710103;
+    let team = std::sync::Arc::new(std::sync::RwLock::new(crate::team::Team::new(
+        "DestinationSource".into(),
+        7101,
+    )));
+    let enemy_team = std::sync::Arc::new(std::sync::RwLock::new(crate::team::Team::new(
+        "DestinationEnemy".into(),
+        7102,
+    )));
+    team.write()
+        .unwrap()
+        .set_override_team_relationship(7101, Relationship::Allies);
+    team.write()
+        .unwrap()
+        .set_override_team_relationship(7102, Relationship::Enemies);
+    let _source = register_test_object(SOURCE, &[], Some(team.clone()));
+    let _ally = register_test_object(ALLY, &[], Some(team));
+    let _enemy = register_test_object(ENEMY, &[], Some(enemy_team));
+    struct Unregister;
+    impl Drop for Unregister {
+        fn drop(&mut self) {
+            for id in [SOURCE, ALLY, ENEMY] {
+                OBJECT_REGISTRY.unregister_object(id);
+            }
+        }
+    }
+    let _cleanup = Unregister;
+    let mut world = PathfindingSystem::new(8, 8);
+    world.new_map();
+    let cell = GridCoord::new(4, 4);
+    let position = cell.to_world(0.0);
+    let request = PathRequest {
+        object_id: SOURCE,
+        from: position,
+        to: position,
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        unit_radius: 0.0,
+        allow_partial: false,
+        move_allies: true,
+        ignore_obstacle_id: None,
+        is_human: false,
+    };
+    world.set_goal_cells(
+        ALLY,
+        ICoord2D::new(cell.x, cell.y),
+        0,
+        true,
+        PathfindLayerEnum::Ground,
+        true,
+        false,
+    );
+    assert!(
+        !world.check_destination(
+            &request,
+            cell,
+            PathfindLayerEnum::Ground,
+            0,
+            true,
+            Some(false)
+        ),
+        "C++ never usurps an ally goal"
+    );
+    world.set_goal_cells(
+        ENEMY,
+        ICoord2D::new(cell.x, cell.y),
+        0,
+        true,
+        PathfindLayerEnum::Ground,
+        true,
+        false,
+    );
+    world.set_pos_cells(
+        ENEMY,
+        ICoord2D::new(cell.x, cell.y),
+        0,
+        true,
+        PathfindLayerEnum::Ground,
+        true,
+        false,
+    );
+    assert!(
+        !world.check_destination(
+            &request,
+            cell,
+            PathfindLayerEnum::Ground,
+            0,
+            true,
+            Some(false)
+        ),
+        "a fixed enemy that cannot be crushed blocks the destination"
+    );
+    world.clear_pos_cells(
+        ENEMY,
+        ICoord2D::new(cell.x, cell.y),
+        0,
+        true,
+        PathfindLayerEnum::Ground,
+        true,
+        false,
+    );
+    assert!(
+        world.check_destination(
+            &request,
+            cell,
+            PathfindLayerEnum::Ground,
+            0,
+            true,
+            Some(false)
+        ),
+        "an enemy goal without a fixed unit is allowed"
+    );
+}
+
+#[test]
+fn destination_occupancy_uses_the_receiving_factory() {
+    use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
+    use std::sync::{Arc, RwLock};
+    fn instance(relation: Relationship) -> (ObjectFactory, ObjectID, ObjectID) {
+        let mut factory = ObjectFactory::new();
+        let mut logic = crate::system::game_logic::GameLogic::new();
+        let source_team = Arc::new(RwLock::new(crate::team::Team::new("Source".into(), 801)));
+        let target_team = Arc::new(RwLock::new(crate::team::Team::new("Target".into(), 802)));
+        source_team
+            .write()
+            .unwrap()
+            .set_override_team_relationship(802, relation);
+        let mut create = |name: &str, team| {
+            factory
+                .prepare_object(
+                    &mut logic,
+                    Arc::new(crate::common::types::DefaultThingTemplate::new(name.into())),
+                    Coord3D::ZERO,
+                    Some(team),
+                    ObjectCreationFlags::NO_AI,
+                )
+                .unwrap()
+        };
+        let source = create("DestinationSource", source_team);
+        let target = create("DestinationTarget", target_team);
+        (factory, source, target)
+    }
+    let (ally_factory, source, goal) = instance(Relationship::Allies);
+    let (enemy_factory, peer_source, peer_goal) = instance(Relationship::Enemies);
+    assert_eq!((source, goal), (peer_source, peer_goal));
+    let players = crate::player::PlayerList::new();
+    let terrain = crate::terrain::TerrainLogic::new();
+    let cell = GridCoord::new(4, 4);
+    let pos = cell.to_world(0.0);
+    let request = PathRequest {
+        object_id: source,
+        from: pos,
+        to: pos,
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        unit_radius: 0.0,
+        allow_partial: false,
+        move_allies: true,
+        ignore_obstacle_id: None,
+        is_human: false,
+    };
+    let mut world = PathfindingSystem::new(8, 8);
+    world.new_map();
+    world.set_goal_cells(
+        goal,
+        ICoord2D::new(cell.x, cell.y),
+        0,
+        true,
+        PathfindLayerEnum::Ground,
+        true,
+        false,
+    );
+    let ally = PathfindObservations {
+        factory: &ally_factory,
+        players: &players,
+        terrain: &terrain,
+    };
+    let enemy = PathfindObservations {
+        factory: &enemy_factory,
+        players: &players,
+        terrain: &terrain,
+    };
+    let check = |owner| {
+        world.check_destination_with_observations(
+            &request,
+            cell,
+            PathfindLayerEnum::Ground,
+            0,
+            true,
+            Some(false),
+            Some(owner),
+        )
+    };
+    assert!(!check(&ally));
+    assert!(check(&enemy));
+}

@@ -524,31 +524,37 @@ impl PathfindingSystem {
                 ok = false;
                 return;
             }
-            let relationship = if let Some(world) = observations {
-                let source = world.object(request.object_id);
-                let target = world.object(goal_unit);
-                match (source, target) {
-                    (Some(source), Some(target)) => Some(world.relationship(
-                        &source.read().expect("admitted source poisoned"),
-                        &target.read().expect("admitted goal poisoned"),
-                    )),
-                    _ => None,
+            const UNIT_PRESENT_FIXED: u8 = 0x03;
+            let fixed = Self::cell_occupancy_flags(goal_unit, self.pos_unit_at(coord, layer))
+                == UNIT_PRESENT_FIXED;
+            let occupied = super::check_movement::observe_movement_pair(
+                request.object_id,
+                goal_unit,
+                observations,
+                |source, target| {
+                    let relationship =
+                        super::check_movement::movement_relationship(source, target, observations);
+                    let can_crush = relationship != Relationship::Allies
+                        && (!fixed
+                            || match observations {
+                                Some(_) => source.can_crush_or_squish_with_relationship(
+                                    target,
+                                    CrushSquishTestType::TestCrushOrSquish,
+                                    relationship,
+                                ),
+                                None => source.can_crush_or_squish(
+                                    target,
+                                    CrushSquishTestType::TestCrushOrSquish,
+                                ),
+                            });
+                    (relationship, can_crush)
+                },
+            )
+            .expect("destination object observations must remain valid");
+            if let Some((relationship, can_crush)) = occupied {
+                if relationship == Relationship::Allies || !can_crush {
+                    ok = false;
                 }
-            } else {
-                OBJECT_REGISTRY
-                    .with_object(request.object_id, |obj_guard| {
-                        OBJECT_REGISTRY.with_object(goal_unit, |goal_guard| {
-                            obj_guard.relationship_to(&goal_guard)
-                        })
-                    })
-                    .flatten()
-            };
-            let Some(relationship) = relationship else {
-                return;
-            };
-            if !request.move_allies && matches!(relationship, crate::common::Relationship::Allies) {
-                ok = false;
-                return;
             }
         });
 

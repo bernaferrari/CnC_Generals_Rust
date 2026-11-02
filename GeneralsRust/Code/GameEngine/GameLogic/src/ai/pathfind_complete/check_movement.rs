@@ -2,7 +2,7 @@ use super::*;
 
 /// C++ observes the two actual objects at each occupancy branch. Only the
 /// compatibility adapter discovers those objects in the ambient registry.
-fn observe_movement_pair<T>(
+pub(super) fn observe_movement_pair<T>(
     source: ObjectID,
     occupant: ObjectID,
     observations: Option<&PathfindObservations<'_>>,
@@ -28,7 +28,7 @@ fn observe_movement_pair<T>(
     Ok(Some(observe(&source, &occupant)))
 }
 
-fn movement_relationship(
+pub(super) fn movement_relationship(
     source: &crate::object::Object,
     occupant: &crate::object::Object,
     observations: Option<&PathfindObservations<'_>>,
