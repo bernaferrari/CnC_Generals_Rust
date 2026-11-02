@@ -278,6 +278,10 @@ pub(crate) struct ClientVisualState {
     pub(crate) next_point_light: std::sync::atomic::AtomicU64,
     pub(crate) terrain_trees: Mutex<HashMap<u32, TerrainTreeRegistration>>,
     pub(crate) weapon_recoils: Mutex<Vec<(ObjectID, f32, f32)>>,
+    /// Presentation FX object poses for this world/session only.
+    pub(crate) host_fx_poses: Mutex<HashMap<ObjectID, HostFxObjectPose>>,
+    /// GameClient terrain-water callbacks for this world/session only.
+    pub(crate) water_hooks: Mutex<crate::terrain_water::VisualWaterHooks>,
 }
 
 impl Default for ClientVisualState {
@@ -290,6 +294,8 @@ impl Default for ClientVisualState {
             next_point_light: std::sync::atomic::AtomicU64::new(1),
             terrain_trees: Mutex::new(HashMap::new()),
             weapon_recoils: Mutex::new(Vec::new()),
+            host_fx_poses: Mutex::new(HashMap::new()),
+            water_hooks: Mutex::new(crate::terrain_water::VisualWaterHooks::default()),
         }
     }
 }

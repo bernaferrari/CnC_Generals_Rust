@@ -98,14 +98,29 @@ pub struct HostFxObjectPose {
     pub is_shrouded: bool,
 }
 
-static HOST_FX_OBJECT_POSES: std::sync::LazyLock<RwLock<HashMap<ObjectID, HostFxObjectPose>>> =
-    std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
+fn with_host_fx_poses_mut<R>(f: impl FnOnce(&mut HashMap<ObjectID, HostFxObjectPose>) -> R) -> Option<R> {
+    let services = crate::system::engine_stores::active_services();
+    let mut map = services
+        .client_visuals()
+        .host_fx_poses
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    Some(f(&mut map))
+}
+
+fn with_host_fx_poses<R>(f: impl FnOnce(&HashMap<ObjectID, HostFxObjectPose>) -> R) -> Option<R> {
+    let services = crate::system::engine_stores::active_services();
+    let map = services
+        .client_visuals()
+        .host_fx_poses
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    Some(f(&map))
+}
 
 /// Stamp a live host object's leftover-space pose for object-form FX.
 pub fn set_host_fx_object_pose(pose: HostFxObjectPose) {
-    if let Ok(mut map) = HOST_FX_OBJECT_POSES.write() {
-        insert_host_fx_object_pose(&mut map, pose);
-    }
+    let _ = with_host_fx_poses_mut(|map| insert_host_fx_object_pose(map, pose));
 }
 
 fn insert_host_fx_object_pose(
@@ -117,29 +132,29 @@ fn insert_host_fx_object_pose(
 
 /// Look up a host object pose published by the live host.
 pub fn host_fx_object_pose(id: ObjectID) -> Option<HostFxObjectPose> {
-    HOST_FX_OBJECT_POSES
-        .read()
-        .ok()
-        .and_then(|map| map.get(&id).copied())
+    with_host_fx_poses(|map| map.get(&id).copied()).flatten()
 }
 
 /// Drop a published host pose when the live object is gone.
 pub fn remove_host_fx_object_pose(id: ObjectID) {
-    if let Ok(mut map) = HOST_FX_OBJECT_POSES.write() {
+    let _ = with_host_fx_poses_mut(|map| {
         map.remove(&id);
-    }
+    });
 }
 
 /// Keep poses for live host IDs still present (including dying wrecks).
 pub fn retain_host_fx_object_poses(keep: impl Fn(ObjectID) -> bool) {
-    if let Ok(mut map) = HOST_FX_OBJECT_POSES.write() {
+    let _ = with_host_fx_poses_mut(|map| {
         map.retain(|&id, _| keep(id));
-    }
+    });
 }
 
 #[cfg(test)]
 mod host_fx_pose_publication_tests {
-    use super::{HostFxObjectPose, apply_host_fx_pose_frame, insert_host_fx_object_pose};
+    use super::{
+        HostFxObjectPose, apply_host_fx_pose_frame, host_fx_object_pose,
+        insert_host_fx_object_pose, set_host_fx_object_pose,
+    };
     use crate::common::{Matrix3D, ObjectID};
     use std::collections::HashMap;
 
@@ -180,6 +195,38 @@ mod host_fx_pose_publication_tests {
         assert!(!poses.contains_key(&91_004));
         assert_eq!(poses.get(&91_003).unwrap().position.x, 5.0);
     }
+
+    #[test]
+    fn parallel_worlds_keep_independent_host_fx_poses() {
+        use crate::system::engine_stores::{new_world_services, with_world_services};
+        use std::sync::{Arc, Barrier, Mutex};
+        use std::thread;
+
+        let barrier = Arc::new(Barrier::new(2));
+        let results = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = Vec::new();
+        for seed in [11.0_f32, 22.0_f32] {
+            let barrier = Arc::clone(&barrier);
+            let results = Arc::clone(&results);
+            handles.push(thread::spawn(move || {
+                let services = new_world_services();
+                with_world_services(&services, || {
+                    barrier.wait();
+                    set_host_fx_object_pose(pose(1, seed));
+                    barrier.wait();
+                    let got = host_fx_object_pose(1).map(|p| p.position.x);
+                    results.lock().unwrap().push((seed, got));
+                });
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let mut got = results.lock().unwrap();
+        got.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        assert_eq!(got[0].1, Some(11.0));
+        assert_eq!(got[1].1, Some(22.0));
+    }
 }
 
 /// Publish a complete presentation-frame pose set with one write-lock
@@ -187,9 +234,9 @@ mod host_fx_pose_publication_tests {
 /// between frame publications; the next frame retains exactly its live IDs,
 /// matching the former upsert-then-retain sequence.
 pub fn replace_host_fx_object_poses_for_frame(poses: impl IntoIterator<Item = HostFxObjectPose>) {
-    if let Ok(mut current) = HOST_FX_OBJECT_POSES.write() {
-        apply_host_fx_pose_frame(&mut current, poses);
-    }
+    let _ = with_host_fx_poses_mut(|current| {
+        apply_host_fx_pose_frame(current, poses);
+    });
 }
 
 fn apply_host_fx_pose_frame(
