@@ -8,11 +8,13 @@
 //! asking for Core AI inside a Main service scope is an explicit error.
 use crate::ai::AI;
 use crate::helpers::ClientVisualState;
+use crate::system::game_logic::RadarUpdate;
 use crate::system::shroud_manager::ShroudManager;
 use crate::upgrade::center::UpgradeCenter;
 use game_engine::common::ini::ini_ai_data::{self, AIDataStore};
 use game_engine::common::system::upgrade as common_upgrade;
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
 
 /// Service values shared by Main and the standalone Core runtime. No Core AI.
@@ -20,6 +22,8 @@ pub struct WorldServices {
     shroud: Arc<Mutex<ShroudManager>>,
     client_visuals: ClientVisualState,
     terrain: Arc<RwLock<crate::terrain::TerrainLogic>>,
+    /// Pending radar updates for this world (C++ logic→client fan-out).
+    radar_updates: Mutex<VecDeque<RadarUpdate>>,
 }
 impl WorldServices {
     fn engine_defaults() -> Self {
@@ -27,6 +31,7 @@ impl WorldServices {
             shroud: Arc::new(Mutex::new(ShroudManager::new())),
             client_visuals: ClientVisualState::default(),
             terrain: Arc::clone(&crate::terrain::THE_TERRAIN_LOGIC),
+            radar_updates: Mutex::new(VecDeque::new()),
         }
     }
     /// Snapshot engine content; fresh mutable per-world services. Inert.
@@ -37,6 +42,7 @@ impl WorldServices {
             shroud: Arc::new(Mutex::new(ShroudManager::new())),
             client_visuals: ClientVisualState::default(),
             terrain: Arc::new(RwLock::new(crate::terrain::TerrainLogic::new())),
+            radar_updates: Mutex::new(VecDeque::new()),
         }
     }
     pub fn terrain(&self) -> &Arc<RwLock<crate::terrain::TerrainLogic>> {
@@ -47,6 +53,9 @@ impl WorldServices {
     }
     pub(crate) fn client_visuals(&self) -> &ClientVisualState {
         &self.client_visuals
+    }
+    pub(crate) fn radar_updates(&self) -> &Mutex<VecDeque<RadarUpdate>> {
+        &self.radar_updates
     }
 }
 /// Standalone Core runtime; AI is mandatory, never optional or deferred.
