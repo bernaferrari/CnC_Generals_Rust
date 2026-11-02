@@ -792,6 +792,16 @@ impl PathfindingSystem {
         cell_y: i32,
     ) -> Option<PathfindCellType> {
         let coord = GridCoord::new(cell_x, cell_y);
+        self.cell_type_and_zone(layer, coord).map(|(ty, _)| ty)
+    }
+
+    /// Resolve a cell and its zone together, including C++ getCell's ground
+    /// fallback for an absent or impassable elevated slot.
+    pub(super) fn cell_type_and_zone(
+        &self,
+        layer: PathfindLayerEnum,
+        coord: GridCoord,
+    ) -> Option<(PathfindCellType, u16)> {
         if !self.is_valid_coord(coord) {
             return None;
         }
@@ -799,17 +809,17 @@ impl PathfindingSystem {
             layer,
             PathfindLayerEnum::Ground | PathfindLayerEnum::Invalid
         ) {
-            let layer_id = layer as u32;
-            let bridge = self
-                .bridges
-                .iter()
-                .find(|b| b.contains(coord) && b.layer_id == layer_id);
-            if let Some(cell_type) = bridge.and_then(|b| b.cell_type_at(coord)) {
-                return Some(cell_type);
+            if let Some(bridge) = self.bridge_by_layer_id(layer as u32) {
+                if let Some(ty) = bridge.cell_type_at(coord) {
+                    if ty != PathfindCellType::Impassable {
+                        return Some((ty, bridge.zone));
+                    }
+                }
             }
         }
-        let pathfinder = &self.pathfinder;
-        pathfinder.get_cell_type(coord)
+        self.pathfinder
+            .get_cell_type(coord)
+            .map(|ty| (ty, self.zones.zone_at(coord)))
     }
 
     /// C++ `getCell(layer, REAL_TO_INT(pos.x/SIZE), REAL_TO_INT(pos.y/SIZE))`.

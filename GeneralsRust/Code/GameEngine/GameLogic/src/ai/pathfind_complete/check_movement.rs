@@ -679,37 +679,29 @@ impl PathfindingSystem {
         starting_in_obstacle: bool,
     ) -> bool {
         let cell = GridCoord::new(cell_x, cell_y);
-        if !self.is_valid_coord(cell) {
+        let Some((cell_type, zone)) = self.cell_type_and_zone(layer, cell) else {
+            return false;
+        };
+        if matches!(
+            cell_type,
+            PathfindCellType::Impassable
+                | PathfindCellType::Obstacle
+                | PathfindCellType::BridgeImpassable
+        ) {
             return false;
         }
-        {
-            let pf = &self.pathfinder;
-            if let Some(ct) = pf.get_cell_type(cell) {
-                if matches!(
-                    ct,
-                    PathfindCellType::Impassable
-                        | PathfindCellType::Obstacle
-                        | PathfindCellType::BridgeImpassable
-                ) {
-                    return false;
-                }
-            }
-        }
-        let mut zone2 = {
+        let zone2 = {
             let zones = &self.zones;
-            let z = zones.zone_at(cell);
-            let mut z2 = zones.get_effective_zone(surfaces, is_crusher, z);
+            let mut z2 = zones.get_effective_zone(surfaces, is_crusher, zone);
             if starting_in_obstacle {
                 z2 = zones.get_effective_terrain_zone(z2);
             }
             z2
         };
-        let _ = layer;
         if from_zone == zone2 {
             self.adjust_coord_to_cell(cell_x, cell_y, center, dest, layer);
             return true;
         }
-        let _ = &mut zone2;
         false
     }
 

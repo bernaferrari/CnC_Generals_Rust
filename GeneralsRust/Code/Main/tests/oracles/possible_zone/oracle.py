@@ -10,6 +10,8 @@ path = root / 'GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AIPathfind.cpp'
 if hashlib.sha256(path.read_bytes()).hexdigest() != '0e25cf977f60f59c856969adfff1ac551d543501a35acc6a4e3094210ba9485b':
     raise SystemExit('C++ source pin mismatch')
 source = path.read_text()
+if 'if (cell->getType() == PathfindCell::CELL_IMPASSABLE)' not in source:
+    raise SystemExit('C++ layer-cell fallback changed')
 
 def method(signature):
     start = source.index(signature)
@@ -48,8 +50,8 @@ struct ZoneBlock {
  zoneStorageType getEffectiveZone(LocomotorSurfaceTypeMask,Bool,zoneStorageType) const;
 };
 struct Pathfinder {
- PathfindZoneManager m_zoneManager; PathfindCell cell{2};
- PathfindCell *getCell(PathfindLayerEnum,int,int) { return &cell; }
+ PathfindZoneManager m_zoneManager; PathfindCell cell{2}, deck{3};
+ PathfindCell *getCell(PathfindLayerEnum layer,int,int) { return layer == 2 && deck.type != 1 ? &deck : &cell; }
  void adjustCoordToCell(int x,int y,bool,Coord3D &dest,PathfindLayerEnum) { dest.x=x; dest.y=y; }
  Bool checkForPossible(Bool,Int,Bool,const LocomotorSet&,Int,Int,PathfindLayerEnum,Coord3D*,Bool);
 };
@@ -69,6 +71,15 @@ int main() {
   auto accepted=finder.checkForPossible(false,1,true,locomotor,6,7,1,&dest,obstacle);
   std::cout << obstacle << " " << accepted << " " << dest.x << "," << dest.y << "\n";
  }
+ finder.cell.type=1; finder.deck.type=0; dest={0,0};
+ auto deck_ok=finder.checkForPossible(false,3,true,locomotor,6,7,2,&dest,false);
+ std::cout << "deck " << deck_ok << " " << dest.x << "," << dest.y << "\n";
+ dest={0,0};
+ auto wrong_zone=finder.checkForPossible(false,2,true,locomotor,6,7,2,&dest,false);
+ std::cout << "deck-wrong-zone " << wrong_zone << " " << dest.x << "," << dest.y << "\n";
+ finder.cell.type=0; finder.deck.type=1; dest={0,0};
+ auto fallback=finder.checkForPossible(false,2,true,locomotor,6,7,2,&dest,false);
+ std::cout << "ground-fallback " << fallback << " " << dest.x << "," << dest.y << "\n";
 }
 '''.replace('__METHODS__', '\n'.join(method(s) for s in [
     'zoneStorageType PathfindZoneManager::getEffectiveTerrainZone(',
@@ -83,7 +94,8 @@ with tempfile.TemporaryDirectory(prefix='possible-zone-') as directory:
     actual = subprocess.check_output([str(binary)], text=True)
     expected = ('zero 8 1\nblock 8 0\ncandidate 8 1 6,7\n'
                 'zero 7 1\nblock 7 0\ncandidate 7 1 6,7\n'
-                'zero 1 0\nblock 1 0\ncandidate 1 0 0,0\n0 0 0,0\n1 1 6,7\n')
+                'zero 1 0\nblock 1 0\ncandidate 1 0 0,0\n0 0 0,0\n1 1 6,7\n'
+                'deck 1 6,7\ndeck-wrong-zone 0 0,0\nground-fallback 1 6,7\n')
     if actual != expected:
         raise SystemExit(f'unexpected C++ result: {actual!r}')
     print(actual, end='')

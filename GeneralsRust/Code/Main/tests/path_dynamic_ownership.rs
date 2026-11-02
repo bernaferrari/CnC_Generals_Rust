@@ -621,6 +621,162 @@ fn possible_destination_uses_the_receivers_aircraft_goal_rules() {
 }
 
 #[test]
+fn core_possible_candidate_uses_bridge_cell_and_zone() {
+    use gamelogic::ai::pathfind_astar::{GridCoord, PathfindCellType, PathfindLayerEnum};
+    use gamelogic::ai::pathfind_complete::{
+        PathfindingSystem as CorePathfinder, SURFACE_AIR, SURFACE_GROUND,
+    };
+    let mut owner = CorePathfinder::new(20, 20);
+    let mut peer = CorePathfinder::new(20, 20);
+    let bounds = (GridCoord::new(5, 4), GridCoord::new(11, 6));
+    let layer_id = owner.add_bridge(bounds);
+    assert_eq!(peer.add_bridge(bounds), layer_id);
+    for x in 5..=11 {
+        for y in 4..=6 {
+            owner.set_cell_type(
+                &Vec3::new(x as f32 * 10.0 + 5.0, y as f32 * 10.0 + 5.0, 0.0),
+                PathfindCellType::Impassable,
+            );
+        }
+    }
+    owner.new_map_from_classified_cells();
+    peer.new_map_from_classified_cells();
+    let layer = PathfindLayerEnum::from_u32(layer_id);
+    let bridge_zone = owner.bridge_by_layer_id(layer_id).unwrap().zone;
+    assert_ne!(bridge_zone, 0);
+    let pos = Vec3::new(75.0, 55.0, 0.0);
+    assert_eq!(
+        owner.get_cell_type_at_layer(&pos, layer),
+        Some(PathfindCellType::Clear)
+    );
+    assert_eq!(
+        owner.get_cell_type_at_layer(&pos, PathfindLayerEnum::Ground),
+        Some(PathfindCellType::Impassable)
+    );
+    let mut dest = Vec3::ZERO;
+    assert!(owner.check_for_possible(
+        false,
+        bridge_zone,
+        true,
+        SURFACE_GROUND,
+        7,
+        5,
+        layer,
+        &mut dest,
+        false
+    ));
+    let mut wrong_zone = Vec3::ZERO;
+    assert!(!owner.check_for_possible(
+        false,
+        0,
+        true,
+        SURFACE_GROUND,
+        7,
+        5,
+        layer,
+        &mut wrong_zone,
+        false
+    ));
+    let mut wrong = Vec3::ZERO;
+    assert!(!owner.check_for_possible(
+        false,
+        bridge_zone,
+        true,
+        SURFACE_GROUND,
+        7,
+        5,
+        PathfindLayerEnum::Ground,
+        &mut wrong,
+        false
+    ));
+    let mut peer_dest = Vec3::ZERO;
+    assert!(peer.check_for_possible(
+        false,
+        1,
+        true,
+        SURFACE_AIR,
+        7,
+        5,
+        layer,
+        &mut peer_dest,
+        false
+    ));
+    let mut repeated = Vec3::ZERO;
+    assert!(owner.check_for_possible(
+        false,
+        bridge_zone,
+        true,
+        SURFACE_GROUND,
+        7,
+        5,
+        layer,
+        &mut repeated,
+        false
+    ));
+    assert_eq!(repeated, dest);
+    owner.set_bridge_destroyed(layer_id, true);
+    owner.set_cell_type(&pos, PathfindCellType::Clear);
+    let mut destroyed = Vec3::ZERO;
+    assert!(!owner.check_for_possible(
+        false,
+        1,
+        true,
+        SURFACE_AIR,
+        7,
+        5,
+        layer,
+        &mut destroyed,
+        false
+    ));
+    let mut peer_after_destroy = Vec3::ZERO;
+    assert!(peer.check_for_possible(
+        false,
+        1,
+        true,
+        SURFACE_AIR,
+        7,
+        5,
+        layer,
+        &mut peer_after_destroy,
+        false
+    ));
+    owner.set_bridge_destroyed(layer_id, false);
+    let mut repaired = Vec3::ZERO;
+    assert!(owner.check_for_possible(
+        false,
+        1,
+        true,
+        SURFACE_AIR,
+        7,
+        5,
+        layer,
+        &mut repaired,
+        false
+    ));
+    owner.set_cell_type_at_layer(&pos, layer, PathfindCellType::Impassable);
+    owner.set_cell_type(&pos, PathfindCellType::Clear);
+    assert_eq!(
+        owner.get_cell_type_at_layer(&pos, layer),
+        Some(PathfindCellType::Clear)
+    );
+    let mut fallback = Vec3::ZERO;
+    assert!(
+        owner.check_for_possible(
+            false,
+            1,
+            true,
+            SURFACE_AIR,
+            7,
+            5,
+            layer,
+            &mut fallback,
+            false
+        ),
+        "an impassable layer slot falls back to the clear ground cell"
+    );
+}
+
+#[test]
 fn possible_candidate_maps_uninitialized_zone_for_unrestricted_locomotors() {
     use gamelogic::ai::pathfind_astar::PathfindLayerEnum;
     use gamelogic::ai::pathfind_complete::{
