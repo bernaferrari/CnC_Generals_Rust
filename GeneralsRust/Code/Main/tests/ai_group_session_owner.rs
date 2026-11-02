@@ -1073,6 +1073,159 @@ fn locked_attack_move_parent_allows_child_attack_to_finish() {
 }
 
 #[test]
+fn hunt_scan_refreshes_goal_without_replacing_a_running_child() {
+    use generals_main::game_logic::AIState;
+    use generals_main::save_load::SnapshotBuilder;
+
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut source, actor, _, _) = world_with_options(&map, true, true, false);
+    fn admit_players(world: &mut GameLogic) {
+        let player = world.get_player_mut(1).unwrap();
+        player.is_human = false;
+        player.alliance_team = 1;
+        player.units_should_hunt = true;
+        world.add_ai_opponent(1, Team::USA, generals_main::ai::AIDifficulty::Hard);
+        let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
+        enemy.alliance_team = 2;
+        world.add_player(enemy);
+    }
+    admit_players(&mut source);
+    let victim = source
+        .create_object_for_player("GroupUnit", 2, Vec3::new(45.0, 0.0, 40.0))
+        .unwrap();
+    hunt(&mut source);
+
+    let builder = SnapshotBuilder::new();
+    let mut saved = builder.create_world_snapshot(&source).unwrap();
+    let module = saved
+        .objects
+        .get_mut(&actor)
+        .unwrap()
+        .modules
+        .get_mut("ReceivingBaseAI")
+        .unwrap();
+    let mut value = serde_json::to_value(&*module).unwrap();
+    value["BaseAi"]["continuation"]["ai_state"] = serde_json::to_value(AIState::Moving).unwrap();
+    *module = serde_json::from_value(value).unwrap();
+    builder.restore_from_snapshot(&saved, &mut source).unwrap();
+    let (mut peer, peer_actor, _, _) = world_with_options(&map, true, true, false);
+    admit_players(&mut peer);
+    assert_eq!(actor, peer_actor);
+    builder.restore_from_snapshot(&saved, &mut peer).unwrap();
+    for _ in 0..35 {
+        source.update_with_dt(1.0 / 30.0);
+        let result = builder.create_world_snapshot(&source).unwrap();
+        let continuation =
+            serde_json::to_value(&result.objects[&actor].modules["ReceivingBaseAI"]).unwrap();
+        if continuation["BaseAi"]["continuation"]["goals"]["object"]
+            == serde_json::to_value(victim).unwrap()
+        {
+            break;
+        }
+    }
+
+    let result = builder.create_world_snapshot(&source).unwrap();
+    let continuation =
+        serde_json::to_value(&result.objects[&actor].modules["ReceivingBaseAI"]).unwrap();
+    let machine = &continuation["BaseAi"]["continuation"];
+    assert_eq!(
+        machine["ai_state"],
+        serde_json::to_value(AIState::Moving).unwrap()
+    );
+    assert_eq!(
+        machine["goals"]["object"],
+        serde_json::to_value(victim).unwrap()
+    );
+    let peer_snapshot = builder.create_world_snapshot(&peer).unwrap();
+    assert_eq!(
+        serde_json::to_value(&peer_snapshot.objects[&actor].modules["ReceivingBaseAI"]).unwrap(),
+        serde_json::to_value(&saved.objects[&actor].modules["ReceivingBaseAI"]).unwrap(),
+    );
+    builder.restore_from_snapshot(&result, &mut peer).unwrap();
+    let restored = builder.create_world_snapshot(&peer).unwrap();
+    assert_eq!(
+        serde_json::to_value(&restored.objects[&actor].modules["ReceivingBaseAI"]).unwrap(),
+        continuation,
+    );
+
+    source.destroy_object(victim).unwrap();
+    for _ in 0..35 {
+        source.update_with_dt(1.0 / 30.0);
+    }
+    let cleared = builder.create_world_snapshot(&source).unwrap();
+    let cleared =
+        serde_json::to_value(&cleared.objects[&actor].modules["ReceivingBaseAI"]).unwrap();
+    assert_eq!(
+        cleared["BaseAi"]["continuation"]["ai_state"],
+        serde_json::to_value(AIState::Moving).unwrap()
+    );
+    assert!(cleared["BaseAi"]["continuation"]["goals"]["object"].is_null());
+}
+
+#[test]
+fn hunt_scan_retargets_a_running_attack_without_reentering_it() {
+    use generals_main::game_logic::AIState;
+    use generals_main::save_load::SnapshotBuilder;
+
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut world, actor, _, _) = world_with_options(&map, true, true, false);
+    let player = world.get_player_mut(1).unwrap();
+    player.is_human = false;
+    player.alliance_team = 1;
+    player.units_should_hunt = true;
+    world.add_ai_opponent(1, Team::USA, generals_main::ai::AIDifficulty::Hard);
+    let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
+    enemy.alliance_team = 2;
+    world.add_player(enemy);
+    let first = world
+        .create_object_for_player("GroupUnit", 2, Vec3::new(45.0, 0.0, 40.0))
+        .unwrap();
+    world.host_object_mut(first).unwrap().health.current = 10_000.0;
+    hunt(&mut world);
+    for _ in 0..240 {
+        let unit = world.host_object(actor).unwrap();
+        if unit.target == Some(first)
+            && (unit.status.is_aiming_weapon || unit.status.is_firing_weapon)
+        {
+            break;
+        }
+        world.update_with_dt(1.0 / 30.0);
+    }
+    assert_eq!(world.host_object(actor).unwrap().target, Some(first));
+    let builder = SnapshotBuilder::new();
+    let before = builder.create_world_snapshot(&world).unwrap();
+    let before = serde_json::to_value(&before.objects[&actor].modules["ReceivingBaseAI"]).unwrap();
+    let original_position = before["BaseAi"]["continuation"]["attack_original_victim_pos"].clone();
+    assert!(!original_position.is_null());
+    let near = world.host_object(actor).unwrap().get_position() + Vec3::new(5.0, 0.0, 0.0);
+    let second = world
+        .create_object_for_player("GroupUnit", 2, near)
+        .unwrap();
+    world.host_object_mut(second).unwrap().health.current = 10_000.0;
+    for _ in 0..120 {
+        world.update_with_dt(1.0 / 30.0);
+        if world.host_object(actor).unwrap().target == Some(second) {
+            break;
+        }
+    }
+    assert_eq!(world.host_object(actor).unwrap().target, Some(second));
+    let after = builder.create_world_snapshot(&world).unwrap();
+    let after = serde_json::to_value(&after.objects[&actor].modules["ReceivingBaseAI"]).unwrap();
+    let machine = &after["BaseAi"]["continuation"];
+    assert_eq!(
+        machine["ai_state"],
+        serde_json::to_value(AIState::Attacking).unwrap()
+    );
+    assert_eq!(
+        machine["parent"]["state"],
+        serde_json::to_value(AIState::Hunting).unwrap()
+    );
+    assert_eq!(machine["attack_original_victim_pos"], original_position);
+}
+
+#[test]
 fn locked_hunt_parent_allows_child_attack_to_finish() {
     use generals_main::game_logic::{AIState, ObjectAudio, SessionAudio};
     use generals_main::save_load::{SnapshotBuilder, WorldSnapshot};

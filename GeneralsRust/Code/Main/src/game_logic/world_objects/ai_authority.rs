@@ -285,7 +285,27 @@ impl GameLogic {
                             target_id: enemy_id,
                         });
                     }
-                    if !units_should_hunt && target_id.is_none() {
+                    let hunt_child = self.objects.get_mut(&object_id).and_then(|unit| {
+                        if unit.retained_ai_root_state() != AIState::Hunting {
+                            return None;
+                        }
+                        let child = unit.unit_ai_runtime.current_leaf_state();
+                        if !unit.unit_ai_runtime.machine_locked() {
+                            unit.unit_ai_runtime.set_machine_goal_object(None);
+                            if child == AIState::Attacking {
+                                // AIAttackState reports a missing goal before returning success.
+                                unit.notify_jet_victim_is_dead(self.frame);
+                                unit.target = None;
+                            }
+                        }
+                        Some(child)
+                    });
+                    if !units_should_hunt
+                        && (hunt_child.is_some() || target_id.is_none())
+                        && hunt_child.is_none_or(|child| {
+                            matches!(child, AIState::Idle | AIState::Patrolling)
+                        })
+                    {
                         if let Some(o) = self.objects.get_mut(&object_id) {
                             o.set_hunting(false);
                             o.release_weapon_lock(
@@ -1036,11 +1056,43 @@ impl GameLogic {
                 object_id,
                 target_id,
             } => {
-                let hunt_entry = self.objects.get(&object_id).is_some_and(|unit| {
-                    unit.retained_ai_root_state() == AIState::Hunting
-                        && unit.unit_ai_runtime.current_leaf_state() != AIState::Attacking
+                let hunt_child = self.objects.get(&object_id).and_then(|unit| {
+                    (unit.retained_ai_root_state() == AIState::Hunting)
+                        .then(|| unit.unit_ai_runtime.current_leaf_state())
                 });
-                if hunt_entry {
+                if hunt_child
+                    .is_some_and(|state| !matches!(state, AIState::Idle | AIState::Patrolling))
+                {
+                    // A hunt scan changes the child machine's goal even when
+                    // that child is already running. AIAttackState observes a
+                    // changed goal on update; it is not re-entered.
+                    if let Some(position) = self
+                        .objects
+                        .get(&target_id)
+                        .map(|target| target.get_position())
+                    {
+                        if let Some(unit) = self.objects.get_mut(&object_id) {
+                            if !unit.unit_ai_runtime.machine_locked() {
+                                unit.unit_ai_runtime
+                                    .set_machine_goal_object(Some((target_id, position)));
+                                if hunt_child == Some(AIState::Attacking)
+                                    && unit.target != Some(target_id)
+                                {
+                                    unit.note_attack_target_with_operation(
+                                        target_id,
+                                        &mut self.attack_events,
+                                        &mut crate::game_logic::ObjectAudio::queue(
+                                            &mut self.queued_audio_events,
+                                        ),
+                                        self.frame,
+                                        &mut effects
+                                            .reborrow_for_object(&mut self.partition_manager),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                } else if hunt_child.is_some() {
                     // AIHuntState selects AI_ATTACK_OBJECT on its child machine;
                     // entering that state also initializes its attack machine.
                     if matches!(
