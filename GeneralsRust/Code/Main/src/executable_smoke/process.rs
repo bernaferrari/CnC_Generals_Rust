@@ -187,4 +187,10 @@ enum SmokeDriver {
     /// After retail InGame: player select/move, then require AI activity residual.
     /// Used by the P0 AI-opponent gate (hq-x1j4u.9.5).
     AiActivity,
+    /// After retail InGame: orders, N ticks, save, load into fresh candidate,
+    /// assert world restore, then post-load order. P0 hq-x1j4u.9.7.
+    SaveLoadOnly,
+    /// Windowed Lone Eagle sit-through ≥60s with a selected unit and stable
+    /// non-zero render items; captures a screenshot. P0 hq-x1j4u.9.6.
+    PresentFrameOnly,
 }

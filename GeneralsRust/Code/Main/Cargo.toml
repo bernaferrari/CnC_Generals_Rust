@@ -434,6 +434,14 @@ path = "src/bin/retail_skirmish_map_gate.rs"
 name = "player_orders_gate"
 path = "src/bin/player_orders_gate.rs"
 
+[[bin]]
+name = "retail_save_load_gate"
+path = "src/bin/retail_save_load_gate.rs"
+
+[[bin]]
+name = "present_frame_gate"
+path = "src/bin/present_frame_gate.rs"
+
 [[example]]
 name = "telemetry_bridge"
 path = "examples/telemetry_bridge.rs"

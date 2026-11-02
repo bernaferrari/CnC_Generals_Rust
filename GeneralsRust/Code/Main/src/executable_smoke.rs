@@ -132,6 +132,32 @@ pub fn run_ai_opponent_skirmish(timeout: Duration) -> ExecutableSmokeResult {
     )
 }
 
+/// Retail skirmish save → load (fresh staged GameLogic) → restore assert → post-load order.
+///
+/// P0 hq-x1j4u.9.7 gate. Uses production-host quicksave/quickload so load goes
+/// through the same staged-candidate path as the UI load.
+pub fn run_retail_skirmish_save_load(timeout: Duration) -> ExecutableSmokeResult {
+    run_executable_smoke_with_launch_and_driver(
+        timeout,
+        true,
+        ExecutableSmokeLaunch::HeadlessHost,
+        SmokeDriver::SaveLoadOnly,
+    )
+}
+
+/// Windowed Lone Eagle present sit-through (≥60s) with selected unit + stable render items.
+///
+/// P0 hq-x1j4u.9.6 gate. Uses `-runtime_host=windowed`. Saves a screenshot under
+/// `GeneralsRust/artifacts/` (or `GENERALS_PRESENT_SCREENSHOT`) when capture works.
+pub fn run_present_skirmish_frame(timeout: Duration) -> ExecutableSmokeResult {
+    run_executable_smoke_with_launch_and_driver(
+        timeout,
+        true,
+        ExecutableSmokeLaunch::Windowed,
+        SmokeDriver::PresentFrameOnly,
+    )
+}
+
 pub fn run_executable_smoke_windowed(
     timeout: Duration,
     use_new_game_path: bool,

@@ -156,6 +156,20 @@ struct SmokeRunState {
     /// When true, after InGame require player move + AI activity (AiActivity).
     ai_activity_goal: bool,
     saw_ai_activity_ok: bool,
+    /// When true, drive save → load → restore assert → post-load order (SaveLoadOnly).
+    save_load_goal: bool,
+    /// Pre-save `world_snap_ok:...` residual captured for restore compare.
+    pre_world_snap: String,
+    /// Logic frame recorded when pre-save tick wait began.
+    save_load_tick_anchor: Option<u32>,
+    saw_world_restore_ok: bool,
+    saw_post_load_move_ok: bool,
+    /// When true, windowed present-frame gate (PresentFrameOnly).
+    present_frame_goal: bool,
+    /// Wall clock when InGame+selected first latched for the 60s sit-through.
+    present_frame_ingame_since: Option<Instant>,
+    saw_present_frame_ok: bool,
+    present_screenshot_path: String,
     phase: u8, // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     last_snap: StatusSnap,
     last_ingame_frame: Option<u32>,
@@ -200,6 +214,8 @@ fn run_executable_smoke_once(
         map_load_goal: matches!(driver, SmokeDriver::MapLoadOnly),
         orders_goal: matches!(driver, SmokeDriver::OrdersOnly),
         ai_activity_goal: matches!(driver, SmokeDriver::AiActivity),
+        save_load_goal: matches!(driver, SmokeDriver::SaveLoadOnly),
+        present_frame_goal: matches!(driver, SmokeDriver::PresentFrameOnly),
         ..Default::default()
     };
 
@@ -326,6 +342,48 @@ fn smoke_wall_budget_exceeded(
                 st.gameplay_step,
                 st.last_snap.last_gameplay_cmd,
                 result.map_seen
+            );
+        } else if st.save_load_goal
+            && !(st.saw_select_ok
+                && st.saw_move_ok
+                && st.saw_save_ok
+                && st.saw_load_ok
+                && st.saw_world_restore_ok
+                && st.saw_post_load_move_ok)
+        {
+            result.shell_wnd_ok = st.saw_shell_wnd_ok;
+            result.executable_host_ok = false;
+            result.gameplay_cmd_ok = false;
+            result.status = "timeout".into();
+            result.detail = format!(
+                "save_load wall timeout incomplete; select={} move={} save={} load={} restore={} post_move={} step={} last_cmd={} map={} frames={}",
+                st.saw_select_ok,
+                st.saw_move_ok,
+                st.saw_save_ok,
+                st.saw_load_ok,
+                st.saw_world_restore_ok,
+                st.saw_post_load_move_ok,
+                st.gameplay_step,
+                st.last_snap.last_gameplay_cmd,
+                result.map_seen,
+                result.frames_observed
+            );
+        } else if st.present_frame_goal && !st.saw_present_frame_ok {
+            result.shell_wnd_ok = st.saw_shell_wnd_ok;
+            result.executable_host_ok = false;
+            result.gameplay_cmd_ok = false;
+            result.status = "timeout".into();
+            result.detail = format!(
+                "present_frame wall timeout incomplete; select={} window_visible={} render_items={} stable_polls={} selected={} step={} last_cmd={} map={} frames={}",
+                st.saw_select_ok,
+                st.saw_window_visible,
+                st.max_render_item_count,
+                st.render_items_nonzero_polls,
+                st.last_snap.selected_count,
+                st.gameplay_step,
+                st.last_snap.last_gameplay_cmd,
+                result.map_seen,
+                result.frames_observed
             );
         } else if st.orders_goal
             && !(st.saw_select_ok && st.saw_move_ok && st.saw_attack_ok)
@@ -516,6 +574,45 @@ fn smoke_child_exited_early(
             result.detail = format!(
                 "ai_activity ok; select/move + AI residual map={} exit={:?} frames={}",
                 result.map_seen,
+                status.code(),
+                result.frames_observed
+            );
+        } else if st.save_load_goal
+            && result.reached_ingame
+            && result.shell_wnd_ok
+            && st.saw_select_ok
+            && st.saw_move_ok
+            && st.saw_save_ok
+            && st.saw_load_ok
+            && st.saw_world_restore_ok
+            && st.saw_post_load_move_ok
+            && status.success()
+        {
+            result.executable_host_ok = true;
+            result.gameplay_cmd_ok = true;
+            result.save_cmd_ok = true;
+            result.load_cmd_ok = true;
+            result.status = "success".into();
+            result.detail = format!(
+                "save_load ok; restore+post-order map={} exit={:?} frames={}",
+                result.map_seen,
+                status.code(),
+                result.frames_observed
+            );
+        } else if st.present_frame_goal
+            && result.reached_ingame
+            && st.saw_present_frame_ok
+            && status.success()
+        {
+            result.executable_host_ok = true;
+            result.gameplay_cmd_ok = true;
+            result.status = "success".into();
+            result.detail = format!(
+                "present_frame ok; window_visible={} render_items={} selected sit-through map={} screenshot={} exit={:?} frames={}",
+                st.saw_window_visible,
+                st.max_render_item_count,
+                result.map_seen,
+                st.present_screenshot_path,
                 status.code(),
                 result.frames_observed
             );
@@ -1235,6 +1332,47 @@ fn smoke_phase_wait_clean_exit(
             result.detail = format!(
                 "ai_activity forced exit; map={} frames={}",
                 result.map_seen, result.frames_observed
+            );
+            return true;
+        } else if st.save_load_goal
+            && result.reached_ingame
+            && st.saw_select_ok
+            && st.saw_move_ok
+            && st.saw_save_ok
+            && st.saw_load_ok
+            && st.saw_world_restore_ok
+            && st.saw_post_load_move_ok
+        {
+            result.shell_wnd_ok = st.saw_shell_wnd_ok || result.shell_wnd_ok;
+            result.executable_host_ok = result.shell_wnd_ok;
+            result.gameplay_cmd_ok = true;
+            result.save_cmd_ok = true;
+            result.load_cmd_ok = true;
+            result.status = if result.executable_host_ok {
+                "success_forced_exit".into()
+            } else {
+                "exit_hang".into()
+            };
+            result.detail = format!(
+                "save_load forced exit; map={} frames={}",
+                result.map_seen, result.frames_observed
+            );
+            return true;
+        } else if st.present_frame_goal
+            && result.reached_ingame
+            && st.saw_present_frame_ok
+        {
+            result.shell_wnd_ok = st.saw_shell_wnd_ok || result.shell_wnd_ok;
+            result.executable_host_ok = true;
+            result.gameplay_cmd_ok = true;
+            result.status = "success_forced_exit".into();
+            result.detail = format!(
+                "present_frame forced exit; window_visible={} render_items={} screenshot={} map={} frames={}",
+                st.saw_window_visible,
+                st.max_render_item_count,
+                st.present_screenshot_path,
+                result.map_seen,
+                result.frames_observed
             );
             return true;
         } else if st.orders_goal

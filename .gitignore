@@ -92,3 +92,6 @@ daemon/*.log
 # Isolated dependencies for C++ parity tooling
 /.venv-parity/
 /.agent-scratch-archive/
+
+# Local present-frame / smoke screenshots (hq-x1j4u.9.6)
+/GeneralsRust/artifacts/

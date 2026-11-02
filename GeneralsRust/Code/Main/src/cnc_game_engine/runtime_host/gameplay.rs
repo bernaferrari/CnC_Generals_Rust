@@ -1235,6 +1235,66 @@ impl CnCGameEngine {
         );
     }
 
+    /// Compact retail-world residual for the P0 save/load gate (hq-x1j4u.9.7).
+    /// Samples map leaf, frame, player-0 supplies, unit count, and one owned
+    /// unit (id/pos/hp/owner) so a post-load snap can prove restore fidelity.
+    pub(super) fn runtime_host_cmd_report_world_snapshot(
+        &mut self,
+        _args: &HashMap<String, String>,
+    ) {
+        if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+            self.runtime_host_last_gameplay_cmd = "world_snap_fail_not_ingame".into();
+            return;
+        }
+        let local_player = self.current_player_id;
+        let snap = self.with_native_camera_input_effects(|logic, _effects, _| {
+            let map_raw = logic.get_current_map_name().to_string();
+            let map_leaf = std::path::Path::new(&map_raw)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(map_raw.as_str())
+                .to_string();
+            let frame = logic.get_current_frame();
+            let p0 = logic
+                .get_player(0)
+                .map(|p| p.resources.supplies as i64)
+                .unwrap_or(-1);
+            let mut units = 0u32;
+            // Prefer the lowest-id alive object owned by the local player so
+            // pre/post snaps stay comparable after staged restore.
+            let mut sample: Option<(u32, f32, f32, f32, f32, u32)> = None;
+            for obj in logic.host_objects().registered_values() {
+                let Some(owner) = obj.owner_player_id else {
+                    continue;
+                };
+                if !obj.is_alive() {
+                    continue;
+                }
+                units = units.saturating_add(1);
+                if owner != local_player {
+                    continue;
+                }
+                let pos = obj.get_position();
+                let cand = (obj.id.0, pos.x, pos.y, pos.z, obj.health.current, owner);
+                match sample {
+                    Some((id, ..)) if cand.0 >= id => {}
+                    _ => sample = Some(cand),
+                }
+            }
+            (map_leaf, frame, p0, units, sample)
+        });
+        let (map_leaf, frame, p0, units, sample) = snap;
+        if let Some((id, x, y, z, hp, owner)) = sample {
+            self.runtime_host_last_gameplay_cmd = format!(
+                "world_snap_ok:map={map_leaf}:frame={frame}:p0={p0}:units={units}:id={id}:x={x:.3}:y={y:.3}:z={z:.3}:hp={hp:.3}:owner={owner}"
+            );
+        } else {
+            self.runtime_host_last_gameplay_cmd = format!(
+                "world_snap_ok:map={map_leaf}:frame={frame}:p0={p0}:units={units}:id=0:x=0:y=0:z=0:hp=0:owner=0"
+            );
+        }
+    }
+
     pub(super) fn runtime_host_cmd_stop_all(&mut self, _args: &HashMap<String, String>) {
         if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
             self.runtime_host_last_gameplay_cmd = "stop_fail_not_ingame".into();

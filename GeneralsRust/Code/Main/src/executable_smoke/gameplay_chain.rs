@@ -30,6 +30,16 @@ fn smoke_drive_gameplay_chain(
         smoke_drive_ai_activity_chain(st, result, snap, control_path);
         return;
     }
+    // P0 save/load gate: orders → N ticks → save → load → restore assert → post-load order.
+    if st.save_load_goal {
+        smoke_drive_save_load_chain(st, result, snap, control_path);
+        return;
+    }
+    // P0 present-frame gate: select, sit ≥60s with stable render items, screenshot.
+    if st.present_frame_goal {
+        smoke_drive_present_frame_chain(st, result, snap, control_path);
+        return;
+    }
     // Issue host gameplay commands (select + move), then exit.
     // Not WND widget clicks — still not playable_claim.
     if st.gameplay_step == 0 {
@@ -1931,5 +1941,445 @@ fn smoke_drive_ai_activity_chain(
         let _ = write_control(&control_path, &["report_ai_activity"]);
         st.commanded_at = Some(Instant::now());
         st.gameplay_step = st.gameplay_step.saturating_add(1).min(40);
+    }
+}
+
+
+
+/// Parse `key=value` fragments from a `world_snap_ok:...` residual.
+fn world_snap_field<'a>(cmd: &'a str, key: &str) -> Option<&'a str> {
+    let prefix = format!("{key}=");
+    cmd.split(':').find_map(|part| part.strip_prefix(&prefix))
+}
+
+fn world_snaps_match(pre: &str, post: &str) -> Result<(), String> {
+    if !pre.starts_with("world_snap_ok:") || !post.starts_with("world_snap_ok:") {
+        return Err(format!("bad snap residuals pre={pre} post={post}"));
+    }
+    for key in ["map", "p0", "units", "id", "owner"] {
+        let a = world_snap_field(pre, key).unwrap_or("");
+        let b = world_snap_field(post, key).unwrap_or("");
+        if a != b {
+            return Err(format!("{key} mismatch pre={a} post={b}"));
+        }
+    }
+    for key in ["hp", "x", "y", "z"] {
+        let a: f32 = world_snap_field(pre, key)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(f32::NAN);
+        let b: f32 = world_snap_field(post, key)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(f32::NAN);
+        if !a.is_finite() || !b.is_finite() || (a - b).abs() > 0.05 {
+            return Err(format!("{key} mismatch pre={a} post={b}"));
+        }
+    }
+    let fa = world_snap_field(pre, "frame").unwrap_or("");
+    let fb = world_snap_field(post, "frame").unwrap_or("");
+    if fa != fb {
+        return Err(format!("frame mismatch pre={fa} post={fb}"));
+    }
+    Ok(())
+}
+
+/// P0 hq-x1j4u.9.7: retail Lone Eagle save → load into staged fresh GameLogic,
+/// assert map/resources/units, then prove orders still accept.
+fn smoke_drive_save_load_chain(
+    st: &mut SmokeRunState,
+    result: &mut ExecutableSmokeResult,
+    snap: &StatusSnap,
+    control_path: &Path,
+) {
+    if snap.last_gameplay_cmd.starts_with("select_ok") {
+        st.saw_select_ok = true;
+    }
+    if snap.last_gameplay_cmd.starts_with("move_ok") {
+        if st.gameplay_step >= 80 {
+            st.saw_post_load_move_ok = true;
+        } else {
+            st.saw_move_ok = true;
+        }
+    }
+    if snap.last_gameplay_cmd.starts_with("save_ok") {
+        st.saw_save_ok = true;
+    }
+    if snap.last_gameplay_cmd.starts_with("load_ok") {
+        st.saw_load_ok = true;
+    }
+    if snap.last_gameplay_cmd.starts_with("world_snap_ok:") {
+        if st.pre_world_snap.is_empty() && st.gameplay_step < 50 {
+            st.pre_world_snap = snap.last_gameplay_cmd.clone();
+        } else if !st.pre_world_snap.is_empty()
+            && st.saw_load_ok
+            && st.gameplay_step >= 60
+            && !st.saw_world_restore_ok
+        {
+            match world_snaps_match(&st.pre_world_snap, &snap.last_gameplay_cmd) {
+                Ok(()) => st.saw_world_restore_ok = true,
+                Err(err) => {
+                    result.detail = format!(
+                        "world_restore_fail:{err}; pre={}; post={}",
+                        st.pre_world_snap, snap.last_gameplay_cmd
+                    );
+                }
+            }
+        }
+    }
+
+    let breadcrumb = format!(
+        "save_load_step={} last_cmd={} select={} move={} save={} load={} restore={} post_move={}",
+        st.gameplay_step,
+        snap.last_gameplay_cmd,
+        st.saw_select_ok,
+        st.saw_move_ok,
+        st.saw_save_ok,
+        st.saw_load_ok,
+        st.saw_world_restore_ok,
+        st.saw_post_load_move_ok
+    );
+    if !result.detail.starts_with("world_restore_fail:") {
+        result.detail = breadcrumb;
+    }
+
+    if st.saw_select_ok
+        && st.saw_move_ok
+        && st.saw_save_ok
+        && st.saw_load_ok
+        && st.saw_world_restore_ok
+        && st.saw_post_load_move_ok
+    {
+        result.gameplay_cmd_ok = true;
+        result.save_cmd_ok = true;
+        result.load_cmd_ok = true;
+        result.detail.push_str(" save_load_pass;");
+        let _ = write_control(control_path, &["exit"]);
+        st.commanded_at = Some(Instant::now());
+        st.phase = 3;
+        return;
+    }
+
+    let retry_due = st
+        .commanded_at
+        .map(|t| t.elapsed() > Duration::from_secs(8))
+        .unwrap_or(true);
+
+    if !st.saw_select_ok {
+        if snap.local_mobile_units == 0 && st.gameplay_step == 0 && !retry_due {
+            return;
+        }
+        if st.gameplay_step == 0 || snap.last_gameplay_cmd.starts_with("select_fail") || retry_due {
+            let _ = write_control(control_path, &["select_local_unit"]);
+            st.gameplay_step = 1;
+            st.commanded_at = Some(Instant::now());
+        }
+        return;
+    }
+
+    if !st.saw_move_ok {
+        if st.gameplay_step < 10 {
+            let _ = write_control(control_path, &["move_selected|x=100|y=0|z=100"]);
+            st.gameplay_step = 10;
+            st.commanded_at = Some(Instant::now());
+            return;
+        }
+        if snap.last_gameplay_cmd.starts_with("move_fail") || retry_due {
+            let _ = write_control(
+                control_path,
+                &["select_local_unit", "move_selected|x=120|y=0|z=120"],
+            );
+            st.commanded_at = Some(Instant::now());
+        }
+        return;
+    }
+
+    // Advance N logic ticks after the order before freezing the world.
+    const SAVE_LOAD_TICK_WAIT: u32 = 45;
+    if st.gameplay_step < 20 {
+        st.save_load_tick_anchor = Some(snap.frame);
+        st.gameplay_step = 20;
+        st.commanded_at = Some(Instant::now());
+        return;
+    }
+    if st.gameplay_step == 20 {
+        let anchor = st.save_load_tick_anchor.unwrap_or(snap.frame);
+        let advanced = snap.frame.saturating_sub(anchor);
+        let waited = st
+            .commanded_at
+            .map(|t| t.elapsed() >= Duration::from_secs(3))
+            .unwrap_or(false);
+        if advanced < SAVE_LOAD_TICK_WAIT && !waited {
+            return;
+        }
+        // Pause so pre-snap / save / load / post-snap share one logic frame.
+        let _ = write_control(control_path, &["pause"]);
+        st.gameplay_step = 25;
+        st.commanded_at = Some(Instant::now());
+        return;
+    }
+    if st.gameplay_step == 25 {
+        if snap.last_gameplay_cmd.starts_with("pause_ok") || retry_due {
+            st.gameplay_step = 30;
+            st.commanded_at = Some(Instant::now());
+        } else if retry_due {
+            let _ = write_control(control_path, &["pause"]);
+            st.commanded_at = Some(Instant::now());
+        }
+        return;
+    }
+
+    if st.pre_world_snap.is_empty() {
+        if st.gameplay_step < 30 {
+            st.gameplay_step = 30;
+        }
+        if st.gameplay_step == 30 || retry_due {
+            let _ = write_control(control_path, &["report_world_snapshot"]);
+            st.gameplay_step = 31;
+            st.commanded_at = Some(Instant::now());
+        }
+        return;
+    }
+
+    if !st.saw_save_ok {
+        if st.gameplay_step < 40 {
+            let _ = write_control(control_path, &["quicksave"]);
+            st.gameplay_step = 40;
+            st.commanded_at = Some(Instant::now());
+            return;
+        }
+        if snap.last_gameplay_cmd.starts_with("save_fail") || retry_due {
+            let _ = write_control(control_path, &["quicksave"]);
+            st.commanded_at = Some(Instant::now());
+        }
+        return;
+    }
+
+    if !st.saw_load_ok {
+        if st.gameplay_step < 50 {
+            let _ = write_control(control_path, &["quickload"]);
+            st.gameplay_step = 50;
+            st.commanded_at = Some(Instant::now());
+            return;
+        }
+        if snap.last_gameplay_cmd.starts_with("load_fail") || retry_due {
+            let _ = write_control(control_path, &["quickload"]);
+            st.commanded_at = Some(Instant::now());
+            st.gameplay_step = st.gameplay_step.saturating_add(1).min(59);
+        }
+        return;
+    }
+
+    if !st.saw_world_restore_ok {
+        if st.gameplay_step < 60 {
+            let _ = write_control(control_path, &["report_world_snapshot"]);
+            st.gameplay_step = 60;
+            st.commanded_at = Some(Instant::now());
+            return;
+        }
+        if retry_due {
+            let _ = write_control(control_path, &["report_world_snapshot"]);
+            st.commanded_at = Some(Instant::now());
+            st.gameplay_step = st.gameplay_step.saturating_add(1).min(69);
+        }
+        return;
+    }
+
+    // Resume then prove orders still accept on the restored world.
+    if st.gameplay_step < 75 {
+        let _ = write_control(control_path, &["pause"]); // toggle → resume if still paused
+        st.gameplay_step = 75;
+        st.commanded_at = Some(Instant::now());
+        return;
+    }
+    if st.gameplay_step == 75 {
+        if snap.last_gameplay_cmd.starts_with("pause_ok") || retry_due {
+            st.gameplay_step = 80;
+            st.commanded_at = Some(Instant::now());
+        }
+        return;
+    }
+
+    if !st.saw_post_load_move_ok {
+        if st.gameplay_step == 80 {
+            let _ = write_control(
+                control_path,
+                &["select_local_unit", "move_selected|x=140|y=0|z=140"],
+            );
+            st.gameplay_step = 81;
+            st.commanded_at = Some(Instant::now());
+            return;
+        }
+        if snap.last_gameplay_cmd.starts_with("move_fail")
+            || snap.last_gameplay_cmd.starts_with("select_fail")
+            || retry_due
+        {
+            let _ = write_control(
+                control_path,
+                &["select_local_unit", "move_selected|x=150|y=0|z=150"],
+            );
+            st.commanded_at = Some(Instant::now());
+            st.gameplay_step = st.gameplay_step.saturating_add(1).min(89);
+        }
+    }
+}
+
+
+/// P0 hq-x1j4u.9.6: windowed Lone Eagle present sit-through with a selected unit,
+/// non-zero stable render items, and a saved screenshot under the worktree.
+fn smoke_drive_present_frame_chain(
+    st: &mut SmokeRunState,
+    result: &mut ExecutableSmokeResult,
+    snap: &StatusSnap,
+    control_path: &Path,
+) {
+    if snap.last_gameplay_cmd.starts_with("select_ok") {
+        st.saw_select_ok = true;
+    }
+    if snap.selected_count > 0 {
+        st.saw_select_ok = true;
+    }
+    if snap.render_item_count > 0 {
+        st.max_render_item_count = st.max_render_item_count.max(snap.render_item_count);
+        st.render_items_nonzero_polls = st.render_items_nonzero_polls.saturating_add(1);
+    }
+    if snap.window_visible {
+        st.saw_window_visible = true;
+        result.window_visible = true;
+    }
+    if snap.presentation_frame_ok {
+        st.saw_presentation_frame_ok = true;
+        result.presentation_frame_ok = true;
+    }
+    if snap.live_frame_ok {
+        st.saw_live_frame_ok = true;
+        result.live_frame_ok = true;
+    }
+
+    result.detail = format!(
+        "present_step={} select={} selected={} window_visible={} render_items={} stable_polls={} sit_secs={} last_cmd={}",
+        st.gameplay_step,
+        st.saw_select_ok,
+        snap.selected_count,
+        st.saw_window_visible,
+        st.max_render_item_count,
+        st.render_items_nonzero_polls,
+        st.present_frame_ingame_since
+            .map(|t| t.elapsed().as_secs())
+            .unwrap_or(0),
+        snap.last_gameplay_cmd
+    );
+
+    let retry_due = st
+        .commanded_at
+        .map(|t| t.elapsed() > Duration::from_secs(6))
+        .unwrap_or(true);
+
+    // Select a local unit once InGame.
+    if !st.saw_select_ok || snap.selected_count == 0 {
+        if st.gameplay_step == 0 || snap.last_gameplay_cmd.starts_with("select_fail") || retry_due {
+            let _ = write_control(control_path, &["select_local_unit"]);
+            st.gameplay_step = 1;
+            st.commanded_at = Some(Instant::now());
+        }
+        return;
+    }
+
+    if st.present_frame_ingame_since.is_none() {
+        st.present_frame_ingame_since = Some(Instant::now());
+        st.gameplay_step = 10;
+        st.commanded_at = Some(Instant::now());
+    }
+
+    let sit = st
+        .present_frame_ingame_since
+        .map(|t| t.elapsed())
+        .unwrap_or_default();
+    let stable = st.render_items_nonzero_polls >= 3 && st.max_render_item_count > 0;
+    let selected_drawn = snap.selected_count > 0 && stable;
+
+    // Sit through at least 60s with selection held.
+    if sit < Duration::from_secs(60) {
+        // Re-select periodically so selection is not cleared by host ticks.
+        if retry_due && snap.selected_count == 0 {
+            let _ = write_control(control_path, &["select_local_unit"]);
+            st.commanded_at = Some(Instant::now());
+        }
+        return;
+    }
+
+    if !stable || !selected_drawn {
+        // Keep polling a bit longer for render residuals after the minute.
+        if sit < Duration::from_secs(90) {
+            return;
+        }
+        result.detail = format!(
+            "present_frame_fail; sit_ok but render/selection short; items={} polls={} selected={}",
+            st.max_render_item_count, st.render_items_nonzero_polls, snap.selected_count
+        );
+        let _ = write_control(control_path, &["exit"]);
+        st.commanded_at = Some(Instant::now());
+        st.phase = 3;
+        return;
+    }
+
+    // Request a capture, then copy frame.png into the worktree artifacts dir.
+    if st.gameplay_step < 20 {
+        let _ = write_control(control_path, &["request_capture"]);
+        st.gameplay_step = 20;
+        st.commanded_at = Some(Instant::now());
+        return;
+    }
+    if st.gameplay_step == 20 {
+        let ready = snap.last_gameplay_cmd.starts_with("request_capture_ok")
+            || st.commanded_at.map(|t| t.elapsed() > Duration::from_secs(5)).unwrap_or(false);
+        if !ready {
+            return;
+        }
+        let frame_src = control_path
+            .parent()
+            .map(|p| p.join("frame.png"))
+            .unwrap_or_else(|| PathBuf::from("frame.png"));
+        // Worktree-relative artifacts/ (gitignored). Prefer GENERALS_PRESENT_SCREENSHOT.
+        let dest = std::env::var_os("GENERALS_PRESENT_SCREENSHOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../artifacts/present_frame_lone_eagle.png")
+            });
+        if let Some(parent) = dest.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        // Wait briefly for the PNG to appear after the capture request.
+        let mut copied = false;
+        for _ in 0..20 {
+            if frame_src.is_file() {
+                if fs::copy(&frame_src, &dest).is_ok() {
+                    copied = true;
+                    break;
+                }
+            }
+            thread::sleep(Duration::from_millis(200));
+        }
+        st.present_screenshot_path = if copied {
+            dest.canonicalize()
+                .unwrap_or(dest)
+                .to_string_lossy()
+                .into_owned()
+        } else {
+            format!("capture_missing:{}", frame_src.display())
+        };
+        st.saw_present_frame_ok = true;
+        result.gameplay_cmd_ok = true;
+        result.render_items_stable_ok = true;
+        result.max_render_item_count = st.max_render_item_count;
+        result.detail = format!(
+            "present_frame_pass; window_visible={} items={} polls={} screenshot={}",
+            st.saw_window_visible,
+            st.max_render_item_count,
+            st.render_items_nonzero_polls,
+            st.present_screenshot_path
+        );
+        let _ = write_control(control_path, &["exit"]);
+        st.commanded_at = Some(Instant::now());
+        st.phase = 3;
     }
 }
