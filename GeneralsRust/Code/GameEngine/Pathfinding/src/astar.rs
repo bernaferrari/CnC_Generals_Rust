@@ -229,7 +229,7 @@ impl AStarPathfinder {
         max_iterations: usize,
         allow_partial: bool,
         ignore_cells: Option<&HashSet<GridCoord>>,
-        extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
+        extra_cost: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> u32>,
     ) -> Option<(Vec<GridCoord>, usize)> {
         self.find_path_ex_with_ground_height(
             start,
@@ -256,17 +256,19 @@ impl AStarPathfinder {
         max_iterations: usize,
         allow_partial: bool,
         ignore_cells: Option<&HashSet<GridCoord>>,
-        extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
+        extra_cost: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> u32>,
         ground_height: Option<&dyn Fn(GridCoord) -> f32>,
     ) -> Option<(Vec<GridCoord>, usize)> {
         // Thin callers (host find_path_via_crate) used to skip layers/zones/
         // occupancy/tunneling. Apply C++ internalFindPath defaults here.
         let start_is_obstacle = self.get_cell_type(start) == Some(PathfindCellType::Obstacle);
-        let occupancy = |cell: GridCoord| -> u32 {
-            extra_cost.map(|f| f(cell)).unwrap_or(0) + self.cell_occupancy_cost(cell)
+        let occupancy = |cell: GridCoord, layer: PathfindLayerEnum| -> u32 {
+            extra_cost.map(|f| f(cell, layer)).unwrap_or(0) + self.cell_occupancy_cost(cell, layer)
         };
-        let line_ok = |cell: GridCoord, _layer: PathfindLayerEnum| -> bool {
-            extra_cost.map(|f| f(cell) < u32::MAX / 8).unwrap_or(true)
+        let line_ok = |cell: GridCoord, layer: PathfindLayerEnum| -> bool {
+            extra_cost
+                .map(|f| f(cell, layer) < u32::MAX / 8)
+                .unwrap_or(true)
         };
         self.find_path_ex6(
             start,
@@ -276,7 +278,7 @@ impl AStarPathfinder {
             max_iterations,
             allow_partial,
             ignore_cells,
-            Some(&occupancy as &dyn Fn(GridCoord) -> u32),
+            Some(&occupancy as &dyn Fn(GridCoord, PathfindLayerEnum) -> u32),
             false,
             ground_height,
             None,
@@ -297,7 +299,7 @@ impl AStarPathfinder {
         max_iterations: usize,
         allow_partial: bool,
         ignore_cells: Option<&HashSet<GridCoord>>,
-        extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
+        extra_cost: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> u32>,
         downhill_only: bool,
         ground_height: Option<&dyn Fn(GridCoord) -> f32>,
     ) -> Option<(Vec<GridCoord>, usize)> {
@@ -327,7 +329,7 @@ impl AStarPathfinder {
         max_iterations: usize,
         allow_partial: bool,
         ignore_cells: Option<&HashSet<GridCoord>>,
-        extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
+        extra_cost: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> u32>,
         downhill_only: bool,
         ground_height: Option<&dyn Fn(GridCoord) -> f32>,
         force_passable: Option<&dyn Fn(GridCoord) -> bool>,
@@ -364,7 +366,7 @@ impl AStarPathfinder {
         max_iterations: usize,
         allow_partial: bool,
         ignore_cells: Option<&HashSet<GridCoord>>,
-        extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
+        extra_cost: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> u32>,
         downhill_only: bool,
         ground_height: Option<&dyn Fn(GridCoord) -> f32>,
         force_passable: Option<&dyn Fn(GridCoord) -> bool>,
@@ -400,7 +402,7 @@ impl AStarPathfinder {
         max_iterations: usize,
         allow_partial: bool,
         ignore_cells: Option<&HashSet<GridCoord>>,
-        extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
+        extra_cost: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> u32>,
         downhill_only: bool,
         ground_height: Option<&dyn Fn(GridCoord) -> f32>,
         force_passable: Option<&dyn Fn(GridCoord) -> bool>,
@@ -443,7 +445,7 @@ impl AStarPathfinder {
         max_iterations: usize,
         allow_partial: bool,
         ignore_cells: Option<&HashSet<GridCoord>>,
-        extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
+        extra_cost: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> u32>,
         downhill_only: bool,
         ground_height: Option<&dyn Fn(GridCoord) -> f32>,
         force_passable: Option<&dyn Fn(GridCoord) -> bool>,
@@ -488,7 +490,7 @@ impl AStarPathfinder {
         max_iterations: usize,
         allow_partial: bool,
         ignore_cells: Option<&HashSet<GridCoord>>,
-        extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
+        extra_cost: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> u32>,
         downhill_only: bool,
         ground_height: Option<&dyn Fn(GridCoord) -> f32>,
         force_passable: Option<&dyn Fn(GridCoord) -> bool>,
@@ -565,7 +567,7 @@ impl AStarPathfinder {
         max_iterations: usize,
         allow_partial: bool,
         ignore_cells: Option<&HashSet<GridCoord>>,
-        extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
+        extra_cost: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> u32>,
         downhill_only: bool,
         ground_height: Option<&dyn Fn(GridCoord) -> f32>,
         force_passable: Option<&dyn Fn(GridCoord) -> bool>,
@@ -610,7 +612,7 @@ impl AStarPathfinder {
         max_iterations: usize,
         allow_partial: bool,
         ignore_cells: Option<&HashSet<GridCoord>>,
-        extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
+        extra_cost: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> u32>,
         downhill_only: bool,
         ground_height: Option<&dyn Fn(GridCoord) -> f32>,
         force_passable: Option<&dyn Fn(GridCoord) -> bool>,
@@ -898,7 +900,7 @@ impl AStarPathfinder {
                 }
                 // C++ allyFixedCount > 0 → +3*COST_DIAGONAL (and setBlockedByAlly).
                 if let Some(extra) = extra_cost {
-                    let e = extra(neighbor_coord);
+                    let e = extra(neighbor_coord, current.layer);
                     if e >= u32::MAX / 8 {
                         continue; // C++ enemyFixed / clearCellForDiameter miss
                     }

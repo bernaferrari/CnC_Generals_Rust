@@ -238,13 +238,13 @@ impl PathfindingSystem {
         let (radius, center_in_cell) = Self::compute_radius_and_center(request.unit_radius);
         let obj_id = request.object_id;
         let start_cell = start;
-        let ally_extra = |cell: GridCoord| -> u32 {
+        let ally_extra = |cell: GridCoord, layer: PathfindLayerEnum| -> u32 {
             if obj_id == INVALID_ID {
                 return 0;
             }
             let mut info = CheckMovementInfo {
                 cell,
-                layer: PathfindLayerEnum::Ground,
+                layer,
                 center_in_cell,
                 radius,
                 consider_transient: false,
@@ -388,7 +388,7 @@ impl PathfindingSystem {
             MAX_PATH_ITERATIONS,
             request.allow_partial,
             ignore_cells.as_ref(),
-            Some(&ally_extra as &dyn Fn(GridCoord) -> u32),
+            Some(&ally_extra as &dyn Fn(GridCoord, PathfindLayerEnum) -> u32),
             downhill_only,
             Some(&ground_h as &dyn Fn(GridCoord) -> f32),
             Some(&force_pass as &dyn Fn(GridCoord) -> bool),

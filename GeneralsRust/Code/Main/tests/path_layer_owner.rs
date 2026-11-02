@@ -4,6 +4,109 @@ use generals_main::game_logic::{GameLogic, HostGeometryType, KindOf, Player, Tea
 use glam::Vec3;
 
 #[test]
+fn ordinary_search_checks_occupants_on_the_current_bridge_layer() {
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_main::game_logic::pathfinding::{GridPos, PathGoalUpdate};
+
+    let ground = PathfindingGround::Flat(0.0);
+    let mut paths = Vec::new();
+    let mut owners = Vec::new();
+    for occupant_layer in [None, Some(1), Some(2)] {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::USA, "Owner", false));
+        world.add_player(Player::new(1, Team::GLA, "Enemy", false));
+        let mut unit = ThingTemplate::new("Mover");
+        unit.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        unit.geometry_info.geom_type = HostGeometryType::Sphere;
+        unit.geometry_info.major_radius = 2.0;
+        unit.geometry_info.authored = true;
+        world.templates.insert("Mover".into(), unit);
+        let start = Vec3::new(15.0, 0.0, 55.0);
+        let goal = Vec3::new(155.0, 0.0, 55.0);
+        let mover = world.create_object_for_player("Mover", 0, start).unwrap();
+        world.host_object_mut(mover).unwrap().downhill_only = true;
+        let position = Vec3::new(85.0, 0.0, 55.0);
+        let enemy = world
+            .create_object_for_player("Mover", 1, position)
+            .unwrap();
+        let mut finder = PathfindingSystem::new(200.0, 120.0);
+        for x in 4..13 {
+            for y in 0..12 {
+                finder
+                    .grid
+                    .set_cell_type(GridPos::new(x, y), PathfindCellType::Impassable);
+            }
+        }
+        finder.grid.stamp_bridge_deck(
+            Vec3::new(30.0, 20.0, 40.0),
+            Vec3::new(30.0, 20.0, 60.0),
+            Vec3::new(130.0, 20.0, 40.0),
+            Vec3::new(130.0, 20.0, 60.0),
+            false,
+            &ground,
+        );
+        finder.grid.rebuild_path_zones();
+        if let Some(layer) = occupant_layer {
+            world.host_object_mut(enemy).unwrap().pathfind_layer = layer;
+            let footprint = finder
+                .grid
+                .path_position_footprint(world.host_object(enemy).unwrap());
+            finder
+                .grid
+                .update_path_position_cell(&footprint, (-1, -1), position);
+            finder.grid.update_path_goal_cell(PathGoalUpdate {
+                unit_id: enemy.0,
+                player: 1,
+                radius: 2.0,
+                old_cell: (-1, -1),
+                old_layer: 0,
+                new_layer: layer,
+                new_on_ground: layer == 1,
+                goal: position,
+            });
+        }
+        paths.push(finder.find_path_ex_surfaces(
+            start,
+            goal,
+            world.host_objects(),
+            false,
+            SURFACE_GROUND,
+            false,
+            Some(mover),
+            &ground,
+        ));
+        owners.push((world, finder, mover, start, goal));
+    }
+    assert!(
+        paths[0].is_some(),
+        "the empty bridge must be crossable: {paths:?}"
+    );
+    assert_eq!(
+        paths[0], paths[1],
+        "an occupant below the deck must not block the bridge"
+    );
+    assert_ne!(
+        paths[0], paths[2],
+        "an occupant on the deck must affect the search"
+    );
+    let (world, finder, mover, start, goal) = &mut owners[0];
+    assert_eq!(
+        finder.find_path_ex_surfaces(
+            *start,
+            *goal,
+            world.host_objects(),
+            false,
+            SURFACE_GROUND,
+            false,
+            Some(*mover),
+            &ground,
+        ),
+        paths[0],
+        "peer searches must not change the first world's result"
+    );
+}
+
+#[test]
 fn move_away_uses_the_receiving_objects_layer_under_a_bridge() {
     use gamelogic::ai::pathfind_astar::{PathfindCellType, PathfindLayerEnum};
     use generals_main::game_logic::pathfinding::GridPos;

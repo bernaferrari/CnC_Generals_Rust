@@ -573,7 +573,7 @@ fn examine_neighbors_on_list_never_reopens_or_recosts() {
     let start = GridCoord::new(0, 0);
     let goal = GridCoord::new(4, 4);
     let counts = std::cell::RefCell::new(HashMap::<GridCoord, u32>::new());
-    let extra = |c: GridCoord| {
+    let extra = |c: GridCoord, _layer: PathfindLayerEnum| {
         *counts.borrow_mut().entry(c).or_insert(0) += 1;
         0u32
     };
@@ -586,7 +586,7 @@ fn examine_neighbors_on_list_never_reopens_or_recosts() {
             2000,
             false,
             None,
-            Some(&extra as &dyn Fn(GridCoord) -> u32),
+            Some(&extra as &dyn Fn(GridCoord, PathfindLayerEnum) -> u32),
         )
         .expect("open 5x5 must path");
     assert!(iters >= 1);

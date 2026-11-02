@@ -10,6 +10,8 @@ path = root / 'GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AIPathfind.cpp'
 if hashlib.sha256(path.read_bytes()).hexdigest() != '0e25cf977f60f59c856969adfff1ac551d543501a35acc6a4e3094210ba9485b':
     raise SystemExit('C++ source pin mismatch')
 source = path.read_text()
+if 'info.layer = parentCell->getLayer();' not in source:
+    raise SystemExit('C++ neighbor layer selection changed')
 signature = 'Bool Pathfinder::checkForMovement('
 start = source.index(signature)
 opening = source.index('{', start)
@@ -48,7 +50,8 @@ struct TCheckMovementInfo {
 struct GameLogic { Object *unit=nullptr; Object *findObjectByID(ObjectID id) { return unit && unit->id==id ? unit : nullptr; } };
 GameLogic *TheGameLogic;
 struct Pathfinder {
- PathfindCell *cell; PathfindCell *getCell(int,int,int) { return cell; }
+ PathfindCell *cell; PathfindCell *deck=nullptr;
+ PathfindCell *getCell(int layer,int,int) { return layer == 2 && deck ? deck : cell; }
  Bool checkForMovement(const Object *,TCheckMovementInfo &);
 };
 __METHOD__
@@ -59,6 +62,18 @@ void test(const char *name, PathfindCell::CellFlags flags, int relation, bool cr
  TCheckMovementInfo info; bool result=p.checkForMovement(&mover,info);
  std::cout << name << " " << result << " " << info.enemyFixed << " " << info.allyFixedCount << " " << info.allyMoving << "\n";
 }
+void test_layers() {
+ Object mover{1,ALLIES}, other{2,ENEMIES};
+ GameLogic logic{&other}; TheGameLogic=&logic;
+ PathfindCell occupied{PathfindCell::UNIT_PRESENT_FIXED,2};
+ PathfindCell empty{PathfindCell::NO_UNITS,0};
+ Pathfinder p{&occupied,&empty}; TCheckMovementInfo info; info.layer=2;
+ p.checkForMovement(&mover,info);
+ std::cout << "enemy-below-deck " << info.enemyFixed << "\n";
+ p.cell=&empty; p.deck=&occupied; info=TCheckMovementInfo{}; info.layer=2;
+ p.checkForMovement(&mover,info);
+ std::cout << "enemy-on-deck " << info.enemyFixed << "\n";
+}
 int main() {
  test("moving-enemy",PathfindCell::UNIT_PRESENT_MOVING,ENEMIES,false,false);
  test("fixed-enemy",PathfindCell::UNIT_PRESENT_FIXED,ENEMIES,false,false);
@@ -66,6 +81,7 @@ int main() {
  test("fixed-ally",PathfindCell::UNIT_PRESENT_FIXED,ALLIES,true,false);
  test("moving-ally",PathfindCell::UNIT_PRESENT_MOVING,ALLIES,false,false);
  test("infantry",PathfindCell::UNIT_PRESENT_FIXED,ENEMIES,false,true);
+ test_layers();
 }
 '''.replace('__METHOD__', method)
 with tempfile.TemporaryDirectory(prefix='seed-occupancy-') as directory:
@@ -74,7 +90,8 @@ with tempfile.TemporaryDirectory(prefix='seed-occupancy-') as directory:
     subprocess.run(['c++', '-std=c++17', str(src), '-o', str(binary)], check=True)
     actual = subprocess.check_output([str(binary)], text=True)
     expected = ('moving-enemy 1 0 0 0\nfixed-enemy 1 1 0 0\ncrushable-enemy 1 0 0 0\n'
-                'fixed-ally 1 0 1 0\nmoving-ally 1 0 0 1\ninfantry 1 0 0 0\n')
+                'fixed-ally 1 0 1 0\nmoving-ally 1 0 0 1\ninfantry 1 0 0 0\n'
+                'enemy-below-deck 0\nenemy-on-deck 1\n')
     if actual != expected:
         raise SystemExit(f'unexpected original result: {actual!r}')
     print(actual, end='')

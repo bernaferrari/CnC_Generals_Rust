@@ -710,41 +710,13 @@ impl PathfindingSystem {
 
         let (exact_path, examined) = {
             let grid = &self.grid;
-            let width = grid.width;
-            let occ_goal = &self.grid.occ_goal_mask;
-            let occ_goal_unit = &self.grid.occ_goal_unit;
-            let occ_pos_unit = &self.grid.occ_pos_unit;
-            let occ_pos_player = &self.grid.occ_pos_player;
-            let occ_pos_flags = &self.grid.occ_pos_flags;
-            let occ_pos_crush = &self.grid.occ_pos_crushable;
-            let layer_occ = &self.grid.layer_occ;
-            let start_layer_id = start_layer as u8;
-            let dest_layer_id = dest_layer as u8;
             let seeker = self.seeker_player;
             let seeker_inf = self.seeker_is_infantry;
-            let ignored_unit = self.grid.query_ignore_unit_id;
             let ally_mask = seeker.map(|p| self.grid.ally_mask_for(p)).unwrap_or(0);
             let ignore_cells_for_extra = ignore_cells.as_ref();
-            let extra = move |c: GridCoord| {
-                if c.x < 0 || c.y < 0 || c.x >= width {
-                    return 0;
-                }
-                let key = (c.x, c.y);
-                let layer_id = if start_layer_id > PathfindLayerEnum::Ground as u8
-                    && grid
-                        .layer_cell_type(start_layer_id, GridPos::new(c.x, c.y))
-                        .is_some()
-                {
-                    Some(start_layer_id)
-                } else if dest_layer_id > PathfindLayerEnum::Ground as u8
-                    && grid
-                        .layer_cell_type(dest_layer_id, GridPos::new(c.x, c.y))
-                        .is_some()
-                {
-                    Some(dest_layer_id)
-                } else {
-                    None
-                };
+            let extra = move |c: GridCoord, layer: PathfindLayerEnum| {
+                let pos = GridPos::new(c.x, c.y);
+                let (actual_layer, _) = grid.path_cell_on_layer(pos, layer);
                 // C++ validMovementPosition returns immediately when this
                 // cell contains the ignored structure (AIPathfind.cpp:4836-38),
                 // before object-occupancy checks. The A* extra-cost callback
@@ -752,35 +724,12 @@ impl PathfindingSystem {
                 // same exact ground-footprint exception instead of rejecting
                 // the victim's UNIT_PRESENT/GOAL bits first. Elevated layers
                 // have their own occupancy and do not inherit ground ignores.
-                if layer_id.is_none()
+                if actual_layer == PathfindLayerEnum::Ground
                     && ignore_cells_for_extra.is_some_and(|cells| cells.contains(&c))
                 {
                     return 0;
                 }
-                let idx = c.y as usize * width as usize + c.x as usize;
-                let bits = if let Some(lid) = layer_id {
-                    if let Some(occ) = layer_occ.get(&lid) {
-                        OccBits::from_cell(
-                            occ.occ_goal_mask.get(&key).copied().unwrap_or(0),
-                            occ.occ_goal_unit.get(&key).copied().unwrap_or(0),
-                            occ.occ_pos_unit.get(&key).copied().unwrap_or(0),
-                            occ.occ_pos_player.get(&key).copied().unwrap_or(0),
-                            occ.occ_pos_flags.get(&key).copied().unwrap_or(0),
-                            occ.occ_pos_crushable.get(&key).copied().unwrap_or(0),
-                        )
-                    } else {
-                        OccBits::default()
-                    }
-                } else {
-                    OccBits::from_cell(
-                        occ_goal.get(idx).copied().unwrap_or(0),
-                        occ_goal_unit.get(idx).copied().unwrap_or(0),
-                        occ_pos_unit.get(idx).copied().unwrap_or(0),
-                        occ_pos_player.get(idx).copied().unwrap_or(0),
-                        occ_pos_flags.get(idx).copied().unwrap_or(0),
-                        occ_pos_crush.get(idx).copied().unwrap_or(0),
-                    )
-                };
+                let bits = grid.occupancy_bits(pos, layer);
                 let OccBits {
                     fixed,
                     moving,
@@ -790,7 +739,7 @@ impl PathfindingSystem {
                     pos_player: pos_p,
                     pos_moving,
                     ..
-                } = bits.ignoring_unit(ignored_unit);
+                } = bits;
                 // C++ INFANTRY_MOVES_THROUGH_INFANTRY: stream even when a goal is set.
                 if seeker_inf && infantry != 0 && (fixed | moving) == infantry {
                     return 0;
@@ -901,7 +850,7 @@ impl PathfindingSystem {
                     MAX_PATH_ITERATIONS,
                     allow_partial,
                     ignore_cells.as_ref(),
-                    Some(extra_ref as &dyn Fn(GridCoord) -> u32),
+                    Some(extra_ref as &dyn Fn(GridCoord, PathfindLayerEnum) -> u32),
                     downhill_only,
                     Some(&ground_h as &dyn Fn(GridCoord) -> f32),
                     None,

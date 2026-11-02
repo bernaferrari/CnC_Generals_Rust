@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::astar::AStarPathfinder;
 use crate::cell::{
-    CellFlags, GridCoord, PathfindCellType, PathfindLayerEnum, COST_DIAGONAL, COST_ORTHOGONAL,
+    COST_DIAGONAL, COST_ORTHOGONAL, CellFlags, GridCoord, PathfindCellType, PathfindLayerEnum,
     SURFACE_AIR, SURFACE_CLIFF, SURFACE_GROUND, SURFACE_RUBBLE, SURFACE_WATER,
 };
 use crate::open_set::SearchKey;
@@ -227,8 +227,8 @@ impl AStarPathfinder {
     }
 
     /// C++ UNIT_PRESENT_FIXED / UNIT_GOAL occupancy surcharge.
-    pub(crate) fn cell_occupancy_cost(&self, cell: GridCoord) -> u32 {
-        let Some(c) = self.get_cell(cell) else {
+    pub(crate) fn cell_occupancy_cost(&self, cell: GridCoord, layer: PathfindLayerEnum) -> u32 {
+        let Some(c) = self.get_cell_on_layer(cell, layer) else {
             return 0;
         };
         match c.get_flags() {
