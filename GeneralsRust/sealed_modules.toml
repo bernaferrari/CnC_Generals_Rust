@@ -5,11 +5,6 @@
 # cpp:  C++ counterpart relative to the repo root
 # note: one-line status
 
-# [[module]]
-# path = "Code/Libraries/Source/WWVegas/Example"
-# cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/Example"
-# note = "Example sealed module."
-
 [[module]]
 path = "Code/GameEngine/GameLogic/src/supply_system/gathering.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/Common/RTS/ResourceGatheringManager.cpp"
@@ -19,3 +14,13 @@ note = "Player-owned ResourceGatheringManager; Vec IDs (C++ std::list); scoring 
 path = "Code/GameEngine/GameLogic/src/resource.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/Common/RTS/ResourceGatheringManager.cpp"
 note = "Per-player RGM facade: canTransferSuppliesAt + dock clearance + preferred-dock module checks; no process store."
+
+[[module]]
+path = "Code/GameEngine/Common/src/common/bezier"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/Bezier"
+note = "Cubic BezierSegment + BezFwdIterator; 0 process globals; parity tests under feature internal."
+
+[[module]]
+path = "Code/GameEngine/Common/src/bezier"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/Bezier"
+note = "Thin re-export shim of common::bezier."

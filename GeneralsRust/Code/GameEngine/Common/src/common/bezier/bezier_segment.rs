@@ -41,6 +41,7 @@ pub struct Matrix4x4 {
 }
 
 impl Matrix4x4 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         m00: Real,
         m01: Real,
@@ -125,6 +126,7 @@ impl BezierSegment {
     }
 
     /// Constructor with individual coordinate values
+    #[allow(clippy::too_many_arguments)] // matches C++ BezierSegment(Real x0..z3)
     pub fn from_coordinates(
         x0: Real,
         y0: Real,
@@ -175,8 +177,15 @@ impl BezierSegment {
         }
     }
 
-    /// Evaluate the bezier segment at parameter t (0.0 to 1.0)
-    pub fn evaluate_at_t(&self, t_value: Real) -> Option<Coord3D> {
+    /// Bezier basis matrix (`BezierSegment::s_bezBasisMatrix` in C++).
+    pub(crate) const fn basis_matrix() -> Matrix4x4 {
+        Self::BEZ_BASIS_MATRIX
+    }
+
+    /// Evaluate the bezier segment at parameter `t` (typically 0.0..=1.0).
+    ///
+    /// Matches C++ `evaluateBezSegmentAtT` (always writes the out-param when non-null).
+    pub fn evaluate_at_t(&self, t_value: Real) -> Coord3D {
         let t_vec = Vector4::new(t_value * t_value * t_value, t_value * t_value, t_value, 1.0);
 
         let x_coords = Vector4::new(
@@ -200,11 +209,11 @@ impl BezierSegment {
 
         let t_result = Self::BEZ_BASIS_MATRIX.transform(&t_vec);
 
-        Some(Coord3D::new(
+        Coord3D::new(
             x_coords.dot(&t_result),
             y_coords.dot(&t_result),
             z_coords.dot(&t_result),
-        ))
+        )
     }
 
     /// Generate a series of points along the bezier segment
@@ -308,7 +317,7 @@ impl BezierSegment {
         tri_left.add(&p0p1);
         tri_right.add(&p1p2);
 
-        let split_point = self.evaluate_at_t(t_value).unwrap_or_default();
+        let split_point = self.evaluate_at_t(t_value);
 
         let out_seg1 =
             BezierSegment::from_points(self.control_points[0], p0p1, tri_left, split_point);
@@ -340,55 +349,60 @@ impl Default for BezierSegment {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_bezier_segment_creation() {
-        let segment = BezierSegment::new();
-        assert_eq!(segment.control_points[0], Coord3D::default());
-        assert_eq!(segment.control_points[3], Coord3D::default());
+    fn sample_curve() -> BezierSegment {
+        BezierSegment::from_coordinates(0.0, 0.0, 0.0, 1.0, 2.0, 0.0, 2.0, 2.0, 0.0, 3.0, 0.0, 0.0)
     }
 
     #[test]
-    fn test_bezier_segment_from_coordinates() {
-        let segment = BezierSegment::from_coordinates(
-            0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 2.0, 1.0, 0.0, 3.0, 0.0, 0.0,
+    fn endpoints_match_control_points() {
+        let seg = sample_curve();
+        let p0 = seg.evaluate_at_t(0.0);
+        let p1 = seg.evaluate_at_t(1.0);
+        assert!((p0.x - 0.0).abs() < 1e-5 && (p0.y - 0.0).abs() < 1e-5);
+        assert!((p1.x - 3.0).abs() < 1e-5 && (p1.y - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn straight_line_length_matches_chord() {
+        // Collinear control points → length ≈ |P0P3|.
+        let seg = BezierSegment::from_coordinates(0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 2.0, 0.0, 0.0, 3.0, 0.0, 0.0);
+        let len = seg.get_approximate_length(0.01);
+        assert!((len - 3.0).abs() < 0.05, "len={len}");
+    }
+
+    #[test]
+    fn split_at_half_is_continuous() {
+        let seg = sample_curve();
+        let (a, b) = seg.split_segment_at_t(0.5);
+        let mid = seg.evaluate_at_t(0.5);
+        let a_end = a.evaluate_at_t(1.0);
+        let b_start = b.evaluate_at_t(0.0);
+        assert!((a_end.x - mid.x).abs() < 1e-5);
+        assert!((b_start.x - mid.x).abs() < 1e-5);
+        assert!((a.control_points()[0].x - seg.control_points()[0].x).abs() < 1e-5);
+        assert!((b.control_points()[3].x - seg.control_points()[3].x).abs() < 1e-5);
+    }
+
+    #[test]
+    fn segment_points_count_and_endpoints() {
+        let seg = sample_curve();
+        let pts = seg.get_segment_points(5);
+        assert_eq!(pts.len(), 5);
+        assert!((pts[0].x - seg.control_points()[0].x).abs() < 1e-4);
+        assert!((pts[4].x - seg.control_points()[3].x).abs() < 1e-3);
+    }
+
+    #[test]
+    fn from_array_matches_from_points() {
+        let a = BezierSegment::from_array(&[0., 0., 0., 1., 1., 0., 2., 1., 0., 3., 0., 0.]);
+        let b = BezierSegment::from_points(
+            Coord3D::new(0., 0., 0.),
+            Coord3D::new(1., 1., 0.),
+            Coord3D::new(2., 1., 0.),
+            Coord3D::new(3., 0., 0.),
         );
-
-        assert_eq!(segment.control_points[0], Coord3D::new(0.0, 0.0, 0.0));
-        assert_eq!(segment.control_points[1], Coord3D::new(1.0, 1.0, 0.0));
-        assert_eq!(segment.control_points[2], Coord3D::new(2.0, 1.0, 0.0));
-        assert_eq!(segment.control_points[3], Coord3D::new(3.0, 0.0, 0.0));
-    }
-
-    #[test]
-    fn test_evaluate_at_t() {
-        let segment = BezierSegment::from_coordinates(
-            0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 2.0, 1.0, 0.0, 3.0, 0.0, 0.0,
-        );
-
-        // At t=0, should be at first control point
-        let result = segment.evaluate_at_t(0.0).unwrap();
-        assert!((result.x - 0.0).abs() < 0.001);
-        assert!((result.y - 0.0).abs() < 0.001);
-        assert!((result.z - 0.0).abs() < 0.001);
-
-        // At t=1, should be at last control point
-        let result = segment.evaluate_at_t(1.0).unwrap();
-        assert!((result.x - 3.0).abs() < 0.001);
-        assert!((result.y - 0.0).abs() < 0.001);
-        assert!((result.z - 0.0).abs() < 0.001);
-    }
-
-    #[test]
-    fn test_coord3d_operations() {
-        let mut coord = Coord3D::new(1.0, 2.0, 3.0);
-        coord.scale(2.0);
-        assert_eq!(coord, Coord3D::new(2.0, 4.0, 6.0));
-
-        let other = Coord3D::new(1.0, 1.0, 1.0);
-        coord.add(&other);
-        assert_eq!(coord, Coord3D::new(3.0, 5.0, 7.0));
-
-        let length = coord.length();
-        assert!((length - (3.0f32 * 3.0 + 5.0 * 5.0 + 7.0 * 7.0).sqrt()).abs() < 0.001);
+        for i in 0..4 {
+            assert_eq!(a.control_points()[i].x, b.control_points()[i].x);
+        }
     }
 }
