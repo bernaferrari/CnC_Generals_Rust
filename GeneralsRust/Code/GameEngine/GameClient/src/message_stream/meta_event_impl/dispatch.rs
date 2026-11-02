@@ -100,34 +100,34 @@ fn dispatch_map_entry(
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_VTUNE_ON") {
-        set_vtune_enabled(true);
+        set_vtune_enabled(&mut ui.state.meta_demo, true);
         ui.message("VTune Gathering is ON");
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_VTUNE_OFF") {
-        set_vtune_enabled(false);
+        set_vtune_enabled(&mut ui.state.meta_demo, false);
         ui.message("VTune Gathering is OFF");
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_BEGIN_ADJUST_PITCH") {
-        set_demo_pitch_adjusting(true);
+        set_demo_pitch_adjusting(&mut ui.state.meta_demo, true);
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_END_ADJUST_PITCH") {
-        set_demo_pitch_adjusting(false);
+        set_demo_pitch_adjusting(&mut ui.state.meta_demo, false);
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_BEGIN_ADJUST_FOV") {
-        set_demo_fov_adjusting(true);
+        set_demo_fov_adjusting(&mut ui.state.meta_demo, true);
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_END_ADJUST_FOV") {
-        set_demo_fov_adjusting(false);
+        set_demo_fov_adjusting(&mut ui.state.meta_demo, false);
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -140,7 +140,7 @@ fn dispatch_map_entry(
         .name
         .eq_ignore_ascii_case("DEMO_INCR_ANIM_SKATE_SPEED")
     {
-        let value = adjust_skate_distance_override(0.25);
+        let value = adjust_skate_distance_override(&mut ui.state.meta_demo, 0.25);
         ui.message(&format!("Skate Distance Override is now {value:.6}"));
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -149,7 +149,7 @@ fn dispatch_map_entry(
         .name
         .eq_ignore_ascii_case("DEMO_DECR_ANIM_SKATE_SPEED")
     {
-        let value = adjust_skate_distance_override(-0.25);
+        let value = adjust_skate_distance_override(&mut ui.state.meta_demo, -0.25);
         ui.message(&format!("Skate Distance Override is now {value:.6}"));
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -159,7 +159,7 @@ fn dispatch_map_entry(
         .eq_ignore_ascii_case("DEMO_TOGGLE_HAND_OF_GOD_MODE")
     {
         if !TheGameLogic::is_in_multiplayer_game() {
-            let enabled = toggle_shared_bool_state(&HAND_OF_GOD_MODE);
+            let enabled = toggle_shared_bool_state(&mut ui.state.meta_demo.hand_of_god_mode);
             ui.message(if enabled {
                 "Meta Hand-Of-God Mode is ON"
             } else {
@@ -175,7 +175,7 @@ fn dispatch_map_entry(
         .eq_ignore_ascii_case("CHEAT_TOGGLE_HAND_OF_GOD_MODE")
     {
         if !TheGameLogic::is_in_multiplayer_game() {
-            let enabled = toggle_shared_bool_state(&HAND_OF_GOD_MODE);
+            let enabled = toggle_shared_bool_state(&mut ui.state.meta_demo.hand_of_god_mode);
             ui.message(if enabled {
                 "Hand-Of-God Mode is ON"
             } else {
@@ -188,7 +188,7 @@ fn dispatch_map_entry(
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_HURT_ME_MODE") {
         if !TheGameLogic::is_in_multiplayer_game() {
-            let enabled = toggle_shared_bool_state(&HURT_ME_MODE);
+            let enabled = toggle_shared_bool_state(&mut ui.state.meta_demo.hurt_me_mode);
             ui.message(if enabled {
                 "Hurt-Me Mode is ON"
             } else {
@@ -200,7 +200,7 @@ fn dispatch_map_entry(
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_DEBUG_SELECTION") {
-        let enabled = toggle_shared_bool_state(&DEBUG_SELECTION_MODE);
+        let enabled = toggle_shared_bool_state(&mut ui.state.meta_demo.debug_selection_mode);
         ui.message(if enabled {
             "Debug-Selected-Item Mode is ON"
         } else {
@@ -425,7 +425,7 @@ fn dispatch_map_entry(
         .name
         .eq_ignore_ascii_case("DEMO_LOCK_CAMERA_TO_PLANES")
     {
-        if let Some(object_id) = next_plane_camera_lock_object_id() {
+        if let Some(object_id) = next_plane_camera_lock_object_id(&mut ui.state.meta_demo) {
             with_tactical_view(|view| {
                 view.set_camera_lock(Some(object_id));
             });
@@ -625,12 +625,12 @@ fn dispatch_map_entry(
         .name
         .eq_ignore_ascii_case("DEMO_TOGGLE_MOTION_BLUR_ZOOM")
     {
-        toggle_motion_blur_zoom_filter();
+        toggle_motion_blur_zoom_filter(&mut ui.state.meta_demo);
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_BW_VIEW") {
-        toggle_bw_view_mode();
+        toggle_bw_view_mode(&mut ui.state.meta_demo);
         return Some(GameMessageDisposition::DestroyMessage);
     }
 

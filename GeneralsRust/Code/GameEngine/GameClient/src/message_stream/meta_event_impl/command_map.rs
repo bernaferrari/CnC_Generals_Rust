@@ -208,31 +208,34 @@ fn command_map_labels_match(stored: &str, query: &str) -> bool {
 pub fn apply_toggle_lower_details(ui: &mut crate::message_stream::ReceivingUi<'_>) -> Option<bool> {
     let global_data = get_global_data()?;
     let mut global = global_data.write();
-    LOWER_DETAIL_TOGGLE_STATE.with_borrow_mut(|state| {
-        if state.is_low_details {
-            global.use_shadow_volumes = state.old_use_shadow_volumes;
-            global.use_light_map = state.old_use_light_map;
-            global.use_cloud_map = state.old_use_cloud_map;
-            global.max_particle_count = state.old_max_particle_count;
-            TheGameLogic::set_show_behind_building_markers(state.old_show_behind_building_markers);
-            ui.message("GUI:ReturnGraphicsToPreviousSettings");
-        } else {
-            state.old_use_shadow_volumes = global.use_shadow_volumes;
-            global.use_shadow_volumes = false;
-            state.old_use_light_map = global.use_light_map;
-            global.use_light_map = false;
-            state.old_use_cloud_map = global.use_cloud_map;
-            global.use_cloud_map = false;
-            state.old_show_behind_building_markers =
-                TheGameLogic::get_show_behind_building_markers();
-            TheGameLogic::set_show_behind_building_markers(false);
-            state.old_max_particle_count = global.max_particle_count;
-            global.max_particle_count = DROPPED_MAX_PARTICLE_COUNT;
-            ui.message("GUI:DetailsSetToLowest");
-        }
-        state.is_low_details = !state.is_low_details;
-        Some(state.is_low_details)
-    })
+    let state = &mut ui.state.meta_demo.lower_detail_toggle;
+    let message;
+    if state.is_low_details {
+        global.use_shadow_volumes = state.old_use_shadow_volumes;
+        global.use_light_map = state.old_use_light_map;
+        global.use_cloud_map = state.old_use_cloud_map;
+        global.max_particle_count = state.old_max_particle_count;
+        TheGameLogic::set_show_behind_building_markers(state.old_show_behind_building_markers);
+        message = "GUI:ReturnGraphicsToPreviousSettings";
+    } else {
+        state.old_use_shadow_volumes = global.use_shadow_volumes;
+        global.use_shadow_volumes = false;
+        state.old_use_light_map = global.use_light_map;
+        global.use_light_map = false;
+        state.old_use_cloud_map = global.use_cloud_map;
+        global.use_cloud_map = false;
+        state.old_show_behind_building_markers =
+            TheGameLogic::get_show_behind_building_markers();
+        TheGameLogic::set_show_behind_building_markers(false);
+        state.old_max_particle_count = global.max_particle_count;
+        global.max_particle_count = DROPPED_MAX_PARTICLE_COUNT;
+        message = "GUI:DetailsSetToLowest";
+    }
+    state.is_low_details = !state.is_low_details;
+    let now_low = state.is_low_details;
+    drop(global);
+    ui.message(message);
+    Some(now_low)
 }
 
 pub fn update_command_map_entry(

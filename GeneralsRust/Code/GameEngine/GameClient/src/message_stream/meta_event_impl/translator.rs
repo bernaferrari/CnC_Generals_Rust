@@ -154,7 +154,7 @@ impl MetaEventTranslator {
 
         match msg_type {
             GameMessageType::RawMousePosition(pos) => {
-                apply_demo_camera_adjust_from_mouse_position(pos);
+                apply_demo_camera_adjust_from_mouse_position(&mut ui.state.meta_demo, pos);
             }
             GameMessageType::RawMouseLeftButtonDown(pos, ..)
             | GameMessageType::RawMouseMiddleButtonDown(pos, ..)

@@ -173,6 +173,18 @@ cpp = "GeneralsMD/Code/GameEngine/Include/GameLogic/GameLogic.h"
 note = "Per-world EntityHandle epoch via SessionLogicFlags; 0 process globals; fail-closed reuse defense."
 
 
+[[module]]
 path = "Code/GameEngine/GameClient/src/game_network.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameNetwork"
 note = "Offline NetworkCompatState on WindowManagerOwner; removed TLS queues + process NETWORK_ON; getters take &NetworkCompatState."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/meta_demo_state.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/MessageStream/MetaEvent.cpp"
+note = "MetaDemoState owned on InGameUISubsystem; 0 process globals; Sync plain fields."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/message_stream/meta_event_impl/state.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/MessageStream/MetaEvent.cpp"
+note = "Meta demo/cheat latches on InGameUISubsystem::meta_demo; removed TLS Cells; dispatch/helpers/tests take &mut MetaDemoState."
+

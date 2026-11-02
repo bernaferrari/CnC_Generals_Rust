@@ -50,6 +50,7 @@ pub mod drawable;
 pub mod drawable_info;
 pub mod drawable_manager;
 pub mod effects;
+pub mod meta_demo_state;
 pub mod eva;
 pub mod fx_list;
 pub mod game_client;

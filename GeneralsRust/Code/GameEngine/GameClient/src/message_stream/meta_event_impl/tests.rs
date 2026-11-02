@@ -86,14 +86,17 @@ mod tests {
         None
     }
 
-    fn dispatch_for_test(record: &MetaMapRec) -> Option<GameMessageDisposition> {
-        with_receiving_ui(|ui| {
-            let mut display = noop_display_dispatch;
-            dispatch_map_entry(record, &mut display, ui)
-        })
+    fn dispatch_on(
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+        record: &MetaMapRec,
+    ) -> Option<GameMessageDisposition> {
+        let mut display = noop_display_dispatch;
+        dispatch_map_entry(record, &mut display, ui)
     }
 
-
+    fn dispatch_for_test(record: &MetaMapRec) -> Option<GameMessageDisposition> {
+        with_receiving_ui(|ui| dispatch_on(ui, record))
+    }
 
     #[test]
     fn test_fast_forward_replay_meta_record_is_kept() {
@@ -309,88 +312,95 @@ mod tests {
     fn test_demo_adjust_aliases_toggle_camera_adjust_state() {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
-        reset_demo_camera_adjust_state_for_tests();
-        apply_demo_camera_adjust_from_mouse_position(&ICoord2D::new(50, 60));
+        with_receiving_ui(|ui| {
+            let demo = &mut ui.state.meta_demo;
+            reset_demo_camera_adjust_state_for_tests(demo);
+            apply_demo_camera_adjust_from_mouse_position(demo, &ICoord2D::new(50, 60));
 
-        assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_BEGIN_ADJUST_FOV")),
-            None
-        );
-        let state = demo_camera_adjust_state_for_tests();
-        assert!(!state.is_pitching);
-        assert!(state.is_changing_fov);
-        assert_eq!(state.anchor, ICoord2D::new(50, 60));
+            assert_eq!(
+                dispatch_on(ui, &alias_record("DEMO_BEGIN_ADJUST_FOV")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+            let state = demo_camera_adjust_state_for_tests(&ui.state.meta_demo);
+            assert!(!state.is_pitching);
+            assert!(state.is_changing_fov);
+            assert_eq!(state.anchor, DemoCoord2D::new(50, 60));
 
-        assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_BEGIN_ADJUST_PITCH")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
-        let state = demo_camera_adjust_state_for_tests();
-        assert!(state.is_pitching);
-        assert!(state.is_changing_fov);
+            assert_eq!(
+                dispatch_on(ui, &alias_record("DEMO_BEGIN_ADJUST_PITCH")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+            let state = demo_camera_adjust_state_for_tests(&ui.state.meta_demo);
+            assert!(state.is_pitching);
+            assert!(state.is_changing_fov);
 
-        assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_END_ADJUST_FOV")),
-            None
-        );
-        assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_END_ADJUST_PITCH")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
-        let state = demo_camera_adjust_state_for_tests();
-        assert!(!state.is_pitching);
-        assert!(!state.is_changing_fov);
+            assert_eq!(
+                dispatch_on(ui, &alias_record("DEMO_END_ADJUST_FOV")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+            assert_eq!(
+                dispatch_on(ui, &alias_record("DEMO_END_ADJUST_PITCH")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+            let state = demo_camera_adjust_state_for_tests(&ui.state.meta_demo);
+            assert!(!state.is_pitching);
+            assert!(!state.is_changing_fov);
+        });
     }
 
     #[test]
     fn test_raw_mouse_position_applies_demo_pitch_and_fov_adjustments() {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
-        reset_demo_camera_adjust_state_for_tests();
-        let mut translator = MetaEventTranslator::default();
-        with_tactical_view(|view| {
-            view.set_pitch(0.0);
-            view.set_field_of_view(1.0);
+        with_receiving_ui(|ui| {
+            reset_demo_camera_adjust_state_for_tests(&mut ui.state.meta_demo);
+            with_tactical_view(|view| {
+                view.set_pitch(0.0);
+                view.set_field_of_view(1.0);
+            });
+
+            apply_demo_camera_adjust_from_mouse_position(
+                &ui.state.meta_demo,
+                &ICoord2D::new(100, 100),
+            );
+            assert_eq!(
+                dispatch_on(ui, &alias_record("DEMO_BEGIN_ADJUST_PITCH")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+            assert_eq!(
+                dispatch_on(ui, &alias_record("DEMO_BEGIN_ADJUST_FOV")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+
+            apply_demo_camera_adjust_from_mouse_position(
+                &ui.state.meta_demo,
+                &ICoord2D::new(100, 110),
+            );
+            let (pitch_after, fov_after) = crate::display::view::with_tactical_view_ref(|view| {
+                (view.pitch(), view.field_of_view())
+            });
+            assert!((pitch_after - 0.1).abs() < 0.001);
+            assert!((fov_after - 1.1).abs() < 0.001);
+
+            assert_eq!(
+                dispatch_on(ui, &alias_record("DEMO_END_ADJUST_PITCH")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+            assert_eq!(
+                dispatch_on(ui, &alias_record("DEMO_END_ADJUST_FOV")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+
+            apply_demo_camera_adjust_from_mouse_position(
+                &ui.state.meta_demo,
+                &ICoord2D::new(100, 140),
+            );
+            let (pitch_final, fov_final) = crate::display::view::with_tactical_view_ref(|view| {
+                (view.pitch(), view.field_of_view())
+            });
+            assert!((pitch_final - pitch_after).abs() < 0.001);
+            assert!((fov_final - fov_after).abs() < 0.001);
         });
-
-        let _ = translator.translate_game_message(&GameMessage::new(
-            GameMessageType::RawMousePosition(ICoord2D::new(100, 100)),
-        ));
-        assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_BEGIN_ADJUST_PITCH")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
-        assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_BEGIN_ADJUST_FOV")),
-            None
-        );
-
-        let _ = translator.translate_game_message(&GameMessage::new(
-            GameMessageType::RawMousePosition(ICoord2D::new(100, 110)),
-        ));
-        let (pitch_after, fov_after) = crate::display::view::with_tactical_view_ref(|view| {
-            (view.pitch(), view.field_of_view())
-        });
-        assert!((pitch_after - 0.1).abs() < 0.001);
-        assert!((fov_after - 1.1).abs() < 0.001);
-
-        assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_END_ADJUST_PITCH")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
-        assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_END_ADJUST_FOV")),
-            None
-        );
-
-        let _ = translator.translate_game_message(&GameMessage::new(
-            GameMessageType::RawMousePosition(ICoord2D::new(100, 140)),
-        ));
-        let (pitch_final, fov_final) = crate::display::view::with_tactical_view_ref(|view| {
-            (view.pitch(), view.field_of_view())
-        });
-        assert!((pitch_final - pitch_after).abs() < 0.001);
-        assert!((fov_final - fov_after).abs() < 0.001);
     }
 
     #[test]
@@ -532,70 +542,82 @@ mod tests {
     #[test]
     fn test_demo_vtune_aliases_toggle_compat_state() {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
-        set_vtune_enabled(false);
-        assert!(!is_vtune_enabled_for_tests());
+        with_receiving_ui(|ui| {
+            set_vtune_enabled(&mut ui.state.meta_demo, false);
+            assert!(!is_vtune_enabled_for_tests(&ui.state.meta_demo));
 
-        assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_VTUNE_ON")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
-        assert!(is_vtune_enabled_for_tests());
+            assert_eq!(
+                dispatch_on(ui, &alias_record("DEMO_VTUNE_ON")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+            assert!(is_vtune_enabled_for_tests(&ui.state.meta_demo));
 
-        assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_VTUNE_OFF")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
-        assert!(!is_vtune_enabled_for_tests());
+            assert_eq!(
+                dispatch_on(ui, &alias_record("DEMO_VTUNE_OFF")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+            assert!(!is_vtune_enabled_for_tests(&ui.state.meta_demo));
+        });
     }
 
     #[test]
     fn test_demo_skate_speed_aliases_keep_message_and_adjust_value() {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
-        set_skate_distance_override_for_tests(0.0);
+        with_receiving_ui(|ui| {
+            set_skate_distance_override_for_tests(&mut ui.state.meta_demo, 0.0);
 
-        assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_INCR_ANIM_SKATE_SPEED")),
-            None
-        );
-        assert!((adjust_skate_distance_override(0.0) - 0.25).abs() < f32::EPSILON);
+            assert_eq!(
+                dispatch_on(ui, &alias_record("DEMO_INCR_ANIM_SKATE_SPEED")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+            assert!(
+                (adjust_skate_distance_override(&mut ui.state.meta_demo, 0.0) - 0.25).abs()
+                    < f32::EPSILON
+            );
 
-        assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_DECR_ANIM_SKATE_SPEED")),
-            None
-        );
-        assert!((adjust_skate_distance_override(0.0) - 0.0).abs() < f32::EPSILON);
+            assert_eq!(
+                dispatch_on(ui, &alias_record("DEMO_DECR_ANIM_SKATE_SPEED")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+            assert!(
+                (adjust_skate_distance_override(&mut ui.state.meta_demo, 0.0) - 0.0).abs()
+                    < f32::EPSILON
+            );
+        });
     }
 
     #[test]
     fn test_selection_debug_toggle_aliases_flip_compat_state() {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
-        set_bool_state_for_tests(&HAND_OF_GOD_MODE, false);
-        set_bool_state_for_tests(&HURT_ME_MODE, false);
-        set_bool_state_for_tests(&DEBUG_SELECTION_MODE, false);
+        with_receiving_ui(|ui| {
+            set_bool_state_for_tests(&mut ui.state.meta_demo.hand_of_god_mode, false);
+            set_bool_state_for_tests(&mut ui.state.meta_demo.hurt_me_mode, false);
+            set_bool_state_for_tests(&mut ui.state.meta_demo.debug_selection_mode, false);
 
-        assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_TOGGLE_HAND_OF_GOD_MODE")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
-        assert!(bool_state_for_tests(&HAND_OF_GOD_MODE));
+            assert_eq!(
+                dispatch_on(ui, &alias_record("DEMO_TOGGLE_HAND_OF_GOD_MODE")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+            assert!(bool_state_for_tests(&ui.state.meta_demo.hand_of_god_mode));
 
-        assert_eq!(
-            dispatch_for_test(&alias_record("CHEAT_TOGGLE_HAND_OF_GOD_MODE")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
-        assert!(!bool_state_for_tests(&HAND_OF_GOD_MODE));
+            assert_eq!(
+                dispatch_on(ui, &alias_record("CHEAT_TOGGLE_HAND_OF_GOD_MODE")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+            assert!(!bool_state_for_tests(&ui.state.meta_demo.hand_of_god_mode));
 
-        assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_TOGGLE_HURT_ME_MODE")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
-        assert!(bool_state_for_tests(&HURT_ME_MODE));
+            assert_eq!(
+                dispatch_on(ui, &alias_record("DEMO_TOGGLE_HURT_ME_MODE")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+            assert!(bool_state_for_tests(&ui.state.meta_demo.hurt_me_mode));
 
-        assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_DEBUG_SELECTION")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
-        assert!(bool_state_for_tests(&DEBUG_SELECTION_MODE));
+            assert_eq!(
+                dispatch_on(ui, &alias_record("DEMO_DEBUG_SELECTION")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+            assert!(bool_state_for_tests(&ui.state.meta_demo.debug_selection_mode));
+        });
     }
 
     #[test]
@@ -1217,7 +1239,7 @@ mod tests {
             view.set_camera_lock(None);
             view.set_position(&crate::display::view::Point3::new(0.0, 0.0, 0.0));
         });
-        MOTION_BLUR_ZOOM_SATURATE.set(false);
+        // saturate lives on ui.state.meta_demo; fresh ReceivingUi defaults false
 
         assert_eq!(
             dispatch_for_test(&alias_record("DEMO_TOGGLE_RED_VIEW")),
@@ -1267,39 +1289,41 @@ mod tests {
     fn test_demo_toggle_bw_view_alias_cycles_cpp_compat_state() {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
-        reset_bw_view_state_for_tests();
-        with_tactical_view(|view| {
-            view.set_view_filter_mode(FilterMode::Null);
-            view.set_view_filter(FilterType::Null);
-            view.set_fade_parameters(0, -1);
+        with_receiving_ui(|ui| {
+            reset_bw_view_state_for_tests(&mut ui.state.meta_demo);
+            with_tactical_view(|view| {
+                view.set_view_filter_mode(FilterMode::Null);
+                view.set_view_filter(FilterType::Null);
+                view.set_fade_parameters(0, -1);
+            });
+
+            assert_eq!(
+                dispatch_on(ui, &alias_record("DEMO_TOGGLE_BW_VIEW")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+            assert_eq!(bw_view_mode_for_tests(&ui.state.meta_demo), 1);
+            let (wireframe_active, wireframe_pending) = bw_view_wireframe_for_tests();
+            assert!(!wireframe_active);
+            assert!(wireframe_pending);
+
+            assert_eq!(
+                dispatch_on(ui, &alias_record("DEMO_TOGGLE_BW_VIEW")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+            assert_eq!(bw_view_mode_for_tests(&ui.state.meta_demo), 2);
+            let (_, wireframe_pending) = bw_view_wireframe_for_tests();
+            assert!(!wireframe_pending);
+            with_tactical_view(|view| {
+                assert_eq!(view.get_view_filter_type(), FilterType::Crossfade);
+                assert_eq!(view.get_view_filter_mode(), FilterMode::CrossfadeFbMask);
+            });
+
+            assert_eq!(
+                dispatch_on(ui, &alias_record("DEMO_TOGGLE_BW_VIEW")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+            assert_eq!(bw_view_mode_for_tests(&ui.state.meta_demo), 0);
         });
-
-        assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_TOGGLE_BW_VIEW")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
-        assert_eq!(bw_view_mode_for_tests(), 1);
-        let (wireframe_active, wireframe_pending) = bw_view_wireframe_for_tests();
-        assert!(!wireframe_active);
-        assert!(wireframe_pending);
-
-        assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_TOGGLE_BW_VIEW")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
-        assert_eq!(bw_view_mode_for_tests(), 2);
-        let (_, wireframe_pending) = bw_view_wireframe_for_tests();
-        assert!(!wireframe_pending);
-        with_tactical_view(|view| {
-            assert_eq!(view.get_view_filter_type(), FilterType::Crossfade);
-            assert_eq!(view.get_view_filter_mode(), FilterMode::CrossfadeFbMask);
-        });
-
-        assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_TOGGLE_BW_VIEW")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
-        assert_eq!(bw_view_mode_for_tests(), 0);
     }
 
     #[test]
@@ -1327,15 +1351,20 @@ mod tests {
     #[test]
     fn test_demo_cycle_lod_level_alias_matches_cpp_decrement_wrap_order() {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
-        set_cycle_lod_level_state_for_tests(DynamicGameLODLevel::VeryHigh);
-
-        for expected in ["High", "Medium", "Low", "VeryHigh"] {
-            assert_eq!(
-                dispatch_for_test(&alias_record("DEMO_CYCLE_LOD_LEVEL")),
-                Some(GameMessageDisposition::DestroyMessage)
+        with_receiving_ui(|ui| {
+            set_cycle_lod_level_state_for_tests(
+                &ui.state.meta_demo,
+                DynamicGameLODLevel::VeryHigh,
             );
-            assert_eq!(game_engine::common::game_lod::get_dynamic_lod(), expected);
-        }
+
+            for expected in ["High", "Medium", "Low", "VeryHigh"] {
+                assert_eq!(
+                    dispatch_on(ui, &alias_record("DEMO_CYCLE_LOD_LEVEL")),
+                    Some(GameMessageDisposition::DestroyMessage)
+                );
+                assert_eq!(game_engine::common::game_lod::get_dynamic_lod(), expected);
+            }
+        });
     }
 
     #[test]
@@ -1508,10 +1537,12 @@ mod tests {
     #[test]
     fn test_demo_lock_camera_to_planes_alias_is_consumed() {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
-        set_last_plane_lock_object_id_for_tests(None);
-        assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_LOCK_CAMERA_TO_PLANES")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
+        with_receiving_ui(|ui| {
+            set_last_plane_lock_object_id_for_tests(&mut ui.state.meta_demo, None);
+            assert_eq!(
+                dispatch_on(ui, &alias_record("DEMO_LOCK_CAMERA_TO_PLANES")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+        });
     }
 }

@@ -77,8 +77,8 @@ impl MetaMap {
 // CommandMap.ini on a background startup thread (`Main::spawn_startup_map_load`), and
 // the registered "CommandMap" INI block parser writes straight into this table, so
 // the map itself has to stay a process-wide lock; the meta-event toggles/cheat state
-// that is only ever touched by GUI-thread handlers lives in the thread-local cell
-// block in `state.rs`.
+// that is only ever touched by GUI-thread handlers lives on
+// `InGameUISubsystem::meta_demo` (`crate::meta_demo_state`).
 static META_MAP: OnceLock<RwLock<MetaMap>> = OnceLock::new();
 static META_PARSER_REGISTERED: OnceLock<()> = OnceLock::new();
 
@@ -86,23 +86,7 @@ const DROPPED_MAX_PARTICLE_COUNT: i32 = 1000;
 const EXTENT_BIG_CHANGE: f32 = 10.0;
 const DEMO_CAMERA_ADJUST_FACTOR: f32 = 0.01;
 
-#[derive(Debug, Clone)]
-struct LowerDetailToggleState {
-    is_low_details: bool,
-    old_use_shadow_volumes: bool,
-    old_use_light_map: bool,
-    old_use_cloud_map: bool,
-    old_show_behind_building_markers: bool,
-    old_max_particle_count: i32,
-}
-
-#[derive(Debug, Clone, Default)]
-struct DemoCameraAdjustState {
-    is_pitching: bool,
-    is_changing_fov: bool,
-    anchor: ICoord2D,
-    current_pos: ICoord2D,
-}
+use crate::meta_demo_state::{DemoCameraAdjustState, LowerDetailToggleState, MetaDemoState};
 
 #[derive(Debug, Clone, Copy)]
 enum ExtentAdjustAxis {
@@ -118,15 +102,3 @@ struct ExtentAdjustSpec {
     amount: f32,
 }
 
-impl Default for LowerDetailToggleState {
-    fn default() -> Self {
-        Self {
-            is_low_details: false,
-            old_use_shadow_volumes: true,
-            old_use_light_map: true,
-            old_use_cloud_map: true,
-            old_show_behind_building_markers: true,
-            old_max_particle_count: 5000,
-        }
-    }
-}
