@@ -27,16 +27,24 @@ using Bool=bool; using Int=int; using zoneStorageType=int; using LocomotorSurfac
 using PathfindLayerEnum=int;
 constexpr int LOCOMOTORSURFACE_GROUND=1, LOCOMOTORSURFACE_WATER=2, LOCOMOTORSURFACE_CLIFF=4, LOCOMOTORSURFACE_AIR=8, LOCOMOTORSURFACE_RUBBLE=16;
 #define DEBUG_CRASH(x) ((void)0)
+#define DEBUG_ASSERTCRASH(condition,x) ((void)0)
 #define IS_IMPASSABLE(x) ((x) != 0)
 struct Coord3D { int x=0,y=0; };
-struct LocomotorSet { int getValidSurfaces() const { return LOCOMOTORSURFACE_GROUND; } };
+struct LocomotorSet { int surfaces=LOCOMOTORSURFACE_GROUND; int getValidSurfaces() const { return surfaces; } };
 struct PathfindCell { int zone, type=0; int getZone() const { return zone; } int getType() const { return type; } };
 struct PathfindZoneManager {
+ enum { UNINITIALIZED_ZONE=0 };
  int m_maxZone=4;
  int m_hierarchicalZones[5]={0,1,2,3,4}, m_terrainZones[5]={0,1,1,3,4};
  int m_crusherZones[5]={0,1,2,3,4}, m_groundCliffZones[5]={0,1,2,3,4};
  int m_groundWaterZones[5]={0,1,2,3,4}, m_groundRubbleZones[5]={0,1,2,3,4};
  zoneStorageType getEffectiveTerrainZone(zoneStorageType) const;
+ zoneStorageType getEffectiveZone(LocomotorSurfaceTypeMask,Bool,zoneStorageType) const;
+};
+struct ZoneBlock {
+ int m_numZones=0, m_firstZone=0;
+ int m_crusherZones[5]={0,1,2,3,4}, m_groundCliffZones[5]={0,1,2,3,4};
+ int m_groundWaterZones[5]={0,1,2,3,4}, m_groundRubbleZones[5]={0,1,2,3,4};
  zoneStorageType getEffectiveZone(LocomotorSurfaceTypeMask,Bool,zoneStorageType) const;
 };
 struct Pathfinder {
@@ -47,7 +55,15 @@ struct Pathfinder {
 };
 __METHODS__
 int main() {
- Pathfinder finder; LocomotorSet locomotor; Coord3D dest;
+ Pathfinder finder; ZoneBlock block; LocomotorSet locomotor; Coord3D dest;
+ for (int surfaces : {LOCOMOTORSURFACE_AIR, LOCOMOTORSURFACE_GROUND | LOCOMOTORSURFACE_WATER | LOCOMOTORSURFACE_CLIFF, LOCOMOTORSURFACE_GROUND}) {
+  std::cout << "zero " << surfaces << " " << finder.m_zoneManager.getEffectiveZone(surfaces,false,0) << "\n";
+  std::cout << "block " << surfaces << " " << block.getEffectiveZone(surfaces,false,0) << "\n";
+  finder.cell.zone=0; locomotor.surfaces=surfaces; dest={0,0};
+  auto accepted=finder.checkForPossible(false,1,true,locomotor,6,7,1,&dest,false);
+  std::cout << "candidate " << surfaces << " " << accepted << " " << dest.x << "," << dest.y << "\n";
+ }
+ finder.cell.zone=2; locomotor.surfaces=LOCOMOTORSURFACE_GROUND;
  for (bool obstacle : {false,true}) {
   dest={0,0};
   auto accepted=finder.checkForPossible(false,1,true,locomotor,6,7,1,&dest,obstacle);
@@ -57,6 +73,7 @@ int main() {
 '''.replace('__METHODS__', '\n'.join(method(s) for s in [
     'zoneStorageType PathfindZoneManager::getEffectiveTerrainZone(',
     'zoneStorageType PathfindZoneManager::getEffectiveZone(',
+    'zoneStorageType ZoneBlock::getEffectiveZone(',
     'Bool Pathfinder::checkForPossible(',
 ]))
 with tempfile.TemporaryDirectory(prefix='possible-zone-') as directory:
@@ -64,7 +81,9 @@ with tempfile.TemporaryDirectory(prefix='possible-zone-') as directory:
     source_file.write_text(program)
     subprocess.run(['c++', '-std=c++17', str(source_file), '-o', str(binary)], check=True)
     actual = subprocess.check_output([str(binary)], text=True)
-    expected = '0 0 0,0\n1 1 6,7\n'
+    expected = ('zero 8 1\nblock 8 0\ncandidate 8 1 6,7\n'
+                'zero 7 1\nblock 7 0\ncandidate 7 1 6,7\n'
+                'zero 1 0\nblock 1 0\ncandidate 1 0 0,0\n0 0 0,0\n1 1 6,7\n')
     if actual != expected:
         raise SystemExit(f'unexpected C++ result: {actual!r}')
     print(actual, end='')

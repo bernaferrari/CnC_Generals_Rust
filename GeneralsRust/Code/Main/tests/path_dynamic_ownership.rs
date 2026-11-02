@@ -621,6 +621,79 @@ fn possible_destination_uses_the_receivers_aircraft_goal_rules() {
 }
 
 #[test]
+fn possible_candidate_maps_uninitialized_zone_for_unrestricted_locomotors() {
+    use gamelogic::ai::pathfind_astar::PathfindLayerEnum;
+    use gamelogic::ai::pathfind_complete::{
+        SURFACE_AIR, SURFACE_CLIFF, SURFACE_GROUND, SURFACE_WATER,
+    };
+    let ground = PathfindingGround::Flat(0.0);
+    let grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+    let core = gamelogic::ai::pathfind_complete::PathfindingSystem::new(20, 20);
+    let candidate = GridPos::new(6, 2);
+    assert_eq!(grid.path_zone(candidate), 0);
+    for surfaces in [SURFACE_AIR, SURFACE_GROUND | SURFACE_WATER | SURFACE_CLIFF] {
+        let mut dest = Vec3::ZERO;
+        assert!(grid.check_for_possible(
+            false,
+            1,
+            true,
+            surfaces,
+            candidate,
+            PathfindLayerEnum::Ground,
+            &mut dest,
+            false,
+            &ground
+        ));
+        assert_eq!(grid.world_to_grid(dest), candidate);
+        let mut core_dest = Vec3::ZERO;
+        assert!(core.check_for_possible(
+            false,
+            1,
+            true,
+            surfaces,
+            candidate.x,
+            candidate.y,
+            PathfindLayerEnum::Ground,
+            &mut core_dest,
+            false
+        ));
+        assert_eq!(
+            gamelogic::path::PathfindZoneManager::new().get_effective_zone(surfaces, false, 0),
+            1
+        );
+        assert_eq!(
+            gamelogic::path::ZoneBlock::new().get_effective_zone(surfaces, false, 0),
+            0
+        );
+    }
+    let mut dest = Vec3::ZERO;
+    assert!(!grid.check_for_possible(
+        false,
+        1,
+        true,
+        SURFACE_GROUND,
+        candidate,
+        PathfindLayerEnum::Ground,
+        &mut dest,
+        false,
+        &ground
+    ));
+    assert_eq!(dest, Vec3::ZERO);
+    let mut core_dest = Vec3::ZERO;
+    assert!(!core.check_for_possible(
+        false,
+        1,
+        true,
+        SURFACE_GROUND,
+        candidate.x,
+        candidate.y,
+        PathfindLayerEnum::Ground,
+        &mut core_dest,
+        false
+    ));
+}
+
+#[test]
 fn possible_candidate_maps_structure_separated_terrain_zones() {
     use gamelogic::ai::pathfind_astar::{PathfindCellType, PathfindLayerEnum};
     use gamelogic::ai::pathfind_complete::SURFACE_GROUND;

@@ -1898,9 +1898,8 @@ impl PathfindingGrid {
             is_crusher,
             self.path_zone_on_layer(goal_cell, destination_layer),
         );
-        // Retain the existing uninitialized-zone fallback until zone construction
-        // has run; initialized cells follow the original effective-zone equality.
-        let same_zone = source_zone == 0 || goal_zone == 0 || source_zone == goal_zone;
+        // C++ compares effective zones directly, including zone zero.
+        let same_zone = source_zone == goal_zone;
         if same_zone
             && self.possible_destination_footprint_ok(
                 goal_cell,
@@ -2104,7 +2103,7 @@ impl PathfindingGrid {
                 .copied()
                 .unwrap_or(candidate_zone);
         }
-        if source_zone != 0 && candidate_zone != 0 && source_zone != candidate_zone {
+        if source_zone != candidate_zone {
             return false;
         }
         // C++ checkForPossible rejects an impassable candidate center before

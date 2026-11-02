@@ -446,9 +446,6 @@ impl PathfindingGrid {
     /// C++ `PathfindZoneManager::getEffectiveZone` (AIPathfind.cpp:3118).
     /// Crusher maps `m_crusherZones` BEFORE ground-cliff/water/rubble lookups.
     pub(super) fn get_effective_zone(&self, surfaces: u32, crusher: bool, mut zone: u16) -> u16 {
-        if zone == 0 {
-            return 0;
-        }
         if (surfaces & SURFACE_AIR) != 0 {
             return 1;
         }
@@ -457,6 +454,9 @@ impl PathfindingGrid {
             && (surfaces & SURFACE_CLIFF) != 0
         {
             return 1;
+        }
+        if zone == 0 {
+            return 0;
         }
         if crusher {
             if let Some(&z) = self.crusher_zones.get(zone as usize) {

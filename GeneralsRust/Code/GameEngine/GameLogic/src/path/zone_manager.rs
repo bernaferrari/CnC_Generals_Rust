@@ -652,9 +652,6 @@ impl PathfindZoneManager {
         crusher: bool,
         zone: ZoneStorageType,
     ) -> ZoneStorageType {
-        if zone == 0 {
-            return zone;
-        }
         if zone > self.max_zone {
             debug_assert!(
                 zone <= self.max_zone,
@@ -677,6 +674,9 @@ impl PathfindZoneManager {
 
         let mut zone = zone;
 
+        if zone == 0 {
+            return 0;
+        }
         if crusher {
             let index = zone as usize;
             if index < self.crusher_zones.len() {

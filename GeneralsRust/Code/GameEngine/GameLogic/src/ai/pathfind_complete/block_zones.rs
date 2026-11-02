@@ -224,9 +224,6 @@ impl ZoneManager {
         crusher: bool,
         mut zone: u16,
     ) -> u16 {
-        if zone == 0 {
-            return 0;
-        }
         // AIR → single zone
         if (surfaces & SURFACE_AIR) != 0 {
             return 1;
@@ -237,6 +234,9 @@ impl ZoneManager {
             && (surfaces & SURFACE_CLIFF) != 0
         {
             return 1;
+        }
+        if zone == 0 {
+            return 0;
         }
         if crusher {
             if let Some(&z) = self.crusher_zones.get(zone as usize) {
