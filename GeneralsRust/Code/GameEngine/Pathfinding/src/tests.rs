@@ -2,6 +2,31 @@ use super::*;
 use super::*;
 
 #[test]
+fn resolved_layer_follows_cpp_ground_fallback() {
+    let mut finder = AStarPathfinder::new(4, 4);
+    let cell = GridCoord::new(2, 2);
+    let bridge = PathfindLayerEnum::Top;
+    finder.set_pinched(cell, true);
+    assert_eq!(
+        finder.resolved_layer_at(cell, bridge),
+        Some(PathfindLayerEnum::Ground)
+    );
+    finder.set_cell_type_on_layer(cell, bridge, PathfindCellType::Clear);
+    assert_eq!(finder.resolved_layer_at(cell, bridge), Some(bridge));
+    assert_eq!(finder.is_pinched_on_layer(cell, bridge), Some(false));
+    finder.set_cell_type_on_layer(cell, bridge, PathfindCellType::Impassable);
+    assert_eq!(
+        finder.resolved_layer_at(cell, bridge),
+        Some(PathfindLayerEnum::Ground)
+    );
+    assert_eq!(
+        finder.is_pinched_on_layer(cell, PathfindLayerEnum::Ground),
+        Some(true)
+    );
+    assert_eq!(finder.resolved_layer_at(GridCoord::new(5, 2), bridge), None);
+}
+
+#[test]
 fn test_grid_coord_conversion() {
     let world_pos = Coord3D::new(15.0, 25.0, 0.0);
     let grid = GridCoord::from_world(&world_pos);

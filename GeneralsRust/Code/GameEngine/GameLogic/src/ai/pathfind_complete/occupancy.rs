@@ -973,11 +973,34 @@ impl PathfindingSystem {
             if layer == PathfindLayerEnum::Invalid || layer == PathfindLayerEnum::Ground {
                 continue;
             }
-            for (coord, cell_type) in &bridge.cell_types {
-                pathfinder.set_cell_type_on_layer(*coord, layer, *cell_type);
+            // Reclassification can remove a slot. Mark those slots impassable
+            // so getCell falls back to ground instead of retaining stale deck
+            // cells from before destruction or repair.
+            for x in bridge.bounds.0.x..=bridge.bounds.1.x {
+                for y in bridge.bounds.0.y..=bridge.bounds.1.y {
+                    let coord = GridCoord::new(x, y);
+                    let ty = bridge
+                        .cell_types
+                        .get(&coord)
+                        .copied()
+                        .unwrap_or(PathfindCellType::Impassable);
+                    pathfinder.set_cell_type_on_layer(coord, layer, ty);
+                }
             }
             for coord in &bridge.ground_connect_cells {
-                if bridge.cell_type_at(*coord).is_none() {
+                if bridge.destroyed
+                    || bridge
+                        .cell_type_at(*coord)
+                        .is_none_or(|ty| ty == PathfindCellType::Impassable)
+                {
+                    if pathfinder.get_cell_connect_layer(*coord) == Some(layer) {
+                        pathfinder.set_cell_connect_layer(*coord, PathfindLayerEnum::Invalid);
+                    }
+                    pathfinder.set_cell_connect_layer_on_layer(
+                        *coord,
+                        layer,
+                        PathfindLayerEnum::Invalid,
+                    );
                     continue;
                 }
                 pathfinder.set_cell_connect_layer_on_layer(

@@ -256,14 +256,28 @@ impl PathfindingSystem {
             let t = i as f32 / steps as f32;
             let sample = Coord3D::new(from.x + dx * t, from.y + dy * t, 0.0);
             let coord = GridCoord::from_world(&sample);
+            // C++ getCell falls back to ground when the requested elevated
+            // slot is absent or CELL_IMPASSABLE; the callback sees the
+            // resolved cell's layer and pinch flag.
+            let Some(resolved_layer) = self.pathfinder.resolved_layer_at(coord, layer) else {
+                return Ok(false);
+            };
 
             {
                 let pathfinder = &self.pathfinder;
                 // C++: if (!allowPinched && to->getPinched()) bail.
-                if !allow_pinched && pathfinder.is_pinched(coord) == Some(true) {
+                if !allow_pinched
+                    && pathfinder.is_pinched_on_layer(coord, resolved_layer) == Some(true)
+                {
                     return Ok(false);
                 }
-                if !pathfinder.is_passable_with_ignore(coord, surfaces, is_crusher, ignore_cells) {
+                if !pathfinder.is_passable_on_layer_with_ignore(
+                    coord,
+                    resolved_layer,
+                    surfaces,
+                    is_crusher,
+                    ignore_cells,
+                ) {
                     return Ok(false);
                 }
             }
@@ -272,7 +286,7 @@ impl PathfindingSystem {
             if obj_id != INVALID_ID {
                 let mut info = CheckMovementInfo {
                     cell: coord,
-                    layer,
+                    layer: resolved_layer,
                     center_in_cell,
                     radius: footprint_radius,
                     consider_transient,
@@ -731,11 +745,21 @@ impl PathfindingSystem {
         None
     }
     pub fn set_bridge_destroyed(&mut self, layer_id: u32, destroyed: bool) {
-        if let Some(bridge) = self.bridges.iter_mut().find(|b| b.layer_id == layer_id) {
-            if bridge.destroyed != destroyed {
+        let changed = self
+            .bridges
+            .iter_mut()
+            .find(|bridge| bridge.layer_id == layer_id)
+            .is_some_and(|bridge| {
+                if bridge.destroyed == destroyed {
+                    return false;
+                }
                 bridge.destroyed = destroyed;
                 bridge.reclassify_cells();
-            }
+                true
+            });
+        if changed {
+            self.sync_bridge_layers_to_pathfinder();
+            self.zones.mark_zones_dirty(!destroyed);
         }
     }
 

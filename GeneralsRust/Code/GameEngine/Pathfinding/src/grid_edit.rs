@@ -48,6 +48,16 @@ impl AStarPathfinder {
         self.layer_cell(coord, layer).map(|c| c.get_type())
     }
 
+    /// The layer of the cell selected by C++ getCell, including ground fallback.
+    pub fn resolved_layer_at(
+        &self,
+        coord: GridCoord,
+        layer: PathfindLayerEnum,
+    ) -> Option<PathfindLayerEnum> {
+        self.get_cell_on_layer(coord, layer)
+            .map(|cell| cell.get_layer())
+    }
+
     pub fn set_cell_connect_layer(&mut self, coord: GridCoord, layer: PathfindLayerEnum) {
         self.set_cell_connect_layer_on_layer(coord, PathfindLayerEnum::Ground, layer);
     }

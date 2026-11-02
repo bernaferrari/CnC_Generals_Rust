@@ -621,6 +621,151 @@ fn possible_destination_uses_the_receivers_aircraft_goal_rules() {
 }
 
 #[test]
+fn core_bridge_line_uses_the_deck_then_falls_back_to_blocked_ground() {
+    use gamelogic::ai::pathfind_astar::{GridCoord, PathfindCellType, PathfindLayerEnum};
+    use gamelogic::ai::pathfind_complete::{PathfindingSystem as CorePathfinder, SURFACE_GROUND};
+    let mut finder = CorePathfinder::new(20, 20);
+    let layer = PathfindLayerEnum::from_u32(
+        finder.add_bridge((GridCoord::new(5, 4), GridCoord::new(11, 6))),
+    );
+    for x in 5..=11 {
+        for y in 3..=7 {
+            finder.set_cell_type(
+                &Vec3::new(x as f32 * 10.0 + 5.0, y as f32 * 10.0 + 5.0, 0.0),
+                PathfindCellType::Obstacle,
+            );
+        }
+    }
+    let start = Vec3::new(75.0, 55.0, 0.0);
+    let end = Vec3::new(85.0, 55.0, 0.0);
+    finder.set_cell_type(&start, PathfindCellType::Clear);
+    finder.set_cell_type(&end, PathfindCellType::Clear);
+    finder.refresh_pinched_for_positions(&[start, end]);
+    assert_eq!(
+        finder.get_cell_type_at_layer(&start, PathfindLayerEnum::Ground),
+        Some(PathfindCellType::Impassable)
+    );
+    assert!(!finder.is_line_passable_for_surfaces_on_layer(
+        &start,
+        &end,
+        SURFACE_GROUND,
+        PathfindLayerEnum::Ground,
+        None
+    ));
+    assert!(finder.is_line_passable_for_surfaces_on_layer(
+        &start,
+        &end,
+        SURFACE_GROUND,
+        layer,
+        None
+    ));
+    finder.set_cell_type_at_layer(&start, layer, PathfindCellType::Impassable);
+    assert!(!finder.is_line_passable_for_surfaces_on_layer(
+        &start,
+        &end,
+        SURFACE_GROUND,
+        layer,
+        None
+    ));
+}
+
+#[test]
+fn core_bridge_changes_recalculate_zones_before_draining_the_queue() {
+    use gamelogic::ai::pathfind_astar::{GridCoord, PathfindCellType, PathfindLayerEnum};
+    use gamelogic::ai::pathfind_complete::{PathfindingSystem as CorePathfinder, SURFACE_GROUND};
+    let mut finder = CorePathfinder::new(20, 20);
+    let layer = finder.add_bridge((GridCoord::new(5, 4), GridCoord::new(11, 6)));
+    let mut peer = CorePathfinder::new(20, 20);
+    assert_eq!(
+        peer.add_bridge((GridCoord::new(5, 4), GridCoord::new(11, 6))),
+        layer
+    );
+    for y in 0..20 {
+        let barrier = Vec3::new(85.0, y as f32 * 10.0 + 5.0, 0.0);
+        finder.set_cell_type(&barrier, PathfindCellType::Impassable);
+        peer.set_cell_type(&barrier, PathfindCellType::Impassable);
+    }
+    finder.new_map_from_classified_cells();
+    peer.new_map_from_classified_cells();
+    let path_layer = PathfindLayerEnum::from_u32(layer);
+    let line_start = Vec3::new(65.0, 55.0, 0.0);
+    let line_end = Vec3::new(85.0, 55.0, 0.0);
+    let west = Vec3::new(25.0, 55.0, 0.0);
+    let east = Vec3::new(135.0, 55.0, 0.0);
+    assert!(finder.zones_connected_for_surfaces(SURFACE_GROUND, &west, &east));
+    assert!(finder.zone_interacts_with_bridge(GridCoord::new(5, 4)));
+    let extent = Some(gamelogic::common::Region3D::new(
+        Vec3::ZERO,
+        Vec3::new(200.0, 200.0, 0.0),
+    ));
+
+    // Repeating the existing state must not dirty zones or delay work.
+    finder.set_bridge_destroyed(layer, false);
+    assert!(finder.queue_for_path(1));
+    let mut calls = 0;
+    assert_eq!(
+        finder
+            .process_queue_with_owner(1, extent, |_, _| {
+                calls += 1;
+                Ok(true)
+            })
+            .unwrap(),
+        1
+    );
+    assert_eq!(calls, 1);
+
+    for destroyed in [true, false] {
+        assert!(finder.queue_for_path(1));
+        finder.set_bridge_destroyed(layer, destroyed);
+        assert_eq!(
+            finder
+                .process_queue_with_owner(1, extent, |_, _| {
+                    calls += 1;
+                    Ok(true)
+                })
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            finder.zone_interacts_with_bridge(GridCoord::new(5, 4)),
+            !destroyed
+        );
+        assert_eq!(
+            finder.zones_connected_for_surfaces(SURFACE_GROUND, &west, &east),
+            !destroyed
+        );
+        assert!(peer.zones_connected_for_surfaces(SURFACE_GROUND, &west, &east));
+        assert_eq!(
+            finder.is_line_passable_for_surfaces_on_layer(
+                &line_start,
+                &line_end,
+                SURFACE_GROUND,
+                path_layer,
+                None
+            ),
+            !destroyed
+        );
+        assert!(peer.is_line_passable_for_surfaces_on_layer(
+            &line_start,
+            &line_end,
+            SURFACE_GROUND,
+            path_layer,
+            None
+        ));
+        assert_eq!(
+            finder
+                .process_queue_with_owner(1, extent, |_, _| {
+                    calls += 1;
+                    Ok(true)
+                })
+                .unwrap(),
+            1
+        );
+    }
+    assert_eq!(calls, 3);
+}
+
+#[test]
 fn core_possible_candidate_uses_bridge_cell_and_zone() {
     use gamelogic::ai::pathfind_astar::{GridCoord, PathfindCellType, PathfindLayerEnum};
     use gamelogic::ai::pathfind_complete::{
@@ -714,6 +859,15 @@ fn core_possible_candidate_uses_bridge_cell_and_zone() {
         false
     ));
     assert_eq!(repeated, dest);
+    let line_start = Vec3::new(65.0, 55.0, 0.0);
+    let line_end = Vec3::new(85.0, 55.0, 0.0);
+    assert!(owner.is_line_passable_for_surfaces_on_layer(
+        &line_start,
+        &line_end,
+        SURFACE_GROUND,
+        layer,
+        None
+    ));
     owner.set_bridge_destroyed(layer_id, true);
     owner.set_cell_type(&pos, PathfindCellType::Clear);
     let mut destroyed = Vec3::ZERO;
@@ -727,6 +881,20 @@ fn core_possible_candidate_uses_bridge_cell_and_zone() {
         layer,
         &mut destroyed,
         false
+    ));
+    assert!(!owner.is_line_passable_for_surfaces_on_layer(
+        &line_start,
+        &line_end,
+        SURFACE_GROUND,
+        layer,
+        None
+    ));
+    assert!(peer.is_line_passable_for_surfaces_on_layer(
+        &line_start,
+        &line_end,
+        SURFACE_GROUND,
+        layer,
+        None
     ));
     let mut peer_after_destroy = Vec3::ZERO;
     assert!(peer.check_for_possible(
@@ -752,6 +920,13 @@ fn core_possible_candidate_uses_bridge_cell_and_zone() {
         layer,
         &mut repaired,
         false
+    ));
+    assert!(owner.is_line_passable_for_surfaces_on_layer(
+        &line_start,
+        &line_end,
+        SURFACE_GROUND,
+        layer,
+        None
     ));
     owner.set_cell_type_at_layer(&pos, layer, PathfindCellType::Impassable);
     owner.set_cell_type(&pos, PathfindCellType::Clear);
