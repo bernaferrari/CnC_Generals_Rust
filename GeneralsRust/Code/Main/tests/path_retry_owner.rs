@@ -1413,17 +1413,53 @@ fn queued_search_uses_the_current_owners_locomotor_surfaces() {
     assert_eq!(ids[0], ids[1]);
     changed.host_object_mut(ids[1]).unwrap().locomotor_surfaces =
         gamelogic::ai::pathfind_complete::SURFACE_WATER;
+    // C++ findPath fails on the invalid surface, then findClosestPath enters
+    // tunneling from the invalid start and may reach the requested goal.
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    use generals_main::save_load::{Snapshot, WorldSnapshot, XferLoad, XferSave};
+    let mut snapshot = builder.create_world_snapshot(&changed).unwrap();
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    snapshot.xfer(&mut XferSave::new(&mut bytes)).unwrap();
+    let mut snapshot = WorldSnapshot::default();
+    snapshot
+        .xfer(&mut XferLoad::new(std::io::Cursor::new(bytes.into_inner())))
+        .unwrap();
+    let mut restored = world(&map);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert_eq!(
+        restored.host_object(ids[1]).unwrap().locomotor_surfaces,
+        gamelogic::ai::pathfind_complete::SURFACE_WATER
+    );
     ground.update_with_dt(1.0 / 30.0);
     changed.update_with_dt(1.0 / 30.0);
-    assert!(!ground.host_object(ids[0]).unwrap().movement.path.is_empty());
+    restored.update_with_dt(1.0 / 30.0);
+    let ground_unit = ground.host_object(ids[0]).unwrap();
+    let water_unit = changed.host_object(ids[1]).unwrap();
+    let restored_unit = restored.host_object(ids[1]).unwrap();
+    assert_eq!(ground_unit.movement.path.last().copied(), Some(goal));
     assert!(
-        changed
-            .host_object(ids[1])
-            .unwrap()
-            .movement
-            .path
-            .is_empty(),
-        "a water-only locomotor cannot use the ground-only terrain"
+        !ground_unit.retry_path,
+        "ground route should not need closest-path fallback"
+    );
+    assert!(
+        water_unit.retry_path,
+        "water-only mover must take the original closest-path fallback"
+    );
+    assert_eq!(
+        water_unit.movement.path.last().copied(),
+        Some(goal),
+        "the original closest search tunnels from an invalid starting surface"
+    );
+    assert_eq!(
+        restored_unit.movement.path, water_unit.movement.path,
+        "the queued tunneling route must survive save/load"
+    );
+    assert_eq!(restored_unit.retry_path, water_unit.retry_path);
+    assert_eq!(
+        water_unit.locomotor_surfaces,
+        gamelogic::ai::pathfind_complete::SURFACE_WATER
     );
 }
 

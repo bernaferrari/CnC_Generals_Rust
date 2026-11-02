@@ -415,3 +415,42 @@ fn ordinary_path_reads_current_player_type_without_frame_refresh() {
         "the next query must respect the current human controller"
     );
 }
+
+#[test]
+fn closest_search_tunnels_from_an_invalid_surface_until_goal_or_valid_exit() {
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    let (mut world, mut finder, mover, _) = make_world();
+    let surfaces = gamelogic::ai::pathfind_complete::SURFACE_WATER;
+    world.host_object_mut(mover).unwrap().locomotor_surfaces = surfaces;
+    let from = Vec3::new(25.0, 0.0, 55.0);
+    let goal = Vec3::new(75.0, 0.0, 55.0);
+    let ground = PathfindingGround::Flat(0.0);
+    let query = |finder: &mut PathfindingSystem| {
+        finder.find_closest_path(
+            from,
+            goal,
+            surfaces,
+            false,
+            true,
+            0.0,
+            &ground,
+            world.host_objects(),
+            mover,
+        )
+    };
+    let invalid_start = query(&mut finder).expect("C++ tunnels out of an invalid starting surface");
+    assert_eq!(invalid_start.last().copied(), Some(goal));
+
+    let mut valid_start = PathfindingSystem::new(200.0, 200.0);
+    let start_cell = valid_start.grid.world_to_grid(from);
+    valid_start
+        .grid
+        .set_cell_type(start_cell, PathfindCellType::Water);
+    let water_start =
+        query(&mut valid_start).expect("the starting water cell is a valid closest result");
+    assert_ne!(
+        water_start.last().copied(),
+        Some(goal),
+        "without tunneling a water-only unit cannot cross ground cells"
+    );
+}

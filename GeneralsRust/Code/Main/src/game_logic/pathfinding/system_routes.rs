@@ -1224,19 +1224,34 @@ impl PathfindingSystem {
                             .is_some_and(|(owner_id, _, _)| owner_id == ignored_id)
                 })
         };
-        let start_layer = self.grid.layer_for_destination(from, ground_source);
-        let tunnel = !self.grid.valid_movement_position(
+        let start_layer = PathfindLayerEnum::from_u32(unit.pathfind_layer as u32);
+        let seeker_player = unit.owner_player_id;
+        let footprint = MovementFootprint {
+            mover,
+            start,
+            radius,
+            center_in_cell,
+            seeker_player,
+            is_infantry: self.seeker_is_infantry,
+            crusher_level: self.seeker_crusher_level,
+            ally_mask: seeker_player
+                .map(|id| self.grid.ally_mask_for(id))
+                .unwrap_or(0),
+        };
+        let mut tunnel = !self.grid.valid_movement_position(
             start,
             start_layer,
             surfaces,
             is_crusher,
             self.ignore_obstacle_id.map(|id| id.0).unwrap_or(0),
-        );
+        ) || footprint.cost(&self.grid, start, start_layer).is_none();
+        let started_stuck = tunnel;
         let start_lid = start_layer as u8;
         let mut open: BinaryHeap<std::cmp::Reverse<(i32, u64, i32, i32, i32, u8)>> =
             BinaryHeap::new();
         let mut next_enqueue_order = 0u64;
         let mut g_score: HashMap<(i32, i32, u8), i32> = HashMap::new();
+        let mut parents: HashMap<(i32, i32, u8), (i32, i32, u8)> = HashMap::new();
         let mut closed: HashSet<(i32, i32, u8)> = HashSet::new();
         // Leftover goal accept honors canPathThroughUnits (per-pop C++ check).
         let goal_accept_ok = self.seeker_can_path_through_units
@@ -1319,14 +1334,24 @@ impl PathfindingSystem {
                 } else {
                     found_goal_cell = true;
                 }
-            } else if self.grid.check_destination_for_object(
-                cell,
-                layer,
-                radius,
-                center_in_cell,
-                unit,
-                objects,
-            ) {
+            } else if !tunnel
+                && (!started_stuck
+                    || self.grid.valid_movement_position(
+                        cell,
+                        layer,
+                        surfaces,
+                        is_crusher,
+                        self.ignore_obstacle_id.map_or(0, |id| id.0),
+                    ))
+                && self.grid.check_destination_for_object(
+                    cell,
+                    layer,
+                    radius,
+                    center_in_cell,
+                    unit,
+                    objects,
+                )
+            {
                 let dx = (goal_grid.x - cx).abs() as f32;
                 let dy = (goal_grid.y - cy).abs() as f32;
                 let dist_screen = dx * dx + dy * dy;
@@ -1354,6 +1379,7 @@ impl PathfindingSystem {
                 &closed,
                 &mut g_score,
                 &mut |f, g, x, y, hop_layer| {
+                    parents.insert((x, y, hop_layer), key);
                     enqueue_closest_path_node(
                         &mut open,
                         &mut next_enqueue_order,
@@ -1379,23 +1405,36 @@ impl PathfindingSystem {
                 if PathfindingGrid::skip_diagonal_if_squeezed(i, &neighbor_flags) {
                     continue;
                 }
-                if !self
+                let movement_valid = self
                     .grid
                     .cell_passable_for_layer(nc, layer, surfaces, is_crusher)
-                    && !is_ignored_owned_obstacle(nc, layer)
-                    && !(self.grid.is_obstacle_fence(nc) && is_crusher)
-                {
+                    || is_ignored_owned_obstacle(nc, layer)
+                    || (self.grid.is_obstacle_fence(nc) && is_crusher);
+                if !movement_valid && !tunnel {
                     continue;
                 }
                 neighbor_flags[i] = true;
-                let step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
+                let occupancy = footprint.cost(&self.grid, nc, layer);
+                if occupancy.is_none() && !tunnel {
+                    continue;
+                }
+                let pinched = layer == PathfindLayerEnum::Ground && self.grid.is_pinched(nc);
+                if movement_valid && occupancy.is_some() && !pinched {
+                    tunnel = false;
+                }
+                let mut step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
+                step += (occupancy.unwrap_or(0.0) * 10.0).round() as i32;
+                if tunnel && !movement_valid {
+                    step += 10 * COST_ORTHO;
+                }
                 let ng = g + step;
                 let nkey = (nx, ny, lid);
                 if g_score.get(&nkey).is_some_and(|&og| ng >= og) {
                     continue;
                 }
                 g_score.insert(nkey, ng);
-                let f = ng + heuristic(nc);
+                parents.insert(nkey, key);
+                let f = ng + if tunnel { 0 } else { heuristic(nc) };
                 enqueue_closest_path_node(&mut open, &mut next_enqueue_order, f, ng, nx, ny, lid);
             }
         }
@@ -1406,43 +1445,36 @@ impl PathfindingSystem {
             self.grid
                 .grid_to_world_on_layer(best_cell, best_layer, ground_source)
         };
-        let to_cell = self
-            .grid
-            .cell_for_unit_position(to_pos, self.seeker_center_in_cell);
-        // Leftover buildActualPath via find_path_via_crate; failure stays
-        // None — no fail-open line.
-        if let Some(path) = self.find_path_via_crate(
-            start,
-            to_cell,
-            from,
-            surfaces,
-            is_crusher,
-            start_layer,
-            best_layer,
-            ground_source,
-            objects,
-            Some(is_human),
-        ) {
-            let mut world = path;
-            if let Some(first) = world.first_mut() {
-                *first = from;
-            }
-            if let Some(last) = world.last_mut() {
-                *last = to_pos;
-            }
-            return Some(self.grid.optimize_ground_path(
-                &world,
-                surfaces,
-                is_crusher,
-                ground_source,
-            ));
+        // C++ buildActualPath follows the parents from this very search.
+        // Running a second search would discard the tunneling decisions.
+        let start_key = (start.x, start.y, start_lid);
+        let mut cursor = (best_cell.x, best_cell.y, best_layer as u8);
+        let mut cells = vec![cursor];
+        while cursor != start_key {
+            cursor = *parents.get(&cursor)?;
+            cells.push(cursor);
         }
-        // Leftover returns none when internalFindPath fails — no fail-open line.
-        if start == to_cell {
-            Some(vec![from])
-        } else {
-            None
+        cells.reverse();
+        let mut path: Vec<Vec3> = cells
+            .into_iter()
+            .map(|(x, y, layer)| {
+                self.grid.grid_to_world_on_layer(
+                    GridPos::new(x, y),
+                    PathfindLayerEnum::from_u32(layer as u32),
+                    ground_source,
+                )
+            })
+            .collect();
+        if let Some(first) = path.first_mut() {
+            *first = from;
         }
+        if let Some(last) = path.last_mut() {
+            *last = to_pos;
+        }
+        Some(
+            self.grid
+                .optimize_ground_path(&path, surfaces, is_crusher, ground_source),
+        )
     }
 
     /// C++ `adjustDestination(..., groupDest)` for ground group members.
