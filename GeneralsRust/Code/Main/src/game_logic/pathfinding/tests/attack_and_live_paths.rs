@@ -524,7 +524,7 @@ fn find_closest_path_does_not_cut_through_building() {
             true,
             0.2,
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
-            super::super::standalone_closest_path_fixture().read(),
+            super::super::standalone_path_fixture().read(),
             crate::game_logic::ObjectId(1),
         )
         .expect("closest path");
@@ -577,7 +577,7 @@ fn find_closest_path_hops_connect_layer_onto_deck() {
             true,
             0.2,
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
-            super::super::standalone_closest_path_fixture().read(),
+            super::super::standalone_path_fixture().read(),
             crate::game_logic::ObjectId(1),
         )
         .expect("closest onto deck");

@@ -689,6 +689,8 @@ impl PathfindingSystem {
         surfaces: u32,
         is_crusher: bool,
         ground_source: &PathfindingGround<'_>,
+        objects: HostObjectRead<'_>,
+        mover: ObjectId,
     ) -> Option<Vec<Vec3>> {
         self.find_safe_path_from(
             from,
@@ -699,6 +701,8 @@ impl PathfindingSystem {
             is_crusher,
             true,
             ground_source,
+            objects,
+            mover,
         )
     }
 
@@ -714,7 +718,16 @@ impl PathfindingSystem {
         is_crusher: bool,
         is_human: bool,
         ground_source: &PathfindingGround<'_>,
+        objects: HostObjectRead<'_>,
+        mover: ObjectId,
     ) -> Option<Vec<Vec3>> {
+        objects.lookup(&mover)?;
+        self.ensure_dynamic_obstacles(objects, ground_source);
+        self.bind_seeker_from_mover(objects, Some(mover));
+        self.grid.query_seeker_id = mover.0;
+        self.grid.set_query_is_human(is_human);
+        self.grid
+            .set_query_footprint(self.seeker_path_diameter, is_crusher);
         self.sync_crate_astar();
         let start = self
             .grid
@@ -897,7 +910,7 @@ impl PathfindingSystem {
             start_layer,
             dest_layer,
             ground_source,
-            None,
+            Some(objects),
         )?;
         if path.len() < 2 {
             return None;

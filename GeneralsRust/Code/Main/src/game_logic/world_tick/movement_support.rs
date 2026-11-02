@@ -481,6 +481,8 @@ impl GameLogic {
                             is_crusher,
                             is_human,
                             &ground_source,
+                            self.objects.read(),
+                            id,
                         )
                     }) {
                         repaths.push((id, path, false));

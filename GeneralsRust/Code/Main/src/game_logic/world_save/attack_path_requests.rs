@@ -106,6 +106,8 @@ impl GameLogic {
                     is_crusher,
                     is_human,
                     &ground_source,
+                    self.objects.read(),
+                    req.unit_id,
                 )
             }) {
                 let _ =
