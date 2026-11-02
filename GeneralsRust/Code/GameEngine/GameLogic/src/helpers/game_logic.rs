@@ -6,20 +6,46 @@
 /// TheGameLogic singleton bridge - global game state access (matching C++ TheGameLogic)
 pub struct TheGameLogic;
 
-static GAME_PAUSED: AtomicBool = AtomicBool::new(false);
-static GAME_PAUSE_MUSIC: AtomicBool = AtomicBool::new(false);
-static INTRO_MOVIE_PLAYING: AtomicBool = AtomicBool::new(false);
-static START_NEW_GAME_REQUESTED: AtomicBool = AtomicBool::new(false);
-static GAME_START_RANK_POINTS: AtomicI32 = AtomicI32::new(0);
-static GLOBAL_DIFFICULTY: AtomicI32 = AtomicI32::new(0);
-static LOCAL_ALLIED_VICTORY: AtomicBool = AtomicBool::new(false);
-static LOCAL_ALLIED_DEFEAT: AtomicBool = AtomicBool::new(false);
-static SINGLE_ALLIANCE_REMAINING: AtomicBool = AtomicBool::new(false);
-static VICTORY_FLAGS_FROM_LIVE: AtomicBool = AtomicBool::new(false);
-static LOCAL_PLAYER_DEFEATED: AtomicBool = AtomicBool::new(false);
+fn session() -> std::sync::Arc<crate::system::engine_stores::WorldServices> {
+    crate::system::engine_stores::active_services()
+}
 
-static HULK_MAX_LIFETIME_OVERRIDE: AtomicI32 = AtomicI32::new(-1);
-static INPUT_ENABLED: AtomicBool = AtomicBool::new(true);
+pub(crate) fn store_global_difficulty(difficulty: i32) {
+    session().session_flags().global_difficulty.store(difficulty, Ordering::Relaxed);
+}
+pub(crate) fn load_global_difficulty() -> i32 {
+    session().session_flags().global_difficulty.load(Ordering::Relaxed)
+}
+pub(crate) fn store_local_allied_victory(v: bool) {
+    session().session_flags().local_allied_victory.store(v, Ordering::Relaxed);
+}
+pub(crate) fn load_local_allied_victory() -> bool {
+    session().session_flags().local_allied_victory.load(Ordering::Relaxed)
+}
+pub(crate) fn store_local_allied_defeat(v: bool) {
+    session().session_flags().local_allied_defeat.store(v, Ordering::Relaxed);
+}
+pub(crate) fn load_local_allied_defeat() -> bool {
+    session().session_flags().local_allied_defeat.load(Ordering::Relaxed)
+}
+pub(crate) fn store_victory_flags_from_live(v: bool) {
+    session().session_flags().victory_flags_from_live.store(v, Ordering::Relaxed);
+}
+pub(crate) fn load_victory_flags_from_live() -> bool {
+    session().session_flags().victory_flags_from_live.load(Ordering::Relaxed)
+}
+pub(crate) fn store_single_alliance_remaining(v: bool) {
+    session().session_flags().single_alliance_remaining.store(v, Ordering::Relaxed);
+}
+pub(crate) fn load_single_alliance_remaining() -> bool {
+    session().session_flags().single_alliance_remaining.load(Ordering::Relaxed)
+}
+pub(crate) fn store_local_player_defeated(v: bool) {
+    session().session_flags().local_player_defeated.store(v, Ordering::Relaxed);
+}
+pub(crate) fn load_local_player_defeated() -> bool {
+    session().session_flags().local_player_defeated.load(Ordering::Relaxed)
+}
 
 impl TheGameLogic {
     /// Destroy an object (matches C++ TheGameLogic::destroyObject)
@@ -191,13 +217,13 @@ impl TheGameLogic {
 
     /// Set the paused state of the game (matches C++ TheGameLogic::setGamePaused).
     pub fn set_game_paused(paused: Bool, pause_music: Bool) {
-        let current = GAME_PAUSED.load(Ordering::Relaxed);
+        let current = session().session_flags().game_paused.load(Ordering::Relaxed);
         if current == paused {
             return;
         }
 
-        GAME_PAUSED.store(paused, Ordering::Relaxed);
-        GAME_PAUSE_MUSIC.store(paused && pause_music, Ordering::Relaxed);
+        session().session_flags().game_paused.store(paused, Ordering::Relaxed);
+        session().session_flags().game_pause_music.store(paused && pause_music, Ordering::Relaxed);
 
         if let Some(hooks) = game_pause_hooks() {
             hooks.on_game_pause_state_changed(paused);
@@ -224,32 +250,32 @@ impl TheGameLogic {
 
     /// Return the paused state of the game.
     pub fn is_game_paused() -> Bool {
-        GAME_PAUSED.load(Ordering::Relaxed)
+        session().session_flags().game_paused.load(Ordering::Relaxed)
     }
 
     /// Return whether pause music is active.
     pub fn is_pause_music_active() -> Bool {
-        GAME_PAUSE_MUSIC.load(Ordering::Relaxed)
+        session().session_flags().game_pause_music.load(Ordering::Relaxed)
     }
 
     /// Set whether the intro movie is playing.
     pub fn set_intro_movie_playing(playing: Bool) {
-        INTRO_MOVIE_PLAYING.store(playing, Ordering::Relaxed);
+        session().session_flags().intro_movie_playing.store(playing, Ordering::Relaxed);
     }
 
     /// Return whether the intro movie is playing.
     pub fn is_intro_movie_playing() -> Bool {
-        INTRO_MOVIE_PLAYING.load(Ordering::Relaxed)
+        session().session_flags().intro_movie_playing.load(Ordering::Relaxed)
     }
 
     /// Set whether player input is enabled (ScriptActions::doDisableInput / doEnableInput).
     pub fn set_input_enabled(enabled: Bool) {
-        INPUT_ENABLED.store(enabled, Ordering::Relaxed);
+        session().session_flags().input_enabled.store(enabled, Ordering::Relaxed);
     }
 
     /// Return whether player input is enabled.
     pub fn is_input_enabled() -> Bool {
-        INPUT_ENABLED.load(Ordering::Relaxed)
+        session().session_flags().input_enabled.load(Ordering::Relaxed)
     }
 
     /// Return whether the game is currently loading a map.
@@ -430,17 +456,17 @@ impl TheGameLogic {
 
     /// Request that the next game-logic update complete a staged new-game start.
     pub fn request_start_new_game() {
-        START_NEW_GAME_REQUESTED.store(true, Ordering::Relaxed);
+        session().session_flags().start_new_game_requested.store(true, Ordering::Relaxed);
     }
 
     /// Check whether a staged new-game start is waiting to be completed.
     pub fn is_start_new_game_requested() -> Bool {
-        START_NEW_GAME_REQUESTED.load(Ordering::Relaxed)
+        session().session_flags().start_new_game_requested.load(Ordering::Relaxed)
     }
 
     /// Clear any staged new-game start request.
     pub fn clear_start_new_game_request() {
-        START_NEW_GAME_REQUESTED.store(false, Ordering::Relaxed);
+        session().session_flags().start_new_game_requested.store(false, Ordering::Relaxed);
     }
 
     fn to_init_game_mode(mode: Int) -> crate::system::game_initialization::GameMode {
@@ -519,12 +545,12 @@ impl TheGameLogic {
 
     /// Set rank points used at game start.
     pub fn set_rank_points_to_add_at_game_start(points: Int) {
-        GAME_START_RANK_POINTS.store(points, Ordering::Relaxed);
+        session().session_flags().game_start_rank_points.store(points, Ordering::Relaxed);
     }
 
     /// Get rank points used at game start.
     pub fn get_rank_points_to_add_at_game_start() -> Int {
-        GAME_START_RANK_POINTS.load(Ordering::Relaxed)
+        session().session_flags().game_start_rank_points.load(Ordering::Relaxed)
     }
 
     /// Get the global weapon bonus set used by all weapons.
@@ -726,12 +752,12 @@ impl TheGameLogic {
 
     /// Get hulk max lifetime override.
     pub fn get_hulk_max_lifetime_override() -> Int {
-        HULK_MAX_LIFETIME_OVERRIDE.load(Ordering::Relaxed)
+        session().session_flags().hulk_max_lifetime_override.load(Ordering::Relaxed)
     }
 
     /// Set hulk max lifetime override (used by scripting)
     pub fn set_hulk_max_lifetime_override(lifetime: Int) {
-        HULK_MAX_LIFETIME_OVERRIDE.store(lifetime, Ordering::Relaxed);
+        session().session_flags().hulk_max_lifetime_override.store(lifetime, Ordering::Relaxed);
     }
 
     /// Register an update module with the global scheduler.

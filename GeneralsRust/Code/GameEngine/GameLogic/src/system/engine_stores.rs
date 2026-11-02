@@ -15,7 +15,45 @@ use game_engine::common::ini::ini_ai_data::{self, AIDataStore};
 use game_engine::common::system::upgrade as common_upgrade;
 use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, AtomicI32};
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
+
+/// Per-world session flags formerly process atomics on `TheGameLogic` bridge.
+pub struct SessionLogicFlags {
+    pub game_paused: AtomicBool,
+    pub game_pause_music: AtomicBool,
+    pub intro_movie_playing: AtomicBool,
+    pub start_new_game_requested: AtomicBool,
+    pub game_start_rank_points: AtomicI32,
+    pub global_difficulty: AtomicI32,
+    pub local_allied_victory: AtomicBool,
+    pub local_allied_defeat: AtomicBool,
+    pub single_alliance_remaining: AtomicBool,
+    pub victory_flags_from_live: AtomicBool,
+    pub local_player_defeated: AtomicBool,
+    pub hulk_max_lifetime_override: AtomicI32,
+    pub input_enabled: AtomicBool,
+}
+
+impl Default for SessionLogicFlags {
+    fn default() -> Self {
+        Self {
+            game_paused: AtomicBool::new(false),
+            game_pause_music: AtomicBool::new(false),
+            intro_movie_playing: AtomicBool::new(false),
+            start_new_game_requested: AtomicBool::new(false),
+            game_start_rank_points: AtomicI32::new(0),
+            global_difficulty: AtomicI32::new(0),
+            local_allied_victory: AtomicBool::new(false),
+            local_allied_defeat: AtomicBool::new(false),
+            single_alliance_remaining: AtomicBool::new(false),
+            victory_flags_from_live: AtomicBool::new(false),
+            local_player_defeated: AtomicBool::new(false),
+            hulk_max_lifetime_override: AtomicI32::new(-1),
+            input_enabled: AtomicBool::new(true),
+        }
+    }
+}
 
 /// Service values shared by Main and the standalone Core runtime. No Core AI.
 pub struct WorldServices {
@@ -26,6 +64,7 @@ pub struct WorldServices {
     radar_updates: Mutex<VecDeque<RadarUpdate>>,
     /// Host-script request drains for this world (formerly process TLS).
     host_script_requests: crate::scripting::executor::HostScriptRequestQueues,
+    session_flags: SessionLogicFlags,
 }
 impl WorldServices {
     fn engine_defaults() -> Self {
@@ -35,6 +74,7 @@ impl WorldServices {
             terrain: Arc::clone(&crate::terrain::THE_TERRAIN_LOGIC),
             radar_updates: Mutex::new(VecDeque::new()),
             host_script_requests: crate::scripting::executor::HostScriptRequestQueues::default(),
+            session_flags: SessionLogicFlags::default(),
         }
     }
     /// Snapshot engine content; fresh mutable per-world services. Inert.
@@ -47,6 +87,7 @@ impl WorldServices {
             terrain: Arc::new(RwLock::new(crate::terrain::TerrainLogic::new())),
             radar_updates: Mutex::new(VecDeque::new()),
             host_script_requests: crate::scripting::executor::HostScriptRequestQueues::default(),
+            session_flags: SessionLogicFlags::default(),
         }
     }
     pub fn terrain(&self) -> &Arc<RwLock<crate::terrain::TerrainLogic>> {
@@ -63,6 +104,9 @@ impl WorldServices {
     }
     pub(crate) fn host_script_requests(&self) -> &crate::scripting::executor::HostScriptRequestQueues {
         &self.host_script_requests
+    }
+    pub(crate) fn session_flags(&self) -> &SessionLogicFlags {
+        &self.session_flags
     }
 }
 /// Standalone Core runtime; AI is mandatory, never optional or deferred.

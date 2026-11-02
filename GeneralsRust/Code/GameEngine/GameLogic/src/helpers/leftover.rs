@@ -994,7 +994,7 @@ impl TheScriptEngine {
         // This atomic is the standalone bootstrap adapter. A live callback
         // changes only its driving engine, never another game's bootstrap.
         if !crate::scripting::engine::is_script_engine_active() {
-            GLOBAL_DIFFICULTY.store(difficulty, Ordering::Relaxed);
+            store_global_difficulty(difficulty);
         }
         let mapped = match difficulty {
             0 => crate::player::GameDifficulty::Easy,
@@ -1015,7 +1015,7 @@ impl TheScriptEngine {
             })
             .unwrap_or(crate::player::GameDifficulty::Normal as Int);
         }
-        GLOBAL_DIFFICULTY.load(Ordering::Relaxed)
+        load_global_difficulty()
     }
 
     pub fn signal_ui_interact(hook_name: &str) {
@@ -1072,41 +1072,41 @@ pub struct TheVictoryConditions;
 
 impl TheVictoryConditions {
     pub fn set_local_allied_victory(victory: Bool) {
-        LOCAL_ALLIED_VICTORY.store(victory, Ordering::Relaxed);
+        store_local_allied_victory(victory);
     }
 
     pub fn is_local_allied_victory() -> Bool {
-        LOCAL_ALLIED_VICTORY.load(Ordering::Relaxed)
+        load_local_allied_victory()
     }
 
     pub fn set_local_allied_defeat(defeat: Bool) {
-        LOCAL_ALLIED_DEFEAT.store(defeat, Ordering::Relaxed);
+        store_local_allied_defeat(defeat);
     }
 
     pub fn set_single_alliance_remaining(remaining: Bool) {
-        SINGLE_ALLIANCE_REMAINING.store(remaining, Ordering::Relaxed);
+        store_single_alliance_remaining(remaining);
     }
 
     pub fn is_single_alliance_remaining() -> Bool {
-        SINGLE_ALLIANCE_REMAINING.load(Ordering::Relaxed)
+        load_single_alliance_remaining()
     }
 
     pub fn set_victory_flags_from_live(from_live: Bool) {
-        VICTORY_FLAGS_FROM_LIVE.store(from_live, Ordering::Relaxed);
+        store_victory_flags_from_live(from_live);
     }
 
     pub fn set_local_player_defeated(defeated: Bool) {
-        LOCAL_PLAYER_DEFEATED.store(defeated, Ordering::Relaxed);
+        store_local_player_defeated(defeated);
     }
 
     /// C++ `VictoryConditions::isLocalAlliedDefeat`: last alliance standing
     /// (or observer when that latch is set). Not "all my allies are dead".
     pub fn is_local_allied_defeat() -> Bool {
-        if LOCAL_ALLIED_VICTORY.load(Ordering::Relaxed) {
+        if load_local_allied_victory() {
             return false;
         }
-        if VICTORY_FLAGS_FROM_LIVE.load(Ordering::Relaxed) {
-            return LOCAL_ALLIED_DEFEAT.load(Ordering::Relaxed);
+        if load_victory_flags_from_live() {
+            return load_local_allied_defeat();
         }
         leftover_player_list_is_local_allied_defeat()
     }
@@ -1116,7 +1116,7 @@ impl TheVictoryConditions {
         if leftover_local_player_is_observer() {
             return false;
         }
-        if LOCAL_PLAYER_DEFEATED.load(Ordering::Relaxed) {
+        if load_local_player_defeated() {
             return true;
         }
         leftover_local_player_is_individually_defeated()
