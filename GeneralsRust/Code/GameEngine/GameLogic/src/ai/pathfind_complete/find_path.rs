@@ -558,6 +558,29 @@ impl PathfindingSystem {
         let mut closest_screen_sqr = f32::MAX;
         let mut found_goal_cell = false;
         let mut expanded = 0i32;
+        let destination_valid = |system: &Self, cell, layer| {
+            if observations.is_some() {
+                system.check_destination_with_observations(
+                    &request,
+                    cell,
+                    layer,
+                    radius,
+                    center_in_cell,
+                    Some(aircraft_goal_only),
+                    observations,
+                )
+            } else {
+                system.is_destination_valid(
+                    cell,
+                    layer,
+                    surfaces,
+                    is_crusher,
+                    radius,
+                    center_in_cell,
+                    request.ignore_obstacle_id,
+                )
+            }
+        };
 
         while let Some(std::cmp::Reverse((_f, g, cx, cy))) = open.pop() {
             if closed.contains(&(cx, cy)) {
@@ -573,17 +596,7 @@ impl PathfindingSystem {
 
             if cx == goal_grid.x && cy == goal_grid.y {
                 // C++: if goal invalid destination and we have closer, keep scanning.
-                let goal_ok = can_path_through_units
-                    || self.is_destination_valid_with_observations(
-                        cell,
-                        layer,
-                        surfaces,
-                        is_crusher,
-                        radius,
-                        center_in_cell,
-                        request.ignore_obstacle_id,
-                        observations,
-                    );
+                let goal_ok = can_path_through_units || destination_valid(self, cell, layer);
                 if goal_ok || closest_cell.is_none() {
                     found_goal_cell = true;
                     closest_cell = Some((cell, 0.0));
@@ -592,18 +605,7 @@ impl PathfindingSystem {
                     found_goal_cell = true;
                     // continue scanning for closer valid cell
                 }
-            } else if !self.is_tunneling
-                && self.is_destination_valid_with_observations(
-                    cell,
-                    layer,
-                    surfaces,
-                    is_crusher,
-                    radius,
-                    center_in_cell,
-                    request.ignore_obstacle_id,
-                    observations,
-                )
-            {
+            } else if !self.is_tunneling && destination_valid(self, cell, layer) {
                 // C++: if (!startedStuck || validMovementPosition(...))
                 let movement_ok = !started_stuck
                     || self.valid_movement_cell(

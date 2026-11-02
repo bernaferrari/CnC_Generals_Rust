@@ -3095,3 +3095,95 @@ fn destination_footprint_checks_obstacles_not_locomotor_surfaces() {
     assert!(!valid(&world, SURFACE_GROUND, true, None));
     assert!(valid(&world, SURFACE_GROUND, true, Some(41)));
 }
+
+#[test]
+fn closest_path_respects_goal_occupancy_in_its_factory() {
+    use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
+    use std::sync::{Arc, RwLock};
+    fn factory(relation: Relationship) -> (ObjectFactory, ObjectID, ObjectID) {
+        let mut factory = ObjectFactory::new();
+        let mut logic = crate::system::game_logic::GameLogic::new();
+        let source_team = Arc::new(RwLock::new(crate::team::Team::new("Source".into(), 801)));
+        let target_team = Arc::new(RwLock::new(crate::team::Team::new("Target".into(), 802)));
+        source_team
+            .write()
+            .unwrap()
+            .set_override_team_relationship(802, relation);
+        let mut create = |name: &str, team| {
+            factory
+                .prepare_object(
+                    &mut logic,
+                    Arc::new(crate::common::types::DefaultThingTemplate::new(name.into())),
+                    Coord3D::ZERO,
+                    Some(team),
+                    ObjectCreationFlags::NO_AI,
+                )
+                .unwrap()
+        };
+        let source = create("Source", source_team);
+        let target = create("Target", target_team);
+        (factory, source, target)
+    }
+    let (ally_factory, source, target) = factory(Relationship::Allies);
+    let (enemy_factory, peer_source, peer_target) = factory(Relationship::Enemies);
+    assert_eq!((source, target), (peer_source, peer_target));
+    let players = crate::player::PlayerList::new();
+    let terrain = crate::terrain::TerrainLogic::new();
+    let ally = PathfindObservations {
+        factory: &ally_factory,
+        players: &players,
+        terrain: &terrain,
+    };
+    let enemy = PathfindObservations {
+        factory: &enemy_factory,
+        players: &players,
+        terrain: &terrain,
+    };
+    let goal = GridCoord::new(4, 4);
+    let mut world = PathfindingSystem::new(8, 8);
+    world.new_map();
+    world.set_goal_cells(
+        target,
+        ICoord2D::new(goal.x, goal.y),
+        0,
+        true,
+        PathfindLayerEnum::Ground,
+        true,
+        false,
+    );
+    let request = PathRequest {
+        object_id: source,
+        from: GridCoord::new(1, 4).to_world(0.0),
+        to: goal.to_world(0.0),
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        unit_radius: 0.0,
+        allow_partial: true,
+        move_allies: false,
+        ignore_obstacle_id: None,
+        is_human: false,
+    };
+    let mut search = |observations| {
+        world
+            .find_closest_path_with_observations(
+                request.clone(),
+                Some(false),
+                Some(false),
+                Some(observations),
+            )
+            .unwrap()
+    };
+    let allied = search(&ally);
+    let hostile = search(&enemy);
+    let allied_again = search(&ally);
+    assert!(allied.success && hostile.success && allied_again.success);
+    assert_ne!(
+        GridCoord::from_world(allied.waypoints.last().unwrap()),
+        goal
+    );
+    assert_eq!(
+        GridCoord::from_world(hostile.waypoints.last().unwrap()),
+        goal
+    );
+    assert_eq!(allied.waypoints, allied_again.waypoints);
+}
