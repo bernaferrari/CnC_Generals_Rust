@@ -81,6 +81,19 @@ pub fn run_windowed_acceptance_smoke(
 /// `wnd_widget_tree_nav` / `interactive_gameplay` latches stay false unless a
 /// real OS mouse input (human or OS clicker) re-enters
 /// `handle_mouse_button_input` — exactly the retail sit-through contract.
+/// Boot the production `generals` binary to the shell MainMenu.wnd, then exit.
+///
+/// This is the P0 hq-x1j4u.9.1 gate: real event loop + retail assets + live
+/// shell WND. It does not continue into skirmish/InGame.
+pub fn run_boot_to_shell_menu(timeout: Duration) -> ExecutableSmokeResult {
+    run_executable_smoke_with_launch_and_driver(
+        timeout,
+        false,
+        ExecutableSmokeLaunch::HeadlessHost,
+        SmokeDriver::MenuOnly,
+    )
+}
+
 pub fn run_executable_smoke_windowed(
     timeout: Duration,
     use_new_game_path: bool,

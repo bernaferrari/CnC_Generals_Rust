@@ -147,6 +147,8 @@ struct SmokeRunState {
     train_retry_started: Option<Instant>,
     save_retry_started: Option<Instant>,
     load_retry_started: Option<Instant>,
+    /// When true, phase 0 exits after live MainMenu.wnd (MenuOnly driver).
+    boot_shell_menu_goal: bool,
     phase: u8, // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     last_snap: StatusSnap,
     last_ingame_frame: Option<u32>,
@@ -178,7 +180,7 @@ fn run_executable_smoke_once(
         return result;
     };
     let SmokeBootstrap {
-        child: mut child,
+        mut child,
         tmp,
         control_path,
         status_path,
@@ -186,7 +188,10 @@ fn run_executable_smoke_once(
     } = boot;
 
     let started = Instant::now();
-    let mut st = SmokeRunState::default();
+    let mut st = SmokeRunState {
+        boot_shell_menu_goal: matches!(driver, SmokeDriver::MenuOnly),
+        ..Default::default()
+    };
 
     loop {
         if smoke_wall_budget_exceeded(
@@ -332,6 +337,17 @@ fn smoke_wall_budget_exceeded(
                 result.shell_wnd_ok,
                 result.gameplay_cmd_ok
             );
+        } else if st.boot_shell_menu_goal
+            && result.reached_menu
+            && st.saw_shell_wnd_ok
+        {
+            result.shell_wnd_ok = true;
+            result.executable_host_ok = true;
+            result.status = "success_forced_exit".into();
+            result.detail = format!(
+                "boot_shell_menu wall timeout after success; frames={} shell={}",
+                result.frames_observed, st.shell_wnd_detail
+            );
         } else {
             result.shell_wnd_ok = st.saw_shell_wnd_ok;
             result.executable_host_ok =
@@ -389,6 +405,19 @@ fn smoke_child_exited_early(
             if let Some(idx) = prior.find("construct=") {
                 result.detail = format!("{}; {}", result.detail, &prior[idx..]);
             }
+        } else if st.boot_shell_menu_goal
+            && result.reached_menu
+            && result.shell_wnd_ok
+            && status.success()
+        {
+            result.executable_host_ok = true;
+            result.status = "success".into();
+            result.detail = format!(
+                "boot_shell_menu ok; MainMenu.wnd reached; exit={:?} frames={} shell={}",
+                status.code(),
+                result.frames_observed,
+                st.shell_wnd_detail
+            );
         } else if matches!(st.last_snap.state.as_str(), "LaunchFailed" | "")
             && !result.reached_menu
         {
@@ -571,7 +600,15 @@ fn smoke_phase_wait_menu(
         live_main_menu_ready
     };
     if ready {
-        if launch == ExecutableSmokeLaunch::Windowed
+        if driver == SmokeDriver::MenuOnly {
+            // P0 boot gate: live MainMenu.wnd is the finish line.
+            result.shell_wnd_ok = st.saw_shell_wnd_ok || live_main_menu_ready;
+            result.reached_menu = true;
+            result.detail.push_str(" boot_shell_menu_ready;");
+            let _ = write_control(&control_path, &["exit"]);
+            st.commanded_at = Some(Instant::now());
+            st.phase = 3;
+        } else if launch == ExecutableSmokeLaunch::Windowed
             && driver == SmokeDriver::ManualObserver
         {
             // The acceptance runner is an observer, not a bot.
@@ -980,12 +1017,23 @@ fn smoke_phase_wait_clean_exit(
                 result.shell_wnd_ok
             );
         } else if result.reached_menu {
-            result.status = "menu_only".into();
-            result.detail = format!(
-                "reached Menu but not InGame; exit={:?} map={}",
-                status.code(),
-                result.map_seen
-            );
+            if st.boot_shell_menu_goal && result.shell_wnd_ok {
+                result.executable_host_ok = true;
+                result.status = "success".into();
+                result.detail = format!(
+                    "boot_shell_menu ok; MainMenu.wnd reached; exit={:?} frames={} shell={}",
+                    status.code(),
+                    result.frames_observed,
+                    st.shell_wnd_detail
+                );
+            } else {
+                result.status = "menu_only".into();
+                result.detail = format!(
+                    "reached Menu but not InGame; exit={:?} map={}",
+                    status.code(),
+                    result.map_seen
+                );
+            }
         } else {
             result.status = "no_menu".into();
             result.detail = format!(
@@ -1014,6 +1062,20 @@ fn smoke_phase_wait_clean_exit(
                 "InGame ok but exit hang; frames={} map={} shell_wnd={}",
                 result.frames_observed, result.map_seen, result.shell_wnd_ok
             );
+        } else if st.boot_shell_menu_goal && (result.reached_menu || st.saw_shell_wnd_ok) {
+            result.shell_wnd_ok = st.saw_shell_wnd_ok || result.shell_wnd_ok;
+            result.reached_menu = true;
+            result.executable_host_ok = result.shell_wnd_ok;
+            result.status = if result.executable_host_ok {
+                "success_forced_exit".into()
+            } else {
+                "exit_hang".into()
+            };
+            result.detail = format!(
+                "boot_shell_menu forced exit; shell_wnd={} frames={}",
+                result.shell_wnd_ok, result.frames_observed
+            );
+            return true;
         } else {
             result.status = "exit_hang".into();
             result.detail = format!(

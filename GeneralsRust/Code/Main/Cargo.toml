@@ -418,6 +418,10 @@ required-features = ["host-residuals"]
 name = "executable_smoke_gate"
 path = "src/bin/executable_smoke_gate.rs"
 
+[[bin]]
+name = "boot_shell_menu_gate"
+path = "src/bin/boot_shell_menu_gate.rs"
+
 [[example]]
 name = "telemetry_bridge"
 path = "examples/telemetry_bridge.rs"
