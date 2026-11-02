@@ -1073,6 +1073,54 @@ fn locked_attack_move_parent_allows_child_attack_to_finish() {
 }
 
 #[test]
+fn guard_keeps_parent_after_real_aggressor_hit() {
+    const GUARD_ATTACK_AGGRESSOR_PHASE: u8 = 3;
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut world, actor, _, _) = world_with_options(&map, true, true, false);
+    let player = world.get_player_mut(1).unwrap();
+    player.is_human = false;
+    player.alliance_team = 1;
+    world.add_ai_opponent(1, Team::USA, generals_main::ai::AIDifficulty::Hard);
+    let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
+    enemy.alliance_team = 2;
+    world.add_player(enemy);
+    world.add_ai_opponent(2, Team::GLA, generals_main::ai::AIDifficulty::Hard);
+    world.set_ai_active(2, true);
+    guard_position(&mut world, "HuntTeam", "OwnedWaypoint");
+    let attacker = world
+        .create_object_for_player("GroupUnit", 2, Vec3::new(45.0, 0.0, 40.0))
+        .unwrap();
+    assert!(!world.skirmish_ai_auto_engage_paused(attacker));
+    let health = &mut world.host_object_mut(attacker).unwrap().health;
+    health.current = 10_000.0;
+    health.maximum = 10_000.0;
+    assert!(world.unit_command_attack(attacker, actor).unwrap());
+    for _ in 0..240 {
+        world.update_with_dt(1.0 / 30.0);
+        let unit = world.host_object(actor).unwrap();
+        if unit.health.current < 100.0 && unit.guard_chase_phase == GUARD_ATTACK_AGGRESSOR_PHASE {
+            break;
+        }
+    }
+    let unit = world.host_object(actor).unwrap();
+    assert!(unit.health.current < 100.0, "attack did not damage guard");
+    assert_eq!(
+        unit.guard_chase_phase, GUARD_ATTACK_AGGRESSOR_PHASE,
+        "guard did not react to its attacker"
+    );
+    assert_eq!(unit.target, Some(attacker));
+    let snapshot = generals_main::save_load::SnapshotBuilder::new()
+        .create_world_snapshot(&world)
+        .unwrap();
+    let value = serde_json::to_value(&snapshot.objects[&actor].modules["ReceivingBaseAI"]).unwrap();
+    assert_eq!(
+        value["BaseAi"]["continuation"]["parent"]["state"],
+        serde_json::to_value(generals_main::game_logic::AIState::GuardingArea).unwrap()
+    );
+}
+
+#[test]
 fn guard_aggressor_attack_keeps_the_receiving_guard_parent() {
     use generals_main::game_logic::AIState;
     use generals_main::save_load::SnapshotBuilder;
