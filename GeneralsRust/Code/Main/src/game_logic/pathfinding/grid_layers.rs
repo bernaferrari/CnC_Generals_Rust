@@ -1252,7 +1252,28 @@ impl PathfindingGrid {
         ally_mask: u16,
         start: Option<GridPos>,
     ) -> Option<f32> {
-        let bits = self.occupancy_bits(pos, self.query_layer_enum());
+        self.occupancy_cost_on_layer(
+            pos,
+            seeker_player,
+            seeker_is_infantry,
+            crusher_level,
+            ally_mask,
+            start,
+            self.query_layer_enum(),
+        )
+    }
+
+    pub(super) fn occupancy_cost_on_layer(
+        &self,
+        pos: GridPos,
+        seeker_player: Option<u32>,
+        seeker_is_infantry: bool,
+        crusher_level: u8,
+        ally_mask: u16,
+        start: Option<GridPos>,
+        layer: PathfindLayerEnum,
+    ) -> Option<f32> {
+        let bits = self.occupancy_bits(pos, layer);
         if bits.fixed == 0 && bits.moving == 0 && bits.goal == 0 {
             return Some(0.0);
         }

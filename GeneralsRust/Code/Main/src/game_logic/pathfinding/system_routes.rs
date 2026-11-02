@@ -591,20 +591,54 @@ impl PathfindingSystem {
         if other_center {
             box_half += cell / 2.0;
         }
-        let layer = self.grid.layer_for_destination(from, ground_source);
-        let mut open: BinaryHeap<std::cmp::Reverse<(i32, i32, i32)>> = BinaryHeap::new();
-        let mut g_score: HashMap<GridPos, i32> = HashMap::new();
-        let mut closed: HashSet<GridPos> = HashSet::new();
-        open.push(std::cmp::Reverse((0, start.x, start.y)));
-        g_score.insert(start, 0);
-        let mut found: Option<GridPos> = None;
-        let mut expanded = 0i32;
-        const MAX_EXPAND: i32 = 2500;
+        let start_layer = self.grid.layer_for_destination(from, ground_source);
+        let mut tunneling = tunnel
+            || !self.grid.valid_movement_position(
+                start,
+                start_layer,
+                surfaces,
+                is_crusher,
+                self.ignore_obstacle_id.map_or(0, |id| id.0),
+            );
+        let is_human = self.grid.query_is_human;
+        let ally_mask = seeker_player
+            .map(|p| self.grid.ally_mask_for(p))
+            .unwrap_or(0);
+        type SearchCell = (i32, i32, u8);
+        let start_key = (start.x, start.y, start_layer as u8);
+        let mut open: BinaryHeap<std::cmp::Reverse<(i32, u64, i32, i32, u8)>> = BinaryHeap::new();
+        let mut next_order = 0u64;
+        let mut costs: HashMap<SearchCell, i32> = HashMap::new();
+        let mut parents: HashMap<SearchCell, SearchCell> = HashMap::new();
+        let mut closed: HashSet<SearchCell> = HashSet::new();
+        open.push(std::cmp::Reverse((
+            0,
+            next_order,
+            start.x,
+            start.y,
+            start_layer as u8,
+        )));
+        next_order += 1;
+        costs.insert(start_key, 0);
+        let deltas = [
+            (1, 0),
+            (0, 1),
+            (-1, 0),
+            (0, -1),
+            (1, 1),
+            (-1, 1),
+            (-1, -1),
+            (1, -1),
+        ];
+        let mut found: Option<SearchCell> = None;
         let overlaps = |cell_pos: GridPos| -> bool {
             let mut center = self.grid.grid_to_world(cell_pos, ground_source);
             if center_in_cell {
                 center.x += cell * 0.5;
                 center.z += cell * 0.5;
+            } else {
+                center.x += cell * 0.05;
+                center.z += cell * 0.05;
             }
             let region = CellXz {
                 lo_x: center.x - box_half,
@@ -618,17 +652,15 @@ impl PathfindingSystem {
             };
             check(path_to_avoid) || path_to_avoid2.is_some_and(check)
         };
-        while let Some(std::cmp::Reverse((g, cx, cy))) = open.pop() {
-            let cell_pos = GridPos::new(cx, cy);
-            if !closed.insert(cell_pos) {
+        while let Some(std::cmp::Reverse((g, _, cx, cy, lid))) = open.pop() {
+            let key = (cx, cy, lid);
+            if !closed.insert(key) {
                 continue;
             }
-            expanded += 1;
-            if expanded > MAX_EXPAND {
-                break;
-            }
-            let overlap = cell_pos == start || overlaps(cell_pos);
-            if !overlap
+            let cell_pos = GridPos::new(cx, cy);
+            let layer = PathfindLayerEnum::from_u32(lid as u32);
+            if cell_pos != start
+                && !overlaps(cell_pos)
                 && self.grid.check_destination_for(
                     cell_pos,
                     layer,
@@ -641,63 +673,175 @@ impl PathfindingSystem {
                     ground_source,
                 )
             {
-                found = Some(cell_pos);
+                found = Some(key);
                 break;
             }
-            for n in cell_pos.neighbors() {
-                if !self.grid.is_valid_pos(n) || closed.contains(&n) {
-                    continue;
+            if let Some(connected_layer) = self.grid.connect_layer_of(cell_pos, layer) {
+                let connected = (cx, cy, connected_layer as u8);
+                if !costs.contains_key(&connected) {
+                    costs.insert(connected, g);
+                    parents.insert(connected, key);
+                    open.push(std::cmp::Reverse((g, next_order, cx, cy, connected.2)));
+                    next_order += 1;
                 }
-                if !tunnel
-                    && !self
-                        .grid
-                        .cell_passable_for_layer(n, layer, surfaces, is_crusher)
-                    && !(self.grid.is_obstacle_fence(n) && is_crusher)
+            }
+            let mut neighbor_flags = [false; 8];
+            for (i, &(dx, dy)) in deltas.iter().enumerate() {
+                let n = GridPos::new(cx + dx, cy + dy);
+                let nkey = (n.x, n.y, lid);
+                if !self.grid.is_valid_pos(n)
+                    || costs.contains_key(&nkey)
+                    || !self.grid.human_extent_allows(n, is_human)
+                    || PathfindingGrid::skip_diagonal_if_squeezed(i, &neighbor_flags)
                 {
                     continue;
                 }
-                let step = if (n.x - cx).abs() + (n.y - cy).abs() == 2 {
-                    14
-                } else {
-                    10
-                };
-                let ng = g + step;
-                if g_score.get(&n).is_some_and(|&og| ng >= og) {
+                if self.seeker_downhill_only {
+                    // examineNeighboringCells compares terrain ground heights,
+                    // including when the current cell is on another layer.
+                    let from_pos = self.grid.grid_to_world(cell_pos, ground_source);
+                    let to_pos = self.grid.grid_to_world(n, ground_source);
+                    let from_height = ground_source.height_at(from_pos);
+                    let to_height = ground_source.height_at(to_pos);
+                    if from_height < to_height {
+                        continue;
+                    }
+                }
+                let normally_passable = self.grid.valid_movement_position(
+                    n,
+                    layer,
+                    surfaces,
+                    is_crusher,
+                    self.ignore_obstacle_id.map_or(0, |id| id.0),
+                );
+                let dozer_hack = !normally_passable
+                    && self.seeker_is_dozer
+                    && self.grid.resolved_cell_type(layer, n) == PathfindCellType::Obstacle
+                    && Self::dozer_obstacle_is_non_enemy(
+                        &self.grid,
+                        objects,
+                        self.seeker_id,
+                        seeker_player,
+                        self.seeker_team,
+                        n,
+                    );
+                let movement_valid = normally_passable || dozer_hack;
+                if !movement_valid && !tunneling {
                     continue;
                 }
-                g_score.insert(n, ng);
-                open.push(std::cmp::Reverse((ng, n.x, n.y)));
+                if !dozer_hack {
+                    neighbor_flags[i] = true;
+                }
+                let above = radius + i32::from(center_in_cell);
+                let mut occupied_cost = 0.0f32;
+                let mut occupied_blocked = false;
+                for x in n.x - radius..n.x + above {
+                    for y in n.y - radius..n.y + above {
+                        let footprint_cell = GridPos::new(x, y);
+                        if !self.grid.is_valid_pos(footprint_cell) {
+                            occupied_blocked = true;
+                            continue;
+                        }
+                        let bits = self.grid.occupancy_bits(footprint_cell, layer);
+                        if bits.pos_unit == mover.0 {
+                            continue;
+                        }
+                        match self.grid.occupancy_cost_on_layer(
+                            footprint_cell,
+                            seeker_player,
+                            self.seeker_is_infantry,
+                            crusher_level,
+                            ally_mask,
+                            Some(start),
+                            layer,
+                        ) {
+                            Some(cost) => occupied_cost = occupied_cost.max(cost),
+                            None => occupied_blocked = true,
+                        }
+                    }
+                }
+                if occupied_blocked && !tunneling {
+                    continue;
+                }
+                if movement_valid && !occupied_blocked && !self.grid.is_pinched(n) {
+                    tunneling = false;
+                }
+                let mut step = if i >= 4 { 14 } else { 10 };
+                if self.grid.is_pinched(n) {
+                    step += 24;
+                }
+                if let Some(&(px, py, _)) = parents.get(&key) {
+                    let previous = (px - cx, py - cy);
+                    let direction = (-dx, -dy);
+                    if previous != direction {
+                        let dot = previous.0 * direction.0 + previous.1 * direction.1;
+                        step += if dot > 0 {
+                            4
+                        } else if dot == 0 {
+                            8
+                        } else {
+                            16
+                        };
+                    }
+                }
+                step += (occupied_cost * 10.0).round() as i32;
+                if tunneling && !movement_valid {
+                    step += 100;
+                }
+                let ng = g + step;
+                costs.insert(nkey, ng);
+                parents.insert(nkey, key);
+                open.push(std::cmp::Reverse((ng, next_order, n.x, n.y, lid)));
+                next_order += 1;
             }
         }
-        let dest = found?;
-        if dest == start {
-            return None;
-        }
-        let world_dest = {
-            let mut w = self.grid.grid_to_world(dest, ground_source);
-            if center_in_cell {
-                w.x += cell * 0.5;
-                w.z += cell * 0.5;
+        let mut key = found?;
+        let pos = GridPos::new(key.0, key.1);
+        if self.grid.is_pinched(pos) {
+            if let Some(&parent) = parents.get(&key) {
+                if !self.grid.is_pinched(GridPos::new(parent.0, parent.1)) {
+                    key = parent;
+                }
             }
-            w.y = from.y;
-            w
-        };
-        if let Some(path) = self.find_path_via_crate(
-            start,
-            dest,
-            from,
+        }
+        let mut cells = Vec::new();
+        while let Some(&parent) = parents.get(&key) {
+            cells.push(key);
+            key = parent;
+        }
+        cells.reverse();
+        if cells.is_empty() {
+            // C++ prependCells emits the adjusted start cell for a short path.
+            cells.push(key);
+        }
+        let mut path = vec![from];
+        for (x, y, lid) in cells {
+            let pos = GridPos::new(x, y);
+            let layer = PathfindLayerEnum::from_u32(lid as u32);
+            let mut world = self.grid.grid_to_world_on_layer(pos, layer, ground_source);
+            let offset = if center_in_cell { 0.5 } else { 0.05 } * cell;
+            world.x += offset;
+            world.z += offset;
+            world.y = self
+                .grid
+                .layer_world_height(pos, layer, world.x, world.z, ground_source);
+            if path
+                .last()
+                .is_some_and(|last| last.x == world.x && last.z == world.z)
+            {
+                *path.last_mut().unwrap() = world;
+            } else {
+                path.push(world);
+            }
+        }
+        Some(self.grid.optimize_ground_path_ex(
+            &path,
             surfaces,
             is_crusher,
-            layer,
-            layer,
+            seeker_player,
+            crusher_level,
             ground_source,
-            objects,
-        ) {
-            if path.len() >= 2 {
-                return Some(path);
-            }
-        }
-        Some(vec![from, world_dest])
+        ))
     }
 
     /// C++ `Pathfinder::findSafePath` Dijkstra flee (AIPathfind.cpp:10885+).

@@ -459,9 +459,43 @@ impl PathfindingSystem {
         out
     }
 
+    /// Resolve both sides from the receiving world; stale obstacle metadata
+    /// cannot grant a dozer passage after capture or removal.
+    pub(super) fn dozer_obstacle_is_non_enemy(
+        grid: &PathfindingGrid,
+        objects: HostObjectRead<'_>,
+        seeker_id: Option<ObjectId>,
+        seeker_player: Option<u32>,
+        seeker_team: Option<Team>,
+        cell: GridPos,
+    ) -> bool {
+        let Some((obstacle_id, _, _)) = grid.obstacle_owner(cell) else {
+            return false;
+        };
+        let Some(seeker) = seeker_id.and_then(|id| objects.lookup(&id)) else {
+            return false;
+        };
+        let Some(obstacle) = objects.lookup(&ObjectId(obstacle_id)) else {
+            return false;
+        };
+        if seeker.is_undetected_defector() || obstacle.is_undetected_defector() {
+            return true;
+        }
+        if let (Some(sp), Some(op)) = (seeker_player, obstacle.owner_player_id) {
+            if sp == op || (grid.ally_mask_for(sp) & (1u16 << op.min(15))) != 0 {
+                return true;
+            }
+            return obstacle.team == Team::Neutral;
+        }
+        match seeker_team {
+            Some(team) if team == obstacle.team => true,
+            Some(Team::Neutral) => true,
+            _ => obstacle.team == Team::Neutral,
+        }
+    }
+
     /// C++ `Pathfinder::findPath` via crate A* after hierarchical zone-block prune.
     /// Falls back to the host grid A* if crate types cannot run (empty grid).
-
     pub(super) fn find_path_via_crate(
         &mut self,
         start: GridPos,
@@ -641,44 +675,17 @@ impl PathfindingSystem {
         let is_dozer = self.seeker_is_dozer;
         let seeker_player = self.seeker_player;
         let seeker_team = self.seeker_team;
-        let seeker_object = self.seeker_id.and_then(|id| objects.lookup(&id));
-        let ally_mask = seeker_player
-            .map(|p| self.grid.ally_mask_for(p))
-            .unwrap_or(0);
+        let seeker_id = self.seeker_id;
         let dozer_ok = |c: GridCoord| {
-            if !is_dozer {
-                return false;
-            }
-            let Some((obstacle_id, _, _)) = self.grid.obstacle_owner(GridPos::new(c.x, c.y)) else {
-                return false;
-            };
-            // Object::getRelationship handles undetected defectors before
-            // team relationships. Resolve both objects from this query's
-            // receiving world; an orphaned obstacle ID cannot grant passage.
-            let Some(seeker) = seeker_object else {
-                return false;
-            };
-            let Some(obstacle) = objects.lookup(&ObjectId(obstacle_id)) else {
-                return false;
-            };
-            if seeker.is_undetected_defector() || obstacle.is_undetected_defector() {
-                return true;
-            }
-            let (owner, team) = (obstacle.owner_player_id, Some(obstacle.team));
-            if let (Some(sp), Some(op)) = (seeker_player, owner) {
-                if sp == op {
-                    return true;
-                }
-                if (ally_mask & (1u16 << op.min(15))) != 0 {
-                    return true;
-                }
-                return matches!(team, Some(Team::Neutral));
-            }
-            match (seeker_team, team) {
-                (Some(a), Some(b)) if a == b => true,
-                (Some(Team::Neutral), _) | (_, Some(Team::Neutral)) => true,
-                _ => false,
-            }
+            is_dozer
+                && Self::dozer_obstacle_is_non_enemy(
+                    &self.grid,
+                    objects,
+                    seeker_id,
+                    seeker_player,
+                    seeker_team,
+                    GridPos::new(c.x, c.y),
+                )
         };
         let dozer_ok_ref: Option<&dyn Fn(GridCoord) -> bool> = if is_dozer {
             Some(&dozer_ok as &dyn Fn(GridCoord) -> bool)

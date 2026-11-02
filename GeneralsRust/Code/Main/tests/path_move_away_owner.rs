@@ -133,3 +133,125 @@ fn move_away_clearance_uses_geometry_instead_of_selection_radius() {
         expected
     );
 }
+
+#[test]
+fn move_away_does_not_cut_a_closed_corner() {
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_main::game_logic::pathfinding::GridPos;
+    let (world, large, small) = make_world();
+    let ground = PathfindingGround::Flat(0.0);
+    let mut finder = PathfindingSystem::new(400.0, 400.0);
+    for pos in [
+        GridPos::new(9, 10),
+        GridPos::new(11, 10),
+        GridPos::new(10, 9),
+        GridPos::new(10, 11),
+    ] {
+        finder.grid.set_cell_type(pos, PathfindCellType::Impassable);
+    }
+    let avoided = [Vec3::new(20.0, 0.0, 100.0), Vec3::new(180.0, 0.0, 100.0)];
+    let path = finder.get_move_away_from_path(
+        &avoided,
+        None,
+        false,
+        &ground,
+        world.host_objects(),
+        small,
+        large,
+    );
+    assert!(
+        path.is_none(),
+        "a diagonal cannot escape between two closed sides: {path:?}"
+    );
+}
+
+#[test]
+fn move_away_equal_cost_uses_cpp_neighbor_order() {
+    let (world, large, small) = make_world();
+    let ground = PathfindingGround::Flat(0.0);
+    let mut finder = PathfindingSystem::new(400.0, 400.0);
+    let path = move_away(&world, small, large, &mut finder, &ground);
+    assert!(
+        path.last().unwrap().z > 100.0,
+        "C++ queues +y before -y at equal cost: {path:?}"
+    );
+}
+
+#[test]
+fn move_away_route_follows_open_detour_around_wall() {
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_main::game_logic::pathfinding::GridPos;
+    let (world, large, small) = make_world();
+    let ground = PathfindingGround::Flat(0.0);
+    let mut finder = PathfindingSystem::new(400.0, 400.0);
+    for x in 0..=12 {
+        finder
+            .grid
+            .set_cell_type(GridPos::new(x, 11), PathfindCellType::Impassable);
+    }
+    for x in 0..40 {
+        finder
+            .grid
+            .set_cell_type(GridPos::new(x, 9), PathfindCellType::Impassable);
+    }
+    let path = move_away(&world, small, large, &mut finder, &ground);
+    assert!(
+        path.len() >= 3,
+        "the route must turn around the wall: {path:?}"
+    );
+    assert!(
+        path.iter().any(|point| point.x >= 130.0),
+        "the gap is beyond the wall: {path:?}"
+    );
+    for segment in path.windows(2) {
+        for step in 0..=200 {
+            let point = segment[0].lerp(segment[1], step as f32 / 200.0);
+            let cell = finder.grid.world_to_grid(point);
+            assert!(
+                !finder.grid.is_static_blocked(cell),
+                "route crosses blocked cell {cell:?}: {path:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn move_away_queries_keep_same_id_worlds_separate() {
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_main::game_logic::pathfinding::GridPos;
+    let (world, large, small) = make_world();
+    let (peer, peer_large, peer_small) = make_world();
+    assert_eq!((large, small), (peer_large, peer_small));
+    let ground = PathfindingGround::Flat(0.0);
+    let mut finder = PathfindingSystem::new(400.0, 400.0);
+    let mut peer_finder = PathfindingSystem::new(400.0, 400.0);
+    let expected = move_away(&world, small, large, &mut finder, &ground);
+    for pos in [
+        GridPos::new(9, 10),
+        GridPos::new(11, 10),
+        GridPos::new(10, 9),
+        GridPos::new(10, 11),
+    ] {
+        peer_finder
+            .grid
+            .set_cell_type(pos, PathfindCellType::Impassable);
+    }
+    let avoided = [Vec3::new(20.0, 0.0, 100.0), Vec3::new(180.0, 0.0, 100.0)];
+    assert!(
+        peer_finder
+            .get_move_away_from_path(
+                &avoided,
+                None,
+                false,
+                &ground,
+                peer.host_objects(),
+                peer_small,
+                peer_large
+            )
+            .is_none()
+    );
+    assert_eq!(
+        move_away(&world, small, large, &mut finder, &ground),
+        expected
+    );
+}
