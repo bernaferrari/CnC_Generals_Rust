@@ -32,40 +32,56 @@ impl PathfindingSystem {
         unit_id: ObjectID,
         observations: Option<&PathfindObservations<'_>>,
     ) {
-        let ignore_cells = match observations {
-            Some(observations) => {
-                observations.ignored_cells(Some(unit_id).filter(|&id| id != INVALID_ID))
-            }
-            None => ignored_obstacle_cells(Some(unit_id).filter(|&id| id != INVALID_ID)),
-        };
-        self.snap_closest_goal_position_with_ignored_cells(
+        self.snap_closest_goal_position_with_owner(
             surfaces,
             is_crusher,
             pos,
             unit_radius,
             unit_id,
+            None,
+            None,
+            None,
             observations,
-            ignore_cells.as_ref(),
         );
     }
 
-    pub(crate) fn snap_closest_goal_position_with_ignored_cells(
+    pub(crate) fn snap_closest_goal_position_with_owner(
         &self,
         surfaces: LocomotorSurfaceTypeMask,
         is_crusher: bool,
         pos: &mut Coord3D,
         unit_radius: f32,
         unit_id: ObjectID,
+        ignore_obstacle_id: Option<ObjectID>,
+        aircraft_goal_only: Option<bool>,
+        source: Option<&crate::object::Object>,
         observations: Option<&PathfindObservations<'_>>,
-        ignore_cells: Option<&HashSet<GridCoord>>,
     ) {
+        let request = PathRequest {
+            object_id: unit_id,
+            from: *pos,
+            to: *pos,
+            surfaces,
+            is_crusher,
+            unit_radius,
+            allow_partial: false,
+            move_allies: false,
+            ignore_obstacle_id,
+            is_human: false,
+        };
         let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
         let mut adjust_dest = *pos;
         if !center_in_cell {
             adjust_dest.x += PATHFIND_CELL_SIZE_F * 0.5;
             adjust_dest.y += PATHFIND_CELL_SIZE_F * 0.5;
         }
-        let layer = self.get_layer_for_coord(GridCoord::from_world(pos));
+        let layer =
+            observations.map_or_else(
+                || self.get_layer_for_coord(GridCoord::from_world(pos)),
+                |world| {
+                    PathfindLayerEnum::from_u32(world.terrain.get_layer_for_destination(pos) as u32)
+                },
+            );
         let cell = GridCoord::from_world(&adjust_dest);
 
         // Always snap seed cell first (C++ adjustCoordToCell even if check fails).
@@ -78,14 +94,15 @@ impl PathfindingSystem {
             observations,
         );
 
-        if self.is_destination_valid_with_ignored_cells(
+        if self.check_destination_with_source(
+            &request,
             cell,
             layer,
-            surfaces,
-            is_crusher,
             radius,
             center_in_cell,
-            ignore_cells,
+            aircraft_goal_only,
+            observations,
+            source,
         ) {
             return;
         }
@@ -97,14 +114,15 @@ impl PathfindingSystem {
                 if !self.is_valid_coord(c) {
                     continue;
                 }
-                if self.is_destination_valid_with_ignored_cells(
+                if self.check_destination_with_source(
+                    &request,
                     c,
                     layer,
-                    surfaces,
-                    is_crusher,
                     radius,
                     center_in_cell,
-                    ignore_cells,
+                    aircraft_goal_only,
+                    observations,
+                    source,
                 ) {
                     self.adjust_coord_to_cell_with_observations(
                         i,
@@ -235,6 +253,9 @@ impl PathfindingSystem {
         layer: PathfindLayerEnum,
         unit_id: ObjectID,
     ) -> bool {
+        let Some(layer) = self.pathfinder.resolved_layer_at(cell, layer) else {
+            return false;
+        };
         let goals = &self.goal_cells;
         let Some(row) = goals.get(cell.x as usize) else {
             return true;
@@ -251,6 +272,9 @@ impl PathfindingSystem {
         cell: GridCoord,
         layer: PathfindLayerEnum,
     ) -> bool {
+        let Some(layer) = self.pathfinder.resolved_layer_at(cell, layer) else {
+            return false;
+        };
         let goals = &self.goal_cells;
         let Some(row) = goals.get(cell.x as usize) else {
             return false;

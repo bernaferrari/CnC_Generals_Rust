@@ -451,6 +451,29 @@ impl PathfindingSystem {
         aircraft_goal_only: Option<bool>,
         observations: Option<&PathfindObservations>,
     ) -> bool {
+        self.check_destination_with_source(
+            request,
+            cell,
+            layer,
+            radius,
+            center_in_cell,
+            aircraft_goal_only,
+            observations,
+            None,
+        )
+    }
+
+    pub(crate) fn check_destination_with_source(
+        &self,
+        request: &PathRequest,
+        cell: GridCoord,
+        layer: PathfindLayerEnum,
+        radius: i32,
+        center_in_cell: bool,
+        aircraft_goal_only: Option<bool>,
+        observations: Option<&PathfindObservations>,
+        source: Option<&crate::object::Object>,
+    ) -> bool {
         // Wave 262: empty dual-world → fail-closed.
         if observations.is_none() && dual_world_registry_unavailable() {
             return false;
@@ -529,30 +552,41 @@ impl PathfindingSystem {
             const UNIT_PRESENT_FIXED: u8 = 0x03;
             let fixed = Self::cell_occupancy_flags(goal_unit, self.pos_unit_at(coord, cell_layer))
                 == UNIT_PRESENT_FIXED;
-            let occupied = super::check_movement::observe_movement_pair(
-                request.object_id,
-                goal_unit,
-                observations,
-                |source, target| {
-                    let relationship =
-                        super::check_movement::movement_relationship(source, target, observations);
-                    let can_crush = relationship != Relationship::Allies
-                        && (!fixed
-                            || match observations {
-                                Some(_) => source.can_crush_or_squish_with_relationship(
-                                    target,
-                                    CrushSquishTestType::TestCrushOrSquish,
-                                    relationship,
-                                ),
-                                None => source.can_crush_or_squish(
-                                    target,
-                                    CrushSquishTestType::TestCrushOrSquish,
-                                ),
-                            });
-                    (relationship, can_crush)
-                },
-            )
-            .expect("destination object observations must remain valid");
+            let inspect = |source: &crate::object::Object, target: &crate::object::Object| {
+                let relationship =
+                    super::check_movement::movement_relationship(source, target, observations);
+                let can_crush = relationship != Relationship::Allies
+                    && (!fixed
+                        || match observations {
+                            Some(_) => source.can_crush_or_squish_with_relationship(
+                                target,
+                                CrushSquishTestType::TestCrushOrSquish,
+                                relationship,
+                            ),
+                            None => source.can_crush_or_squish(
+                                target,
+                                CrushSquishTestType::TestCrushOrSquish,
+                            ),
+                        });
+                (relationship, can_crush)
+            };
+            let occupied = if let Some(source) = source {
+                if let Some(world) = observations {
+                    world.object(goal_unit).map(|target| {
+                        inspect(source, &target.read().expect("admitted goal poisoned"))
+                    })
+                } else {
+                    OBJECT_REGISTRY.with_object(goal_unit, |target| inspect(source, target))
+                }
+            } else {
+                super::check_movement::observe_movement_pair(
+                    request.object_id,
+                    goal_unit,
+                    observations,
+                    inspect,
+                )
+                .expect("destination object observations must remain valid")
+            };
             if let Some((relationship, can_crush)) = occupied {
                 if relationship == Relationship::Allies || !can_crush {
                     ok = false;

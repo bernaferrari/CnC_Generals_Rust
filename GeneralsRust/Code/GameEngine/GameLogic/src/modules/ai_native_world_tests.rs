@@ -1434,3 +1434,68 @@ mod dozer_position;
 
 #[path = "ai_native_world_tests/dozer_fortify.rs"]
 mod dozer_fortify;
+
+#[test]
+fn native_snap_uses_own_world_without_reborrowing_source() {
+    use crate::ai::pathfind_astar::{GridCoord, PathfindLayerEnum};
+    let mut ally = NativeMatch::new(155.0);
+    let mut enemy = NativeMatch::with_target_owner(155.0, container_template(), true);
+    let ally_target = ally.target.read().unwrap().get_id();
+    let enemy_target = enemy.target.read().unwrap().get_id();
+    assert_eq!(ally_target, enemy_target);
+    let cell = GridCoord::new(4, 4);
+    ally.pathfinder
+        .update_goal_cells(cell, ally_target, PathfindLayerEnum::Ground, 0, true, false);
+    enemy.pathfinder.update_goal_cells(
+        cell,
+        enemy_target,
+        PathfindLayerEnum::Ground,
+        0,
+        true,
+        false,
+    );
+    let snap = |game: &mut NativeMatch| {
+        let source = Arc::clone(&game.source);
+        let source_guard = source.write().unwrap();
+        let mut goal = Coord3D::new(45.0, 45.0, 0.0);
+        let locomotors =
+            crate::locomotor::LocomotorSet::from_surfaces(crate::locomotor::SURFACE_GROUND);
+        game.operate(10, |world| {
+            world
+                .snap_closest_goal_position(
+                    &source_guard,
+                    &locomotors,
+                    &mut goal,
+                    crate::common::INVALID_ID,
+                    false,
+                )
+                .unwrap()
+        });
+        GridCoord::from_world(&goal)
+    };
+    assert_ne!(
+        snap(&mut ally),
+        cell,
+        "the allied reservation must redirect the snap"
+    );
+    assert_eq!(
+        snap(&mut enemy),
+        cell,
+        "the peer's enemy reservation is available"
+    );
+    ally.pathfinder
+        .pathfinding_system_mut()
+        .pathfinder
+        .set_cell_obstacle_id(cell, 777, false, false);
+    let source = Arc::clone(&ally.source);
+    let source_guard = source.write().unwrap();
+    let mut goal = Coord3D::new(45.0, 45.0, 0.0);
+    let locomotors =
+        crate::locomotor::LocomotorSet::from_surfaces(crate::locomotor::SURFACE_GROUND);
+    ally.operate(11, |world| {
+        world
+            .snap_closest_goal_position(&source_guard, &locomotors, &mut goal, 777, false)
+            .unwrap()
+    });
+    assert_eq!(GridCoord::from_world(&goal), cell);
+}

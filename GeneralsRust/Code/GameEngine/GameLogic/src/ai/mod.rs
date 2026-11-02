@@ -2618,64 +2618,28 @@ impl Pathfinder {
         self.set_cell_type_at(pos, cell_type);
     }
 
-    /// C++ `Pathfinder::snapClosestGoalPosition`.
-    pub fn snap_closest_goal_position(
-        &self,
-        obj: &Object,
-        locomotor_set: &crate::locomotor::LocomotorSet,
-        pos: &mut Coord3D,
-    ) {
-        self.snap_closest_goal_position_with_observations(obj, locomotor_set, pos, None)
-    }
-
+    /// C++ `Pathfinder::snapClosestGoalPosition` with the driving AI's state.
     pub(crate) fn snap_closest_goal_position_with_observations(
         &self,
         obj: &Object,
         locomotor_set: &crate::locomotor::LocomotorSet,
         pos: &mut Coord3D,
+        ignore_obstacle_id: Option<ObjectID>,
+        aircraft_goal_only: Option<bool>,
         observations: Option<&pathfind_complete::PathfindObservations<'_>>,
     ) {
-        let surfaces = locomotor_set.get_valid_surfaces();
-        let is_crusher = obj.get_crusher_level() > 0;
-        let unit_radius = obj
-            .get_geometry_info()
-            .get_bounding_circle_radius()
-            .max(0.0);
-        let Some(observations) = observations else {
-            self.inner.snap_closest_goal_position(
-                surfaces,
-                is_crusher,
-                pos,
-                unit_radius,
-                obj.get_id(),
-            );
-            return;
-        };
-        // The caller already loans obj; freeze its footprint without acquiring
-        // that same native object's RwLock inside destination checks.
-        let ignore_cells = object_footprint_positions_with_height(obj, |x, y| {
-            observations.terrain.get_layer_height(
-                x,
-                y,
-                crate::path::PathfindLayerEnum::Ground,
-                None,
-                false,
-            )
-        })
-        .map(|positions| {
-            positions
-                .into_iter()
-                .map(|position| pathfind_astar::GridCoord::from_world(&position))
-                .collect::<std::collections::HashSet<_>>()
-        });
-        self.inner.snap_closest_goal_position_with_ignored_cells(
-            surfaces,
-            is_crusher,
+        self.inner.snap_closest_goal_position_with_owner(
+            locomotor_set.get_valid_surfaces(),
+            obj.get_crusher_level() > 0,
             pos,
-            unit_radius,
+            obj.get_geometry_info()
+                .get_bounding_circle_radius()
+                .max(0.0),
             obj.get_id(),
-            Some(observations),
-            ignore_cells.as_ref(),
+            ignore_obstacle_id,
+            aircraft_goal_only,
+            Some(obj),
+            observations,
         );
     }
 

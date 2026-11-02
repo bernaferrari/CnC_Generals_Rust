@@ -1313,7 +1313,14 @@ impl UnitAiRuntime {
         let Some(pathfinder) = pathfinder.read().ok() else {
             return false;
         };
-        pathfinder.snap_closest_goal_position(owner, &self.data.locomotor_set, goal);
+        pathfinder.snap_closest_goal_position_with_observations(
+            owner,
+            &self.data.locomotor_set,
+            goal,
+            Some(self.data.get_ignored_obstacle_id()),
+            Some(self.data.is_aircraft_that_adjusts_destination()),
+            None,
+        );
         true
     }
     pub(super) fn adjust_destination(&mut self, goal: &mut Coord3D) -> bool {
@@ -2680,7 +2687,13 @@ impl AiStateRuntime for UnitAiStateRuntime<'_, '_> {
         match self.world.as_deref() {
             Some(world) => {
                 world
-                    .snap_closest_goal_position(owner, &self.runtime.data.locomotor_set, goal)
+                    .snap_closest_goal_position(
+                        owner,
+                        &self.runtime.data.locomotor_set,
+                        goal,
+                        self.runtime.data.get_ignored_obstacle_id(),
+                        self.runtime.data.is_aircraft_that_adjusts_destination(),
+                    )
                     .expect("admitted goal snap observations");
                 true
             }

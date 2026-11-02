@@ -2778,6 +2778,55 @@ fn destination_occupancy_uses_the_receiving_factory() {
     };
     assert!(!check(&ally));
     assert!(check(&enemy));
+    let mut ally_pos = pos;
+    world.snap_closest_goal_position_with_observations(
+        SURFACE_GROUND,
+        false,
+        &mut ally_pos,
+        0.0,
+        source,
+        Some(&ally),
+    );
+    assert_eq!(
+        GridCoord::from_world(&ally_pos),
+        GridCoord::new(cell.x - 1, cell.y - 1),
+        "an allied reservation must trigger the original neighborhood search"
+    );
+    let source_handle = ally_factory
+        .get_object(source)
+        .unwrap()
+        .get_base_object()
+        .unwrap();
+    let source_borrow = source_handle.write().unwrap();
+    let mut borrowed_pos = pos;
+    world.snap_closest_goal_position_with_owner(
+        SURFACE_GROUND,
+        false,
+        &mut borrowed_pos,
+        0.0,
+        source,
+        None,
+        Some(false),
+        Some(&source_borrow),
+        Some(&ally),
+    );
+    assert_eq!(GridCoord::from_world(&borrowed_pos), GridCoord::new(3, 3));
+    world
+        .pathfinder
+        .set_cell_obstacle_id(cell, 777, false, false);
+    let mut ignored_pos = pos;
+    world.snap_closest_goal_position_with_owner(
+        SURFACE_GROUND,
+        false,
+        &mut ignored_pos,
+        0.0,
+        source,
+        Some(777),
+        Some(false),
+        Some(&source_borrow),
+        Some(&ally),
+    );
+    assert_eq!(GridCoord::from_world(&ignored_pos), cell);
 }
 
 #[test]
@@ -2824,6 +2873,7 @@ fn destination_goal_occupancy_follows_resolved_bridge_cell() {
         !check(&world, PathfindLayerEnum::Top),
         "a missing bridge cell selects the occupied ground cell"
     );
+    assert!(!world.goal_cell_available(cell, PathfindLayerEnum::Top, 100));
     world
         .pathfinder
         .set_cell_type_on_layer(cell, PathfindLayerEnum::Top, PathfindCellType::Clear);
@@ -2831,6 +2881,7 @@ fn destination_goal_occupancy_follows_resolved_bridge_cell() {
         check(&world, PathfindLayerEnum::Top),
         "a bridge cell has its own occupancy"
     );
+    assert!(world.goal_cell_available(cell, PathfindLayerEnum::Top, 100));
     world.set_goal_cells(43, center, 0, true, PathfindLayerEnum::Top, false, true);
     assert!(!check(&world, PathfindLayerEnum::Top));
     world.pathfinder.set_cell_type_on_layer(

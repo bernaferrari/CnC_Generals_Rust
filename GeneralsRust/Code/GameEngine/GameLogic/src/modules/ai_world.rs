@@ -135,6 +135,8 @@ pub trait AiWorld {
         object: &Object,
         locomotors: &crate::locomotor::LocomotorSet,
         goal: &mut Coord3D,
+        ignore_obstacle_id: ObjectID,
+        aircraft_goal_only: bool,
     ) -> Result<(), String>;
     fn controller_is_human(&self, owner: &Object) -> Option<bool>;
     fn player(&self, index: Int) -> Option<Arc<RwLock<crate::player::Player>>>;

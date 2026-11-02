@@ -23,7 +23,14 @@ fn snap_closest_goal_position_with_interface(
     let Ok(pathfinder) = pathfinder.read() else {
         return false;
     };
-    pathfinder.snap_closest_goal_position(owner, &locomotor_set, goal);
+    pathfinder.snap_closest_goal_position_with_observations(
+        owner,
+        &locomotor_set,
+        goal,
+        Some(ai.get_ignored_obstacle_id()),
+        Some(ai.is_aircraft_that_adjusts_destination()),
+        None,
+    );
     true
 }
 

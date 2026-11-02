@@ -572,6 +572,8 @@ impl AiWorld for BorrowedAiWorld<'_> {
         object: &Object,
         locomotors: &crate::locomotor::LocomotorSet,
         goal: &mut Coord3D,
+        ignore_obstacle_id: ObjectID,
+        aircraft_goal_only: bool,
     ) -> Result<(), String> {
         let observations = crate::ai::pathfind_complete::PathfindObservations {
             factory: self.factory,
@@ -584,6 +586,8 @@ impl AiWorld for BorrowedAiWorld<'_> {
                 object,
                 locomotors,
                 goal,
+                Some(ignore_obstacle_id),
+                Some(aircraft_goal_only),
                 Some(&observations),
             );
         Ok(())
