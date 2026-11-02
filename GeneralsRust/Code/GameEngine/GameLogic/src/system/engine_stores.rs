@@ -33,6 +33,7 @@ pub struct SessionLogicFlags {
     pub local_player_defeated: AtomicBool,
     pub hulk_max_lifetime_override: AtomicI32,
     pub input_enabled: AtomicBool,
+    pub radar_attack_glow: AtomicBool,
 }
 
 impl Default for SessionLogicFlags {
@@ -51,6 +52,7 @@ impl Default for SessionLogicFlags {
             local_player_defeated: AtomicBool::new(false),
             hulk_max_lifetime_override: AtomicI32::new(-1),
             input_enabled: AtomicBool::new(true),
+            radar_attack_glow: AtomicBool::new(false),
         }
     }
 }

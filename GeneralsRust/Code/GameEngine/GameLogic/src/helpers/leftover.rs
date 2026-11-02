@@ -519,16 +519,20 @@ impl TheRadar {
 /// C++ `TheControlBar->triggerRadarAttackGlow()` leftover + live consume hook.
 pub struct TheControlBar;
 
-static RADAR_ATTACK_GLOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
 impl TheControlBar {
     pub fn trigger_radar_attack_glow() {
-        RADAR_ATTACK_GLOW.store(true, std::sync::atomic::Ordering::SeqCst);
+        crate::system::engine_stores::active_services()
+            .session_flags()
+            .radar_attack_glow
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Consume a pending glow request (ControlBar::update).
     pub fn take_radar_attack_glow() -> bool {
-        RADAR_ATTACK_GLOW.swap(false, std::sync::atomic::Ordering::SeqCst)
+        crate::system::engine_stores::active_services()
+            .session_flags()
+            .radar_attack_glow
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
     }
 }
 
