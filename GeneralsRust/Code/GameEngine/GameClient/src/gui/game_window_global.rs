@@ -35,6 +35,25 @@ enum MissingImagePolicy {
     Skip,
 }
 
+fn batch_texture(
+    image: &mut crate::display::image::Image,
+    renderer: &crate::gui::UIRenderer,
+) -> Option<(std::sync::Arc<wgpu::TextureView>, [f32; 4], bool)> {
+    if image.get_gpu_texture().is_none() {
+        let _ = image.create_gpu_texture(renderer.device(), renderer.queue());
+    }
+    let gpu = image.get_gpu_texture()?;
+    let uv = image.get_uv();
+    let rotated = image
+        .get_status()
+        .contains(crate::display::image::ImageStatus::ROTATED_90_CLOCKWISE);
+    Some((
+        std::sync::Arc::new(gpu.view().clone()),
+        [uv.min.x, uv.min.y, uv.max.x, uv.max.y],
+        rotated,
+    ))
+}
+
 impl WindowManager {
     /// Draw an image in the provided screen rect.
     pub fn win_draw_image(
@@ -301,82 +320,73 @@ impl WindowManager {
         if rects.is_empty() {
             return;
         }
-        let _ = draw_context.with_renderer(|renderer, display_facts| {
+        let Some(renderer) = draw_context.renderer.as_deref_mut() else {
+            return;
+        };
+        let display_facts = &draw_context.display;
+        let owned = draw_context
+            .receiving_images
+            .as_deref_mut()
+            .and_then(|images| images.find_image_by_name_mut(&image.name));
+        let texture = if let Some(mapped) = owned {
+            // An admitted image that fails locally must not use a global peer.
+            batch_texture(mapped, renderer)
+        } else {
             let _ = ensure_client_mapped_image(&image.name);
             let collection = get_mapped_image_collection();
             let mut collection = collection.write();
-            let Some(mapped) = collection.find_image_by_name_mut(&image.name) else {
-                return;
-            };
-            if mapped.get_gpu_texture().is_none() {
-                let _ = mapped.create_gpu_texture(renderer.device(), renderer.queue());
-            }
-            let Some(gpu) = mapped.get_gpu_texture() else {
-                return;
-            };
-            let uv = mapped.get_uv();
-            let u0 = uv.min.x;
-            let v0 = uv.min.y;
-            let u1 = uv.max.x;
-            let v1 = uv.max.y;
-            let rotated = mapped
-                .get_status()
-                .contains(crate::display::image::ImageStatus::ROTATED_90_CLOCKWISE);
-            let texture = std::sync::Arc::new(gpu.view().clone());
-            drop(collection);
-            if rotated {
-                for &(x1, y1, x2, y2) in rects {
-                    crate::display::display_fx::queue_draw_image_mesh_on(
-                        renderer,
-                        display_facts,
-                        texture.clone(),
-                        x1 as f32,
-                        y1 as f32,
-                        x2 as f32,
-                        y2 as f32,
-                        u0,
-                        v0,
-                        u1,
-                        v1,
-                        [1.0, 1.0, 1.0, 1.0],
-                        crate::display::DrawImageMode::Alpha,
-                        true,
-                    );
-                }
-            } else {
-                let mut positions = Vec::with_capacity(rects.len() * 4);
-                let mut uvs = Vec::with_capacity(rects.len() * 4);
-                let mut indices = Vec::with_capacity(rects.len() * 6);
-                for (index, &(x1, y1, x2, y2)) in rects.iter().enumerate() {
-                    let base = (index * 4) as u32;
-                    positions.extend_from_slice(&[
-                        [x1 as f32, y1 as f32],
-                        [x2 as f32, y1 as f32],
-                        [x2 as f32, y2 as f32],
-                        [x1 as f32, y2 as f32],
-                    ]);
-                    uvs.extend_from_slice(&[[u0, v0], [u1, v0], [u1, v1], [u0, v1]]);
-                    indices.extend_from_slice(&[
-                        base,
-                        base + 1,
-                        base + 2,
-                        base,
-                        base + 2,
-                        base + 3,
-                    ]);
-                }
-                renderer.draw_textured_mesh(
-                    &positions,
-                    &uvs,
-                    &indices,
-                    texture,
+            collection
+                .find_image_by_name_mut(&image.name)
+                .and_then(|mapped| batch_texture(mapped, renderer))
+        };
+        let Some((texture, [u0, v0, u1, v1], rotated)) = texture else {
+            return;
+        };
+        if rotated {
+            for &(x1, y1, x2, y2) in rects {
+                crate::display::display_fx::queue_draw_image_mesh_on(
+                    renderer,
+                    display_facts,
+                    texture.clone(),
+                    x1 as f32,
+                    y1 as f32,
+                    x2 as f32,
+                    y2 as f32,
+                    u0,
+                    v0,
+                    u1,
+                    v1,
                     [1.0, 1.0, 1.0, 1.0],
-                    crate::gui::ui_renderer::UIBlendMode::Alpha,
-                    0.0,
+                    crate::display::DrawImageMode::Alpha,
+                    true,
                 );
             }
-            note_win_draw_image_command();
-        });
+        } else {
+            let mut positions = Vec::with_capacity(rects.len() * 4);
+            let mut uvs = Vec::with_capacity(rects.len() * 4);
+            let mut indices = Vec::with_capacity(rects.len() * 6);
+            for (index, &(x1, y1, x2, y2)) in rects.iter().enumerate() {
+                let base = (index * 4) as u32;
+                positions.extend_from_slice(&[
+                    [x1 as f32, y1 as f32],
+                    [x2 as f32, y1 as f32],
+                    [x2 as f32, y2 as f32],
+                    [x1 as f32, y2 as f32],
+                ]);
+                uvs.extend_from_slice(&[[u0, v0], [u1, v0], [u1, v1], [u0, v1]]);
+                indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+            }
+            renderer.draw_textured_mesh(
+                &positions,
+                &uvs,
+                &indices,
+                texture,
+                [1.0, 1.0, 1.0, 1.0],
+                crate::gui::ui_renderer::UIBlendMode::Alpha,
+                0.0,
+            );
+        }
+        note_win_draw_image_command();
     }
 
     /// Draw a filled rectangle using UI renderer.

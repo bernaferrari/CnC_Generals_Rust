@@ -24,6 +24,7 @@ fn render(
     queue: &wgpu::Queue,
     renderer: &mut UIRenderer,
     images: &mut ImageCollection,
+    batch: bool,
 ) -> Vec<u8> {
     let extent = wgpu::Extent3d {
         width: 64,
@@ -53,21 +54,18 @@ fn render(
     let window = manager
         .create_window(None, 0, 0, 64, 64, &mut effects)
         .unwrap();
-    window.borrow_mut().set_draw_callback(|_, _, context| {
+    window.borrow_mut().set_draw_callback(move |_, _, context| {
         if let Some(manager) = context.manager {
-            manager.win_draw_image(
-                &Image {
-                    name: "SharedWindowArt".into(),
-                    width: 2,
-                    height: 2,
-                },
-                0,
-                0,
-                64,
-                64,
-                WIN_COLOR_UNDEFINED,
-                context,
-            );
+            let image = Image {
+                name: "SharedWindowArt".into(),
+                width: 2,
+                height: 2,
+            };
+            if batch {
+                manager.win_draw_image_batch(&image, &[(0, 0, 32, 64), (32, 0, 64, 64)], context);
+            } else {
+                manager.win_draw_image(&image, 0, 0, 64, 64, WIN_COLOR_UNDEFINED, context);
+            }
         }
     });
     {
@@ -158,21 +156,40 @@ fn receiving_window_images_use_their_own_gpu_textures() {
     let mut unavailable = ImageCollection::new();
     unavailable.add_image(MappedImage::with_name("SharedWindowArt"));
     for (catalog, channel) in [(&mut first, 1), (&mut peer, 2)] {
-        let pixels = render(&device, &queue, &mut renderer, catalog);
+        let pixels = render(&device, &queue, &mut renderer, catalog, false);
         let pixel = &pixels[(32 * 64 + 32) * 4..][..4];
         assert!(
             pixel[channel] > 200 && pixel[0] < 20,
             "actual pixel: {pixel:?}"
         );
     }
-    let pixels = render(&device, &queue, &mut renderer, &mut first);
+    let pixels = render(&device, &queue, &mut renderer, &mut first, false);
     assert!(pixels[(32 * 64 + 32) * 4 + 1] > 200);
-    let pixels = render(&device, &queue, &mut renderer, &mut unavailable);
+    let pixels = render(&device, &queue, &mut renderer, &mut unavailable, false);
     let pixel = &pixels[(32 * 64 + 32) * 4..][..4];
     assert!(
         pixel[0] < 150,
         "must not fall back to peer/global red: {pixel:?}"
     );
+    for (catalog, channel) in [(&mut first, 1), (&mut peer, 2)] {
+        let pixels = render(&device, &queue, &mut renderer, catalog, true);
+        let pixel = &pixels[(32 * 64 + 32) * 4..][..4];
+        assert!(
+            pixel[channel] > 200 && pixel[0] < 20,
+            "batch pixel: {pixel:?}"
+        );
+    }
+    let pixels = render(&device, &queue, &mut renderer, &mut unavailable, true);
+    assert_eq!(&pixels[(32 * 64 + 32) * 4..][..3], &[0, 0, 0]);
+    let mut not_admitted = ImageCollection::new();
+    let pixels = render(&device, &queue, &mut renderer, &mut not_admitted, true);
+    assert!(pixels[(32 * 64 + 32) * 4] > 200);
+    first
+        .find_image_by_name_mut("SharedWindowArt")
+        .unwrap()
+        .set_status(game_client_rust::display::image::ImageStatus::ROTATED_90_CLOCKWISE);
+    let pixels = render(&device, &queue, &mut renderer, &mut first, true);
+    assert!(pixels[(32 * 64 + 32) * 4 + 1] > 200);
 }
 
 #[test]
