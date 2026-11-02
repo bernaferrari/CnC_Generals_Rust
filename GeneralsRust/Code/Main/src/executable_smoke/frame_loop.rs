@@ -151,6 +151,8 @@ struct SmokeRunState {
     boot_shell_menu_goal: bool,
     /// When true, exit as soon as InGame + non-shell retail map (MapLoadOnly).
     map_load_goal: bool,
+    /// When true, after InGame run select/move/attack then exit (OrdersOnly).
+    orders_goal: bool,
     phase: u8, // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     last_snap: StatusSnap,
     last_ingame_frame: Option<u32>,
@@ -193,6 +195,7 @@ fn run_executable_smoke_once(
     let mut st = SmokeRunState {
         boot_shell_menu_goal: matches!(driver, SmokeDriver::MenuOnly),
         map_load_goal: matches!(driver, SmokeDriver::MapLoadOnly),
+        orders_goal: matches!(driver, SmokeDriver::OrdersOnly),
         ..Default::default()
     };
 
@@ -305,7 +308,25 @@ fn smoke_wall_budget_exceeded(
     if started.elapsed() > timeout {
         // Prefer honest InGame finalization over a bare timeout when the host
         // already reached match state — long command chains can exceed wall budget.
-        if result.reached_ingame {
+        if st.orders_goal
+            && !(st.saw_select_ok && st.saw_move_ok && st.saw_attack_ok)
+        {
+            // Incomplete orders gate must not borrow the generic InGame pass.
+            result.shell_wnd_ok = st.saw_shell_wnd_ok;
+            result.executable_host_ok = false;
+            result.gameplay_cmd_ok = false;
+            result.status = "timeout".into();
+            result.detail = format!(
+                "player_orders wall timeout incomplete; select={} move={} attack={} step={} last_cmd={} map={} frames={}",
+                st.saw_select_ok,
+                st.saw_move_ok,
+                st.saw_attack_ok,
+                st.gameplay_step,
+                st.last_snap.last_gameplay_cmd,
+                result.map_seen,
+                result.frames_observed
+            );
+        } else if result.reached_ingame {
             let stalled = ingame_frame_stalled(st, Duration::from_secs(30));
             result.shell_wnd_ok = st.saw_shell_wnd_ok;
             // Wave 833: honest host control residual.
@@ -361,6 +382,21 @@ fn smoke_wall_budget_exceeded(
             result.status = "success_forced_exit".into();
             result.detail = format!(
                 "retail_skirmish_map wall timeout after success; map={} frames={}",
+                result.map_seen, result.frames_observed
+            );
+        } else if st.orders_goal
+            && result.reached_ingame
+            && st.saw_shell_wnd_ok
+            && st.saw_select_ok
+            && st.saw_move_ok
+            && st.saw_attack_ok
+        {
+            result.shell_wnd_ok = true;
+            result.executable_host_ok = true;
+            result.gameplay_cmd_ok = true;
+            result.status = "success_forced_exit".into();
+            result.detail = format!(
+                "player_orders wall timeout after success; map={} frames={}",
                 result.map_seen, result.frames_observed
             );
         } else {
@@ -443,6 +479,23 @@ fn smoke_child_exited_early(
             result.status = "success".into();
             result.detail = format!(
                 "retail_skirmish_map ok; map={} exit={:?} frames={}",
+                result.map_seen,
+                status.code(),
+                result.frames_observed
+            );
+        } else if st.orders_goal
+            && result.reached_ingame
+            && result.shell_wnd_ok
+            && st.saw_select_ok
+            && st.saw_move_ok
+            && st.saw_attack_ok
+            && status.success()
+        {
+            result.executable_host_ok = true;
+            result.gameplay_cmd_ok = true;
+            result.status = "success".into();
+            result.detail = format!(
+                "player_orders ok; select/move/attack map={} exit={:?} frames={}",
                 result.map_seen,
                 status.code(),
                 result.frames_observed
@@ -987,6 +1040,7 @@ fn smoke_phase_skirmish_start_wait(
             st.commanded_at = Some(Instant::now());
             st.phase = 3;
         } else {
+            // Automated + OrdersOnly continue into the gameplay chain.
             st.phase = 2;
         }
     } else if st.commanded_at
@@ -1126,6 +1180,25 @@ fn smoke_phase_wait_clean_exit(
             result.detail = format!(
                 "retail_skirmish_map forced exit; map={} shell_wnd={} frames={}",
                 result.map_seen, result.shell_wnd_ok, result.frames_observed
+            );
+            return true;
+        } else if st.orders_goal
+            && result.reached_ingame
+            && st.saw_select_ok
+            && st.saw_move_ok
+            && st.saw_attack_ok
+        {
+            result.shell_wnd_ok = st.saw_shell_wnd_ok || result.shell_wnd_ok;
+            result.executable_host_ok = result.shell_wnd_ok;
+            result.gameplay_cmd_ok = true;
+            result.status = if result.executable_host_ok {
+                "success_forced_exit".into()
+            } else {
+                "exit_hang".into()
+            };
+            result.detail = format!(
+                "player_orders forced exit; select/move/attack map={} frames={}",
+                result.map_seen, result.frames_observed
             );
             return true;
         } else {

@@ -107,6 +107,19 @@ pub fn run_load_retail_skirmish_map(timeout: Duration) -> ExecutableSmokeResult 
     )
 }
 
+/// Load a retail skirmish map, then issue select/move/attack on the live host.
+///
+/// P0 hq-x1j4u.9.3 gate. Stops after the three order residuals latch (does not
+/// walk the full retail command ladder).
+pub fn run_issue_player_orders(timeout: Duration) -> ExecutableSmokeResult {
+    run_executable_smoke_with_launch_and_driver(
+        timeout,
+        true,
+        ExecutableSmokeLaunch::HeadlessHost,
+        SmokeDriver::OrdersOnly,
+    )
+}
+
 pub fn run_executable_smoke_windowed(
     timeout: Duration,
     use_new_game_path: bool,

@@ -20,6 +20,11 @@ fn smoke_drive_gameplay_chain(
     if st.saw_construct_ok && snap.under_construction > 0 {
         st.saw_construct_under_construction = true;
     }
+    // P0 orders gate: select → move → attack, then exit (no construct ladder).
+    if st.orders_goal {
+        smoke_drive_orders_only_chain(st, result, snap, control_path);
+        return;
+    }
     // Issue host gameplay commands (select + move), then exit.
     // Not WND widget clicks — still not playable_claim.
     if st.gameplay_step == 0 {
@@ -1693,6 +1698,132 @@ fn smoke_drive_gameplay_chain(
         } else if want_exit {
             let _ = write_control(&control_path, &["exit"]);
             st.phase = 3;
+        }
+    }
+}
+
+
+/// Minimal live-host order path for hq-x1j4u.9.3: select → move → attack → exit.
+///
+/// Advances only on `*_ok` residuals. Retries on fail. If no FOW-clear enemy is
+/// available, falls back to `attack_move` (still a live attack-class order).
+fn smoke_drive_orders_only_chain(
+    st: &mut SmokeRunState,
+    result: &mut ExecutableSmokeResult,
+    snap: &StatusSnap,
+    control_path: &Path,
+) {
+    if snap.last_gameplay_cmd.starts_with("select_ok") {
+        st.saw_select_ok = true;
+    }
+    if snap.last_gameplay_cmd.starts_with("move_ok") {
+        st.saw_move_ok = true;
+    }
+    if snap.last_gameplay_cmd.starts_with("attack_ok")
+        || snap.last_gameplay_cmd.starts_with("attack_move_ok")
+        || snap.last_gameplay_cmd.starts_with("force_attack_ok")
+    {
+        st.saw_attack_ok = true;
+    }
+    // Keep a breadcrumb of the latest host residual for failure reports.
+    if !snap.last_gameplay_cmd.is_empty() {
+        result.detail = format!(
+            "orders_step={} last_cmd={} mobiles={} selected={} select={} move={} attack={}",
+            st.gameplay_step,
+            snap.last_gameplay_cmd,
+            snap.local_mobile_units,
+            snap.selected_count,
+            st.saw_select_ok,
+            st.saw_move_ok,
+            st.saw_attack_ok
+        );
+    }
+    if st.saw_select_ok && st.saw_move_ok && st.saw_attack_ok {
+        result.gameplay_cmd_ok = true;
+        result.detail.push_str(" orders_select_move_attack;");
+        let _ = write_control(&control_path, &["exit"]);
+        st.commanded_at = Some(Instant::now());
+        st.phase = 3;
+        return;
+    }
+
+    let retry_due = st
+        .commanded_at
+        .map(|t| t.elapsed() > Duration::from_secs(6))
+        .unwrap_or(true);
+
+    // 0: wait until presentation publishes a local mobile, then select.
+    if !st.saw_select_ok {
+        if st.gameplay_step == 0 {
+            if snap.local_mobile_units == 0 && snap.selected_count == 0 {
+                // Stay on step 0 until a unit exists (map admission can lag).
+                if retry_due {
+                    st.commanded_at = Some(Instant::now());
+                }
+                return;
+            }
+            let _ = write_control(&control_path, &["select_local_unit"]);
+            st.gameplay_step = 1;
+            st.commanded_at = Some(Instant::now());
+            return;
+        }
+        // step >= 1: wait for select_ok; retry select on fail/timeout.
+        if snap.last_gameplay_cmd.starts_with("select_fail") || retry_due {
+            let _ = write_control(&control_path, &["select_local_unit"]);
+            st.commanded_at = Some(Instant::now());
+            st.gameplay_step = st.gameplay_step.saturating_add(1).min(20);
+        }
+        return;
+    }
+
+    // Selected: issue move and wait for move_ok.
+    if !st.saw_move_ok {
+        if st.gameplay_step < 30 {
+            let _ = write_control(&control_path, &["move_selected|x=100|y=0|z=100"]);
+            st.gameplay_step = 30;
+            st.commanded_at = Some(Instant::now());
+            return;
+        }
+        if snap.last_gameplay_cmd.starts_with("move_fail") || retry_due {
+            // Reselect then move — selection can be cleared by host ticks.
+            let _ = write_control(
+                &control_path,
+                &["select_local_unit", "move_selected|x=120|y=0|z=120"],
+            );
+            st.commanded_at = Some(Instant::now());
+            st.gameplay_step = st.gameplay_step.saturating_add(1).min(39);
+        }
+        return;
+    }
+
+    // Moved: issue attack (enemy if possible, else attack-move).
+    if !st.saw_attack_ok {
+        if st.gameplay_step < 40 {
+            let _ = write_control(&control_path, &["attack_nearest_enemy|auto_target=1"]);
+            st.gameplay_step = 40;
+            st.commanded_at = Some(Instant::now());
+            return;
+        }
+        if snap.last_gameplay_cmd.starts_with("attack_fail_no_enemy") {
+            let _ = write_control(
+                &control_path,
+                &["attack_move|x=200|y=0|z=200"],
+            );
+            st.commanded_at = Some(Instant::now());
+            st.gameplay_step = 41;
+            return;
+        }
+        if snap.last_gameplay_cmd.starts_with("attack_fail") || retry_due {
+            let _ = write_control(
+                &control_path,
+                &[
+                    "select_local_unit",
+                    "attack_nearest_enemy|auto_target=1",
+                    "attack_move|x=220|y=0|z=220",
+                ],
+            );
+            st.commanded_at = Some(Instant::now());
+            st.gameplay_step = st.gameplay_step.saturating_add(1).min(50);
         }
     }
 }

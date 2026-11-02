@@ -426,6 +426,10 @@ path = "src/bin/boot_shell_menu_gate.rs"
 name = "retail_skirmish_map_gate"
 path = "src/bin/retail_skirmish_map_gate.rs"
 
+[[bin]]
+name = "player_orders_gate"
+path = "src/bin/player_orders_gate.rs"
+
 [[example]]
 name = "telemetry_bridge"
 path = "examples/telemetry_bridge.rs"

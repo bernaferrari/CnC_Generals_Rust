@@ -181,4 +181,7 @@ enum SmokeDriver {
     /// Menu → skirmish start → first InGame with a non-shell retail map, then exit.
     /// Used by the P0 load-retail-map gate (hq-x1j4u.9.2).
     MapLoadOnly,
+    /// MapLoadOnly path, then select → move → attack on the live host, then exit.
+    /// Used by the P0 issue-orders gate (hq-x1j4u.9.3).
+    OrdersOnly,
 }
