@@ -251,9 +251,9 @@ impl GameLogic {
         if let Some(o) = self.objects.get_mut(&object_id) {
             o.set_guard_chase_phase(phase);
             o.set_guard_chase_give_up_frame(if phase == GUARD_CHASE_PHASE_INNER {
-                0
+                None
             } else {
-                now.saturating_add(frames)
+                Some(now.wrapping_add(frames))
             });
         }
     }
@@ -516,12 +516,12 @@ impl GameLogic {
                 let mut give_up = give_up;
                 if inner > 0.0 && dist_sq <= inner * inner {
                     let frames = self.host_guard_chase_unit_frames();
-                    give_up = now.saturating_add(frames);
+                    give_up = Some(now.wrapping_add(frames));
                     if let Some(o) = self.objects.get_mut(&object_id) {
                         o.set_guard_chase_give_up_frame(give_up);
                     }
                 }
-                if now >= give_up {
+                if give_up.is_none_or(|deadline| now >= deadline) {
                     self.end_guard_chase_attack(object_id);
                     return true;
                 }
@@ -533,7 +533,7 @@ impl GameLogic {
                 false
             }
             GUARD_CHASE_PHASE_AGGRESSOR => {
-                if now >= give_up {
+                if give_up.is_none_or(|deadline| now >= deadline) {
                     self.end_guard_chase_attack(object_id);
                     return true;
                 }

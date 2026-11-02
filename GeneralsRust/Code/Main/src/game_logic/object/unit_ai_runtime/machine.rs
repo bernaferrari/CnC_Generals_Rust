@@ -145,7 +145,9 @@ impl BaseAiContinuation {
             return Err("guard retaliation anchor must be finite".into());
         }
 
-        if self.guard.chase_phase == GuardChasePhase::None && self.guard.chase_give_up_frame != 0 {
+        if self.guard.chase_phase == GuardChasePhase::None
+            && self.guard.chase_give_up_frame.is_some()
+        {
             return Err("guard chase deadline requires an active chase".into());
         }
         if self.tighten_repath_available.is_some() && self.root_state() != AIState::Moving {
@@ -485,7 +487,7 @@ impl BaseAiContinuation {
             && self.guard.phase.is_none()
             && self.guard.scan.is_none()
             && self.guard.chase_phase == GuardChasePhase::None
-            && self.guard.chase_give_up_frame == 0
+            && self.guard.chase_give_up_frame.is_none()
             && self.hunt_scan.is_none()
             && self.quick_exit.is_none()
             && self.wander.is_none()

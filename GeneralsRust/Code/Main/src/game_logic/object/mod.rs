@@ -3547,7 +3547,7 @@ impl Object {
         self.unit_ai_runtime.guard_chase_phase()
     }
 
-    pub fn guard_chase_give_up_frame(&self) -> u32 {
+    pub fn guard_chase_give_up_frame(&self) -> Option<u32> {
         self.unit_ai_runtime.guard_chase_give_up_frame()
     }
 
@@ -3555,7 +3555,7 @@ impl Object {
         self.unit_ai_runtime.set_guard_chase_phase(phase);
     }
 
-    pub(crate) fn set_guard_chase_give_up_frame(&mut self, frame: u32) {
+    pub(crate) fn set_guard_chase_give_up_frame(&mut self, frame: Option<u32>) {
         self.unit_ai_runtime.set_guard_chase_give_up_frame(frame);
     }
 

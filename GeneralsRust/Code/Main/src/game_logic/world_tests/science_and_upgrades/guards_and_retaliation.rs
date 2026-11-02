@@ -697,7 +697,7 @@ fn guard_retaliate_chase_gives_up_on_timer() {
     logic
         .tick_guard_retaliate_states()
         .expect("valid guard retaliation fixture");
-    let give = logic.objects[&id].guard_chase_give_up_frame();
+    let give = logic.objects[&id].guard_chase_give_up_frame().unwrap();
     assert!(give > 0, "first tick must stamp give-up frame");
     assert_eq!(logic.objects[&id].guard_retaliate_victim(), Some(vid));
 
@@ -1125,7 +1125,7 @@ fn retaliate_chase_exit_clears_team_attack_common_target() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.set_guard_chase_phase(GUARD_CHASE_PHASE_RETALIATE);
-        o.set_guard_chase_give_up_frame(1);
+        o.set_guard_chase_give_up_frame(Some(1));
         o.target = Some(eid);
     }
     logic.frame = 10;
@@ -1324,7 +1324,7 @@ fn area_guard_outer_chase_uses_polygon_radius() {
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     g.set_guard_chase_phase(GuardChasePhase::Outer); // OUTER
-    g.set_guard_chase_give_up_frame(logic.frame.saturating_add(10_000));
+    g.set_guard_chase_give_up_frame(Some(logic.frame.saturating_add(10_000)));
     g.status.attacking = true;
     logic.objects.insert(gid, g);
 
@@ -1426,7 +1426,7 @@ fn guard_retaliate_scan_victim_uses_inner_1_5x_not_aggressor() {
     );
     assert_eq!(
         logic.objects[&id].guard_chase_give_up_frame(),
-        0,
+        None,
         "Inner scan victims are timer-free"
     );
 
@@ -1445,7 +1445,9 @@ fn guard_retaliate_scan_victim_uses_inner_1_5x_not_aggressor() {
         "OUTER onEnter re-attacks the same nemesis"
     );
     assert!(
-        logic.objects[&id].guard_chase_give_up_frame() > 0,
+        logic.objects[&id]
+            .guard_chase_give_up_frame()
+            .is_some_and(|frame| frame > 0),
         "OUTER must stamp GuardChaseUnitsDuration"
     );
 
@@ -1591,7 +1593,7 @@ fn guard_retaliate_outer_refreshes_timer_while_victim_in_std_guard() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.set_guard_chase_phase(GuardChasePhase::Outer);
-        o.set_guard_chase_give_up_frame(logic.frame.saturating_add(1));
+        o.set_guard_chase_give_up_frame(Some(logic.frame.saturating_add(1)));
         o.target = Some(vid);
     }
     let frames = logic.host_guard_chase_unit_frames();
@@ -1600,7 +1602,7 @@ fn guard_retaliate_outer_refreshes_timer_while_victim_in_std_guard() {
         .expect("valid guard retaliation fixture");
     assert_eq!(
         logic.objects[&id].guard_chase_give_up_frame(),
-        logic.frame.saturating_add(frames),
+        Some(logic.frame.wrapping_add(frames)),
         "OUTER must refresh give-up while the victim stays inside stdGuard"
     );
     assert_eq!(
@@ -1866,7 +1868,7 @@ fn named_guard_outer_geometry_is_owner_local_with_same_ids_and_reset() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         guard.set_guard_chase_phase(GuardChasePhase::Outer);
-        guard.set_guard_chase_give_up_frame(world.frame.saturating_add(10_000));
+        guard.set_guard_chase_give_up_frame(Some(world.frame.saturating_add(10_000)));
         guard.status.attacking = true;
         world.add_object(guard);
         let (_, outer) = world.host_std_guard_ranges(GUARD);

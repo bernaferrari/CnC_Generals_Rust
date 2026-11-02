@@ -863,7 +863,7 @@ impl Object {
         // C++ AttackAggressor onEnter: chase timer + radius/owner leash.
         // Give-up frame is stamped on the first GuardRetaliate tick (needs GameLogic.frame).
         self.set_guard_chase_phase(crate::game_logic::GUARD_CHASE_PHASE_RETALIATE);
-        self.set_guard_chase_give_up_frame(0);
+        self.set_guard_chase_give_up_frame(None);
         // C++ JetAIUpdate::aiDoCommand GUARD_RETALIATE sets
         // ALLOW_INTERRUPT_AND_RESUME_OF_CUR_STATE_FOR_RELOAD.
         self.mark_jet_command_for_reload_interrupt(true);

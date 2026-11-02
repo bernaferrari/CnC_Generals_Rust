@@ -23,7 +23,7 @@ pub(crate) struct GuardRuntime {
     #[serde(default)]
     chase_phase: GuardChasePhase,
     #[serde(default)]
-    chase_give_up_frame: u32,
+    chase_give_up_frame: Option<u32>,
 }
 
 /// Saved data of the actor's distinct C++ AIGuardRetaliateMachine.
@@ -84,24 +84,24 @@ impl UnitAiRuntime {
         self.machine.guard.chase_phase
     }
 
-    pub(crate) fn guard_chase_give_up_frame(&self) -> u32 {
+    pub(crate) fn guard_chase_give_up_frame(&self) -> Option<u32> {
         self.machine.guard.chase_give_up_frame
     }
 
     pub(crate) fn set_guard_chase_phase(&mut self, phase: GuardChasePhase) {
         self.machine.guard.chase_phase = phase;
         if phase == GuardChasePhase::None {
-            self.machine.guard.chase_give_up_frame = 0;
+            self.machine.guard.chase_give_up_frame = None;
         }
     }
 
-    pub(crate) fn set_guard_chase_give_up_frame(&mut self, frame: u32) {
+    pub(crate) fn set_guard_chase_give_up_frame(&mut self, frame: Option<u32>) {
         self.machine.guard.chase_give_up_frame = frame;
     }
 
     pub(crate) fn clear_guard_chase(&mut self) {
         self.machine.guard.chase_phase = GuardChasePhase::None;
-        self.machine.guard.chase_give_up_frame = 0;
+        self.machine.guard.chase_give_up_frame = None;
     }
 
     pub(crate) fn guard_phase(&self) -> Option<GuardPhase> {

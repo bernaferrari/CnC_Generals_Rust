@@ -1188,6 +1188,47 @@ fn guard_retaliate_restores_its_victim_and_anchor_in_the_receiving_session() {
 }
 
 #[test]
+fn guard_retaliation_deadline_wrap_expires_at_zero() {
+    use generals_main::game_logic::AIState;
+    use generals_main::save_load::SnapshotBuilder;
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut world, victim, actor, _) = world_with_options(&map, true, true, false);
+    let player = world.get_player_mut(1).unwrap();
+    player.is_human = true;
+    player.alliance_team = 1;
+    player.logical_retaliation_mode_enabled = true;
+    let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
+    enemy.alliance_team = 2;
+    world.add_player(enemy);
+    let attacker = world
+        .create_object_for_player("GroupUnit", 2, Vec3::new(45.0, 0.0, 40.0))
+        .unwrap();
+    let frames = world.host_guard_chase_unit_frames();
+    let builder = SnapshotBuilder::new();
+    let mut snapshot = builder.create_world_snapshot(&world).unwrap();
+    // C++ stamps a deadline of zero when retaliation starts at this frame.
+    snapshot.frame_number = u64::from(u32::MAX - frames + 1);
+    builder
+        .restore_from_snapshot(&snapshot, &mut world)
+        .unwrap();
+    world
+        .get_player_mut(1)
+        .unwrap()
+        .logical_retaliation_mode_enabled = true;
+    assert!(world.try_friends_retaliate(victim, attacker) > 0);
+    assert_eq!(
+        world.host_object(actor).unwrap().ai_state(),
+        AIState::GuardRetaliating
+    );
+    world.tick_guard_retaliate_states().unwrap();
+    assert_ne!(
+        world.host_object(actor).unwrap().ai_state(),
+        AIState::GuardRetaliating
+    );
+}
+
+#[test]
 fn guard_keeps_parent_after_real_aggressor_hit() {
     const GUARD_ATTACK_AGGRESSOR_PHASE: generals_main::game_logic::GuardChasePhase =
         generals_main::game_logic::GuardChasePhase::Aggressor;
@@ -1316,7 +1357,7 @@ fn guard_aggressor_attack_keeps_the_receiving_guard_parent() {
             .host_object(actor)
             .unwrap()
             .guard_chase_give_up_frame()
-            > 0
+            .is_some_and(|frame| frame > 0)
     );
     fresh.update_with_dt(1.0 / 30.0);
     assert_eq!(

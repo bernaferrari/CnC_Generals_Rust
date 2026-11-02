@@ -110,7 +110,7 @@ fn guard_reentry_replaces_previous_object_area_and_route() {
     unit.waiting_for_path = true;
     unit.movement.path = vec![Vec3::splat(300.0)];
     unit.set_guard_chase_phase(GuardChasePhase::Inner);
-    unit.set_guard_chase_give_up_frame(999);
+    unit.set_guard_chase_give_up_frame(Some(999));
     unit.unit_ai_runtime.set_guard_scan_deadline(Some(900));
     unit.unit_ai_runtime
         .observe_guard_anchor(Vec3::splat(900.0));
@@ -130,7 +130,7 @@ fn guard_reentry_replaces_previous_object_area_and_route() {
     assert_ne!(unit.requested_destination, Some(Vec3::splat(300.0)));
     assert!(!unit.movement.path.contains(&Vec3::splat(300.0)));
     assert_eq!(unit.guard_chase_phase(), GuardChasePhase::None);
-    assert_eq!(unit.guard_chase_give_up_frame(), 0);
+    assert_eq!(unit.guard_chase_give_up_frame(), None);
     assert_eq!(unit.unit_ai_runtime.guard_anchor(), None);
     assert!(
         unit.unit_ai_runtime
