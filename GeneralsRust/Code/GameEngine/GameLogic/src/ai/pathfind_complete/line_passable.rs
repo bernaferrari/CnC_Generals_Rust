@@ -26,8 +26,15 @@ impl PathfindingSystem {
         request: &PathRequest,
         blocked: bool,
     ) -> (Vec<Coord3D>, Vec<PathfindLayerEnum>) {
-        self.optimize_path_blocked_with_observations(waypoints, layers, request, blocked, None)
-            .expect("compatibility path observations are infallible")
+        self.optimize_path_blocked_with_observations(
+            waypoints,
+            layers,
+            request,
+            blocked,
+            request.ignore_obstacle_id,
+            None,
+        )
+        .expect("compatibility path observations are infallible")
     }
     pub(crate) fn optimize_path_blocked_with_observations(
         &self,
@@ -35,6 +42,7 @@ impl PathfindingSystem {
         layers: &[PathfindLayerEnum],
         request: &PathRequest,
         blocked: bool,
+        terrain_ignore: Option<ObjectID>,
         observations: Option<&PathfindObservations>,
     ) -> Result<(Vec<Coord3D>, Vec<PathfindLayerEnum>), String> {
         let obj_id = request.object_id;
@@ -48,7 +56,7 @@ impl PathfindingSystem {
                 request.surfaces,
                 request.is_crusher,
                 layer,
-                LineObstacleIgnore::Owner(request.ignore_obstacle_id),
+                LineObstacleIgnore::Owner(terrain_ignore),
                 false,   // allow_pinched
                 blocked, // consider_transient / blocked ally handling
                 0,

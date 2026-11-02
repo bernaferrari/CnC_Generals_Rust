@@ -398,6 +398,7 @@ impl PathfindingSystem {
                 &result.layers,
                 &request,
                 result.blocked_by_ally,
+                request.ignore_obstacle_id,
                 observations,
             )?;
             let opt_len = optimized.0.len();
@@ -415,6 +416,62 @@ impl PathfindingSystem {
         // layer/terrain/occupancy validation performed by buildActualPath and
         // can turn an A* failure into a straight march through an invalid cell.
         Ok(PathResult::none())
+    }
+
+    /// C++ findClosestPath: an ignored unit parked on an airfield can make
+    /// that airfield the terrain obstacle to ignore for this search.
+    fn closest_obstacle_policy(
+        &self,
+        ignored: Option<ObjectID>,
+        goal: GridCoord,
+        goal_layer: PathfindLayerEnum,
+        observations: Option<&PathfindObservations<'_>>,
+    ) -> Result<(bool, Option<ObjectID>), String> {
+        let Some(ignored) = ignored.filter(|id| *id != INVALID_ID) else {
+            return Ok((false, ignored));
+        };
+        let Some(world) = observations else {
+            return Ok((false, Some(ignored)));
+        };
+        let Some(parked) = world.object(ignored) else {
+            return Ok((false, Some(ignored)));
+        };
+        let (position, layer) = {
+            let parked = parked.read().map_err(|_| "ignored path object poisoned")?;
+            (
+                *parked.get_position(),
+                PathfindLayerEnum::from_u32(parked.get_layer() as u32),
+            )
+        };
+        let cell = GridCoord::from_world(&position);
+        let cell = GridCoord::new(
+            cell.x.clamp(0, self.width as i32 - 1),
+            cell.y.clamp(0, self.height as i32 - 1),
+        );
+        let owner_at = |coord, layer| {
+            self.pathfinder
+                .obstacle_observation_at(coord, layer)
+                .and_then(|(_, owner, _)| owner)
+                .filter(|owner| *owner != INVALID_ID)
+        };
+        let Some(goal_owner) = owner_at(goal, goal_layer) else {
+            return Ok((false, Some(ignored)));
+        };
+        if owner_at(cell, layer) != Some(goal_owner) {
+            return Ok((false, Some(ignored)));
+        }
+        let airfield = match world.object(goal_owner) {
+            Some(object) => object
+                .read()
+                .map_err(|_| "path obstacle poisoned")?
+                .is_kind_of(KindOf::FSAirfield),
+            None => false,
+        };
+        if airfield {
+            Ok((true, Some(goal_owner)))
+        } else {
+            Ok((goal_owner == ignored, Some(ignored)))
+        }
     }
 
     /// Find closest reachable path (for blocked destinations)
@@ -508,6 +565,12 @@ impl PathfindingSystem {
         if request.is_human && !self.in_logical_extent(start) {
             return Ok(PathResult::none());
         }
+        let (goal_on_obstacle, terrain_ignore) = self.closest_obstacle_policy(
+            request.ignore_obstacle_id,
+            goal_grid,
+            goal_layer,
+            observations,
+        )?;
 
         let requested_start_layer = if let Some(world) = observations {
             let source = world
@@ -544,7 +607,7 @@ impl PathfindingSystem {
             request.is_crusher,
             start,
             start_layer,
-            request.ignore_obstacle_id,
+            terrain_ignore,
         ) || !start_clear
             || start_info.enemy_fixed;
         let mut tunneling = started_stuck;
@@ -667,7 +730,9 @@ impl PathfindingSystem {
 
             if cx == goal_grid.x && cy == goal_grid.y && layer == goal_layer {
                 // C++: if goal invalid destination and we have closer, keep scanning.
-                let goal_ok = can_path_through_units || destination_valid(self, cell, layer);
+                let goal_ok = goal_on_obstacle
+                    || can_path_through_units
+                    || destination_valid(self, cell, layer);
                 if goal_ok || closest_cell.is_none() {
                     found_goal_cell = true;
                     closest_cell = Some((cell, layer, 0.0));
@@ -685,7 +750,7 @@ impl PathfindingSystem {
                         is_crusher,
                         cell,
                         layer,
-                        request.ignore_obstacle_id,
+                        terrain_ignore,
                     );
                 if movement_ok {
                     let dx = (goal_grid.x - cx).abs() as f32;
@@ -756,7 +821,7 @@ impl PathfindingSystem {
                     is_crusher,
                     nc,
                     layer,
-                    request.ignore_obstacle_id,
+                    terrain_ignore,
                 );
                 if !movement_valid && !tunneling {
                     continue;
@@ -864,6 +929,7 @@ impl PathfindingSystem {
             &result.layers,
             &request,
             result.blocked_by_ally,
+            terrain_ignore,
             observations,
         )?;
         result.can_optimize = vec![true; waypoints.len()];

@@ -3625,3 +3625,149 @@ fn closest_path_respects_occupied_ground_at_bridge_fallback() {
     );
     assert_eq!(first.waypoints, first_again.waypoints);
 }
+
+#[test]
+fn closest_path_resolves_parked_aircraft_airfield_in_its_factory() {
+    use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
+    use std::sync::Arc;
+    fn fixture(airfield: bool) -> (ObjectFactory, ObjectID, ObjectID, PathfindingSystem) {
+        let mut factory = ObjectFactory::new();
+        let mut logic = crate::system::game_logic::GameLogic::new();
+        let mut create = |name: &str, kind: Option<KindOf>| {
+            let mut template = crate::common::types::DefaultThingTemplate::new(name.into());
+            if let Some(kind) = kind {
+                template.add_kind_of(kind);
+            }
+            factory
+                .prepare_object(
+                    &mut logic,
+                    Arc::new(template),
+                    Coord3D::ZERO,
+                    None,
+                    ObjectCreationFlags::NO_AI,
+                )
+                .unwrap()
+        };
+        let source = create("Mover", None);
+        let parked = create("Parked", None);
+        let structure = create("Structure", airfield.then_some(KindOf::FSAirfield));
+        for (id, cell) in [
+            (source, GridCoord::new(1, 2)),
+            (parked, GridCoord::new(4, 2)),
+        ] {
+            let object = factory.get_object(id).unwrap().get_base_object().unwrap();
+            object
+                .write()
+                .unwrap()
+                .set_position(&cell.to_world(0.0))
+                .unwrap();
+        }
+        let mut pathfinder = PathfindingSystem::new(9, 5);
+        pathfinder.new_map();
+        for x in 4..=6 {
+            pathfinder.pathfinder.set_cell_obstacle_id(
+                GridCoord::new(x, 2),
+                structure,
+                false,
+                false,
+            );
+        }
+        (factory, source, parked, pathfinder)
+    }
+    let (airport_factory, source, parked, mut airport) = fixture(true);
+    let (other_factory, peer_source, peer_parked, mut other) = fixture(false);
+    assert_eq!((source, parked), (peer_source, peer_parked));
+    let players = crate::player::PlayerList::new();
+    let terrain = crate::terrain::TerrainLogic::new();
+    let airport_obs = PathfindObservations {
+        factory: &airport_factory,
+        players: &players,
+        terrain: &terrain,
+    };
+    let other_obs = PathfindObservations {
+        factory: &other_factory,
+        players: &players,
+        terrain: &terrain,
+    };
+    let goal = GridCoord::new(6, 2);
+    let request = PathRequest {
+        object_id: source,
+        from: GridCoord::new(1, 2).to_world(0.0),
+        to: goal.to_world(0.0),
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        unit_radius: 0.0,
+        allow_partial: true,
+        move_allies: false,
+        ignore_obstacle_id: Some(parked),
+        is_human: false,
+    };
+    let result = airport
+        .find_closest_path_with_observations(
+            request.clone(),
+            Some(false),
+            Some(false),
+            Some(&airport_obs),
+        )
+        .unwrap();
+    let peer = other
+        .find_closest_path_with_observations(
+            request.clone(),
+            Some(false),
+            Some(false),
+            Some(&other_obs),
+        )
+        .unwrap();
+    let again = airport
+        .find_closest_path_with_observations(
+            request.clone(),
+            Some(false),
+            Some(false),
+            Some(&airport_obs),
+        )
+        .unwrap();
+    assert!(result.success && peer.success && again.success);
+    assert_eq!(
+        GridCoord::from_world(result.waypoints.last().unwrap()),
+        goal
+    );
+    assert_ne!(GridCoord::from_world(peer.waypoints.last().unwrap()), goal);
+    assert_eq!(result.waypoints, again.waypoints);
+    // Terrain may ignore the airfield, but movement must still observe an
+    // occupant with that ID: the AI ignored the parked unit, not the field.
+    let field = airport.pathfinder.get_cell_obstacle_id(goal).unwrap();
+    for x in 0..9 {
+        for y in [0, 1, 3, 4] {
+            airport
+                .pathfinder
+                .set_cell_type(GridCoord::new(x, y), PathfindCellType::Impassable);
+        }
+    }
+    let occupied = ICoord2D::new(5, 2);
+    airport.set_goal_cells(
+        field,
+        occupied,
+        0,
+        true,
+        PathfindLayerEnum::Ground,
+        true,
+        false,
+    );
+    airport.set_pos_cells(
+        field,
+        occupied,
+        0,
+        true,
+        PathfindLayerEnum::Ground,
+        true,
+        false,
+    );
+    let blocked = airport
+        .find_closest_path_with_observations(request, Some(false), Some(false), Some(&airport_obs))
+        .unwrap();
+    assert!(blocked.success);
+    assert_ne!(
+        GridCoord::from_world(blocked.waypoints.last().unwrap()),
+        goal
+    );
+}
