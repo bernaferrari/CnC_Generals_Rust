@@ -798,6 +798,9 @@ fn closest_search_does_not_readmit_an_already_open_neighbor() {
     world.templates.insert("Mover".into(), unit);
     let from = Vec3::new(25.0, 0.0, 25.0);
     let mover = world.create_object_for_player("Mover", 0, from).unwrap();
+    // The original skips line seeding for downhill-only locomotors. Keep
+    // this test focused on ordinary neighbor admission on flat ground.
+    world.host_object_mut(mover).unwrap().downhill_only = true;
     let mut finder = PathfindingSystem::new(140.0, 120.0);
     for (x, y) in [(3, 3), (4, 2), (10, 8)] {
         finder
@@ -821,5 +824,133 @@ fn closest_search_does_not_readmit_an_already_open_neighbor() {
         finder.grid.world_to_grid(*path.last().unwrap()),
         GridPos::new(7, 8),
         "{path:?}"
+    );
+}
+
+#[test]
+fn closest_search_seeds_the_original_line_toward_a_blocked_goal() {
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_main::game_logic::HostGeometryType;
+    use generals_main::game_logic::pathfinding::GridPos;
+
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
+    let mut unit = ThingTemplate::new("Mover");
+    unit.add_kind_of(KindOf::Vehicle).set_health(100.0);
+    unit.geometry_info.geom_type = HostGeometryType::Sphere;
+    unit.geometry_info.major_radius = 2.0;
+    unit.geometry_info.authored = true;
+    world.templates.insert("Mover".into(), unit);
+    let from = Vec3::new(25.0, 0.0, 25.0);
+    let mover = world.create_object_for_player("Mover", 0, from).unwrap();
+    let mut finder = PathfindingSystem::new(140.0, 120.0);
+    finder
+        .grid
+        .set_cell_type(GridPos::new(10, 8), PathfindCellType::Impassable);
+    let path = finder
+        .find_closest_path(
+            from,
+            Vec3::new(105.0, 0.0, 85.0),
+            SURFACE_GROUND,
+            false,
+            true,
+            0.2,
+            &PathfindingGround::Flat(0.0),
+            world.host_objects(),
+            mover,
+        )
+        .expect("a nearby reachable destination");
+    assert_eq!(
+        finder.grid.world_to_grid(*path.last().unwrap()),
+        GridPos::new(9, 7),
+        "{path:?}"
+    );
+}
+
+#[test]
+fn closest_seed_respects_receiving_world_occupants() {
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_main::game_logic::HostGeometryType;
+    use generals_main::game_logic::pathfinding::GridPos;
+
+    let mut results = Vec::new();
+    for (fixed, crusher, unmanned) in [(false, 0, false), (true, 2, false), (true, 2, true)] {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::USA, "Owner", true));
+        world.add_player(Player::new(1, Team::GLA, "Enemy", false));
+        let mut unit = ThingTemplate::new("Mover");
+        unit.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        unit.geometry_info.geom_type = HostGeometryType::Sphere;
+        unit.geometry_info.major_radius = 2.0;
+        unit.geometry_info.authored = true;
+        world.templates.insert("Mover".into(), unit);
+        let from = Vec3::new(25.0, 0.0, 25.0);
+        let enemy_pos = Vec3::new(35.0, 0.0, 35.0);
+        let mover = world.create_object_for_player("Mover", 0, from).unwrap();
+        let enemy = world
+            .create_object_for_player("Mover", 1, enemy_pos)
+            .unwrap();
+        world.host_object_mut(mover).unwrap().crusher_level = crusher;
+        world
+            .host_object_mut(mover)
+            .unwrap()
+            .status
+            .disabled_unmanned = unmanned;
+        world.host_object_mut(enemy).unwrap().crushable_level = 1;
+        let mut finder = PathfindingSystem::new(140.0, 120.0);
+        for (x, y) in [
+            (3, 6),
+            (4, 3),
+            (4, 7),
+            (5, 6),
+            (6, 5),
+            (7, 3),
+            (8, 4),
+            (10, 8),
+        ] {
+            finder
+                .grid
+                .set_cell_type(GridPos::new(x, y), PathfindCellType::Impassable);
+        }
+        let footprint = finder
+            .grid
+            .path_position_footprint(world.host_object(enemy).unwrap());
+        finder
+            .grid
+            .update_path_position_cell(&footprint, (-1, -1), enemy_pos);
+        if fixed {
+            finder
+                .grid
+                .update_ground_goal_cell(enemy.0, 1, 2.0, false, (-1, -1), enemy_pos);
+        }
+        let path = finder
+            .find_closest_path(
+                from,
+                Vec3::new(105.0, 0.0, 85.0),
+                SURFACE_GROUND,
+                false,
+                true,
+                0.2,
+                &PathfindingGround::Flat(0.0),
+                world.host_objects(),
+                mover,
+            )
+            .expect("a nearby destination");
+        results.push(finder.grid.world_to_grid(*path.last().unwrap()));
+    }
+    assert_eq!(
+        results[0],
+        GridPos::new(9, 7),
+        "a moving enemy does not stop the line seed"
+    );
+    assert_eq!(
+        results[1],
+        GridPos::new(9, 7),
+        "a crushable fixed enemy does not stop the line seed"
+    );
+    assert_eq!(
+        results[2],
+        GridPos::new(10, 7),
+        "an unmanned unit cannot crush the fixed enemy"
     );
 }

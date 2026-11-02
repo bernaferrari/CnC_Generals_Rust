@@ -44,6 +44,46 @@ impl MovementFootprint {
         }
         Some(cost)
     }
+
+    /// The line-seed callback rejects fixed allies and non-crushable fixed
+    /// enemies; moving units and the mover itself do not block the seed.
+    fn line_seed_clear(
+        &self,
+        grid: &PathfindingGrid,
+        position: GridPos,
+        layer: PathfindLayerEnum,
+        objects: HostObjectRead<'_>,
+    ) -> bool {
+        let above = self.radius + i32::from(self.center_in_cell);
+        for x in position.x - self.radius..position.x + above {
+            for y in position.y - self.radius..position.y + above {
+                let cell = GridPos::new(x, y);
+                if !grid.is_valid_pos(cell) {
+                    return false;
+                }
+                let bits = grid.occupancy_bits(cell, layer);
+                if bits.pos_unit == 0
+                    || bits.pos_unit == self.mover.0
+                    || bits.pos_moving
+                    || (self.is_infantry && bits.pos_infantry)
+                {
+                    continue;
+                }
+                let Some(other) = objects.lookup(&ObjectId(bits.pos_unit)) else {
+                    continue;
+                };
+                let (Some(player), Some(mover)) = (self.seeker_player, objects.lookup(&self.mover))
+                else {
+                    return false;
+                };
+                let friends = (1u16 << player.min(15)) | self.ally_mask;
+                if bits.pos_player & friends != 0 || !mover.can_crush_or_squish(other, false) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
 }
 
 fn enqueue_closest_path_node(
@@ -1327,10 +1367,14 @@ impl PathfindingSystem {
                     &closest_jumps,
                 );
             }
+        } else if let Some(crate_pf) = self.crate_astar.as_mut() {
+            // A stuck start uses all zones, even after another query pruned them.
+            crate_pf.finder.clear_zone_passable_flags();
         }
         while let Some(std::cmp::Reverse((f, _order, g, cx, cy, lid))) = open.pop() {
             let key = (cx, cy, lid);
-            if !closed.insert(key) {
+            // A line seed can improve an open node; discard its old heap entry.
+            if g_score.get(&key) != Some(&g) || !closed.insert(key) {
                 continue;
             }
             expanded += 1;
@@ -1405,6 +1449,59 @@ impl PathfindingSystem {
                         hop_layer,
                     );
                 }
+            }
+            if !tunnel && !self.seeker_downhill_only {
+                closest_line::visit((cx, cy), (goal_grid.x, goal_grid.y), |from, to| {
+                    let from_cell = GridPos::new(from.0, from.1);
+                    let to_cell = GridPos::new(to.0, to.1);
+                    if !self.grid.is_valid_pos(to_cell)
+                        || !self.grid.human_extent_allows(to_cell, is_human)
+                    {
+                        return false;
+                    }
+                    let from_layer = self.grid.path_cell_on_layer(from_cell, layer).0;
+                    let (to_layer, to_type) = self.grid.path_cell_on_layer(to_cell, layer);
+                    if !self.grid.valid_movement_position(
+                        to_cell,
+                        to_layer,
+                        surfaces,
+                        is_crusher,
+                        self.ignore_obstacle_id.map_or(0, |id| id.0),
+                    ) || (to_layer == PathfindLayerEnum::Ground
+                        && self.crate_astar.as_ref().is_some_and(|finder| {
+                            !finder
+                                .finder
+                                .is_zone_passable(self.host_to_crate_coord(to_cell))
+                        }))
+                        || (to_layer == PathfindLayerEnum::Ground && self.grid.is_pinched(to_cell))
+                        || to_type == PathfindCellType::Cliff
+                        || !footprint.line_seed_clear(&self.grid, to_cell, from_layer, objects)
+                    {
+                        return false;
+                    }
+                    let from_key = (from.0, from.1, from_layer as u8);
+                    let to_key = (to.0, to.1, to_layer as u8);
+                    let Some(&from_cost) = g_score.get(&from_key) else {
+                        return false;
+                    };
+                    let new_cost = from_cost + COST_ORTHO / 2;
+                    if g_score.get(&to_key).is_some_and(|&old| old <= new_cost) {
+                        return true;
+                    }
+                    closed.remove(&to_key);
+                    g_score.insert(to_key, new_cost);
+                    parents.insert(to_key, from_key);
+                    enqueue_closest_path_node(
+                        &mut open,
+                        &mut next_enqueue_order,
+                        new_cost + heuristic(to_cell),
+                        new_cost,
+                        to.0,
+                        to.1,
+                        to_layer as u8,
+                    );
+                    true
+                });
             }
             let mut neighbor_flags = [false; 8];
             for (i, (dx, dy)) in deltas.iter().enumerate() {
