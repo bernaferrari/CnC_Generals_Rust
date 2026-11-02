@@ -3067,3 +3067,31 @@ fn destination_footprint_uses_the_receiving_layer_obstacle_owner() {
     assert!(!valid(&world, PathfindLayerEnum::Ground, Some(INVALID_ID)));
     assert!(valid(&world, PathfindLayerEnum::Ground, Some(41)));
 }
+
+#[test]
+fn destination_footprint_checks_obstacles_not_locomotor_surfaces() {
+    let mut world = PathfindingSystem::new(8, 8);
+    let cell = GridCoord::new(3, 3);
+    let valid = |world: &PathfindingSystem, surfaces, crusher, ignore| {
+        world.is_destination_valid(
+            cell,
+            PathfindLayerEnum::Ground,
+            surfaces,
+            crusher,
+            0,
+            true,
+            ignore,
+        )
+    };
+    world
+        .pathfinder
+        .set_cell_type(cell, PathfindCellType::Water);
+    assert!(valid(&world, SURFACE_GROUND, false, None));
+    world
+        .pathfinder
+        .set_cell_type(cell, PathfindCellType::Impassable);
+    assert!(!valid(&world, SURFACE_AIR, false, None));
+    world.pathfinder.set_cell_obstacle_id(cell, 41, true, false);
+    assert!(!valid(&world, SURFACE_GROUND, true, None));
+    assert!(valid(&world, SURFACE_GROUND, true, Some(41)));
+}

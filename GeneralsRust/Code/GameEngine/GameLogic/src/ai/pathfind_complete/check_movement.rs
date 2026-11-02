@@ -409,8 +409,8 @@ impl PathfindingSystem {
         &self,
         cell: GridCoord,
         layer: PathfindLayerEnum,
-        surfaces: LocomotorSurfaceTypeMask,
-        is_crusher: bool,
+        _surfaces: LocomotorSurfaceTypeMask,
+        _is_crusher: bool,
         radius: i32,
         center_in_cell: bool,
         ignore_obstacle_id: Option<ObjectID>,
@@ -425,14 +425,24 @@ impl PathfindingSystem {
         }
         for x in (cell.x - radius)..(cell.x + num_cells_above) {
             for y in (cell.y - radius)..(cell.y + num_cells_above) {
-                if !self.valid_movement_cell_on_layer(
-                    surfaces,
-                    is_crusher,
-                    GridCoord::new(x, y),
-                    layer,
-                    ignore_obstacle_id,
-                ) {
+                let Some((cell_type, owner, _)) = self
+                    .pathfinder
+                    .obstacle_observation_at(GridCoord::new(x, y), layer)
+                else {
                     return false;
+                };
+                match cell_type {
+                    PathfindCellType::Obstacle => {
+                        if !owner
+                            .is_some_and(|id| id != INVALID_ID && ignore_obstacle_id == Some(id))
+                        {
+                            return false;
+                        }
+                    }
+                    PathfindCellType::Impassable | PathfindCellType::BridgeImpassable => {
+                        return false;
+                    }
+                    _ => {}
                 }
             }
         }
