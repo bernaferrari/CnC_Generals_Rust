@@ -30,7 +30,6 @@ use crate::rendering::shader_system::shader::ShaderClass;
 use crate::texture_system::TextureClass;
 use glam::{Mat3, Mat4, Quat, Vec2, Vec3, Vec4};
 use std::f32::consts::PI;
-use std::cell::{RefCell, RefMut};
 use std::sync::{Arc, Once};
 use ww3d_collision::bounding_volumes::sphere::SphereClass;
 use ww3d_core::errors::W3DResult;
@@ -131,6 +130,7 @@ pub struct TriIndex {
 /// Sphere mesh geometry for a specific LOD level
 ///
 /// C++ Reference: sphereobj.h lines 154-200 SphereMeshClass
+#[derive(Clone)]
 pub struct SphereMeshClass {
     radius: f32,
     slices: usize,
@@ -468,45 +468,31 @@ impl SphereMeshClass {
     }
 }
 
-thread_local! {
-    /// C++ kept SphereMeshArray / LOD cost arrays as plain statics on the game thread.
-    static SPHERE_MESH_ARRAY: RefCell<Vec<SphereMeshClass>> = const { RefCell::new(Vec::new()) };
-    static SPHERE_LOD_COSTS: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) };
-}
+/// Owned sphere LOD mesh/cost tables (C++ file-statics moved onto each render object /
+/// a cache the owner shares). No process TLS.
+/// Build LOD mesh/cost tables (C++ SphereRenderObjClass::Generate_Shared_Mesh_Arrays).
+fn build_sphere_lod_tables(alpha_vector: AlphaVectorStruct) -> (Vec<SphereMeshClass>, Vec<f32>) {
+    let mut meshes = Vec::with_capacity(SPHERE_NUM_LOD);
+    let mut costs = Vec::with_capacity(SPHERE_NUM_LOD + 1);
 
+    let size_start = SPHERE_LOWEST_LOD as f32;
+    let step = (SPHERE_HIGHEST_LOD - SPHERE_LOWEST_LOD) as f32 / SPHERE_NUM_LOD as f32;
 
+    // NULL LOD cost (small non-zero to avoid division by zero)
+    costs.push(0.000001f32);
 
-/// Generate shared mesh arrays (called on first sphere creation)
-///
-/// C++ Reference: sphereobj.cpp lines 294-320 SphereRenderObjClass::Generate_Shared_Mesh_Arrays
-fn generate_shared_mesh_arrays(alpha_vector: AlphaVectorStruct) {
-    SPHERE_MESH_ARRAY.with_borrow_mut(|slot| {
-        if !slot.is_empty() {
-            return;
-        }
-        let mut meshes = Vec::with_capacity(SPHERE_NUM_LOD);
-        let mut costs = Vec::with_capacity(SPHERE_NUM_LOD + 1);
+    for i in 0..SPHERE_NUM_LOD {
+        let size = (size_start + step * i as f32) as usize;
 
-        let size_start = SPHERE_LOWEST_LOD as f32;
-        let step = (SPHERE_HIGHEST_LOD - SPHERE_LOWEST_LOD) as f32 / SPHERE_NUM_LOD as f32;
+        let mut mesh = SphereMeshClass::new();
+        mesh.generate(1.0, size, size);
+        mesh.set_alpha_vector(alpha_vector, false, false, true);
 
-        // NULL LOD cost (small non-zero to avoid division by zero)
-        costs.push(0.000001f32);
+        costs.push(mesh.get_num_polys() as f32);
+        meshes.push(mesh);
+    }
 
-        for i in 0..SPHERE_NUM_LOD {
-            let size = (size_start + step * i as f32) as usize;
-
-            let mut mesh = SphereMeshClass::new();
-            mesh.generate(1.0, size, size);
-            mesh.set_alpha_vector(alpha_vector, false, false, true);
-
-            costs.push(mesh.get_num_polys() as f32);
-            meshes.push(mesh);
-        }
-
-        *slot = meshes;
-        SPHERE_LOD_COSTS.with_borrow_mut(|costs_slot| *costs_slot = costs);
-    });
+    (meshes, costs)
 }
 
 /// Sphere render object class
@@ -515,6 +501,11 @@ fn generate_shared_mesh_arrays(alpha_vector: AlphaVectorStruct) {
 pub struct SphereRenderObjClass {
     // Identity
     name: String,
+
+    /// Owned LOD mesh table (C++ SphereMeshArray static).
+    pub(crate) sphere_meshes: Vec<SphereMeshClass>,
+    /// Owned LOD cost table (C++ Sphere LOD costs static).
+    pub(crate) sphere_lod_costs: Vec<f32>,
 
     // Object-space geometry
     obj_space_center: Vec3,
@@ -575,9 +566,7 @@ impl SphereRenderObjClass {
     /// C++ Reference: sphereobj.cpp lines 116-143 SphereRenderObjClass::SphereRenderObjClass()
     pub fn new() -> Self {
         let current_vector = AlphaVectorStruct::default();
-
-        // Initialize shared mesh arrays on first creation
-        generate_shared_mesh_arrays(current_vector.clone());
+        let (sphere_meshes, sphere_lod_costs) = build_sphere_lod_tables(current_vector.clone());
 
         let mut sphere_material = VertexMaterialClass::new();
         Self::init_material(&mut sphere_material);
@@ -586,6 +575,8 @@ impl SphereRenderObjClass {
 
         let mut obj = Self {
             name: String::new(),
+            sphere_meshes,
+            sphere_lod_costs,
             obj_space_center: Vec3::ZERO,
             obj_space_extent: Vec3::ONE,
             current_color: Vec3::new(0.75, 0.75, 0.75),
@@ -833,20 +824,21 @@ impl SphereRenderObjClass {
     ///
     /// C++ Reference: sphereobj.cpp lines 383-386
     pub fn get_num_polys(&self) -> usize {
-        SPHERE_LOD_COSTS.with_borrow(|costs| {
+        {
+            let costs = &self.sphere_lod_costs;
             if self.current_lod < costs.len() {
                 costs[self.current_lod] as usize
             } else {
                 0
             }
-        })
+        }
     }
 
     /// Calculate value array for LOD selection
     ///
     /// C++ Reference: sphereobj.cpp lines 324-333
     fn calculate_value_array(&mut self, screen_area: f32) {
-        let costs = SPHERE_LOD_COSTS.with_borrow(Vec::clone);
+        let costs = self.sphere_lod_costs.clone();
 
         self.value[0] = AT_MIN_LOD;
 
@@ -1058,11 +1050,12 @@ impl SphereRenderObjClass {
             return None;
         }
 
-        let (vertex_count, triangle_count) = SPHERE_MESH_ARRAY.with_borrow(|meshes| {
+        let (vertex_count, triangle_count) = {
+            let meshes = &self.sphere_meshes;
             meshes
                 .get(self.current_lod - 1)
                 .map(|mesh| (mesh.vertices().len(), mesh.indices().len()))
-        })?;
+        }?;
 
         Some(SphereRenderSubmission {
             world_transform,
@@ -1140,7 +1133,8 @@ impl SphereRenderObjClass {
 
             // Get the mesh for current LOD and update its alpha vector
             // C++: SphereMeshArray[CurrentLOD - 1].Set_Alpha_Vector(CurrentVector, use_inverse, is_additive);
-            SPHERE_MESH_ARRAY.with_borrow_mut(|meshes| {
+            {
+            let meshes = &mut self.sphere_meshes;
                 if self.current_lod > 0 && self.current_lod <= meshes.len() {
                     meshes[self.current_lod - 1].set_alpha_vector(
                         self.current_vector,
@@ -1149,7 +1143,7 @@ impl SphereRenderObjClass {
                         false, // force=false, only update if changed
                     );
                 }
-            });
+            }
         }
 
         if let Some(submission) = self.prepare_render_submission(render_transform, is_additive) {
@@ -1165,6 +1159,8 @@ impl SphereRenderObjClass {
     pub fn clone(&self) -> Self {
         Self {
             name: self.name.clone(),
+            sphere_meshes: self.sphere_meshes.clone(),
+            sphere_lod_costs: self.sphere_lod_costs.clone(),
             obj_space_center: self.obj_space_center,
             obj_space_extent: self.obj_space_extent,
             current_color: self.current_color,
@@ -1383,15 +1379,10 @@ mod tests {
 
     #[test]
     fn test_shared_mesh_array_initialization() {
-        // Just creating a sphere should initialize the shared arrays
-        let _sphere = SphereRenderObjClass::new();
-
-        let (mesh_count, costs) = SPHERE_MESH_ARRAY.with_borrow(|meshes| {
-            (meshes.len(), SPHERE_LOD_COSTS.with_borrow(Vec::clone))
-        });
-
-        assert_eq!(mesh_count, SPHERE_NUM_LOD);
-        assert_eq!(costs.len(), SPHERE_NUM_LOD + 1); // +1 for NULL LOD
+        // Creating a sphere builds owned LOD tables (C++ shared statics).
+        let sphere = SphereRenderObjClass::new();
+        assert_eq!(sphere.sphere_meshes.len(), SPHERE_NUM_LOD);
+        assert_eq!(sphere.sphere_lod_costs.len(), SPHERE_NUM_LOD + 1); // +1 for NULL LOD
     }
 
     #[test]
