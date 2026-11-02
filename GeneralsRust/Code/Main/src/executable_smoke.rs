@@ -120,6 +120,18 @@ pub fn run_issue_player_orders(timeout: Duration) -> ExecutableSmokeResult {
     )
 }
 
+/// Retail skirmish with concurrent human move orders and AI activity residual.
+///
+/// P0 hq-x1j4u.9.5 gate.
+pub fn run_ai_opponent_skirmish(timeout: Duration) -> ExecutableSmokeResult {
+    run_executable_smoke_with_launch_and_driver(
+        timeout,
+        true,
+        ExecutableSmokeLaunch::HeadlessHost,
+        SmokeDriver::AiActivity,
+    )
+}
+
 pub fn run_executable_smoke_windowed(
     timeout: Duration,
     use_new_game_path: bool,

@@ -410,6 +410,10 @@ name = "ai_skirmish_gate"
 path = "src/bin/ai_skirmish_gate.rs"
 
 [[bin]]
+name = "ai_retail_skirmish_gate"
+path = "src/bin/ai_retail_skirmish_gate.rs"
+
+[[bin]]
 name = "shell_smoke_gate"
 path = "src/bin/shell_smoke_gate.rs"
 required-features = ["host-residuals"]

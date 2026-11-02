@@ -184,4 +184,7 @@ enum SmokeDriver {
     /// MapLoadOnly path, then select → move → attack on the live host, then exit.
     /// Used by the P0 issue-orders gate (hq-x1j4u.9.3).
     OrdersOnly,
+    /// After retail InGame: player select/move, then require AI activity residual.
+    /// Used by the P0 AI-opponent gate (hq-x1j4u.9.5).
+    AiActivity,
 }

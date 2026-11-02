@@ -25,6 +25,11 @@ fn smoke_drive_gameplay_chain(
         smoke_drive_orders_only_chain(st, result, snap, control_path);
         return;
     }
+    // P0 AI gate: select → move, then require AI activity residual.
+    if st.ai_activity_goal {
+        smoke_drive_ai_activity_chain(st, result, snap, control_path);
+        return;
+    }
     // Issue host gameplay commands (select + move), then exit.
     // Not WND widget clicks — still not playable_claim.
     if st.gameplay_step == 0 {
@@ -1825,5 +1830,106 @@ fn smoke_drive_orders_only_chain(
             st.commanded_at = Some(Instant::now());
             st.gameplay_step = st.gameplay_step.saturating_add(1).min(50);
         }
+    }
+}
+
+
+fn smoke_drive_ai_activity_chain(
+    st: &mut SmokeRunState,
+    result: &mut ExecutableSmokeResult,
+    snap: &StatusSnap,
+    control_path: &Path,
+) {
+    if snap.last_gameplay_cmd.starts_with("select_ok") {
+        st.saw_select_ok = true;
+    }
+    if snap.last_gameplay_cmd.starts_with("move_ok") {
+        st.saw_move_ok = true;
+    }
+    if snap.last_gameplay_cmd.starts_with("ai_activity_ok") {
+        let act = snap
+            .last_gameplay_cmd
+            .split(':')
+            .find_map(|part| part.strip_prefix("act=")?.parse::<u64>().ok())
+            .unwrap_or(0);
+        let structs = snap
+            .last_gameplay_cmd
+            .split(':')
+            .find_map(|part| part.strip_prefix("struct=")?.parse::<u64>().ok())
+            .unwrap_or(0);
+        let units = snap
+            .last_gameplay_cmd
+            .split(':')
+            .find_map(|part| part.strip_prefix("units=")?.parse::<u64>().ok())
+            .unwrap_or(0);
+        let ai = snap
+            .last_gameplay_cmd
+            .split(':')
+            .find_map(|part| part.strip_prefix("ai=")?.parse::<u64>().ok())
+            .unwrap_or(0);
+        // AI present and either activity counter moved, multi-structure base, or units/queue.
+        if ai >= 1 && (act >= 1 || structs >= 2 || units >= 1) {
+            st.saw_ai_activity_ok = true;
+        }
+        result.detail = format!(
+            "ai_probe act={act} struct={structs} units={units} ai={ai} select={} move={}",
+            st.saw_select_ok, st.saw_move_ok
+        );
+    }
+
+    if st.saw_select_ok && st.saw_move_ok && st.saw_ai_activity_ok {
+        result.gameplay_cmd_ok = true;
+        result.detail.push_str(" ai_activity_pass;");
+        let _ = write_control(&control_path, &["exit"]);
+        st.commanded_at = Some(Instant::now());
+        st.phase = 3;
+        return;
+    }
+
+    let retry_due = st
+        .commanded_at
+        .map(|t| t.elapsed() > Duration::from_secs(8))
+        .unwrap_or(true);
+
+    if !st.saw_select_ok {
+        if snap.local_mobile_units == 0 && st.gameplay_step == 0 && !retry_due {
+            return;
+        }
+        if st.gameplay_step == 0 || snap.last_gameplay_cmd.starts_with("select_fail") || retry_due {
+            let _ = write_control(&control_path, &["select_local_unit"]);
+            st.gameplay_step = 1;
+            st.commanded_at = Some(Instant::now());
+        }
+        return;
+    }
+
+    if !st.saw_move_ok {
+        if st.gameplay_step < 10 {
+            let _ = write_control(&control_path, &["move_selected|x=100|y=0|z=100"]);
+            st.gameplay_step = 10;
+            st.commanded_at = Some(Instant::now());
+            return;
+        }
+        if snap.last_gameplay_cmd.starts_with("move_fail") || retry_due {
+            let _ = write_control(
+                &control_path,
+                &["select_local_unit", "move_selected|x=120|y=0|z=120"],
+            );
+            st.commanded_at = Some(Instant::now());
+        }
+        return;
+    }
+
+    // Player has ordered; poll AI activity.
+    if st.gameplay_step < 20 {
+        let _ = write_control(&control_path, &["report_ai_activity"]);
+        st.gameplay_step = 20;
+        st.commanded_at = Some(Instant::now());
+        return;
+    }
+    if retry_due {
+        let _ = write_control(&control_path, &["report_ai_activity"]);
+        st.commanded_at = Some(Instant::now());
+        st.gameplay_step = st.gameplay_step.saturating_add(1).min(40);
     }
 }

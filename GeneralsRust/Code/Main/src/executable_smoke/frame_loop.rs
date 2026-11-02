@@ -153,6 +153,9 @@ struct SmokeRunState {
     map_load_goal: bool,
     /// When true, after InGame run select/move/attack then exit (OrdersOnly).
     orders_goal: bool,
+    /// When true, after InGame require player move + AI activity (AiActivity).
+    ai_activity_goal: bool,
+    saw_ai_activity_ok: bool,
     phase: u8, // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     last_snap: StatusSnap,
     last_ingame_frame: Option<u32>,
@@ -196,6 +199,7 @@ fn run_executable_smoke_once(
         boot_shell_menu_goal: matches!(driver, SmokeDriver::MenuOnly),
         map_load_goal: matches!(driver, SmokeDriver::MapLoadOnly),
         orders_goal: matches!(driver, SmokeDriver::OrdersOnly),
+        ai_activity_goal: matches!(driver, SmokeDriver::AiActivity),
         ..Default::default()
     };
 
@@ -308,7 +312,22 @@ fn smoke_wall_budget_exceeded(
     if started.elapsed() > timeout {
         // Prefer honest InGame finalization over a bare timeout when the host
         // already reached match state — long command chains can exceed wall budget.
-        if st.orders_goal
+        if st.ai_activity_goal
+            && !(st.saw_select_ok && st.saw_move_ok && st.saw_ai_activity_ok)
+        {
+            result.shell_wnd_ok = st.saw_shell_wnd_ok;
+            result.executable_host_ok = false;
+            result.status = "timeout".into();
+            result.detail = format!(
+                "ai_activity wall timeout incomplete; select={} move={} ai={} step={} last_cmd={} map={}",
+                st.saw_select_ok,
+                st.saw_move_ok,
+                st.saw_ai_activity_ok,
+                st.gameplay_step,
+                st.last_snap.last_gameplay_cmd,
+                result.map_seen
+            );
+        } else if st.orders_goal
             && !(st.saw_select_ok && st.saw_move_ok && st.saw_attack_ok)
         {
             // Incomplete orders gate must not borrow the generic InGame pass.
@@ -479,6 +498,23 @@ fn smoke_child_exited_early(
             result.status = "success".into();
             result.detail = format!(
                 "retail_skirmish_map ok; map={} exit={:?} frames={}",
+                result.map_seen,
+                status.code(),
+                result.frames_observed
+            );
+        } else if st.ai_activity_goal
+            && result.reached_ingame
+            && result.shell_wnd_ok
+            && st.saw_select_ok
+            && st.saw_move_ok
+            && st.saw_ai_activity_ok
+            && status.success()
+        {
+            result.executable_host_ok = true;
+            result.gameplay_cmd_ok = true;
+            result.status = "success".into();
+            result.detail = format!(
+                "ai_activity ok; select/move + AI residual map={} exit={:?} frames={}",
                 result.map_seen,
                 status.code(),
                 result.frames_observed
@@ -1180,6 +1216,25 @@ fn smoke_phase_wait_clean_exit(
             result.detail = format!(
                 "retail_skirmish_map forced exit; map={} shell_wnd={} frames={}",
                 result.map_seen, result.shell_wnd_ok, result.frames_observed
+            );
+            return true;
+        } else if st.ai_activity_goal
+            && result.reached_ingame
+            && st.saw_select_ok
+            && st.saw_move_ok
+            && st.saw_ai_activity_ok
+        {
+            result.shell_wnd_ok = st.saw_shell_wnd_ok || result.shell_wnd_ok;
+            result.executable_host_ok = result.shell_wnd_ok;
+            result.gameplay_cmd_ok = true;
+            result.status = if result.executable_host_ok {
+                "success_forced_exit".into()
+            } else {
+                "exit_hang".into()
+            };
+            result.detail = format!(
+                "ai_activity forced exit; map={} frames={}",
+                result.map_seen, result.frames_observed
             );
             return true;
         } else if st.orders_goal

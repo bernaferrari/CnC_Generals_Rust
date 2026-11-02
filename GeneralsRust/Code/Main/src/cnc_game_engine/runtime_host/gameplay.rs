@@ -1192,6 +1192,49 @@ impl CnCGameEngine {
         }
     }
 
+    pub(super) fn runtime_host_cmd_report_ai_activity(
+        &mut self,
+        _args: &HashMap<String, String>,
+    ) {
+        if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+            self.runtime_host_last_gameplay_cmd = "ai_activity_fail_not_ingame".into();
+            return;
+        }
+        let local_player = self.current_player_id;
+        let (activity, structures, units_or_queue, ai_players) =
+            self.with_native_camera_input_effects(|logic, _effects, _| {
+                use crate::game_logic::KindOf;
+                let activity = logic.host_ai_activity_count();
+                let structures = logic
+                    .host_objects()
+                    .registered_values()
+                    .filter(|o| {
+                        o.owner_player_id != Some(local_player)
+                            && o.is_kind_of(KindOf::Structure)
+                    })
+                    .count();
+                let units_or_queue = logic
+                    .host_objects()
+                    .registered_values()
+                    .filter(|o| {
+                        o.owner_player_id != Some(local_player)
+                            && (o.is_kind_of(KindOf::Infantry)
+                                || o.is_kind_of(KindOf::Vehicle)
+                                || o
+                                    .building_data
+                                    .as_ref()
+                                    .map(|b| !b.production_queue.is_empty())
+                                    .unwrap_or(false))
+                    })
+                    .count();
+                let ai_players = logic.host_ai_player_count();
+                (activity, structures, units_or_queue, ai_players)
+            });
+        self.runtime_host_last_gameplay_cmd = format!(
+            "ai_activity_ok:act={activity}:struct={structures}:units={units_or_queue}:ai={ai_players}"
+        );
+    }
+
     pub(super) fn runtime_host_cmd_stop_all(&mut self, _args: &HashMap<String, String>) {
         if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
             self.runtime_host_last_gameplay_cmd = "stop_fail_not_ingame".into();
