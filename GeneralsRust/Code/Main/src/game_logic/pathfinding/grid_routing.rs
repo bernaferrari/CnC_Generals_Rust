@@ -1444,18 +1444,7 @@ impl PathfindingGrid {
                 if !self.is_valid_pos(pos) {
                     return false;
                 }
-                // getCell falls back to ground only if there is no cell on
-                // the requested layer; an impassable layer cell is still real.
-                let layer_cell = if (layer as u8) > PathfindLayerEnum::Ground as u8 {
-                    self.layer_cell_type(layer as u8, pos)
-                } else {
-                    None
-                };
-                let actual_layer = if layer_cell.is_some() {
-                    layer
-                } else {
-                    PathfindLayerEnum::Ground
-                };
+                let (actual_layer, cell_type) = self.path_cell_on_layer(pos, layer);
                 if checks_aircraft {
                     let aircraft_goal = if actual_layer == PathfindLayerEnum::Ground {
                         self.goal_aircraft(pos)
@@ -1467,7 +1456,6 @@ impl PathfindingGrid {
                     }
                     continue;
                 }
-                let cell_type = layer_cell.unwrap_or_else(|| self.cell_type(pos));
                 if cell_type == PathfindCellType::Obstacle {
                     let ignored_obstacle = actual_layer == PathfindLayerEnum::Ground
                         && ignored != 0

@@ -532,6 +532,7 @@ impl PathfindingGrid {
         ignore_id: u32,
     ) -> bool {
         if ignore_id != 0
+            && self.path_cell_on_layer(pos, layer).0 == PathfindLayerEnum::Ground
             && self.resolved_cell_type(layer, pos) == PathfindCellType::Obstacle
             && self
                 .obstacle_owner(pos)

@@ -599,7 +599,12 @@ impl PathfindingSystem {
         if other_center {
             box_half += cell / 2.0;
         }
-        let start_layer = self.grid.layer_for_destination(from, ground_source);
+        // The object owns its current layer; height-based layer selection is
+        // for destinations and can select a deck above a ground actor.
+        let requested_layer = PathfindLayerEnum::from_u32(unit.pathfind_layer as u32);
+        let (start_layer, _) = self
+            .grid
+            .path_cell_on_layer(physical_start, requested_layer);
         let root_index = if self
             .grid
             .has_retained_cell_info(physical_start, start_layer)
@@ -647,7 +652,7 @@ impl PathfindingSystem {
             surfaces,
             is_crusher,
             self.ignore_obstacle_id.map_or(0, |id| id.0),
-        ) || footprint_cost(start_index, start_layer).is_none();
+        ) || footprint_cost(start_index, requested_layer).is_none();
         type SearchCell = (i32, i32, u8);
         let start_key = (physical_start.x, physical_start.y, start_layer as u8);
         let mut open: BinaryHeap<std::cmp::Reverse<(i32, u64, i32, i32, u8)>> = BinaryHeap::new();
@@ -724,7 +729,8 @@ impl PathfindingSystem {
                 break;
             }
             if let Some(connected_layer) = self.grid.connect_layer_of(physical_pos, layer) {
-                let connected = (cx, cy, connected_layer as u8);
+                let (actual_layer, _) = self.grid.path_cell_on_layer(cell_pos, connected_layer);
+                let connected = (cx, cy, actual_layer as u8);
                 if !costs.contains_key(&connected) {
                     costs.insert(connected, g);
                     parents.insert(connected, key);
@@ -735,9 +741,12 @@ impl PathfindingSystem {
             let mut neighbor_flags = [false; 8];
             for (i, &(dx, dy)) in deltas.iter().enumerate() {
                 let n = GridPos::new(cx + dx, cy + dy);
-                let nkey = (n.x, n.y, lid);
-                if !self.grid.is_valid_pos(n)
-                    || costs.contains_key(&nkey)
+                if !self.grid.is_valid_pos(n) {
+                    continue;
+                }
+                let (next_layer, next_type) = self.grid.path_cell_on_layer(n, layer);
+                let nkey = (n.x, n.y, next_layer as u8);
+                if costs.contains_key(&nkey)
                     || !self.grid.human_extent_allows(n, is_human)
                     || PathfindingGrid::skip_diagonal_if_squeezed(i, &neighbor_flags)
                 {
@@ -756,14 +765,14 @@ impl PathfindingSystem {
                 }
                 let normally_passable = self.grid.valid_movement_position(
                     n,
-                    layer,
+                    next_layer,
                     surfaces,
                     is_crusher,
                     self.ignore_obstacle_id.map_or(0, |id| id.0),
                 );
                 let dozer_hack = !normally_passable
                     && self.seeker_is_dozer
-                    && self.grid.resolved_cell_type(layer, n) == PathfindCellType::Obstacle
+                    && next_type == PathfindCellType::Obstacle
                     && Self::dozer_obstacle_is_non_enemy(
                         &self.grid,
                         objects,
@@ -785,11 +794,13 @@ impl PathfindingSystem {
                 if occupied_blocked && !tunneling {
                     continue;
                 }
-                if movement_valid && !occupied_blocked && !self.grid.is_pinched(n) {
+                // Pinching belongs to the actual cell, not the ground under a bridge.
+                let pinched = next_layer == PathfindLayerEnum::Ground && self.grid.is_pinched(n);
+                if movement_valid && !occupied_blocked && !pinched {
                     tunneling = false;
                 }
                 let mut step = if i >= 4 { 14 } else { 10 };
-                if self.grid.is_pinched(n) {
+                if pinched {
                     step += 24;
                 }
                 if let Some(&parent) = parents.get(&key) {
@@ -818,15 +829,23 @@ impl PathfindingSystem {
                 let ng = g + step;
                 costs.insert(nkey, ng);
                 parents.insert(nkey, key);
-                open.push(std::cmp::Reverse((ng, next_order, n.x, n.y, lid)));
+                open.push(std::cmp::Reverse((
+                    ng,
+                    next_order,
+                    n.x,
+                    n.y,
+                    next_layer as u8,
+                )));
                 next_order += 1;
             }
         }
         let mut key = found?;
         let pos = GridPos::new(key.0, key.1);
-        if self.grid.is_pinched(pos) {
+        if key.2 == PathfindLayerEnum::Ground as u8 && self.grid.is_pinched(pos) {
             if let Some(&parent) = parents.get(&key) {
-                if !self.grid.is_pinched(GridPos::new(parent.0, parent.1)) {
+                if parent.2 != PathfindLayerEnum::Ground as u8
+                    || !self.grid.is_pinched(GridPos::new(parent.0, parent.1))
+                {
                     key = parent;
                 }
             }

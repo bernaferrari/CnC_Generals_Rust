@@ -1024,16 +1024,27 @@ impl PathfindingGrid {
         })
     }
 
-    /// C++ `Pathfinder::getCell(layer, x, y)` type (Impassable/missing → ground).
-    pub fn resolved_cell_type(&self, layer: PathfindLayerEnum, pos: GridPos) -> PathfindCellType {
-        if (layer as u8) > PathfindLayerEnum::Ground as u8 {
-            if let Some(ty) = self.layer_cell_type(layer as u8, pos) {
+    /// Resolve C++ getCell to the actual owning layer and cell type.
+    /// PathfindLayer::getCell treats CELL_IMPASSABLE as absent, but retains
+    /// CELL_BRIDGE_IMPASSABLE as a real, blocked layer cell.
+    pub(super) fn path_cell_on_layer(
+        &self,
+        pos: GridPos,
+        requested: PathfindLayerEnum,
+    ) -> (PathfindLayerEnum, PathfindCellType) {
+        if (requested as u8) > PathfindLayerEnum::Ground as u8 {
+            if let Some(ty) = self.layer_cell_type(requested as u8, pos) {
                 if ty != PathfindCellType::Impassable {
-                    return ty;
+                    return (requested, ty);
                 }
             }
         }
-        self.cell_type(pos)
+        (PathfindLayerEnum::Ground, self.cell_type(pos))
+    }
+
+    /// C++ `Pathfinder::getCell(layer, x, y)` type (Impassable/missing → ground).
+    pub fn resolved_cell_type(&self, layer: PathfindLayerEnum, pos: GridPos) -> PathfindCellType {
+        self.path_cell_on_layer(pos, layer).1
     }
 
     /// C++ `Pathfinder::getCell(layer, x, y)` for locomotor selection.
@@ -1081,10 +1092,11 @@ impl PathfindingGrid {
         if !self.is_valid_pos(pos) {
             return false;
         }
-        if self.is_obstacle_fence(pos) && is_crusher {
+        let (actual_layer, cell_type) = self.path_cell_on_layer(pos, layer);
+        if actual_layer == PathfindLayerEnum::Ground && self.is_obstacle_fence(pos) && is_crusher {
             return true;
         }
-        Self::type_passable_for(self.resolved_cell_type(layer, pos), surfaces, is_crusher)
+        Self::type_passable_for(cell_type, surfaces, is_crusher)
     }
 
     pub(super) fn cell_center_xz(&self, pos: GridPos) -> (f32, f32) {
@@ -1206,29 +1218,20 @@ impl PathfindingGrid {
         PathfindLayerEnum::from_u32(self.query_layer as u32)
     }
 
-    /// C++ `getCell(layer, x, y)` occupancy. Missing layer cells fall back to ground.
     /// Whether the resolved C++ PathfindCell already owns an info record.
     /// Occupancy, aircraft goals and obstacle cells retain their info between
     /// searches; a free cell receives the next query's coordinates instead.
     pub(super) fn has_retained_cell_info(&self, pos: GridPos, layer: PathfindLayerEnum) -> bool {
-        let resolved_layer = if (layer as u8) > PathfindLayerEnum::Ground as u8
-            && self.layer_cell_type(layer as u8, pos).is_some()
-        {
-            layer
-        } else {
-            PathfindLayerEnum::Ground
-        };
+        let (resolved_layer, cell_type) = self.path_cell_on_layer(pos, layer);
         let occupied = self.raw_occupancy_bits(pos, resolved_layer);
         if occupied.pos_unit != 0 || occupied.goal_unit != 0 || occupied.goal != 0 {
             return true;
         }
-        if resolved_layer == PathfindLayerEnum::Ground {
-            self.goal_aircraft(pos) != 0 || self.cell_type(pos) == PathfindCellType::Obstacle
-        } else {
-            self.layer_cell_type(resolved_layer as u8, pos) == Some(PathfindCellType::Obstacle)
-        }
+        cell_type == PathfindCellType::Obstacle
+            || (resolved_layer == PathfindLayerEnum::Ground && self.goal_aircraft(pos) != 0)
     }
 
+    /// C++ getCell occupancy resolves missing or impassable layer cells to ground.
     pub(super) fn occupancy_bits(&self, pos: GridPos, layer: PathfindLayerEnum) -> OccBits {
         self.raw_occupancy_bits(pos, layer)
             .ignoring_unit(self.query_ignore_unit_id)
@@ -1236,10 +1239,9 @@ impl PathfindingGrid {
 
     /// Cell observations without the current search's ignore filter.
     pub(super) fn raw_occupancy_bits(&self, pos: GridPos, layer: PathfindLayerEnum) -> OccBits {
-        if (layer as u8) > PathfindLayerEnum::Ground as u8
-            && self.layer_cell_type(layer as u8, pos).is_some()
-        {
-            if let Some(occ) = self.layer_occ.get(&(layer as u8)) {
+        let (actual_layer, _) = self.path_cell_on_layer(pos, layer);
+        if actual_layer != PathfindLayerEnum::Ground {
+            if let Some(occ) = self.layer_occ.get(&(actual_layer as u8)) {
                 let key = (pos.x, pos.y);
                 return OccBits::from_cell(
                     occ.occ_goal_mask.get(&key).copied().unwrap_or(0),
