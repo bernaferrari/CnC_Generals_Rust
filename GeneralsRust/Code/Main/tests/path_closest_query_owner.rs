@@ -781,3 +781,45 @@ fn closest_search_rejects_a_locomotor_without_valid_surfaces() {
         "an immobile locomotor must not tunnel to the goal"
     );
 }
+
+#[test]
+fn closest_search_does_not_readmit_an_already_open_neighbor() {
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_main::game_logic::HostGeometryType;
+    use generals_main::game_logic::pathfinding::GridPos;
+
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
+    let mut unit = ThingTemplate::new("Mover");
+    unit.add_kind_of(KindOf::Vehicle).set_health(100.0);
+    unit.geometry_info.geom_type = HostGeometryType::Sphere;
+    unit.geometry_info.major_radius = 2.0;
+    unit.geometry_info.authored = true;
+    world.templates.insert("Mover".into(), unit);
+    let from = Vec3::new(25.0, 0.0, 25.0);
+    let mover = world.create_object_for_player("Mover", 0, from).unwrap();
+    let mut finder = PathfindingSystem::new(140.0, 120.0);
+    for (x, y) in [(3, 3), (4, 2), (10, 8)] {
+        finder
+            .grid
+            .set_cell_type(GridPos::new(x, y), PathfindCellType::Impassable);
+    }
+    let path = finder
+        .find_closest_path(
+            from,
+            Vec3::new(105.0, 0.0, 85.0),
+            SURFACE_GROUND,
+            false,
+            true,
+            0.2,
+            &PathfindingGround::Flat(0.0),
+            world.host_objects(),
+            mover,
+        )
+        .expect("a nearby reachable destination");
+    assert_eq!(
+        finder.grid.world_to_grid(*path.last().unwrap()),
+        GridPos::new(7, 8),
+        "{path:?}"
+    );
+}

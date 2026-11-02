@@ -1328,7 +1328,7 @@ impl PathfindingSystem {
                 );
             }
         }
-        while let Some(std::cmp::Reverse((_f, _order, g, cx, cy, lid))) = open.pop() {
+        while let Some(std::cmp::Reverse((f, _order, g, cx, cy, lid))) = open.pop() {
             let key = (cx, cy, lid);
             if !closed.insert(key) {
                 continue;
@@ -1387,33 +1387,36 @@ impl PathfindingSystem {
             if found_goal_cell {
                 continue;
             }
-            let f_hop = g + heuristic(cell);
-            self.grid.enqueue_connect_layer(
-                cell,
-                layer,
-                g,
-                f_hop,
-                &closed,
-                &mut g_score,
-                &mut |f, g, x, y, hop_layer| {
-                    parents.insert((x, y, hop_layer), key);
+            // C++ checkChangeLayers keeps the parent's total priority and
+            // ignores the connection if its resolved cell is already listed.
+            if let Some(requested_layer) = self.grid.connect_layer_of(cell, layer) {
+                let hop_layer = self.grid.path_cell_on_layer(cell, requested_layer).0 as u8;
+                let hop_key = (cx, cy, hop_layer);
+                if !g_score.contains_key(&hop_key) {
+                    g_score.insert(hop_key, g);
+                    parents.insert(hop_key, key);
                     enqueue_closest_path_node(
                         &mut open,
                         &mut next_enqueue_order,
                         f,
                         g,
-                        x,
-                        y,
+                        cx,
+                        cy,
                         hop_layer,
-                    )
-                },
-            );
+                    );
+                }
+            }
             let mut neighbor_flags = [false; 8];
             for (i, (dx, dy)) in deltas.iter().enumerate() {
                 let nx = cx + dx;
                 let ny = cy + dy;
                 let nc = GridPos::new(nx, ny);
-                if !self.grid.is_valid_pos(nc) || closed.contains(&(nx, ny, lid)) {
+                if !self.grid.is_valid_pos(nc) {
+                    continue;
+                }
+                let neighbor_layer = self.grid.path_cell_on_layer(nc, layer).0;
+                let nkey = (nx, ny, neighbor_layer as u8);
+                if g_score.contains_key(&nkey) {
                     continue;
                 }
                 if !self.grid.human_extent_allows(nc, is_human) {
@@ -1435,7 +1438,8 @@ impl PathfindingSystem {
                 if occupancy.is_none() && !tunnel {
                     continue;
                 }
-                let pinched = layer == PathfindLayerEnum::Ground && self.grid.is_pinched(nc);
+                let pinched =
+                    neighbor_layer == PathfindLayerEnum::Ground && self.grid.is_pinched(nc);
                 if movement_valid && occupancy.is_some() && !pinched {
                     tunnel = false;
                 }
@@ -1450,14 +1454,18 @@ impl PathfindingSystem {
                     step += 10 * COST_ORTHO;
                 }
                 let ng = g + step;
-                let nkey = (nx, ny, lid);
-                if g_score.get(&nkey).is_some_and(|&og| ng >= og) {
-                    continue;
-                }
                 g_score.insert(nkey, ng);
                 parents.insert(nkey, key);
                 let f = ng + if tunnel { 0 } else { heuristic(nc) };
-                enqueue_closest_path_node(&mut open, &mut next_enqueue_order, f, ng, nx, ny, lid);
+                enqueue_closest_path_node(
+                    &mut open,
+                    &mut next_enqueue_order,
+                    f,
+                    ng,
+                    nx,
+                    ny,
+                    neighbor_layer as u8,
+                );
             }
         }
         let (best_cell, best_layer, _) = closest_cell?;
